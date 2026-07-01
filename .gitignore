@@ -216,3 +216,76 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# =============================================================================
+# macOS
+# =============================================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+Icon?
+
+# =============================================================================
+# Google ADK / Gemini / Google Cloud
+# =============================================================================
+# Service account keys and credentials — never commit these
+*.json.key
+service_account*.json
+*-service-account*.json
+credentials.json
+client_secret*.json
+application_default_credentials.json
+
+# ADK session state and local agent artifacts
+.adk/
+__pycache__/
+agent_engine_*.json
+
+# Vertex AI / Google Cloud SDK
+.gcloud/
+gcloud_credentials.json
+
+# =============================================================================
+# Secrets & environment
+# =============================================================================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+secrets.yaml
+secrets.yml
+
+# =============================================================================
+# Editor & IDE
+# =============================================================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.cursor/
+
+# =============================================================================
+# OS / general
+# =============================================================================
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# =============================================================================
+# Logs & runtime
+# =============================================================================
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
