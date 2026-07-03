@@ -68,3 +68,12 @@ Using the Antigravity 2.0 harness, a temporary "Rogue Agent" will run malicious 
 * **The Interception:** Blackwall physically pauses execution, evaluates intent, blocks the action, and writes a "Threat Signature".
 * **Attempt 2 (Dynamic Mitigation):** The rogue agent attempts a modified version of the same attack. Blackwall instantly blocks it by referencing its newly created Threat Signature (Zero static allowlists).
 * **The Visual Proof:** A split-screen terminal recording showing the Rogue Agent failing to execute payloads on one side, and Blackwall's live log output (intercepting, generating signatures, and shutting it down) on the other.
+
+## 7. Mandatory Behavior-Driven Development (BDD) Verification
+
+To ensure all architectural guardrails are strictly enforced, Blackwall utilizes Behavior-Driven Development via `pytest-bdd`.
+
+* **Test Framework:** All end-to-end security and interception tests MUST be written using `pytest-bdd` combined with `pytest-asyncio`.
+* **Feature Contract:** The authoritative behavioral requirements are defined in `tests/features/blackwall_guardrails.feature`. Do NOT modify or remove the Gherkin scenarios in this file without explicit human authorization.
+* **Step Definitions:** Step definitions must be implemented in `tests/step_defs/test_guardrails.py` and bind directly to the existing Given-When-Then statements in the `.feature` file.
+* **The Verification Gate:** Before marking any implementation task in `tasks.md` as complete, you must run `pytest -v tests/` and confirm that all BDD guardrail scenarios pass. Never bypass a failing BDD test by weakening the test assertion.
