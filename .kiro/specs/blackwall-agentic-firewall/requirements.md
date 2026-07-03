@@ -252,8 +252,8 @@ Blackwall is an autonomous Agentic Firewall system designed for the Kaggle AI Ag
 8. IF a pattern times out 10 consecutive times, THE Context_Hygiene SHALL automatically disable that pattern and alert the operator
 9. IF Codebase_Memory_MCP graph is unavailable, stale, or empty, THE Hybrid_Policy_Server SHALL continue evaluation without CBM signals and apply threat score penalty
 10. IF batch evaluation hangs for more than 10 seconds, THE system SHALL apply emergency fallback returning QUARANTINE verdicts for all pending callbacks (fail closed)
-11. THE system SHALL implement a thread watchdog timer killing frozen evaluation threads after 30 seconds
-12. IF the watchdog timer triggers, THE system SHALL auto-restart the evaluation pipeline and log critical error events
+11. THE system SHALL implement async task cancellation using asyncio.wait_for() with 30-second hard timeout triggering asyncio.CancelledError, OR alternatively use subprocess.Popen isolation with hard 30-second timeout and process termination if deadline exceeded
+12. IF async cancellation or process termination is triggered, THE system SHALL auto-restart the evaluation pipeline and log critical error events
 
 
 ### Requirement 13: Performance and Latency Targets
@@ -531,8 +531,6 @@ Blackwall is an autonomous Agentic Firewall system designed for the Kaggle AI Ag
 8. THE graceful shutdown SHALL complete within 30 seconds or force-terminate remaining threads
 9. THE system SHALL provide docker-compose.yml orchestrating: Blackwall agent, GTI_MCP proxy, Codebase_Memory_MCP, Prometheus, and Grafana
 10. THE docker-compose configuration SHALL define persistent volumes for: SQLite database, log files, and policy configuration
-11. THE system SHALL include Kubernetes manifests (Deployment, Service, ConfigMap, Secret) for production deployment
-12. THE system SHALL support horizontal scaling where multiple Blackwall instances share a centralized Redis cache for GTI responses
 
 ### Requirement 28: Documentation and Onboarding
 

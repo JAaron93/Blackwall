@@ -374,7 +374,7 @@ STRUCTURE SecurityEvent
   agentId: String
   eventType: Enum<INTERCEPTION, BLOCK, ALLOW, QUARANTINE, SIGNATURE_CREATED>
   toolCall: ToolCallContext
-  verdict: Verdict
+  verdict: Verdict or Null  // Null only for SIGNATURE_CREATED events
   gtiResponse: GTIResponse or Null
   cbmResponse: CBMResponse or Null
   relatedSignatures: Array<UUID>
@@ -674,7 +674,7 @@ STRUCTURE SecurityEvent
   agentId: String
   eventType: Enum<INTERCEPTION, BLOCK, ALLOW, QUARANTINE, SIGNATURE_CREATED>
   toolCall: ToolCallContext
-  verdict: Verdict
+  verdict: Verdict or Null  // Null only for SIGNATURE_CREATED events
   gtiResponse: GTIResponse or Null
   cbmResponse: CBMResponse or Null
   relatedSignatures: Array<UUID>
@@ -686,7 +686,8 @@ END STRUCTURE
 **Validation Rules**:
 - `eventId` must be unique across all events
 - `timestamp` must be within 5 seconds of wall clock time
-- `eventType` must match the actual verdict decision
+- `eventType` must match the actual verdict decision (or be SIGNATURE_CREATED with null verdict)
+- `verdict` is required for INTERCEPTION, BLOCK, ALLOW, QUARANTINE events; null only for SIGNATURE_CREATED
 - `relatedSignatures` must reference existing signature IDs in TSG
 - `telemetrySpanId` must follow OpenTelemetry trace ID format
 
@@ -2010,8 +2011,9 @@ result ← ADK.executeToolCall(toolName: "read_file", arguments: {...})
 **Recovery**:
 - All callbacks are guaranteed resolution within maxWaitMs + evaluation time
 - If evaluation hangs (>10 seconds), emergency fallback returns QUARANTINE verdicts with warnings (fail closed)
-- Thread watchdog timer kills frozen evaluation threads after 30 seconds
-- System auto-restarts evaluation pipeline on watchdog trigger
+- Async task cancellation using asyncio.wait_for() with 30-second hard timeout triggers asyncio.CancelledError
+- Alternatively: subprocess.Popen isolation with hard 30-second timeout and process termination if deadline exceeded
+- System auto-restarts evaluation pipeline after cancellation/process termination
 
 ---
 
