@@ -149,9 +149,9 @@ This implementation plan breaks down the Blackwall Agentic Firewall into discret
   
   - [ ] 6.2 Implement exponential backoff for rate limit handling
     - Detect APIRateLimitException from Gemini API
-    - Apply exponential backoff delays: 100ms, 200ms, 400ms, 800ms
+    - Apply exponential backoff delays: 100ms, 200ms, and 400ms
     - Retry batch submission maximum 3 times
-    - Fallback to default ALLOW verdicts if all retries fail
+    - Fallback to QUARANTINE verdicts if all retries fail (fail closed)
     - Log warning events with elevated monitoring flags
     - _Requirements: 2.2, 2.3, 2.4_
   
@@ -395,14 +395,14 @@ This implementation plan breaks down the Blackwall Agentic Firewall into discret
 
 
 - [ ] 16. Implement evaluation metrics calculator
-  - [ ] 16.1 Create SecurityMetrics calculator for FRR/FPR/Evasion Rate
+  - [ ] 16.1 Create SecurityMetrics calculator for FRR and Evasion Rate
     - Implement calculateMetrics() accepting test results and ground truth labels
     - Count true positives, true negatives, false positives, false negatives
-    - Calculate False Refusal Rate (FPR): (false positives / total benign) × 100
-    - Calculate Evasion Rate (FNR): (false negatives / total malicious) × 100
+    - Calculate False Refusal Rate (FRR): (false positives / total benign) × 100
+    - Calculate Evasion Rate: (false negatives / total malicious) × 100
     - Calculate accuracy, precision, recall, F1 score
     - Verify sum: TP + TN + FP + FN = total tests
-    - Export metrics to JSON format
+    - Export metrics to JSON format with keys: "false_refusal_rate", "evasion_rate", "accuracy", "precision", "recall", "f1_score"
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8, 9.9, 9.10, 9.11_
   
   - [ ] 16.2 Test metrics validation property
@@ -443,9 +443,10 @@ This implementation plan breaks down the Blackwall Agentic Firewall into discret
     - Implement GTI circuit breaker (already in task 8.1)
     - Implement SQLite write retry with exponential backoff (max 3 attempts)
     - Create in-memory buffer for failed writes (max 100 entries)
-    - Implement emergency fallback for evaluation timeout > 10 seconds
-    - Create watchdog timer killing frozen threads after 30 seconds
-    - Auto-restart evaluation pipeline on watchdog trigger
+    - Implement emergency fallback for evaluation timeout > 10 seconds (return QUARANTINE verdicts)
+    - Implement async task cancellation for frozen evaluations using asyncio.wait_for() or asyncio.CancelledError
+    - Alternatively: Use subprocess.Popen with timeout for eval isolation (hard timeout at 30 seconds, subprocess termination)
+    - Auto-restart evaluation pipeline after cancelled/terminated evaluation
     - Disable regex patterns causing timeout > 100ms
     - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7, 12.8, 12.9, 12.10, 12.11_
   
@@ -453,8 +454,9 @@ This implementation plan breaks down the Blackwall Agentic Firewall into discret
     - Test SQLite retry logic on transient lock errors
     - Test in-memory buffer overflow handling
     - Test emergency fallback on 10-second timeout
-    - Test watchdog timer kills frozen threads
-    - Test auto-restart after watchdog trigger
+    - Test async task cancellation on frozen evaluation (asyncio.CancelledError)
+    - Test subprocess termination if using subprocess isolation (hard timeout at 30 seconds)
+    - Test auto-restart after cancelled/terminated evaluation
     - Test regex pattern auto-disable on timeout
     - _Requirements: 12.4, 12.5, 12.6, 12.7, 12.10, 12.11_
 
@@ -503,7 +505,7 @@ This implementation plan breaks down the Blackwall Agentic Firewall into discret
     - Define Rogue Agent container (Qwen3-Coder via Hyperbolic API)
     - Configure network isolation between containers
     - Mount shared volumes for log collection
-    - Configure environment variables for API keys
+    - Provide API keys via Docker secrets or mounted credential files (e.g., `/run/secrets/gemini_api_key`); containers read credentials from files, not environment variables
     - _Requirements: 15.12, 15.15_
   
   - [ ] 21.2 Configure privilege dropping and audit hooks
@@ -619,11 +621,11 @@ This implementation plan breaks down the Blackwall Agentic Firewall into discret
     - _Requirements: 15.17_
 
 - [ ] 26. Create Grafana dashboards for observability
-  - [ ] 26.1 Create dashboard for FRR/FPR/Evasion trends
-    - Visualize False Refusal Rate over time
+  - [ ] 26.1 Create dashboard for FRR and Evasion Rate trends
+    - Visualize False Refusal Rate (FRR) over time
     - Visualize Evasion Rate over time
     - Visualize accuracy, precision, recall trends
-    - Set alert thresholds: FRR > 10%, Evasion > 10%
+    - Set alert thresholds: FRR > 10%, Evasion Rate > 10%
     - _Requirements: 11.6_
   
   - [ ] 26.2 Create dashboard for threat score distributions
@@ -644,9 +646,9 @@ This implementation plan breaks down the Blackwall Agentic Firewall into discret
   - [ ] 27.1 Execute full test suite with 100+ test cases
     - Run all 50+ malicious test cases
     - Run all 50+ benign test cases
-    - Calculate final FRR, FPR, Evasion Rate, F1 score
-    - Verify FRR < 10% and Evasion < 10% targets met
-    - Export metrics to JSON for submission
+    - Calculate final FRR (False Refusal Rate), Evasion Rate, and F1 score
+    - Verify FRR < 10% and Evasion Rate < 10% targets met
+    - Export metrics to JSON for submission with standard key names
     - _Requirements: 9.4, 9.5, 9.11, 15.9, 15.10, 15.11_
   
   - [ ] 27.2 Record demo video showing dual-agent showdown

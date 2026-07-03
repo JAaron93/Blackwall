@@ -55,13 +55,13 @@ Blackwall is an autonomous Agentic Firewall system designed for the Kaggle AI Ag
 #### Acceptance Criteria
 
 1. WHEN submitting batches to the Gemini API, THE Batch_Resolver SHALL track a sliding 60-second window ensuring no more than 300 requests per minute
-2. IF the rate limit is reached, THE Batch_Resolver SHALL apply exponential backoff with delays of 100ms, 200ms, 400ms, and 800ms for subsequent retries
+2. IF the rate limit is reached, THE Batch_Resolver SHALL apply exponential backoff with delays of 100ms, 200ms, and 400ms for subsequent retries
 3. WHEN rate limit backoff is applied, THE Batch_Resolver SHALL retry the batch submission a maximum of 3 times
-4. IF all retry attempts fail, THE Batch_Resolver SHALL return default ALLOW verdicts with warning logs and elevated monitoring flags
+4. IF all retry attempts fail due to APIRateLimitException, THE Batch_Resolver SHALL return QUARANTINE verdicts with warning logs and elevated monitoring flags (fail closed)
 5. WHEN processing batches, THE Batch_Resolver SHALL leverage server-side context caching in the Gemini API to reduce token costs
 6. THE Batch_Resolver SHALL achieve an average batch size greater than or equal to 3 callbacks per API request
 7. WHEN API calls succeed, THE Batch_Resolver SHALL log metrics including batch size, processing time, tokens consumed, and cache hit rate
-8. THE Batch_Resolver SHALL maintain average batch processing latency below 300 milliseconds for the 99th percentile
+8. THE Batch_Resolver SHALL maintain batch processing latency below 300 milliseconds for the 99th percentile
 
 
 ### Requirement 3: Hybrid Policy Server Evaluation
@@ -110,10 +110,10 @@ Blackwall is an autonomous Agentic Firewall system designed for the Kaggle AI Ag
 
 #### Acceptance Criteria
 
-1. WHEN a tool call receives a BLOCK verdict, THE Agent_Behavioral_Analytics SHALL generate a Security_Event with event ID, timestamp, agent ID, tool call context, verdict, and external intelligence responses
+1. WHEN a tool call receives a BLOCK verdict, THE Agent_Behavioral_Analytics SHALL generate a Security_Event with fields: eventId, timestamp, agentId, eventType (Enum<INTERCEPTION, BLOCK, ALLOW, QUARANTINE, SIGNATURE_CREATED>), toolCall, verdict, gtiResponse, cbmResponse, relatedSignatures, behaviorScore, and telemetrySpanId
 2. WHEN generating a threat signature from a Security_Event, THE Agent_Behavioral_Analytics SHALL use LLM analysis to extract attacker intent
 3. THE Agent_Behavioral_Analytics SHALL generalize the payload pattern by replacing specific values with typed placeholders
-4. IF the Security_Event includes a code function target, THE Agent_Behavioral_Analytics SHALL query Codebase_Memory_MCP for dependency chain and critical sinks
+4. IF the Security_Event has a cbmResponse, THE Agent_Behavioral_Analytics SHALL read the dependency chain and critical sinks from the cbmResponse already present on the Security_Event (populated upstream by the Hybrid_Policy_Server) without issuing a new Codebase_Memory_MCP query
 5. WHEN creating a similarity vector, THE Agent_Behavioral_Analytics SHALL encode the combined text of attacker intent, payload pattern, and tool name using an embedding model
 6. THE similarity vector SHALL have consistent dimensionality of 384 floats for all threat signatures
 7. WHEN determining mitigation action, THE Agent_Behavioral_Analytics SHALL select BLOCK_AND_QUARANTINE_CODE_PATH if critical sinks are detected
@@ -137,7 +137,7 @@ Blackwall is an autonomous Agentic Firewall system designed for the Kaggle AI Ag
 5. THE Threat_Signature_Graph SHALL create indexes on target_tool and last_matched_at columns for fast queries
 6. THE Threat_Signature_Graph SHALL maintain a signature_relationships table for edges with relationship types SIMILAR_TO and MITIGATED_BY
 7. THE Threat_Signature_Graph SHALL create an FTS5 (Full-Text Search 5) virtual table indexing payload_pattern and attacker_intent
-8. WHEN writing a new signature, THE Threat_Signature_Graph SHALL verify the signature_id is unique before insertion
+8. WHEN writing a new signature, THE Threat_Signature_Graph SHALL enforce signature_id uniqueness atomically via the database-level PRIMARY KEY constraint, using INSERT OR IGNORE (or equivalent UPSERT) so that concurrent writes cannot produce duplicate entries; any application-level pre-check is advisory only
 9. WHEN querying similar signatures, THE Threat_Signature_Graph SHALL compute cosine similarity between the query vector and stored signature vectors
 10. THE Threat_Signature_Graph SHALL return signatures with cosine similarity greater than or equal to the specified threshold (default 0.85)
 11. THE similarity query SHALL complete within 10 milliseconds for the 99th percentile
@@ -188,7 +188,7 @@ Blackwall is an autonomous Agentic Firewall system designed for the Kaggle AI Ag
 
 #### Acceptance Criteria
 
-1. THE system SHALL calculate Security_Metrics including: true positives, true negatives, false positives, false negatives, false refusal rate (FRR), evasion rate, accuracy, precision, recall, and F1 score
+1. THE system SHALL calculate Security_Metrics including: true positives, true negatives, false positives, false negatives, quarantine count, false refusal rate (FRR), evasion rate, accuracy, precision, recall, and F1 score
 2. WHEN calculating False Refusal Rate, THE system SHALL compute (false positives / total benign) × 100
 3. WHEN calculating Evasion Rate, THE system SHALL compute (false negatives / total malicious) × 100
 4. THE False Refusal Rate SHALL be less than 10.0 percent
@@ -200,6 +200,9 @@ Blackwall is an autonomous Agentic Firewall system designed for the Kaggle AI Ag
 10. THE system SHALL verify that true positives + true negatives + false positives + false negatives equals total tests
 11. THE system SHALL generate a metrics report exportable in JSON format for submission to Kaggle judges
 12. THE metrics calculation SHALL process test results with ground truth labels indicating MALICIOUS or BENIGN
+13. WHEN a test result has a QUARANTINE verdict and a MALICIOUS ground truth label, THE system SHALL count it as a true positive (correctly stopped threat) and increment quarantineCount
+14. WHEN a test result has a QUARANTINE verdict and a BENIGN ground truth label, THE system SHALL count it as a false positive (incorrectly stopped benign action), incrementing both falsePositives and quarantineCount, which counts against the False Refusal Rate
+15. IF the test suite is empty, THE system SHALL return zero values for all metrics without performing any division
 
 ### Requirement 10: Zero Ambient Authority and Privilege Management
 
@@ -241,14 +244,14 @@ Blackwall is an autonomous Agentic Firewall system designed for the Kaggle AI Ag
 
 1. IF GTI_MCP query times out after 5 seconds OR returns service unavailable, THE circuit breaker SHALL switch to degraded mode after 5 consecutive failures
 2. WHILE in degraded mode, THE Hybrid_Policy_Server SHALL skip GTI queries and rely on Threat_Signature_Graph and Codebase_Memory_MCP signals only
-3. IF all retry attempts to Gemini API fail after exponential backoff, THE Batch_Resolver SHALL return default ALLOW verdicts with warning logs
+3. IF all retry attempts to Gemini API fail after exponential backoff, THE Batch_Resolver SHALL return QUARANTINE verdicts with warning logs (fail closed)
 4. IF SQLite write operations fail due to transient lock errors, THE system SHALL retry with exponential backoff for maximum 3 attempts
 5. IF write retries fail, THE system SHALL queue signatures in memory buffer with maximum capacity 100 entries
 6. WHEN the memory buffer overflows, THE system SHALL drop the oldest signatures and log warning events
 7. IF Context_Hygiene regex patterns cause catastrophic backtracking exceeding 100ms timeout, THE system SHALL skip that pattern and continue with remaining patterns
 8. IF a pattern times out 10 consecutive times, THE Context_Hygiene SHALL automatically disable that pattern and alert the operator
 9. IF Codebase_Memory_MCP graph is unavailable, stale, or empty, THE Hybrid_Policy_Server SHALL continue evaluation without CBM signals and apply threat score penalty
-10. IF batch evaluation hangs for more than 10 seconds, THE system SHALL apply emergency fallback returning ALLOW verdicts with warnings
+10. IF batch evaluation hangs for more than 10 seconds, THE system SHALL apply emergency fallback returning QUARANTINE verdicts for all pending callbacks (fail closed)
 11. THE system SHALL implement a thread watchdog timer killing frozen evaluation threads after 30 seconds
 12. IF the watchdog timer triggers, THE system SHALL auto-restart the evaluation pipeline and log critical error events
 
@@ -368,7 +371,7 @@ Blackwall is an autonomous Agentic Firewall system designed for the Kaggle AI Ag
 8. IF all write retries fail, THE system SHALL queue the signature in an in-memory buffer with capacity 100 entries
 9. THE system SHALL run a background worker thread flushing the memory buffer when database locks become available
 10. THE SQLite database file integrity SHALL be verifiable using PRAGMA integrity_check returning "ok"
-11. THE system SHALL never lose signatures during high-throughput blocking events (durability guarantee)
+11. WHEN the in-memory buffer does not overflow, THE system SHALL not lose signatures during high-throughput blocking events; IF the buffer capacity of 100 entries is exceeded, THE system SHALL drop the oldest buffered signatures and log a warning event (bounded-loss guarantee)
 
 ### Requirement 19: Batch Verdict Correspondence and Atomicity
 
