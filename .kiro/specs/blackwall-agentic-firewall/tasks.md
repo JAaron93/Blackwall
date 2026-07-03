@@ -124,36 +124,109 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
 
 ---
 
-### TASK-AI-01: Configure Asynchronous Split-Inference Polling Loop
+### TASK-AI-01: Implement Webhook Listener and Gemini Background Task Integration
 
 **Priority:** HIGH  
 **Dependencies:** TASK-DB-01  
 **Estimated Effort:** 3-4 days
 
 **Description:**
-Build a 4.5-second timer loop for Gemini 1.5 Flash API calls to analyze quarantined anomalies. Enforce a hard architectural constraint preventing any LLM API calls from firing during the synchronous <10ms interception path.
+Build an async HTTP webhook listener bound to localhost:8090. Integrate Gemini Interactions API `background=True` task submission with HMAC signature verification. Enforce zero polling by making all state transitions event-driven via webhook callbacks.
 
 **Acceptance Criteria:**
-1. AsynchronousAnalysisLoop class implements polling every 4.5 seconds (respects 15 RPM free tier)
-2. Loop queries SQLiteThreatRepository for quarantined cases (non-blocking)
-3. For each quarantined case: query Gemini 1.5 Flash for novel attack analysis
-4. Query GTI MCP for IOC verification (asynchronous context only)
-5. Query codebase-memory-mcp for AST analysis (asynchronous context only)
-6. Generate new threat signatures from analysis results
-7. Update SQLiteThreatRepository with refined threat intelligence
-8. **HARD CONSTRAINT ENFORCED:** Synchronous path PROHIBITS ALL LLM API calls
-9. Synchronous evaluation uses ONLY: local SQLite queries + YAML rules + regex patterns
-10. Async loop isolation prevents deadlock during high-speed dual-agent attacks
-11. Unit tests verify 4.5s polling interval ±0.1s tolerance
-12. Unit tests verify async loop never blocks synchronous path
-13. Integration tests verify 15 RPM rate limit compliance
+1. WebhookListener class implements async HTTP server using `aiohttp` (async-first)
+2. Webhook listener binds to `localhost:8090` (configurable via `BLACKWALL_WEBHOOK_PORT` env var)
+3. `POST /webhook/analysis_complete` endpoint accepts incoming Gemini callbacks
+4. All incoming requests validated using HMAC-SHA256 verification of `X-Webhook-Signature` header
+5. If signature verification fails, return `401 Unauthorized` and log rejection
+6. If signature verification succeeds, endpoint returns `202 Accepted` within <50ms
+7. After returning 202, payload queued for non-blocking async processing in background
+8. **CRITICAL - ZERO POLLING:** No background threads checking task status, no sleep loops, no polling timers
+9. When processing webhook payload, extract: task_id, analysis_result, threat_signature_candidates, timestamps
+10. Cross-reference task_id with in-flight background tasks in SQLiteThreatRepository
+11. If task_id is unknown or stale (>12 hours old), log warning and discard
+12. For each threat_signature_candidate, invoke Agent_Behavioral_Analytics.generateSignature()
+13. Atomically write all generated signatures to SQLiteThreatRepository in single transaction
+14. Emit OpenTelemetry span for each webhook event with: event_id, task_id, processing_latency_ms, signatures_created_count
+15. Implement graceful shutdown: on SIGTERM/SIGINT, drain in-flight requests with max 30-second grace period
+16. Unit tests verify HMAC signature validation (correct and incorrect signatures)
+17. Unit tests verify 202 response time <50ms
+18. Unit tests verify atomic signature writes with no race conditions
+19. Integration tests verify webhook callbacks are processed before application shutdown
 
 **Deliverables:**
-- AsynchronousAnalysisLoop.py (polling logic + API calls, 400-500 LOC)
-- SynchronousInterceptionPath.py (zero API call validation, 200-300 LOC)
-- Unit tests (AsynchronousAnalysisLoop_test.py, SynchronousInterceptionPath_test.py)
-- Rate limit compliance tests
-- Deadlock prevention verification
+- WebhookListener.py (aiohttp-based async listener, 300-400 LOC)
+- HMAC signature verification module
+- Webhook payload processor with async task queuing
+- Graceful shutdown handler
+- Unit tests (WebhookListener_test.py)
+- Integration tests with webhook simulation
+- OpenTelemetry span instrumentation
+
+---
+
+### TASK-AI-02: Integrate Gemini Interactions API for Background Task Submission
+
+**Priority:** HIGH  
+**Dependencies:** TASK-AI-01, TASK-DB-01  
+**Estimated Effort:** 2-3 days
+
+**Description:**
+Implement Agent_Behavioral_Analytics submission of background tasks to Gemini Interactions API when BLOCK/QUARANTINE verdicts are issued. Use `background=True` with webhook callback configuration.
+
+**Acceptance Criteria:**
+1. AgentBehavioralAnalytics.submitBackgroundAnalysis() method submits task via `client.interactions.create(background=True)`
+2. Background task includes: quarantined tool context, related signatures, CBM dependency chain, GTI IOC data
+3. Background task uses `gemini-3.1-pro-preview` model (deep reasoning tier)
+4. Task specifies webhook callback URL: `http://localhost:8090/webhook/analysis_complete`
+5. Task specifies webhook event types: `COMPLETED`, `FAILED`, `TIMEOUT`
+6. submitBackgroundAnalysis() returns task_id immediately (non-blocking)
+7. Returned task_id stored in SQLiteThreatRepository with status `PENDING_WEBHOOK_CALLBACK`
+8. No polling threads, no sleep loops, no status check timers launched
+9. Method logs task submission with timestamp and task_id for audit trail
+10. If submission fails (rate limit, connection error), fail-closed with QUARANTINE verdict on next interception attempt
+11. Unit tests verify background task JSON structure
+12. Unit tests verify webhook URL and event configuration
+13. Unit tests verify non-blocking return of task_id
+14. Integration tests verify task submission via mocked Gemini API
+
+**Deliverables:**
+- BackgroundTaskSubmitter.py (background task logic, 150-200 LOC)
+- Webhook URL and event configuration module
+- Task status tracking in SQLiteThreatRepository schema
+- Unit tests (BackgroundTaskSubmitter_test.py)
+- Integration tests with Gemini API mock
+
+---
+
+### TASK-AI-03: Replace Polling Loop with Event-Driven Analysis
+
+**Priority:** HIGH  
+**Dependencies:** TASK-AI-01, TASK-AI-02  
+**Estimated Effort:** 2 days
+
+**Description:**
+Remove all polling-based analysis threads. Eliminate 4.5-second timer loops. Replace with pure event-driven architecture triggered by webhook callbacks.
+
+**Acceptance Criteria:**
+1. **PURGE:** Remove all AsyncAnalysisLoop polling threads (grep and delete any sleep/timeout-based loops)
+2. **PURGE:** Remove all timer-based batch flushing (no asyncio.create_task with delays)
+3. **VERIFY:** No `asyncio.sleep()`, `time.sleep()`, or scheduler-based polling in analysis path
+4. All async analysis triggered exclusively by webhook callbacks from Gemini
+5. Threat signature generation happens **only** upon webhook event reception
+6. GTI and CBM queries submitted **only** within webhook processing handler (not background polling)
+7. Signature writes to SQLiteThreatRepository atomic and non-blocking
+8. Event sourcing pattern: webhook events are immutable source of truth
+9. Unit tests verify no polling loops remain in codebase
+10. Integration tests verify analysis completes within 100ms of webhook delivery
+11. Grep verification: no `asyncio.sleep()`, `time.sleep()`, or `asyncio.create_task(..., name=".*poll.*")`
+
+**Deliverables:**
+- Refactored Agent_Behavioral_Analytics (polling code removed)
+- Grep verification script confirming zero polling
+- Migration guide documenting architectural change
+- Unit tests (PollingRemovalTest.py)
+- Integration tests validating event-driven flow
 
 ---
 
@@ -316,17 +389,21 @@ After completing the five critical foundation tasks, proceed with these standard
     - Test correlation ID tracking for debugging
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.7, 19.2, 19.3, 19.4, 19.5, 19.9_
 
-- [ ] 10. Implement Batch Resolver with rate limiting and exponential backoff
-  - [ ] 10.1 Create BatchResolver class with token bucket rate limiter
-    - Implement token bucket algorithm tracking 300 RPM sliding 60-second window
-    - Implement processBatch() accepting array of CallbackTokens
+- [ ] 10. Implement Batch Resolver with Gemini Interactions API (Rapid Triage + Background Submission)
+  - [ ] 10.1 Create BatchResolver class with token bucket rate limiter and context caching
+    - Implement token bucket algorithm tracking 300 RPM sliding 60-second window (covers both sync and async tasks)
+    - Implement processBatch() accepting array of CallbackTokens for Tier 2 (Rapid Triage) evaluation
     - Apply Context Hygiene sanitization to all contexts before API submission
-    - Create BatchPayload with batch ID, timestamp, sanitized contexts, policy snapshot
-    - Implement submitToGemini() using Gemini Interactions API with server-side context caching
-    - Leverage caching headers to reduce token costs on repeated evaluations
-    - Return BatchResponse with verdicts array, processing time, tokens consumed
-    - Track batch metrics: total processed, average size, average latency, rate limit hits, cache hit rate
-    - _Requirements: 2.1, 2.6, 2.7, 5.2_
+    - Create BatchPayload with batch ID, timestamp, sanitized contexts, policy snapshot, `previous_interaction_id`
+    - **TIER 2 - RAPID TRIAGE:** Implement submitToGeminiSync() using `client.interactions.create()` with `gemini-3.1-flash-lite` model
+    - Use `previous_interaction_id` for server-side context caching to reduce token costs (target: >=50% token reduction on cache hits)
+    - Leverage server-side context caching to track cache hit rate
+    - Return BatchResponse with verdicts array, processing time, tokens consumed, cache hit count
+    - Track batch metrics: total processed, average size, average latency (<100ms @ 99th percentile), rate limit hits, cache hit rate
+    - **TIER 3 - DEEP REASONING:** Implement submitToGeminiBackground() using `client.interactions.create(background=True)` with `gemini-3.1-pro-preview` model
+    - Background task submission includes webhook callback configuration (POST /webhook/analysis_complete)
+    - Background submission returns task_id immediately (non-blocking)
+    - _Requirements: 2.1, 2A.1, 2A.2, 2A.3, 2A.4, 2A.11, 2B.1, 2B.2, 2B.3, 2B.4_
   
   - [ ] 10.2 Implement exponential backoff for APIRateLimitException handling
     - Detect APIRateLimitException from Gemini API response
@@ -337,23 +414,31 @@ After completing the five critical foundation tasks, proceed with these standard
     - _Requirements: 2.2, 2.3, 2.4, 12.3_
   
   - [ ] 10.3 Implement batch processing metrics tracking and reporting
-    - Track ResolverMetrics: total batches, average batch size, average latency
-    - Track rate limit hits and cache hit rate from Gemini API responses
+    - Track ResolverMetrics: total batches, average batch size, average latency, rate limit hits, cache hit rate
+    - Track cache hit rate from `previous_interaction_id` reuse
+    - Track background tasks submitted and webhook callbacks received
+    - Track webhook processing latency
     - Expose getMetrics() method returning ResolverMetrics structure
     - Target average batch size >= 3 (batch efficiency requirement)
-    - Target 99th percentile latency < 300ms
+    - Target 99th percentile latency < 100ms for Rapid Triage
+    - Target >=50% token reduction on cache hits
     - Log metrics periodically for monitoring dashboards
-    - _Requirements: 2.6, 2.7, 2.8, 13.6, 13.8_
+    - _Requirements: 2A.13, 2.6, 2.7, 2.8, 13.6, 13.8_
   
-  - [ ]* 10.4 Write unit tests for Batch Resolver
+  - [ ]* 10.4 Write unit tests for Batch Resolver (Three-Tier Model)
     - Test token bucket rate limiter enforces 300 RPM cap (sliding window)
     - Test exponential backoff on APIRateLimitException (100ms, 200ms, 400ms)
     - **FAIL-CLOSED:** Test fallback to QUARANTINE verdicts (not ALLOW) after 3 failed retries
     - Test batch metrics tracking correctness
-    - Test server-side context caching integration
-    - Test Context Hygiene sanitization applied before API call
-    - Mock Gemini API responses for deterministic testing
-    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7_
+    - **TIER 2:** Test synchronous Gemini API calls with `gemini-3.1-flash-lite` model
+    - **TIER 2:** Test `previous_interaction_id` included in request for context caching
+    - **TIER 2:** Test cache hit rate calculation (>=50% token reduction on hits)
+    - **TIER 2:** Test <100ms latency @ 99th percentile
+    - **TIER 3:** Test background task submission with `gemini-3.1-pro-preview` model
+    - **TIER 3:** Test webhook callback URL configuration
+    - **TIER 3:** Test immediate return of task_id (non-blocking)
+    - Mock Gemini Interactions API responses for deterministic testing
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2A.1, 2A.2, 2A.3, 2A.4, 2A.11, 2B.1, 2B.2, 2B.3_
 
   - [ ] 10.5 Test rate limit compliance property
     - **Property 9: Rate Limit Compliance**
@@ -948,14 +1033,14 @@ After completing the five critical foundation tasks, proceed with these standard
 - **12 Correctness Properties:** The design document defines 12 formal correctness properties with explicit requirements traceability. Property tests in this task list validate these properties.
 - **28 Requirements with EARS Criteria:** All 28 requirements from requirements.md have EARS-compliant acceptance criteria (WHEN/IF/WHILE/WHERE/FOR ANY conditions with THE system SHALL actions).
 
-## Task Dependency Graph
-
-```json
-{
   "waves": [
     {
       "id": 0,
-      "tasks": ["TASK-DB-01", "TASK-SEC-01"]
+      "tasks": ["TASK-DB-01"]
+    },
+    {
+      "id": 1,
+      "tasks": ["TASK-SEC-01", "TASK-PERF-01", "TASK-AI-01", "6", "7"]
     },
     {
       "id": 1,

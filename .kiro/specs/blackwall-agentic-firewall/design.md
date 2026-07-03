@@ -33,14 +33,19 @@ graph TB
         TSG_QUERY["Local SQLite Graph Query<br/>Cosine Similarity"]
     end
     
-    subgraph "Asynchronous Analysis (4.5s Polling Interval)"
-        ABA["Agent Behavioral Analytics<br/>(Non-blocking)"]
-        GEMINI_ASYNC["Gemini 1.5 Flash<br/>Async Polling Loop<br/>(15 RPM Free Tier)"]
+    subgraph "Event-Driven Analysis (Webhook-Based)"
+        WHL["Webhook Listener<br/>POST /webhook/analysis_complete<br/>(aiohttp, async)"]
+        ABA["Agent Behavioral Analytics<br/>(Signature Generation)"]
     end
     
     subgraph "MCP Boundary-Restricted Access"
         CBM["codebase-memory-mcp<br/>(AST + Static Analysis Only)"]
-        GTI["GTI MCP<br/>(IOC Verification Only)<br/>(Async Analysis Only)"]
+        GTI["GTI MCP<br/>(IOC Verification Only)"]
+    end
+    
+    subgraph "Gemini Interactions API (Dual-Mode)"
+        GEMINI_SYNC["gemini-3.1-flash-lite<br/>Synchronous Calls<br/>(Interception Path)"]
+        GEMINI_BG["gemini-3.1-pro-preview<br/>Background Tasks<br/>(background=True)"]
     end
     
     subgraph "Persistent Storage (SQLite WAL)"
@@ -67,16 +72,20 @@ graph TB
     TSG_QUERY -->|Local Lookup| DB
     TSG_QUERY -->|Verdict| HPS
     
+    HPS -->|Sync Call| GEMINI_SYNC
+    GEMINI_SYNC -->|Inline Verdict| HPS
     HPS -->|Verdict Array| BR
     BR -->|Resume/Block| BCB
     BCB -->|Allowed| THook
-    BCB -->|Blocked| ABA
+    BCB -->|Blocked/Quarantined| ABA
     
-    ABA -->|Write Signature| DB
-    ABA -->|Async Task| GEMINI_ASYNC
-    GEMINI_ASYNC -->|Query GTI| GTI
-    GEMINI_ASYNC -->|Query AST| CBM
-    GEMINI_ASYNC -->|Update Graph| DB
+    ABA -->|Background Task| GEMINI_BG
+    GEMINI_BG -->|background=True| GEMINI_BG
+    GEMINI_BG -->|Webhook Callback| WHL
+    WHL -->|Event Received| ABA
+    ABA -->|Query GTI| GTI
+    ABA -->|Query AST| CBM
+    ABA -->|Write Signatures| DB
     
     DB -->|Metrics Export| METRICS
     ABA -->|Trace Span| OT
@@ -88,25 +97,27 @@ graph TB
     style TSG_QUERY fill:#4ecdc4
     style DB fill:#4ecdc4
     style AUDIT fill:#ffe66d
-    style GEMINI_ASYNC fill:#ffd3b6
+    style WHL fill:#ffd3b6
+    style GEMINI_BG fill:#ffd3b6
+    style GEMINI_SYNC fill:#ffd3b6
     style CBM fill:#a8e6cf
     style GTI fill:#a8e6cf
 ```
 
-### Split-Inference Architecture: Synchronous vs. Asynchronous Tracks
+### Split-Inference Architecture: Synchronous vs. Event-Driven Async
 
-| Execution Track | Latency Target | Processing Engine | API Rate Limit | Invocation Trigger |
+| Execution Layer | API / Model Tier | Invocation Mechanism | Latency Target | State & Delivery |
 | :--- | :--- | :--- | :--- | :--- |
-| **Synchronous (Interception)** | `<10ms` | SQLiteThreatRepository + Compiled Regex | **0 LLM API calls** | Every tool call & audit hook event. Must complete locally. |
-| **Asynchronous (Analysis)** | `4.5s Interval` | Gemini 1.5 Flash via Async Polling Loop | **15 RPM Free Tier** | Background polling thread analyzing quarantined cases & generating new signatures. Non-blocking. |
+| **Local Interception** | None (Local SQLite WAL + Regex) | ADK Callbacks & `sys.addaudithook` | `<10ms` | Synchronous ALLOW/BLOCK decision |
+| **Rapid Triage** | `gemini-3.1-flash-lite` | Gemini Interactions API sync call | `<100ms` | Server-side state via `previous_interaction_id` for context caching |
+| **Deep Reasoning** | `gemini-3.1-pro-preview` | Interactions API (`background=True`) | Event-driven | Results pushed via local HTTP **Webhook** receiver |
 
-**Critical Constraint:** The synchronous path (`<10ms`) uses **ZERO** external API calls. All decisions derive from:
-- Local SQLiteThreatRepository graph queries
-- YAML-based structural rules
-- Compiled regex patterns
-- Cosine similarity against cached vectors
+**Execution Model:**
+1. **Local Interception (<10ms)**: SQLiteThreatRepository + Compiled Regex + YAML rules (no external API calls)
+2. **Rapid Triage (<100ms)**: Synchronous Gemini Interactions API call with `gemini-3.1-flash-lite` for high-throughput anomaly classification
+3. **Deep Reasoning (Event-Driven)**: Asynchronous Gemini background task (`background=True`) with `gemini-3.1-pro-preview` model; results delivered via webhook
 
-The asynchronous path executes in background, updating the repository with new signatures and refined threat intelligence without blocking tool execution.
+**Critical Constraint:** All state transitions are **event-driven via webhook callbacks**. No background polling loops, no timer-based checks, no status polling threads. Webhook receiver atomically persists threat signatures to SQLiteThreatRepository upon receipt.
 
 ## Main Execution Flow
 
@@ -118,10 +129,11 @@ sequenceDiagram
     participant BR as Batch Resolver
     participant CH as Context Hygiene
     participant HPS as Hybrid Policy Server
-    participant GTI as GTI MCP
-    participant CBM as codebase-memory-mcp
-    participant TSG as Threat Signature Graph
+    participant GSYNC as Gemini (Sync)
     participant ABA as Agent Behavioral Analytics
+    participant GBKG as Gemini (Background)
+    participant WHL as Webhook Listener
+    participant DB as SQLite Graph
     
     RA->>ADK: Execute Tool Call (curl, subprocess, etc.)
     ADK->>IQ: before_tool_callback() - SUSPEND THREAD
@@ -135,12 +147,8 @@ sequenceDiagram
         par Structural Gating
             HPS->>HPS: Check YAML rules (role/env)
         and Semantic Gating
-            HPS->>GTI: Query IOC for suspicious patterns
-            GTI-->>HPS: Threat intelligence response
-            HPS->>CBM: Query AST for target sink analysis
-            CBM-->>HPS: Dependency chain + blast radius
-            HPS->>TSG: Query for similar attack signatures
-            TSG-->>HPS: Matching threat vectors
+            HPS->>GSYNC: Sync call: interactions.create() + context
+            GSYNC-->>HPS: Inline verdict + threat score
         end
         
         HPS-->>BR: Verdict array [ALLOW/BLOCK/QUARANTINE]
@@ -152,17 +160,36 @@ sequenceDiagram
     alt Verdict = ALLOW
         ADK->>RA: Execute tool call
         RA-->>ADK: Return result
-    else Verdict = BLOCK
-        ADK->>ABA: Log security event
-        ABA->>TSG: Write new threat signature
-        ABA->>ABA: Calculate behavioral drift score
-        ADK-->>RA: Return PermissionError
-    else Verdict = QUARANTINE
-        ADK->>ABA: Trigger auto-refactoring (Green Team)
-        ABA->>TSG: Write signature with refactoring hint
-        ADK-->>RA: Return sanitized mock response
+    else Verdict = BLOCK or QUARANTINE
+        ADK->>ABA: Trigger background analysis
+        ABA->>GBKG: interactions.create(background=True)
+        Note over GBKG: Background task queued with task_id
+        GBKG-->>ABA: task_id (acknowledged, processing in background)
+        ABA->>DB: Store task_id + pending_signature state
+        ADK-->>RA: Return PermissionError or sanitized response
+        
+        Note over GBKG,WHL: Asynchronous event-driven flow (NO POLLING)
+        GBKG->>WHL: [Later] POST /webhook/analysis_complete + results
+        WHL->>WHL: Verify HMAC signature
+        WHL-->>GBKG: 202 Accepted (immediate response)
+        
+        par Async Processing
+            WHL->>ABA: Process analysis results (non-blocking)
+            ABA->>ABA: Generate threat signatures
+            ABA->>DB: Atomically write signatures to graph
+            ABA->>DB: Update threat intelligence + metadata
+        end
+        
+        Note over DB: Signature now available for future interceptions
     end
 ```
+
+**Key Flow Changes:**
+- **Sync path**: Gemini Interactions API `interactions.create()` called directly in <10ms interception path (no polling)
+- **Async path**: Gemini Interactions API `interactions.create(background=True)` submitted, returns task_id immediately
+- **Event-driven**: Gemini calls webhook when analysis complete (no polling threads)
+- **Webhook handler**: Receives callback, processes atomically, writes signatures
+- **Zero polling**: No background timer threads, no sleep loops, no status check polling
 
 ## Concrete Storage Architecture (No Abstraction Bloat)
 
@@ -308,15 +335,20 @@ END STRUCTURE
 
 ---
 
-### Component 2: Batch Resolver
+### Component 2: Batch Resolver with Gemini Interactions API (Rapid Triage)
 
-**Purpose**: Orchestrates asynchronous batched API calls to Gemini, managing the 300 RPM constraint while processing up to 600 RPM attack rate through efficient batching and parallel evaluation.
+**Purpose**: Orchestrates synchronous batched API calls to Gemini Interactions API for rapid anomaly classification during tool interception, managing the 300 RPM constraint. Also coordinates background task submission for deep reasoning analysis.
+
+**Execution Model**:
+- **Rapid Triage**: Synchronous `interactions.create()` call with `gemini-3.1-flash-lite` model during interception (inline verdict within <100ms)
+- **Deep Reasoning**: Asynchronous `interactions.create(background=True, webhook_config={...})` submission with `gemini-3.1-pro-preview` model; webhook callback delivers thin-payload notification with `interaction_id`
 
 **Interface**:
 ```pascal
 INTERFACE BatchResolver
   processBatch(batch: Array<CallbackToken>): Array<Verdict>
-  submitToGemini(payload: BatchPayload): BatchResponse
+  submitToGeminiSync(payload: BatchPayload): BatchResponse
+  submitToGeminiBackground(context: ToolCallContext): BackgroundTaskId
   rateLimit(): Boolean
   getMetrics(): ResolverMetrics
 END INTERFACE
@@ -326,6 +358,7 @@ STRUCTURE BatchPayload
   timestamp: Timestamp
   contexts: Array<ToolCallContext>
   policySnapshot: PolicyServerState
+  previousInteractionId: String or Null  // Server-side context caching key
 END STRUCTURE
 
 STRUCTURE BatchResponse
@@ -333,6 +366,14 @@ STRUCTURE BatchResponse
   verdicts: Array<Verdict>
   processingTimeMs: Integer
   tokensConsumed: Integer
+  cacheHitCount: Integer
+END STRUCTURE
+
+STRUCTURE BackgroundTaskId
+  interactionId: String  // Gemini Interactions API interaction.id
+  submittedAt: Timestamp
+  expectedCallbackWindow: Tuple<Timestamp, Timestamp>
+  webhookConfigUris: Array<String>  // Publicly reachable webhook URI(s)
 END STRUCTURE
 
 STRUCTURE ResolverMetrics
@@ -341,20 +382,31 @@ STRUCTURE ResolverMetrics
   averageLatencyMs: Float
   rateLimitHits: Integer
   cacheHitRate: Float
+  backgroundTasksSubmitted: Integer
+  webhookCallbacksReceived: Integer
+  avgWebhookProcessingLatencyMs: Float
 END STRUCTURE
 ```
 
 **Responsibilities**:
-- Accept batches from Interception Queue
+- Accept batches from Interception Queue for **synchronous rapid triage** evaluation
 - Apply Context Hygiene sanitization before API submission
-- Submit batched JSON payload to Gemini Interactions API
-- Implement exponential backoff for rate limit handling
-- Leverage server-side context caching to reduce token costs
+- Create BatchPayload with batch ID, timestamp, sanitized contexts, policy snapshot
+- Submit batched JSON payload to **Gemini Interactions API** (`client.interactions.create()`)
+- Use **gemini-3.1-flash-lite** model for high-throughput triage (rapid classification)
+- Leverage server-side context caching via `previous_interaction_id` to reduce token costs on repeated evaluations
 - Return verdict array maintaining exact order correspondence
+- For BLOCK/QUARANTINE verdicts, submit background interactions via Gemini Interactions API with `background=True` and `webhook_config`
+- Use **gemini-3.1-pro-preview** model for background deep reasoning interactions
+- Specify publicly reachable webhook callback URI in `webhook_config.uris` (e.g., via ngrok/cloudflared tunnel)
+- Return immediately with `interaction_id` (non-blocking)
+- Implement exponential backoff (100ms, 200ms, 400ms) for API rate limit handling
+- Track comprehensive metrics: sync batches, async submissions, webhook callbacks, latencies, JWT verification failures
 
 **Rate Limiting Strategy**:
-- Token bucket algorithm tracking 300 RPM cap
+- Token bucket algorithm tracking 300 RPM cap (covers both sync and async tasks)
 - Adaptive batch sizing: smaller batches during rate limit pressure
+- Fail-closed: return QUARANTINE verdicts (not ALLOW) if rate limits exhausted
 - Emergency fallback: single-item processing with max 300ms timeout
 
 ---
@@ -529,6 +581,70 @@ END STRUCTURE
 - Execution frequency anomalies
 - Context switching behavior
 - Evasion technique indicators
+
+---
+
+### Component 6: Webhook Listener and Event Handler
+
+**Purpose**: Async HTTP webhook listener that receives Gemini background task completion callbacks, validates them, and triggers threat signature generation. Eliminates all polling-based status checks.
+
+**Interface**:
+```pascal
+INTERFACE WebhookListener
+  start(port: Integer, jwksEndpoint: String): Boolean
+  stop(): Boolean
+  handleAnalysisComplete(payload: WebhookPayload): AsyncResult
+  validateJWTSignature(token: String, audience: String): Boolean
+  fetchGooglePublicKey(kid: String): RSAPublicKey or Null
+  getMetrics(): WebhookMetrics
+END INTERFACE
+
+STRUCTURE WebhookPayload
+  type: Enum<interaction.completed, interaction.failed, interaction.requires_action, interaction.cancelled>
+  version: String
+  timestamp: Timestamp
+  data: WebhookData
+END STRUCTURE
+
+STRUCTURE WebhookData
+  id: String  // The interaction_id
+END STRUCTURE
+
+STRUCTURE WebhookMetrics
+  totalCallbacksReceived: Integer
+  averageProcessingLatencyMs: Float
+  failedSignatureVerifications: Integer
+  duplicateWebhookIds: Integer
+  replayAttacksMitigated: Integer
+  averageFetchLatencyMs: Float
+  fetchFailures: Integer
+END STRUCTURE
+```
+
+**Responsibilities**:
+- Bind to local HTTP socket (default `localhost:8090`)
+- Accept `POST /webhook/analysis_complete` requests from Gemini (thin-payload Standard Webhooks envelopes)
+- Validate incoming webhooks using **JWT/JWKS asymmetric signature verification (RS256)** for Gemini Dynamic Webhooks
+- Extract JWT from `Webhook-Signature` header and verify against Google's public JWKS endpoint
+- Validate `webhook-timestamp` header and reject payloads older than 5 minutes (replay protection)
+- Deduplicate webhook deliveries using `webhook-id` header
+- Immediately return `200 OK` (no delay)
+- After responding, fetch full interaction results via `client.interactions.get(interaction_id)`
+- Invoke Agent_Behavioral_Analytics to generate threat signatures from the fetched analysis output
+- Generate and persist threat signatures atomically
+- Emit OpenTelemetry spans for tracing (including fetch latency)
+- Implement graceful shutdown with in-flight request draining (30s timeout)
+
+**Zero-Polling Constraint**:
+- No background threads checking webhook status
+- No polling loops waiting for task completion
+- All state transitions driven by incoming webhook events
+- Event sourcing pattern: webhook events are the source of truth
+
+**Thin-Payload Model**:
+- Gemini webhooks deliver only event metadata (`interaction.id`) — NOT full analysis results
+- After receiving webhook notification, Blackwall calls `client.interactions.get(interaction_id)` to fetch the complete interaction output
+- This keeps webhook payloads small and avoids bandwidth congestion
 
 ---
 

@@ -73,9 +73,88 @@ The system demonstrates a **dual-agent showdown**:
 4. **Execution Environment:** Single Kali Linux VM with dropped privileges for rogue agent
 5. **Duration:** Single demonstration run with limited test payloads (not production 24/7 operation)
 
+### LS-06: Event-Driven Webhook Architecture (No Polling)
+All asynchronous analysis operations are **purely event-driven** via the Gemini Interactions API webhook mechanism. No polling intervals, timer-based checks, or sleep loops are permitted. The system operates as follows:
+- **Synchronous Interception Path** (<10ms): Blocks/allows tool calls using local SQLite queries only
+- **Asynchronous Analysis Submission**: When a Verdict triggers analysis (BLOCK or QUARANTINE), Blackwall submits a background interaction to Gemini with `background=True` and a `webhook_config` specifying the callback URI
+- **Thin Webhook Notification**: Gemini delivers a thin-payload HTTP POST to Blackwall's webhook listener when the background interaction completes. The payload contains only the event type and `interaction.id` — not the full analysis result
+- **Result Fetch**: Upon receiving the webhook notification, Blackwall calls `client.interactions.get(interaction_id)` to retrieve the full analysis output from the Gemini API
+- **Signature Generation**: After fetching results, threat signatures are generated and stored atomically in SQLiteThreatRepository
+- **No Background Polling**: Zero timer-based loops checking interaction status. All state transitions driven by incoming webhook events
+- **Public URI Requirement**: Since Gemini's servers must reach the webhook endpoint, a tunnel (e.g., `cloudflared tunnel` or `ngrok`) is required to expose `localhost:8090` with a public HTTPS URI during the demo run
+
+## AI Engine & Event-Driven Webhook Architecture
+
+To maintain sub-10ms local performance while leveraging frontier AI capabilities, Blackwall decouples local synchronous blocking from asynchronous AI reasoning via local webhooks:
+
+### Execution Model (Three Tiers)
+
+**Tier 1: Local Interception (<10ms)**
+- No external API calls
+- Source: Local SQLite WAL + YAML rules + Compiled regex
+- Decision: ALLOW or BLOCK based on local policy
+
+**Tier 2: Rapid Triage (<100ms)**
+- Synchronous Gemini Interactions API call
+- Model: `gemini-3.1-flash-lite` (high-throughput)
+- State: Server-side context caching via `previous_interaction_id` for token efficiency
+- Decision: Inline verdict returned to interception path
+
+**Tier 3: Deep Reasoning (Event-Driven)**
+- Asynchronous Gemini Interactions API (`background=True`)
+- Model: `gemini-3.1-pro-preview` (frontier reasoning capabilities)
+- Webhook: Gemini delivers thin-payload notification to configured `webhook_config.uris` when interaction completes
+- State: Blackwall fetches full results via `client.interactions.get(interaction_id)` after webhook notification
+- Decision: Threat signature generation and persistent storage
+
 ## Requirements
 
-### Requirement 1: Tool Call Interception and Queue Management
+### Requirement 1: Rapid Triage with Gemini 3.1 Flash-Lite
+
+**User Story:** As a system architect, I want inline threat classification using high-throughput Gemini models to make rapid BLOCK/ALLOW decisions during tool interception, so that benign operations complete within 100ms latency.
+
+#### Acceptance Criteria
+
+1. WHEN the Batch_Resolver receives a tool call batch during interception, THE system SHALL call Gemini Interactions API with `gemini-3.1-flash-lite` model
+2. THE synchronous API call SHALL complete within 100ms at 99th percentile
+3. THE Batch_Resolver SHALL include `previous_interaction_id` in the request payload for server-side context caching
+4. WHEN the API returns cached results (cache hit), THE token consumption SHALL be reduced by at least 50%
+5. THE system SHALL extract verdict, threat_score, and suggested_action from the Gemini response
+6. THE verdict SHALL map to ALLOW, BLOCK, or QUARANTINE decision for interception
+7. IF the threat_score is >= 0.75, THE verdict SHALL be BLOCK
+8. IF the threat_score is >= 0.5 and < 0.75, THE verdict SHALL be QUARANTINE
+9. IF the threat_score is < 0.5, THE verdict SHALL be ALLOW
+10. FOR QUARANTINE verdicts, THE system SHALL immediately submit a background analysis task (Tier 3)
+11. THE system SHALL cache the `previous_interaction_id` from the Gemini response for subsequent calls
+12. THE system SHALL NOT block the interception path waiting for QUARANTINE analysis; the verdict is returned immediately
+13. THE system SHALL track cache hit rate and report it in ResolverMetrics
+
+### Requirement 2: Deep Reasoning via Webhook-Delivered Background Tasks
+
+**User Story:** As a threat analyst, I want complex threat evaluations to run asynchronously using frontier reasoning models, with results delivered via webhooks, so that signature generation happens immediately without polling delays.
+
+#### Acceptance Criteria
+
+1. WHEN a tool call receives a QUARANTINE verdict from Tier 2 (Rapid Triage), THE Agent_Behavioral_Analytics SHALL submit a background interaction to Gemini Interactions API with `background=True`
+2. THE background interaction SHALL use `gemini-3.1-pro-preview` model for deep reasoning
+3. THE background interaction request SHALL include: quarantined tool context, Tier 2 verdict data, related threat signatures, GTI IOC enrichment, and CBM dependency chain as the `input` payload
+4. THE background interaction request SHALL include a `webhook_config` object with `uris` set to the publicly reachable webhook callback URL (e.g., `https://<tunnel-host>/webhook/analysis_complete`) — this is the Gemini Dynamic Webhook pattern using per-request `webhook_config`
+5. THE system SHALL return from submitBackgroundAnalysis() immediately with the `interaction_id` from the Gemini response (non-blocking)
+6. THE system SHALL NOT implement any polling loops to check interaction status
+7. THE `interaction_id` SHALL be stored in SQLiteThreatRepository with status `PENDING_WEBHOOK_CALLBACK`
+8. WHEN Gemini completes the background interaction, THE Gemini API SHALL deliver a thin-payload webhook event to the configured callback URI
+9. THE webhook notification payload SHALL be a Standard Webhooks envelope containing: `type` (`interaction.completed`, `interaction.failed`, or `interaction.cancelled`), `version`, `timestamp`, and `data.id` (the `interaction_id`) — it does NOT contain analysis results
+10. UPON receiving the webhook notification, THE system SHALL call `client.interactions.get(interaction_id)` to fetch the full interaction output from the Gemini API
+11. THE webhook receiver SHALL validate the incoming request using JWT/JWKS asymmetric signature verification (RS256) against Google's public JWKS endpoint `https://generativelanguage.googleapis.com/.well-known/jwks.json`, extracting the key via the `kid` field in the `Webhook-Signature` JWT header — this is the Dynamic Webhook verification pattern
+12. UPON successful validation, THE webhook receiver SHALL return `200 OK` within <50ms
+13. AFTER returning 200, THE full interaction result SHALL be fetched via `client.interactions.get(interaction_id)` and processed asynchronously
+14. WHEN processing the fetched interaction output, THE system SHALL invoke Agent_Behavioral_Analytics.generateSignature() to derive threat signature candidates from the analysis
+15. THE system SHALL atomically write all generated signatures to SQLiteThreatRepository in a single transaction
+16. THE system SHALL emit an OpenTelemetry span with: event_id, interaction_id, webhook_latency_ms, fetch_latency_ms, signatures_created_count
+17. THE webhook listener SHALL validate the `webhook-timestamp` header and reject payloads older than 5 minutes to mitigate replay attacks
+18. THE system SHALL deduplicate webhook deliveries using the `webhook-id` header, discarding duplicate events that have already been processed
+
+### Requirement 3: Tool Call Interception and Queue Management
 
 **User Story:** As a security operator, I want Blackwall to intercept all AI agent tool calls before execution, so that I can evaluate and block malicious operations before they reach external systems.
 
@@ -91,7 +170,7 @@ The system demonstrates a **dual-agent showdown**:
 8. WHILE processing batches, THE Interception_Queue SHALL maintain thread safety using asynchronous locks or semaphores
 9. THE Callback_Token SHALL include a resumeCallback function accepting a Verdict and returning the execution result
 
-### Requirement 2: Asynchronous Batch Processing and Rate Limiting
+### Requirement 4: Asynchronous Batch Processing and Rate Limiting
 
 **User Story:** As a system architect, I want Blackwall to handle 600 RPM attack rates using a 300 RPM Gemini API through efficient batching, so that the system can defend against attackers with twice the API throughput.
 
@@ -108,7 +187,7 @@ The system demonstrates a **dual-agent showdown**:
 9. WHEN the rate limit is reached AND the queue depth exceeds 20 pending batches, THE Batch_Resolver SHALL dynamically reduce batch size from 5 to 2 to increase throughput under pressure
 
 
-### Requirement 3: Hybrid Policy Server Evaluation
+### Requirement 5: Hybrid Policy Server Evaluation
 
 **User Story:** As a security engineer, I want a dual-layer policy evaluation system combining fast structural rules with deep semantic analysis, so that benign operations complete quickly while novel threats receive thorough evaluation.
 
@@ -130,7 +209,7 @@ The system demonstrates a **dual-agent showdown**:
 14. THE Hybrid_Policy_Server SHALL support hot-reload of YAML policy files without requiring process restart
 15. THE Hybrid_Policy_Server SHALL expose a getCurrentState() method returning a versioned PolicyServerState snapshot used in BatchPayload construction
 
-### Requirement 4: Context Hygiene and Data Sanitization
+### Requirement 6: Context Hygiene and Data Sanitization
 
 **User Story:** As a privacy engineer, I want all tool call contexts sanitized before policy evaluation, so that sensitive data never reaches the LLM and context hallucination is prevented.
 
@@ -153,7 +232,7 @@ The system demonstrates a **dual-agent showdown**:
 15. IF the same pattern causes 10 consecutive timeouts, THE Context_Hygiene SHALL automatically disable that pattern and alert the operator
 16. THE Context_Hygiene SHALL support runtime registration of custom redaction patterns with name, regex, and placeholder fields
 
-### Requirement 5: Agent Behavioral Analytics and Threat Signature Generation
+### Requirement 7: Agent Behavioral Analytics and Threat Signature Generation
 
 **User Story:** As a threat intelligence analyst, I want the system to automatically generate threat signatures from blocked events, so that variant attacks are detected without requiring GTI API calls.
 
@@ -173,7 +252,7 @@ The system demonstrates a **dual-agent showdown**:
 12. FOR ANY Security_Event processed, THE Agent_Behavioral_Analytics SHALL emit an OpenTelemetry span with a unique trace ID for Vibe_Trajectory visualization
 
 
-### Requirement 6: Threat Signature Graph Storage and Retrieval
+### Requirement 8: Threat Signature Graph Storage and Retrieval
 
 **User Story:** As a machine learning engineer, I want threat signatures stored in a concurrent-safe graph database with fast similarity search, so that variant attacks are detected in under 10 milliseconds.
 
@@ -195,7 +274,7 @@ The system demonstrates a **dual-agent showdown**:
 14. THE Threat_Signature_Graph SHALL implement LFU eviction when total signatures exceed 10,000 entries, removing lowest match_count signatures until count falls below the threshold
 15. THE Threat_Signature_Graph SHALL expose a getStatistics() method returning: totalSignatures, avgQueryTimeMs, cacheHitRate, evictionCount, and avgMatchesPerSignature
 
-### Requirement 7: Google Threat Intelligence Integration
+### Requirement 9: Google Threat Intelligence Integration
 
 **User Story:** As a security operations analyst, I want real-time threat intelligence from VirusTotal for IOC validation, so that known malicious indicators are blocked immediately.
 
@@ -213,7 +292,7 @@ The system demonstrates a **dual-agent showdown**:
 10. THE GTI_MCP client SHALL handle API rate limit responses from VirusTotal with exponential backoff before retrying
 11. WHEN GTI_MCP identifies a malicious IOC, THE GTIResponse SHALL include the associated threat categories (malware, botnet, phishing, C2, ransomware) and related malware campaign identifiers
 
-### Requirement 8: Codebase Memory Integration for Structural Analysis
+### Requirement 10: Codebase Memory Integration for Structural Analysis
 
 **User Story:** As an application security engineer, I want automated AST analysis to identify critical sinks and dependency chains, so that injection vulnerabilities are detected without manual code review.
 
@@ -231,7 +310,7 @@ The system demonstrates a **dual-agent showdown**:
 10. IF the Codebase_Memory_MCP graph is unavailable or empty, THE Hybrid_Policy_Server SHALL continue evaluation using GTI_MCP and Threat_Signature_Graph signals only, applying the stale-graph threat score penalty
 
 
-### Requirement 9: Evaluation Metrics and Accuracy Targets
+### Requirement 11: Evaluation Metrics and Accuracy Targets
 
 **User Story:** As a Kaggle competition judge, I want formal evaluation metrics demonstrating sub-10% false positive and false negative rates, so that I can verify the firewall meets production-grade accuracy standards.
 
@@ -253,7 +332,7 @@ The system demonstrates a **dual-agent showdown**:
 14. WHEN a test result has a BLOCK or QUARANTINE verdict AND a BENIGN ground truth label, THE system SHALL count it as a false positive; IF the verdict is QUARANTINE, THE system SHALL additionally increment quarantineCount
 15. IF the test suite is empty, THE system SHALL return zero values for all SecurityMetrics fields without performing any division
 
-### Requirement 10: Zero Ambient Authority and Privilege Management
+### Requirement 12: Zero Ambient Authority and Privilege Management
 
 **User Story:** As a security architect, I want the firewall to operate with minimal OS privileges and JIT token downscoping, so that a compromised firewall cannot be used to escalate privileges.
 
@@ -270,9 +349,54 @@ The system demonstrates a **dual-agent showdown**:
 9. THE system SHALL maintain agent capabilities in the Runtime AgBOM tracking: tools used, invocation frequencies, and argument patterns
 10. WHEN the Agent_Behavioral_Analytics detects a new tool used without prior policy approval (capability drift), THE system SHALL log an anomaly Security_Event with eventType SIGNATURE_CREATED
 
-### Requirement 11: Telemetry and Observability
+### Requirement 13: Gemini Interactions API Integration with Event-Driven Webhooks
 
-**User Story:** As a security operations engineer, I want distributed tracing and metrics export for all security events, so that I can visualize attack patterns and monitor system health in real-time.
+**User Story:** As a system architect, I want all AI analysis to use the modern Gemini Interactions API with background task execution and event-driven webhooks, so that the system is efficient, scalable, and free of polling overhead.
+
+#### Acceptance Criteria
+
+1. WHEN the Batch_Resolver needs to evaluate a tool call batch, THE system SHALL call the Gemini Interactions API via `client.interactions.create()` (NOT the legacy `generateContent` API)
+2. THE Batch_Resolver SHALL use the **synchronous** `interactions.create()` call for inline threat assessment during the <10ms interception path
+3. WHEN a Verdict of BLOCK or QUARANTINE is issued, THE Agent_Behavioral_Analytics SHALL submit a background interaction to Gemini Interactions API with `background=True`
+4. THE background interaction submission SHALL include: quarantined tool context, related signatures, CBM dependency chain, and GTI IOC data in the `input` field
+5. THE background interaction SHALL specify a `webhook_config` with `uris` pointing to the publicly reachable callback endpoint (dynamic webhook pattern)
+6. WHEN Gemini completes the background interaction, THE Gemini API SHALL deliver a thin-payload HTTP POST notification to the configured webhook URI
+7. THE webhook payload SHALL follow the Standard Webhooks envelope format: `{type, version, timestamp, data: {id}}` where `id` is the `interaction_id` — it does NOT carry the full analysis results inline
+8. UPON receiving the webhook notification, THE system SHALL call `client.interactions.get(interaction_id)` to fetch the full interaction output containing analysis results
+9. THE system SHALL validate webhook authenticity using JWT/JWKS asymmetric signature verification (RS256) for dynamic webhooks, not HMAC-SHA256
+10. THE system SHALL validate the `webhook-timestamp` header and reject webhook payloads older than 5 minutes to mitigate replay attacks
+11. UPON receiving a webhook callback, THE system SHALL immediately fetch results via `client.interactions.get()` (no queuing delay, <100ms fetch + processing latency)
+12. WHEN analysis results are retrieved, THE system SHALL atomically write new threat signatures to the SQLiteThreatRepository in a single transaction
+13. THE system SHALL NOT implement any polling loops, timer-based checks, or sleep intervals to check background interaction status
+14. **MODEL TIERING:** For synchronous interception evaluation, use `gemini-3.1-flash-lite` (high-throughput triage)
+15. **MODEL TIERING:** For background forensic analysis, use `gemini-3.1-pro-preview` (deep reasoning)
+16. THE system SHALL handle webhook delivery failures gracefully: if Gemini cannot reach the webhook endpoint after retries (24-hour exponential backoff), the interaction result remains available via `client.interactions.get()` for fallback retrieval
+17. THE system SHALL expose webhook metrics: total callbacks received, average processing latency, failed deliveries, JWT verification failures, and fetch success rate
+
+### Requirement 14: Webhook Listener and Event Handler Infrastructure
+
+**User Story:** As an operations engineer, I want a robust, non-blocking webhook listener that handles Gemini background interaction completions, so that threat signatures are generated immediately upon analysis completion without polling overhead.
+
+#### Acceptance Criteria
+
+1. THE system SHALL implement a local HTTP webhook listener bound to `localhost:8090` (configurable port via environment variable `BLACKWALL_WEBHOOK_PORT`)
+2. THE webhook listener SHALL be async-first using `aiohttp` or equivalent async HTTP framework
+3. THE `POST /webhook/analysis_complete` endpoint SHALL accept incoming webhook notifications from Gemini (thin-payload Standard Webhooks envelopes)
+4. THE endpoint SHALL verify webhook authenticity using **JWT/JWKS asymmetric signature verification (RS256)** for Gemini Dynamic Webhooks, extracting the JWT from the `Webhook-Signature` header
+5. THE endpoint SHALL fetch the public key from Google's JWKS endpoint (`https://generativelanguage.googleapis.com/.well-known/jwks.json`) using the `kid` field from the JWT header
+6. THE endpoint SHALL decode and validate the JWT against the fetched public key, verifying the signature and the `audience` claim
+7. IF signature verification fails, THE endpoint SHALL return `400 Bad Request` and log the rejection with details
+8. IF signature verification succeeds, THE endpoint SHALL immediately return `200 OK` to Gemini (within <50ms) to acknowledge receipt
+9. THE endpoint SHALL validate the `webhook-timestamp` header and reject payloads with timestamps older than 5 minutes to mitigate replay attacks
+10. THE endpoint SHALL check for duplicate deliveries using the `webhook-id` header; if a webhook with the same ID has already been processed, return `200 OK` without reprocessing
+11. AFTER returning 200 OK, THE system SHALL asynchronously process the thin webhook payload by extracting the `interaction_id` from the `data.id` field
+12. THE system SHALL call `client.interactions.get(interaction_id)` to fetch the full interaction output from the Gemini API (this is where the actual analysis results are)
+13. IF the `interaction_id` is unknown or stale (>12 hours old), THE system SHALL log a warning and discard the payload
+14. WHEN the full interaction output is fetched, THE system SHALL invoke Agent_Behavioral_Analytics to generate threat signatures from the analysis
+15. THE system SHALL write all generated signatures to SQLiteThreatRepository in a single atomic transaction
+16. THE system SHALL emit an OpenTelemetry span for each webhook event with: event_id, interaction_id, webhook_latency_ms, fetch_latency_ms, signatures_created_count
+17. THE system SHALL implement graceful shutdown: when receiving SIGTERM/SIGINT, the listener SHALL drain in-flight requests before terminating (max 30-second grace period)
+18. THE publicly reachable webhook URL (e.g., `https://<tunnel-host>/webhook/analysis_complete`) SHALL be configured via environment variable `BLACKWALL_WEBHOOK_PUBLIC_URL` and passed in the `webhook_config.uris` array to Geminineer, I want distributed tracing and metrics export for all security events, so that I can visualize attack patterns and monitor system health in real-time.
 
 #### Acceptance Criteria
 
@@ -285,7 +409,7 @@ The system demonstrates a **dual-agent showdown**:
 7. WHEN Security_Events are written to the structured log, THE system SHALL include: eventId, timestamp, agentId, verdict, threatScore, and telemetrySpanId as top-level JSON fields
 8. THE OpenTelemetry spans SHALL be compressed before export to keep bandwidth consumption below 100 KB/s
 
-### Requirement 12: Error Handling and Resilience
+### Requirement 15: Error Handling and Resilience
 
 **User Story:** As a reliability engineer, I want graceful degradation and circuit breakers for external dependencies, so that the firewall remains operational even when GTI or codebase analysis are unavailable.
 
@@ -305,7 +429,7 @@ The system demonstrates a **dual-agent showdown**:
 12. WHEN async timeout or process termination is triggered, THE system SHALL auto-restart the evaluation pipeline and log a critical error event
 
 
-### Requirement 13: Performance and Latency Targets
+### Requirement 16: Performance and Latency Targets
 
 **User Story:** As a performance engineer, I want strict latency targets for each evaluation stage, so that the firewall adds minimal overhead to agent execution.
 
@@ -326,7 +450,7 @@ The system demonstrates a **dual-agent showdown**:
 13. THE SQLite database file size SHALL remain below 100 MB with 10,000 stored threat signatures
 14. THE network bandwidth consumed by GTI_MCP calls SHALL remain below 100 KB/s with response caching enabled
 
-### Requirement 14: YAML Policy Configuration
+### Requirement 17: YAML Policy Configuration
 
 **User Story:** As a security administrator, I want to define policies in human-readable YAML files with hot-reload support, so that I can update rules without system downtime.
 
@@ -345,7 +469,7 @@ The system demonstrates a **dual-agent showdown**:
 11. THE `version` field in the YAML policy file SHALL follow semantic versioning format MAJOR.MINOR.PATCH
 12. THE `global.threatThreshold` and `global.quarantineThreshold` fields SHALL be in the range 0.0 to 1.0 inclusive
 
-### Requirement 15: Kaggle Submission and Demo Requirements
+### Requirement 18: Kaggle Submission and Demo Requirements
 
 **User Story:** As a hackathon participant, I want comprehensive demo materials and evaluation artifacts, so that Kaggle judges can reproduce results and verify performance claims.
 
@@ -379,7 +503,7 @@ The system demonstrates a **dual-agent showdown**:
 17. THE submission SHALL include Behavior-Driven Development (BDD) scenarios in Gherkin syntax demonstrating key security features
 
 
-### Requirement 16: Quarantine and Auto-Refactoring (Green Team)
+### Requirement 19: Quarantine and Auto-Refactoring (Green Team)
 
 **User Story:** As a development security engineer, I want suspicious code paths automatically quarantined with refactoring hints, so that vulnerabilities can be fixed proactively rather than only blocked.
 
@@ -396,7 +520,7 @@ The system demonstrates a **dual-agent showdown**:
 9. THE Green_Team analysis SHALL complete within 5 seconds to avoid blocking the evaluation pipeline
 10. THE system SHALL maintain a quarantine log tracking all quarantined operations with: timestamp, agentId, tool call context, code path, vulnerability type, RefactoringHint, and remediation status
 
-### Requirement 17: Threat Signature Similarity and Evolution
+### Requirement 20: Threat Signature Similarity and Evolution
 
 **User Story:** As a threat researcher, I want threat signatures to encode semantic similarity relationships, so that variant attacks with structural modifications are still detected.
 
@@ -413,7 +537,7 @@ The system demonstrates a **dual-agent showdown**:
 9. WHEN a variant attack is matched via similarity search, THE system SHALL atomically increment the matched signature's matchCount and update lastMatchedAt to the current timestamp
 10. THE payload pattern generalization in generateThreatSignature SHALL replace IP addresses, URLs, file paths, and API keys with typed placeholders while preserving the structural attack pattern
 
-### Requirement 18: Concurrent Access and Database Integrity
+### Requirement 21: Concurrent Access and Database Integrity
 
 **User Story:** As a database administrator, I want concurrent-safe threat signature writes during high-throughput blocking events, so that the system never experiences "database is locked" errors.
 
@@ -431,7 +555,7 @@ The system demonstrates a **dual-agent showdown**:
 10. THE SQLite database integrity SHALL be verifiable at any time using `PRAGMA integrity_check` returning "ok"
 11. WHEN the in-memory buffer is within capacity, THE system SHALL not lose any signatures during high-throughput blocking events; WHEN the buffer exceeds 100 entries, THE system SHALL drop the oldest entry and log a warning (bounded-loss guarantee)
 
-### Requirement 19: Batch Verdict Correspondence and Atomicity
+### Requirement 22: Batch Verdict Correspondence and Atomicity
 
 **User Story:** As a systems programmer, I want strict guarantees on verdict array correspondence to callback tokens, so that suspended threads never resume with incorrect verdicts.
 
@@ -448,7 +572,7 @@ The system demonstrates a **dual-agent showdown**:
 9. THE system SHALL maintain an internal correlation ID (batchId UUID) linking each Callback_Token to its batch position for debugging and tracing purposes
 
 
-### Requirement 20: Signature Eviction and Graph Maintenance
+### Requirement 23: Signature Eviction and Graph Maintenance
 
 **User Story:** As a storage engineer, I want automatic signature eviction policies preventing unbounded database growth, so that query performance remains consistently fast.
 
@@ -467,7 +591,7 @@ The system demonstrates a **dual-agent showdown**:
 11. THE eviction operations SHALL complete within a single database transaction so that partial evictions do not leave the signature graph in an inconsistent state
 12. THE eviction operations SHALL NOT interrupt or delay real-time signature queries or write operations during execution
 
-### Requirement 21: Context Enrichment and Attack Attribution
+### Requirement 24: Context Enrichment and Attack Attribution
 
 **User Story:** As a security analyst, I want security events enriched with attribution data from GTI and CBM, so that I can understand attack campaigns and blast radius.
 
@@ -484,7 +608,7 @@ The system demonstrates a **dual-agent showdown**:
 9. THE system SHALL support filtering Security_Events by campaign ID to identify related attack attempts across multiple tool call interceptions
 10. THE enriched Security_Event SHALL be emitted as an Open telemetry span with the telemetrySpanId for distributed trace correlation
 
-### Requirement 22: Structural Rule Priority and Conflict Resolution
+### Requirement 25: Structural Rule Priority and Conflict Resolution
 
 **User Story:** As a policy administrator, I want structural rules evaluated in priority order with conflict resolution, so that more specific rules override general defaults.
 
@@ -501,7 +625,7 @@ The system demonstrates a **dual-agent showdown**:
 9. THE YAML policy loader SHALL reject policy files containing duplicate ruleId values and return a descriptive error message identifying the duplicate IDs
 10. THE StructuralRule evaluation SHALL be deterministic producing the same GateResult for identical tool call context inputs
 
-### Requirement 23: Threat Score Computation and Weighting
+### Requirement 26: Threat Score Computation and Weighting
 
 **User Story:** As a machine learning engineer, I want transparent threat score computation with configurable signal weighting, so that I can tune detection sensitivity.
 
@@ -519,7 +643,7 @@ The system demonstrates a **dual-agent showdown**:
 10. THE threatScore SHALL be stored in the Verdict structure and written to every Security_Event log entry for audit trail
 11. WHERE the YAML policy supports custom weight configuration, THE system SHALL load override weights from the policy file replacing defaults
 
-### Requirement 24: Embedding Model Management
+### Requirement 27: Embedding Model Management
 
 **User Story:** As a machine learning operations engineer, I want robust embedding model lifecycle management with fallback strategies, so that signature similarity remains functional during model failures.
 
@@ -537,7 +661,7 @@ The system demonstrates a **dual-agent showdown**:
 10. IF a stored signature has a similarityVector with incorrect dimensionality, THE system SHALL exclude that signature from vector similarity queries and log a warning identifying the signature_id
 
 
-### Requirement 25: Logging and Audit Trail
+### Requirement 28: Logging and Audit Trail
 
 **User Story:** As a compliance officer, I want comprehensive audit logs of all security decisions with immutable event records, so that I can demonstrate regulatory compliance and incident investigation.
 
@@ -555,7 +679,7 @@ The system demonstrates a **dual-agent showdown**:
 10. THE audit trail SHALL support filtering Security_Events by: agentId, eventType, threatScore range, time range, and signatureId
 11. THE system SHALL support exporting audit logs in SIEM-compatible formats (JSON and CEF) for integration with security monitoring platforms
 
-### Requirement 26: Testing and Validation Framework
+### Requirement 29: Testing and Validation Framework
 
 **User Story:** As a quality assurance engineer, I want comprehensive test coverage including unit, property-based, and integration tests, so that I can verify correctness and catch regressions.
 
@@ -573,7 +697,7 @@ The system demonstrates a **dual-agent showdown**:
 10. THE unit and property-based tests SHALL use in-memory SQLite (`:memory:`) for Threat_Signature_Graph operations to ensure fast, isolated test runs
 11. THE CI/CD pipeline SHALL run all test suites on every commit and fail the build if any test fails or coverage drops below 90 percent
 
-### Requirement 27: Deployment and Operational Readiness
+### Requirement 30: Deployment and Operational Readiness
 
 **User Story:** As a DevOps engineer, I want containerized deployment with health checks and graceful shutdown, so that I can run Blackwall reliably in production.
 
@@ -590,7 +714,7 @@ The system demonstrates a **dual-agent showdown**:
 9. THE system SHALL provide a docker-compose.yml that orchestrates: the Blackwall agent container, GTI_MCP proxy, Codebase_Memory_MCP server, Prometheus metrics scraper, and Grafana dashboard
 10. THE docker-compose configuration SHALL define named persistent volumes for: the SQLite threat-signatures database, structured log files, and YAML policy configuration files
 
-### Requirement 28: Documentation and Onboarding
+### Requirement 31: Documentation and Onboarding
 
 **User Story:** As a new team member, I want comprehensive documentation with architecture diagrams and API references, so that I can understand and contribute to the codebase quickly.
 
