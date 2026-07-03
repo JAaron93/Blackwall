@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Blackwall is an autonomous Agentic Firewall designed for the Kaggle AI Agents hackathon that intercepts and evaluates AI agent execution flows before they reach external systems or the host OS. The system implements a hybrid defense architecture combining structural YAML-based policies with semantic LLM-based intent analysis, operating through ADK 2.0's `before_tool_callback` hook to physically pause suspicious executions. Blackwall leverages self-learning threat signature graphs stored in SQLite, real-time threat intelligence from Google Threat Intelligence (GTI) MCP, and structural code analysis via codebase-memory-mcp to dynamically generate defensive skills with zero static allowlists. The architecture addresses critical API rate constraints (300 RPM Gemini vs 600 RPM attacker) through asynchronous batched evaluation with callback queue management, maintaining sub-10% false positive/negative rates while demonstrating Zero Ambient Authority, Agent Behavioral Analytics, and runtime AgBOM tracing for production-grade agentic security.
+Blackwall is a **local Minimum Viable Product (MVP)** autonomous Agentic Firewall designed for the Kaggle "AI Agents: Intensive Vibe Coding" hackathon Freestyle track. The system operates as a **single-instance ambient daemon** running exclusively within a **Kali Linux sandbox VM** to demonstrate dual-agent threat mitigation in a controlled environment. Blackwall intercepts and evaluates AI agent execution flows before they reach external systems or the host OS through ADK 2.0's `before_tool_callback` hook, implementing a hybrid defense architecture combining structural YAML-based policies with semantic LLM-based intent analysis. The system leverages self-learning threat signature graphs stored in an embedded **SQLite database** (not Redis or distributed stores), real-time threat intelligence from Google Threat Intelligence (GTI) MCP, and structural code analysis via codebase-memory-mcp to dynamically generate defensive skills with zero static allowlists. The architecture addresses critical API rate constraints (300 RPM Gemini vs 600 RPM attacker) through asynchronous batched evaluation with callback queue management, maintaining sub-10% false positive/negative rates while demonstrating Zero Ambient Authority (unprivileged user + Python runtime audit hooks), Agent Behavioral Analytics, and runtime AgBOM tracing. **All enterprise patterns, horizontal scaling, multi-tenant isolation, and distributed caching abstractions are explicitly out of scope.**
 
 ## Glossary
 
@@ -35,6 +35,43 @@ Blackwall is an autonomous Agentic Firewall designed for the Kaggle AI Agents ha
 - **PolicyServerState**: Versioned snapshot of all active structural rules, semantic guidelines, and environment roles
 - **BatchPayload**: Sanitized batch of tool call contexts submitted to the Gemini Interactions API in a single request
 - **RefactoringHint**: Green Team output describing a specific vulnerability and its concrete remediation
+
+## Local Scope & Storage (Critical MVP Constraints)
+
+This section explicitly defines the local MVP scope, removing all enterprise abstractions:
+
+### LS-01: Single-Instance Local Daemon
+Blackwall operates **exclusively** as a local, single-instance ambient background daemon within a Kali Linux sandbox VM. No requirement for:
+- Horizontal scaling or multi-instance coordination
+- Load balancing or failover clustering
+- Multi-tenant isolation or namespace management
+- Distributed consensus protocols
+- Service discovery or orchestration (Kubernetes, Nomad, etc.)
+- Message queues beyond in-memory asyncio for local batching
+
+### LS-02: Embedded SQLite Storage (No Redis/Memcached)
+All persistent state, session memory, learned Threat Signatures, and cache data are stored **exclusively** via an embedded SQLite database running on the same host. No requirement for:
+- Distributed cache servers (Redis, Memcached)
+- External databases (PostgreSQL, MongoDB)
+- Cloud storage (S3, GCS)
+- Cross-machine persistence
+- Replication or eventual consistency patterns
+
+The SQLite database file resides on local disk with WAL mode enabled and connection pooling (max 10 connections) to manage concurrency during the dual-agent demonstration.
+
+### LS-03: Unprivileged User Execution + Python Runtime Audit Hook
+Blackwall executes as an unprivileged OS user (non-root) within the Kali Linux VM to minimize privilege escalation risk. Additionally, a **Python Runtime Audit Hook** (`sys.addaudithook`) intercepts and denies low-level OS execution paths (`os.exec`, `subprocess.Popen`, `pty` operations) outside the ADK tool layer, forcing all rogue agent actions through the `before_tool_callback` for policy evaluation.
+
+### LS-04: ADK 2.0 Tool Layer Integration Only
+All agent execution flows route through ADK 2.0's tool-calling abstraction. No direct shell access, no raw subprocess execution for the rogue agent, and no OS-level privilege model beyond the audit hook. Blackwall's `before_tool_callback` is the sole interception point.
+
+### LS-05: Demo Sandbox Scope
+The system demonstrates a **dual-agent showdown**:
+1. **Blackwall Agent:** Gemini 3.1 Flash-Lite via paid Gemini Interactions API (300 RPM limit)
+2. **Rogue Agent:** Qwen3-Coder 480B via Hyperbolic API (600 RPM max attack rate)
+3. **Target Application:** Simple vulnerable mock application (e.g., Metasploitable) running inside the sandbox
+4. **Execution Environment:** Single Kali Linux VM with dropped privileges for rogue agent
+5. **Duration:** Single demonstration run with limited test payloads (not production 24/7 operation)
 
 ## Requirements
 

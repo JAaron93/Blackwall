@@ -2,9 +2,11 @@
 
 ## Overview
 
-Blackwall is an autonomous Agentic Firewall designed for the Kaggle AI Agents hackathon that intercepts and evaluates AI agent execution flows before they reach external systems or the host OS. The system implements a hybrid defense architecture combining structural YAML-based policies with semantic LLM-based intent analysis, operating through ADK 2.0's `before_tool_callback` hook to physically pause suspicious executions. Blackwall leverages self-learning threat signature graphs stored in SQLite, real-time threat intelligence from Google Threat Intelligence (GTI) MCP, and structural code analysis via codebase-memory-mcp to dynamically generate defensive skills with zero static allowlists. The architecture addresses critical API rate constraints (300 RPM Gemini vs 600 RPM attacker) through asynchronous batched evaluation with callback queue management, maintaining sub-10% false positive/negative rates while demonstrating Zero Ambient Authority, Agent Behavioral Analytics, and runtime AgBOM tracing for production-grade agentic security.
+Blackwall is a **local Minimum Viable Product (MVP)** autonomous Agentic Firewall designed for the Kaggle "AI Agents: Intensive Vibe Coding" hackathon Freestyle track. The system operates as a **single-instance ambient daemon** running exclusively within a **Kali Linux sandbox VM** to demonstrate dual-agent threat mitigation. Blackwall intercepts and evaluates AI agent execution flows before they reach external systems or the host OS through ADK 2.0's `before_tool_callback` hook, implementing a hybrid defense architecture combining structural YAML-based policies with semantic LLM-based intent analysis. The system leverages self-learning threat signature graphs stored in an embedded **SQLite database with WAL mode** (not Redis or distributed stores), real-time threat intelligence from Google Threat Intelligence (GTI) MCP, and structural code analysis via codebase-memory-mcp to dynamically generate defensive skills with zero static allowlists. The architecture addresses critical API rate constraints (300 RPM Gemini vs 600 RPM attacker) through asynchronous batched evaluation with callback queue management, maintaining sub-10% false positive/negative rates while demonstrating Zero Ambient Authority (unprivileged user + Python runtime audit hooks), Agent Behavioral Analytics, and runtime AgBOM tracing. **All enterprise patterns, horizontal scaling, multi-tenant isolation, and distributed caching abstractions are explicitly out of scope—this is a local demo system.**
 
 ## Architecture
+
+### High-Level System Topology
 
 ```mermaid
 graph TB
@@ -12,77 +14,99 @@ graph TB
         RA[Adversarial Agent]
     end
     
-    subgraph "ADK 2.0 Runtime Layer"
+    subgraph "ADK 2.0 Runtime Layer + OS Audit Hook"
         THook[Tool Execution Hook]
         BCB[before_tool_callback]
+        AUDIT["sys.addaudithook<br/>(subprocess, socket, os, open)"]
     end
     
-    subgraph "Blackwall Core (Gemini 3.1 Flash-Lite @ 300 RPM)"
+    subgraph "Blackwall Core (Synchronous Path <10ms)"
         IQ[Interception Queue]
         BR[Batch Resolver]
         HPS[Hybrid Policy Server]
         CH[Context Hygiene]
-        ABA[Agent Behavioral Analytics]
+        STG["SQLiteThreatRepository<br/>(Concrete, No Abstraction)"]
     end
     
-    subgraph "Policy Evaluation Engines"
-        SG[Structural Gating<br/>YAML Rules]
-        SMG[Semantic Gating<br/>LLM Referee]
+    subgraph "Synchronous Decision Engines (<10ms)"
+        SG["Structural Gating<br/>YAML Rules + Regex"]
+        TSG_QUERY["Local SQLite Graph Query<br/>Cosine Similarity"]
     end
     
-    subgraph "External Intelligence"
-        GTI[GTI MCP<br/>VirusTotal/IOC]
-        CBM[codebase-memory-mcp<br/>AST Graph]
+    subgraph "Asynchronous Analysis (4.5s Polling Interval)"
+        ABA["Agent Behavioral Analytics<br/>(Non-blocking)"]
+        GEMINI_ASYNC["Gemini 1.5 Flash<br/>Async Polling Loop<br/>(15 RPM Free Tier)"]
     end
     
-    subgraph "Knowledge Store (SQLite WAL)"
-        TSG[Threat Signature Graph]
-        NODES[Nodes: Intent/Payload/Tool]
-        EDGES[Edges: SIMILAR_TO/MITIGATED_BY]
+    subgraph "MCP Boundary-Restricted Access"
+        CBM["codebase-memory-mcp<br/>(AST + Static Analysis Only)"]
+        GTI["GTI MCP<br/>(IOC Verification Only)<br/>(Async Analysis Only)"]
     end
     
-    subgraph "Evaluation & Telemetry"
-        METRICS[Metrics Calculator<br/>FRR/FPR/Evasion]
-        OT[OpenTelemetry Tracer<br/>Vibe Trajectory]
-        AGBOM[Runtime AgBOM]
+    subgraph "Persistent Storage (SQLite WAL)"
+        DB["SQLiteThreatRepository<br/>Nodes: Signatures + Intent<br/>Edges: SIMILAR_TO/MITIGATED_BY<br/>Indices: tool_name, last_matched"]
+    end
+    
+    subgraph "Telemetry & Metrics"
+        METRICS["Security Metrics<br/>FRR / Evasion Rate"]
+        OT["OpenTelemetry Tracer<br/>Vibe Trajectory"]
     end
     
     RA -->|Tool Call| THook
+    RA -->|Low-Level Event| AUDIT
     THook -->|Intercept| BCB
+    AUDIT -->|Log Event| DB
     BCB -->|Suspend Thread| IQ
     IQ -->|Batch Accumulation| BR
     BR -->|Sanitized Context| CH
     CH -->|Policy Query| HPS
     
     HPS -->|Fast Check| SG
-    HPS -->|Intent Analysis| SMG
-    
-    SG -->|Role/Environment Rules| HPS
-    SMG -->|Query IOC| GTI
-    SMG -->|Query AST| CBM
-    SMG -->|Check Similarity| TSG
-    
-    TSG --> NODES
-    TSG --> EDGES
+    HPS -->|Zero LLM API| TSG_QUERY
+    SG -->|YAML Rules| HPS
+    TSG_QUERY -->|Local Lookup| DB
+    TSG_QUERY -->|Verdict| HPS
     
     HPS -->|Verdict Array| BR
     BR -->|Resume/Block| BCB
     BCB -->|Allowed| THook
     BCB -->|Blocked| ABA
     
-    ABA -->|Write Signature| TSG
-    ABA -->|Score Drift| METRICS
-    ABA -->|Trace Event| OT
-    ABA -->|Update BOM| AGBOM
+    ABA -->|Write Signature| DB
+    ABA -->|Async Task| GEMINI_ASYNC
+    GEMINI_ASYNC -->|Query GTI| GTI
+    GEMINI_ASYNC -->|Query AST| CBM
+    GEMINI_ASYNC -->|Update Graph| DB
+    
+    DB -->|Metrics Export| METRICS
+    ABA -->|Trace Span| OT
     
     THook -->|Execute| RA
     
     style HPS fill:#ff6b6b
-    style TSG fill:#4ecdc4
-    style GTI fill:#ffe66d
+    style STG fill:#4ecdc4
+    style TSG_QUERY fill:#4ecdc4
+    style DB fill:#4ecdc4
+    style AUDIT fill:#ffe66d
+    style GEMINI_ASYNC fill:#ffd3b6
     style CBM fill:#a8e6cf
-    style METRICS fill:#ffd3b6
+    style GTI fill:#a8e6cf
 ```
+
+### Split-Inference Architecture: Synchronous vs. Asynchronous Tracks
+
+| Execution Track | Latency Target | Processing Engine | API Rate Limit | Invocation Trigger |
+| :--- | :--- | :--- | :--- | :--- |
+| **Synchronous (Interception)** | `<10ms` | SQLiteThreatRepository + Compiled Regex | **0 LLM API calls** | Every tool call & audit hook event. Must complete locally. |
+| **Asynchronous (Analysis)** | `4.5s Interval` | Gemini 1.5 Flash via Async Polling Loop | **15 RPM Free Tier** | Background polling thread analyzing quarantined cases & generating new signatures. Non-blocking. |
+
+**Critical Constraint:** The synchronous path (`<10ms`) uses **ZERO** external API calls. All decisions derive from:
+- Local SQLiteThreatRepository graph queries
+- YAML-based structural rules
+- Compiled regex patterns
+- Cosine similarity against cached vectors
+
+The asynchronous path executes in background, updating the repository with new signatures and refined threat intelligence without blocking tool execution.
 
 ## Main Execution Flow
 
@@ -139,6 +163,89 @@ sequenceDiagram
         ADK-->>RA: Return sanitized mock response
     end
 ```
+
+## Concrete Storage Architecture (No Abstraction Bloat)
+
+**Design Pattern:** Do not implement abstract storage interfaces (`ICacheProvider`, `AbstractStorageEngine`, etc.). This eliminates unnecessary indirection and keeps the codebase lean for the MVP.
+
+**Implementation:** Instantiate a singular, concrete `SQLiteThreatRepository` class with these responsibilities:
+- Direct SQLite WAL database management (`aiosqlite` connection pooling, max 10 connections)
+- Graph node insertion with atomic uniqueness enforcement (PRIMARY KEY + INSERT OR IGNORE)
+- Cosine similarity queries against stored signature vectors (target <10ms 99th percentile)
+- TTL-based and LFU-based eviction for stale signatures
+- Full-text search (FTS5) on payload patterns and attacker intent
+- Transactional writes for concurrent access during high-speed blocking events
+- In-memory buffer (capacity 100) for overflow during database lock contention
+
+**No factory patterns, no dependency injection frameworks, no repository interfaces.** Direct instantiation and usage throughout the codebase.
+
+## Precise MCP Routing & Boundaries
+
+Execution agents are strictly restricted from arbitrary tool usage via hardcoded routing boundaries:
+
+### Codebase Memory MCP Scope
+**Permitted Operations:**
+- AST parsing and structural dependency graph construction
+- Static data flow analysis (taint propagation, sanitization points)
+- Critical sink identification (SQL_QUERY, COMMAND_EXEC, FILE_WRITE, NETWORK_CALL)
+- Blast radius calculations for targeted code paths
+- Mitigation hint generation based on AST analysis
+
+**Prohibited Operations:**
+- General file dumping or arbitrary directory searches
+- Dynamic code execution or runtime introspection
+- Modification of application state
+- Access to files outside the target codebase scope
+
+### GTI MCP Scope
+**Permitted Operations (Asynchronous Analysis Loop Only):**
+- IOC reputation verification (IP addresses, domains, URLs, file hashes)
+- VirusTotal detection rate queries
+- Malware campaign identification and threat category extraction
+- Related IOC lookups and family association
+
+**Prohibited Operations:**
+- Synchronous (<10ms) tool-interception path queries (ZERO LLM API calls permitted)
+- Real-time blocking decisions (use local SQLiteThreatRepository only)
+- Arbitrary external API calls beyond IOC verification
+- Cross-domain enumeration or reconnaissance
+
+## Low-Level OS Interception via sys.addaudithook
+
+The Python runtime audit hook intercepts and validates low-level OS events before they reach the kernel, complementing the ADK `before_tool_callback`:
+
+```yaml
+AuditHookArchitecture:
+  Module: "sys.addaudithook"
+  
+  InterceptedEvents:
+    - event: "subprocess.Popen"
+      validation: "Validate executable path and arguments against active threat graph + blocked executable list"
+      onViolation: "PermissionError: Subprocess execution denied"
+      telemetry: "Write incident to SQLite WAL with timestamp and executable name"
+    
+    - event: "os.exec"
+      validation: "Block unauthorized privilege escalation or unauthorized shell spawns"
+      onViolation: "PermissionError: Direct shell execution denied"
+      telemetry: "Write incident to SQLite WAL with exception detail"
+    
+    - event: "socket.connect"
+      validation: "Verify target IP/Port against local SQLiteThreatRepository IOC blacklist"
+      onViolation: "PermissionError: Connection to malicious IOC blocked"
+      telemetry: "Write incident with IP/port pair and threat category"
+    
+    - event: "open"
+      validation: "Inspect file mode and path. Block write access to system-critical files (/etc/*, /root/*, .bashrc, .ssh/*)"
+      onViolation: "PermissionError: File write access denied"
+      telemetry: "Write incident with file path and requested mode"
+  
+  EnforcementPolicy:
+    OnViolation: "Raise PermissionError immediately and write incident telemetry to SQLite WAL"
+    ExecutionContext: "All violations route back to ADK before_tool_callback with verdict BLOCK"
+    LogLevel: "WARN for each violation with full event details and stack trace"
+```
+
+This ensures the rogue agent **cannot escape the ADK tool layer** via low-level OS calls—all execution paths ultimately pass through Blackwall's evaluation gates.
 
 ## Components and Interfaces
 
