@@ -59,7 +59,13 @@ You must return a single, valid JSON object matching this exact schema. Do not w
       "required": ["pattern", "target_scope", "severity"]
     }
   },
-  "required": ["verdict", "intent_analysis"]
+  "required": ["verdict", "intent_analysis"],
+  "if": {
+    "properties": { "verdict": { "enum": ["BLOCK", "QUARANTINE"] } }
+  },
+  "then": {
+    "required": ["threat_category", "generated_signature"]
+  }
 }
 
 # CANONICAL THREAT INTERCEPTION EXAMPLES (FEW-SHOT CALIBRATION)
