@@ -126,3 +126,80 @@ async def test_atomic_uniqueness_insert_or_ignore(repo: SQLiteThreatRepository) 
         row = await cursor.fetchone()
         assert row is not None
         assert row[0] == 5
+
+
+@pytest.mark.asyncio
+async def test_write_signature_similarity_vector_coercion(repo: SQLiteThreatRepository) -> None:
+    """Verify that similarityVector is coerced correctly into bytes."""
+    # 1. Test None similarity vector
+    sig_id_none = "sig_none"
+    sig_data_none = {
+        "signatureId": sig_id_none,
+        "attackerIntent": "test intent",
+        "payloadPattern": "pattern",
+        "targetTool": "tool",
+        "mitigationAction": "BLOCK",
+        "similarityVector": None,
+    }
+    await repo.writeSignature(sig_data_none)
+    async with repo.pool.connection() as conn:
+        cursor = await conn.execute(
+            "SELECT similarity_vector FROM signatures WHERE signature_id = ?",
+            (sig_id_none,),
+        )
+        row = await cursor.fetchone()
+        assert row is not None
+        assert row[0] is None
+
+    # 2. Test list similarity vector
+    sig_id_list = "sig_list"
+    vector_list = [0.1, 0.2, 0.3]
+    import array
+    expected_bytes = array.array("f", vector_list).tobytes()
+
+    sig_data_list = {
+        "signatureId": sig_id_list,
+        "attackerIntent": "test intent",
+        "payloadPattern": "pattern",
+        "targetTool": "tool",
+        "mitigationAction": "BLOCK",
+        "similarityVector": vector_list,
+    }
+    await repo.writeSignature(sig_data_list)
+    async with repo.pool.connection() as conn:
+        cursor = await conn.execute(
+            "SELECT similarity_vector FROM signatures WHERE signature_id = ?",
+            (sig_id_list,),
+        )
+        row = await cursor.fetchone()
+        assert row is not None
+        assert row[0] == expected_bytes
+
+    # 3. Test object with tobytes() method (mimicking numpy array)
+    class MockNumpyArray:
+        def __init__(self, data: list[float]):
+            self.data = data
+        def tobytes(self) -> bytes:
+            import array
+            return array.array("f", self.data).tobytes()
+
+    sig_id_numpy = "sig_numpy"
+    mock_array = MockNumpyArray(vector_list)
+    sig_data_numpy = {
+        "signatureId": sig_id_numpy,
+        "attackerIntent": "test intent",
+        "payloadPattern": "pattern",
+        "targetTool": "tool",
+        "mitigationAction": "BLOCK",
+        "similarityVector": mock_array,
+    }
+    await repo.writeSignature(sig_data_numpy)
+    async with repo.pool.connection() as conn:
+        cursor = await conn.execute(
+            "SELECT similarity_vector FROM signatures WHERE signature_id = ?",
+            (sig_id_numpy,),
+        )
+        row = await cursor.fetchone()
+        assert row is not None
+        assert row[0] == expected_bytes
+
