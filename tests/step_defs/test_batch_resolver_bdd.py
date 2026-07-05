@@ -133,41 +133,44 @@ def verify_token_reduction(state):
 
 @given("a Batch Resolver is initialized with a local rate limiter")
 def init_rate_limiter_resolver(state):
-    pass
+    state.client = create_mock_client()
+    state.resolver = BatchResolver(client=state.client)
 
 
 @given("the rate limiter has a capacity of 5 tokens and no refill")
 def init_limiter_capacity(state):
-    state.rate_limiter = TokenBucketRateLimiter(capacity=5.0, refill_rate=0.0)
+    state.resolver.rate_limiter = TokenBucketRateLimiter(capacity=5.0, refill_rate=0.0)
 
 
 @when("5 requests are made to the rate limiter")
 def make_5_requests(state):
+    state.context = ToolCallContext(tool_name="tool", arguments={})
+    token = CallbackToken(thread_id="thread-1", tool_context=state.context)
     for _ in range(5):
-        if run_async(state.rate_limiter.consume(1.0)):
-            state.allowed_calls += 1
-        else:
-            state.blocked_calls += 1
+        response = run_async(state.resolver.process_batch([token]))
+        state.responses.append(response)
 
 
 @then("all 5 requests must be allowed")
 def verify_all_allowed(state):
-    assert state.allowed_calls == 5
-    assert state.blocked_calls == 0
+    assert len(state.responses) == 5
+    for resp in state.responses:
+        assert resp.verdicts[0].decision == VerdictDecision.ALLOW
 
 
 @when("a 6th request is made")
 def make_6th_request(state):
-    if run_async(state.rate_limiter.consume(1.0)):
-        state.allowed_calls += 1
-    else:
-        state.blocked_calls += 1
+    state.context = ToolCallContext(tool_name="tool", arguments={})
+    token = CallbackToken(thread_id="thread-1", tool_context=state.context)
+    with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        state.sleep_mock = mock_sleep
+        state.response = run_async(state.resolver.process_batch([token]))
 
 
 @then("the 6th request must be blocked by the rate limiter")
 def verify_6th_blocked(state):
-    assert state.allowed_calls == 5
-    assert state.blocked_calls == 1
+    assert state.response.verdicts[0].decision == VerdictDecision.QUARANTINE
+    assert "Rate limit" in state.response.verdicts[0].reasoning
 
 
 # --- Scenario: Rate limit exhaustion triggers fail-closed quarantine ---
