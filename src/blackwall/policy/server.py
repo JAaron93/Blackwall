@@ -67,6 +67,7 @@ class HybridPolicyServer:
         """
         Evaluates multiple contexts in parallel.
         On rate limits or timeout, returns QUARANTINE verdicts (fail-closed).
+        Individual item failures are isolated; successful results are preserved.
         """
         if len(contexts) != len(env_roles):
             raise ValueError("Mismatched contexts and environment roles lengths")
@@ -76,34 +77,44 @@ class HybridPolicyServer:
             for ctx, role in zip(contexts, env_roles)
         ]
 
-        try:
-            # Execute all evaluations in parallel
-            results = await asyncio.gather(*tasks)
-            return list(results)
-        except (APIRateLimitException, asyncio.TimeoutError) as e:
-            logger.warning(
-                "Fail-closed triggered during batch evaluation",
-                error=type(e).__name__,
-                details=str(e),
-            )
-            return [
-                Verdict(
-                    decision=VerdictDecision.QUARANTINE,
-                    reasoning=f"Fail-closed: {str(e)}",
-                    confidence_score=0.5,
+        # Execute all evaluations in parallel, capturing per-item exceptions
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Process results, converting exceptions to QUARANTINE verdicts for affected items
+        verdicts = []
+        for i, result in enumerate(results):
+            if isinstance(result, (APIRateLimitException, asyncio.TimeoutError)):
+                logger.warning(
+                    "Fail-closed triggered for item in batch",
+                    item_index=i,
+                    error=type(result).__name__,
+                    details=str(result),
                 )
-                for _ in contexts
-            ]
-        except Exception as e:
-            logger.error("Unexpected error in batch evaluation", error=str(e))
-            return [
-                Verdict(
-                    decision=VerdictDecision.QUARANTINE,
-                    reasoning="Unexpected error in semantic evaluation",
-                    confidence_score=0.5,
+                verdicts.append(
+                    Verdict(
+                        decision=VerdictDecision.QUARANTINE,
+                        reasoning=f"Fail-closed: {str(result)}",
+                        confidence_score=0.5,
+                    )
                 )
-                for _ in contexts
-            ]
+            elif isinstance(result, Exception):
+                logger.error(
+                    "Unexpected error evaluating item in batch",
+                    item_index=i,
+                    error=str(result),
+                )
+                verdicts.append(
+                    Verdict(
+                        decision=VerdictDecision.QUARANTINE,
+                        reasoning="Unexpected error in semantic evaluation",
+                        confidence_score=0.5,
+                    )
+                )
+            else:
+                # Successful evaluation
+                verdicts.append(result)
+
+        return verdicts
 
     async def getCurrentState(self) -> PolicyServerState:
         """
