@@ -150,6 +150,14 @@ class SQLiteThreatRepository:
                 );
                 """)
 
+                # In-Flight Background Tasks table
+                await conn.execute("""
+                CREATE TABLE IF NOT EXISTS in_flight_tasks (
+                    task_id TEXT PRIMARY KEY,
+                    created_at INTEGER NOT NULL
+                );
+                """)
+
             self._schema_initialized = True
 
     async def close(self) -> None:
@@ -366,3 +374,90 @@ class SQLiteThreatRepository:
                         "attacker_intent": intent,
                     }
         return None
+
+    async def add_in_flight_task(self, task_id: str) -> None:
+        """Adds a task ID to the in-flight list."""
+        await self.initialize()
+        async with self.pool.connection() as conn:
+            await conn.execute(
+                "INSERT OR REPLACE INTO in_flight_tasks (task_id, created_at) VALUES (?, ?)",
+                (task_id, int(time.time()))
+            )
+
+    async def remove_in_flight_task(self, task_id: str) -> None:
+        """Removes a task ID from the in-flight list."""
+        await self.initialize()
+        async with self.pool.connection() as conn:
+            await conn.execute("DELETE FROM in_flight_tasks WHERE task_id = ?", (task_id,))
+
+    async def is_task_valid(self, task_id: str) -> bool:
+        """Checks if a task ID is valid and not stale (> 12 hours old)."""
+        await self.initialize()
+        async with self.pool.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT created_at FROM in_flight_tasks WHERE task_id = ?",
+                (task_id,)
+            )
+            row = await cursor.fetchone()
+            if not row:
+                return False
+            created_at = row[0]
+            # 12 hours = 43200 seconds
+            if time.time() - created_at > 43200:
+                await conn.execute("DELETE FROM in_flight_tasks WHERE task_id = ?", (task_id,))
+                return False
+            return True
+
+    async def write_signatures_batch(self, signatures: List[Dict[str, Any]]) -> None:
+        """Writes multiple threat signatures in a single atomic transaction."""
+        await self.initialize()
+        
+        async with self.pool.connection() as conn:
+            # aiosqlite connection executes in auto-commit mode by default unless transaction is started
+            await conn.execute("BEGIN TRANSACTION")
+            try:
+                for signature_data in signatures:
+                    raw_sig_id = signature_data.get("signatureId")
+                    sig_id = str(raw_sig_id) if raw_sig_id is not None else str(uuid.uuid4())
+                    
+                    created_at = int(signature_data.get("createdAt", time.time()))
+                    
+                    _raw_last_matched_at = signature_data.get("lastMatchedAt")
+                    last_matched_at = int(_raw_last_matched_at) if _raw_last_matched_at is not None else None
+                    
+                    attacker_intent = str(signature_data.get("attackerIntent", ""))
+                    payload_pattern = str(signature_data.get("payloadPattern", ""))
+                    target_tool = str(signature_data.get("targetTool", ""))
+                    target_sink = str(signature_data.get("targetSink")) if signature_data.get("targetSink") is not None else None
+                    
+                    raw_chain = signature_data.get("dependencyChain")
+                    dependency_chain = json.dumps(raw_chain) if raw_chain is not None else None
+                    
+                    mitigation_action = str(signature_data.get("mitigationAction", ""))
+                    match_count = int(signature_data.get("matchCount", 0))
+                    false_positive_count = int(signature_data.get("falsePositiveCount", 0))
+                    
+                    similarity_vector = signature_data.get("similarityVector")
+                    vector_blob = json.dumps(similarity_vector).encode("utf-8") if similarity_vector is not None else None
+                    metadata_str = json.dumps(signature_data.get("metadata", {}))
+
+                    await conn.execute(
+                        """
+                        INSERT OR REPLACE INTO signatures (
+                            signature_id, created_at, last_matched_at, attacker_intent, payload_pattern,
+                            target_tool, target_sink, dependency_chain, mitigation_action,
+                            match_count, false_positive_count, similarity_vector, metadata
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            sig_id, created_at, last_matched_at, attacker_intent, payload_pattern,
+                            target_tool, target_sink, dependency_chain, mitigation_action,
+                            match_count, false_positive_count, vector_blob, metadata_str,
+                        ),
+                    )
+                await conn.commit()
+            except Exception as e:
+                await conn.rollback()
+                logger.error(f"Failed to batch write signatures: {e}")
+                raise
