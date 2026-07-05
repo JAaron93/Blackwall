@@ -181,3 +181,37 @@ class TestWebhookListener(AioHTTPTestCase):
             cursor = await conn.execute("SELECT payload_pattern FROM signatures")
             row = await cursor.fetchone()
             self.assertEqual(row[0], "slow_pattern")
+
+    @unittest_run_loop
+    async def test_webhook_deduplication(self):
+        # We will write the same signature twice (once in first batch, once in second batch)
+        # And verify that it doesn't create duplicate rows, but updates instead.
+        payload = {
+            "task_id": self.task_id,
+            "threat_signature_candidates": [
+                {"payloadPattern": "dup_pattern", "attackerIntent": "dup_intent", "targetTool": "tool1"}
+            ]
+        }
+        payload_bytes = json.dumps(payload).encode("utf-8")
+        sig = self.generate_signature(payload_bytes)
+        headers = {"X-Webhook-Signature": sig}
+        
+        # First submission
+        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+        self.assertEqual(resp.status, 202)
+        await asyncio.sleep(0.1)
+
+        # Make task valid again for second run
+        await self.db.add_in_flight_task(self.task_id)
+
+        # Second submission of same payload
+        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+        self.assertEqual(resp.status, 202)
+        await asyncio.sleep(0.1)
+
+        # Verify only 1 row exists in DB
+        async with self.db.pool.connection() as conn:
+            cursor = await conn.execute("SELECT COUNT(*) FROM signatures WHERE payload_pattern = 'dup_pattern'")
+            row = await cursor.fetchone()
+            self.assertEqual(row[0], 1)
+

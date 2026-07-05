@@ -417,17 +417,22 @@ class SQLiteThreatRepository:
             await conn.execute("BEGIN TRANSACTION")
             try:
                 for signature_data in signatures:
+                    attacker_intent = str(signature_data.get("attackerIntent", ""))
+                    payload_pattern = str(signature_data.get("payloadPattern", ""))
+                    target_tool = str(signature_data.get("targetTool", ""))
+
                     raw_sig_id = signature_data.get("signatureId")
-                    sig_id = str(raw_sig_id) if raw_sig_id is not None else str(uuid.uuid4())
+                    if raw_sig_id is not None:
+                        sig_id = str(raw_sig_id)
+                    else:
+                        # Derive stable deduplication key for recurring signature content
+                        sig_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{target_tool}:{payload_pattern}:{attacker_intent}"))
                     
                     created_at = int(signature_data.get("createdAt", time.time()))
                     
                     _raw_last_matched_at = signature_data.get("lastMatchedAt")
                     last_matched_at = int(_raw_last_matched_at) if _raw_last_matched_at is not None else None
                     
-                    attacker_intent = str(signature_data.get("attackerIntent", ""))
-                    payload_pattern = str(signature_data.get("payloadPattern", ""))
-                    target_tool = str(signature_data.get("targetTool", ""))
                     target_sink = str(signature_data.get("targetSink")) if signature_data.get("targetSink") is not None else None
                     
                     raw_chain = signature_data.get("dependencyChain")
