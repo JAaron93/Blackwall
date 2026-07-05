@@ -34,17 +34,15 @@ def test_WebhookListener_no_sleep():
     assert "time.sleep" not in source_process, "Polling pattern found in _process_payload!"
 
 async def test_submitBackgroundAnalysis_non_blocking():
-    """Asserts submitBackgroundAnalysis returns without blocking (completes in <10ms)."""
+    """Asserts submitBackgroundAnalysis returns without blocking (completes in <10ms) using aio path."""
     mock_repo = AsyncMock()
+    # Create a mock with aio attribute to test the async client.aio path
     mock_client = MagicMock()
     mock_interaction = MagicMock()
     mock_interaction.id = "test-task-123"
-    
-    # Mock the sync interactions.create method (used via to_thread) or async aio
-    if hasattr(mock_client, 'aio'):
-        mock_client.aio.interactions.create = AsyncMock(return_value=mock_interaction)
-    else:
-        mock_client.interactions.create.return_value = mock_interaction
+
+    # Explicitly set up the aio path
+    mock_client.aio.interactions.create = AsyncMock(return_value=mock_interaction)
 
     analytics = BackgroundSubmitterAnalytics(repo=mock_repo, client=mock_client)
 
@@ -58,9 +56,37 @@ async def test_submitBackgroundAnalysis_non_blocking():
     start_time = time.time()
     task_id = await analytics.submitBackgroundAnalysis(event)
     end_time = time.time()
-    
+
     latency_ms = (end_time - start_time) * 1000
     assert task_id == "test-task-123"
+    assert latency_ms < 10.0, f"submitBackgroundAnalysis blocked for {latency_ms}ms! Must be <10ms."
+
+async def test_submitBackgroundAnalysis_to_thread_fallback():
+    """Asserts submitBackgroundAnalysis uses asyncio.to_thread fallback when client lacks aio attribute."""
+    mock_repo = AsyncMock()
+    # Create a spec-limited mock without aio attribute to force asyncio.to_thread path
+    mock_client = MagicMock(spec=['interactions'])
+    mock_interaction = MagicMock()
+    mock_interaction.id = "test-task-456"
+
+    # Mock the sync interactions.create method (used via to_thread)
+    mock_client.interactions.create.return_value = mock_interaction
+
+    analytics = BackgroundSubmitterAnalytics(repo=mock_repo, client=mock_client)
+
+    event = SecurityEvent(
+        event_type="INTERCEPTION",
+        tool_context=ToolCallContext(tool_name="test", arguments={}),
+        verdict=Verdict(decision=VerdictDecision.BLOCK, reasoning="Test", confidence_score=1.0),
+        agent_id="agent-1"
+    )
+
+    start_time = time.time()
+    task_id = await analytics.submitBackgroundAnalysis(event)
+    end_time = time.time()
+
+    latency_ms = (end_time - start_time) * 1000
+    assert task_id == "test-task-456"
     assert latency_ms < 10.0, f"submitBackgroundAnalysis blocked for {latency_ms}ms! Must be <10ms."
 
 async def test_webhook_integration_end_to_end():

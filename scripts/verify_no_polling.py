@@ -13,7 +13,7 @@ def main():
     patterns = [
         (re.compile(r"asyncio\.sleep\s*\("), "asyncio.sleep()"),
         (re.compile(r"time\.sleep\s*\("), "time.sleep()"),
-        (re.compile(r"asyncio\.create_task\([^)]*name=['\"].*poll.*['\"][^)]*\)"), "asyncio.create_task with 'poll' name"),
+        (re.compile(r"asyncio\.create_task\(.*name=['\"].*poll.*['\"]"), "asyncio.create_task with 'poll' name"),
     ]
 
     approved_locations = {
