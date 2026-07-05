@@ -11,6 +11,12 @@ Checks required by tasks.md §12:
   4. Batch efficiency: ≥ 80 % of API calls carry batch size ≥ 3.
   5. Semantic evaluation latency < 300 ms (99th percentile, mocked MCP).
   6. verify_no_polling.py exits 0 (no polling patterns in analysis path).
+  7. Batch resolver delivers correct API batch sizes without splitting.
+  8. BLOCK verdict propagates correctly through callback resolution.
+  9. Rate limiter returns QUARANTINE verdicts when capacity exhausted.
+
+Note: This integration test uses pytest/pytest-asyncio, consistent with sibling
+integration tests, as an intentional exception to any pytest-bdd guideline.
 """
 
 from __future__ import annotations
@@ -321,7 +327,7 @@ async def test_batch_efficiency_threshold() -> None:
     queue = InterceptionQueue()
     batch_sizes: List[int] = []
 
-    # Pre-populate the queue with 30 tokens in groups of 5–10
+    # Pre-populate the queue with 30 tokens in groups of 5-10
     group_sizes = [5, 8, 7, 6, 4]  # 30 total
 
     for g, group_size in enumerate(group_sizes):
@@ -340,7 +346,7 @@ async def test_batch_efficiency_threshold() -> None:
             break
         batch_sizes.append(len(batch))
 
-    assert batch_sizes, "No batches were produced – check enqueue logic."
+    assert batch_sizes, "No batches were produced - check enqueue logic."
 
     large_batches = sum(1 for s in batch_sizes if s >= 3)
     efficiency = large_batches / len(batch_sizes)
