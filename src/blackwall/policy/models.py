@@ -2,6 +2,15 @@ import re
 from enum import Enum
 from typing import Dict, List, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
+from blackwall.models import VerdictDecision
+
+
+class GateResult(BaseModel):
+    verdict: VerdictDecision
+    reason: str
+    threat_score: float = Field(..., ge=0.0, le=1.0)
+    signature_id: Optional[str] = None
+
 
 
 class StructuralAction(str, Enum):
