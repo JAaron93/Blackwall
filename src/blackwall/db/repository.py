@@ -292,7 +292,9 @@ class SQLiteThreatRepository:
                 for r in rows
             ]
 
-    async def cache_gti_response(self, indicator: str, indicator_type: str, response: Dict[str, Any]) -> None:
+    async def cache_gti_response(
+        self, indicator: str, indicator_type: str, response: Dict[str, Any]
+    ) -> None:
         await self.initialize()
         async with self.pool.connection() as conn:
             await conn.execute(
@@ -303,7 +305,9 @@ class SQLiteThreatRepository:
                 (indicator, indicator_type, json.dumps(response), int(time.time())),
             )
 
-    async def get_cached_gti_response(self, indicator: str, indicator_type: str) -> Optional[Dict[str, Any]]:
+    async def get_cached_gti_response(
+        self, indicator: str, indicator_type: str
+    ) -> Optional[Dict[str, Any]]:
         await self.initialize()
         async with self.pool.connection() as conn:
             cursor = await conn.execute(
@@ -318,7 +322,10 @@ class SQLiteThreatRepository:
             # 24-hour TTL (86400 seconds)
             if time.time() - cached_at > 86400:
                 # Expired. Delete from cache.
-                await conn.execute("DELETE FROM gti_cache WHERE indicator = ? AND indicator_type = ?", (indicator, indicator_type))
+                await conn.execute(
+                    "DELETE FROM gti_cache WHERE indicator = ? AND indicator_type = ?",
+                    (indicator, indicator_type),
+                )
                 return None
 
             try:

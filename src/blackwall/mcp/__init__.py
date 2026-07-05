@@ -1,6 +1,7 @@
 """
 MCP client integrations for Blackwall.
 """
+
 from blackwall.mcp.codebase_memory import (
     CodebaseMemoryClient,
     CriticalSinkType,
@@ -31,5 +32,3 @@ __all__ = [
     "GTIRouter",
     "MCPRoutingViolation",
 ]
-
-

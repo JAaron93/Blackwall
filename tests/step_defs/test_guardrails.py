@@ -25,9 +25,13 @@ import pytest
 import structlog
 from pytest_bdd import given, scenario, then, when, parsers
 
-
 from blackwall.audit.manager import AuditHookManager
 from blackwall.db.repository import SQLiteThreatRepository
+from blackwall.mcp.mcp_routing import (
+    CodebaseMemoryRouter,
+    GTIRouter,
+    MCPRoutingViolation,
+)
 
 # ============================================================================
 # Fixtures
@@ -314,7 +318,6 @@ def test_bdd_mcp_router_detects_escape_attempt() -> None:
 
 # --- Step definitions (MCP Routing) -----------------------------------------
 
-from blackwall.mcp.mcp_routing import CodebaseMemoryRouter, GTIRouter, MCPRoutingViolation
 
 @pytest.fixture
 def mcp_bdd_context() -> dict:
@@ -326,7 +329,9 @@ def mcp_bdd_context() -> dict:
     }
 
 
-@given("a CodebaseMemoryRouter with a mock CBM client", target_fixture="mcp_bdd_context")
+@given(
+    "a CodebaseMemoryRouter with a mock CBM client", target_fixture="mcp_bdd_context"
+)
 def given_cbm_router_step(mock_cbm_client) -> dict:
     router = CodebaseMemoryRouter(mock_cbm_client)
     return {
@@ -382,7 +387,6 @@ def when_operation_with_name_routed_step(mcp_bdd_context, name) -> None:
         mcp_bdd_context["exception"] = e
 
 
-
 @then("the operation should be permitted")
 def then_operation_permitted_step(mcp_bdd_context) -> None:
     assert mcp_bdd_context["exception"] is None
@@ -410,5 +414,3 @@ def then_error_contains_step(mcp_bdd_context, expected_str) -> None:
     exc = mcp_bdd_context["exception"]
     assert exc is not None
     assert expected_str in str(exc)
-
-

@@ -51,17 +51,23 @@ async def test_cbm_router_permits_valid_ops(mock_cbm_client: AsyncMock) -> None:
     # Test query_dependency_chain
     res = await router.route("query_dependency_chain", function_name="test_func")
     assert res == "dep_chain_data"
-    mock_cbm_client.queryDependencyChain.assert_called_once_with(functionName="test_func")
+    mock_cbm_client.queryDependencyChain.assert_called_once_with(
+        functionName="test_func"
+    )
 
     # Test identify_critical_sinks
     res = await router.route("identify_critical_sinks", function_name="test_func")
     assert res == "sinks_data"
-    mock_cbm_client.identifyCriticalSinks.assert_called_once_with(moduleName="test_func")
+    mock_cbm_client.identifyCriticalSinks.assert_called_once_with(
+        moduleName="test_func"
+    )
 
     # Test trace_data_flow
     res = await router.route("trace_data_flow", source="src", sink="snk")
     assert res == "data_flow_data"
-    mock_cbm_client.traceDataFlow.assert_called_once_with(variableName="src", context="snk")
+    mock_cbm_client.traceDataFlow.assert_called_once_with(
+        variableName="src", context="snk"
+    )
 
     # Test get_blast_radius
     res = await router.route("get_blast_radius", function_name="test_func")
@@ -76,7 +82,7 @@ async def test_cbm_router_blocks_invalid_ops(mock_cbm_client: AsyncMock) -> None
 
     with pytest.raises(MCPRoutingViolation) as exc_info:
         await router.route("list_files", directory="/root")
-    
+
     assert exc_info.value.router == "CodebaseMemoryRouter"
     assert exc_info.value.operation == "list_files"
     assert "not in permitted list" in str(exc_info.value)
@@ -129,9 +135,7 @@ async def test_gti_router_permits_async_contexts(mock_gti_client: AsyncMock) -> 
 
     # ASYNC_ANALYSIS
     res = await router.route(
-        GTIRouter.ExecutionContext.ASYNC_ANALYSIS,
-        "lookup_ip",
-        ip="192.168.1.1"
+        GTIRouter.ExecutionContext.ASYNC_ANALYSIS, "lookup_ip", ip="192.168.1.1"
     )
     assert res == "ip_data"
     mock_gti_client.lookup_ip.assert_called_once_with(ip="192.168.1.1")
@@ -140,7 +144,7 @@ async def test_gti_router_permits_async_contexts(mock_gti_client: AsyncMock) -> 
     res = await router.route(
         GTIRouter.ExecutionContext.BATCH_RESOLUTION,
         "lookup_url",
-        url="http://malicious.com"
+        url="http://malicious.com",
     )
     assert res == "url_data"
     mock_gti_client.lookup_url.assert_called_once_with(url="http://malicious.com")
@@ -152,9 +156,7 @@ async def test_gti_router_blocks_sync_context(mock_gti_client: AsyncMock) -> Non
 
     with pytest.raises(MCPRoutingViolation) as exc_info:
         await router.route(
-            GTIRouter.ExecutionContext.SYNC_INTERCEPTION,
-            "lookup_ip",
-            ip="192.168.1.1"
+            GTIRouter.ExecutionContext.SYNC_INTERCEPTION, "lookup_ip", ip="192.168.1.1"
         )
     assert "forbidden" in str(exc_info.value)
     mock_gti_client.lookup_ip.assert_not_called()
@@ -168,7 +170,7 @@ async def test_gti_router_blocks_invalid_ops(mock_gti_client: AsyncMock) -> None
         await router.route(
             GTIRouter.ExecutionContext.ASYNC_ANALYSIS,
             "delete_indicators",
-            indicators=["192.168.1.1"]
+            indicators=["192.168.1.1"],
         )
     assert "not permitted on GTI router" in str(exc_info.value)
 
@@ -188,7 +190,8 @@ async def test_router_logging_decisions(
         # Permitted logs at DEBUG
         await router.route("query_dependency_chain", function_name="test_func")
         assert any(
-            record.levelname == "DEBUG" and "allowed and routed 'query_dependency_chain'" in record.message
+            record.levelname == "DEBUG"
+            and "allowed and routed 'query_dependency_chain'" in record.message
             for record in caplog.records
         )
 

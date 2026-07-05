@@ -43,7 +43,9 @@ class MCPRoutingViolation(RuntimeError):
         super().__init__(f"[{router}] Blocked '{operation}': {reason}")
 
 
-def _detect_escape_attempt(router_name: str, operation: str, kwargs: dict[str, Any]) -> None:
+def _detect_escape_attempt(
+    router_name: str, operation: str, kwargs: dict[str, Any]
+) -> None:
     """Helper to detect potential escape attempts in operation name and arguments."""
     # 1. Canonicalise and check operation name
     canonical_op = operation.strip().lower()
@@ -64,12 +66,12 @@ def _detect_escape_attempt(router_name: str, operation: str, kwargs: dict[str, A
     for key, val in kwargs.items():
         if isinstance(val, str):
             if any(char in val for char in ARG_INVALID_CHARS):
-                msg = f"[ESCAPE_ATTEMPT] Argument '{key}' contains restricted characters: {val}"
+                msg = f"[ESCAPE_ATTEMPT] Argument '{key}' contains restricted characters: <redacted>"
                 logger.warning(msg)
                 raise MCPRoutingViolation(router_name, operation, msg)
             val_lower = val.lower()
             if any(kw in val_lower for kw in DENY_KEYWORDS):
-                msg = f"[ESCAPE_ATTEMPT] Argument '{key}' contains restricted keywords: {val}"
+                msg = f"[ESCAPE_ATTEMPT] Argument '{key}' contains restricted keywords: <redacted>"
                 logger.warning(msg)
                 raise MCPRoutingViolation(router_name, operation, msg)
 
@@ -146,8 +148,6 @@ class CodebaseMemoryRouter:
             raise MCPRoutingViolation("CodebaseMemoryRouter", operation, reason)
 
 
-
-
 class GTIRouter:
     """Restricts GTI MCP queries to the asynchronous analysis path only.
 
@@ -178,7 +178,9 @@ class GTIRouter:
     def __init__(self, client: GTIClient) -> None:
         self.client = client
 
-    async def route(self, context: ExecutionContext, operation: str, **kwargs: Any) -> Any:
+    async def route(
+        self, context: ExecutionContext, operation: str, **kwargs: Any
+    ) -> Any:
         """Validate execution context and operation, then delegate to GTIClient."""
         _detect_escape_attempt("GTIRouter", operation, kwargs)
         self._validate_context(context, operation)
@@ -186,16 +188,21 @@ class GTIRouter:
 
         # Delegate execution to client method dynamically
         method = getattr(self.client, operation)
-        logger.debug("GTIRouter allowed and routed '%s' in context '%s'", operation, context.value)
+        logger.debug(
+            "GTIRouter allowed and routed '%s' in context '%s'",
+            operation,
+            context.value,
+        )
         return await method(**kwargs)
 
     def _validate_context(self, context: ExecutionContext, operation: str) -> None:
         """Raise MCPRoutingViolation if context is not permitted."""
         if context not in self.PERMITTED_CONTEXTS:
-            reason = f"Execution context '{context.value}' is forbidden."
+            # Safely format context value even if passed as plain string
+            context_str = context.value if hasattr(context, "value") else str(context)
+            reason = f"Execution context '{context_str}' is forbidden."
             logger.warning("GTIRouter blocked '%s': %s", operation, reason)
             raise MCPRoutingViolation("GTIRouter", operation, reason)
-
 
     def _validate_operation(self, operation: str) -> None:
         """Raise MCPRoutingViolation if operation is not in PERMITTED_OPS."""

@@ -1,16 +1,13 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from blackwall.mcp.codebase_memory import (
     CodebaseMemoryClient,
     CriticalSinkType,
     CriticalSink,
-    DependencyChain,
-    DataFlowPath,
     BlastRadiusIsolation,
-    BlastRadiusReport,
 )
+
 
 @pytest.mark.asyncio
 async def test_dependency_chain_query():
@@ -18,7 +15,7 @@ async def test_dependency_chain_query():
     Test dependency chain query returns complete call path.
     """
     client = CodebaseMemoryClient()
-    
+
     # Test existing mock target
     dep_chain = await client.queryDependencyChain("ProcessOrder")
     assert dep_chain.rootFunction == "ProcessOrder"
@@ -50,29 +47,29 @@ async def test_critical_sink_detection():
             functionName="query_db",
             modulePath="src/db.py",
             isUnsafe=True,
-            mitigationHint="SQL hint"
+            mitigationHint="SQL hint",
         ),
         CriticalSink(
             sinkType=CriticalSinkType.COMMAND_EXEC,
             functionName="run_cmd",
             modulePath="src/shell.py",
             isUnsafe=False,
-            mitigationHint="Command hint"
+            mitigationHint="Command hint",
         ),
         CriticalSink(
             sinkType=CriticalSinkType.FILE_WRITE,
             functionName="write_log",
             modulePath="src/io.py",
             isUnsafe=True,
-            mitigationHint="File hint"
+            mitigationHint="File hint",
         ),
         CriticalSink(
             sinkType=CriticalSinkType.NETWORK_CALL,
             functionName="send_http",
             modulePath="src/net.py",
             isUnsafe=False,
-            mitigationHint="Network hint"
-        )
+            mitigationHint="Network hint",
+        ),
     ]
     client.set_mock_data("identifyCriticalSinks", "TestModule", sinks)
 
@@ -95,15 +92,15 @@ def test_unsafe_sink_identification():
             functionName="unsafe_sql",
             modulePath="src/db.py",
             isUnsafe=True,
-            mitigationHint="SQL hint"
+            mitigationHint="SQL hint",
         ),
         CriticalSink(
             sinkType=CriticalSinkType.COMMAND_EXEC,
             functionName="safe_cmd",
             modulePath="src/shell.py",
             isUnsafe=False,
-            mitigationHint="Command hint"
-        )
+            mitigationHint="Command hint",
+        ),
     ]
 
     unsafe_sinks = client.identifyUnsafeSinks(sinks)

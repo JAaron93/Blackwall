@@ -6,7 +6,6 @@ to verify that routing boundaries are correctly enforced.
 
 from __future__ import annotations
 
-import logging
 from unittest.mock import AsyncMock
 
 import pytest
@@ -52,7 +51,7 @@ async def test_synchronous_path_blocks_gti_queries(mock_gti_client: AsyncMock) -
         await gti_router.route(
             GTIRouter.ExecutionContext.SYNC_INTERCEPTION,
             "lookup_ip",
-            ip="198.51.100.12"
+            ip="198.51.100.12",
         )
 
     assert exc_info.value.router == "GTIRouter"
@@ -62,7 +61,9 @@ async def test_synchronous_path_blocks_gti_queries(mock_gti_client: AsyncMock) -
 
 
 @pytest.mark.asyncio
-async def test_async_analysis_path_allows_gti_queries(mock_gti_client: AsyncMock) -> None:
+async def test_async_analysis_path_allows_gti_queries(
+    mock_gti_client: AsyncMock,
+) -> None:
     """Integration simulation: The background async evaluation loop resolves
 
     the threat reputation of an extracted IP indicator.
@@ -71,9 +72,7 @@ async def test_async_analysis_path_allows_gti_queries(mock_gti_client: AsyncMock
     gti_router = GTIRouter(mock_gti_client)
 
     res = await gti_router.route(
-        GTIRouter.ExecutionContext.ASYNC_ANALYSIS,
-        "lookup_ip",
-        ip="198.51.100.12"
+        GTIRouter.ExecutionContext.ASYNC_ANALYSIS, "lookup_ip", ip="198.51.100.12"
     )
 
     assert res == "mock_gti_resp"
@@ -86,7 +85,9 @@ async def test_async_analysis_path_allows_gti_queries(mock_gti_client: AsyncMock
 
 
 @pytest.mark.asyncio
-async def test_attack_simulation_cbm_operations(real_cbm_client: CodebaseMemoryClient) -> None:
+async def test_attack_simulation_cbm_operations(
+    real_cbm_client: CodebaseMemoryClient,
+) -> None:
     """Simulates adversarial attempts to bypass structural sandbox.
 
     Verifies that the CodebaseMemoryRouter blocks various escape attempts.
@@ -110,7 +111,9 @@ async def test_attack_simulation_cbm_operations(real_cbm_client: CodebaseMemoryC
 
     # Attack 4: Rogue agent passes malicious command payload in keyword arguments
     with pytest.raises(MCPRoutingViolation) as exc_info:
-        await cbm_router.route("query_dependency_chain", function_name="eval(import('os').system('id'))")
+        await cbm_router.route(
+            "query_dependency_chain", function_name="eval(import('os').system('id'))"
+        )
     assert "[ESCAPE_ATTEMPT]" in str(exc_info.value)
 
 
@@ -127,7 +130,7 @@ async def test_attack_simulation_gti_operations(mock_gti_client: AsyncMock) -> N
         await gti_router.route(
             GTIRouter.ExecutionContext.ASYNC_ANALYSIS,
             "lookup_ip",
-            ip="198.51.100.24; cat /etc/passwd"
+            ip="198.51.100.24; cat /etc/passwd",
         )
     assert "[ESCAPE_ATTEMPT]" in str(exc_info.value)
     mock_gti_client.lookup_ip.assert_not_called()
@@ -137,7 +140,7 @@ async def test_attack_simulation_gti_operations(mock_gti_client: AsyncMock) -> N
         await gti_router.route(
             GTIRouter.ExecutionContext.ASYNC_ANALYSIS,
             "lookup_url",
-            url="http://malicious.com?q=__import__('subprocess').run('whoami')"
+            url="http://malicious.com?q=__import__('subprocess').run('whoami')",
         )
     assert "[ESCAPE_ATTEMPT]" in str(exc_info.value)
 
@@ -148,7 +151,9 @@ async def test_attack_simulation_gti_operations(mock_gti_client: AsyncMock) -> N
 
 
 @pytest.mark.asyncio
-async def test_cbm_router_e2e_mock_fallback(real_cbm_client: CodebaseMemoryClient) -> None:
+async def test_cbm_router_e2e_mock_fallback(
+    real_cbm_client: CodebaseMemoryClient,
+) -> None:
     """Verifies that the CodebaseMemoryRouter correctly routes to CodebaseMemoryClient
 
     and that the client falls back to mock responses or returns actual parsed results.
@@ -156,7 +161,9 @@ async def test_cbm_router_e2e_mock_fallback(real_cbm_client: CodebaseMemoryClien
     cbm_router = CodebaseMemoryRouter(real_cbm_client)
 
     # Query dependency chain for a known function in CBM's mock database
-    resp = await cbm_router.route("query_dependency_chain", function_name="ProcessOrder")
+    resp = await cbm_router.route(
+        "query_dependency_chain", function_name="ProcessOrder"
+    )
     assert resp.rootFunction == "ProcessOrder"
     assert resp.depth == 3
     assert "ExecuteSQL" in resp.callChain

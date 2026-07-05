@@ -70,12 +70,16 @@ class InterceptionQueue:
                 for ft in flushed_tokens:
                     callback = self._resolve_single_under_lock(ft, block_verdict)
                     if callback:
-                        callbacks_to_invoke.append((callback, block_verdict, ft.token_id))
+                        callbacks_to_invoke.append(
+                            (callback, block_verdict, ft.token_id)
+                        )
 
                 # Reject the current token too
                 callback = self._resolve_single_under_lock(token, block_verdict)
                 if callback:
-                    callbacks_to_invoke.append((callback, block_verdict, token.token_id))
+                    callbacks_to_invoke.append(
+                        (callback, block_verdict, token.token_id)
+                    )
 
         # Release lock before invoking callbacks
         if callbacks_to_invoke:
@@ -224,7 +228,9 @@ class InterceptionQueue:
                 for token in batch:
                     callback = self._resolve_single_under_lock(token, block_verdict)
                     if callback:
-                        callbacks_to_invoke.append((callback, block_verdict, token.token_id))
+                        callbacks_to_invoke.append(
+                            (callback, block_verdict, token.token_id)
+                        )
                 error_to_raise = BatchResolutionError(
                     "Verdict array size does not match batch size."
                 )
