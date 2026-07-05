@@ -101,8 +101,7 @@ class KillableRegexWorker:
                 raise RuntimeError(res)
             return res, redactions
         except queue.Empty:
-            self.process.terminate()
-            self.process.join()
+            self._terminate_process()
 
             self.task_queue = self.ctx.Queue()
             self.result_queue = self.ctx.Queue()
@@ -110,9 +109,21 @@ class KillableRegexWorker:
 
             raise TimeoutError(f"Regex {name} timed out")
 
+    def _terminate_process(self) -> None:
+        try:
+            self.process.terminate()
+            self.process.join(timeout=1.0)
+            if self.process.is_alive():
+                logger.warning(
+                    "Regex worker process did not terminate within timeout. Killing forcefully."
+                )
+                self.process.kill()
+                self.process.join(timeout=1.0)
+        except Exception as e:
+            logger.error("Error during regex worker process termination: %s", e)
+
     def close(self) -> None:
-        self.process.terminate()
-        self.process.join()
+        self._terminate_process()
 
 
 class ContextHygiene:
@@ -139,7 +150,7 @@ class ContextHygiene:
             "IP_ADDRESS", r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "[[IP_ADDRESS]]"
         )
         self.register_pattern("URL", r"https?://[^\s\"']+", "[[URL]]")
-        self.register_pattern("FILE_PATH", r"(?:/[^/\s\"']+)+/?", "[[FILE_PATH]]")
+        self.register_pattern("FILE_PATH", r"(?:/[^/\\\s\"']+)+/?", "[[FILE_PATH]]")
         self.register_pattern(
             "PASSWORD",
             r"(?i)(password|passwd|pwd)[\s:=]+['\"]?([^\s'\"]+)",
