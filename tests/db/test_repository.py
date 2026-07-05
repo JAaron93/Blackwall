@@ -1,13 +1,14 @@
 import os
 import asyncio
 import pytest
+import pytest_asyncio
 import aiosqlite
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.db.pool import AsyncConnectionPool
 
 TEST_DB_PATH = "test_blackwall.db"
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def repo():
     # Setup
     if os.path.exists(TEST_DB_PATH):
