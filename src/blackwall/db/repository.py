@@ -111,7 +111,6 @@ class SQLiteThreatRepository:
                     VALUES (new.rowid, new.signature_id, new.payload_pattern, new.attacker_intent);
                 END;
                 """)
-
                 # Audit Incidents table
                 await conn.execute("""
                 CREATE TABLE IF NOT EXISTS audit_incidents (

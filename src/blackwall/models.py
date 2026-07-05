@@ -61,6 +61,21 @@ class CallbackToken(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
 
+class BatchPayload(BaseModel):
+    batch_id: UUID = Field(default_factory=uuid4)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    sanitized_contexts: List[ToolCallContext]
+    policy_snapshot: Dict[str, Any]
+    previous_interaction_id: Optional[str] = None
+
+
+class BatchResponse(BaseModel):
+    verdicts: List[Verdict]
+    processing_time: float
+    tokens_consumed: int
+    cache_hit_count: int
+
+
 class ThreatSignature(BaseModel):
     signature_id: UUID = Field(default_factory=uuid4)
     pattern: str
