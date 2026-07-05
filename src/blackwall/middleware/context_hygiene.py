@@ -2,9 +2,11 @@ import asyncio
 import hashlib
 import json
 import logging
+import multiprocessing
+import queue
 import re
 from datetime import datetime, timezone
-from typing import List, Pattern, Tuple
+from typing import Any, Dict, List, Pattern, Tuple
 
 from pydantic import BaseModel
 
@@ -30,11 +32,98 @@ class RegexPattern:
         self.enabled = True
 
 
+def _apply_pattern_worker(task_queue: Any, result_queue: Any) -> None:
+    result_queue.put("READY")
+    while True:
+        try:
+            task = task_queue.get()
+            if task is None:
+                break
+            regex_str, placeholder, name, text = task
+            pattern = re.compile(regex_str)
+            redactions = []
+            
+            def replacer(match: re.Match[str]) -> str:
+                matched_str = match.group(0)
+                original_hash = hashlib.sha256(matched_str.encode()).hexdigest()
+                redactions.append({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "original_hash": original_hash,
+                    "pattern_matched": name,
+                    "placeholder_used": placeholder,
+                    "context_size": len(text)
+                })
+                return placeholder
+
+            result_text = pattern.sub(replacer, text)
+            result_queue.put(("OK", result_text, redactions))
+        except Exception as e:
+            result_queue.put(("ERROR", str(e), []))
+
+
+class KillableRegexWorker:
+    def __init__(self) -> None:
+        self.ctx = multiprocessing.get_context("spawn")
+        self.task_queue = self.ctx.Queue()
+        self.result_queue = self.ctx.Queue()
+        self._start_process()
+
+    def _start_process(self) -> None:
+        self.process = self.ctx.Process(
+            target=_apply_pattern_worker,
+            args=(self.task_queue, self.result_queue)
+        )
+        self.process.daemon = True
+        self.process.start()
+        
+        try:
+            msg = self.result_queue.get(timeout=5.0)
+            if msg != "READY":
+                raise RuntimeError("Unexpected startup message")
+        except queue.Empty:
+            raise RuntimeError("Regex worker failed to start")
+
+    def apply(self, regex_str: str, placeholder: str, name: str, text: str, timeout: float) -> Tuple[str, List[Dict[str, Any]]]:
+        while not self.result_queue.empty():
+            try:
+                self.result_queue.get_nowait()
+            except queue.Empty:
+                break
+                
+        self.task_queue.put((regex_str, placeholder, name, text))
+        
+        try:
+            status, res, redactions = self.result_queue.get(timeout=timeout)
+            if status == "ERROR":
+                raise RuntimeError(res)
+            return res, redactions
+        except queue.Empty:
+            self.process.terminate()
+            self.process.join()
+            
+            self.task_queue = self.ctx.Queue()
+            self.result_queue = self.ctx.Queue()
+            self._start_process()
+            
+            raise TimeoutError(f"Regex {name} timed out")
+            
+    def close(self) -> None:
+        self.process.terminate()
+        self.process.join()
+
+
 class ContextHygiene:
     def __init__(self) -> None:
         self.patterns: List[RegexPattern] = []
         self.timeout_seconds = 0.1
+        self.worker = KillableRegexWorker()
         self._initialize_default_patterns()
+
+    def __del__(self) -> None:
+        try:
+            self.worker.close()
+        except Exception:
+            pass
 
     def _initialize_default_patterns(self) -> None:
         self.register_pattern("API_KEY", r"(?i)(api[_-]?key|apikey|token)[\s:=]+['\"]?([a-zA-Z0-9_\-]{20,})", "[[API_KEY]]")
@@ -52,26 +141,6 @@ class ContextHygiene:
             logger.error(f"Failed to register pattern {name}: invalid regex. {e}")
             return False
 
-    def _apply_pattern_sync(self, pattern: RegexPattern, text: str) -> Tuple[str, List[RedactionEntry]]:
-        redactions: List[RedactionEntry] = []
-        
-        def replacer(match: re.Match[str]) -> str:
-            matched_str = match.group(0)
-            original_hash = hashlib.sha256(matched_str.encode()).hexdigest()
-            redactions.append(
-                RedactionEntry(
-                    timestamp=datetime.now(timezone.utc),
-                    original_hash=original_hash,
-                    pattern_matched=pattern.name,
-                    placeholder_used=pattern.placeholder,
-                    context_size=len(text)
-                )
-            )
-            return pattern.placeholder
-
-        result_text = pattern.regex.sub(replacer, text)
-        return result_text, redactions
-
     async def apply_redaction(self, text: str) -> Tuple[str, List[RedactionEntry]]:
         all_redactions = []
         current_text = text
@@ -81,15 +150,28 @@ class ContextHygiene:
                 continue
             
             try:
-                # Run the regex in a background thread to allow timeout interruption from the async loop
-                result_text, redactions = await asyncio.wait_for(
-                    asyncio.to_thread(self._apply_pattern_sync, pattern, current_text),
-                    timeout=self.timeout_seconds
+                # Run the regex using the persistent killable worker
+                result_text, redactions_dicts = await asyncio.to_thread(
+                    self.worker.apply,
+                    pattern.regex.pattern, pattern.placeholder, pattern.name, current_text, self.timeout_seconds
                 )
+                
                 current_text = result_text
+                
+                # Reconstruct RedactionEntry objects
+                redactions = [
+                    RedactionEntry(
+                        timestamp=datetime.fromisoformat(r["timestamp"]),
+                        original_hash=r["original_hash"],
+                        pattern_matched=r["pattern_matched"],
+                        placeholder_used=r["placeholder_used"],
+                        context_size=r["context_size"]
+                    ) for r in redactions_dicts
+                ]
+                
                 all_redactions.extend(redactions)
                 pattern.consecutive_timeouts = 0  # reset on success
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pattern.consecutive_timeouts += 1
                 logger.warning(f"Regex pattern {pattern.name} timed out after {self.timeout_seconds}s")
                 
@@ -118,12 +200,11 @@ class ContextHygiene:
         try:
             sanitized_args = json.loads(sanitized_args_str)
         except json.JSONDecodeError:
-            # Fallback if structure was broken, though regexes shouldn't break JSON 
             sanitized_args = {"raw_fallback": sanitized_args_str}
 
         metadata = dict(context.metadata) if context.metadata else {}
         
-        redaction_log = metadata.get("redactionLog", [])
+        redaction_log = list(metadata.get("redactionLog", []))
         redaction_log.extend([r.model_dump(mode='json') for r in redactions])
         
         metadata["redactionLog"] = redaction_log

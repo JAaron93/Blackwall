@@ -6,10 +6,15 @@ from hypothesis import strategies as st
 from blackwall.middleware.context_hygiene import ContextHygiene
 from blackwall.models import ToolCallContext
 
+import string
+
+# Keys should be alphanumeric so they don't accidentally match regex patterns like FILE_PATH or IP_ADDRESS
+alphanumeric_keys = st.text(alphabet=string.ascii_letters + string.digits, min_size=1, max_size=10)
+
 # Generate random dictionaries that simulate JSON payloads
 json_strategy = st.recursive(
     st.dictionaries(
-        st.text(min_size=1, max_size=10),
+        alphanumeric_keys,
         st.one_of(
             st.none(),
             st.booleans(),
@@ -20,7 +25,7 @@ json_strategy = st.recursive(
         max_size=5
     ),
     lambda children: st.dictionaries(
-        st.text(min_size=1, max_size=10),
+        alphanumeric_keys,
         children | st.lists(children, max_size=3),
         max_size=3
     ),
@@ -39,7 +44,7 @@ sensitive_data_strategy = st.one_of(
 )
 
 mixed_json_strategy = st.dictionaries(
-    st.text(min_size=1, max_size=10),
+    alphanumeric_keys,
     sensitive_data_strategy,
     max_size=5
 )
@@ -70,6 +75,9 @@ def test_property_4_sanitization_idempotence(arguments):
     # The arguments should be identical
     assert result1.arguments == result2.arguments
     
+    assert "raw_fallback" not in result1.arguments
+    assert "raw_fallback" not in result2.arguments
+    
     # Verify no raw secrets remain in sanitized output (basic check)
     sanitized_str = json.dumps(result1.arguments)
     assert "api_key=" not in sanitized_str
@@ -92,6 +100,7 @@ def test_property_5_sanitization_structure_preservation(arguments):
     
     # The result arguments must be a dict (valid parseable JSON structure)
     assert isinstance(result.arguments, dict)
+    assert "raw_fallback" not in result.arguments
     
     # Top-level keys should be identical
     assert set(result.arguments.keys()) == set(arguments.keys())

@@ -88,23 +88,13 @@ async def test_metadata_logging(hygiene):
     assert "originalHash" in metadata
 
 @pytest.mark.asyncio
-async def test_regex_timeout_and_auto_disable(hygiene, monkeypatch):
-    import time
+async def test_regex_timeout_and_auto_disable(hygiene):
+    # Register a deliberately slow/catastrophic regex pattern
+    # (a+)+$ on a string of many a's followed by a 'b'
+    hygiene.register_pattern("SLOW", r"(a+)+$", "[[SLOW]]")
+    hygiene.timeout_seconds = 0.05  # 50ms for faster testing
     
-    hygiene.register_pattern("SLOW", r"test", "[[SLOW]]")
-    hygiene.timeout_seconds = 0.05
-    
-    # Mock the sync apply pattern to simulate a slow regex
-    original_apply = hygiene._apply_pattern_sync
-    def slow_apply(pattern, text):
-        if pattern.name == "SLOW":
-            time.sleep(0.1)  # Longer than timeout_seconds
-            return text, []
-        return original_apply(pattern, text)
-        
-    monkeypatch.setattr(hygiene, "_apply_pattern_sync", slow_apply)
-    
-    text = '{"data": "test"}'
+    text = '{"data": "' + "a" * 30 + 'b"}'  # This triggers catastrophic backtracking
     
     # 1. Trigger the timeout 9 times
     for _ in range(9):
