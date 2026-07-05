@@ -2,6 +2,7 @@ from blackwall.policy.engine import StructuralGatingEngine, StructuralGatingResu
 from blackwall.policy.models import PolicyConfig, StructuralAction, StructuralRule, GateResult
 from blackwall.policy.watcher import PolicyWatcher
 from blackwall.policy.semantic import SemanticGatingEngine
+from blackwall.policy.server import HybridPolicyServer
 
 __all__ = [
     "StructuralGatingEngine",
@@ -12,4 +13,5 @@ __all__ = [
     "PolicyWatcher",
     "SemanticGatingEngine",
     "GateResult",
+    "HybridPolicyServer",
 ]
