@@ -93,6 +93,9 @@ class RefactoringHint(BaseModel):
     hint_id: UUID = Field(default_factory=uuid4)
     suggestion: str
     confidence: float = Field(..., ge=0.0, le=1.0)
+    target_code: Optional[str] = None
+    vulnerability_type: Optional[str] = None
+    suggested_fix: Optional[str] = None
 
 
 class IndicatorType(str, Enum):
