@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 from blackwall.middleware.context_hygiene import ContextHygiene
 from blackwall.models import ToolCallContext
@@ -113,3 +114,29 @@ async def test_regex_timeout_and_auto_disable(hygiene):
     # 3. Next time, it should be skipped immediately
     await hygiene.apply_redaction(text)
     assert slow_pattern.consecutive_timeouts == 10  # Doesn't increment since skipped
+
+
+@pytest.mark.asyncio
+async def test_concurrent_sanitization(hygiene):
+    # Concurrently sanitize multiple contexts to verify the lock serializes IPC worker access safely
+    contexts = []
+    for i in range(5):
+        contexts.extend([
+            ToolCallContext(tool_name="tool_1", arguments={"ip": f"192.168.1.{i}"}),
+            ToolCallContext(tool_name="tool_2", arguments={"url": f"https://site{i}.com"}),
+            ToolCallContext(tool_name="tool_3", arguments={"key": f"apikey=ABCDEF{i}XYZ1234567890"})
+        ])
+    
+    tasks = [hygiene.sanitize(ctx) for ctx in contexts]
+    results = await asyncio.gather(*tasks)
+    
+    assert len(results) == 15
+    for i, r in enumerate(results):
+        assert "raw_fallback" not in r.arguments
+        # Verify correct redaction occurred
+        if r.tool_name == "tool_1":
+            assert r.arguments["ip"] == "[[IP_ADDRESS]]"
+        elif r.tool_name == "tool_2":
+            assert r.arguments["url"] == "[[URL]]"
+        elif r.tool_name == "tool_3":
+            assert r.arguments["key"] == "[[API_KEY]]"

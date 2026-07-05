@@ -117,6 +117,7 @@ class ContextHygiene:
         self.patterns: List[RegexPattern] = []
         self.timeout_seconds = 0.1
         self.worker = KillableRegexWorker()
+        self._lock = asyncio.Lock()
         self._initialize_default_patterns()
 
     def __del__(self) -> None:
@@ -151,10 +152,12 @@ class ContextHygiene:
             
             try:
                 # Run the regex using the persistent killable worker
-                result_text, redactions_dicts = await asyncio.to_thread(
-                    self.worker.apply,
-                    pattern.regex.pattern, pattern.placeholder, pattern.name, current_text, self.timeout_seconds
-                )
+                # We protect the worker call site with an asyncio.Lock to serialize concurrent requests
+                async with self._lock:
+                    result_text, redactions_dicts = await asyncio.to_thread(
+                        self.worker.apply,
+                        pattern.regex.pattern, pattern.placeholder, pattern.name, current_text, self.timeout_seconds
+                    )
                 
                 current_text = result_text
                 
