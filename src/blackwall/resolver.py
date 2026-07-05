@@ -185,94 +185,140 @@ class BatchResolver:
         self, callback_tokens: List[CallbackToken]
     ) -> BatchResponse:
         """Entrypoint for Tier 2 evaluation of a batch of callback tokens."""
-        start_time = time.time()
+        from blackwall.telemetry import get_tracer, get_metric
+        from opentelemetry.trace import Status, StatusCode
+        import json
 
-        if not callback_tokens:
-            return BatchResponse(
-                verdicts=[], processing_time=0.0, tokens_consumed=0, cache_hit_count=0
-            )
+        tracer = get_tracer("blackwall.resolver")
+        batch_size_metric = get_metric("batch_size")
+        latency_metric = get_metric("api_latency_seconds")
+        errors_metric = get_metric("errors_total")
+        cache_hits_metric = get_metric("cache_hits_total")
 
-        # Apply Context Hygiene to all contexts
-        sanitized_contexts = [
-            self.hygiene.sanitize_context(token.tool_context)
-            for token in callback_tokens
-        ]
+        if batch_size_metric:
+            batch_size_metric.add(len(callback_tokens))
 
-        # Retry loop with exponential backoff for APIRateLimitException
-        backoff_delays = [0.1, 0.2, 0.4]  # 100ms, 200ms, 400ms
-        max_retries = 3
-        retry_count = 0
+        with tracer.start_as_current_span("resolve_batch") as span:
+            span.set_attribute("blackwall.batch_size", len(callback_tokens))
+            start_time = time.time()
 
-        while True:
-            try:
-                # Ensure we conform to local rate limits
-                await self._acquire_rate_limit_token()
-
-                # Execute submitToGeminiSync
-                response = await self.submit_to_gemini_sync(sanitized_contexts)
-
-                # Update metrics
-                latency_ms = (time.time() - start_time) * 1000.0
-                self.total_batches += 1
-                self.total_callbacks += len(callback_tokens)
-                self.total_latency_ms += latency_ms
-                if response.cache_hit_count > 0:
-                    self.cache_hits += 1
-
-                # Periodically log metrics for monitoring dashboards
-                if self.total_batches % 10 == 0:
-                    metrics = self.get_metrics()
-                    logger.info(f"BatchResolver Metrics: {metrics.model_dump_json()}")
-
-                return response
-
-            except (APIRateLimitException, Exception) as e:
-                # Check if this exception is a rate limit error (status 429 or message)
-                err_msg = str(e).lower()
-                is_rate_limit = (
-                    isinstance(e, APIRateLimitException)
-                    or "429" in err_msg
-                    or "rate_limit" in err_msg
-                    or "rate limit" in err_msg
-                    or "resourceexhausted" in err_msg
-                    or "resource_exhausted" in err_msg
-                )
-
-                if is_rate_limit and retry_count < max_retries:
-                    delay = backoff_delays[retry_count]
-                    logger.warning(
-                        f"Rate limit hit. Retrying batch in {delay*1000:.0f}ms (Attempt {retry_count + 1}/{max_retries})"
-                    )
-                    retry_count += 1
-                    await asyncio.sleep(delay)
-                    continue
-
-                # If we've exhausted retries or encountered a non-rate limit exception, fail-closed
-                logger.error(
-                    f"Batch submission failed permanently: {e}. Applying fail-closed policy (QUARANTINE)."
-                )
-
-                # Fail-closed fallback: return QUARANTINE verdicts
-                verdicts = [
-                    Verdict(
-                        decision=VerdictDecision.QUARANTINE,
-                        reasoning=f"Rate limit exceeded or permanent API failure - conservative deny pending re-evaluation: {e}",
-                        confidence_score=1.0,
-                    )
-                    for _ in callback_tokens
-                ]
-
-                latency_ms = (time.time() - start_time) * 1000.0
-                self.total_batches += 1
-                self.total_callbacks += len(callback_tokens)
-                self.total_latency_ms += latency_ms
-
+            if not callback_tokens:
+                span.set_attribute("blackwall.cache_hit_count", 0)
+                span.set_status(Status(StatusCode.OK))
                 return BatchResponse(
-                    verdicts=verdicts,
-                    processing_time=latency_ms,
-                    tokens_consumed=0,
-                    cache_hit_count=0,
+                    verdicts=[], processing_time=0.0, tokens_consumed=0, cache_hit_count=0
                 )
+
+            # Apply Context Hygiene to all contexts
+            sanitized_contexts = [
+                self.hygiene.sanitize_context(token.tool_context)
+                for token in callback_tokens
+            ]
+
+            # Retry loop with exponential backoff for APIRateLimitException
+            backoff_delays = [0.1, 0.2, 0.4]  # 100ms, 200ms, 400ms
+            max_retries = 3
+            retry_count = 0
+
+            while True:
+                try:
+                    # Ensure we conform to local rate limits
+                    await self._acquire_rate_limit_token()
+
+                    # Execute submitToGeminiSync
+                    response = await self.submit_to_gemini_sync(sanitized_contexts)
+
+                    # Update metrics
+                    latency_ms = (time.time() - start_time) * 1000.0
+                    
+                    if latency_metric:
+                        latency_metric.record(latency_ms / 1000.0)
+                    
+                    self.total_batches += 1
+                    self.total_callbacks += len(callback_tokens)
+                    self.total_latency_ms += latency_ms
+                    
+                    span.set_attribute("blackwall.cache_hit_count", response.cache_hit_count)
+                    span.set_attribute("blackwall.tokens_consumed", response.tokens_consumed)
+                    span.set_attribute("blackwall.processing_time_ms", latency_ms)
+                    
+                    if response.cache_hit_count > 0:
+                        self.cache_hits += 1
+                        if cache_hits_metric:
+                            cache_hits_metric.add(response.cache_hit_count)
+
+                    # Periodically log metrics for monitoring dashboards
+                    if self.total_batches % 10 == 0:
+                        metrics = self.get_metrics()
+                        logger.info(f"BatchResolver Metrics: {metrics.model_dump_json()}")
+
+                    span.set_status(Status(StatusCode.OK))
+                    
+                    # Attach span IDs to callback tokens for later logging
+                    for token in callback_tokens:
+                        token.telemetry_span_id = str(span.get_span_context().span_id)
+                        
+                    return response
+
+                except (APIRateLimitException, Exception) as e:
+                    # Check if this exception is a rate limit error (status 429 or message)
+                    err_msg = str(e).lower()
+                    is_rate_limit = (
+                        isinstance(e, APIRateLimitException)
+                        or "429" in err_msg
+                        or "rate_limit" in err_msg
+                        or "rate limit" in err_msg
+                        or "resourceexhausted" in err_msg
+                        or "resource_exhausted" in err_msg
+                    )
+
+                    if is_rate_limit and retry_count < max_retries:
+                        delay = backoff_delays[retry_count]
+                        logger.warning(
+                            f"Rate limit hit. Retrying batch in {delay*1000:.0f}ms (Attempt {retry_count + 1}/{max_retries})"
+                        )
+                        retry_count += 1
+                        await asyncio.sleep(delay)
+                        continue
+
+                    if errors_metric:
+                        errors_metric.add(1)
+                    span.record_exception(e)
+                    span.set_status(Status(StatusCode.ERROR, str(e)))
+
+                    # If we've exhausted retries or encountered a non-rate limit exception, fail-closed
+                    logger.error(
+                        f"Batch submission failed permanently: {e}. Applying fail-closed policy (QUARANTINE)."
+                    )
+
+                    # Fail-closed fallback: return QUARANTINE verdicts
+                    verdicts = [
+                        Verdict(
+                            decision=VerdictDecision.QUARANTINE,
+                            reasoning=f"Rate limit exceeded or permanent API failure - conservative deny pending re-evaluation: {e}",
+                            confidence_score=1.0,
+                        )
+                        for _ in callback_tokens
+                    ]
+
+                    latency_ms = (time.time() - start_time) * 1000.0
+                    if latency_metric:
+                        latency_metric.record(latency_ms / 1000.0)
+                    
+                    self.total_batches += 1
+                    self.total_callbacks += len(callback_tokens)
+                    self.total_latency_ms += latency_ms
+
+                    # Attach span IDs to callback tokens for later logging
+                    for token in callback_tokens:
+                        token.telemetry_span_id = str(span.get_span_context().span_id)
+
+                    return BatchResponse(
+                        verdicts=verdicts,
+                        processing_time=latency_ms,
+                        tokens_consumed=0,
+                        cache_hit_count=0,
+                    )
 
     async def submit_to_gemini_sync(
         self, sanitized_contexts: List[ToolCallContext]

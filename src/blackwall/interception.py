@@ -42,6 +42,11 @@ class InterceptionQueue:
         resume_func: Callable[[Verdict], Any],
     ) -> None:
         """Suspends the execution flow by enqueuing the CallbackToken and its context."""
+        from blackwall.telemetry import get_metric
+        interceptions_metric = get_metric("interceptions_total")
+        if interceptions_metric:
+            interceptions_metric.add(1)
+
         # Set context and resume callback on the token
         token.tool_context = context
         token.resumeCallback = resume_func
@@ -212,6 +217,9 @@ class InterceptionQueue:
         """Resolves enqueued callbacks by mapping the verdict array to the batch by index."""
         callbacks_to_invoke = []
         error_to_raise = None
+        
+        from blackwall.telemetry import get_metric
+        verdicts_metric = get_metric("verdicts_total")
 
         async with self._lock:
             if len(verdicts) != len(batch):
@@ -242,6 +250,9 @@ class InterceptionQueue:
 
         # Invoke callbacks outside the lock
         for callback, verdict, token_id in callbacks_to_invoke:
+            if verdicts_metric:
+                verdicts_metric.add(1, {"decision": verdict.decision.value})
+            
             try:
                 callback(verdict)
             except Exception:
