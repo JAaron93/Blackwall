@@ -1,3 +1,6 @@
+"""
+MCP client integrations for Blackwall.
+"""
 from blackwall.mcp.codebase_memory import (
     CodebaseMemoryClient,
     CriticalSinkType,
@@ -7,7 +10,7 @@ from blackwall.mcp.codebase_memory import (
     BlastRadiusIsolation,
     BlastRadiusReport,
 )
-from blackwall.mcp.gti_client import GTIClient
+from blackwall.mcp.gti_client import GTIClient, GTIMCPClient
 from blackwall.mcp.mcp_routing import (
     CodebaseMemoryRouter,
     GTIRouter,
@@ -23,6 +26,7 @@ __all__ = [
     "BlastRadiusIsolation",
     "BlastRadiusReport",
     "GTIClient",
+    "GTIMCPClient",
     "CodebaseMemoryRouter",
     "GTIRouter",
     "MCPRoutingViolation",
