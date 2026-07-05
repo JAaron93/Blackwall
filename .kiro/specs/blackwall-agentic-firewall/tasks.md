@@ -34,8 +34,8 @@ These tasks form the architectural foundation of Blackwall and must be completed
 
 ### TASK-DB-01: Implement SQLite WAL Mode and Concrete Repository
 
-**Priority:** HIGH  
-**Dependencies:** None  
+**Priority:** HIGH
+**Dependencies:** None
 **Estimated Effort:** 3-4 days
 
 **Description:**
@@ -90,7 +90,7 @@ Create `SQLiteThreatRepository` using `aiosqlite`. Configure initialization scri
     - **NULLABLE BEHAVIOR SCORE:** Define SecurityEvent.behaviorScore as Optional[BehaviorScore]
     - **METADATA FIELD:** Define ToolCallContext.metadata as Optional[Dict[str, Any]] for audit data
     - _Requirements: 1.2, 3.10, 3.11, 5.1, 5.6, 6.4, 9.1, 14.12_
-  
+
   - [ ] 2.2 Write unit tests for data model validation
     - Test valid model instantiation with correct fields
     - Test invalid inputs trigger Pydantic ValidationError
@@ -114,7 +114,7 @@ Create `SQLiteThreatRepository` using `aiosqlite`. Configure initialization scri
     - Implement idempotence: sanitize(sanitize(x)) = sanitize(x)
     - **METADATA FIELD:** Store redaction audit data in ToolCallContext.metadata (not a separate wrapper type)
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.9, 4.10, 4.11, 4.12, 12.7, 12.8_
-  
+
   - [ ] 3.2 Test sanitization idempotence property
     - **Property 4: Sanitization Idempotence**
     - **Validates: Requirements 4.10**
@@ -130,7 +130,7 @@ Create `SQLiteThreatRepository` using `aiosqlite`. Configure initialization scri
     - Apply Context_Hygiene sanitization
     - Assert sanitizedArguments is parseable JSON (json.loads does not throw)
     - Assert top-level key set in sanitizedArguments matches key set in rawArguments
-  
+
   - [ ] 3.4 Write unit tests for Context Hygiene
     - Test API key redaction matches pattern and replaces with [[API_KEY]]
     - Test IP address placeholder replacement [[IP_ADDRESS]]
@@ -145,8 +145,8 @@ Create `SQLiteThreatRepository` using `aiosqlite`. Configure initialization scri
 
 ### TASK-SEC-01: Implement OS-Level Runtime Audit Hooks
 
-**Priority:** HIGH  
-**Dependencies:** TASK-DB-01  
+**Priority:** HIGH
+**Dependencies:** TASK-DB-01
 **Estimated Effort:** 2-3 days
 
 **Description:**
@@ -190,7 +190,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Implement thread-safe operations using asyncio locks
     - Maintain correlation ID linking each callback token to batch position for debugging
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 19.1, 19.2, 19.3, 19.6, 19.7, 19.8, 19.9_
-  
+
   - [ ] 4.2 Test callback resolution completeness property
     - **Property 1: Callback Resolution Completeness**
     - **Validates: Requirements 1.6, 19.7**
@@ -199,7 +199,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Process batches and generate verdicts
     - Assert each callback is resumed exactly once (no duplicates, no missed tokens)
     - Verify no callbacks remain in queue after resolution
-  
+
   - [ ] 4.3 Write unit tests for Interception Queue
     - Test enqueue and dequeue operations with asyncio
     - Test batch accumulation reaches maxSize=5 and flushes
@@ -226,7 +226,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Background task submission includes webhook callback configuration (POST /webhook/analysis_complete)
     - Background submission returns task_id immediately (non-blocking)
     - _Requirements: 2.1, 2A.1, 2A.2, 2A.3, 2A.4, 2A.11, 2B.1, 2B.2, 2B.3, 2B.4_
-  
+
   - [ ] 5.2 Implement exponential backoff for APIRateLimitException handling
     - Detect APIRateLimitException from Gemini API response
     - Apply exponential backoff delays: 100ms, 200ms, 400ms for retries 1, 2, 3
@@ -234,7 +234,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - **FAIL-CLOSED:** If all retries fail, apply fail-closed policy: return QUARANTINE verdicts (not ALLOW) with warning logs and elevated monitoring flags
     - Log all rate limit hits with timestamp and batch details
     - _Requirements: 2.2, 2.3, 2.4, 12.3_
-  
+
   - [ ] 5.3 Implement batch processing metrics tracking and reporting
     - Track ResolverMetrics: total batches, average batch size, average latency, rate limit hits, cache hit rate
     - Track cache hit rate from `previous_interaction_id` reuse
@@ -246,7 +246,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Target >=50% token reduction on cache hits
     - Log metrics periodically for monitoring dashboards
     - _Requirements: 2A.13, 2.6, 2.7, 2.8, 13.6, 13.8_
-  
+
   - [ ] 5.4 Write unit tests for Batch Resolver (Three-Tier Model)
     - Test token bucket rate limiter enforces 300 RPM cap (sliding window)
     - Test exponential backoff on APIRateLimitException (100ms, 200ms, 400ms)
@@ -285,7 +285,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Log matched rule ID and action for audit trail
     - Target <5ms evaluation latency for 99th percentile
     - _Requirements: 3.1, 3.2, 14.1, 14.2, 14.5, 14.10, 13.1, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 22.7, 22.8, 22.9, 22.10_
-  
+
   - [ ] 6.2 Implement hot-reload for YAML policy updates without restart
     - Watch policy file for modifications using file system events (watchdog library)
     - Reload policy automatically on file change detection
@@ -294,7 +294,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Log policy reload events with version change
     - Reject invalid configurations and retain previous valid policy
     - _Requirements: 3.14, 14.9_
-  
+
   - [ ] 6.3 Write unit tests for Structural Gating Engine
     - Test YAML policy loading and schema validation
     - Test rule matching for toolName, environmentRole conditions
@@ -324,7 +324,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Restore full GTI integration after 3 consecutive successful retries
     - Handle API rate limit responses with exponential backoff
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10, 7.11, 12.1, 12.2, 21.1, 21.2, 21.3_
-  
+
   - [ ] 7.2 Write unit tests for GTI MCP integration
     - Test IOC query for malicious IP returns isMalicious=true
     - Test threat categories extraction (malware, botnet, C2, phishing)
@@ -350,7 +350,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Continue evaluation without CBM if unavailable (graceful degradation)
     - Provide mitigation hints based on AST analysis for vulnerability types
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 8.9, 8.10, 12.9, 21.4, 21.5, 21.6, 21.7_
-  
+
   - [ ] 8.2 Write unit tests for codebase-memory integration
     - Test dependency chain query returns complete call path
     - Test critical sink detection for SQL, command exec, file write, network
@@ -365,8 +365,8 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
 
 ### TASK-MCP-01: Hardcode MCP Routing Boundaries
 
-**Priority:** MEDIUM  
-**Dependencies:** Tasks 7, 8 (MCP clients)  
+**Priority:** MEDIUM
+**Dependencies:** Tasks 7, 8 (MCP clients)
 **Estimated Effort:** 2 days
 
 **Description:**
@@ -417,7 +417,7 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
     - Return GateResult with verdict, reason, threat score, signature ID
     - Ensure deterministic scoring: same inputs → same score
     - _Requirements: 3.6, 3.7, 3.8, 3.9, 3.10, 3.11, 3.12, 3.13, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 23.7, 23.8, 23.9, 23.10_
-  
+
   - [ ] 9.2 Test threat score bounded property
     - **Property 3: Threat Score Bounded**
     - **Validates: Requirements 3.10, 23.6, 23.7**
@@ -428,7 +428,7 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
     - Verify BLOCK verdict only when score >= 0.75
     - Verify QUARANTINE verdict when 0.5 <= score < 0.75
     - Verify ALLOW verdict when score < 0.5
-  
+
   - [ ] 9.3 Write unit tests for Semantic Gating Engine
     - Test signature matching returns BLOCK with signatureId
     - Test signature match count increment on successful match
@@ -454,7 +454,7 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
     - Expose getCurrentState() returning PolicyServerState snapshot
     - Expose updatePolicy() for hot-reload of YAML rules
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 19.1, 19.2_
-  
+
   - [ ] 10.2 Test verdict array order correspondence property
     - **Property 2: Verdict Array Correspondence**
     - **Validates: Requirements 3.1, 1.5, 19.1, 19.2**
@@ -463,7 +463,7 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
     - Assert verdict array length equals input context array length
     - Verify verdict[i] corresponds to context[i] for all i in range
     - Test with random mix of BLOCK, ALLOW, ESCALATE conditions
-  
+
   - [ ] 10.3 Write integration tests for Hybrid Policy Server
     - Test structural BLOCK skips semantic evaluation (fast path)
     - Test structural ALLOW without review skips semantic (fast path)
@@ -491,7 +491,7 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
     - Determine mitigation action based on critical sinks and GTI threat categories
     - Create ThreatSignature with all required fields and metadata
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 5.9, 17.1, 17.2, 17.10, 24.1, 24.2_
-  
+
   - [ ] 11.2 Implement Green Team auto-refactoring for QUARANTINE verdicts
     - Implement triggerRefactoring() analyzing quarantined code paths
     - Identify specific vulnerability type from CBM critical sink type
@@ -500,7 +500,7 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
     - Complete analysis within 5 seconds to avoid blocking agent execution
     - Write threat signature with refactoring hint in metadata
     - _Requirements: 5.10, 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.7, 16.9_
-  
+
   - [ ] 11.3 Implement Runtime AgBOM tracking and capability drift detection
     - Implement updateAgBOM() recording tool usage, frequencies, argument patterns
     - Maintain real-time inventory of agent capabilities
@@ -509,7 +509,7 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
     - Log anomaly events when unexpected tools appear
     - Export AgBOM as structured JSON for audit and compliance
     - _Requirements: 5.11, 10.9_
-  
+
   - [ ] 11.4 Write unit tests for Agent Behavioral Analytics
     - Test signature generation from BLOCK verdict event
     - Test payload generalization (IPs → [[IP_ADDRESS]], paths → [[FILE_PATH]])
@@ -526,8 +526,8 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
 
 ### TASK-AI-01: Implement Webhook Listener and Gemini Background Task Integration
 
-**Priority:** HIGH  
-**Dependencies:** TASK-DB-01, Task 11 (Agent Behavioral Analytics)  
+**Priority:** HIGH
+**Dependencies:** TASK-DB-01, Task 11 (Agent Behavioral Analytics)
 **Estimated Effort:** 3-4 days
 
 **Description:**
@@ -567,8 +567,8 @@ Build an async HTTP webhook listener bound to localhost:8090. Integrate Gemini I
 
 ### TASK-AI-02: Integrate Gemini Interactions API for Background Task Submission
 
-**Priority:** HIGH  
-**Dependencies:** TASK-AI-01, Task 11 (Agent Behavioral Analytics)  
+**Priority:** HIGH
+**Dependencies:** TASK-AI-01, Task 11 (Agent Behavioral Analytics)
 **Estimated Effort:** 2-3 days
 
 **Description:**
@@ -601,8 +601,8 @@ Implement Agent_Behavioral_Analytics submission of background tasks to Gemini In
 
 ### TASK-AI-03: Replace Polling Loop with Event-Driven Analysis
 
-**Priority:** HIGH  
-**Dependencies:** TASK-AI-01, TASK-AI-02  
+**Priority:** HIGH
+**Dependencies:** TASK-AI-01, TASK-AI-02
 **Estimated Effort:** 2 days
 
 **Description:**
@@ -650,7 +650,7 @@ Remove all polling-based analysis threads. Eliminate 4.5-second timer loops. Rep
     - Aggregate traces to visualize Vibe Trajectory (attack pattern evolution)
     - Compress spans before export to keep bandwidth < 100KB/s
     - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.8_
-  
+
   - [ ] 13.2 Implement Prometheus metrics export
     - Export metrics: total interceptions, verdicts by type (BLOCK/ALLOW/QUARANTINE)
     - Export average threat scores, API latency percentiles
@@ -659,7 +659,7 @@ Remove all polling-based analysis threads. Eliminate 4.5-second timer loops. Rep
     - Create Grafana dashboard JSON for FRR/Evasion Rate trends
     - Visualize threat score distributions and signature match rates
     - _Requirements: 11.5, 11.6_
-  
+
   - [ ] 13.3 Create structured JSON logging for security events
     - Implement JSON logger using structlog with required fields
     - Log SecurityEvent with: event ID, timestamp, agent ID, verdict, telemetry span ID
@@ -671,7 +671,7 @@ Remove all polling-based analysis threads. Eliminate 4.5-second timer loops. Rep
     - Retain logs for minimum 90 days
     - Support SIEM-compatible export formats (JSON, CEF)
     - _Requirements: 11.7, 5.12, 21.8, 21.9, 25.1, 25.2, 25.3, 25.4, 25.5, 25.6, 25.7, 25.8, 25.9, 25.11_
-  
+
   - [ ] 13.4 Write unit tests for observability components
     - Test OpenTelemetry span creation with unique trace IDs
     - Test span includes verdict and threat score fields
@@ -694,14 +694,14 @@ Remove all polling-based analysis threads. Eliminate 4.5-second timer loops. Rep
     - Handle QUARANTINE verdict: execute in sandboxed mock environment, return sanitized response
     - Log all callback resolutions with correlation IDs
     - _Requirements: 1.1, 1.6, 16.1, 16.2, 16.5, 16.6, 16.8_
-  
+
   - [ ] 14.2 Implement Python Runtime Audit Hooks for bypass prevention
     - Register sys.addaudithook for os, subprocess, pty module calls
     - Deny raw execution attempts with PermissionError
     - Force all agent actions through ADK tool layer
     - Log bypass attempts as high-severity security events
     - _Requirements: 10.6, 10.7, 10.8_
-  
+
   - [ ] 14.3 Write integration tests for ADK callback hook
     - Test before_tool_callback suspends execution correctly
     - Test callback token creation and storage in queue
@@ -731,7 +731,7 @@ Remove all polling-based analysis threads. Eliminate 4.5-second timer loops. Rep
     - Verify: TP + TN + FP + FN = total tests
     - Export metrics to JSON with keys: false_refusal_rate, evasion_rate, accuracy, precision, recall, f1_score, quarantine_count
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8, 9.9, 9.10, 9.11, 9.12, 9.13, 9.14, 9.15_
-  
+
   - [ ] 15.2 Test metrics sum validation property
     - **Property 8: Evaluation Metrics Partition Invariant**
     - **Validates: Requirements 9.1, 9.10**
@@ -746,7 +746,7 @@ Remove all polling-based analysis threads. Eliminate 4.5-second timer loops. Rep
     - Never store long-lived API keys in process memory
     - Implement credential vault integration (HashiCorp Vault or local encrypted store)
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5_
-  
+
   - [ ] 16.2 Write security tests for Zero Ambient Authority
     - Test Blackwall process runs as unprivileged user (UID check)
     - Test temporary credentials are revoked after tool execution
@@ -767,7 +767,7 @@ Remove all polling-based analysis threads. Eliminate 4.5-second timer loops. Rep
     - Auto-disable regex patterns causing timeout > 100ms after 10 consecutive failures; emit operator alert on disable
     - Log all error recovery actions with severity levels
     - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7, 12.8, 12.10, 12.11, 12.12_
-  
+
   - [ ] 17.2 Write resilience and failure mode tests
     - Test SQLite retry logic on transient lock errors
     - Test in-memory buffer overflow handling (drop oldest entries)
@@ -798,7 +798,7 @@ Remove all polling-based analysis threads. Eliminate 4.5-second timer loops. Rep
     - Validate all vectors have exactly 384 dimensions
     - Exclude signatures with inconsistent dimensionality from queries
     - _Requirements: 24.1, 24.2, 24.3, 24.4, 24.5, 24.6, 24.7, 24.8, 24.9, 24.10_
-  
+
   - [ ] 19.2 Write unit tests for embedding model management
     - Test model loads successfully on startup
     - Test degraded mode switches to FTS5 on model crash
@@ -810,8 +810,8 @@ Remove all polling-based analysis threads. Eliminate 4.5-second timer loops. Rep
 
 ### TASK-PERF-01: Build Graph LFU/TTL Eviction Routine
 
-**Priority:** MEDIUM  
-**Dependencies:** TASK-DB-01, Task 19 (Embedding Model)  
+**Priority:** MEDIUM
+**Dependencies:** TASK-DB-01, Task 19 (Embedding Model)
 **Estimated Effort:** 2-3 days
 
 **Description:**
@@ -851,7 +851,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Create obfuscated payload variants (base64, URL encoding)
     - Label all with ground truth: MALICIOUS
     - _Requirements: 9.1, 15.1, 15.2, 15.3, 15.4_
-  
+
   - [ ] 20.2 Generate benign test cases (minimum 50)
     - Create legitimate database query tool calls
     - Create valid file read operations within allowed paths
@@ -860,7 +860,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Create edge cases: unusual but valid operations
     - Label all with ground truth: BENIGN
     - _Requirements: 9.1, 15.5, 15.6_
-  
+
   - [ ] 20.3 Generate adaptive evasion test cases (minimum 20)
     - Create second-attempt variants of blocked attacks
     - Apply obfuscation transformations to known malicious payloads
@@ -876,7 +876,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Collect all verdicts with timestamps and processing times
     - Save raw results to JSON for analysis
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 15.1, 15.2_
-  
+
   - [ ] 21.2 Generate SecurityMetrics report with FRR and Evasion Rate
     - Calculate FRR, Evasion Rate, accuracy, precision, recall, F1 from collected results
     - **METRIC NAMES:** Export JSON with standardized keys: false_refusal_rate, evasion_rate, accuracy, precision, recall, f1_score, quarantine_count
@@ -884,7 +884,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Verify Evasion Rate < 10% target achieved
     - Generate human-readable summary for demo README
     - _Requirements: 9.5, 9.6, 9.7, 9.8, 9.9, 9.10, 9.11, 9.12, 9.13, 9.14, 9.15_
-  
+
   - [ ] 21.3 Validate self-learning signature effectiveness
     - Run initial attack wave and verify signatures generated
     - Run modified second-wave attacks and verify blocked by generated signatures
@@ -900,7 +900,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Configure Blackwall daemon to log to visible terminal output
     - Configure rogue agent to show attempt outputs and failures
     - _Requirements: 27.1, 27.2, 27.3, 28.1, 28.2_
-  
+
   - [ ] 22.2 Configure sandbox environment with Python audit hooks
     - Register sys.addaudithook blocking raw os/subprocess/pty calls at process start
     - Configure Blackwall to run as unprivileged user (dropped OS privileges)
@@ -908,7 +908,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Configure rogue agent (Qwen3-Coder via Hyperbolic API) with attack tool set
     - Validate audit hooks active before demo execution
     - _Requirements: 10.6, 10.7, 10.8, 27.4, 27.5_
-  
+
   - [ ] 22.3 Write smoke tests for demo harness
     - Test Blackwall daemon starts successfully via adk run
     - Test audit hook blocks raw subprocess calls
@@ -927,7 +927,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Configure MCP endpoints: GTI_MCP URL, CBM_MCP URL
     - Set policy version with semantic versioning (1.0.0)
     - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7_
-  
+
   - [ ] 23.2 Write YAML policy validation tests
     - Test all rule IDs are unique in policy.yaml
     - Test schema validation passes for all rules
@@ -947,7 +947,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Add security architecture section explaining Zero Ambient Authority
     - Include BDD scenario examples from design.md for context
     - _Requirements: 28.1, 28.2, 28.3_
-  
+
   - [ ] 24.2 Create ARCHITECTURE.md with technical deep-dive
     - Document Hybrid Policy Server dual-layer evaluation flow
     - Explain asynchronous batching architecture and callback queue management
@@ -957,7 +957,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Include OpenTelemetry distributed tracing design
     - Document security constraints: fail-closed defaults, Zero Ambient Authority
     - _Requirements: 28.3, 28.4_
-  
+
   - [ ] 24.3 Write KAGGLE_SUBMISSION.md with competition narrative
     - Describe the dual-agent showdown scenario and key design decisions
     - Highlight innovative aspects: self-learning signatures, runtime AgBOM, LLM-as-judge scoring
@@ -973,7 +973,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Confirm OpenTelemetry span records signature creation event
     - Confirm SecurityEvent logged with eventType=SIGNATURE_CREATED and verdict=None
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.12, 11.1_
-  
+
   - [ ] 25.2 Validate adaptive defense against repeated attacks
     - Execute first novel attack → verify BLOCK via semantic evaluation
     - Verify ThreatSignature created in TSG for that attack
@@ -981,7 +981,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Verify signature match faster than first-attempt semantic evaluation
     - Verify match_count incremented on signature after second match
     - _Requirements: 5.1, 6.9, 6.10, 6.11, 26.1, 26.2, 26.3_
-  
+
   - [ ] 25.3 Write end-to-end integration tests for self-learning loop
     - Test full pipeline: intercept → evaluate → block → generate signature → block similar
     - Test signature embedding generated correctly from BLOCK event fields
@@ -999,7 +999,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Measure CPU utilization during sustained 300 RPM processing
     - Generate percentile report: p50, p95, p99 for all latency measurements
     - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7, 13.8, 13.9_
-  
+
   - [ ] 26.2 Validate performance targets
     - Assert structural gating p99 latency < 5ms
     - Assert semantic gating p99 latency < 300ms

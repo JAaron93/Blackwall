@@ -1,0 +1,38 @@
+[tool.poetry]
+name = "blackwall"
+version = "0.1.0"
+description = "Autonomous Agentic Firewall MVP"
+authors = ["Agent <agent@example.com>"]
+readme = "README.md"
+packages = [{include = "blackwall", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pydantic = "^2.0"
+structlog = "^24.1.0"
+pyyaml = "^6.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+pytest-asyncio = "^0.23.0"
+hypothesis = "^6.0"
+ruff = "^0.3.0"
+black = "^24.3.0"
+mypy = "^1.9.0"
+pre-commit = "^3.7.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true

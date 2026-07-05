@@ -730,4 +730,3 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 8. THE repository SHALL include a TROUBLESHOOTING.md documenting: common error messages (database is locked, circuit breaker triggered, embedding model unavailable), diagnostic steps, and resolution procedures for each
 9. THE repository SHALL include a CHANGELOG.md tracking all notable changes organized by semantic version following the Keep a Changelog format
 10. THE source code SHALL include inline comments explaining complex algorithms (batch accumulation loop, cosine similarity eviction, signature generalization), security-critical sections (audit hook installation, JIT credential downscoping), and non-obvious ADK integration patterns
-
