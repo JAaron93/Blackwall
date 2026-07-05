@@ -37,7 +37,7 @@ These tasks form the architectural foundation of Blackwall and must be completed
 **Priority:** HIGH
 **Dependencies:** None
 **Estimated Effort:** 3-4 days
-Status: ✅ Completed
+**Status**: ✅ Completed
 
 **Description:**
 Create `SQLiteThreatRepository` using `aiosqlite`. Configure initialization scripts to execute `PRAGMA journal_mode=WAL;` and establish a thread-safe connection pool. Remove all redundant interface wrapper classes.
@@ -149,7 +149,7 @@ Create `SQLiteThreatRepository` using `aiosqlite`. Configure initialization scri
 **Priority:** HIGH
 **Dependencies:** TASK-DB-01
 **Estimated Effort:** 2-3 days
-Status: ✅ Completed
+**Status**: ✅ Completed
 
 **Description:**
 Write custom Python interception daemon utilizing `sys.addaudithook`. Map subprocess, socket, and file-access events to the local synchronous evaluation engine. Ensure unauthorized execution attempts raise immediate runtime exceptions before kernel processing.
@@ -370,6 +370,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
 **Priority:** MEDIUM
 **Dependencies:** Tasks 7, 8 (MCP clients)
 **Estimated Effort:** 2 days
+**Status**: ✅ Completed
 
 
 **Description:**
@@ -404,8 +405,8 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
 
 ---
 
-- [ ] 9. Implement Semantic Gating Engine with multi-source threat scoring
-  - [ ] 9.1 Create SemanticGatingEngine with LLM-based intent analysis and signal aggregation
+- [x] 9. Implement Semantic Gating Engine with multi-source threat scoring
+  - [x] 9.1 Create SemanticGatingEngine with LLM-based intent analysis and signal aggregation
     - Implement evaluate() querying Threat Signature Graph first (cheapest check)
     - Extract IOCs from context: IP addresses, URLs, domains, file hashes
     - Query GTI MCP for each IOC if no signature match found
@@ -421,7 +422,7 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
     - Ensure deterministic scoring: same inputs → same score
     - _Requirements: 3.6, 3.7, 3.8, 3.9, 3.10, 3.11, 3.12, 3.13, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 23.7, 23.8, 23.9, 23.10_
 
-  - [ ] 9.2 Test threat score bounded property
+  - [x] 9.2 Test threat score bounded property
     - **Property 3: Threat Score Bounded**
     - **Validates: Requirements 3.10, 23.6, 23.7**
     - Generate diverse ToolCallContext samples with hypothesis
@@ -432,7 +433,7 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
     - Verify QUARANTINE verdict when 0.5 <= score < 0.75
     - Verify ALLOW verdict when score < 0.5
 
-  - [ ] 9.3 Write unit tests for Semantic Gating Engine
+  - [x] 9.3 Write unit tests for Semantic Gating Engine
     - Test signature matching returns BLOCK with signatureId
     - Test signature match count increment on successful match
     - Test GTI malicious IOC increases threat score appropriately
@@ -445,8 +446,8 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
     - Test threat score included in verdict structure
     - _Requirements: 3.6, 3.7, 3.8, 3.9, 3.10, 3.11, 3.12, 3.13, 23.1, 23.3, 23.4, 23.5, 23.6, 23.7, 23.8, 23.9, 23.10_
 
-- [ ] 10. Implement Hybrid Policy Server orchestrating structural and semantic gating
-  - [ ] 10.1 Create HybridPolicyServer coordinating dual-layer evaluation
+- [x] 10. Implement Hybrid Policy Server orchestrating structural and semantic gating
+  - [x] 10.1 Create HybridPolicyServer coordinating dual-layer evaluation
     - Implement evaluate() invoking Structural Gating first (fast path)
     - Fast-path return BLOCK if structural gate blocks (skip semantic)
     - Fast-path return ALLOW if structural gate allows without review (skip semantic)
@@ -458,7 +459,7 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
     - Expose updatePolicy() for hot-reload of YAML rules
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 19.1, 19.2_
 
-  - [ ] 10.2 Test verdict array order correspondence property
+  - [x] 10.2 Test verdict array order correspondence property
     - **Property 2: Verdict Array Correspondence**
     - **Validates: Requirements 3.1, 1.5, 19.1, 19.2**
     - Generate batch of 10-50 diverse ToolCallContext objects using hypothesis
@@ -467,7 +468,7 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
     - Verify verdict[i] corresponds to context[i] for all i in range
     - Test with random mix of BLOCK, ALLOW, ESCALATE conditions
 
-  - [ ] 10.3 Write integration tests for Hybrid Policy Server
+  - [x] 10.3 Write integration tests for Hybrid Policy Server
     - Test structural BLOCK skips semantic evaluation (fast path)
     - Test structural ALLOW without review skips semantic (fast path)
     - Test structural ESCALATE triggers semantic gating
@@ -480,7 +481,7 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
 
 ### Phase 5: Analytics, Metrics & Verification
 
-- [ ] 11. Implement Agent Behavioral Analytics for signature generation and drift detection
+- [~] 11. Implement Agent Behavioral Analytics for signature generation and drift detection
   - [ ] 11.1 Create AgentBehavioralAnalytics with signature generation pipeline
     - Implement scoreEvent() calculating behavioral drift using LLM-as-judge (0-5 scale)
     - Implement detectDrift() analyzing agent behavior across time windows
