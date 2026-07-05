@@ -1,7 +1,7 @@
 import re
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -52,7 +52,13 @@ class CallbackToken(BaseModel):
     token_id: UUID = Field(default_factory=uuid4)
     thread_id: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    tool_context: ToolCallContext
+    tool_context: Optional[ToolCallContext] = None
+    resumeCallback: Optional[Callable[[Verdict], Any]] = Field(
+        default=None, exclude=True
+    )
+    correlation_id: Optional[str] = None
+
+    model_config = {"arbitrary_types_allowed": True}
 
 
 class BatchPayload(BaseModel):

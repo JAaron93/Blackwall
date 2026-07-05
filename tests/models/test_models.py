@@ -14,7 +14,7 @@ from blackwall.models import (
 )
 
 
-def test_valid_model_instantiation():
+def test_valid_model_instantiation() -> None:
     verdict = Verdict(
         decision=VerdictDecision.BLOCK,
         reasoning="Suspicious pattern detected",
@@ -36,22 +36,21 @@ def test_valid_model_instantiation():
     assert event.event_type == EventType.BLOCK
     assert event.verdict == verdict
     assert event.tool_context.tool_name == "test_tool"
+    assert event.behavior_score is not None
     assert event.behavior_score.score == 0.9
 
 
-def test_invalid_inputs_trigger_validation_error():
+def test_invalid_inputs_trigger_validation_error() -> None:
     with pytest.raises(ValidationError):
         # Missing required field
-        Verdict(reasoning="Missing decision", confidence_score=0.5)
+        Verdict(reasoning="Missing decision", confidence_score=0.5)  # type: ignore[call-arg]
 
     with pytest.raises(ValidationError):
         # Invalid type
-        ToolCallContext(
-            tool_name=123, arguments="not a dict"  # should be str  # should be dict
-        )
+        ToolCallContext(tool_name=123, arguments="not a dict")  # type: ignore[arg-type]
 
 
-def test_threat_score_bounds():
+def test_threat_score_bounds() -> None:
     # Valid bounds
     BehaviorScore(score=0.0, risk_level="LOW")
     BehaviorScore(score=1.0, risk_level="CRITICAL")
@@ -64,7 +63,7 @@ def test_threat_score_bounds():
         BehaviorScore(score=1.1, risk_level="HIGH")
 
 
-def test_semver_format_validation():
+def test_semver_format_validation() -> None:
     # Valid semver
     state = PolicyServerState(
         version="1.0.0", last_updated=datetime.now(timezone.utc), active_signatures=10
@@ -84,16 +83,16 @@ def test_semver_format_validation():
         )
 
 
-def test_enum_value_restrictions():
+def test_enum_value_restrictions() -> None:
     with pytest.raises(ValidationError):
         Verdict(
-            decision="INVALID_DECISION",  # not in VerdictDecision
+            decision="INVALID_DECISION",  # type: ignore[arg-type]
             reasoning="test",
             confidence_score=0.5,
         )
 
 
-def test_timestamp_validation():
+def test_timestamp_validation() -> None:
     # Valid timestamp (within 5 seconds)
     now = datetime.now(timezone.utc)
     SecurityEvent(
@@ -124,7 +123,7 @@ def test_timestamp_validation():
         )
 
 
-def test_nullable_verdict_signature_created():
+def test_nullable_verdict_signature_created() -> None:
     # verdict=None is valid for SIGNATURE_CREATED
     event = SecurityEvent(
         event_type=EventType.SIGNATURE_CREATED,
@@ -134,7 +133,7 @@ def test_nullable_verdict_signature_created():
     assert event.verdict is None
 
 
-def test_nullable_verdict_raises_error_for_other_events():
+def test_nullable_verdict_raises_error_for_other_events() -> None:
     # verdict=None should raise error for INTERCEPTION, BLOCK, ALLOW, QUARANTINE
     for event_type in [
         EventType.INTERCEPTION,
