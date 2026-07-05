@@ -1,7 +1,7 @@
 """
 Blackwall Agentic Firewall
 """
-
+from blackwall.audit.manager import AuditHookManager
 from blackwall.interception import (
     BatchResolutionError,
     InterceptionQueue,
@@ -10,8 +10,10 @@ from blackwall.interception import (
 )
 
 __all__ = [
+    "AuditHookManager",
     "InterceptionQueue",
     "QueueEmptyException",
     "BatchResolutionError",
     "QueueOverloadError",
 ]
+

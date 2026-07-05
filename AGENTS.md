@@ -73,7 +73,8 @@ Using the Antigravity 2.0 harness, a temporary "Rogue Agent" will run malicious 
 
 To ensure all architectural guardrails are strictly enforced, Blackwall utilizes Behavior-Driven Development via `pytest-bdd`.
 
-* **Test Framework:** All end-to-end security and interception tests MUST be written using `pytest-bdd` combined with `pytest-asyncio`.
+* **Test Framework:** All end-to-end security and interception tests MUST be written using `pytest-bdd`. Step implementations MUST additionally use `pytest-asyncio` (i.e., be declared `async def`) only when the code under test is itself asynchronous — for example, coroutines, event-loop-bound callbacks, or network-bound verdict resolvers. Synchronous interception paths (such as `sys.addaudithook` handlers or blocking OS calls) must use plain synchronous step functions; adding `async def` to a step that contains no `await` is misleading and is prohibited.
+
 * **Feature Contract:** The authoritative behavioral requirements are defined in `tests/features/blackwall_guardrails.feature`. Do NOT modify or remove the Gherkin scenarios in this file without explicit human authorization.
 * **Step Definitions:** Step definitions must be implemented in `tests/step_defs/test_guardrails.py` and bind directly to the existing Given-When-Then statements in the `.feature` file.
 * **The Verification Gate:** Before marking any implementation task in `tasks.md` as complete, you must run `pytest -v tests/` and confirm that all BDD guardrail scenarios pass. Never bypass a failing BDD test by weakening the test assertion.

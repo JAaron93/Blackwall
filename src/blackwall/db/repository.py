@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List
 import uuid
 import time
 from .pool import AsyncConnectionPool
@@ -112,6 +112,40 @@ class SQLiteThreatRepository:
                 END;
                 """)
 
+                # Audit Incidents table
+                await conn.execute(
+                    """
+                CREATE TABLE IF NOT EXISTS audit_incidents (
+                    incident_id TEXT PRIMARY KEY,
+                    incident_type TEXT NOT NULL,
+                    timestamp INTEGER NOT NULL,
+                    details TEXT NOT NULL,
+                    stack_trace TEXT
+                );
+                """
+                )
+
+                # Blocked Executables table
+                await conn.execute(
+                    """
+                CREATE TABLE IF NOT EXISTS blocked_executables (
+                    executable TEXT PRIMARY KEY,
+                    created_at INTEGER NOT NULL
+                );
+                """
+                )
+
+                # Blocked IOCs table
+                await conn.execute(
+                    """
+                CREATE TABLE IF NOT EXISTS blocked_iocs (
+                    ioc TEXT PRIMARY KEY,
+                    type TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+                """
+                )
+
             self._schema_initialized = True
 
     async def close(self) -> None:
@@ -160,6 +194,14 @@ class SQLiteThreatRepository:
         false_positive_count = int(raw_fp_count) if raw_fp_count is not None else 0
 
         similarity_vector = signature_data.get("similarityVector")
+        if similarity_vector is not None:
+            if isinstance(similarity_vector, (bytes, bytearray)):
+                pass
+            elif hasattr(similarity_vector, "tobytes") and callable(similarity_vector.tobytes):
+                similarity_vector = similarity_vector.tobytes()
+            elif isinstance(similarity_vector, (list, tuple)):
+                import array
+                similarity_vector = array.array("f", similarity_vector).tobytes()
 
         raw_metadata = signature_data.get("metadata")
         metadata = json.dumps(raw_metadata) if raw_metadata is not None else None
@@ -208,3 +250,35 @@ class SQLiteThreatRepository:
             "evictionCount": 0,
             "avgMatchesPerSignature": 0.0,
         }
+
+    async def addBlockedExecutable(self, executable: str) -> None:
+        await self.initialize()
+        async with self.pool.connection() as conn:
+            await conn.execute(
+                "INSERT OR IGNORE INTO blocked_executables (executable, created_at) VALUES (?, ?)",
+                (executable, int(time.time())),
+            )
+
+    async def addBlockedIOC(self, ioc: str, ioc_type: str = "ip") -> None:
+        await self.initialize()
+        async with self.pool.connection() as conn:
+            await conn.execute(
+                "INSERT OR IGNORE INTO blocked_iocs (ioc, type, created_at) VALUES (?, ?, ?)",
+                (ioc, ioc_type, int(time.time())),
+            )
+
+    async def getAuditIncidents(self) -> List[Dict[str, Any]]:
+        await self.initialize()
+        async with self.pool.connection() as conn:
+            cursor = await conn.execute("SELECT incident_id, incident_type, timestamp, details, stack_trace FROM audit_incidents ORDER BY timestamp DESC")
+            rows = await cursor.fetchall()
+            return [
+                {
+                    "incident_id": r[0],
+                    "incident_type": r[1],
+                    "timestamp": r[2],
+                    "details": r[3],
+                    "stack_trace": r[4],
+                }
+                for r in rows
+            ]
