@@ -150,6 +150,15 @@ class SQLiteThreatRepository:
                 );
                 """)
 
+                # Background Tasks table
+                await conn.execute("""
+                CREATE TABLE IF NOT EXISTS background_tasks (
+                    task_id TEXT PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+                """)
+
                 # In-Flight Background Tasks table
                 await conn.execute("""
                 CREATE TABLE IF NOT EXISTS in_flight_tasks (
@@ -375,6 +384,22 @@ class SQLiteThreatRepository:
                     }
         return None
 
+    async def add_background_task(self, task_id: str, status: str = "PENDING_WEBHOOK_CALLBACK") -> None:
+        await self.initialize()
+        async with self.pool.connection() as conn:
+            await conn.execute(
+                "INSERT INTO background_tasks (task_id, status, created_at) VALUES (?, ?, ?)",
+                (task_id, status, int(time.time())),
+            )
+
+    async def update_background_task_status(self, task_id: str, status: str) -> None:
+        await self.initialize()
+        async with self.pool.connection() as conn:
+            await conn.execute(
+                "UPDATE background_tasks SET status = ? WHERE task_id = ?",
+                (status, task_id),
+            )
+
     async def add_in_flight_task(self, task_id: str) -> None:
         """Adds a task ID to the in-flight list."""
         await self.initialize()
@@ -411,7 +436,7 @@ class SQLiteThreatRepository:
     async def write_signatures_batch(self, signatures: List[Dict[str, Any]]) -> None:
         """Writes multiple threat signatures in a single atomic transaction."""
         await self.initialize()
-        
+
         async with self.pool.connection() as conn:
             # aiosqlite connection executes in auto-commit mode by default unless transaction is started
             await conn.execute("BEGIN TRANSACTION")
