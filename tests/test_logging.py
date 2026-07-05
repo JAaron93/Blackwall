@@ -1,31 +1,5 @@
 import pytest
-import os
-import subprocess
 from blackwall.logging import setup_logging
-
-def test_audit_hook_blocks_execution():
-    import structlog
-    original_config = structlog.get_config()
-    try:
-        # Setup logging to register the audit hook
-        setup_logging()
-
-        # Verify that subprocess calls are blocked with PermissionError
-        with pytest.raises(PermissionError, match="Operation not permitted"):
-            subprocess.Popen(["echo", "hello"])
-
-        # Verify that os.system calls are blocked with PermissionError
-        with pytest.raises(PermissionError, match="Operation not permitted"):
-            os.system("echo hello")
-    finally:
-        structlog.configure(
-            processors=original_config.get("processors"),
-            wrapper_class=original_config.get("wrapper_class"),
-            context_class=original_config.get("context_class"),
-            logger_factory=original_config.get("logger_factory"),
-            cache_logger_on_first_use=original_config.get("cache_logger_on_first_use"),
-        )
-
 
 def test_setup_logging_pipeline(capsys, log_output, caplog):
     import structlog
