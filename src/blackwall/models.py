@@ -1,7 +1,7 @@
 import re
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -42,16 +42,23 @@ class Verdict(BaseModel):
     confidence_score: float = Field(..., ge=0.0, le=1.0)
 
 
-class CallbackToken(BaseModel):
-    token_id: UUID = Field(default_factory=uuid4)
-    thread_id: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-
 class ToolCallContext(BaseModel):
     tool_name: str
     arguments: Dict[str, Any]
     metadata: Optional[Dict[str, Any]] = None
+
+
+class CallbackToken(BaseModel):
+    token_id: UUID = Field(default_factory=uuid4)
+    thread_id: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    tool_context: Optional[ToolCallContext] = None
+    resumeCallback: Optional[Callable[[Verdict], Any]] = Field(
+        default=None, exclude=True
+    )
+    correlation_id: Optional[str] = None
+
+    model_config = {"arbitrary_types_allowed": True}
 
 
 class ThreatSignature(BaseModel):
@@ -112,7 +119,9 @@ class PolicyServerState(BaseModel):
     @classmethod
     def validate_semver(cls, v: str) -> str:
         if not re.match(r"^\d+\.\d+\.\d+$", v):
-            raise ValueError("Version must be in MAJOR.MINOR.PATCH semantic versioning format")
+            raise ValueError(
+                "Version must be in MAJOR.MINOR.PATCH semantic versioning format"
+            )
         return v
 
 
@@ -132,7 +141,9 @@ class SecurityEvent(BaseModel):
         now = datetime.now(timezone.utc)
         diff = abs((now - v).total_seconds())
         if diff > 5.0:
-            raise ValueError(f"Timestamp must be within 5 seconds of current time, got diff {diff}s")
+            raise ValueError(
+                f"Timestamp must be within 5 seconds of current time, got diff {diff}s"
+            )
         return v
 
     @model_validator(mode="after")
@@ -143,5 +154,7 @@ class SecurityEvent(BaseModel):
             EventType.ALLOW,
             EventType.QUARANTINE,
         }:
-            raise ValueError(f"Verdict is required for event_type {self.event_type.value}")
+            raise ValueError(
+                f"Verdict is required for event_type {self.event_type.value}"
+            )
         return self
