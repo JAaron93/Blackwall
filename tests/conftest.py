@@ -1,6 +1,7 @@
 import pytest
 import structlog
 from structlog.testing import LogCapture
+from unittest.mock import AsyncMock
 
 
 @pytest.fixture(name="log_output")
@@ -30,3 +31,23 @@ def clean_sqlite():
                 pass
 
     return _clean
+
+
+@pytest.fixture
+def mock_cbm_client() -> AsyncMock:
+    client = AsyncMock()
+    client.queryDependencyChain = AsyncMock(return_value="mock_dep_chain")
+    client.identifyCriticalSinks = AsyncMock(return_value="mock_sinks")
+    client.traceDataFlow = AsyncMock(return_value="mock_data_flow")
+    client.getBlastRadius = AsyncMock(return_value="mock_blast_radius")
+    return client
+
+
+@pytest.fixture
+def mock_gti_client() -> AsyncMock:
+    client = AsyncMock()
+    client.lookup_ip = AsyncMock(return_value="mock_ip")
+    client.lookup_url = AsyncMock(return_value="mock_url")
+    client.lookup_domain = AsyncMock(return_value="mock_domain")
+    client.lookup_file_hash = AsyncMock(return_value="mock_hash")
+    return client

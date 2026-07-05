@@ -35,10 +35,12 @@ async def test_ioc_query_malicious_ip(client):
         "detection_rate": 20.0,
         "last_analysis_date": "2026-07-05T12:00:00Z",
         "related_campaigns": ["campaign_alpha"],
-        "confidence": 0.2
+        "confidence": 0.2,
     }
 
-    with patch.object(client, "_execute_api_query", new_callable=AsyncMock) as mock_query:
+    with patch.object(
+        client, "_execute_api_query", new_callable=AsyncMock
+    ) as mock_query:
         mock_query.return_value = mock_response
 
         response = await client.queryIOC("192.168.1.1", IndicatorType.IP_ADDRESS)
@@ -61,10 +63,12 @@ async def test_caching_and_ttl(client, repo):
         "detection_rate": 0.0,
         "last_analysis_date": "2026-07-05T12:00:00Z",
         "related_campaigns": [],
-        "confidence": 0.0
+        "confidence": 0.0,
     }
 
-    with patch.object(client, "_execute_api_query", new_callable=AsyncMock) as mock_query:
+    with patch.object(
+        client, "_execute_api_query", new_callable=AsyncMock
+    ) as mock_query:
         mock_query.return_value = mock_response
 
         # First query should call API
@@ -81,11 +85,14 @@ async def test_caching_and_ttl(client, repo):
             # Third query should miss cache and call API
             resp3 = await client.queryIOC("example.com", IndicatorType.DOMAIN)
             assert mock_query.call_count == 2
+            assert resp3.indicator == "example.com"
 
 
 @pytest.mark.asyncio
 async def test_timeout_triggers_failure(client):
-    with patch.object(client, "_execute_api_query", new_callable=AsyncMock) as mock_query:
+    with patch.object(
+        client, "_execute_api_query", new_callable=AsyncMock
+    ) as mock_query:
         # Mock wait_for timeout by raising TimeoutError
         mock_query.side_effect = asyncio.TimeoutError()
 
@@ -97,7 +104,9 @@ async def test_timeout_triggers_failure(client):
 
 @pytest.mark.asyncio
 async def test_circuit_breaker_degraded_mode(client):
-    with patch.object(client, "_execute_api_query", new_callable=AsyncMock) as mock_query:
+    with patch.object(
+        client, "_execute_api_query", new_callable=AsyncMock
+    ) as mock_query:
         mock_query.side_effect = Exception("API Error")
 
         # Fail 5 times
@@ -118,7 +127,9 @@ async def test_circuit_breaker_degraded_mode(client):
 
 @pytest.mark.asyncio
 async def test_circuit_breaker_cooldown_and_restore(client):
-    with patch.object(client, "_execute_api_query", new_callable=AsyncMock) as mock_query:
+    with patch.object(
+        client, "_execute_api_query", new_callable=AsyncMock
+    ) as mock_query:
         mock_query.side_effect = Exception("API Error")
 
         # Fail 5 times to trigger OPEN state
@@ -141,7 +152,7 @@ async def test_circuit_breaker_cooldown_and_restore(client):
             "detection_rate": 0.0,
             "last_analysis_date": None,
             "related_campaigns": [],
-            "confidence": 0.0
+            "confidence": 0.0,
         }
 
         with patch("time.time", return_value=time.time() + 61):
@@ -162,7 +173,9 @@ async def test_circuit_breaker_cooldown_and_restore(client):
 
 @pytest.mark.asyncio
 async def test_circuit_breaker_half_open_failure_resets(client):
-    with patch.object(client, "_execute_api_query", new_callable=AsyncMock) as mock_query:
+    with patch.object(
+        client, "_execute_api_query", new_callable=AsyncMock
+    ) as mock_query:
         mock_query.side_effect = Exception("API Error")
 
         # Fail 5 times to trigger OPEN state
@@ -179,7 +192,7 @@ async def test_circuit_breaker_half_open_failure_resets(client):
             "detection_rate": 0.0,
             "last_analysis_date": None,
             "related_campaigns": [],
-            "confidence": 0.0
+            "confidence": 0.0,
         }
 
         with patch("time.time", return_value=time.time() + 61):
@@ -201,7 +214,9 @@ async def test_circuit_breaker_half_open_failure_resets(client):
 @pytest.mark.asyncio
 async def test_threat_score_penalty_simulation(client):
     # Test threat score penalty of 0.3 applied in degraded mode.
-    with patch.object(client, "_execute_api_query", new_callable=AsyncMock) as mock_query:
+    with patch.object(
+        client, "_execute_api_query", new_callable=AsyncMock
+    ) as mock_query:
         mock_query.side_effect = Exception("API Error")
         for _ in range(5):
             with pytest.raises(Exception):
@@ -232,15 +247,15 @@ async def test_vt_response_parsing(client):
                     "malicious": 5,
                     "suspicious": 1,
                     "harmless": 20,
-                    "undetected": 74
+                    "undetected": 74,
                 },
                 "last_analysis_results": {
                     "EngineA": {"category": "malicious", "result": "Malware_Name_1"},
                     "EngineB": {"category": "suspicious", "result": "Trojan.Generic"},
-                    "EngineC": {"category": "harmless", "result": "clean"}
+                    "EngineC": {"category": "harmless", "result": "clean"},
                 },
                 "tags": ["campaign:apt28", "c2-server", "some-other-tag"],
-                "last_analysis_date": 1782302400  # Unix timestamp
+                "last_analysis_date": 1782302400,  # Unix timestamp
             }
         }
     }
@@ -266,15 +281,25 @@ async def test_rate_limit_backoff_and_retry(client):
 
     mock_resp_200 = MagicMock()
     mock_resp_200.status = 200
-    mock_resp_200.json = AsyncMock(return_value={
-        "data": {
-            "attributes": {
-                "last_analysis_stats": {"malicious": 0, "suspicious": 0, "harmless": 10, "undetected": 0}
+    mock_resp_200.json = AsyncMock(
+        return_value={
+            "data": {
+                "attributes": {
+                    "last_analysis_stats": {
+                        "malicious": 0,
+                        "suspicious": 0,
+                        "harmless": 10,
+                        "undetected": 0,
+                    }
+                }
             }
         }
-    })
+    )
 
-    with patch("aiohttp.ClientSession.get") as mock_get, patch("asyncio.sleep", AsyncMock()) as mock_sleep:
+    with (
+        patch("aiohttp.ClientSession.get") as mock_get,
+        patch("asyncio.sleep", AsyncMock()) as mock_sleep,
+    ):
         mock_ctx_429 = MagicMock()
         mock_ctx_429.__aenter__ = AsyncMock(return_value=mock_resp_429)
         mock_ctx_429.__aexit__ = AsyncMock(return_value=None)

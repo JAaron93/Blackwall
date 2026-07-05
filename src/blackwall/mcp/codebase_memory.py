@@ -5,12 +5,14 @@ from enum import Enum
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 
+
 # Pydantic models representing the design spec structures
 class CriticalSinkType(str, Enum):
     SQL_QUERY = "SQL_QUERY"
     COMMAND_EXEC = "COMMAND_EXEC"
     FILE_WRITE = "FILE_WRITE"
     NETWORK_CALL = "NETWORK_CALL"
+
 
 class CriticalSink(BaseModel):
     sinkType: CriticalSinkType
@@ -19,12 +21,14 @@ class CriticalSink(BaseModel):
     isUnsafe: bool
     mitigationHint: str
 
+
 class DependencyChain(BaseModel):
     rootFunction: str
     callChain: List[str]
     depth: int
     hasCriticalSink: bool
     criticalSinks: List[str]  # Array of string names of the critical sinks
+
 
 class DataFlowPath(BaseModel):
     sourceNode: str
@@ -33,10 +37,12 @@ class DataFlowPath(BaseModel):
     isTainted: bool
     sanitizationPoints: List[str]
 
+
 class BlastRadiusIsolation(str, Enum):
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
+
 
 class BlastRadiusReport(BaseModel):
     targetNode: str
@@ -50,12 +56,13 @@ class CodebaseMemoryClient:
     """
     Client for interacting with codebase-memory-mcp AST knowledge graph.
     """
+
     def __init__(
         self,
         base_url: Optional[str] = None,
         command: Optional[List[str]] = None,
         last_updated: Optional[datetime] = None,
-        timeout_seconds: float = 2.0
+        timeout_seconds: float = 2.0,
     ):
         self.base_url = base_url or os.getenv("CBM_MCP_BASE_URL")
         self.command = command
@@ -73,15 +80,15 @@ class CodebaseMemoryClient:
                     callChain=["ProcessOrder", "ValidatePayment", "ExecuteSQL"],
                     depth=3,
                     hasCriticalSink=True,
-                    criticalSinks=["ExecuteSQL"]
+                    criticalSinks=["ExecuteSQL"],
                 ),
                 "safe_func": DependencyChain(
                     rootFunction="safe_func",
                     callChain=["safe_func"],
                     depth=1,
                     hasCriticalSink=False,
-                    criticalSinks=[]
-                )
+                    criticalSinks=[],
+                ),
             },
             "identifyCriticalSinks": {
                 "ProcessOrder": [
@@ -90,10 +97,10 @@ class CodebaseMemoryClient:
                         functionName="ExecuteSQL",
                         modulePath="src/db/connection.py",
                         isUnsafe=True,
-                        mitigationHint="Use parameterized queries instead of string formatting."
+                        mitigationHint="Use parameterized queries instead of string formatting.",
                     )
                 ],
-                "safe_func": []
+                "safe_func": [],
             },
             "traceDataFlow": {
                 ("user_input", "ExecuteSQL"): DataFlowPath(
@@ -101,15 +108,15 @@ class CodebaseMemoryClient:
                     sinkNode="ExecuteSQL",
                     intermediateNodes=["ValidatePayment"],
                     isTainted=True,
-                    sanitizationPoints=[]
+                    sanitizationPoints=[],
                 ),
                 ("safe_input", "safe_sink"): DataFlowPath(
                     sourceNode="safe_input",
                     sinkNode="safe_sink",
                     intermediateNodes=[],
                     isTainted=False,
-                    sanitizationPoints=["sanitize_input"]
-                )
+                    sanitizationPoints=["sanitize_input"],
+                ),
             },
             "getBlastRadius": {
                 "ProcessOrder": BlastRadiusReport(
@@ -117,16 +124,16 @@ class CodebaseMemoryClient:
                     affectedModules=["src/db", "src/api"],
                     affectedFunctions=["ProcessOrder", "ValidatePayment", "Checkout"],
                     riskScore=0.75,
-                    isolation=BlastRadiusIsolation.MEDIUM
+                    isolation=BlastRadiusIsolation.MEDIUM,
                 ),
                 "safe_func": BlastRadiusReport(
                     targetNode="safe_func",
                     affectedModules=["src/utils"],
                     affectedFunctions=["safe_func"],
                     riskScore=0.1,
-                    isolation=BlastRadiusIsolation.HIGH
-                )
-            }
+                    isolation=BlastRadiusIsolation.HIGH,
+                ),
+            },
         }
 
     def set_mock_data(self, category: str, key: Any, value: Any) -> None:
@@ -157,8 +164,10 @@ class CodebaseMemoryClient:
         """
         # If no real transport is configured, raise or return mock indicators
         if not self.base_url and not self.command:
-            raise NotImplementedError("Real MCP transport not configured. Mocking required.")
-        
+            raise NotImplementedError(
+                "Real MCP transport not configured. Mocking required."
+            )
+
         # Real transport would be implemented here. For testing, we mock or raise.
         raise ConnectionError("MCP server is currently unavailable.")
 
@@ -176,6 +185,7 @@ class CodebaseMemoryClient:
         """
         Queries codebase dependency chain returning call chain, depth, and critical sinks.
         """
+
         async def _query():
             if not self.base_url and not self.command:
                 # Mock path
@@ -186,8 +196,8 @@ class CodebaseMemoryClient:
                         callChain=[functionName],
                         depth=1,
                         hasCriticalSink=False,
-                        criticalSinks=[]
-                    )
+                        criticalSinks=[],
+                    ),
                 )
             # Real path (might fail, triggers fallback)
             await self._execute_mcp_tool("trace_path", {"qualified_name": functionName})
@@ -198,7 +208,7 @@ class CodebaseMemoryClient:
             callChain=[functionName],
             depth=1,
             hasCriticalSink=False,
-            criticalSinks=[]
+            criticalSinks=[],
         )
         return await self._safe_execute(_query(), fallback)
 
@@ -207,10 +217,14 @@ class CodebaseMemoryClient:
         Detects: SQL_QUERY, COMMAND_EXEC, FILE_WRITE, NETWORK_CALL
         Identifies unsafe sinks accepting unsanitized input.
         """
+
         async def _query():
             if not self.base_url and not self.command:
                 return self.mock_data["identifyCriticalSinks"].get(moduleName, [])
-            await self._execute_mcp_tool("query_graph", {"query": f"MATCH (m:Module {{name: '{moduleName}'}})..."})
+            await self._execute_mcp_tool(
+                "query_graph",
+                {"query": f"MATCH (m:Module {{name: '{moduleName}'}})..."},
+            )
 
         return await self._safe_execute(_query(), [])
 
@@ -218,6 +232,7 @@ class CodebaseMemoryClient:
         """
         Traces data flow from variable to sink.
         """
+
         async def _query():
             if not self.base_url and not self.command:
                 return self.mock_data["traceDataFlow"].get(
@@ -227,17 +242,19 @@ class CodebaseMemoryClient:
                         sinkNode=context,
                         intermediateNodes=[],
                         isTainted=False,
-                        sanitizationPoints=[]
-                    )
+                        sanitizationPoints=[],
+                    ),
                 )
-            await self._execute_mcp_tool("trace_path", {"variable": variableName, "context": context})
+            await self._execute_mcp_tool(
+                "trace_path", {"variable": variableName, "context": context}
+            )
 
         fallback = DataFlowPath(
             sourceNode=variableName,
             sinkNode=context,
             intermediateNodes=[],
             isTainted=False,
-            sanitizationPoints=[]
+            sanitizationPoints=[],
         )
         return await self._safe_execute(_query(), fallback)
 
@@ -245,6 +262,7 @@ class CodebaseMemoryClient:
         """
         Calculates blast radius including affected modules, risk score, and isolation level.
         """
+
         async def _query():
             if not self.base_url and not self.command:
                 return self.mock_data["getBlastRadius"].get(
@@ -254,8 +272,8 @@ class CodebaseMemoryClient:
                         affectedModules=[targetNode],
                         affectedFunctions=[targetNode],
                         riskScore=0.0,
-                        isolation=BlastRadiusIsolation.HIGH
-                    )
+                        isolation=BlastRadiusIsolation.HIGH,
+                    ),
                 )
             await self._execute_mcp_tool("get_architecture", {"node": targetNode})
 
@@ -264,7 +282,7 @@ class CodebaseMemoryClient:
             affectedModules=[targetNode],
             affectedFunctions=[targetNode],
             riskScore=0.0,
-            isolation=BlastRadiusIsolation.HIGH
+            isolation=BlastRadiusIsolation.HIGH,
         )
         return await self._safe_execute(_query(), fallback)
 
@@ -282,6 +300,8 @@ class CodebaseMemoryClient:
             CriticalSinkType.SQL_QUERY: "Use parameterized queries or ORMs instead of raw string formatting/concatenation.",
             CriticalSinkType.COMMAND_EXEC: "Avoid running shell commands using raw user input. Use subprocess with pre-split argument list and shell=False.",
             CriticalSinkType.FILE_WRITE: "Validate the output file path using os.path.abspath and ensure it resides within the allowed workspace directory to prevent directory traversal.",
-            CriticalSinkType.NETWORK_CALL: "Validate and whitelist the target IP/domain before initiating the connection. Restrict to authorized internal endpoints."
+            CriticalSinkType.NETWORK_CALL: "Validate and whitelist the target IP/domain before initiating the connection. Restrict to authorized internal endpoints.",
         }
-        return hints.get(sink_type, "No specific mitigation hint available for this sink type.")
+        return hints.get(
+            sink_type, "No specific mitigation hint available for this sink type."
+        )

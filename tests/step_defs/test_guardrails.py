@@ -23,10 +23,15 @@ from typing import Any, Callable, Dict, Generator
 
 import pytest
 import structlog
-from pytest_bdd import given, scenario, then, when
+from pytest_bdd import given, scenario, then, when, parsers
 
 from blackwall.audit.manager import AuditHookManager
 from blackwall.db.repository import SQLiteThreatRepository
+from blackwall.mcp.mcp_routing import (
+    CodebaseMemoryRouter,
+    GTIRouter,
+    MCPRoutingViolation,
+)
 
 # ============================================================================
 # Fixtures
@@ -261,3 +266,151 @@ def then_telemetry_written() -> None:
 @then("the outbound network connection must be severed completely")
 def then_connection_severed(conn_result: Dict[str, Any]) -> None:
     assert conn_result["exception"] is not None
+
+
+# ============================================================================
+# Feature: Blackwall Agentic Firewall Guardrails (MCP Routing)
+#   (blackwall_guardrails.feature)
+# ============================================================================
+
+_BLACKWALL_GUARDRAILS = "../features/blackwall_guardrails.feature"
+
+
+@scenario(
+    _BLACKWALL_GUARDRAILS,
+    "CodebaseMemoryRouter permits AST query operations",
+)
+def test_bdd_cbm_router_permits_ast_ops() -> None:
+    pass
+
+
+@scenario(
+    _BLACKWALL_GUARDRAILS,
+    "CodebaseMemoryRouter blocks prohibited operations",
+)
+def test_bdd_cbm_router_blocks_prohibited_ops() -> None:
+    pass
+
+
+@scenario(
+    _BLACKWALL_GUARDRAILS,
+    "GTIRouter permits async analysis context",
+)
+def test_bdd_gti_router_permits_async_context() -> None:
+    pass
+
+
+@scenario(
+    _BLACKWALL_GUARDRAILS,
+    "GTIRouter blocks synchronous interception context",
+)
+def test_bdd_gti_router_blocks_sync_context() -> None:
+    pass
+
+
+@scenario(
+    _BLACKWALL_GUARDRAILS,
+    "MCP router detects escape attempt in operation name",
+)
+def test_bdd_mcp_router_detects_escape_attempt() -> None:
+    pass
+
+
+# --- Step definitions (MCP Routing) -----------------------------------------
+
+
+@pytest.fixture
+def mcp_bdd_context() -> dict:
+    return {
+        "router": None,
+        "client": None,
+        "result": None,
+        "exception": None,
+    }
+
+
+@given(
+    "a CodebaseMemoryRouter with a mock CBM client", target_fixture="mcp_bdd_context"
+)
+def given_cbm_router_step(mock_cbm_client) -> dict:
+    router = CodebaseMemoryRouter(mock_cbm_client)
+    return {
+        "router": router,
+        "client": mock_cbm_client,
+        "result": None,
+        "exception": None,
+    }
+
+
+@given("a GTIRouter with a mock GTI client", target_fixture="mcp_bdd_context")
+def given_gti_router_step(mock_gti_client) -> dict:
+    router = GTIRouter(mock_gti_client)
+    return {
+        "router": router,
+        "client": mock_gti_client,
+        "result": None,
+        "exception": None,
+    }
+
+
+@when(parsers.parse('a "{operation}" operation is routed'))
+def when_operation_routed_step(mcp_bdd_context, operation) -> None:
+    router = mcp_bdd_context["router"]
+    try:
+        mcp_bdd_context["result"] = asyncio.run(
+            router.route(operation, function_name="test_func")
+        )
+    except Exception as e:
+        mcp_bdd_context["exception"] = e
+
+
+@when(parsers.parse('a GTI query is routed in "{context}" context'))
+def when_gti_query_routed_step(mcp_bdd_context, context) -> None:
+    router = mcp_bdd_context["router"]
+    ctx_enum = GTIRouter.ExecutionContext(context)
+    try:
+        mcp_bdd_context["result"] = asyncio.run(
+            router.route(ctx_enum, "lookup_ip", ip="192.168.1.1")
+        )
+    except Exception as e:
+        mcp_bdd_context["exception"] = e
+
+
+@when(parsers.parse('an operation named "{name}" is routed'))
+def when_operation_with_name_routed_step(mcp_bdd_context, name) -> None:
+    router = mcp_bdd_context["router"]
+    try:
+        mcp_bdd_context["result"] = asyncio.run(
+            router.route(name, function_name="test_func")
+        )
+    except Exception as e:
+        mcp_bdd_context["exception"] = e
+
+
+@then("the operation should be permitted")
+def then_operation_permitted_step(mcp_bdd_context) -> None:
+    assert mcp_bdd_context["exception"] is None
+    assert mcp_bdd_context["result"] is not None
+
+
+@then("the CBM client should receive the delegated call")
+def then_cbm_client_delegated_step(mcp_bdd_context) -> None:
+    mcp_bdd_context["client"].queryDependencyChain.assert_called_once()
+
+
+@then("the GTI client should receive the delegated call")
+def then_gti_client_delegated_step(mcp_bdd_context) -> None:
+    mcp_bdd_context["client"].lookup_ip.assert_called_once()
+
+
+@then("the operation should raise MCPRoutingViolation")
+def then_operation_raises_violation_step(mcp_bdd_context) -> None:
+    assert mcp_bdd_context["exception"] is not None
+    assert isinstance(mcp_bdd_context["exception"], MCPRoutingViolation)
+
+
+@then(parsers.parse('the error should contain "{expected_str}"'))
+def then_error_contains_step(mcp_bdd_context, expected_str) -> None:
+    exc = mcp_bdd_context["exception"]
+    assert exc is not None
+    assert expected_str in str(exc)
