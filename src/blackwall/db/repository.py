@@ -29,8 +29,7 @@ class SQLiteThreatRepository:
 
             async with self.pool.connection() as conn:
                 # Nodes Table
-                await conn.execute(
-                    """
+                await conn.execute("""
                 CREATE TABLE IF NOT EXISTS signatures (
                     signature_id TEXT PRIMARY KEY,
                     created_at INTEGER NOT NULL,
@@ -46,8 +45,7 @@ class SQLiteThreatRepository:
                     similarity_vector BLOB,
                     metadata TEXT
                 );
-                """
-                )
+                """)
 
                 # Indexes for signatures table
                 await conn.execute(
@@ -58,8 +56,7 @@ class SQLiteThreatRepository:
                 )
 
                 # Edges Table
-                await conn.execute(
-                    """
+                await conn.execute("""
                 CREATE TABLE IF NOT EXISTS signature_relationships (
                     edge_id TEXT PRIMARY KEY,
                     source_signature_id TEXT NOT NULL,
@@ -70,8 +67,7 @@ class SQLiteThreatRepository:
                     FOREIGN KEY (source_signature_id) REFERENCES signatures(signature_id) ON DELETE CASCADE,
                     FOREIGN KEY (target_signature_id) REFERENCES signatures(signature_id) ON DELETE CASCADE
                 );
-                """
-                )
+                """)
 
                 # Indexes for signature_relationships table
                 await conn.execute(
@@ -82,8 +78,7 @@ class SQLiteThreatRepository:
                 )
 
                 # FTS5 virtual table
-                await conn.execute(
-                    """
+                await conn.execute("""
                 CREATE VIRTUAL TABLE IF NOT EXISTS signature_fts USING fts5(
                     signature_id UNINDEXED,
                     payload_pattern,
@@ -91,38 +86,31 @@ class SQLiteThreatRepository:
                     content=signatures,
                     content_rowid=rowid
                 );
-                """
-                )
+                """)
 
                 # Triggers to keep FTS in sync with the signatures table
-                await conn.execute(
-                    """
+                await conn.execute("""
                 CREATE TRIGGER IF NOT EXISTS signatures_ai AFTER INSERT ON signatures BEGIN
                     INSERT INTO signature_fts(rowid, signature_id, payload_pattern, attacker_intent)
                     VALUES (new.rowid, new.signature_id, new.payload_pattern, new.attacker_intent);
                 END;
-                """
-                )
+                """)
 
-                await conn.execute(
-                    """
+                await conn.execute("""
                 CREATE TRIGGER IF NOT EXISTS signatures_ad AFTER DELETE ON signatures BEGIN
                     INSERT INTO signature_fts(signature_fts, rowid, signature_id, payload_pattern, attacker_intent)
                     VALUES('delete', old.rowid, old.signature_id, old.payload_pattern, old.attacker_intent);
                 END;
-                """
-                )
+                """)
 
-                await conn.execute(
-                    """
+                await conn.execute("""
                 CREATE TRIGGER IF NOT EXISTS signatures_au AFTER UPDATE ON signatures BEGIN
                     INSERT INTO signature_fts(signature_fts, rowid, signature_id, payload_pattern, attacker_intent)
                     VALUES('delete', old.rowid, old.signature_id, old.payload_pattern, old.attacker_intent);
                     INSERT INTO signature_fts(rowid, signature_id, payload_pattern, attacker_intent)
                     VALUES (new.rowid, new.signature_id, new.payload_pattern, new.attacker_intent);
                 END;
-                """
-                )
+                """)
 
             self._schema_initialized = True
 

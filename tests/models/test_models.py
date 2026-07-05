@@ -1,4 +1,3 @@
-import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -6,12 +5,9 @@ from pydantic import ValidationError
 
 from blackwall.models import (
     BehaviorScore,
-    CallbackToken,
     EventType,
     PolicyServerState,
     SecurityEvent,
-    SinkType,
-    ThreatSignature,
     ToolCallContext,
     Verdict,
     VerdictDecision,
@@ -28,16 +24,14 @@ def test_valid_model_instantiation():
     assert verdict.confidence_score == 0.8
 
     context = ToolCallContext(
-        tool_name="test_tool",
-        arguments={"param": "value"},
-        metadata={"user": "admin"}
+        tool_name="test_tool", arguments={"param": "value"}, metadata={"user": "admin"}
     )
-    
+
     event = SecurityEvent(
         event_type=EventType.BLOCK,
         tool_context=context,
         verdict=verdict,
-        behavior_score=BehaviorScore(score=0.9, risk_level="HIGH")
+        behavior_score=BehaviorScore(score=0.9, risk_level="HIGH"),
     )
     assert event.event_type == EventType.BLOCK
     assert event.verdict == verdict
@@ -48,16 +42,12 @@ def test_valid_model_instantiation():
 def test_invalid_inputs_trigger_validation_error():
     with pytest.raises(ValidationError):
         # Missing required field
-        Verdict(
-            reasoning="Missing decision",
-            confidence_score=0.5
-        )
+        Verdict(reasoning="Missing decision", confidence_score=0.5)
 
     with pytest.raises(ValidationError):
         # Invalid type
         ToolCallContext(
-            tool_name=123,  # should be str
-            arguments="not a dict" # should be dict
+            tool_name=123, arguments="not a dict"  # should be str  # should be dict
         )
 
 
@@ -69,7 +59,7 @@ def test_threat_score_bounds():
     # Invalid bounds
     with pytest.raises(ValidationError):
         BehaviorScore(score=-0.1, risk_level="LOW")
-        
+
     with pytest.raises(ValidationError):
         BehaviorScore(score=1.1, risk_level="HIGH")
 
@@ -77,24 +67,20 @@ def test_threat_score_bounds():
 def test_semver_format_validation():
     # Valid semver
     state = PolicyServerState(
-        version="1.0.0",
-        last_updated=datetime.now(timezone.utc),
-        active_signatures=10
+        version="1.0.0", last_updated=datetime.now(timezone.utc), active_signatures=10
     )
     assert state.version == "1.0.0"
 
     # Invalid semver
     with pytest.raises(ValidationError):
         PolicyServerState(
-            version="1.0",
-            last_updated=datetime.now(timezone.utc),
-            active_signatures=10
+            version="1.0", last_updated=datetime.now(timezone.utc), active_signatures=10
         )
     with pytest.raises(ValidationError):
         PolicyServerState(
             version="v1.0.0",
             last_updated=datetime.now(timezone.utc),
-            active_signatures=10
+            active_signatures=10,
         )
 
 
@@ -103,7 +89,7 @@ def test_enum_value_restrictions():
         Verdict(
             decision="INVALID_DECISION",  # not in VerdictDecision
             reasoning="test",
-            confidence_score=0.5
+            confidence_score=0.5,
         )
 
 
@@ -114,7 +100,7 @@ def test_timestamp_validation():
         event_type=EventType.SIGNATURE_CREATED,
         timestamp=now,
         tool_context=ToolCallContext(tool_name="t", arguments={}),
-        verdict=None
+        verdict=None,
     )
 
     # Invalid timestamp (more than 5 seconds in the past)
@@ -124,7 +110,7 @@ def test_timestamp_validation():
             event_type=EventType.SIGNATURE_CREATED,
             timestamp=past,
             tool_context=ToolCallContext(tool_name="t", arguments={}),
-            verdict=None
+            verdict=None,
         )
 
     # Naive timestamp
@@ -134,7 +120,7 @@ def test_timestamp_validation():
             event_type=EventType.SIGNATURE_CREATED,
             timestamp=naive,
             tool_context=ToolCallContext(tool_name="t", arguments={}),
-            verdict=None
+            verdict=None,
         )
 
 
@@ -143,17 +129,22 @@ def test_nullable_verdict_signature_created():
     event = SecurityEvent(
         event_type=EventType.SIGNATURE_CREATED,
         tool_context=ToolCallContext(tool_name="t", arguments={}),
-        verdict=None
+        verdict=None,
     )
     assert event.verdict is None
 
 
 def test_nullable_verdict_raises_error_for_other_events():
     # verdict=None should raise error for INTERCEPTION, BLOCK, ALLOW, QUARANTINE
-    for event_type in [EventType.INTERCEPTION, EventType.BLOCK, EventType.ALLOW, EventType.QUARANTINE]:
+    for event_type in [
+        EventType.INTERCEPTION,
+        EventType.BLOCK,
+        EventType.ALLOW,
+        EventType.QUARANTINE,
+    ]:
         with pytest.raises(ValidationError, match="Verdict is required"):
             SecurityEvent(
                 event_type=event_type,
                 tool_context=ToolCallContext(tool_name="t", arguments={}),
-                verdict=None
+                verdict=None,
             )
