@@ -20,6 +20,7 @@ class AsyncConnectionPool:
         await conn.execute("PRAGMA journal_mode=WAL;")
         await conn.execute("PRAGMA synchronous=NORMAL;")
         await conn.execute("PRAGMA wal_autocheckpoint=1000;")
+        await conn.execute("PRAGMA foreign_keys=ON;")
         await conn.commit()
         return conn
 

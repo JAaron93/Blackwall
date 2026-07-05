@@ -19,12 +19,14 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "pytest-bdd>=7.0.0",
     "hypothesis>=6.0.0",
     "ruff>=0.3.0",
     "black>=24.3.0",
     "mypy>=1.9.0",
     "pre-commit>=3.7.0"
 ]
+
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

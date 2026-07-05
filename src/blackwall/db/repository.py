@@ -136,7 +136,10 @@ class SQLiteThreatRepository:
 
         sig_id = str(signature_data.get("signatureId", uuid.uuid4()))
         created_at = int(signature_data.get("createdAt", time.time()))
-        last_matched_at = signature_data.get("lastMatchedAt")
+        _raw_last_matched_at = signature_data.get("lastMatchedAt")
+        last_matched_at = (
+            int(_raw_last_matched_at) if _raw_last_matched_at is not None else None
+        )
         attacker_intent = str(signature_data.get("attackerIntent", ""))
         payload_pattern = str(signature_data.get("payloadPattern", ""))
         target_tool = str(signature_data.get("targetTool", ""))
