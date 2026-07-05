@@ -366,7 +366,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
 ### TASK-MCP-01: Hardcode MCP Routing Boundaries
 
 **Priority:** MEDIUM  
-**Dependencies:** Tasks 12, 13 (MCP clients)  
+**Dependencies:** Tasks 7, 8 (MCP clients)  
 **Estimated Effort:** 2 days
 
 **Description:**
@@ -527,7 +527,7 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
 ### TASK-AI-01: Implement Webhook Listener and Gemini Background Task Integration
 
 **Priority:** HIGH  
-**Dependencies:** TASK-DB-01, Task 16 (Agent Behavioral Analytics)  
+**Dependencies:** TASK-DB-01, Task 11 (Agent Behavioral Analytics)  
 **Estimated Effort:** 3-4 days
 
 **Description:**
@@ -568,7 +568,7 @@ Build an async HTTP webhook listener bound to localhost:8090. Integrate Gemini I
 ### TASK-AI-02: Integrate Gemini Interactions API for Background Task Submission
 
 **Priority:** HIGH  
-**Dependencies:** TASK-AI-01, Task 16 (Agent Behavioral Analytics)  
+**Dependencies:** TASK-AI-01, Task 11 (Agent Behavioral Analytics)  
 **Estimated Effort:** 2-3 days
 
 **Description:**
