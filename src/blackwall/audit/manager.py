@@ -55,7 +55,15 @@ class AuditHookManager:
         self._local.handling = val
 
     def _get_conn(self) -> sqlite3.Connection:
-        if not hasattr(self._local, "conn"):
+        current_pid = os.getpid()
+        if not hasattr(self._local, "conn") or getattr(self._local, "pid", None) != current_pid:
+            if hasattr(self._local, "conn"):
+                try:
+                    self._local.conn.close()
+                except Exception:
+                    pass
+                delattr(self._local, "conn")
+            
             db_dir = os.path.dirname(os.path.abspath(self.db_path))
             if db_dir and not os.path.exists(db_dir):
                 os.makedirs(db_dir, exist_ok=True)
@@ -87,6 +95,7 @@ class AuditHookManager:
                 );
             """)
             self._local.conn.commit()
+            self._local.pid = current_pid
             
         conn = self._local.conn
         assert isinstance(conn, sqlite3.Connection)

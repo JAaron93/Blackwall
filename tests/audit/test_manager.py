@@ -3,41 +3,17 @@ import subprocess
 import socket
 import pytest
 import time
-from typing import Generator
+from typing import Generator, Callable
 from blackwall.audit.manager import AuditHookManager
 from blackwall.db.repository import SQLiteThreatRepository
 
 TEST_DB_PATH = "test_audit.db"
 
 @pytest.fixture
-def clean_db() -> Generator[str, None, None]:
-    if os.path.exists(TEST_DB_PATH):
-        try:
-            os.remove(TEST_DB_PATH)
-        except PermissionError:
-            pass
-        for suffix in ["-wal", "-journal", "-shm"]:
-            path = TEST_DB_PATH + suffix
-            if os.path.exists(path):
-                try:
-                    os.remove(path)
-                except PermissionError:
-                    pass
-
+def clean_db(clean_sqlite: Callable[[str], None]) -> Generator[str, None, None]:
+    clean_sqlite(TEST_DB_PATH)
     yield TEST_DB_PATH
-
-    if os.path.exists(TEST_DB_PATH):
-        try:
-            os.remove(TEST_DB_PATH)
-        except PermissionError:
-            pass
-        for suffix in ["-wal", "-journal", "-shm"]:
-            path = TEST_DB_PATH + suffix
-            if os.path.exists(path):
-                try:
-                    os.remove(path)
-                except PermissionError:
-                    pass
+    clean_sqlite(TEST_DB_PATH)
 
 @pytest.fixture
 def audit_manager(clean_db: str) -> Generator[AuditHookManager, None, None]:
@@ -67,19 +43,37 @@ async def test_subprocess_popen_interception(audit_manager: AuditHookManager, cl
     assert incidents[0]["stack_trace"] is not None
 
 def test_os_exec_interception(audit_manager: AuditHookManager, clean_db: str) -> None:
+    import signal
     pid = os.fork()
     if pid == 0:
         try:
             os.execv("/bin/bash", ["bash"])
-            os._exit(0)
         except PermissionError as e:
             if "Direct shell execution denied" in str(e):
                 os._exit(42)
             os._exit(1)
         except Exception:
             os._exit(2)
+        finally:
+            os._exit(3)
     else:
-        _, status = os.waitpid(pid, 0)
+        deadline = time.time() + 5
+        status = None
+        while time.time() < deadline:
+            wpid, stat = os.waitpid(pid, os.WNOHANG)
+            if wpid == pid:
+                status = stat
+                break
+            time.sleep(0.05)
+        else:
+            try:
+                os.kill(pid, signal.SIGKILL)
+                os.waitpid(pid, 0)
+            except OSError:
+                pass
+            pytest.fail("Child did not exit in time; os.execv likely succeeded (audit hook regression)")
+        
+        assert status is not None
         assert os.WIFEXITED(status)
         assert os.WEXITSTATUS(status) == 42
 
