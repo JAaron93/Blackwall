@@ -376,8 +376,11 @@ class AgentBehavioralAnalytics:
                         timeout=max(0.1, 4.8 - (time.time() - start_time)),
                     )
                 else:
-                    interaction = await asyncio.to_thread(
-                        create_fn, model="gemini-3.1-flash-lite", input=prompt
+                    interaction = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            create_fn, model="gemini-3.1-flash-lite", input=prompt
+                        ),
+                        timeout=max(0.1, 4.8 - (time.time() - start_time)),
                     )
                 output_text = getattr(interaction, "output_text", "") or ""
                 if output_text.strip().startswith("```"):
