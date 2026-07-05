@@ -5,6 +5,10 @@ roles:
   default:
     max_risk_score: 0.7
     allowed_external_domains: []
+    # NOTE: blocked_commands serves as a shallow, fast first-layer denylist.
+    # It is intended for quick structural rejection of obvious execution vectors.
+    # Advanced shell escapes and obfuscation are evaluated and mitigated by the downstream
+    # Semantic & Structural Gating servers.
     blocked_commands:
       - rm
       - chmod
@@ -12,22 +16,51 @@ roles:
       - nc
       - curl
       - wget
+      - sh
+      - bash
+      - cmd.exe
+      - powershell
+      - pwsh
+      - python
+      - python3
+      - perl
+      - ruby
+      - php
+      - node
+      - docker
+      - sudo
+      - eval
+      - nc.traditional
+      - dd
+      - kill
 
 semantic_gating:
   enabled: true
-  provider: "gemini-3.5-pro"
+  provider: "gemini-3.5-flash"
   fallback_action: "BLOCK" # What to do if API fails
-  
+
 context_hygiene:
   enabled: true
   timeout_ms: 100
   redaction_patterns:
     - name: api_key
-      pattern: '(?i)(?:api_key|token|secret|password)["\s:=]+([a-zA-Z0-9_\-]{16,})'
-      placeholder: '[[SECRET_KEY]]'
+      pattern: '(?i)(api[_-]?key|apikey|token)[\s:=]+[''"]?([a-zA-Z0-9_\-]{20,})'
+      placeholder: '[[API_KEY]]'
     - name: ip_address
-      pattern: '\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+      pattern: '\b(?:\d{1,3}\.){3}\d{1,3}\b'
       placeholder: '[[IP_ADDRESS]]'
+    - name: file_path
+      pattern: '(?:/[^/\s]+)+/?'
+      placeholder: '[[FILE_PATH]]'
+    - name: password
+      pattern: '(?i)(password|passwd|pwd)[\s:=]+[''"]?([^\s''"]+)'
+      placeholder: '[[PASSWORD]]'
+    - name: email
+      pattern: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+      placeholder: '[[EMAIL]]'
+    - name: url
+      pattern: 'https?://[^\s]+'
+      placeholder: '[[URL]]'
 
 analytics:
   telemetry_enabled: true

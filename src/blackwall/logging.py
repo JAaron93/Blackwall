@@ -3,6 +3,7 @@ import sys
 
 import structlog
 
+
 def setup_logging(log_level: int = logging.INFO) -> None:
     """Initialize structured logging with JSON formatting."""
     logging.basicConfig(
@@ -10,7 +11,7 @@ def setup_logging(log_level: int = logging.INFO) -> None:
         stream=sys.stdout,
         level=log_level,
     )
-    
+
     structlog.configure(
         processors=[
             structlog.stdlib.filter_by_level,
@@ -21,7 +22,7 @@ def setup_logging(log_level: int = logging.INFO) -> None:
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             structlog.processors.UnicodeDecoder(),
-            structlog.processors.JSONRenderer()
+            structlog.processors.JSONRenderer(),
         ],
         context_class=dict,
         logger_factory=structlog.stdlib.LoggerFactory(),

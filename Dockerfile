@@ -23,7 +23,7 @@ RUN apt-get update && apt-get install -y curl && \
 WORKDIR /app
 
 # Copy dependency files
-COPY pyproject.toml README.md ./
+COPY pyproject.toml poetry.lock README.md ./
 
 # Install dependencies (no source code yet to leverage caching)
 RUN poetry install --without dev --no-root
