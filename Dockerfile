@@ -15,7 +15,8 @@ COPY pyproject.toml README.md ./
 
 # Create a dummy structure to install dependencies first and leverage layer caching
 RUN mkdir -p src/blackwall && touch src/blackwall/__init__.py
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir -e .
+
 
 # Copy the rest of the application code
 COPY src/ ./src/

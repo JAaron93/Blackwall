@@ -134,22 +134,47 @@ class SQLiteThreatRepository:
         """Writes a threat signature using INSERT OR IGNORE to enforce uniqueness."""
         await self.initialize()
 
-        sig_id = str(signature_data.get("signatureId", uuid.uuid4()))
-        created_at = int(signature_data.get("createdAt", time.time()))
+        raw_sig_id = signature_data.get("signatureId")
+        sig_id = str(raw_sig_id) if raw_sig_id is not None else str(uuid.uuid4())
+
+        raw_created_at = signature_data.get("createdAt")
+        created_at = (
+            int(raw_created_at) if raw_created_at is not None else int(time.time())
+        )
+
         _raw_last_matched_at = signature_data.get("lastMatchedAt")
         last_matched_at = (
             int(_raw_last_matched_at) if _raw_last_matched_at is not None else None
         )
-        attacker_intent = str(signature_data.get("attackerIntent", ""))
-        payload_pattern = str(signature_data.get("payloadPattern", ""))
-        target_tool = str(signature_data.get("targetTool", ""))
-        target_sink = signature_data.get("targetSink")
-        dependency_chain = json.dumps(signature_data.get("dependencyChain", []))
-        mitigation_action = str(signature_data.get("mitigationAction", ""))
-        match_count = int(signature_data.get("matchCount", 0))
-        false_positive_count = int(signature_data.get("falsePositiveCount", 0))
+
+        raw_intent = signature_data.get("attackerIntent")
+        attacker_intent = str(raw_intent) if raw_intent is not None else ""
+
+        raw_pattern = signature_data.get("payloadPattern")
+        payload_pattern = str(raw_pattern) if raw_pattern is not None else ""
+
+        raw_tool = signature_data.get("targetTool")
+        target_tool = str(raw_tool) if raw_tool is not None else ""
+
+        raw_sink = signature_data.get("targetSink")
+        target_sink = str(raw_sink) if raw_sink is not None else None
+
+        raw_chain = signature_data.get("dependencyChain")
+        dependency_chain = json.dumps(raw_chain) if raw_chain is not None else None
+
+        raw_mitigation = signature_data.get("mitigationAction")
+        mitigation_action = str(raw_mitigation) if raw_mitigation is not None else ""
+
+        raw_match_count = signature_data.get("matchCount")
+        match_count = int(raw_match_count) if raw_match_count is not None else 0
+
+        raw_fp_count = signature_data.get("falsePositiveCount")
+        false_positive_count = int(raw_fp_count) if raw_fp_count is not None else 0
+
         similarity_vector = signature_data.get("similarityVector")
-        metadata = json.dumps(signature_data.get("metadata", {}))
+
+        raw_metadata = signature_data.get("metadata")
+        metadata = json.dumps(raw_metadata) if raw_metadata is not None else None
 
         async with self.pool.connection() as conn:
             await conn.execute(
