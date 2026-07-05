@@ -186,6 +186,8 @@ class SemanticGatingEngine:
 
         # Argument novelty / suspicious patterns
         args_str = json.dumps(context.arguments)
+        # Note: heuristic substrings for detecting suspicious content, not actual secrets/credentials.
+        # GitGuardian false-positive suppressed via .gitguardian.yaml
         suspicious_patterns = (
             "rm -rf", "sudo", "curl", "wget", "/etc/passwd", "chmod", "chown", "nc ", "/root", ".ssh", "|", ">", "<"
         )
