@@ -417,9 +417,14 @@ class SQLiteThreatRepository:
             await conn.execute("BEGIN TRANSACTION")
             try:
                 for signature_data in signatures:
-                    attacker_intent = str(signature_data.get("attackerIntent", ""))
-                    payload_pattern = str(signature_data.get("payloadPattern", ""))
-                    target_tool = str(signature_data.get("targetTool", ""))
+                    raw_intent = signature_data.get("attackerIntent")
+                    attacker_intent = str(raw_intent) if raw_intent is not None else ""
+
+                    raw_pattern = signature_data.get("payloadPattern")
+                    payload_pattern = str(raw_pattern) if raw_pattern is not None else ""
+
+                    raw_tool = signature_data.get("targetTool")
+                    target_tool = str(raw_tool) if raw_tool is not None else ""
 
                     raw_sig_id = signature_data.get("signatureId")
                     if raw_sig_id is not None:
@@ -427,24 +432,43 @@ class SQLiteThreatRepository:
                     else:
                         # Derive stable deduplication key for recurring signature content
                         sig_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{target_tool}:{payload_pattern}:{attacker_intent}"))
-                    
-                    created_at = int(signature_data.get("createdAt", time.time()))
-                    
+
+                    raw_created_at = signature_data.get("createdAt")
+                    created_at = int(raw_created_at) if raw_created_at is not None else int(time.time())
+
                     _raw_last_matched_at = signature_data.get("lastMatchedAt")
                     last_matched_at = int(_raw_last_matched_at) if _raw_last_matched_at is not None else None
-                    
+
                     target_sink = str(signature_data.get("targetSink")) if signature_data.get("targetSink") is not None else None
-                    
+
                     raw_chain = signature_data.get("dependencyChain")
                     dependency_chain = json.dumps(raw_chain) if raw_chain is not None else None
-                    
-                    mitigation_action = str(signature_data.get("mitigationAction", ""))
-                    match_count = int(signature_data.get("matchCount", 0))
-                    false_positive_count = int(signature_data.get("falsePositiveCount", 0))
-                    
+
+                    raw_mitigation = signature_data.get("mitigationAction")
+                    mitigation_action = str(raw_mitigation) if raw_mitigation is not None else ""
+
+                    raw_match_count = signature_data.get("matchCount")
+                    match_count = int(raw_match_count) if raw_match_count is not None else 0
+
+                    raw_fp_count = signature_data.get("falsePositiveCount")
+                    false_positive_count = int(raw_fp_count) if raw_fp_count is not None else 0
+
                     similarity_vector = signature_data.get("similarityVector")
-                    vector_blob = json.dumps(similarity_vector).encode("utf-8") if similarity_vector is not None else None
-                    metadata_str = json.dumps(signature_data.get("metadata", {}))
+                    if similarity_vector is not None:
+                        if isinstance(similarity_vector, (bytes, bytearray)):
+                            vector_blob = similarity_vector
+                        elif hasattr(similarity_vector, "tobytes") and callable(similarity_vector.tobytes):
+                            vector_blob = similarity_vector.tobytes()
+                        elif isinstance(similarity_vector, (list, tuple)):
+                            import array
+                            vector_blob = array.array("f", similarity_vector).tobytes()
+                        else:
+                            vector_blob = None
+                    else:
+                        vector_blob = None
+
+                    raw_metadata = signature_data.get("metadata")
+                    metadata_str = json.dumps(raw_metadata) if raw_metadata is not None else None
 
                     await conn.execute(
                         """

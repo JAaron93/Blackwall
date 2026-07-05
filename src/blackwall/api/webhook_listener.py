@@ -19,7 +19,10 @@ tracer = trace.get_tracer(__name__)
 class WebhookListener:
     def __init__(self, db_repository: SQLiteThreatRepository, secret_key: str = ""):
         self.db = db_repository
-        self.secret_key = secret_key or os.environ.get("BLACKWALL_WEBHOOK_SECRET", "default_secret")
+        configured_secret = secret_key or os.environ.get("BLACKWALL_WEBHOOK_SECRET", "")
+        if not configured_secret:
+            raise ValueError("Webhook secret is required. Provide secret_key parameter or set BLACKWALL_WEBHOOK_SECRET environment variable.")
+        self.secret_key = configured_secret
         self.port = int(os.environ.get("BLACKWALL_WEBHOOK_PORT", 8090))
         self.app = web.Application()
         self.app.router.add_post("/webhook/analysis_complete", self.handle_webhook)
