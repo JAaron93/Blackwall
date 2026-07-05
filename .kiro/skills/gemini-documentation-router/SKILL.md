@@ -12,12 +12,12 @@ You are operating in a tri-MCP environment equipped with `gemini-api-docs-mcp`, 
 ## 1. Local Agent Skills (Priority 1)
 Before invoking external MCP tools, check if the required syntax is already available in your locally bundled `google-agents-cli` skills. Use `google-agents-cli-adk-code` for immediate, in-context guidance on ADK 2.0 graph structures, tool definitions, and callbacks.
 
-## 2. Gemini API Docs MCP 
+## 2. Gemini API Docs MCP
 * **Available Tools:** `search_documentation`, `get_capability_page`
 * **Authorized Domain:** `ai.google.dev`
 * **Execution Rules:** Strictly reserve this server for core LLM generation. Use it to retrieve bleeding-edge prompting techniques, basic `google-genai` SDK initialization, structured output syntax, and model capabilities.
 
-## 3. Google Developer Knowledge MCP 
+## 3. Google Developer Knowledge MCP
 * **Available Tools:** `search_documents`, `get_document`, `batch_get_documents`
 * **Authorized Domain:** Google Cloud, Vertex AI, Firebase, Android, Agent Registry
 * **Execution Rules:** Mandate the use of this server whenever the domain shifts to infrastructure or framework deployment. Use this to troubleshoot IAM permissions, configure Cloud Trace observability spans, manage ADK 2.0 stateful workflows, and query Cloud Run orchestration patterns.

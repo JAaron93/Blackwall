@@ -37,7 +37,7 @@ The blueprint must explicitly define a "Zero-Trust" safety net:
 4. **The Verdict:** GTI confirms the malicious nature of the payload. Blackwall permanently blocks the execution, writes a Threat Signature detailing the attack vector and the vulnerable call chain, and remains lean and token-efficient.
 
 ## 5. Optimization Engineering & API Constraints
-Blackwall agent will be running through the paid Gemini API tier to utilize server-side context caching, keeping costs low by preventing the need to resubmit massive context payloads on every loop. 
+Blackwall agent will be running through the paid Gemini API tier to utilize server-side context caching, keeping costs low by preventing the need to resubmit massive context payloads on every loop.
 
 However, the paid tier of the Gemini API has a cap of 300 Requests Per Minute (RPM). Red-team attackers may run up to 600 RPM. To counter this speed mismatch, we are utilizing **batched API calls** for the interception layer. This introduces critical architectural constraints:
 

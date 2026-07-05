@@ -7,17 +7,35 @@ name = "blackwall"
 version = "0.1.0"
 description = "Blackwall Agentic Firewall"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
-    "aiosqlite>=0.20.0"
+    "aiosqlite>=0.20.0",
+    "pydantic>=2.0.0",
+    "structlog>=24.1.0",
+    "pyyaml>=6.0"
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
-    "pytest-asyncio>=0.23.0"
+    "pytest-asyncio>=0.23.0",
+    "pytest-bdd>=7.0.0",
+    "hypothesis>=6.0.0",
+    "ruff>=0.3.0",
+    "black>=24.3.0",
+    "mypy>=1.9.0",
+    "pre-commit>=3.7.0"
 ]
+
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+testpaths = ["tests"]
 
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
