@@ -7,6 +7,9 @@ each bound test is marked ``xfail`` (not skip) so that:
   - pytest-bdd collects and reports them
   - A passing run signals that full step definitions have been added
   - They do not block CI on the current PR
+
+Note: the "Intercepting unauthorized socket connections at the OS level"
+scenario is fully implemented in test_guardrails.py and is not stubbed here.
 """
 import pytest
 from pytest_bdd import scenario
@@ -15,7 +18,7 @@ from pytest_bdd import scenario
 # Feature: ADK Tool Execution Interception
 # ---------------------------------------------------------------------------
 
-_ADK = "../features/adk_tool_interception.feature"
+_ADK = "../features/adk_interception.feature"
 
 
 @pytest.mark.xfail(reason="Step definitions not yet implemented", strict=False)
@@ -25,23 +28,10 @@ def test_blocking_known_malicious_payload() -> None:  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------
-# Feature: Low-Level OS Runtime Auditing
-# ---------------------------------------------------------------------------
-
-_OS_AUDIT = "../features/os_runtime_auditing.feature"
-
-
-@pytest.mark.xfail(reason="Step definitions not yet implemented", strict=False)
-@scenario(_OS_AUDIT, "Intercepting unauthorized socket connections at the OS level")
-def test_intercepting_unauthorized_socket_connections() -> None:  # pragma: no cover
-    """Stub — pending full step implementation."""
-
-
-# ---------------------------------------------------------------------------
 # Feature: Fail-Closed Rate Limit Resilience
 # ---------------------------------------------------------------------------
 
-_RATE_LIMIT = "../features/fail_closed_rate_limit.feature"
+_RATE_LIMIT = "../features/rate_limiting.feature"
 
 
 @pytest.mark.xfail(reason="Step definitions not yet implemented", strict=False)
@@ -57,7 +47,7 @@ def test_attacker_exhausts_rate_limits() -> None:  # pragma: no cover
 # Feature: Autonomous Threat Learning and Graph Hygiene
 # ---------------------------------------------------------------------------
 
-_THREAT_LEARNING = "../features/threat_learning_hygiene.feature"
+_THREAT_LEARNING = "../features/threat_learning.feature"
 
 
 @pytest.mark.xfail(reason="Step definitions not yet implemented", strict=False)
