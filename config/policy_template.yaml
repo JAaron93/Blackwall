@@ -36,7 +36,7 @@ roles:
 
 semantic_gating:
   enabled: true
-  provider: "gemini-3.5-flash"
+  provider: "${BLACKWALL_MODEL}"
   fallback_action: "BLOCK" # What to do if API fails
 
 context_hygiene:
@@ -46,6 +46,9 @@ context_hygiene:
     - name: api_key
       pattern: '(?i)(api[_-]?key|apikey|token)[\s:=]+[''"]?([a-zA-Z0-9_\-]{20,})'
       placeholder: '[[API_KEY]]'
+    - name: url
+      pattern: 'https?://[^\s]+'
+      placeholder: '[[URL]]'
     - name: ip_address
       pattern: '\b(?:\d{1,3}\.){3}\d{1,3}\b'
       placeholder: '[[IP_ADDRESS]]'
@@ -58,9 +61,6 @@ context_hygiene:
     - name: email
       pattern: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
       placeholder: '[[EMAIL]]'
-    - name: url
-      pattern: 'https?://[^\s]+'
-      placeholder: '[[URL]]'
 
 analytics:
   telemetry_enabled: true
