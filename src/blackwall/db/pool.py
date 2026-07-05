@@ -18,6 +18,7 @@ class AsyncConnectionPool:
         conn = await aiosqlite.connect(self.db_path)
         # Configure connection for WAL mode and performance
         await conn.execute("PRAGMA journal_mode=WAL;")
+        await conn.execute("PRAGMA busy_timeout=5000;")
         await conn.execute("PRAGMA synchronous=NORMAL;")
         await conn.execute("PRAGMA wal_autocheckpoint=1000;")
         await conn.execute("PRAGMA foreign_keys=ON;")

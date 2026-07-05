@@ -67,10 +67,21 @@ async def test_subprocess_popen_interception(audit_manager: AuditHookManager, cl
     assert incidents[0]["stack_trace"] is not None
 
 def test_os_exec_interception(audit_manager: AuditHookManager, clean_db: str) -> None:
-    with pytest.raises(PermissionError) as exc_info:
-        os.execv("/bin/bash", ["bash"])
-    
-    assert "Direct shell execution denied" in str(exc_info.value)
+    pid = os.fork()
+    if pid == 0:
+        try:
+            os.execv("/bin/bash", ["bash"])
+            os._exit(0)
+        except PermissionError as e:
+            if "Direct shell execution denied" in str(e):
+                os._exit(42)
+            os._exit(1)
+        except Exception:
+            os._exit(2)
+    else:
+        _, status = os.waitpid(pid, 0)
+        assert os.WIFEXITED(status)
+        assert os.WEXITSTATUS(status) == 42
 
 @pytest.mark.asyncio
 async def test_socket_connect_interception(audit_manager: AuditHookManager, clean_db: str) -> None:
@@ -96,13 +107,20 @@ async def test_socket_connect_interception(audit_manager: AuditHookManager, clea
 
 @pytest.mark.asyncio
 async def test_open_write_interception(audit_manager: AuditHookManager, clean_db: str) -> None:
-    with pytest.raises(PermissionError) as exc_info:
-        open("/etc/blackwall_canary_test.txt", "w")
-    
-    assert "File write access denied" in str(exc_info.value)
+    canary_path = "/etc/blackwall_canary_test.txt"
+    try:
+        with pytest.raises(PermissionError) as exc_info:
+            open(canary_path, "w")
+        assert "File write access denied" in str(exc_info.value)
+    finally:
+        if os.path.exists(canary_path):
+            try:
+                os.remove(canary_path)
+            except Exception:
+                pass
 
     try:
-        with open("/etc/blackwall_canary_test.txt", "r"):
+        with open(canary_path, "r"):
             pass
     except PermissionError as e:
         assert "File write access denied" not in str(e)
@@ -115,7 +133,7 @@ async def test_open_write_interception(audit_manager: AuditHookManager, clean_db
 
     assert len(incidents) == 1
     assert incidents[0]["incident_type"] == "CRITICAL_FILE_WRITE"
-    assert "/etc/blackwall_canary_test.txt" in incidents[0]["details"]
+    assert canary_path in incidents[0]["details"]
 
 def test_callback_latency_metric(audit_manager: AuditHookManager, clean_db: str) -> None:
     samples = []

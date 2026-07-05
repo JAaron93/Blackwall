@@ -57,6 +57,8 @@ def given_ioc_blacklist_contains() -> None:
     if db_dir and not os.path.exists(db_dir):
         os.makedirs(db_dir, exist_ok=True)
     conn = sqlite3.connect(TEST_BDD_DB)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout=5000;")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS blocked_iocs (
             ioc TEXT PRIMARY KEY,
@@ -97,6 +99,8 @@ def then_raise_permission_error(conn_result: Dict[str, Any]) -> None:
 @then('an incident telemetry record must be written atomically to the SQLite WAL database')
 def then_telemetry_written() -> None:
     conn = sqlite3.connect(TEST_BDD_DB)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout=5000;")
     cursor = conn.execute("SELECT incident_type, details FROM audit_incidents ORDER BY timestamp DESC")
     rows = cursor.fetchall()
     conn.close()

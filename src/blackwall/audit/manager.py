@@ -102,6 +102,10 @@ class AuditHookManager:
         start_time = time.perf_counter()
         try:
             self._evaluate_event(event, args)
+        except PermissionError:
+            raise
+        except Exception as e:
+            logger.error("Audit hook evaluation failed", event=event, error=str(e))
         finally:
             duration_ms = (time.perf_counter() - start_time) * 1000.0
             if duration_ms > 1.0:
