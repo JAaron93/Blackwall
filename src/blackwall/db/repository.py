@@ -333,3 +333,36 @@ class SQLiteThreatRepository:
                 return result
             except json.JSONDecodeError:
                 return None
+
+    async def increment_match_count(self, signature_id: str) -> None:
+        await self.initialize()
+        async with self.pool.connection() as conn:
+            await conn.execute(
+                "UPDATE signatures SET match_count = match_count + 1, last_matched_at = ? WHERE signature_id = ?",
+                (int(time.time()), signature_id),
+            )
+
+    async def find_matching_signature(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        await self.initialize()
+        args_str = json.dumps(arguments)
+        async with self.pool.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT signature_id, target_tool, payload_pattern, mitigation_action, attacker_intent FROM signatures WHERE target_tool = ?",
+                (tool_name,),
+            )
+            rows = await cursor.fetchall()
+            for row in rows:
+                sig_id, tool, pattern, mitigation, intent = row
+                if pattern in args_str:
+                    await conn.execute(
+                        "UPDATE signatures SET match_count = match_count + 1, last_matched_at = ? WHERE signature_id = ?",
+                        (int(time.time()), sig_id),
+                    )
+                    return {
+                        "signature_id": sig_id,
+                        "target_tool": tool,
+                        "payload_pattern": pattern,
+                        "mitigation_action": mitigation,
+                        "attacker_intent": intent,
+                    }
+        return None
