@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import uuid
 import time
 from .pool import AsyncConnectionPool
@@ -136,6 +136,15 @@ class SQLiteThreatRepository:
                     ioc TEXT PRIMARY KEY,
                     type TEXT NOT NULL,
                     created_at INTEGER NOT NULL
+                );
+                """)
+
+                # GTI Cache table
+                await conn.execute("""
+                CREATE TABLE IF NOT EXISTS gti_cache (
+                    indicator TEXT PRIMARY KEY,
+                    response_data TEXT NOT NULL,
+                    cached_at INTEGER NOT NULL
                 );
                 """)
 
@@ -280,3 +289,37 @@ class SQLiteThreatRepository:
                 }
                 for r in rows
             ]
+
+    async def cache_gti_response(self, indicator: str, response: Dict[str, Any]) -> None:
+        await self.initialize()
+        async with self.pool.connection() as conn:
+            await conn.execute(
+                """
+                INSERT OR REPLACE INTO gti_cache (indicator, response_data, cached_at)
+                VALUES (?, ?, ?)
+                """,
+                (indicator, json.dumps(response), int(time.time())),
+            )
+
+    async def get_cached_gti_response(self, indicator: str) -> Optional[Dict[str, Any]]:
+        await self.initialize()
+        async with self.pool.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT response_data, cached_at FROM gti_cache WHERE indicator = ?",
+                (indicator,),
+            )
+            row = await cursor.fetchone()
+            if not row:
+                return None
+
+            response_data_str, cached_at = row
+            # 24-hour TTL (86400 seconds)
+            if time.time() - cached_at > 86400:
+                # Expired. Delete from cache.
+                await conn.execute("DELETE FROM gti_cache WHERE indicator = ?", (indicator,))
+                return None
+
+            try:
+                return json.loads(response_data_str)
+            except json.JSONDecodeError:
+                return None
