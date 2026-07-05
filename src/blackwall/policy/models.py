@@ -37,8 +37,8 @@ class MCPServerConfig(BaseModel):
     enabled: bool
     apiKey: Optional[str] = None
     cacheEnabled: bool
-    cacheTTL: int
-    timeout: int  # in ms
+    cacheTTL: int = Field(..., ge=0)
+    timeout: int = Field(..., ge=0)  # in ms
 
 
 class MCPServersConfig(BaseModel):
@@ -49,11 +49,18 @@ class MCPServersConfig(BaseModel):
 class ThreatSignatureGraphConfig(BaseModel):
     dbPath: str
     walMode: bool
-    maxConnections: int
+    maxConnections: int = Field(..., ge=1)
     similarityThreshold: float = Field(..., ge=0.0, le=1.0)
     ttlSeconds: int
     maxSignatures: int
     embeddingDimension: int
+
+    @field_validator("walMode")
+    @classmethod
+    def validate_wal_mode(cls, v: bool) -> bool:
+        if not v:
+            raise ValueError("walMode must be enabled (true) for SQLite integrity")
+        return v
 
 
 class PolicyConfig(BaseModel):

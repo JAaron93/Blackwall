@@ -348,37 +348,38 @@ def test_hot_reload_functionality() -> None:
         watcher = PolicyWatcher(yaml_path, engine.load_policy)
         watcher.start()
 
-        # Update file to BLOCK action
-        rules_v2 = """
+        try:
+            # Update file to BLOCK action
+            rules_v2 = """
 - ruleId: "rule-1"
   condition: "toolName == 'read_file'"
   action: BLOCK
   priority: 1
   enabled: true
 """
-        with open(yaml_path, "w") as f:
-            f.write(make_yaml(rules_v2))
+            with open(yaml_path, "w") as f:
+                f.write(make_yaml(rules_v2))
 
-        # Wait for file system event to propagate (debounced or standard delay)
-        # 1 second should be sufficient.
-        time.sleep(1.0)
+            # Wait for file system event to propagate (debounced or standard delay)
+            # 1 second should be sufficient.
+            time.sleep(1.0)
 
-        # Should be BLOCK now
-        res2 = engine.evaluate(ctx, "sandbox")
-        assert res2.decision == StructuralAction.BLOCK
+            # Should be BLOCK now
+            res2 = engine.evaluate(ctx, "sandbox")
+            assert res2.decision == StructuralAction.BLOCK
 
-        # Update with invalid YAML (schema violation)
-        invalid_yaml = "invalid: yaml: structure: :"
-        with open(yaml_path, "w") as f:
-            f.write(invalid_yaml)
+            # Update with invalid YAML (schema violation)
+            invalid_yaml = "invalid: yaml: structure: :"
+            with open(yaml_path, "w") as f:
+                f.write(invalid_yaml)
 
-        time.sleep(1.0)
+            time.sleep(1.0)
 
-        # Should still retain previous valid config (BLOCK)
-        res3 = engine.evaluate(ctx, "sandbox")
-        assert res3.decision == StructuralAction.BLOCK
-
-        watcher.stop()
+            # Should still retain previous valid config (BLOCK)
+            res3 = engine.evaluate(ctx, "sandbox")
+            assert res3.decision == StructuralAction.BLOCK
+        finally:
+            watcher.stop()
     finally:
         if os.path.exists(yaml_path):
             os.remove(yaml_path)

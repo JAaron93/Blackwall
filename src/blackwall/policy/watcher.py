@@ -34,6 +34,44 @@ class PolicyFileHandler(FileSystemEventHandler):
                     file_path=self.file_path,
                 )
 
+    def on_created(self, event: Any) -> None:
+        if event.is_directory:
+            return
+
+        event_path = os.path.realpath(event.src_path)
+        if event_path == self.file_path:
+            logger.info(
+                "Policy file creation detected on disk. Triggering hot-reload...",
+                file_path=self.file_path,
+            )
+            try:
+                self.reload_callback(self.file_path)
+            except Exception as e:
+                logger.error(
+                    "Failed to hot-reload policy file; retaining previous valid policy.",
+                    error=str(e),
+                    file_path=self.file_path,
+                )
+
+    def on_moved(self, event: Any) -> None:
+        if event.is_directory:
+            return
+
+        dest_path = os.path.realpath(event.dest_path)
+        if dest_path == self.file_path:
+            logger.info(
+                "Policy file move detected on disk. Triggering hot-reload...",
+                file_path=self.file_path,
+            )
+            try:
+                self.reload_callback(self.file_path)
+            except Exception as e:
+                logger.error(
+                    "Failed to hot-reload policy file; retaining previous valid policy.",
+                    error=str(e),
+                    file_path=self.file_path,
+                )
+
 
 class PolicyWatcher:
     """Watches the policy YAML file for disk updates using file system events."""
