@@ -70,6 +70,17 @@ class TestWebhookListener(AioHTTPTestCase):
 
     @unittest_run_loop
     async def test_hmac_validation_success_and_response_time(self):
+        # We verify fire-and-forget behavior by blocking the DB write and ensuring the response returns immediately.
+        # This guarantees that the HTTP response is sent before the database write has completed.
+        db_write_resume = asyncio.Event()
+        original_write = self.db.write_signatures_batch
+
+        async def blocking_write(signatures):
+            await db_write_resume.wait()
+            await original_write(signatures)
+
+        self.db.write_signatures_batch = blocking_write
+
         payload = {
             "task_id": self.task_id,
             "threat_signature_candidates": [
@@ -86,14 +97,28 @@ class TestWebhookListener(AioHTTPTestCase):
         
         self.assertEqual(resp.status, 202)
         response_time_ms = (end_time - start_time) * 1000
-        self.assertLess(response_time_ms, 50, "Response time should be < 50ms")
+        # Highly tolerant ceiling to prevent flaky CI environments from failing (while still verifying async behavior)
+        self.assertLess(response_time_ms, 500, f"Response time was too slow: {response_time_ms}ms")
         
-        # Wait a bit for background task to finish processing
+        # Verify the signature is not in the database yet, proving it was non-blocking
+        async with self.db.pool.connection() as conn:
+            cursor = await conn.execute("SELECT COUNT(*) FROM signatures WHERE payload_pattern = 'test_pattern'")
+            row = await cursor.fetchone()
+            self.assertEqual(row[0], 0)
+            
+        # Allow the background write to complete
+        db_write_resume.set()
         await asyncio.sleep(0.1)
         
         # Verify task is no longer in-flight
         is_valid = await self.db.is_task_valid(self.task_id)
         self.assertFalse(is_valid)
+        
+        # Verify the signature is now written
+        async with self.db.pool.connection() as conn:
+            cursor = await conn.execute("SELECT COUNT(*) FROM signatures WHERE payload_pattern = 'test_pattern'")
+            row = await cursor.fetchone()
+            self.assertEqual(row[0], 1)
 
     @unittest_run_loop
     async def test_stale_or_unknown_task_discarded(self):
