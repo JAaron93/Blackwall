@@ -77,8 +77,8 @@ Create `SQLiteThreatRepository` using `aiosqlite`. Configure initialization scri
   - Create Dockerfile for containerized deployment with non-root user
   - _Requirements: 14.1, 14.2, 27.1, 27.2, 27.3, 28.1_
 
-- [ ] 2. Implement core data models and type definitions
-  - [ ] 2.1 Create Pydantic data model classes with validation
+- [x] 2. Implement core data models and type definitions
+  - [x] 2.1 Create Pydantic data model classes with validation
     - Define CallbackToken, ToolCallContext, Verdict data classes
     - Define ThreatSignature, SecurityEvent, PolicyServerState data classes
     - Define GTIResponse, CBMResponse, BehaviorScore, RefactoringHint data classes
@@ -91,7 +91,7 @@ Create `SQLiteThreatRepository` using `aiosqlite`. Configure initialization scri
     - **METADATA FIELD:** Define ToolCallContext.metadata as Optional[Dict[str, Any]] for audit data
     - _Requirements: 1.2, 3.10, 3.11, 5.1, 5.6, 6.4, 9.1, 14.12_
 
-  - [ ] 2.2 Write unit tests for data model validation
+  - [x] 2.2 Write unit tests for data model validation
     - Test valid model instantiation with correct fields
     - Test invalid inputs trigger Pydantic ValidationError
     - Test threat score bounds [0.0, 1.0] enforcement
