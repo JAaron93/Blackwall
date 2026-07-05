@@ -74,6 +74,7 @@ def given_ioc_blacklist_contains() -> None:
 @when('an execution agent runs a Python script attempting "socket.connect" to "198.51.100.24:4444"', target_fixture="conn_result")
 def when_attempt_socket_connect(manager: AuditHookManager) -> Dict[str, Any]:
     s = socket.socket()
+    s.settimeout(2)
     exc = None
     try:
         s.connect(("198.51.100.24", 4444))

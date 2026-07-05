@@ -61,6 +61,7 @@ class AuditHookManager:
                 os.makedirs(db_dir, exist_ok=True)
             self._local.conn = sqlite3.connect(self.db_path)
             self._local.conn.execute("PRAGMA journal_mode=WAL;")
+            self._local.conn.execute("PRAGMA busy_timeout=5000;")
             
             # Ensure tables exist synchronously
             self._local.conn.execute("""
@@ -122,8 +123,8 @@ class AuditHookManager:
         try:
             cursor = conn.execute("SELECT 1 FROM blocked_executables WHERE executable = ?", (executable,))
             return cursor.fetchone() is not None
-        except sqlite3.OperationalError:
-            return False
+        except sqlite3.OperationalError as e:
+            raise PermissionError(f"Database lookup failed, failing closed: {e}") from e
 
     def _is_ioc_blocked(self, ip: str, port: Optional[int]) -> bool:
         conn = self._get_conn()
@@ -139,9 +140,9 @@ class AuditHookManager:
                 cursor = conn.execute("SELECT 1 FROM blocked_iocs WHERE ioc = ?", (ip_port,))
                 if cursor.fetchone():
                     return True
-        except sqlite3.OperationalError:
-            pass
-        return False
+            return False
+        except sqlite3.OperationalError as e:
+            raise PermissionError(f"Database lookup failed, failing closed: {e}") from e
 
     def _validate_subprocess(self, args: Tuple[Any, ...]) -> None:
         if len(args) < 2:

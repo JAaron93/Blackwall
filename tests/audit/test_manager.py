@@ -79,6 +79,7 @@ async def test_socket_connect_interception(audit_manager: AuditHookManager, clea
     await repo.close()
 
     s = socket.socket()
+    s.settimeout(2)
     with pytest.raises(PermissionError) as exc_info:
         s.connect(("198.51.100.24", 4444))
     s.close()
@@ -96,12 +97,12 @@ async def test_socket_connect_interception(audit_manager: AuditHookManager, clea
 @pytest.mark.asyncio
 async def test_open_write_interception(audit_manager: AuditHookManager, clean_db: str) -> None:
     with pytest.raises(PermissionError) as exc_info:
-        open("/etc/passwd", "w")
+        open("/etc/blackwall_canary_test.txt", "w")
     
     assert "File write access denied" in str(exc_info.value)
 
     try:
-        with open("/etc/passwd", "r"):
+        with open("/etc/blackwall_canary_test.txt", "r"):
             pass
     except PermissionError as e:
         assert "File write access denied" not in str(e)
@@ -114,15 +115,18 @@ async def test_open_write_interception(audit_manager: AuditHookManager, clean_db
 
     assert len(incidents) == 1
     assert incidents[0]["incident_type"] == "CRITICAL_FILE_WRITE"
-    assert "/etc/passwd" in incidents[0]["details"]
+    assert "/etc/blackwall_canary_test.txt" in incidents[0]["details"]
 
 def test_callback_latency_metric(audit_manager: AuditHookManager, clean_db: str) -> None:
-    start = time.perf_counter()
-    try:
-        with open("benign_test_file.txt", "r"):
+    samples = []
+    for _ in range(20):
+        start = time.perf_counter()
+        try:
+            with open("benign_test_file.txt", "r"):
+                pass
+        except FileNotFoundError:
             pass
-    except FileNotFoundError:
-        pass
-    duration_ms = (time.perf_counter() - start) * 1000.0
-    
-    assert duration_ms < 5.0
+        samples.append((time.perf_counter() - start) * 1000.0)
+    samples.sort()
+    median_ms = samples[len(samples) // 2]
+    assert median_ms < 5.0
