@@ -22,4 +22,4 @@ repos:
     rev: v1.9.0
     hooks:
       - id: mypy
-        additional_dependencies: [ pydantic, structlog, types-PyYAML, pytest ]
+        additional_dependencies: [ pydantic, structlog, types-PyYAML, pytest, pytest-asyncio ]
