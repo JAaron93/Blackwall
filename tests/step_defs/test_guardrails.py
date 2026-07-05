@@ -1,8 +1,10 @@
+import asyncio
 import socket
 import pytest
 from typing import Generator, Dict, Any, Callable
 from pytest_bdd import scenario, given, when, then
 from blackwall.audit.manager import AuditHookManager
+from blackwall.db.repository import SQLiteThreatRepository
 
 TEST_BDD_DB = "test_bdd.db"
 
@@ -25,9 +27,6 @@ def given_audit_hook_active(request: pytest.FixtureRequest) -> AuditHookManager:
 
 @given('the local SQLite IOC blacklist contains IP address "198.51.100.24"')
 def given_ioc_blacklist_contains() -> None:
-    import asyncio
-    from blackwall.db.repository import SQLiteThreatRepository
-    
     async def _seed() -> None:
         repo = SQLiteThreatRepository(db_path=TEST_BDD_DB)
         await repo.initialize()
@@ -60,9 +59,6 @@ def then_raise_permission_error(conn_result: Dict[str, Any]) -> None:
 
 @then('an incident telemetry record must be written atomically to the SQLite WAL database')
 def then_telemetry_written() -> None:
-    import asyncio
-    from blackwall.db.repository import SQLiteThreatRepository
-    
     async def _fetch() -> list[Dict[str, Any]]:
         repo = SQLiteThreatRepository(db_path=TEST_BDD_DB)
         incidents = await repo.getAuditIncidents()

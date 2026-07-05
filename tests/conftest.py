@@ -21,17 +21,10 @@ def fixture_configure_structlog(log_output: LogCapture) -> None:
 @pytest.fixture
 def clean_sqlite():
     def _clean(db_path: str) -> None:
-        import os
-        if os.path.exists(db_path):
+        from pathlib import Path
+        for path in (db_path, f"{db_path}-wal", f"{db_path}-journal", f"{db_path}-shm"):
             try:
-                os.remove(db_path)
+                Path(path).unlink(missing_ok=True)
             except PermissionError:
                 pass
-        for suffix in ["-wal", "-journal", "-shm"]:
-            path = db_path + suffix
-            if os.path.exists(path):
-                try:
-                    os.remove(path)
-                except PermissionError:
-                    pass
     return _clean

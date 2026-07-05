@@ -246,12 +246,18 @@ class AuditHookManager:
             is_write = (flags & 3) in (os.O_WRONLY, os.O_RDWR)
 
         if is_write:
-            abs_path = os.path.abspath(file_path)
+            # Resolve symlinks recursively to prevent symlink write bypasses to critical paths
+            abs_path = os.path.realpath(file_path)
             
             is_critical = False
-            if abs_path.startswith('/etc/') or abs_path == '/etc':
+            etc_real = os.path.realpath('/etc')
+            root_real = os.path.realpath('/root')
+            
+            if (abs_path.startswith('/etc/') or abs_path == '/etc' or
+                    abs_path.startswith(etc_real + '/') or abs_path == etc_real):
                 is_critical = True
-            elif abs_path.startswith('/root/') or abs_path == '/root':
+            elif (abs_path.startswith('/root/') or abs_path == '/root' or
+                    abs_path.startswith(root_real + '/') or abs_path == root_real):
                 is_critical = True
             elif abs_path.endswith('.bashrc'):
                 is_critical = True
@@ -261,7 +267,7 @@ class AuditHookManager:
             if is_critical:
                 self._report_violation(
                     incident_type="CRITICAL_FILE_WRITE",
-                    details=f"Unauthorized write access to critical file blocked: {file_path}",
+                    details=f"Unauthorized write access to critical file blocked: {file_path} (target: {abs_path})",
                     error_msg="PermissionError: File write access denied"
                 )
 

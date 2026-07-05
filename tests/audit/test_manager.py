@@ -47,14 +47,17 @@ def test_os_exec_interception(audit_manager: AuditHookManager, clean_db: str) ->
     pid = os.fork()
     if pid == 0:
         try:
-            os.execv("/bin/bash", ["bash"])
+            # S606 - Intentionally checking that the hook blocks raw shell exec
+            os.execv("/bin/bash", ["bash"])  # noqa: S606
         except PermissionError as e:
             if "Direct shell execution denied" in str(e):
                 os._exit(42)
             os._exit(1)
-        except Exception:
+        except Exception:  # noqa: BLE001 - Last-resort guard to ensure child never returns to pytest
             os._exit(2)
         finally:
+            # Safety net: only reached if a BaseException (e.g. SystemExit/KeyboardInterrupt)
+            # escapes the try-except above, since os._exit() inside except bypasses finally.
             os._exit(3)
     else:
         deadline = time.time() + 5
@@ -125,6 +128,38 @@ async def test_open_write_interception(audit_manager: AuditHookManager, clean_db
     incidents = await repo.getAuditIncidents()
     await repo.close()
 
+    assert len(incidents) == 1
+    assert incidents[0]["incident_type"] == "CRITICAL_FILE_WRITE"
+    assert canary_path in incidents[0]["details"]
+
+@pytest.mark.asyncio
+async def test_open_write_symlink_interception(audit_manager: AuditHookManager, clean_db: str) -> None:
+    canary_path = "/etc/blackwall_canary_test.txt"
+    symlink_path = os.path.join(os.getcwd(), "test_symlink_to_canary")
+    
+    # Create a symlink pointing to the critical path
+    if os.path.lexists(symlink_path):
+        os.remove(symlink_path)
+    os.symlink(canary_path, symlink_path)
+    
+    try:
+        with pytest.raises(PermissionError) as exc_info:
+            open(symlink_path, "w")
+        assert "File write access denied" in str(exc_info.value)
+    finally:
+        if os.path.lexists(symlink_path):
+            os.remove(symlink_path)
+        if os.path.exists(canary_path):
+            try:
+                os.remove(canary_path)
+            except Exception:
+                pass
+
+    repo = SQLiteThreatRepository(db_path=clean_db)
+    incidents = await repo.getAuditIncidents()
+    await repo.close()
+
+    # The telemetry should record the blocked attempt against the resolved critical path target
     assert len(incidents) == 1
     assert incidents[0]["incident_type"] == "CRITICAL_FILE_WRITE"
     assert canary_path in incidents[0]["details"]
