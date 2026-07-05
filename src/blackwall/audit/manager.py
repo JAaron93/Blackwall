@@ -119,7 +119,10 @@ class AuditHookManager:
         except PermissionError:
             raise
         except Exception as e:
-            logger.error("Audit hook evaluation failed", event=event, error=str(e))
+            logger.error(
+                "Audit hook evaluation failed", audit_event=event, error=str(e)
+            )
+            raise PermissionError(f"Audit hook evaluation failed: {e}") from e
         finally:
             duration_ms = (time.perf_counter() - start_time) * 1000.0
             if duration_ms > 1.0:
@@ -134,6 +137,8 @@ class AuditHookManager:
             self._validate_subprocess(args)
         elif event == "os.exec":
             self._validate_exec(args)
+        elif event == "os.system":
+            self._validate_system(args)
         elif event == "socket.connect":
             self._validate_socket(args)
         elif event == "open":
@@ -226,6 +231,43 @@ class AuditHookManager:
                     details=f"Direct shell or unauthorized execution via os.exec blocked: {exec_path}",
                     error_msg="PermissionError: Direct shell execution denied",
                 )
+
+    def _validate_system(self, args: Tuple[Any, ...]) -> None:
+        if len(args) < 1:
+            return
+        command = args[0]
+        cmd_str = None
+        if isinstance(command, (str, bytes)):
+            cmd_str = (
+                command
+                if isinstance(command, str)
+                else command.decode("utf-8", errors="ignore")
+            )
+
+        if cmd_str:
+            tokens = cmd_str.split()
+            if tokens:
+                exec_path = tokens[0]
+                exec_name = os.path.basename(exec_path)
+                is_shell = exec_name in (
+                    "sh",
+                    "bash",
+                    "zsh",
+                    "ksh",
+                    "csh",
+                    "dash",
+                    "ash",
+                )
+                if (
+                    is_shell
+                    or self._is_executable_blocked(exec_path)
+                    or self._is_executable_blocked(exec_name)
+                ):
+                    self._report_violation(
+                        incident_type="SYSTEM_COMMAND_EXECUTION",
+                        details=f"Unauthorized system command execution blocked: {cmd_str}",
+                        error_msg="PermissionError: System command execution denied",
+                    )
 
     def _validate_socket(self, args: Tuple[Any, ...]) -> None:
         if len(args) < 2:

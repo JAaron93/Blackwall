@@ -3,7 +3,7 @@ import subprocess
 import socket
 import pytest
 import time
-from typing import Generator, Callable
+from typing import Any, Generator, Callable
 from blackwall.audit.manager import AuditHookManager
 from blackwall.db.repository import SQLiteThreatRepository
 
@@ -200,3 +200,45 @@ def test_callback_latency_metric(
     samples.sort()
     median_ms = samples[len(samples) // 2]
     assert median_ms < 5.0
+
+
+@pytest.mark.asyncio
+async def test_os_system_interception(
+    audit_manager: AuditHookManager, clean_db: str
+) -> None:
+    repo = SQLiteThreatRepository(db_path=clean_db)
+    await repo.addBlockedExecutable("malicious_tool")
+    await repo.close()
+
+    with pytest.raises(PermissionError) as exc_info:
+        os.system("malicious_tool --attack")
+
+    assert "System command execution denied" in str(exc_info.value)
+
+    repo = SQLiteThreatRepository(db_path=clean_db)
+    incidents = await repo.getAuditIncidents()
+    await repo.close()
+
+    assert len(incidents) == 1
+    assert incidents[0]["incident_type"] == "SYSTEM_COMMAND_EXECUTION"
+    assert "malicious_tool --attack" in incidents[0]["details"]
+
+
+def test_unexpected_exception_fails_closed(
+    audit_manager: AuditHookManager, clean_db: str
+) -> None:
+    # Force _evaluate_event to raise an unexpected exception
+    def mock_evaluate(event: str, args: tuple[Any, ...]) -> None:
+        raise ValueError("Unexpected database error")
+
+    original_evaluate = audit_manager._evaluate_event
+    audit_manager._evaluate_event = mock_evaluate  # type: ignore[assignment]
+
+    try:
+        with pytest.raises(PermissionError) as exc_info:
+            audit_manager.handle_event("subprocess.Popen", ("some_tool", []))
+        assert "Audit hook evaluation failed" in str(exc_info.value)
+        # Ensure handling flag is cleared
+        assert not audit_manager._is_handling()
+    finally:
+        audit_manager._evaluate_event = original_evaluate
