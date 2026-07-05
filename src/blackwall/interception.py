@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Any, Callable, List, Set
+from typing import Any, Callable, List, Optional, Set
 from uuid import UUID, uuid4
 
 from blackwall.models import CallbackToken, ToolCallContext, Verdict, VerdictDecision
@@ -46,6 +46,7 @@ class InterceptionQueue:
         token.tool_context = context
         token.resumeCallback = resume_func
 
+        callbacks_to_invoke = []
         async with self._lock:
             # Check if queue size exceeds emergency threshold
             if self._queue.qsize() >= self._emergency_threshold:
@@ -67,18 +68,33 @@ class InterceptionQueue:
                 )
 
                 for ft in flushed_tokens:
-                    self._resolve_single_under_lock(ft, block_verdict)
+                    callback = self._resolve_single_under_lock(ft, block_verdict)
+                    if callback:
+                        callbacks_to_invoke.append((callback, block_verdict, ft.token_id))
 
                 # Reject the current token too
-                self._resolve_single_under_lock(token, block_verdict)
+                callback = self._resolve_single_under_lock(token, block_verdict)
+                if callback:
+                    callbacks_to_invoke.append((callback, block_verdict, token.token_id))
 
-                raise QueueOverloadError("Queue overloaded; emergency flush triggered.")
+        # Release lock before invoking callbacks
+        if callbacks_to_invoke:
+            for callback, verdict, token_id in callbacks_to_invoke:
+                try:
+                    callback(verdict)
+                except Exception:
+                    logger.error(
+                        "Error invoking resume callback for token",
+                        exc_info=True,
+                        extra={"token_id": token_id},
+                    )
+            raise QueueOverloadError("Queue overloaded; emergency flush triggered.")
 
-            await self._queue.put(token)
-            logger.debug(
-                "Enqueued callback token",
-                extra={"token_id": token.token_id, "qsize": self._queue.qsize()},
-            )
+        await self._queue.put(token)
+        logger.debug(
+            "Enqueued callback token",
+            extra={"token_id": token.token_id, "qsize": self._queue.qsize()},
+        )
 
     async def dequeue(self, timeout_ms: float) -> CallbackToken:
         """Retrieves a single CallbackToken from the queue, waiting up to timeout_ms."""
@@ -95,10 +111,13 @@ class InterceptionQueue:
         self, maxSize: int = 5, maxWaitMs: float = 100
     ) -> List[CallbackToken]:
         """Accumulates up to maxSize items or waits at most maxWaitMs (partial batch)."""
-        # Block until at least one item is available
+        # Block until at least one item is available, respecting maxWaitMs
         try:
-            first_token = await self._queue.get()
+            timeout_sec = maxWaitMs / 1000.0
+            first_token = await asyncio.wait_for(self._queue.get(), timeout=timeout_sec)
             self._queue.task_done()
+        except asyncio.TimeoutError:
+            return []
         except Exception as e:
             logger.error(f"Error waiting for first queue item: {e}")
             return []
@@ -187,6 +206,9 @@ class InterceptionQueue:
         self, verdicts: List[Verdict], batch: List[CallbackToken]
     ) -> None:
         """Resolves enqueued callbacks by mapping the verdict array to the batch by index."""
+        callbacks_to_invoke = []
+        error_to_raise = None
+
         async with self._lock:
             if len(verdicts) != len(batch):
                 logger.error(
@@ -200,36 +222,45 @@ class InterceptionQueue:
                     confidence_score=1.0,
                 )
                 for token in batch:
-                    self._resolve_single_under_lock(token, block_verdict)
-                raise BatchResolutionError(
+                    callback = self._resolve_single_under_lock(token, block_verdict)
+                    if callback:
+                        callbacks_to_invoke.append((callback, block_verdict, token.token_id))
+                error_to_raise = BatchResolutionError(
                     "Verdict array size does not match batch size."
                 )
+            else:
+                for token, verdict in zip(batch, verdicts):
+                    callback = self._resolve_single_under_lock(token, verdict)
+                    if callback:
+                        callbacks_to_invoke.append((callback, verdict, token.token_id))
 
-            for token, verdict in zip(batch, verdicts):
-                self._resolve_single_under_lock(token, verdict)
+        # Invoke callbacks outside the lock
+        for callback, verdict, token_id in callbacks_to_invoke:
+            try:
+                callback(verdict)
+            except Exception:
+                logger.error(
+                    "Error invoking resume callback for token",
+                    exc_info=True,
+                    extra={"token_id": token_id},
+                )
+
+        if error_to_raise:
+            raise error_to_raise
 
     def _resolve_single_under_lock(
         self, token: CallbackToken, verdict: Verdict
-    ) -> None:
-        """Resumes a single CallbackToken exactly once with the given verdict. Must be called under lock."""
+    ) -> Optional[Callable[[Verdict], Any]]:
+        """Marks a single CallbackToken as resolved and returns the callback to invoke outside the lock."""
         if token.token_id in self._resolved_tokens:
             logger.debug(
                 "Token already resolved, skipping duplicate resolution",
                 extra={"token_id": token.token_id},
             )
-            return
+            return None
 
         self._resolved_tokens.add(token.token_id)
-
-        if token.resumeCallback:
-            try:
-                token.resumeCallback(verdict)
-            except Exception:
-                logger.error(
-                    "Error invoking resume callback for token",
-                    exc_info=True,
-                    extra={"token_id": token.token_id},
-                )
+        return token.resumeCallback
 
     def size(self) -> int:
         """Returns the current size of the queue."""

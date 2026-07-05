@@ -65,8 +65,11 @@ class AuditHookManager:
             if hasattr(self._local, "conn"):
                 try:
                     self._local.conn.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(
+                        "Failed to close stale SQLite connection during cleanup",
+                        error=str(e),
+                    )
                 delattr(self._local, "conn")
 
             db_dir = os.path.dirname(os.path.abspath(self.db_path))

@@ -84,8 +84,12 @@ class KillableRegexWorker:
         try:
             msg = self.result_queue.get(timeout=5.0)
             if msg != "READY":
+                self.process.terminate()
+                self.process.join(timeout=1.0)
                 raise RuntimeError("Unexpected startup message")
         except queue.Empty:
+            self.process.terminate()
+            self.process.join(timeout=1.0)
             raise RuntimeError("Regex worker failed to start")
 
     def apply(
