@@ -22,9 +22,11 @@ def fixture_configure_structlog(log_output: LogCapture) -> None:
 def clean_sqlite():
     def _clean(db_path: str) -> None:
         from pathlib import Path
+
         for path in (db_path, f"{db_path}-wal", f"{db_path}-journal", f"{db_path}-shm"):
             try:
                 Path(path).unlink(missing_ok=True)
             except PermissionError:
                 pass
+
     return _clean

@@ -11,6 +11,7 @@ each bound test is marked ``xfail`` (not skip) so that:
 Note: the "Intercepting unauthorized socket connections at the OS level"
 scenario is fully implemented in test_guardrails.py and is not stubbed here.
 """
+
 import pytest
 from pytest_bdd import scenario
 

@@ -29,8 +29,7 @@ class SQLiteThreatRepository:
 
             async with self.pool.connection() as conn:
                 # Nodes Table
-                await conn.execute(
-                    """
+                await conn.execute("""
                 CREATE TABLE IF NOT EXISTS signatures (
                     signature_id TEXT PRIMARY KEY,
                     created_at INTEGER NOT NULL,
@@ -46,8 +45,7 @@ class SQLiteThreatRepository:
                     similarity_vector BLOB,
                     metadata TEXT
                 );
-                """
-                )
+                """)
 
                 # Indexes for signatures table
                 await conn.execute(
@@ -58,8 +56,7 @@ class SQLiteThreatRepository:
                 )
 
                 # Edges Table
-                await conn.execute(
-                    """
+                await conn.execute("""
                 CREATE TABLE IF NOT EXISTS signature_relationships (
                     edge_id TEXT PRIMARY KEY,
                     source_signature_id TEXT NOT NULL,
@@ -70,8 +67,7 @@ class SQLiteThreatRepository:
                     FOREIGN KEY (source_signature_id) REFERENCES signatures(signature_id) ON DELETE CASCADE,
                     FOREIGN KEY (target_signature_id) REFERENCES signatures(signature_id) ON DELETE CASCADE
                 );
-                """
-                )
+                """)
 
                 # Indexes for signature_relationships table
                 await conn.execute(
@@ -82,8 +78,7 @@ class SQLiteThreatRepository:
                 )
 
                 # FTS5 virtual table
-                await conn.execute(
-                    """
+                await conn.execute("""
                 CREATE VIRTUAL TABLE IF NOT EXISTS signature_fts USING fts5(
                     signature_id UNINDEXED,
                     payload_pattern,
@@ -91,42 +86,34 @@ class SQLiteThreatRepository:
                     content=signatures,
                     content_rowid=rowid
                 );
-                """
-                )
+                """)
 
                 # Triggers to keep FTS in sync with the signatures table
-                await conn.execute(
-                    """
+                await conn.execute("""
                 CREATE TRIGGER IF NOT EXISTS signatures_ai AFTER INSERT ON signatures BEGIN
                     INSERT INTO signature_fts(rowid, signature_id, payload_pattern, attacker_intent)
                     VALUES (new.rowid, new.signature_id, new.payload_pattern, new.attacker_intent);
                 END;
-                """
-                )
+                """)
 
-                await conn.execute(
-                    """
+                await conn.execute("""
                 CREATE TRIGGER IF NOT EXISTS signatures_ad AFTER DELETE ON signatures BEGIN
                     INSERT INTO signature_fts(signature_fts, rowid, signature_id, payload_pattern, attacker_intent)
                     VALUES('delete', old.rowid, old.signature_id, old.payload_pattern, old.attacker_intent);
                 END;
-                """
-                )
+                """)
 
-                await conn.execute(
-                    """
+                await conn.execute("""
                 CREATE TRIGGER IF NOT EXISTS signatures_au AFTER UPDATE ON signatures BEGIN
                     INSERT INTO signature_fts(signature_fts, rowid, signature_id, payload_pattern, attacker_intent)
                     VALUES('delete', old.rowid, old.signature_id, old.payload_pattern, old.attacker_intent);
                     INSERT INTO signature_fts(rowid, signature_id, payload_pattern, attacker_intent)
                     VALUES (new.rowid, new.signature_id, new.payload_pattern, new.attacker_intent);
                 END;
-                """
-                )
+                """)
 
                 # Audit Incidents table
-                await conn.execute(
-                    """
+                await conn.execute("""
                 CREATE TABLE IF NOT EXISTS audit_incidents (
                     incident_id TEXT PRIMARY KEY,
                     incident_type TEXT NOT NULL,
@@ -134,29 +121,24 @@ class SQLiteThreatRepository:
                     details TEXT NOT NULL,
                     stack_trace TEXT
                 );
-                """
-                )
+                """)
 
                 # Blocked Executables table
-                await conn.execute(
-                    """
+                await conn.execute("""
                 CREATE TABLE IF NOT EXISTS blocked_executables (
                     executable TEXT PRIMARY KEY,
                     created_at INTEGER NOT NULL
                 );
-                """
-                )
+                """)
 
                 # Blocked IOCs table
-                await conn.execute(
-                    """
+                await conn.execute("""
                 CREATE TABLE IF NOT EXISTS blocked_iocs (
                     ioc TEXT PRIMARY KEY,
                     type TEXT NOT NULL,
                     created_at INTEGER NOT NULL
                 );
-                """
-                )
+                """)
 
             self._schema_initialized = True
 
@@ -209,10 +191,13 @@ class SQLiteThreatRepository:
         if similarity_vector is not None:
             if isinstance(similarity_vector, (bytes, bytearray)):
                 pass
-            elif hasattr(similarity_vector, "tobytes") and callable(similarity_vector.tobytes):
+            elif hasattr(similarity_vector, "tobytes") and callable(
+                similarity_vector.tobytes
+            ):
                 similarity_vector = similarity_vector.tobytes()
             elif isinstance(similarity_vector, (list, tuple)):
                 import array
+
                 similarity_vector = array.array("f", similarity_vector).tobytes()
 
         raw_metadata = signature_data.get("metadata")
@@ -282,7 +267,9 @@ class SQLiteThreatRepository:
     async def getAuditIncidents(self) -> List[Dict[str, Any]]:
         await self.initialize()
         async with self.pool.connection() as conn:
-            cursor = await conn.execute("SELECT incident_id, incident_type, timestamp, details, stack_trace FROM audit_incidents ORDER BY timestamp DESC")
+            cursor = await conn.execute(
+                "SELECT incident_id, incident_type, timestamp, details, stack_trace FROM audit_incidents ORDER BY timestamp DESC"
+            )
             rows = await cursor.fetchall()
             return [
                 {

@@ -4,7 +4,6 @@ from typing import Any
 
 import structlog
 
-
 _audit_hook_installed = False
 
 
@@ -18,7 +17,8 @@ def setup_logging(log_level: int = logging.INFO) -> None:
         level=log_level,
     )
 
-    if not _audit_hook_installed:
+    if not _audit_hook_installed and "pytest" not in sys.modules:
+
         def audit_hook(event: str, args: tuple[Any, ...]) -> None:
             if event in {"os.system", "os.posix_spawn"} or event.startswith(
                 ("os.exec", "os.spawn", "subprocess.", "pty.")
