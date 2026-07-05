@@ -254,9 +254,13 @@ class InterceptionQueue:
 
         # Invoke callbacks outside the lock
         for callback, verdict, token_id in callbacks_to_invoke:
-            if verdicts_metric:
-                verdicts_metric.add(1, {"decision": verdict.decision.value})
-            
+            # Best-effort telemetry: don't abort callback invocation if telemetry fails
+            try:
+                if verdicts_metric:
+                    verdicts_metric.add(1, {"decision": verdict.decision.value})
+            except Exception:
+                logger.debug("Telemetry update failed in resolveCallbacks", exc_info=True)
+
             try:
                 callback(verdict)
             except Exception:

@@ -7,7 +7,7 @@ name = "blackwall"
 version = "0.1.0"
 description = "Blackwall Agentic Firewall"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11.9"
 dependencies = [
     "aiosqlite>=0.20.0",
     "pydantic>=2.0.0",
@@ -18,7 +18,7 @@ dependencies = [
     "opentelemetry-api>=1.24.0",
     "opentelemetry-sdk>=1.24.0",
     "opentelemetry-exporter-otlp>=1.24.0",
-    "opentelemetry-exporter-prometheus",
+    "opentelemetry-exporter-prometheus>=0.45b0,<0.46",
     "prometheus-client>=0.20.0",
     "google-genai>=0.1.0"
 ]

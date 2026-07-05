@@ -30,34 +30,41 @@ def test_get_tracer_and_metric():
 
 def test_logging_rotation_and_compression():
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Setup logging to temporary directory
-        setup_logging(log_level=logging.DEBUG, log_dir=tmpdir)
-        
-        import structlog
-        log = structlog.get_logger("blackwall")
-        log.info("Test message")
-        
-        log_file = os.path.join(tmpdir, "blackwall.log")
-        assert os.path.exists(log_file)
-        
-        # Verify content
-        with open(log_file, "r") as f:
-            content = f.read()
-            assert "Test message" in content
-            
-        # Rotate manually by calling the rotator directly with a dummy file
-        dummy_source = os.path.join(tmpdir, "dummy.log")
-        dummy_dest = os.path.join(tmpdir, "dummy.log.gz")
-        
-        with open(dummy_source, "w") as f:
-            f.write("Rotated content")
-            
-        from blackwall.logging import _gzip_rotator
-        _gzip_rotator(dummy_source, dummy_dest)
-        
-        assert os.path.exists(dummy_dest)
-        assert not os.path.exists(dummy_source)
-        
-        with gzip.open(dummy_dest, "rt") as f:
-            gz_content = f.read()
-            assert "Rotated content" in gz_content
+        try:
+            # Setup logging to temporary directory
+            setup_logging(log_level=logging.DEBUG, log_dir=tmpdir)
+
+            import structlog
+            log = structlog.get_logger("blackwall")
+            log.info("Test message")
+
+            log_file = os.path.join(tmpdir, "blackwall.log")
+            assert os.path.exists(log_file)
+
+            # Verify content
+            with open(log_file, "r") as f:
+                content = f.read()
+                assert "Test message" in content
+
+            # Rotate manually by calling the rotator directly with a dummy file
+            dummy_source = os.path.join(tmpdir, "dummy.log")
+            dummy_dest = os.path.join(tmpdir, "dummy.log.gz")
+
+            with open(dummy_source, "w") as f:
+                f.write("Rotated content")
+
+            from blackwall.logging import _gzip_rotator
+            _gzip_rotator(dummy_source, dummy_dest)
+
+            assert os.path.exists(dummy_dest)
+            assert not os.path.exists(dummy_source)
+
+            with gzip.open(dummy_dest, "rt") as f:
+                gz_content = f.read()
+                assert "Rotated content" in gz_content
+        finally:
+            # Close and remove handlers to prevent resource leaks
+            blackwall_logger = logging.getLogger("blackwall")
+            for handler in blackwall_logger.handlers[:]:
+                handler.close()
+                blackwall_logger.removeHandler(handler)
