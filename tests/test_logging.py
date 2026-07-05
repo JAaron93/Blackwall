@@ -1,5 +1,5 @@
-import pytest
 from blackwall.logging import setup_logging
+
 
 def test_setup_logging_pipeline(capsys, log_output, caplog):
     import structlog
@@ -8,12 +8,12 @@ def test_setup_logging_pipeline(capsys, log_output, caplog):
     import sys
 
     original_config = structlog.get_config()
-    
+
     # Capture standard logger output by explicitly adding a StreamHandler to the root logger
     root_logger = logging.getLogger()
     original_handlers = root_logger.handlers[:]
     original_level = root_logger.level
-    
+
     root_logger.setLevel(logging.INFO)
     handler = logging.StreamHandler(sys.stdout)
     root_logger.handlers = [handler]
@@ -28,7 +28,7 @@ def test_setup_logging_pipeline(capsys, log_output, caplog):
 
         # Capture output
         captured = capsys.readouterr()
-        
+
         # Find the line that is valid JSON with the expected message
         json_line = None
         for line in caplog.text.strip().split("\n"):
@@ -50,7 +50,9 @@ def test_setup_logging_pipeline(capsys, log_output, caplog):
                 except json.JSONDecodeError:
                     continue
 
-        assert json_line is not None, f"Expected JSON log not found. caplog: {caplog.text}, stdout: {captured.out}"
+        assert (
+            json_line is not None
+        ), f"Expected JSON log not found. caplog: {caplog.text}, stdout: {captured.out}"
         assert json_line["event"] == "test message"
         assert json_line["key"] == "value"
         assert "timestamp" in json_line

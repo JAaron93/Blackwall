@@ -113,8 +113,7 @@ class SQLiteThreatRepository:
                 """)
 
                 # Audit Incidents table
-                await conn.execute(
-                    """
+                await conn.execute("""
                 CREATE TABLE IF NOT EXISTS audit_incidents (
                     incident_id TEXT PRIMARY KEY,
                     incident_type TEXT NOT NULL,
@@ -122,29 +121,24 @@ class SQLiteThreatRepository:
                     details TEXT NOT NULL,
                     stack_trace TEXT
                 );
-                """
-                )
+                """)
 
                 # Blocked Executables table
-                await conn.execute(
-                    """
+                await conn.execute("""
                 CREATE TABLE IF NOT EXISTS blocked_executables (
                     executable TEXT PRIMARY KEY,
                     created_at INTEGER NOT NULL
                 );
-                """
-                )
+                """)
 
                 # Blocked IOCs table
-                await conn.execute(
-                    """
+                await conn.execute("""
                 CREATE TABLE IF NOT EXISTS blocked_iocs (
                     ioc TEXT PRIMARY KEY,
                     type TEXT NOT NULL,
                     created_at INTEGER NOT NULL
                 );
-                """
-                )
+                """)
 
             self._schema_initialized = True
 
@@ -197,10 +191,13 @@ class SQLiteThreatRepository:
         if similarity_vector is not None:
             if isinstance(similarity_vector, (bytes, bytearray)):
                 pass
-            elif hasattr(similarity_vector, "tobytes") and callable(similarity_vector.tobytes):
+            elif hasattr(similarity_vector, "tobytes") and callable(
+                similarity_vector.tobytes
+            ):
                 similarity_vector = similarity_vector.tobytes()
             elif isinstance(similarity_vector, (list, tuple)):
                 import array
+
                 similarity_vector = array.array("f", similarity_vector).tobytes()
 
         raw_metadata = signature_data.get("metadata")
@@ -270,7 +267,9 @@ class SQLiteThreatRepository:
     async def getAuditIncidents(self) -> List[Dict[str, Any]]:
         await self.initialize()
         async with self.pool.connection() as conn:
-            cursor = await conn.execute("SELECT incident_id, incident_type, timestamp, details, stack_trace FROM audit_incidents ORDER BY timestamp DESC")
+            cursor = await conn.execute(
+                "SELECT incident_id, incident_type, timestamp, details, stack_trace FROM audit_incidents ORDER BY timestamp DESC"
+            )
             rows = await cursor.fetchall()
             return [
                 {

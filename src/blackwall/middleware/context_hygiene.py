@@ -42,17 +42,19 @@ def _apply_pattern_worker(task_queue: Any, result_queue: Any) -> None:
             regex_str, placeholder, name, text = task
             pattern = re.compile(regex_str)
             redactions = []
-            
+
             def replacer(match: re.Match[str]) -> str:
                 matched_str = match.group(0)
                 original_hash = hashlib.sha256(matched_str.encode()).hexdigest()
-                redactions.append({
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "original_hash": original_hash,
-                    "pattern_matched": name,
-                    "placeholder_used": placeholder,
-                    "context_size": len(text)
-                })
+                redactions.append(
+                    {
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "original_hash": original_hash,
+                        "pattern_matched": name,
+                        "placeholder_used": placeholder,
+                        "context_size": len(text),
+                    }
+                )
                 return placeholder
 
             result_text = pattern.sub(replacer, text)
@@ -70,12 +72,11 @@ class KillableRegexWorker:
 
     def _start_process(self) -> None:
         self.process = self.ctx.Process(
-            target=_apply_pattern_worker,
-            args=(self.task_queue, self.result_queue)
+            target=_apply_pattern_worker, args=(self.task_queue, self.result_queue)
         )
         self.process.daemon = True
         self.process.start()
-        
+
         try:
             msg = self.result_queue.get(timeout=5.0)
             if msg != "READY":
@@ -83,15 +84,17 @@ class KillableRegexWorker:
         except queue.Empty:
             raise RuntimeError("Regex worker failed to start")
 
-    def apply(self, regex_str: str, placeholder: str, name: str, text: str, timeout: float) -> Tuple[str, List[Dict[str, Any]]]:
+    def apply(
+        self, regex_str: str, placeholder: str, name: str, text: str, timeout: float
+    ) -> Tuple[str, List[Dict[str, Any]]]:
         while not self.result_queue.empty():
             try:
                 self.result_queue.get_nowait()
             except queue.Empty:
                 break
-                
+
         self.task_queue.put((regex_str, placeholder, name, text))
-        
+
         try:
             status, res, redactions = self.result_queue.get(timeout=timeout)
             if status == "ERROR":
@@ -100,13 +103,13 @@ class KillableRegexWorker:
         except queue.Empty:
             self.process.terminate()
             self.process.join()
-            
+
             self.task_queue = self.ctx.Queue()
             self.result_queue = self.ctx.Queue()
             self._start_process()
-            
+
             raise TimeoutError(f"Regex {name} timed out")
-            
+
     def close(self) -> None:
         self.process.terminate()
         self.process.join()
@@ -127,12 +130,24 @@ class ContextHygiene:
             pass
 
     def _initialize_default_patterns(self) -> None:
-        self.register_pattern("API_KEY", r"(?i)(api[_-]?key|apikey|token)[\s:=]+['\"]?([a-zA-Z0-9_\-]{20,})", "[[API_KEY]]")
-        self.register_pattern("IP_ADDRESS", r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "[[IP_ADDRESS]]")
+        self.register_pattern(
+            "API_KEY",
+            r"(?i)(api[_-]?key|apikey|token)[\s:=]+['\"]?([a-zA-Z0-9_\-]{20,})",
+            "[[API_KEY]]",
+        )
+        self.register_pattern(
+            "IP_ADDRESS", r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "[[IP_ADDRESS]]"
+        )
         self.register_pattern("URL", r"https?://[^\s\"']+", "[[URL]]")
         self.register_pattern("FILE_PATH", r"(?:/[^/\s\"']+)+/?", "[[FILE_PATH]]")
-        self.register_pattern("PASSWORD", r"(?i)(password|passwd|pwd)[\s:=]+['\"]?([^\s'\"]+)", "[[PASSWORD]]")
-        self.register_pattern("EMAIL", r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "[[EMAIL]]")
+        self.register_pattern(
+            "PASSWORD",
+            r"(?i)(password|passwd|pwd)[\s:=]+['\"]?([^\s'\"]+)",
+            "[[PASSWORD]]",
+        )
+        self.register_pattern(
+            "EMAIL", r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "[[EMAIL]]"
+        )
 
     def register_pattern(self, name: str, regex: str, placeholder: str) -> bool:
         try:
@@ -149,18 +164,22 @@ class ContextHygiene:
         for pattern in self.patterns:
             if not pattern.enabled:
                 continue
-            
+
             try:
                 # Run the regex using the persistent killable worker
                 # We protect the worker call site with an asyncio.Lock to serialize concurrent requests
                 async with self._lock:
                     result_text, redactions_dicts = await asyncio.to_thread(
                         self.worker.apply,
-                        pattern.regex.pattern, pattern.placeholder, pattern.name, current_text, self.timeout_seconds
+                        pattern.regex.pattern,
+                        pattern.placeholder,
+                        pattern.name,
+                        current_text,
+                        self.timeout_seconds,
                     )
-                
+
                 current_text = result_text
-                
+
                 # Reconstruct RedactionEntry objects
                 redactions = [
                     RedactionEntry(
@@ -168,19 +187,24 @@ class ContextHygiene:
                         original_hash=r["original_hash"],
                         pattern_matched=r["pattern_matched"],
                         placeholder_used=r["placeholder_used"],
-                        context_size=r["context_size"]
-                    ) for r in redactions_dicts
+                        context_size=r["context_size"],
+                    )
+                    for r in redactions_dicts
                 ]
-                
+
                 all_redactions.extend(redactions)
                 pattern.consecutive_timeouts = 0  # reset on success
             except TimeoutError:
                 pattern.consecutive_timeouts += 1
-                logger.warning(f"Regex pattern {pattern.name} timed out after {self.timeout_seconds}s")
-                
+                logger.warning(
+                    f"Regex pattern {pattern.name} timed out after {self.timeout_seconds}s"
+                )
+
                 if pattern.consecutive_timeouts >= 10:
                     pattern.enabled = False
-                    logger.error(f"Regex pattern {pattern.name} disabled due to 10 consecutive timeouts")
+                    logger.error(
+                        f"Regex pattern {pattern.name} disabled due to 10 consecutive timeouts"
+                    )
                 continue
             except Exception as e:
                 logger.error(f"Error applying pattern {pattern.name}: {e}")
@@ -199,25 +223,25 @@ class ContextHygiene:
             serialized_args = str(context.arguments)
 
         sanitized_args_str, redactions = await self.apply_redaction(serialized_args)
-        
+
         try:
             sanitized_args = json.loads(sanitized_args_str)
         except json.JSONDecodeError:
             sanitized_args = {"raw_fallback": sanitized_args_str}
 
         metadata = dict(context.metadata) if context.metadata else {}
-        
+
         redaction_log = list(metadata.get("redactionLog", []))
-        redaction_log.extend([r.model_dump(mode='json') for r in redactions])
-        
+        redaction_log.extend([r.model_dump(mode="json") for r in redactions])
+
         metadata["redactionLog"] = redaction_log
         metadata["redactionCount"] = metadata.get("redactionCount", 0) + len(redactions)
-        
+
         if "originalHash" not in metadata:
-            metadata["originalHash"] = hashlib.sha256(serialized_args.encode()).hexdigest()
+            metadata["originalHash"] = hashlib.sha256(
+                serialized_args.encode()
+            ).hexdigest()
 
         return ToolCallContext(
-            tool_name=context.tool_name,
-            arguments=sanitized_args,
-            metadata=metadata
+            tool_name=context.tool_name, arguments=sanitized_args, metadata=metadata
         )

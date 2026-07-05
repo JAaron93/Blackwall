@@ -14,6 +14,7 @@ blocked-call assertion to a **subprocess** via
 :func:`_run_blocked_call_in_subprocess`.  The parent pytest process never has
 the hook installed.
 """
+
 import asyncio
 import socket
 import subprocess
@@ -92,7 +93,9 @@ elif call_type == "os.system":
 """
 
 
-def _run_blocked_call_in_subprocess(call_type: str) -> subprocess.CompletedProcess:  # noqa: S603
+def _run_blocked_call_in_subprocess(
+    call_type: str,
+) -> subprocess.CompletedProcess:  # noqa: S603
     """Run setup_logging() + the target call in an isolated child process.
 
     The child exits with a non-zero code and prints to stderr when the audit
@@ -133,7 +136,9 @@ def when_os_system_attempted(audit_hook_context: dict) -> None:
 # --- Then steps (audit hook enforcement) ------------------------------------
 
 
-@then('the audit hook must raise a "PermissionError" before the OS executes the command')
+@then(
+    'the audit hook must raise a "PermissionError" before the OS executes the command'
+)
 def then_audit_hook_raises_permission_error(audit_hook_context: dict) -> None:
     """Assert the child process exited non-zero with a PermissionError message."""
     call_type = audit_hook_context["call_type"]
@@ -145,9 +150,9 @@ def then_audit_hook_raises_permission_error(audit_hook_context: dict) -> None:
         f"Expected child process to fail with PermissionError, but it exited 0.\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
-    assert "PermissionError" in result.stderr or "Operation not permitted" in result.stderr, (
-        f"Expected PermissionError in stderr.\nstderr: {result.stderr}"
-    )
+    assert (
+        "PermissionError" in result.stderr or "Operation not permitted" in result.stderr
+    ), f"Expected PermissionError in stderr.\nstderr: {result.stderr}"
 
 
 @then("the structlog configuration must be restored to its original state")
@@ -170,7 +175,10 @@ def then_structlog_config_restored(audit_hook_context: dict) -> None:
 # ============================================================================
 
 
-@scenario('../features/os_auditing.feature', 'Intercepting unauthorized socket connections at the OS level')
+@scenario(
+    "../features/os_auditing.feature",
+    "Intercepting unauthorized socket connections at the OS level",
+)
 def test_audit_hook_socket_interception() -> None:
     pass
 
@@ -178,7 +186,10 @@ def test_audit_hook_socket_interception() -> None:
 # --- Given steps (OS auditing) ----------------------------------------------
 
 
-@given('the Python runtime audit hook "sys.addaudithook" is actively monitoring system events', target_fixture="manager")
+@given(
+    'the Python runtime audit hook "sys.addaudithook" is actively monitoring system events',
+    target_fixture="manager",
+)
 def given_audit_hook_active(request: pytest.FixtureRequest) -> AuditHookManager:
     manager = AuditHookManager(db_path=TEST_BDD_DB)
     manager.start()
@@ -200,7 +211,10 @@ def given_ioc_blacklist_contains() -> None:
 # --- When steps (OS auditing) -----------------------------------------------
 
 
-@when('an execution agent runs a Python script attempting "socket.connect" to "198.51.100.24:4444"', target_fixture="conn_result")
+@when(
+    'an execution agent runs a Python script attempting "socket.connect" to "198.51.100.24:4444"',
+    target_fixture="conn_result",
+)
 def when_attempt_socket_connect(manager: AuditHookManager) -> Dict[str, Any]:
     s = socket.socket()
     s.settimeout(2)
@@ -228,7 +242,9 @@ def then_raise_permission_error(conn_result: Dict[str, Any]) -> None:
     assert "Connection to malicious IOC blocked" in str(conn_result["exception"])
 
 
-@then('an incident telemetry record must be written atomically to the SQLite WAL database')
+@then(
+    "an incident telemetry record must be written atomically to the SQLite WAL database"
+)
 def then_telemetry_written() -> None:
     async def _fetch() -> list[Dict[str, Any]]:
         repo = SQLiteThreatRepository(db_path=TEST_BDD_DB)
@@ -242,6 +258,6 @@ def then_telemetry_written() -> None:
     assert "198.51.100.24:4444" in incidents[0]["details"]
 
 
-@then('the outbound network connection must be severed completely')
+@then("the outbound network connection must be severed completely")
 def then_connection_severed(conn_result: Dict[str, Any]) -> None:
     assert conn_result["exception"] is not None

@@ -129,7 +129,9 @@ async def test_atomic_uniqueness_insert_or_ignore(repo: SQLiteThreatRepository) 
 
 
 @pytest.mark.asyncio
-async def test_write_signature_similarity_vector_coercion(repo: SQLiteThreatRepository) -> None:
+async def test_write_signature_similarity_vector_coercion(
+    repo: SQLiteThreatRepository,
+) -> None:
     """Verify that similarityVector is coerced correctly into bytes."""
     # 1. Test None similarity vector
     sig_id_none = "sig_none"
@@ -155,6 +157,7 @@ async def test_write_signature_similarity_vector_coercion(repo: SQLiteThreatRepo
     sig_id_list = "sig_list"
     vector_list = [0.1, 0.2, 0.3]
     import array
+
     expected_bytes = array.array("f", vector_list).tobytes()
 
     sig_data_list = {
@@ -179,8 +182,10 @@ async def test_write_signature_similarity_vector_coercion(repo: SQLiteThreatRepo
     class MockNumpyArray:
         def __init__(self, data: list[float]):
             self.data = data
+
         def tobytes(self) -> bytes:
             import array
+
             return array.array("f", self.data).tobytes()
 
     sig_id_numpy = "sig_numpy"
@@ -202,4 +207,3 @@ async def test_write_signature_similarity_vector_coercion(repo: SQLiteThreatRepo
         row = await cursor.fetchone()
         assert row is not None
         assert row[0] == expected_bytes
-

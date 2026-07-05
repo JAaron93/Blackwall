@@ -9,11 +9,13 @@ from blackwall.db.repository import SQLiteThreatRepository
 
 TEST_DB_PATH = "test_audit.db"
 
+
 @pytest.fixture
 def clean_db(clean_sqlite: Callable[[str], None]) -> Generator[str, None, None]:
     clean_sqlite(TEST_DB_PATH)
     yield TEST_DB_PATH
     clean_sqlite(TEST_DB_PATH)
+
 
 @pytest.fixture
 def audit_manager(clean_db: str) -> Generator[AuditHookManager, None, None]:
@@ -22,15 +24,18 @@ def audit_manager(clean_db: str) -> Generator[AuditHookManager, None, None]:
     yield manager
     manager.stop()
 
+
 @pytest.mark.asyncio
-async def test_subprocess_popen_interception(audit_manager: AuditHookManager, clean_db: str) -> None:
+async def test_subprocess_popen_interception(
+    audit_manager: AuditHookManager, clean_db: str
+) -> None:
     repo = SQLiteThreatRepository(db_path=clean_db)
     await repo.addBlockedExecutable("malicious_tool")
     await repo.close()
 
     with pytest.raises(PermissionError) as exc_info:
         subprocess.Popen(["malicious_tool", "--attack"])
-    
+
     assert "Subprocess execution denied" in str(exc_info.value)
 
     repo = SQLiteThreatRepository(db_path=clean_db)
@@ -42,8 +47,10 @@ async def test_subprocess_popen_interception(audit_manager: AuditHookManager, cl
     assert "malicious_tool" in incidents[0]["details"]
     assert incidents[0]["stack_trace"] is not None
 
+
 def test_os_exec_interception(audit_manager: AuditHookManager, clean_db: str) -> None:
     import signal
+
     pid = os.fork()
     if pid == 0:
         try:
@@ -53,7 +60,9 @@ def test_os_exec_interception(audit_manager: AuditHookManager, clean_db: str) ->
             if "Direct shell execution denied" in str(e):
                 os._exit(42)
             os._exit(1)
-        except Exception:  # noqa: BLE001 - Last-resort guard to ensure child never returns to pytest
+        except (
+            Exception
+        ):  # noqa: BLE001 - Last-resort guard to ensure child never returns to pytest
             os._exit(2)
         finally:
             # Safety net: only reached if a BaseException (e.g. SystemExit/KeyboardInterrupt)
@@ -74,14 +83,19 @@ def test_os_exec_interception(audit_manager: AuditHookManager, clean_db: str) ->
                 os.waitpid(pid, 0)
             except OSError:
                 pass
-            pytest.fail("Child did not exit in time; os.execv likely succeeded (audit hook regression)")
-        
+            pytest.fail(
+                "Child did not exit in time; os.execv likely succeeded (audit hook regression)"
+            )
+
         assert status is not None
         assert os.WIFEXITED(status)
         assert os.WEXITSTATUS(status) == 42
 
+
 @pytest.mark.asyncio
-async def test_socket_connect_interception(audit_manager: AuditHookManager, clean_db: str) -> None:
+async def test_socket_connect_interception(
+    audit_manager: AuditHookManager, clean_db: str
+) -> None:
     repo = SQLiteThreatRepository(db_path=clean_db)
     await repo.addBlockedIOC("198.51.100.24")
     await repo.close()
@@ -91,7 +105,7 @@ async def test_socket_connect_interception(audit_manager: AuditHookManager, clea
     with pytest.raises(PermissionError) as exc_info:
         s.connect(("198.51.100.24", 4444))
     s.close()
-    
+
     assert "Connection to malicious IOC blocked" in str(exc_info.value)
 
     repo = SQLiteThreatRepository(db_path=clean_db)
@@ -102,8 +116,11 @@ async def test_socket_connect_interception(audit_manager: AuditHookManager, clea
     assert incidents[0]["incident_type"] == "MALICIOUS_IOC_CONNECTION"
     assert "198.51.100.24:4444" in incidents[0]["details"]
 
+
 @pytest.mark.asyncio
-async def test_open_write_interception(audit_manager: AuditHookManager, clean_db: str) -> None:
+async def test_open_write_interception(
+    audit_manager: AuditHookManager, clean_db: str
+) -> None:
     canary_path = "/etc/blackwall_canary_test.txt"
     try:
         with pytest.raises(PermissionError) as exc_info:
@@ -132,16 +149,19 @@ async def test_open_write_interception(audit_manager: AuditHookManager, clean_db
     assert incidents[0]["incident_type"] == "CRITICAL_FILE_WRITE"
     assert canary_path in incidents[0]["details"]
 
+
 @pytest.mark.asyncio
-async def test_open_write_symlink_interception(audit_manager: AuditHookManager, clean_db: str) -> None:
+async def test_open_write_symlink_interception(
+    audit_manager: AuditHookManager, clean_db: str
+) -> None:
     canary_path = "/etc/blackwall_canary_test.txt"
     symlink_path = os.path.join(os.getcwd(), "test_symlink_to_canary")
-    
+
     # Create a symlink pointing to the critical path
     if os.path.lexists(symlink_path):
         os.remove(symlink_path)
     os.symlink(canary_path, symlink_path)
-    
+
     try:
         with pytest.raises(PermissionError) as exc_info:
             open(symlink_path, "w")
@@ -164,7 +184,10 @@ async def test_open_write_symlink_interception(audit_manager: AuditHookManager, 
     assert incidents[0]["incident_type"] == "CRITICAL_FILE_WRITE"
     assert canary_path in incidents[0]["details"]
 
-def test_callback_latency_metric(audit_manager: AuditHookManager, clean_db: str) -> None:
+
+def test_callback_latency_metric(
+    audit_manager: AuditHookManager, clean_db: str
+) -> None:
     samples = []
     for _ in range(20):
         start = time.perf_counter()
