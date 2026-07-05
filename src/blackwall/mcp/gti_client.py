@@ -46,15 +46,15 @@ class GTIMCPClient:
         Queries the threat intelligence for an indicator with caching, timeout,
         and circuit breaker logic.
         """
-        # 1. Check circuit breaker state.
-        if self.is_degraded():
-            raise GTIDegradedError("GTI MCP Client is in degraded mode.")
-
-        # 2. Check local SQLite cache.
-        cached = await self.repo.get_cached_gti_response(indicator)
+        # 1. Check local SQLite cache first.
+        cached = await self.repo.get_cached_gti_response(indicator, indicator_type.value)
         if cached:
             logger.debug(f"GTI Cache hit for indicator: {indicator}")
             return GTIResponse.model_validate(cached)
+
+        # 2. Check circuit breaker state (only for live queries).
+        if self.is_degraded():
+            raise GTIDegradedError("GTI MCP Client is in degraded mode.")
 
         # 3. Perform external API query with 5-second timeout.
         try:
@@ -74,9 +74,12 @@ class GTIMCPClient:
                     logger.info("GTI MCP Client restored to CLOSED (normal) mode.")
 
             # Cache the response.
-            await self.repo.cache_gti_response(indicator, response_dict)
+            await self.repo.cache_gti_response(indicator, indicator_type.value, response_dict)
             return GTIResponse.model_validate(response_dict)
 
+        except ValueError:
+            # Unsupported indicator_type - propagate immediately without recording failure.
+            raise
         except asyncio.TimeoutError as e:
             logger.warning(f"GTI query timeout for indicator: {indicator}")
             self._handle_failure()
