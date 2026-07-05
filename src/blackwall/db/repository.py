@@ -150,6 +150,15 @@ class SQLiteThreatRepository:
                 );
                 """)
 
+                # Background Tasks table
+                await conn.execute("""
+                CREATE TABLE IF NOT EXISTS background_tasks (
+                    task_id TEXT PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+                """)
+
             self._schema_initialized = True
 
     async def close(self) -> None:
@@ -366,3 +375,19 @@ class SQLiteThreatRepository:
                         "attacker_intent": intent,
                     }
         return None
+
+    async def add_background_task(self, task_id: str, status: str = "PENDING_WEBHOOK_CALLBACK") -> None:
+        await self.initialize()
+        async with self.pool.connection() as conn:
+            await conn.execute(
+                "INSERT INTO background_tasks (task_id, status, created_at) VALUES (?, ?, ?)",
+                (task_id, status, int(time.time())),
+            )
+
+    async def update_background_task_status(self, task_id: str, status: str) -> None:
+        await self.initialize()
+        async with self.pool.connection() as conn:
+            await conn.execute(
+                "UPDATE background_tasks SET status = ? WHERE task_id = ?",
+                (status, task_id),
+            )
