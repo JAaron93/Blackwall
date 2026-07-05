@@ -206,6 +206,14 @@ class SQLiteThreatRepository:
         false_positive_count = int(raw_fp_count) if raw_fp_count is not None else 0
 
         similarity_vector = signature_data.get("similarityVector")
+        if similarity_vector is not None:
+            if isinstance(similarity_vector, (bytes, bytearray)):
+                pass
+            elif hasattr(similarity_vector, "tobytes") and callable(similarity_vector.tobytes):
+                similarity_vector = similarity_vector.tobytes()
+            elif isinstance(similarity_vector, (list, tuple)):
+                import array
+                similarity_vector = array.array("f", similarity_vector).tobytes()
 
         raw_metadata = signature_data.get("metadata")
         metadata = json.dumps(raw_metadata) if raw_metadata is not None else None
