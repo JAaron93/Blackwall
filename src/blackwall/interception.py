@@ -42,10 +42,14 @@ class InterceptionQueue:
         resume_func: Callable[[Verdict], Any],
     ) -> None:
         """Suspends the execution flow by enqueuing the CallbackToken and its context."""
-        from blackwall.telemetry import get_metric
-        interceptions_metric = get_metric("interceptions_total")
-        if interceptions_metric:
-            interceptions_metric.add(1)
+        # Best-effort telemetry: don't abort enqueue if telemetry fails
+        try:
+            from blackwall.telemetry import get_metric
+            interceptions_metric = get_metric("interceptions_total")
+            if interceptions_metric:
+                interceptions_metric.add(1)
+        except Exception:
+            logger.debug("Telemetry update failed in enqueue", exc_info=True)
 
         # Set context and resume callback on the token
         token.tool_context = context

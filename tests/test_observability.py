@@ -11,6 +11,10 @@ def test_telemetry_initialization():
     success = setup_telemetry()
     assert success is True
 
+    # Verify idempotent behavior - second call should also return True
+    success2 = setup_telemetry()
+    assert success2 is True
+
 def test_get_tracer_and_metric():
     setup_telemetry()
     tracer = get_tracer("test_tracer")

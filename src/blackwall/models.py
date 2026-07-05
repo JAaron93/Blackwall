@@ -57,6 +57,7 @@ class CallbackToken(BaseModel):
         default=None, exclude=True
     )
     correlation_id: Optional[str] = None
+    telemetry_span_id: Optional[str] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
