@@ -1,4 +1,3 @@
-import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -6,12 +5,9 @@ from pydantic import ValidationError
 
 from blackwall.models import (
     BehaviorScore,
-    CallbackToken,
     EventType,
     PolicyServerState,
     SecurityEvent,
-    SinkType,
-    ThreatSignature,
     ToolCallContext,
     Verdict,
     VerdictDecision,
