@@ -635,7 +635,7 @@ The architecture was designed event-driven from the start — all async analysis
 
 ---
 
-- [ ] 12. Checkpoint - Ensure core interception pipeline is functional
+- [x] 12. Checkpoint - Ensure core interception pipeline is functional
   - Run integration tests for Interception Queue + Batch Resolver + Hybrid Policy Server
   - Verify <300ms latency for semantic evaluation with GTI/CBM queries (99th percentile)
   - Verify <5ms latency for structural fast-path (99th percentile)
