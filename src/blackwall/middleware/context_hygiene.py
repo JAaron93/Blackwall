@@ -39,8 +39,8 @@ class ContextHygiene:
     def _initialize_default_patterns(self) -> None:
         self.register_pattern("API_KEY", r"(?i)(api[_-]?key|apikey|token)[\s:=]+['\"]?([a-zA-Z0-9_\-]{20,})", "[[API_KEY]]")
         self.register_pattern("IP_ADDRESS", r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "[[IP_ADDRESS]]")
-        self.register_pattern("URL", r"https?://[^\s]+", "[[URL]]")
-        self.register_pattern("FILE_PATH", r"(?:/[^/\s]+)+/?", "[[FILE_PATH]]")
+        self.register_pattern("URL", r"https?://[^\s\"']+", "[[URL]]")
+        self.register_pattern("FILE_PATH", r"(?:/[^/\s\"']+)+/?", "[[FILE_PATH]]")
         self.register_pattern("PASSWORD", r"(?i)(password|passwd|pwd)[\s:=]+['\"]?([^\s'\"]+)", "[[PASSWORD]]")
         self.register_pattern("EMAIL", r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "[[EMAIL]]")
 

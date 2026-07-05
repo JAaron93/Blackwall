@@ -1,6 +1,5 @@
 import asyncio
 import json
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 

@@ -1,5 +1,3 @@
-import asyncio
-import json
 import pytest
 from blackwall.middleware.context_hygiene import ContextHygiene
 from blackwall.models import ToolCallContext
@@ -27,28 +25,28 @@ async def test_ip_address_redaction(hygiene):
 @pytest.mark.asyncio
 async def test_file_path_redaction(hygiene):
     text = '{"file": "/etc/passwd"}'
-    result, redactions = await hygiene.apply_redaction(text)
+    result, _ = await hygiene.apply_redaction(text)
     assert "[[FILE_PATH]]" in result
     assert "/etc/passwd" not in result
 
 @pytest.mark.asyncio
 async def test_password_redaction(hygiene):
     text = '{"db": "password=supersecret"}'
-    result, redactions = await hygiene.apply_redaction(text)
+    result, _ = await hygiene.apply_redaction(text)
     assert "[[PASSWORD]]" in result
     assert "supersecret" not in result
 
 @pytest.mark.asyncio
 async def test_email_redaction(hygiene):
     text = '{"user": "test@example.com"}'
-    result, redactions = await hygiene.apply_redaction(text)
+    result, _ = await hygiene.apply_redaction(text)
     assert "[[EMAIL]]" in result
     assert "test@example.com" not in result
 
 @pytest.mark.asyncio
 async def test_url_redaction(hygiene):
     text = '{"website": "https://malicious.com/payload"}'
-    result, redactions = await hygiene.apply_redaction(text)
+    result, _ = await hygiene.apply_redaction(text)
     assert "[[URL]]" in result
     assert "https://malicious.com/payload" not in result
 
@@ -56,14 +54,21 @@ async def test_url_redaction(hygiene):
 async def test_json_structure_preservation_after_redaction(hygiene):
     context = ToolCallContext(
         tool_name="test_tool",
-        arguments={"nested": {"ip": "10.0.0.1", "key": "apikey=ABCDEFGHIJKLMNOPQRSTUVWXYZ12345"}},
+        arguments={
+            "nested": {"ip": "10.0.0.1", "key": "apikey=ABCDEFGHIJKLMNOPQRSTUVWXYZ12345"},
+            "file": "/etc/passwd",
+            "website": "https://malicious.com/payload"
+        },
     )
     sanitized = await hygiene.sanitize(context)
     
     # Check structure
+    assert "raw_fallback" not in sanitized.arguments
     assert "nested" in sanitized.arguments
     assert sanitized.arguments["nested"]["ip"] == "[[IP_ADDRESS]]"
     assert sanitized.arguments["nested"]["key"] == "[[API_KEY]]"
+    assert sanitized.arguments["file"] == "[[FILE_PATH]]"
+    assert sanitized.arguments["website"] == "[[URL]]"
 
 @pytest.mark.asyncio
 async def test_metadata_logging(hygiene):
