@@ -39,6 +39,10 @@ def _apply_pattern_worker(task_queue: Any, result_queue: Any) -> None:
             task = task_queue.get()
             if task is None:
                 break
+            regex_str: str
+            placeholder: str
+            name: str
+            text: str
             regex_str, placeholder, name, text = task
             pattern = re.compile(regex_str)
             redactions = []

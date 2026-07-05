@@ -245,6 +245,15 @@ class AuditHookManager:
             )
 
         if cmd_str:
+            # Check for shell metacharacters that could enable command injection
+            shell_metacharacters = [";", "&&", "||", "|", "`", "$(", "\n"]
+            if any(meta in cmd_str for meta in shell_metacharacters):
+                self._report_violation(
+                    incident_type="SYSTEM_COMMAND_INJECTION",
+                    details=f"Shell metacharacters detected in system command, potential command injection blocked: {cmd_str}",
+                    error_msg="PermissionError: System command injection denied",
+                )
+
             tokens = cmd_str.split()
             if tokens:
                 exec_path = tokens[0]
