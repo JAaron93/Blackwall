@@ -314,16 +314,17 @@ def test_rate_limit_compliance_property(burst_groups):
         limiter.virtual_now = current_virtual_time
 
         for req_size in group:
-            # We check if we can make the API call
-            # Run the consume coroutine synchronously in virtual time
-            loop = asyncio.new_event_loop()
-            try:
-                allowed = loop.run_until_complete(limiter.consume(1.0))
-            finally:
-                loop.close()
+            for _ in range(req_size):
+                # We check if we can make the API call
+                # Run the consume coroutine synchronously in virtual time
+                loop = asyncio.new_event_loop()
+                try:
+                    allowed = loop.run_until_complete(limiter.consume(1.0))
+                finally:
+                    loop.close()
 
-            if allowed:
-                api_calls_timestamps.append(current_virtual_time)
+                if allowed:
+                    api_calls_timestamps.append(current_virtual_time)
 
     # Now, assert the core property:
     # Within any sliding 60-second window, the total API calls made is at most 300
