@@ -37,6 +37,7 @@ These tasks form the architectural foundation of Blackwall and must be completed
 **Priority:** HIGH
 **Dependencies:** None
 **Estimated Effort:** 3-4 days
+Status: ✅ Completed
 
 **Description:**
 Create `SQLiteThreatRepository` using `aiosqlite`. Configure initialization scripts to execute `PRAGMA journal_mode=WAL;` and establish a thread-safe connection pool. Remove all redundant interface wrapper classes.
@@ -148,6 +149,7 @@ Create `SQLiteThreatRepository` using `aiosqlite`. Configure initialization scri
 **Priority:** HIGH
 **Dependencies:** TASK-DB-01
 **Estimated Effort:** 2-3 days
+Status: ✅ Completed
 
 **Description:**
 Write custom Python interception daemon utilizing `sys.addaudithook`. Map subprocess, socket, and file-access events to the local synchronous evaluation engine. Ensure unauthorized execution attempts raise immediate runtime exceptions before kernel processing.
@@ -177,8 +179,8 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
 
 ### Phase 3: Interception & Batch Processing
 
-- [ ] 4. Implement Interception Queue with callback management and batching
-  - [ ] 4.1 Create InterceptionQueue class with asyncio.Queue and batch accumulation
+- [x] 4. Implement Interception Queue with callback management and batching
+  - [x] 4.1 Create InterceptionQueue class with asyncio.Queue and batch accumulation
     - Implement enqueue() storing CallbackToken with thread ID, timestamp, tool context, resume function
     - Implement dequeue() with configurable timeout parameter (milliseconds)
     - Implement getBatch() accumulating up to maxSize=5 or maxWaitMs=100 timeout
@@ -191,7 +193,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Maintain correlation ID linking each callback token to batch position for debugging
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 19.1, 19.2, 19.3, 19.6, 19.7, 19.8, 19.9_
 
-  - [ ] 4.2 Test callback resolution completeness property
+  - [x] 4.2 Test callback resolution completeness property
     - **Property 1: Callback Resolution Completeness**
     - **Validates: Requirements 1.6, 19.7**
     - Generate random sequences of 1-100 callback tokens using hypothesis
@@ -200,7 +202,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Assert each callback is resumed exactly once (no duplicates, no missed tokens)
     - Verify no callbacks remain in queue after resolution
 
-  - [ ] 4.3 Write unit tests for Interception Queue
+  - [x] 4.3 Write unit tests for Interception Queue
     - Test enqueue and dequeue operations with asyncio
     - Test batch accumulation reaches maxSize=5 and flushes
     - Test timeout flushing with maxWaitMs=100 for partial batches
@@ -211,8 +213,8 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Test correlation ID tracking for debugging
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.7, 19.2, 19.3, 19.4, 19.5, 19.9_
 
-- [ ] 5. Implement Batch Resolver with Gemini Interactions API (Rapid Triage + Background Submission)
-  - [ ] 5.1 Create BatchResolver class with token bucket rate limiter and context caching
+- [x] 5. Implement Batch Resolver with Gemini Interactions API (Rapid Triage + Background Submission)
+  - [x] 5.1 Create BatchResolver class with token bucket rate limiter and context caching
     - Implement token bucket algorithm tracking 300 RPM sliding 60-second window (covers both sync and async tasks)
     - Implement processBatch() accepting array of CallbackTokens for Tier 2 (Rapid Triage) evaluation
     - Apply Context Hygiene sanitization to all contexts before API submission
@@ -227,7 +229,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Background submission returns task_id immediately (non-blocking)
     - _Requirements: 2.1, 2A.1, 2A.2, 2A.3, 2A.4, 2A.11, 2B.1, 2B.2, 2B.3, 2B.4_
 
-  - [ ] 5.2 Implement exponential backoff for APIRateLimitException handling
+  - [x] 5.2 Implement exponential backoff for APIRateLimitException handling
     - Detect APIRateLimitException from Gemini API response
     - Apply exponential backoff delays: 100ms, 200ms, 400ms for retries 1, 2, 3
     - Retry batch submission maximum 3 times
@@ -235,7 +237,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Log all rate limit hits with timestamp and batch details
     - _Requirements: 2.2, 2.3, 2.4, 12.3_
 
-  - [ ] 5.3 Implement batch processing metrics tracking and reporting
+  - [x] 5.3 Implement batch processing metrics tracking and reporting
     - Track ResolverMetrics: total batches, average batch size, average latency, rate limit hits, cache hit rate
     - Track cache hit rate from `previous_interaction_id` reuse
     - Track background tasks submitted and webhook callbacks received
@@ -247,7 +249,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Log metrics periodically for monitoring dashboards
     - _Requirements: 2A.13, 2.6, 2.7, 2.8, 13.6, 13.8_
 
-  - [ ] 5.4 Write unit tests for Batch Resolver (Three-Tier Model)
+  - [x] 5.4 Write unit tests for Batch Resolver (Three-Tier Model)
     - Test token bucket rate limiter enforces 300 RPM cap (sliding window)
     - Test exponential backoff on APIRateLimitException (100ms, 200ms, 400ms)
     - **FAIL-CLOSED:** Test fallback to QUARANTINE verdicts (not ALLOW) after 3 failed retries
@@ -262,7 +264,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Mock Gemini Interactions API responses for deterministic testing
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2A.1, 2A.2, 2A.3, 2A.4, 2A.11, 2B.1, 2B.2, 2B.3_
 
-  - [ ] 5.5 Test rate limit compliance property
+  - [x] 5.5 Test rate limit compliance property
     - **Property 9: Rate Limit Compliance**
     - **Validates: Requirements 2.1, 13.7**
     - Using hypothesis, generate sequences of up to 600 batch submissions within any 60-second window
@@ -271,8 +273,8 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
 
 ### Phase 4: Policy Evaluation
 
-- [ ] 6. Implement Structural Gating Engine with YAML policy evaluation
-  - [ ] 6.1 Create StructuralGatingEngine with YAML policy loader and rule evaluation
+- [x] 6. Implement Structural Gating Engine with YAML policy evaluation
+  - [x] 6.1 Create StructuralGatingEngine with YAML policy loader and rule evaluation
     - Implement loadPolicy() parsing YAML file into PolicyRules data structure
     - Validate YAML schema on load: version, rules, roles, thresholds, MCP configs
     - Validate all structural rule IDs are unique (reject duplicates with descriptive errors)
@@ -286,7 +288,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Target <5ms evaluation latency for 99th percentile
     - _Requirements: 3.1, 3.2, 14.1, 14.2, 14.5, 14.10, 13.1, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 22.7, 22.8, 22.9, 22.10_
 
-  - [ ] 6.2 Implement hot-reload for YAML policy updates without restart
+  - [x] 6.2 Implement hot-reload for YAML policy updates without restart
     - Watch policy file for modifications using file system events (watchdog library)
     - Reload policy automatically on file change detection
     - Validate new policy before applying (schema check, rule ID uniqueness)
@@ -295,7 +297,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Reject invalid configurations and retain previous valid policy
     - _Requirements: 3.14, 14.9_
 
-  - [ ] 6.3 Write unit tests for Structural Gating Engine
+  - [x] 6.3 Write unit tests for Structural Gating Engine
     - Test YAML policy loading and schema validation
     - Test rule matching for toolName, environmentRole conditions
     - Test ALLOW fast-path without semantic review (requireSemanticReview: false)
@@ -310,8 +312,8 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Test deterministic evaluation (same input → same output)
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 14.9, 14.10, 13.1, 22.1, 22.2, 22.7, 22.8, 22.9, 22.10_
 
-- [ ] 7. Implement GTI MCP integration with circuit breaker pattern
-  - [ ] 7.1 Create GTIMCPClient for VirusTotal API queries with caching and resilience
+- [x] 7. Implement GTI MCP integration with circuit breaker pattern
+  - [x] 7.1 Create GTIMCPClient for VirusTotal API queries with caching and resilience
     - Implement queryIOC() for IP/domain/URL/hash reputation checks
     - Support indicator types: IP_ADDRESS, DOMAIN, URL, FILE_HASH
     - Parse GTIResponse with: isMalicious, threatCategories, detectionRate, confidence score
@@ -325,7 +327,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Handle API rate limit responses with exponential backoff
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10, 7.11, 12.1, 12.2, 21.1, 21.2, 21.3_
 
-  - [ ] 7.2 Write unit tests for GTI MCP integration
+  - [x] 7.2 Write unit tests for GTI MCP integration
     - Test IOC query for malicious IP returns isMalicious=true
     - Test threat categories extraction (malware, botnet, C2, phishing)
     - Test detection rate calculation
@@ -338,8 +340,8 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Mock VirusTotal API responses for deterministic testing
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.11, 12.1, 12.2, 21.2, 21.3_
 
-- [ ] 8. Implement codebase-memory MCP integration with AST analysis
-  - [ ] 8.1 Create CodebaseMemoryClient for AST-based structural analysis
+- [x] 8. Implement codebase-memory MCP integration with AST analysis
+  - [x] 8.1 Create CodebaseMemoryClient for AST-based structural analysis
     - Implement queryDependencyChain() returning call chain, depth, critical sinks
     - Implement identifyCriticalSinks() detecting: SQL_QUERY, COMMAND_EXEC, FILE_WRITE, NETWORK_CALL
     - Identify unsafe sinks accepting unsanitized input
@@ -351,7 +353,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Provide mitigation hints based on AST analysis for vulnerability types
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 8.9, 8.10, 12.9, 21.4, 21.5, 21.6, 21.7_
 
-  - [ ] 8.2 Write unit tests for codebase-memory integration
+  - [x] 8.2 Write unit tests for codebase-memory integration
     - Test dependency chain query returns complete call path
     - Test critical sink detection for SQL, command exec, file write, network
     - Test unsafe sink identification (unsanitized input flag)
@@ -363,11 +365,12 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Mock AST graph responses for deterministic testing
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 12.9, 21.5, 21.6_
 
-### TASK-MCP-01: Hardcode MCP Routing Boundaries
+### 
 
 **Priority:** MEDIUM
 **Dependencies:** Tasks 7, 8 (MCP clients)
 **Estimated Effort:** 2 days
+
 
 **Description:**
 Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively to AST/structural code queries and restrict `GTI MCP` to asynchronous background IOC verification.
@@ -380,7 +383,7 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
    - get_blast_radius (impact calculation)
 2. CodebaseMemoryRouter prohibits:
    - General file dumping or arbitrary directory searches
-   - Dynamic code execution or runtime introspection
+   - Dynamic codeTASK-MCP-01: Hardcode MCP Routing Boundaries execution or runtime introspection
    - Modification of application state
 3. GTIRouter class restricts GTI queries to asynchronous analysis loop only
 4. GTIRouter enforces: GTI queries FORBIDDEN in synchronous (<10ms) path
