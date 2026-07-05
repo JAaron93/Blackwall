@@ -95,10 +95,21 @@ class RefactoringHint(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0)
 
 
+class IndicatorType(str, Enum):
+    IP_ADDRESS = "IP_ADDRESS"
+    DOMAIN = "DOMAIN"
+    URL = "URL"
+    FILE_HASH = "FILE_HASH"
+
+
 class GTIResponse(BaseModel):
-    ioc_match: bool
-    malware_campaign: Optional[str] = None
-    threat_score: float = Field(..., ge=0.0, le=1.0)
+    indicator: str
+    is_malicious: bool
+    threat_categories: List[str] = Field(default_factory=list)
+    detection_rate: float = Field(default=0.0)
+    last_analysis_date: Optional[str] = None
+    related_campaigns: List[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class CBMResponse(BaseModel):
@@ -147,6 +158,11 @@ class SecurityEvent(BaseModel):
     tool_context: ToolCallContext
     verdict: Optional[Verdict] = None
     behavior_score: Optional[BehaviorScore] = None
+    agent_id: Optional[str] = None
+    gti_response: Optional[GTIResponse] = None
+    cbm_response: Optional[CBMResponse] = None
+    related_signatures: List[UUID] = Field(default_factory=list)
+    telemetry_span_id: Optional[str] = None
 
     @field_validator("timestamp")
     @classmethod
