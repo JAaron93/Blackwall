@@ -1,6 +1,5 @@
 import asyncio
 import os
-import json
 from datetime import datetime, timezone
 from enum import Enum
 from typing import List, Dict, Any, Optional
@@ -169,7 +168,7 @@ class CodebaseMemoryClient:
         """
         try:
             return await asyncio.wait_for(coro, timeout=self.timeout_seconds)
-        except (asyncio.TimeoutError, Exception):
+        except (asyncio.TimeoutError, ConnectionError, NotImplementedError, OSError):
             # Graceful degradation: return the fallback when CBM is unavailable
             return fallback
 
