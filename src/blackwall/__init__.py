@@ -9,6 +9,7 @@ from blackwall.interception import (
     QueueEmptyException,
     QueueOverloadError,
 )
+from blackwall.analytics import AgentBehavioralAnalytics
 
 __all__ = [
     "AuditHookManager",
@@ -16,4 +17,5 @@ __all__ = [
     "QueueEmptyException",
     "BatchResolutionError",
     "QueueOverloadError",
+    "AgentBehavioralAnalytics",
 ]
