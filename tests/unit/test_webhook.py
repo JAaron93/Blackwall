@@ -29,8 +29,8 @@ class TestWebhookListener(AioHTTPTestCase):
         db_path = os.path.join(self.temp_dir.name, "test_webhook.db")
         self.db = SQLiteThreatRepository(db_path)
         await self.db.initialize()
-        # The schema in memory needs to have in_flight_tasks created
-        # which it does in our updated repository.py
+        # The tempfile-backed database needs to have in_flight_tasks created
+        # which it does in our updated repository.py schema initialization.
         
         self.listener = WebhookListener(self.db, secret_key=SECRET)
         return self.listener.app
@@ -110,7 +110,7 @@ class TestWebhookListener(AioHTTPTestCase):
         await asyncio.sleep(0.1)
         
         # Ensure nothing was written because task was unknown
-        # Since we use :memory:, the signatures table should be empty
+        # Since we use a tempfile-backed database, the signatures table should be empty
         async with self.db.pool.connection() as conn:
             cursor = await conn.execute("SELECT COUNT(*) FROM signatures")
             row = await cursor.fetchone()
