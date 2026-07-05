@@ -127,6 +127,8 @@ class SecurityEvent(BaseModel):
     @field_validator("timestamp")
     @classmethod
     def validate_timestamp(cls, v: datetime) -> datetime:
+        if v.tzinfo is None:
+            raise ValueError("Timestamp must be timezone-aware")
         now = datetime.now(timezone.utc)
         diff = abs((now - v).total_seconds())
         if diff > 5.0:

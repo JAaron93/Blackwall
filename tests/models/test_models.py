@@ -127,6 +127,16 @@ def test_timestamp_validation():
             verdict=None
         )
 
+    # Naive timestamp
+    naive = datetime.now()
+    with pytest.raises(ValidationError, match="Timestamp must be timezone-aware"):
+        SecurityEvent(
+            event_type=EventType.SIGNATURE_CREATED,
+            timestamp=naive,
+            tool_context=ToolCallContext(tool_name="t", arguments={}),
+            verdict=None
+        )
+
 
 def test_nullable_verdict_signature_created():
     # verdict=None is valid for SIGNATURE_CREATED
