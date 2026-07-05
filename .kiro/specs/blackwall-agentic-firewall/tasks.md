@@ -66,7 +66,7 @@ Create `SQLiteThreatRepository` using `aiosqlite`. Configure initialization scri
 
 ### Phase 2: Core Infrastructure & Data Models
 
-- [ ] 1. Set up project structure and core infrastructure
+- [x] 1. Set up project structure and core infrastructure
   - Create Python project with pyproject.toml and Poetry/pip requirements
   - Define project directory structure (src/blackwall/, tests/, config/, docs/, scripts/)
   - Set up pytest testing framework with asyncio support and hypothesis plugin
@@ -102,8 +102,8 @@ Create `SQLiteThreatRepository` using `aiosqlite`. Configure initialization scri
     - **NULLABLE VERDICT:** Test SecurityEvent with verdict=None raises error for eventType in {INTERCEPTION, BLOCK, ALLOW, QUARANTINE}
     - _Requirements: 1.2, 3.10, 3.11, 14.12, 25.2_
 
-- [ ] 3. Implement Context Hygiene middleware with regex sanitization
-  - [ ] 3.1 Create ContextHygiene class with regex-based redaction
+- [x] 3. Implement Context Hygiene middleware with regex sanitization
+  - [x] 3.1 Create ContextHygiene class with regex-based redaction
     - Implement sanitize() method with regex pattern matching on JSON-serialized arguments
     - Define default redaction patterns: API keys, IPs, file paths, passwords, emails, URLs
     - Implement registerPattern() for custom pattern registration at runtime
@@ -115,7 +115,7 @@ Create `SQLiteThreatRepository` using `aiosqlite`. Configure initialization scri
     - **METADATA FIELD:** Store redaction audit data in ToolCallContext.metadata (not a separate wrapper type)
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.9, 4.10, 4.11, 4.12, 12.7, 12.8_
 
-  - [ ] 3.2 Test sanitization idempotence property
+  - [x] 3.2 Test sanitization idempotence property
     - **Property 4: Sanitization Idempotence**
     - **Validates: Requirements 4.10**
     - Generate random ToolCallContext with sensitive data using hypothesis
@@ -123,7 +123,7 @@ Create `SQLiteThreatRepository` using `aiosqlite`. Configure initialization scri
     - Assert result1 == result2 (idempotent property)
     - Verify no raw secrets remain in sanitized output
 
-  - [ ] 3.3 Test sanitization structure preservation property
+  - [x] 3.3 Test sanitization structure preservation property
     - **Property 5: Sanitization Structure Preservation**
     - **Validates: Requirements 4.11**
     - Generate ToolCallContext instances with valid JSON arguments using hypothesis
@@ -131,7 +131,7 @@ Create `SQLiteThreatRepository` using `aiosqlite`. Configure initialization scri
     - Assert sanitizedArguments is parseable JSON (json.loads does not throw)
     - Assert top-level key set in sanitizedArguments matches key set in rawArguments
 
-  - [ ] 3.4 Write unit tests for Context Hygiene
+  - [x] 3.4 Write unit tests for Context Hygiene
     - Test API key redaction matches pattern and replaces with [[API_KEY]]
     - Test IP address placeholder replacement [[IP_ADDRESS]]
     - Test file path sanitization [[FILE_PATH]]
