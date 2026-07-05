@@ -54,7 +54,7 @@ async def test_connection_pool_limits():
     # We can test this by using asyncio.wait_for and expecting a TimeoutError
     try:
         await asyncio.wait_for(pool.acquire(), timeout=0.1)
-        assert False, "Should have timed out acquiring beyond max_connections"
+        raise AssertionError("Should have timed out acquiring beyond max_connections")
     except asyncio.TimeoutError:
         pass
         

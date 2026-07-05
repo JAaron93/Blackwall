@@ -75,11 +75,13 @@ class AsyncConnectionPool:
 
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             if self.conn:
-                if exc_type is None:
-                    await self.conn.commit()
-                else:
-                    await self.conn.rollback()
-                self.pool.release(self.conn)
+                try:
+                    if exc_type is None:
+                        await self.conn.commit()
+                    else:
+                        await self.conn.rollback()
+                finally:
+                    self.pool.release(self.conn)
 
     def connection(self):
         """Context manager to acquire and release a connection automatically."""
