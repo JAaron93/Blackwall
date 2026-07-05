@@ -7,17 +7,14 @@ import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from blackwall.models import (
     BehaviorScore,
     EventType,
-    GTIResponse,
-    CBMResponse,
     RefactoringHint,
     SecurityEvent,
     ThreatSignature,
-    ToolCallContext,
     SinkType,
 )
 from blackwall.db.repository import SQLiteThreatRepository
@@ -111,7 +108,7 @@ class AgentBehavioralAnalytics:
                 return url
             return "[[URL]]"
         text = re.sub(r"https?://[^\s\"']+", url_repl, text)
-        
+
         # 5. Passwords
         text = re.sub(
             r"(?i)(password|passwd|pwd)[\s:=]+['\"]?([^\s'\"]+)",
@@ -262,7 +259,7 @@ class AgentBehavioralAnalytics:
             # Map the primary critical sink type to SinkType
             if hasattr(event.cbm_response, "critical_sinks") and event.cbm_response.critical_sinks:
                 sink_type = event.cbm_response.critical_sinks[0]
-            
+
             # Map dependency chain
             if hasattr(event.cbm_response, "dependency_chain"):
                 dep_chain = getattr(event.cbm_response, "dependency_chain")
@@ -470,3 +467,14 @@ class AgentBehavioralAnalytics:
         Exports AgBOM inventory as structured JSON.
         """
         return json.dumps(self.agbom, indent=2)
+
+
+class Agent_Behavioral_Analytics:
+    @staticmethod
+    async def generateSignature(candidate: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Stub for generating a signature from a candidate payload.
+        This will be fully implemented in Task 11.
+        """
+        # For now, just return the candidate as the signature.
+        return candidate
