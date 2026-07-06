@@ -8,9 +8,10 @@ Blackwall is a **local Minimum Viable Product (MVP)** autonomous Agentic Firewal
 
 - **Blackwall**: The autonomous Agentic Firewall system that intercepts and evaluates AI agent tool calls
 - **ADK**: Agent Development Kit 2.0, the runtime environment providing the `before_tool_callback` hook
-- **Interception_Queue**: Thread-safe FIFO queue holding suspended ADK tool callbacks during batch accumulation
-- **Batch_Resolver**: Component orchestrating asynchronous batched API calls to Gemini while managing 300 RPM rate limits
-- **Hybrid_Policy_Server**: Dual-layer threat evaluation engine combining structural and semantic gating
+- **Interception_Queue**: Thread-safe FIFO queue holding suspended ADK tool callbacks during batch accumulation (paid tier only)
+- **Batch_Resolver**: Component orchestrating asynchronous batched API calls to Gemini while managing 300 RPM rate limits (paid tier only)
+- **Sync_Resolver**: Component performing synchronous single-request evaluation for free tier (15 RPM), bypassing batching and webhooks
+- **Hybrid_Policy_Server**: Dual-layer threat evaluation engine combining structural and semantic gating (tier-agnostic)
 - **Structural_Gating**: Fast deterministic YAML-based policy evaluation (<5ms target latency)
 - **Semantic_Gating**: Deep LLM-based intent analysis using GTI and codebase analysis
 - **Context_Hygiene**: Regex-based sanitization middleware that strips sensitive data before policy evaluation
@@ -66,12 +67,31 @@ Blackwall executes as an unprivileged OS user (non-root) within the Kali Linux V
 All agent execution flows route through ADK 2.0's tool-calling abstraction. No direct shell access, no raw subprocess execution for the rogue agent, and no OS-level privilege model beyond the audit hook. Blackwall's `before_tool_callback` is the sole interception point.
 
 ### LS-05: Demo Sandbox Scope
-The system demonstrates a **dual-agent showdown**:
+The system demonstrates a **dual-agent showdown** with **dual-tier operation modes** to enable both performance benchmarking (paid tier) and judge reproducibility (free tier):
+
+**Paid Tier (300 RPM):**
 1. **Blackwall Agent:** Gemini 3.1 Flash-Lite via paid Gemini Interactions API (300 RPM limit)
-2. **Rogue Agent:** Qwen3-Coder 480B via Hyperbolic API (600 RPM max attack rate)
-3. **Target Application:** Simple vulnerable mock application (e.g., Metasploitable) running inside the sandbox
-4. **Execution Environment:** Single Kali Linux VM with dropped privileges for rogue agent
-5. **Duration:** Single demonstration run with limited test payloads (not production 24/7 operation)
+2. **Architecture:** Asynchronous batched evaluation via `client.interactions.create()`, server-side context caching, webhook-driven background signature generation
+3. **Performance:** <100ms @ 99th percentile for batched semantic evaluation, zero added latency for signature generation
+4. **Use Case:** Full-scale demo showcasing throughput capabilities and optimization engineering
+
+**Free Tier (15 RPM):**
+1. **Blackwall Agent:** Gemini 2.0 Flash-Lite via free Gemini API (15 RPM limit, no billing required)
+2. **Architecture:** Synchronous single-request evaluation via `client.models.generate_content()`, no batching, inline signature generation
+3. **Performance:** ~1-2s per interception (semantic path), ~10ms per signature match (TSG fast path)
+4. **Use Case:** Zero-friction judge reproduction requiring only an API key with no payment setup
+
+**Common Elements (Both Tiers):**
+- **Rogue Agent:** Qwen3-Coder 480B via Hyperbolic API (600 RPM max attack rate)
+- **Target Application:** Simple vulnerable mock application (e.g., Metasploitable) running inside the sandbox
+- **Execution Environment:** Single Kali Linux VM with dropped privileges for rogue agent
+- **Core Security Mechanisms:** Hybrid gating, self-learning signatures, audit hooks, Zero Ambient Authority (identical across tiers)
+- **Evaluation Metrics:** FRR and Evasion Rate calculation (identical formulas, different execution speed)
+
+**Tier Selection:**
+- Controlled via `BLACKWALL_TIER` environment variable (`"free"` or `"paid"`)
+- Defaults to `"free"` for judge-friendly reproduction
+- Both tiers execute identical evalsets with identical pass/fail criteria
 
 ### LS-06: Event-Driven Webhook Architecture (No Polling)
 All asynchronous analysis operations are **purely event-driven** via the Gemini Interactions API webhook mechanism. No polling intervals, timer-based checks, or sleep loops are permitted. The system operates as follows:

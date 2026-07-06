@@ -2,7 +2,39 @@
 
 ## Overview
 
-Blackwall is a **local Minimum Viable Product (MVP)** autonomous Agentic Firewall designed for the Kaggle "AI Agents: Intensive Vibe Coding" hackathon Freestyle track. The system operates as a **single-instance ambient daemon** running exclusively within a **Kali Linux sandbox VM** to demonstrate dual-agent threat mitigation. Blackwall intercepts and evaluates AI agent execution flows before they reach external systems or the host OS through ADK 2.0's `before_tool_callback` hook, implementing a hybrid defense architecture combining structural YAML-based policies with semantic LLM-based intent analysis. The system leverages self-learning threat signature graphs stored in an embedded **SQLite database with WAL mode** (not Redis or distributed stores), real-time threat intelligence from Google Threat Intelligence (GTI) MCP, and structural code analysis via codebase-memory-mcp to dynamically generate defensive skills with zero static allowlists. The architecture addresses critical API rate constraints (300 RPM Gemini vs 600 RPM attacker) through asynchronous batched evaluation with callback queue management, maintaining sub-10% false positive/negative rates while demonstrating Zero Ambient Authority (unprivileged user + Python runtime audit hooks), Agent Behavioral Analytics, and runtime AgBOM tracing. **All enterprise patterns, horizontal scaling, multi-tenant isolation, and distributed caching abstractions are explicitly out of scope—this is a local demo system.**
+Blackwall is a **local Minimum Viable Product (MVP)** autonomous Agentic Firewall designed for the Kaggle "AI Agents: Intensive Vibe Coding" hackathon Freestyle track. The system operates as a **single-instance ambient daemon** running exclusively within a **Kali Linux sandbox VM** to demonstrate dual-agent threat mitigation. Blackwall intercepts and evaluates AI agent execution flows before they reach external systems or the host OS through ADK 2.0's `before_tool_callback` hook, implementing a hybrid defense architecture combining structural YAML-based policies with semantic LLM-based intent analysis.
+
+### Dual-Tier Operation Modes
+
+Blackwall ships with **two operational modes** controlled by the `BLACKWALL_TIER` environment variable to balance performance demonstration (paid tier) with judge reproducibility (free tier):
+
+**Paid Tier (300 RPM):**
+- Uses `client.interactions.create()` for asynchronous batched evaluation
+- Implements `InterceptionQueue` and `BatchResolver` for callback queue management
+- Leverages server-side context caching via `previous_interaction_id` (50%+ token cost reduction)
+- Background webhook-driven signature generation (`background=True` submissions)
+- Performance: <100ms @ 99th percentile for semantic evaluation, zero added latency for signature writes
+- Target throughput: 300 RPM sustained (matches Gemini paid tier ceiling)
+
+**Free Tier (15 RPM):**
+- Uses `client.models.generate_content()` for synchronous single-request evaluation
+- Bypasses `InterceptionQueue`, `BatchResolver`, and webhook infrastructure entirely
+- Implements `SyncResolver` for direct blocking evaluation
+- Inline signature generation (adds ~200-500ms latency per BLOCK verdict)
+- Performance: ~1-2s per interception (semantic path), ~10ms per signature match (TSG fast path)
+- Target throughput: 15 RPM (matches Gemini free tier ceiling)
+- **Requires no billing setup** — judges can reproduce evaluations with only an API key
+
+**Tier-Agnostic Core Security Mechanisms:**
+- Hybrid Policy Server (structural + semantic gating)
+- Self-learning Threat Signature Graph (SQLite with WAL mode, cosine similarity search)
+- Context Hygiene (regex-based PII redaction)
+- Python Runtime Audit Hooks (`sys.addaudithook` blocking OS-level bypasses)
+- GTI MCP (VirusTotal IOC validation) and codebase-memory MCP (AST analysis)
+- Zero Ambient Authority (dropped privileges + JIT credential downscoping)
+- All 12 correctness properties and FRR/Evasion Rate evaluation formulas
+
+The architecture addresses critical API rate constraints (300 RPM Gemini vs 600 RPM attacker in paid tier) through asynchronous batched evaluation with callback queue management, maintaining sub-10% false positive/negative rates while demonstrating Zero Ambient Authority, Agent Behavioral Analytics, and runtime AgBOM tracing. **All enterprise patterns, horizontal scaling, multi-tenant isolation, and distributed caching abstractions are explicitly out of scope—this is a local demo system.**
 
 ## Architecture
 

@@ -932,6 +932,46 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Document `run_evasion_eval.sh` as the primary reproducibility command in README.md under a **"Reproduce the Evaluation"** section — judges clone the repo, set API keys in `.env`, and run one script
     - _Requirements: 5.1, 5.2, 5.3, 26.1, 26.2, 26.3_
 
+  - [ ] 21.5 Implement free-tier evaluation mode for judge reproducibility
+    - **Goal:** Enable zero-friction judge reproduction by shipping a free-tier mode (15 RPM Gemini API) that bypasses all paid-tier optimizations while preserving core security mechanisms
+    - Create `SyncResolver` class in `src/blackwall/sync_resolver.py`:
+      * Implements synchronous single-request evaluation via `client.models.generate_content()` (not `interactions.create()`)
+      * Applies Context Hygiene sanitization to tool context before API call
+      * Queries GTI MCP and CBM MCP serially (not in parallel batches)
+      * Computes threat score using same weighted aggregation (GTI 40%, CBM 30%, Context 30%)
+      * Returns single `Verdict` object (not batched array)
+      * No `InterceptionQueue`, no batch accumulation, no webhook listener dependencies
+      * Signature generation happens inline (blocking) after BLOCK verdict instead of async via webhook
+    - Add `BLACKWALL_TIER` env var detection in `src/blackwall/resolver.py`:
+      * Read `BLACKWALL_TIER` from environment (valid values: `"free"` or `"paid"`)
+      * If `free`: instantiate `SyncResolver` and skip `InterceptionQueue`/`BatchResolver` initialization
+      * If `paid`: instantiate `BatchResolver` with async batching (existing behavior)
+      * Default to `free` if env var not set (judge-friendly default)
+    - Update `src/blackwall/interception.py` to handle tier detection:
+      * If `free` tier: `before_tool_callback` directly calls `SyncResolver.evaluate()` and blocks until verdict returned
+      * If `paid` tier: `before_tool_callback` enqueues to `InterceptionQueue` (existing async path)
+    - Update signature generation trigger logic:
+      * Free tier: after `SyncResolver` returns BLOCK, immediately call `AgentBehavioralAnalytics.generateSignature()` inline (adds ~200-500ms latency)
+      * Paid tier: after `BatchResolver` returns BLOCK, submit background task via webhook (existing behavior, zero added latency)
+    - Add unit tests for `SyncResolver`:
+      * Test single-request evaluation with mocked Gemini API response
+      * Test GTI/CBM queries execute serially
+      * Test threat score calculation matches `BatchResolver` formula
+      * Test inline signature generation after BLOCK verdict
+      * Test 15 RPM rate limit enforcement (reject requests exceeding limit with QUARANTINE verdict)
+    - Write `scripts/run_evasion_eval_free.sh` as free-tier entry point:
+      * Sets `BLACKWALL_TIER=free` before launching `adk run`
+      * Runs identical evalset as `run_evasion_eval.sh` but with free-tier backend
+      * Includes warning in output: "Running in FREE TIER mode (15 RPM). Eval will take ~X minutes. Set BLACKWALL_TIER=paid for faster execution."
+      * Otherwise identical to paid-tier script (same pass/fail logic, same metrics output)
+    - Update README.md with tier comparison table:
+      * Document free vs. paid tier feature matrix (what works, what's missing)
+      * Highlight that core security mechanisms (hybrid gating, self-learning, audit hooks, Zero Ambient Authority) are identical across tiers
+      * Explain paid-tier optimizations: async batching (300 RPM), server-side context caching (50%+ token savings), background webhook analysis (zero latency signature generation)
+      * Default judge instructions to free tier with paid tier as optional performance upgrade
+    - Update `.env.example` with `BLACKWALL_TIER` variable and explanatory comments
+    - _Requirements: 2.1, 9.1, 9.2, 15.1, 15.2, 26.1, 26.2_
+
 - [ ] 22. Implement demo harness and dual-agent showdown setup
   - [ ] 22.1 Create demo orchestration script for dual-agent showdown
     - Write scripts/run_demo.sh launching Blackwall as ambient daemon via adk run
