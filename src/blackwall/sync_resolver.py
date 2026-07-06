@@ -11,6 +11,7 @@ Verdict thresholds (identical to paid tier):
   <  0.50  → ALLOW
 """
 
+import asyncio
 import logging
 import time
 from typing import Any, Dict, Optional
@@ -122,6 +123,11 @@ class SyncResolver:
         # Context hygiene sanitizer
         self._hygiene = ContextHygiene()
 
+        # True only when the GTI budget tracker explicitly denied the last query.
+        # Reset to False at the start of each evaluate() call so the flag is
+        # per-interception, not sticky across requests.
+        self._gti_budget_exhausted: bool = False
+
         # Metrics counters
         self._total_evaluations: int = 0
         self._total_latency_ms: float = 0.0
@@ -144,6 +150,9 @@ class SyncResolver:
         score aggregation → threshold decision → (optional) inline sig.
         """
         t0 = time.time()
+
+        # Reset per-request GTI budget flag before any queries.
+        self._gti_budget_exhausted = False
 
         # 1. Rate-limit check (fail-closed: QUARANTINE on exhaustion)
         allowed = await self._rate_limiter.consume(1.0)
@@ -222,9 +231,10 @@ class SyncResolver:
             acquired = self.gti_budget_tracker.tryAcquire()
             if not acquired:
                 self._gti_queries_deferred += 1
+                self._gti_budget_exhausted = True
                 logger.debug(
-                    "GTI budget exhausted — deferring query",
-                    tool=context.tool_name,
+                    "GTI budget exhausted — deferring query for tool %s",
+                    context.tool_name,
                 )
                 return None
 
@@ -241,8 +251,7 @@ class SyncResolver:
 
         except Exception as exc:
             logger.warning(
-                "GTI query failed — continuing without GTI signal",
-                error=str(exc),
+                "GTI query failed — continuing without GTI signal: %s", exc,
             )
             self._gti_queries_deferred += 1
             return None
@@ -267,8 +276,7 @@ class SyncResolver:
 
         except Exception as exc:
             logger.warning(
-                "CBM query failed — continuing without CBM signal",
-                error=str(exc),
+                "CBM query failed — continuing without CBM signal: %s", exc,
             )
             return None
 
@@ -284,32 +292,34 @@ class SyncResolver:
     ) -> float:
         """
         Weighted aggregation: GTI 40% + CBM 30% + Context 30%.
-        When GTI budget is exhausted (gti_resp is None AND a budget tracker
-        is present that has been depleted), redistributes:
-          GTI 0% (penalty −0.2) + CBM 50% + Context 50%.
+
+        The −0.20 penalty and weight redistribution (CBM 50% + Context 50%)
+        only applies when the GTI budget tracker explicitly denied the query
+        (self._gti_budget_exhausted is True).  Other reasons for gti_resp
+        being None — GTI not configured, no extractable indicator, or a
+        transient query failure — use normal weights with gti_score = 0.0,
+        which is already the correct fallback from _score_gti(None).
         """
         gti_score = self._score_gti(gti_resp)
         cbm_score = self._score_cbm(cbm_resp)
         ctx_score = self._score_context(context)
 
-        gti_available = (
-            gti_resp is not None
-            or (self.gti_client is None and self.gti_budget_tracker is None)
-        )
-
-        if gti_available and gti_resp is not None:
-            # Normal weights: GTI 40% + CBM 30% + Context 30%
-            score = (
-                gti_score * 0.40
-                + cbm_score * 0.30
-                + ctx_score * 0.30
-            )
-        else:
-            # Degraded: GTI 0% (−0.2 penalty) + CBM 50% + Context 50%
+        if self._gti_budget_exhausted:
+            # Budget depletion: apply spec-mandated weight redistribution
+            # and −0.2 penalty to reflect reduced detection confidence.
             score = (
                 cbm_score * 0.50
                 + ctx_score * 0.50
                 - 0.20
+            )
+        else:
+            # Normal path: GTI 40% + CBM 30% + Context 30%.
+            # When gti_resp is None for any other reason, gti_score is 0.0,
+            # which naturally reduces the GTI contribution without a penalty.
+            score = (
+                gti_score * 0.40
+                + cbm_score * 0.30
+                + ctx_score * 0.30
             )
 
         return score
@@ -336,9 +346,13 @@ class SyncResolver:
                 "(attacker_intent, payload_pattern, target_sink)."
             )
 
-            response = self.client.models.generate_content(
-                model="gemini-2.0-flash-lite",
-                contents=prompt,
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model="gemini-2.0-flash-lite",
+                    contents=prompt,
+                ),
+                timeout=30.0,
             )
             sig_text = (
                 response.text
@@ -365,8 +379,7 @@ class SyncResolver:
 
         except Exception as exc:
             logger.warning(
-                "Inline signature generation failed — skipping",
-                error=str(exc),
+                "Inline signature generation failed — skipping: %s", exc,
             )
 
     # ------------------------------------------------------------------

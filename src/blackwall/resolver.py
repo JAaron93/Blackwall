@@ -598,6 +598,7 @@ def create_resolver(
     repo: Any = None,
     gti_client: Any = None,
     cbm_client: Any = None,
+    gti_budget_tracker: Any = None,
     webhook_port: int = 8090,
     policy_snapshot: Optional[Dict[str, Any]] = None,
 ) -> Any:
@@ -629,4 +630,5 @@ def create_resolver(
             repo=repo,
             gti_client=gti_client,
             cbm_client=cbm_client,
+            gti_budget_tracker=gti_budget_tracker,
         )

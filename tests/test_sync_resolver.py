@@ -325,12 +325,54 @@ async def test_gti_weight_redistribution_when_budget_exhausted():
 
     # Degraded formula: CBM 50% + Context 50% - 0.2
     # CBM: blast=4 → 0.4; sinks=1 → 0.1; combined=(0.4+0.1)/2=0.25
-    # Context: tool "read_file" → medium 0.45; "passwd" keyword found → novelty=0.2
-    #          ctx = (0.45*0.5 + 0.2*0.5) = 0.325
-    # Score = 0.25*0.5 + 0.325*0.5 - 0.2 = 0.125 + 0.1625 - 0.2 = 0.0875
-    # Just verify it is less than the normal-weight score
-    # and that it is clamped to >= 0
-    assert score >= 0.0
+    # Context: tool "read_file" → medium 0.45
+    #   "/etc/passwd" matches "etc" AND "passwd" → novelty count=2 → score=0.4
+    #   ctx = (0.45*0.5 + 0.4*0.5) = 0.425
+    # Score = 0.25*0.5 + 0.425*0.5 - 0.2 = 0.125 + 0.2125 - 0.2 = 0.1375
+    expected_degraded = 0.25 * 0.50 + 0.425 * 0.50 - 0.20
+    assert abs(score - expected_degraded) < 0.01, (
+        f"Score {score:.4f} differs from expected {expected_degraded:.4f}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 6b: No penalty when GTI is simply unconfigured or returns no indicator
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("label,gti_client,budget_tracker", [
+    ("gti_unconfigured", None, None),
+    ("gti_configured_no_budget_tracker", MagicMock(), None),
+])
+async def test_no_penalty_when_gti_not_budget_exhausted(
+    label, gti_client, budget_tracker
+):
+    """
+    _compute_threat_score must NOT apply the -0.20 penalty when gti_resp is
+    None for reasons other than budget exhaustion (unconfigured GTI, no
+    extractable indicator, transient failure).  Only a tryAcquire() denial
+    sets _gti_budget_exhausted and triggers the degraded path.
+    """
+    resolver = _make_resolver(
+        gti_client=gti_client,
+        gti_budget_tracker=budget_tracker,
+    )
+    # _gti_budget_exhausted is False by default — simulate query returning None
+    # without budget denial (no tryAcquire call)
+    context = _make_context(tool_name="read_file", arguments={"path": "/tmp/x"})
+    cbm_resp = CBMResponse(blast_radius=0, critical_sinks=[])
+
+    score = await resolver._compute_threat_score(context, None, cbm_resp)
+
+    # Normal path: gti_score=0.0, cbm_score=0.0
+    # ctx: read_file medium(0.45), no suspicious keywords → novelty=0.0
+    # ctx_score = 0.45*0.5 + 0.0*0.5 = 0.225
+    # normal: 0.0*0.4 + 0.0*0.3 + 0.225*0.3 = 0.0675
+    expected_normal = 0.225 * 0.30
+    assert abs(score - expected_normal) < 0.01, (
+        f"[{label}] Expected normal-path score ~{expected_normal:.4f}, got {score:.4f}"
+    )
 
 
 # ---------------------------------------------------------------------------
