@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from blackwall.mcp.gti_client import GTIMCPClient, GTIDegradedError
 from blackwall.models import IndicatorType, GTIResponse
 from blackwall.db.repository import SQLiteThreatRepository
+from blackwall.mcp.gti_client import GTIQueryBudgetTracker
 
 
 @pytest.fixture
@@ -22,7 +23,12 @@ async def repo(temp_db_path):
 
 @pytest.fixture
 def client(repo):
-    return GTIMCPClient(repo=repo, api_key="test_api_key")
+    tracker = GTIQueryBudgetTracker(capacity=100)
+    c = GTIMCPClient(repo=repo, api_key="test_api_key", budget_tracker=tracker)
+    async def mock_high_risk(indicator, indicator_type, context=None):
+        return True
+    c.is_high_risk = mock_high_risk
+    return c
 
 
 @pytest.mark.asyncio
@@ -317,3 +323,75 @@ async def test_rate_limit_backoff_and_retry(client):
         assert mock_sleep.call_count == 2
         mock_sleep.assert_any_call(0.1)
         mock_sleep.assert_any_call(0.2)
+
+
+from blackwall.mcp.gti_client import GTIBudgetExhaustedError
+from blackwall.models import ToolCallContext
+
+@pytest.mark.asyncio
+async def test_suspicion_score_calculation(repo):
+    c = GTIMCPClient(repo=repo, api_key="test_api_key")
+    # IP check (external)
+    assert c.calculate_suspicion_score("8.8.8.8", IndicatorType.IP_ADDRESS) == 0.2
+    # IP check (internal/private)
+    assert c.calculate_suspicion_score("127.0.0.1", IndicatorType.IP_ADDRESS) == 0.0
+
+    # Domain check (safe TLD)
+    assert c.calculate_suspicion_score("example.com", IndicatorType.DOMAIN) == 0.0
+    # Domain check (suspicious TLD)
+    assert c.calculate_suspicion_score("malicious.xyz", IndicatorType.DOMAIN) == 0.2
+    # Domain check (long name)
+    long_domain = "a" * 31 + ".com"
+    assert c.calculate_suspicion_score(long_domain, IndicatorType.DOMAIN) == 0.1
+
+    # File hash check (high entropy)
+    assert c.calculate_suspicion_score("44d88612aa487c88b8d4f4f5f5f5f5f5", IndicatorType.FILE_HASH) == 0.2
+
+    # Context checks
+    context = ToolCallContext(
+        tool_name="run_command",
+        arguments={"CommandLine": "curl http://malicious.xyz"},
+    )
+    # IP + context run_command + arguments with curl
+    # 0.2 (external IP) + 0.2 (run_command) + 0.1 (curl pattern) = 0.5
+    score = c.calculate_suspicion_score("8.8.8.8", IndicatorType.IP_ADDRESS, context)
+    assert score == 0.5
+
+
+@pytest.mark.asyncio
+async def test_high_risk_classification(repo):
+    c = GTIMCPClient(repo=repo, api_key="test_api_key")
+    # Not in cache (novelty +0.3) + external IP (+0.2) = 0.5 (high risk)
+    assert await c.is_high_risk("8.8.8.8", IndicatorType.IP_ADDRESS) is True
+
+    # In cache (no novelty) + external IP (+0.2) = 0.2 (not high risk)
+    await repo.cache_gti_response("8.8.8.8", IndicatorType.IP_ADDRESS.value, {
+        "indicator": "8.8.8.8", "is_malicious": False, "threat_categories": [],
+        "detection_rate": 0.0, "last_analysis_date": None, "related_campaigns": [], "confidence": 0.0
+    })
+    assert await c.is_high_risk("8.8.8.8", IndicatorType.IP_ADDRESS) is False
+
+
+@pytest.mark.asyncio
+async def test_query_skipped_when_low_risk(repo):
+    c = GTIMCPClient(repo=repo, api_key="test_api_key")
+    with patch.object(c, "_execute_api_query", new_callable=AsyncMock) as mock_query:
+        # Novelty (+0.3) + private IP (+0.0) = 0.3 (not high risk)
+        # It should skip live query and return default false response without calling API
+        response = await c.queryIOC("127.0.0.1", IndicatorType.IP_ADDRESS)
+        
+        assert response.is_malicious is False
+        mock_query.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_query_budget_exhaustion(repo):
+    c = GTIMCPClient(repo=repo, api_key="test_api_key")
+    # Set budget tracker to 0 tokens
+    c.budget_tracker.tokens = 0
+
+    # Ensure it's high risk (novelty +0.3 + external IP +0.2 = 0.5)
+    # Querying a high risk indicator should raise GTIBudgetExhaustedError when tokens are 0
+    with pytest.raises(GTIBudgetExhaustedError):
+        await c.queryIOC("8.8.8.8", IndicatorType.IP_ADDRESS)
+

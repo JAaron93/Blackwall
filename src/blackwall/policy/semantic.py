@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from blackwall.models import ToolCallContext, VerdictDecision, IndicatorType
 from blackwall.policy.models import GateResult
 from blackwall.db.repository import SQLiteThreatRepository
-from blackwall.mcp.gti_client import GTIMCPClient, GTIDegradedError
+from blackwall.mcp.gti_client import GTIMCPClient, GTIDegradedError, GTIBudgetExhaustedError
 from blackwall.mcp.codebase_memory import CodebaseMemoryClient
 
 logger = logging.getLogger("blackwall.policy.semantic")
@@ -103,47 +103,54 @@ class SemanticGatingEngine:
         iocs = extract_iocs(context)
         gti_responses = []
         gti_degraded = False
+        gti_budget_exhausted = False
         gti_error = False
 
-        if self.gti_client:
+        async def query_ioc_safe(indicator: str, ioc_type: IndicatorType) -> None:
+            """Helper to query a single IOC with localized exception handling."""
+            nonlocal gti_degraded, gti_budget_exhausted, gti_error
             try:
-                for ip in iocs["ips"]:
-                    resp = await self.gti_client.queryIOC(ip, IndicatorType.IP_ADDRESS)
-                    gti_responses.append(resp)
-                for url in iocs["urls"]:
-                    resp = await self.gti_client.queryIOC(url, IndicatorType.URL)
-                    gti_responses.append(resp)
-                for domain in iocs["domains"]:
-                    if not any(domain in u for u in iocs["urls"]):
-                        resp = await self.gti_client.queryIOC(domain, IndicatorType.DOMAIN)
-                        gti_responses.append(resp)
-                for h in iocs["hashes"]:
-                    resp = await self.gti_client.queryIOC(h, IndicatorType.FILE_HASH)
-                    gti_responses.append(resp)
+                resp = await self.gti_client.queryIOC(indicator, ioc_type, context)
+                gti_responses.append(resp)
             except GTIDegradedError:
                 gti_degraded = True
-            except Exception as e:
-                logger.error("Error querying GTI MCP: %s", e)
+            except GTIBudgetExhaustedError:
+                gti_budget_exhausted = True
+            except Exception as e:  # noqa: BLE001 - fail-closed: catch all GTI client errors to ensure security policy degrades safely
+                logger.error("Error querying GTI MCP for %s: %s", indicator, e)
                 gti_error = True
 
-        gti_penalty = 0.3 if gti_degraded else 0.0
+        if self.gti_client:
+            for ip in iocs["ips"]:
+                await query_ioc_safe(ip, IndicatorType.IP_ADDRESS)
+            for url in iocs["urls"]:
+                await query_ioc_safe(url, IndicatorType.URL)
+            for domain in iocs["domains"]:
+                if not any(domain in u for u in iocs["urls"]):
+                    await query_ioc_safe(domain, IndicatorType.DOMAIN)
+            for h in iocs["hashes"]:
+                await query_ioc_safe(h, IndicatorType.FILE_HASH)
+
+        # Apply penalty only for degraded or budget exhaustion (not for general errors)
+        gti_penalty = 0.2 if (gti_degraded or gti_budget_exhausted) else 0.0
 
         # Calculate GTI Score
         gti_score: Optional[float] = None
-        if self.gti_client and not gti_degraded and not gti_error:
-            if not gti_responses:
-                gti_score = 0.0
-            else:
-                scores = []
-                for r in gti_responses:
-                    s = 0.0
-                    if r.is_malicious:
-                        s += 0.5
-                    s += 0.3 * (r.detection_rate / 100.0)
-                    if r.threat_categories:
-                        s += min(len(r.threat_categories) * 0.1, 0.2)
-                    scores.append(min(s, 1.0))
-                gti_score = max(scores)
+        # Compute GTI score if we have any responses, even if budget exhausted or degraded partway through
+        if self.gti_client and gti_responses:
+            scores = []
+            for r in gti_responses:
+                s = 0.0
+                if r.is_malicious:
+                    s += 0.5
+                s += 0.3 * (r.detection_rate / 100.0)
+                if r.threat_categories:
+                    s += min(len(r.threat_categories) * 0.1, 0.2)
+                scores.append(min(s, 1.0))
+            gti_score = max(scores)
+        elif self.gti_client and not gti_degraded and not gti_error and not gti_budget_exhausted:
+            # GTI client available, no errors, but no IOCs found
+            gti_score = 0.0
 
         # 3. Query Codebase-Memory MCP
         cbm_score: Optional[float] = None
@@ -204,12 +211,15 @@ class SemanticGatingEngine:
         context_score = 0.4 * tool_risk + 0.3 * argument_novelty + 0.3 * env_risk
 
         # 5. Signal Aggregation & Normalization
+        # GTI is only considered unavailable if we have no responses at all due to errors/degradation
+        gti_unavailable = (gti_score is None) and (gti_degraded or gti_budget_exhausted or gti_error)
         threat_score = self.computeThreatScore(
             gti_score=gti_score,
             cbm_score=cbm_score,
             context_score=context_score,
             gti_penalty=gti_penalty,
             cbm_penalty=cbm_penalty,
+            gti_unavailable=gti_unavailable,
         )
 
         # Verdict
@@ -236,6 +246,7 @@ class SemanticGatingEngine:
         context_score: float,
         gti_penalty: float = 0.0,
         cbm_penalty: float = 0.0,
+        gti_unavailable: bool = False,
     ) -> float:
         """
         Computes the final threat score by aggregating available signals.
@@ -252,7 +263,14 @@ class SemanticGatingEngine:
             "context": 0.3,
         }
 
-        available_signals = {k: v for k, v in signals.items() if v is not None}
+        if gti_unavailable or gti_score is None:
+            # GTI is unavailable: redistribute GTI weight (40%) to CBM (+20%) and Context (+20%)
+            base_weights["gti"] = 0.0
+            base_weights["cbm"] = 0.5
+            base_weights["context"] = 0.5
+
+        # Filter signals that are not None and have non-zero weight
+        available_signals = {k: v for k, v in signals.items() if v is not None and base_weights[k] > 0.0}
         total_weight = sum(base_weights[k] for k in available_signals.keys())
 
         if total_weight == 0.0:
