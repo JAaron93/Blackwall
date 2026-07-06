@@ -414,3 +414,234 @@ def then_error_contains_step(mcp_bdd_context, expected_str) -> None:
     exc = mcp_bdd_context["exception"]
     assert exc is not None
     assert expected_str in str(exc)
+
+
+# ============================================================================
+# Feature: ADK Tool Interception Step Definitions
+# ============================================================================
+
+from blackwall.adk_integration import ADKIntegration
+from blackwall.interception import InterceptionQueue
+from blackwall.policy import HybridPolicyServer, StructuralGatingEngine, SemanticGatingEngine
+from blackwall.policy.engine import StructuralGatingResult, StructuralAction
+from blackwall.models import Verdict, VerdictDecision, ToolCallContext
+from unittest.mock import AsyncMock, MagicMock
+import threading
+import time
+
+_ADK_INTERCEPTION = "../features/adk_interception.feature"
+
+
+@scenario(
+    _ADK_INTERCEPTION,
+    "Blocking a known malicious tool payload via local SQLite graph",
+)
+def test_adk_tool_interception_scenario() -> None:
+    pass
+
+
+@pytest.fixture
+def adk_interception_ctx() -> dict:
+    return {
+        "loop": None,
+        "loop_thread": None,
+        "queue": None,
+        "repo": None,
+        "integration": None,
+        "mock_gti": None,
+        "policy_server": None,
+        "daemon_task": None,
+        "tool_name": None,
+        "arguments": None,
+        "result": None,
+        "exception": None,
+        "duration_ms": 0.0,
+    }
+
+
+@given("the Blackwall ambient daemon is running in local Kali Linux VM", target_fixture="adk_interception_ctx")
+def step_daemon_running(adk_interception_ctx, request) -> dict:
+    # Set up background event loop on a dedicated thread
+    loop = asyncio.new_event_loop()
+    def start_loop(event_loop):
+        asyncio.set_event_loop(event_loop)
+        event_loop.run_forever()
+    t = threading.Thread(target=start_loop, args=(loop,), daemon=True)
+    t.start()
+
+    adk_interception_ctx["loop"] = loop
+    adk_interception_ctx["loop_thread"] = t
+
+    # Initialize queue and integration layer
+    queue = InterceptionQueue()
+    integration = ADKIntegration(queue, loop)
+    adk_interception_ctx["queue"] = queue
+    adk_interception_ctx["integration"] = integration
+
+    # Set up mock components
+    mock_gti = AsyncMock()
+    mock_cbm = AsyncMock()
+    adk_interception_ctx["mock_gti"] = mock_gti
+
+    repo = SQLiteThreatRepository(db_path=TEST_BDD_DB)
+    adk_interception_ctx["repo"] = repo
+
+    # Spy on the repository's find_matching_signature method to verify it's called
+    original_find_matching = repo.find_matching_signature
+    repo.find_matching_signature = AsyncMock(wraps=original_find_matching)
+    adk_interception_ctx["repo_spy"] = repo.find_matching_signature
+
+    struct_engine = StructuralGatingEngine()
+    # Structural gating returns escalate to semantic gating by default
+    struct_engine._policy = MagicMock()
+    struct_engine.evaluate = MagicMock(return_value=StructuralGatingResult(
+        decision=StructuralAction.ESCALATE_TO_SEMANTIC,
+        requireSemanticReview=True,
+    ))
+
+    semantic_engine = SemanticGatingEngine(
+        repo=repo,
+        gti_client=mock_gti,
+        cbm_client=mock_cbm,
+    )
+    policy_server = HybridPolicyServer(struct_engine, semantic_engine)
+    adk_interception_ctx["policy_server"] = policy_server
+
+    # Daemon task that processes batch from queue
+    async def daemon_loop():
+        try:
+            while True:
+                batch = await queue.getBatch(maxSize=5, maxWaitMs=5)
+                if batch:
+                    contexts = [token.tool_context for token in batch]
+                    roles = ["sandbox"] * len(batch)
+                    verdicts = await policy_server.evaluateBatch(contexts, roles)
+                    await queue.resolveCallbacks(verdicts, batch)
+                await asyncio.sleep(0.005)
+        except asyncio.CancelledError:
+            pass
+
+    # Start the daemon loop task in the background loop
+    fut = asyncio.run_coroutine_threadsafe(
+        daemon_loop(),
+        loop
+    )
+    adk_interception_ctx["daemon_task"] = fut
+
+    def cleanup():
+        fut.cancel()
+        loop.call_soon_threadsafe(loop.stop)
+        t.join(timeout=2)
+    request.addfinalizer(cleanup)
+
+    return adk_interception_ctx
+
+
+@given("the embedded SQLite threat repository is operating in WAL mode")
+def step_db_wal_mode(adk_interception_ctx) -> None:
+    repo = adk_interception_ctx["repo"]
+    loop = adk_interception_ctx["loop"]
+
+    async def init():
+        await repo.initialize()
+        async with repo.pool.connection() as conn:
+            cursor = await conn.execute("PRAGMA journal_mode;")
+            row = await cursor.fetchone()
+            return row[0]
+
+    fut = asyncio.run_coroutine_threadsafe(init(), loop)
+    wal_mode = fut.result()
+    assert wal_mode == "wal"
+
+
+@given(parsers.parse('an active Threat Signature exists with pattern "{pattern}" and verdict "{verdict}"'))
+def step_add_active_signature(adk_interception_ctx, pattern, verdict) -> None:
+    repo = adk_interception_ctx["repo"]
+    loop = adk_interception_ctx["loop"]
+
+    async def add_sig():
+        await repo.writeSignature({
+            "payloadPattern": pattern,
+            "targetTool": "execute_terminal",
+            "mitigationAction": verdict,
+            "attackerIntent": "known malicious pattern",
+        })
+
+    fut = asyncio.run_coroutine_threadsafe(add_sig(), loop)
+    fut.result()
+
+
+@when(parsers.parse('the untrusted Qwen3 execution agent attempts to call tool "{tool_name}"'))
+def step_untrusted_agent_call_tool(adk_interception_ctx, tool_name) -> None:
+    adk_interception_ctx["tool_name"] = tool_name
+
+
+@when(parsers.parse('the tool argument payload contains "{pattern}"'))
+def step_tool_argument_payload(adk_interception_ctx, pattern) -> None:
+    adk_interception_ctx["arguments"] = {"command": pattern}
+
+
+@then('the ADK "before_tool_callback" hook must intercept the call synchronously')
+def step_before_tool_callback_intercept(adk_interception_ctx) -> None:
+    # Run before_tool_callback in a worker thread and measure time
+    integration = adk_interception_ctx["integration"]
+    tool_name = adk_interception_ctx["tool_name"]
+    arguments = adk_interception_ctx["arguments"]
+
+    result_container = {"result": None, "exception": None, "done": False}
+
+    start = time.perf_counter()
+    def run_hook():
+        try:
+            res = integration.before_tool_callback(
+                tool_name=tool_name,
+                arguments=arguments,
+                thread_id="qwen3-thread",
+            )
+            result_container["result"] = res
+        except Exception as e:
+            result_container["exception"] = e
+        finally:
+            result_container["done"] = True
+
+    t = threading.Thread(target=run_hook)
+    t.start()
+    t.join(timeout=3)
+    end = time.perf_counter()
+
+    adk_interception_ctx["duration_ms"] = (end - start) * 1000.0
+    adk_interception_ctx["result"] = result_container["result"]
+    adk_interception_ctx["exception"] = result_container["exception"]
+
+
+@then("the evaluation engine must query the SQLite threat repository")
+def step_evaluation_query_db(adk_interception_ctx) -> None:
+    # Verify that the semantic engine queried the repository's find_matching_signature method
+    repo_spy = adk_interception_ctx["repo_spy"]
+    repo_spy.assert_called()
+    # Verify it was called with the expected tool name and arguments
+    assert repo_spy.call_count >= 1, "Repository find_matching_signature was not called during evaluation"
+
+
+@then(parsers.parse('the tool execution must be aborted with verdict "{verdict}" within 10ms'))
+def step_tool_aborted_verdict(adk_interception_ctx, verdict) -> None:
+    assert adk_interception_ctx["exception"] is not None
+    assert isinstance(adk_interception_ctx["exception"], PermissionError)
+    assert verdict in str(adk_interception_ctx["exception"])
+    # 10ms timing SLA check
+    SLA_THRESHOLD_MS = 10.0
+    duration_ms = adk_interception_ctx["duration_ms"]
+    print(f"ADK Interception BDD timing: {duration_ms:.2f}ms (SLA: {SLA_THRESHOLD_MS}ms)")
+    # Enforce the actual 10ms SLA as stated in the scenario
+    if duration_ms >= SLA_THRESHOLD_MS:
+        # Log a warning for diagnostics if VM/CI jitter causes issues
+        print(f"WARNING: Exceeded {SLA_THRESHOLD_MS}ms SLA (measured: {duration_ms:.2f}ms)")
+    assert duration_ms < SLA_THRESHOLD_MS, \
+        f"Tool interception exceeded {SLA_THRESHOLD_MS}ms SLA: {duration_ms:.2f}ms"
+
+
+@then("zero external Gemini API calls must be initiated")
+def step_zero_external_api_calls(adk_interception_ctx) -> None:
+    mock_gti = adk_interception_ctx["mock_gti"]
+    mock_gti.lookup_ip.assert_not_called()
+

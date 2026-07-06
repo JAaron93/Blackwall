@@ -10,6 +10,7 @@ from blackwall.interception import (
     QueueOverloadError,
 )
 from blackwall.analytics import AgentBehavioralAnalytics
+from blackwall.adk_integration import ADKIntegration
 
 __all__ = [
     "AuditHookManager",
@@ -18,4 +19,5 @@ __all__ = [
     "BatchResolutionError",
     "QueueOverloadError",
     "AgentBehavioralAnalytics",
+    "ADKIntegration",
 ]
