@@ -2,10 +2,14 @@ import asyncio
 import time
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from blackwall.mcp.gti_client import GTIMCPClient, GTIDegradedError
-from blackwall.models import IndicatorType, GTIResponse
+from blackwall.mcp.gti_client import (
+    GTIMCPClient,
+    GTIDegradedError,
+    GTIQueryBudgetTracker,
+    GTIBudgetExhaustedError,
+)
+from blackwall.models import IndicatorType, GTIResponse, ToolCallContext
 from blackwall.db.repository import SQLiteThreatRepository
-from blackwall.mcp.gti_client import GTIQueryBudgetTracker
 
 
 @pytest.fixture
@@ -28,7 +32,8 @@ def client(repo):
     async def mock_high_risk(indicator, indicator_type, context=None):
         return True
     c.is_high_risk = mock_high_risk
-    return c
+    yield c
+    tracker.close()
 
 
 @pytest.mark.asyncio
@@ -325,9 +330,6 @@ async def test_rate_limit_backoff_and_retry(client):
         mock_sleep.assert_any_call(0.2)
 
 
-from blackwall.mcp.gti_client import GTIBudgetExhaustedError
-from blackwall.models import ToolCallContext
-
 @pytest.mark.asyncio
 async def test_suspicion_score_calculation(repo):
     c = GTIMCPClient(repo=repo, api_key="test_api_key")
@@ -387,11 +389,14 @@ async def test_query_skipped_when_low_risk(repo):
 @pytest.mark.asyncio
 async def test_query_budget_exhaustion(repo):
     c = GTIMCPClient(repo=repo, api_key="test_api_key")
-    # Set budget tracker to 0 tokens
-    c.budget_tracker.tokens = 0
+    try:
+        # Set budget tracker to 0 tokens
+        c.budget_tracker.tokens = 0
 
-    # Ensure it's high risk (novelty +0.3 + external IP +0.2 = 0.5)
-    # Querying a high risk indicator should raise GTIBudgetExhaustedError when tokens are 0
-    with pytest.raises(GTIBudgetExhaustedError):
-        await c.queryIOC("8.8.8.8", IndicatorType.IP_ADDRESS)
+        # Ensure it's high risk (novelty +0.3 + external IP +0.2 = 0.5)
+        # Querying a high risk indicator should raise GTIBudgetExhaustedError when tokens are 0
+        with pytest.raises(GTIBudgetExhaustedError):
+            await c.queryIOC("8.8.8.8", IndicatorType.IP_ADDRESS)
+    finally:
+        c.budget_tracker.close()
 

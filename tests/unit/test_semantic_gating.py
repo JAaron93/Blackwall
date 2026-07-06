@@ -681,7 +681,8 @@ async def test_gti_budget_exhaustion_does_not_skip_cached_iocs(temp_repo):
     """
     Regression test for Issue 2: When GTI budget is exhausted on an early IOC lookup,
     subsequent IOC types (especially cached ones like domains/hashes) should still be
-    queried and detected, not skipped due to the exception.
+    detected and scored, not skipped due to the exception. After the fix, cached IOCs
+    should be consumed directly from the repo without calling queryIOC.
     """
     # Pre-cache a malicious domain in the repository
     malicious_domain_response = {
@@ -699,35 +700,18 @@ async def test_gti_budget_exhaustion_does_not_skip_cached_iocs(temp_repo):
         response=malicious_domain_response
     )
 
-    # Setup mock GTI Client: first IP query raises budget exhaustion
+    # Setup mock GTI Client: IP query raises budget exhaustion
     mock_gti = MagicMock(spec=GTIMCPClient)
     mock_gti.is_degraded.return_value = False
     mock_gti.repo = temp_repo
 
-    # First queryIOC call (IP) raises budget exhaustion
-    # Second queryIOC call (domain) should succeed from cache
-    mock_gti.queryIOC = AsyncMock(side_effect=[
-        GTIBudgetExhaustedError("Budget exhausted"),  # IP query fails
-    ])
-
-    # Override queryIOC to handle cache lookups properly for the domain
-    async def mock_query_ioc(indicator, indicator_type, context=None, skip_budget_check=False):
-        if indicator == "evil.example.com":
-            # Simulate cache hit by returning the cached response
-            return GTIResponse(
-                indicator="evil.example.com",
-                is_malicious=True,
-                threat_categories=["malware", "phishing"],
-                detection_rate=90.0,
-                confidence=0.95
-            )
-        raise GTIBudgetExhaustedError("Budget exhausted")
-
-    mock_gti.queryIOC = AsyncMock(side_effect=mock_query_ioc)
+    # queryIOC should only be called for uncached IP (and fail with budget exhaustion)
+    # Cached domain should NOT call queryIOC - it should use the cached payload directly
+    mock_gti.queryIOC = AsyncMock(side_effect=GTIBudgetExhaustedError("Budget exhausted"))
 
     engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
 
-    # Context with IP (will fail) and domain (should succeed from cache)
+    # Context with IP (will fail) and domain (cached, should succeed)
     context = ToolCallContext(
         tool_name="safe_tool",
         arguments={"ip": "1.2.3.4", "domain": "evil.example.com"}
@@ -746,6 +730,141 @@ async def test_gti_budget_exhaustion_does_not_skip_cached_iocs(temp_repo):
     assert result.threat_score >= 0.75, f"Expected threat score >= 0.75 for cached malicious domain, got {result.threat_score}"
     assert result.verdict == VerdictDecision.BLOCK
 
-    # Verify that queryIOC was called for both IP and domain
-    assert mock_gti.queryIOC.call_count == 2
+    # Verify that queryIOC was only called once for the uncached IP (not for cached domain)
+    assert mock_gti.queryIOC.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_gti_not_applicable_does_not_dilute_threat_score(temp_repo):
+    """
+    Regression test for Finding 2: When GTI is available but no IOCs are applicable
+    (e.g., high-risk command with no external IPs/domains/hashes), GTI should not
+    assign a synthetic clean score of 0.0 that dilutes the overall threat score.
+    """
+    # Setup mock GTI Client (available, not degraded)
+    mock_gti = MagicMock(spec=GTIMCPClient)
+    mock_gti.is_degraded.return_value = False
+    mock_gti.queryIOC = AsyncMock()  # Should not be called
+
+    engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
+
+    # High-risk command with no GTI-applicable IOCs (no IPs, URLs, domains, hashes)
+    # Context score: run_command (1.0) + suspicious patterns (1.0) + production (1.0)
+    # => 0.4 * 1.0 + 0.3 * 1.0 + 0.3 * 1.0 = 1.0
+    context = ToolCallContext(
+        tool_name="run_command",
+        arguments={"cmd": "sudo rm -rf /important/data"}
+    )
+
+    result = await engine.evaluate(context, "production")
+
+    # GTI should NOT be queried (no applicable IOCs)
+    mock_gti.queryIOC.assert_not_called()
+
+    # GTI should be None (not 0.0), so weight redistribution happens
+    # Context gets 100% weight since both GTI and CBM are unavailable
+    # Expected threat score = 1.0 (context score)
+    # This should result in BLOCK verdict (>= 0.75)
+
+    assert result.threat_score >= 0.75, f"Expected threat score >= 0.75, got {result.threat_score}"
+    assert result.verdict == VerdictDecision.BLOCK
+
+
+@pytest.mark.asyncio
+async def test_cached_ioc_uses_repo_payload_not_queryioc(temp_repo):
+    """
+    Regression test for Finding 1: Cached IOC branches should use the cached payload
+    from repo directly, not re-query GTI through queryIOC with skip_budget_check=True.
+    This test verifies all cached IOC types: IP, URL, domain, and hash.
+    """
+    # Pre-cache responses for all IOC types
+    cached_ip_response = {
+        "indicator": "8.8.8.8",
+        "is_malicious": True,
+        "threat_categories": ["botnet"],
+        "detection_rate": 75.0,
+        "last_analysis_date": "2024-01-01T00:00:00Z",
+        "related_campaigns": [],
+        "confidence": 0.75
+    }
+    await temp_repo.cache_gti_response(
+        indicator="8.8.8.8",
+        indicator_type="ip_address",
+        response=cached_ip_response
+    )
+
+    cached_url_response = {
+        "indicator": "http://malicious.example.com/payload",
+        "is_malicious": True,
+        "threat_categories": ["malware"],
+        "detection_rate": 80.0,
+        "last_analysis_date": "2024-01-01T00:00:00Z",
+        "related_campaigns": [],
+        "confidence": 0.8
+    }
+    await temp_repo.cache_gti_response(
+        indicator="http://malicious.example.com/payload",
+        indicator_type="url",
+        response=cached_url_response
+    )
+
+    cached_domain_response = {
+        "indicator": "evil.example.com",
+        "is_malicious": True,
+        "threat_categories": ["phishing"],
+        "detection_rate": 85.0,
+        "last_analysis_date": "2024-01-01T00:00:00Z",
+        "related_campaigns": [],
+        "confidence": 0.85
+    }
+    await temp_repo.cache_gti_response(
+        indicator="evil.example.com",
+        indicator_type="domain",
+        response=cached_domain_response
+    )
+
+    cached_hash_response = {
+        "indicator": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+        "is_malicious": True,
+        "threat_categories": ["trojan"],
+        "detection_rate": 90.0,
+        "last_analysis_date": "2024-01-01T00:00:00Z",
+        "related_campaigns": [],
+        "confidence": 0.9
+    }
+    await temp_repo.cache_gti_response(
+        indicator="a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+        indicator_type="file_hash",
+        response=cached_hash_response
+    )
+
+    # Setup mock GTI Client
+    mock_gti = MagicMock(spec=GTIMCPClient)
+    mock_gti.is_degraded.return_value = False
+    # queryIOC should NEVER be called for cached IOCs
+    mock_gti.queryIOC = AsyncMock()
+
+    engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
+
+    # Context with all cached IOCs
+    context = ToolCallContext(
+        tool_name="safe_tool",
+        arguments={
+            "ip": "8.8.8.8",
+            "url": "http://malicious.example.com/payload",
+            "domain": "evil.example.com",
+            "file_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+        }
+    )
+
+    result = await engine.evaluate(context, "sandbox")
+
+    # CRITICAL: queryIOC should NEVER be called for cached IOCs
+    # The cached payload should be consumed directly from the repo
+    mock_gti.queryIOC.assert_not_called()
+
+    # The threat score should still be high because cached responses indicate malicious IOCs
+    # Even though queryIOC wasn't called, the engine should detect the cached malicious responses
+    # GTI score should be calculated from the cached responses
+    assert result.threat_score >= 0.5, f"Expected threat score >= 0.5 from cached malicious IOCs, got {result.threat_score}"
 

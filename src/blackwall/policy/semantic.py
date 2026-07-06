@@ -268,9 +268,8 @@ class SemanticGatingEngine:
 
         # 2. Extract IOCs and query GTI MCP
         iocs = extract_iocs(context)
-        
+
         is_high = await self.is_high_risk(context, iocs, structural_result)
-        suspicion_score = await self.calculate_suspicion_score(context, iocs, structural_result)
 
         gti_responses = []
         gti_degraded = False
@@ -288,10 +287,19 @@ class SemanticGatingEngine:
                         )
                     if cached:
                         try:
-                            resp = await self.gti_client.queryIOC(ip, IndicatorType.IP_ADDRESS, skip_budget_check=True)
+                            # Use cached payload directly instead of re-querying GTI
+                            resp = GTIResponse(
+                                indicator=cached.get("indicator", ip),
+                                is_malicious=cached.get("is_malicious", False),
+                                threat_categories=cached.get("threat_categories", []),
+                                detection_rate=cached.get("detection_rate", 0.0),
+                                confidence=cached.get("confidence", 0.0),
+                                last_analysis_date=cached.get("last_analysis_date"),
+                                related_campaigns=cached.get("related_campaigns", [])
+                            )
                             gti_responses.append(resp)
                         except Exception as e:
-                            logger.error("Error querying cached IP: %s", e)
+                            logger.error("Error parsing cached IP response: %s", e)
                         continue
 
                     if gti_budget_exhausted:
@@ -321,10 +329,19 @@ class SemanticGatingEngine:
                         )
                     if cached:
                         try:
-                            resp = await self.gti_client.queryIOC(url, IndicatorType.URL, skip_budget_check=True)
+                            # Use cached payload directly instead of re-querying GTI
+                            resp = GTIResponse(
+                                indicator=cached.get("indicator", url),
+                                is_malicious=cached.get("is_malicious", False),
+                                threat_categories=cached.get("threat_categories", []),
+                                detection_rate=cached.get("detection_rate", 0.0),
+                                confidence=cached.get("confidence", 0.0),
+                                last_analysis_date=cached.get("last_analysis_date"),
+                                related_campaigns=cached.get("related_campaigns", [])
+                            )
                             gti_responses.append(resp)
                         except Exception as e:
-                            logger.error("Error querying cached URL: %s", e)
+                            logger.error("Error parsing cached URL response: %s", e)
                         continue
 
                     if gti_budget_exhausted:
@@ -355,10 +372,19 @@ class SemanticGatingEngine:
                             )
                         if cached:
                             try:
-                                resp = await self.gti_client.queryIOC(domain, IndicatorType.DOMAIN, skip_budget_check=True)
+                                # Use cached payload directly instead of re-querying GTI
+                                resp = GTIResponse(
+                                    indicator=cached.get("indicator", domain),
+                                    is_malicious=cached.get("is_malicious", False),
+                                    threat_categories=cached.get("threat_categories", []),
+                                    detection_rate=cached.get("detection_rate", 0.0),
+                                    confidence=cached.get("confidence", 0.0),
+                                    last_analysis_date=cached.get("last_analysis_date"),
+                                    related_campaigns=cached.get("related_campaigns", [])
+                                )
                                 gti_responses.append(resp)
                             except Exception as e:
-                                logger.error("Error querying cached domain: %s", e)
+                                logger.error("Error parsing cached domain response: %s", e)
                             continue
 
                         if gti_budget_exhausted:
@@ -388,10 +414,19 @@ class SemanticGatingEngine:
                         )
                     if cached:
                         try:
-                            resp = await self.gti_client.queryIOC(h, IndicatorType.FILE_HASH, skip_budget_check=True)
+                            # Use cached payload directly instead of re-querying GTI
+                            resp = GTIResponse(
+                                indicator=cached.get("indicator", h),
+                                is_malicious=cached.get("is_malicious", False),
+                                threat_categories=cached.get("threat_categories", []),
+                                detection_rate=cached.get("detection_rate", 0.0),
+                                confidence=cached.get("confidence", 0.0),
+                                last_analysis_date=cached.get("last_analysis_date"),
+                                related_campaigns=cached.get("related_campaigns", [])
+                            )
                             gti_responses.append(resp)
                         except Exception as e:
-                            logger.error("Error querying cached hash: %s", e)
+                            logger.error("Error parsing cached hash response: %s", e)
                         continue
 
                     if gti_budget_exhausted:
@@ -431,14 +466,12 @@ class SemanticGatingEngine:
                     s += min(len(r.threat_categories) * 0.1, 0.2)
                 scores.append(min(s, 1.0))
             gti_score = max(scores) if scores else 0.0
-        elif self.gti_client and not gti_degraded and not gti_error and not gti_budget_exhausted:
-            # GTI client available, no errors, but no IOCs found
-            gti_score = 0.0
+        # Note: Do NOT assign synthetic 0.0 when GTI is available but not applicable
+        # Leave gti_score as None so weight redistribution occurs properly
 
         # 3. Query Codebase-Memory MCP
         cbm_score: Optional[float] = None
         cbm_penalty = 0.0
-        cbm_error = False
 
         target_func = None
         if hasattr(context, "targetFunction") and getattr(context, "targetFunction"):
