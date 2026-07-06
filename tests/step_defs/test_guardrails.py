@@ -588,6 +588,22 @@ def step_before_tool_callback_intercept(adk_interception_ctx) -> None:
     tool_name = adk_interception_ctx["tool_name"]
     arguments = adk_interception_ctx["arguments"]
 
+    # Warmup run to initialize threading, load caches, and heat up SQLite/connections
+    try:
+        integration.before_tool_callback(
+            tool_name="safe_tool",
+            arguments={},
+            thread_id="warmup-thread",
+        )
+    except Exception as e:
+        logger = structlog.get_logger()
+        logger.warning(
+            "warmup_callback_failed",
+            tool_name="safe_tool",
+            exception=str(e),
+            exception_type=type(e).__name__,
+        )
+
     result_container = {"result": None, "exception": None, "done": False}
     hook_duration_ms = 0.0
 
