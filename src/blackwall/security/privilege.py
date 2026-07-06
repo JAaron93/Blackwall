@@ -28,6 +28,10 @@ def drop_privileges(user_or_uid: Union[str, int] = "nobody") -> None:
             uid = pw_record.pw_uid
             gid = pw_record.pw_gid
 
+        # Clear supplementary groups first (must be done while privileged)
+        if hasattr(os, "setgroups"):
+            os.setgroups([])
+
         # Set group first, then user
         os.setgid(gid)
         os.setuid(uid)

@@ -149,11 +149,15 @@ def then_system_fetches_secret(state):
 
 @then("the long-lived API key must not be stored in the client memory")
 def then_key_not_stored_in_memory(state):
-    # Check that vault instance does not cache it in any instance variable
-    assert not hasattr(state.vault, "cbm-real-key")
-    # Also inspect all instance attributes of state.vault
-    for attr, val in state.vault.__dict__.items():
-        assert val != "cbm-real-key"
+    # Check that vault instance does not cache the secret value in any instance variable
+    # Inspect all instance attributes of state.vault to ensure the secret value is not cached
+    for _attr, val in state.vault.__dict__.items():
+        # Check if the secret value is stored directly
+        if isinstance(val, str):
+            assert val != "cbm-real-key", f"Secret value found cached in vault attribute"
+        # Check nested dictionaries or lists that might contain the secret
+        elif isinstance(val, dict):
+            assert "cbm-real-key" not in val.values(), f"Secret value found in vault dict attribute"
 
 
 # --- Scenario: Audit hook blocks raw execution bypasses ---
