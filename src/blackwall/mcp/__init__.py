@@ -15,7 +15,7 @@ from blackwall.mcp.gti_budget_tracker import GTIBudgetMetrics, GTIQueryBudgetTra
 from blackwall.mcp.gti_client import (
     GTIClient,
     GTIMCPClient,
-    GTIQueryBudgetTracker as GTIClientBudgetTracker,
+    GTIQueryBudgetTracker as AsyncGTIQueryBudgetTracker,
 )
 from blackwall.mcp.mcp_routing import (
     CodebaseMemoryRouter,
@@ -34,7 +34,7 @@ __all__ = [
     "GTIBudgetMetrics",
     "GTIQueryBudgetTracker",
     "GTIClient",
-    "GTIClientBudgetTracker",
+    "AsyncGTIQueryBudgetTracker",
     "GTIMCPClient",
     "CodebaseMemoryRouter",
     "GTIRouter",
