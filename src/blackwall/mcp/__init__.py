@@ -11,6 +11,7 @@ from blackwall.mcp.codebase_memory import (
     BlastRadiusIsolation,
     BlastRadiusReport,
 )
+from blackwall.mcp.gti_budget_tracker import GTIBudgetMetrics, GTIQueryBudgetTracker
 from blackwall.mcp.gti_client import GTIClient, GTIMCPClient
 from blackwall.mcp.mcp_routing import (
     CodebaseMemoryRouter,
@@ -26,6 +27,8 @@ __all__ = [
     "DataFlowPath",
     "BlastRadiusIsolation",
     "BlastRadiusReport",
+    "GTIBudgetMetrics",
+    "GTIQueryBudgetTracker",
     "GTIClient",
     "GTIMCPClient",
     "CodebaseMemoryRouter",
