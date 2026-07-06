@@ -72,8 +72,10 @@ class HybridPolicyServer:
         if len(contexts) != len(env_roles):
             raise ValueError("Mismatched contexts and environment roles lengths")
 
+        # Enforce a hardcoded 10-second evaluation timeout per item for the local MVP.
+        # asyncio.wait_for() raises TimeoutError and cancels the evaluation coroutine.
         tasks = [
-            self.evaluate(ctx, role)
+            asyncio.wait_for(self.evaluate(ctx, role), timeout=10.0)
             for ctx, role in zip(contexts, env_roles)
         ]
 

@@ -230,8 +230,12 @@ class BatchResolver:
                     # Ensure we conform to local rate limits
                     await self._acquire_rate_limit_token()
 
-                    # Execute submitToGeminiSync (API call only)
-                    response = await self.submit_to_gemini_sync(sanitized_contexts)
+                    # Execute submitToGeminiSync (API call only) with a hardcoded 30-second timeout for local MVP.
+                    # asyncio.wait_for() raises TimeoutError to the caller and cancels the wrapped coroutine.
+                    response = await asyncio.wait_for(
+                        self.submit_to_gemini_sync(sanitized_contexts),
+                        timeout=30.0
+                    )
 
                     # Post-response telemetry (best-effort, guarded)
                     latency_ms = (time.time() - start_time) * 1000.0
@@ -272,7 +276,7 @@ class BatchResolver:
                     try:
                         span.set_status(Status(StatusCode.OK))
                     except Exception:
-                        logger.debug("Failed to set span status", exc_info=True)
+                        logger.debug("Failed to log status", exc_info=True)
 
                     # Best-effort: attach span ID to callback tokens for correlation
                     try:
@@ -285,6 +289,12 @@ class BatchResolver:
                     return response
 
                 except (APIRateLimitException, Exception) as e:
+                    # Log critical error on timeout
+                    if isinstance(e, asyncio.TimeoutError):
+                        logger.critical(
+                            "Evaluation pipeline API call timed out (30-second limit exceeded). Auto-restarting pipeline execution."
+                        )
+
                     # Check if this exception is a rate limit error (status 429 or message)
                     err_msg = str(e).lower()
                     is_rate_limit = (
