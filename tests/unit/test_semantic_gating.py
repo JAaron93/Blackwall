@@ -398,3 +398,161 @@ async def test_threat_score_bounded_property(
         assert result.verdict == VerdictDecision.QUARANTINE
     else:
         assert result.verdict == VerdictDecision.ALLOW
+
+
+@pytest.mark.asyncio
+async def test_high_risk_event_classification(temp_repo):
+    from blackwall.policy.engine import StructuralGatingResult, StructuralAction
+    from blackwall.policy.semantic import extract_iocs
+    
+    engine = SemanticGatingEngine(repo=temp_repo)
+    
+    # Test case 1: Private IP -> Should NOT be high risk
+    ctx_private_ip = ToolCallContext(
+        tool_name="test_tool",
+        arguments={"ip": "127.0.0.1"}
+    )
+    iocs_private = extract_iocs(ctx_private_ip)
+    assert not await engine.is_high_risk(ctx_private_ip, iocs_private)
+    
+    # Test case 2: External IP (new) -> Should be high risk
+    ctx_external_ip = ToolCallContext(
+        tool_name="test_tool",
+        arguments={"ip": "8.8.8.8"}
+    )
+    iocs_external = extract_iocs(ctx_external_ip)
+    assert await engine.is_high_risk(ctx_external_ip, iocs_external)
+
+    # Test case 3: Structural gating escalated -> Should be high risk
+    ctx_escalated = ToolCallContext(
+        tool_name="test_tool",
+        arguments={}
+    )
+    struct_res = StructuralGatingResult(
+        decision=StructuralAction.ESCALATE_TO_SEMANTIC,
+        requireSemanticReview=True
+    )
+    assert await engine.is_high_risk(ctx_escalated, {}, structural_result=struct_res)
+
+
+@pytest.mark.asyncio
+async def test_suspicion_score_calculation(temp_repo):
+    from blackwall.policy.engine import StructuralGatingResult, StructuralAction
+    from blackwall.policy.semantic import extract_iocs
+    
+    engine = SemanticGatingEngine(repo=temp_repo)
+    
+    # Base/empty context
+    ctx_empty = ToolCallContext(tool_name="test_tool", arguments={})
+    score_empty = await engine.calculate_suspicion_score(ctx_empty, {})
+    assert score_empty == 0.0
+    
+    # External IP from high-risk country
+    ctx_hr_geo = ToolCallContext(
+        tool_name="test_tool",
+        arguments={"ip": "8.8.8.8"},
+        metadata={"country": "RU"}
+    )
+    iocs_hr = extract_iocs(ctx_hr_geo)
+    score_hr = await engine.calculate_suspicion_score(ctx_hr_geo, iocs_hr)
+    # Novelty (0.3) + Reputation (0.15) + Geolocation (0.2) = 0.65
+    assert abs(score_hr - 0.65) < 0.01
+
+    # Suspicious TLD (.xyz)
+    ctx_xyz = ToolCallContext(
+        tool_name="test_tool",
+        arguments={"domain": "malicious.xyz"}
+    )
+    iocs_xyz = extract_iocs(ctx_xyz)
+    score_xyz = await engine.calculate_suspicion_score(ctx_xyz, iocs_xyz)
+    # Novelty (0.3) + Reputation (0.2) = 0.5
+    assert abs(score_xyz - 0.5) < 0.01
+
+    # High entropy hash
+    ctx_hash = ToolCallContext(
+        tool_name="test_tool",
+        arguments={"file_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"}
+    )
+    iocs_hash = extract_iocs(ctx_hash)
+    score_hash = await engine.calculate_suspicion_score(ctx_hash, iocs_hash)
+    # Novelty (0.3) + Entropy (0.15) = 0.45
+    assert abs(score_hash - 0.45) < 0.01
+
+
+@pytest.mark.asyncio
+async def test_gti_query_budget_tracker_integration():
+    from blackwall.mcp.gti_client import GTIQueryBudgetTracker
+    import time
+    
+    tracker = GTIQueryBudgetTracker(capacity=4, replenishment_interval=0.1)
+    
+    # 4 queries should succeed
+    for _ in range(4):
+        assert await tracker.tryAcquire() is True
+        
+    # 5th query should fail (budget exhausted)
+    assert await tracker.tryAcquire() is False
+    assert await tracker.getAvailableTokens() == 0
+    
+    metrics = await tracker.getMetrics()
+    assert metrics["queriesAttempted"] == 5
+    assert metrics["queriesExecuted"] == 4
+    assert metrics["queriesDeferred"] == 1
+    assert metrics["budgetExhaustionCount"] == 1
+    
+    # Wait for replenishment (0.1s replenishment interval)
+    await asyncio.sleep(0.15)
+    assert await tracker.tryAcquire() is True
+
+
+@pytest.mark.asyncio
+async def test_gti_query_skipped_and_redistributed_on_budget_exhaustion(temp_repo):
+    from blackwall.mcp.gti_client import GTIQueryBudgetTracker
+    
+    # Mock GTI and CBM
+    mock_gti = MagicMock(spec=GTIMCPClient)
+    mock_gti.is_degraded.return_value = False
+    
+    mock_cbm = MagicMock(spec=CodebaseMemoryClient)
+    mock_cbm.get_threat_score_penalty.return_value = 0.0
+    mock_cbm.queryDependencyChain = AsyncMock(return_value=DependencyChain(
+        rootFunction="f", callChain=[], depth=1, hasCriticalSink=True, criticalSinks=[]
+    ))
+    mock_cbm.getBlastRadius = AsyncMock(return_value=BlastRadiusReport(
+        targetNode="f", affectedModules=[], affectedFunctions=[], riskScore=0.5, isolation=BlastRadiusIsolation.HIGH
+    ))
+    mock_cbm.identifyCriticalSinks = AsyncMock(return_value=[])
+    mock_cbm.identifyUnsafeSinks = lambda sinks: []
+
+    # Exhaust budget tracker
+    tracker = GTIQueryBudgetTracker(capacity=4)
+    for _ in range(4):
+        await tracker.tryAcquire()
+    assert await tracker.getAvailableTokens() == 0
+
+    engine = SemanticGatingEngine(
+        repo=temp_repo,
+        gti_client=mock_gti,
+        cbm_client=mock_cbm,
+        budget_tracker=tracker
+    )
+    
+    context = ToolCallContext(
+        tool_name="safe_tool",
+        arguments={"ip": "8.8.8.8", "targetFunction": "f"}
+    )
+    
+    result = await engine.evaluate(context, "sandbox")
+    
+    # GTI should not be queried
+    mock_gti.queryIOC.assert_not_called()
+    
+    # GTI penalty (0.2) must be applied
+    # Weights redistributed: CBM gets 50%, Context gets 50%
+    # Context score: 0.14
+    # CBM score: hasCriticalSink (0.4) + riskScore (0.3 * 0.5 = 0.15) = 0.55
+    # Base score = 0.5 * 0.55 + 0.5 * 0.14 = 0.275 + 0.07 = 0.345
+    # Total score = Base score (0.345) + Penalty (0.2) = 0.545
+    assert abs(result.threat_score - 0.545) < 0.01
+    assert result.verdict == VerdictDecision.QUARANTINE
+

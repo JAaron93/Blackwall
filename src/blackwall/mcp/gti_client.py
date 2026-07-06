@@ -51,16 +51,94 @@ class GTIDegradedError(Exception):
     pass
 
 
+class BudgetMetrics:
+    def __init__(self) -> None:
+        self.queriesAttempted = 0
+        self.queriesExecuted = 0
+        self.queriesDeferred = 0
+        self.cacheHits = 0
+        self.budgetExhaustionCount = 0
+        self.avgTokenReplenishmentInterval = 15.0
+
+
+class GTIQueryBudgetTracker:
+    """
+    Token bucket rate limiter managing 4 GTI queries per 60-second sliding window
+    to enforce VirusTotal free tier constraints with graceful degradation.
+    """
+
+    def __init__(
+        self,
+        capacity: int = 4,
+        replenishment_rate: float = 1.0,
+        replenishment_interval: float = 15.0,
+    ) -> None:
+        self.capacity = capacity
+        self.replenishment_rate = replenishment_rate
+        self.replenishment_interval = replenishment_interval
+        self.tokens = float(capacity)
+        self.last_refill = time.time()
+        self.lock = asyncio.Lock()
+        self.metrics = BudgetMetrics()
+
+    def _refill(self) -> None:
+        now = time.time()
+        elapsed = now - self.last_refill
+        if elapsed >= self.replenishment_interval:
+            added_tokens = int(elapsed / self.replenishment_interval) * self.replenishment_rate
+            if added_tokens > 0:
+                self.tokens = min(float(self.capacity), self.tokens + added_tokens)
+                self.last_refill = self.last_refill + (added_tokens / self.replenishment_rate) * self.replenishment_interval
+
+    async def tryAcquire(self) -> bool:
+        async with self.lock:
+            self.metrics.queriesAttempted += 1
+            self._refill()
+            if self.tokens >= 1.0:
+                self.tokens -= 1.0
+                self.metrics.queriesExecuted += 1
+                return True
+            else:
+                self.metrics.queriesDeferred += 1
+                self.metrics.budgetExhaustionCount += 1
+                return False
+
+    async def getAvailableTokens(self) -> int:
+        async with self.lock:
+            self._refill()
+            return int(self.tokens)
+
+    async def getMetrics(self) -> dict[str, Any]:
+        async with self.lock:
+            self._refill()
+            return {
+                "queriesAttempted": self.metrics.queriesAttempted,
+                "queriesExecuted": self.metrics.queriesExecuted,
+                "queriesDeferred": self.metrics.queriesDeferred,
+                "cacheHits": self.metrics.cacheHits,
+                "budgetExhaustionCount": self.metrics.budgetExhaustionCount,
+                "avgTokenReplenishmentInterval": self.replenishment_interval,
+            }
+
+    async def reset(self) -> None:
+        async with self.lock:
+            self.tokens = float(self.capacity)
+            self.last_refill = time.time()
+            self.metrics = BudgetMetrics()
+
+
 class GTIMCPClient:
     def __init__(
         self,
         repo: SQLiteThreatRepository,
         api_key: str = "",
         base_url: str = "https://www.virustotal.com/api/v3",
+        budget_tracker: GTIQueryBudgetTracker | None = None,
     ):
         self.repo = repo
         self.api_key = api_key
         self.base_url = base_url
+        self.budget_tracker = budget_tracker
         self.consecutive_failures = 0
         self.state = "CLOSED"  # CLOSED, OPEN (degraded), HALF-OPEN
         self.last_state_change = 0.0
@@ -79,7 +157,7 @@ class GTIMCPClient:
         return False
 
     async def queryIOC(
-        self, indicator: str, indicator_type: IndicatorType
+        self, indicator: str, indicator_type: IndicatorType, skip_budget_check: bool = False
     ) -> GTIResponse:
         """
         Queries the threat intelligence for an indicator with caching, timeout,
@@ -91,11 +169,18 @@ class GTIMCPClient:
         )
         if cached:
             logger.debug(f"GTI Cache hit for indicator: {indicator}")
+            if self.budget_tracker:
+                self.budget_tracker.metrics.cacheHits += 1
             return GTIResponse.model_validate(cached)
 
         # 2. Check circuit breaker state (only for live queries).
         if self.is_degraded():
             raise GTIDegradedError("GTI MCP Client is in degraded mode.")
+
+        # Check budget tracker before live query
+        if self.budget_tracker and not skip_budget_check:
+            if not await self.budget_tracker.tryAcquire():
+                raise GTIDegradedError("GTI query budget exhausted.")
 
         # 3. Perform external API query with 5-second timeout.
         try:
