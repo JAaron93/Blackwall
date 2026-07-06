@@ -482,33 +482,35 @@ async def test_suspicion_score_calculation(temp_repo):
 @pytest.mark.asyncio
 async def test_gti_query_budget_tracker_integration():
     from blackwall.mcp.gti_client import GTIQueryBudgetTracker
-    import time
     import asyncio
     
     tracker = GTIQueryBudgetTracker(capacity=4, replenishment_interval=0.1)
-    
-    # 4 queries should succeed
-    for _ in range(4):
-        assert await tracker.tryAcquire() is True
+    try:
+        # 4 queries should succeed
+        for _ in range(4):
+            assert await tracker.tryAcquire() is True
+            
+        # 5th query should fail (budget exhausted)
+        assert await tracker.tryAcquire() is False
+        assert await tracker.getAvailableTokens() == 0
         
-    # 5th query should fail (budget exhausted)
-    assert await tracker.tryAcquire() is False
-    assert await tracker.getAvailableTokens() == 0
-    
-    metrics = await tracker.getMetrics()
-    assert metrics["queriesAttempted"] == 5
-    assert metrics["queriesExecuted"] == 4
-    assert metrics["queriesDeferred"] == 1
-    assert metrics["budgetExhaustionCount"] == 1
-    
-    # Wait for replenishment (0.1s replenishment interval)
-    await asyncio.sleep(0.15)
-    assert await tracker.tryAcquire() is True
+        metrics = await tracker.getMetrics()
+        assert metrics["queriesAttempted"] == 5
+        assert metrics["queriesExecuted"] == 4
+        assert metrics["queriesDeferred"] == 1
+        assert metrics["budgetExhaustionCount"] == 1
+        
+        # Wait for replenishment (0.1s replenishment interval)
+        await asyncio.sleep(0.15)
+        assert await tracker.tryAcquire() is True
+    finally:
+        tracker.close()
 
 
 @pytest.mark.asyncio
 async def test_gti_query_skipped_and_redistributed_on_budget_exhaustion(temp_repo):
     from blackwall.mcp.gti_client import GTIQueryBudgetTracker
+    from blackwall.models import IndicatorType
     
     # Mock GTI and CBM
     mock_gti = MagicMock(spec=GTIMCPClient)
@@ -527,33 +529,223 @@ async def test_gti_query_skipped_and_redistributed_on_budget_exhaustion(temp_rep
 
     # Exhaust budget tracker
     tracker = GTIQueryBudgetTracker(capacity=4)
-    for _ in range(4):
-        await tracker.tryAcquire()
-    assert await tracker.getAvailableTokens() == 0
+    try:
+        for _ in range(4):
+            await tracker.tryAcquire()
+        assert await tracker.getAvailableTokens() == 0
 
-    engine = SemanticGatingEngine(
-        repo=temp_repo,
-        gti_client=mock_gti,
-        cbm_client=mock_cbm,
-        budget_tracker=tracker
-    )
-    
+        engine = SemanticGatingEngine(
+            repo=temp_repo,
+            gti_client=mock_gti,
+            cbm_client=mock_cbm,
+            budget_tracker=tracker
+        )
+        
+        context = ToolCallContext(
+            tool_name="safe_tool",
+            arguments={"ip": "8.8.8.8", "targetFunction": "f"}
+        )
+        
+        result = await engine.evaluate(context, "sandbox")
+        
+        # GTI should not be queried
+        mock_gti.queryIOC.assert_not_called()
+        
+        # GTI penalty (0.2) must be applied
+        # Weights redistributed: CBM gets 50%, Context gets 50%
+        # Context score: 0.14
+        # CBM score: hasCriticalSink (0.4) + riskScore (0.3 * 0.5 = 0.15) = 0.55
+        # Base score = 0.5 * 0.55 + 0.5 * 0.14 = 0.275 + 0.07 = 0.345
+        # Total score = Base score (0.345) + Penalty (0.2) = 0.545
+        assert abs(result.threat_score - 0.545) < 0.01
+        assert result.verdict == VerdictDecision.QUARANTINE
+    finally:
+        tracker.close()
+
+
+from blackwall.mcp.gti_client import GTIBudgetExhaustedError
+
+@pytest.mark.asyncio
+async def test_gti_budget_exhausted_penalty_applied(temp_repo):
+    # Setup mock GTI Client that raises GTIBudgetExhaustedError
+    mock_gti = MagicMock(spec=GTIMCPClient)
+    mock_gti.is_degraded.return_value = False
+    mock_gti.queryIOC = AsyncMock(side_effect=GTIBudgetExhaustedError("Budget exhausted"))
+
+    engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
     context = ToolCallContext(
         tool_name="safe_tool",
-        arguments={"ip": "8.8.8.8", "targetFunction": "f"}
+        arguments={"ip": "1.2.3.4"}
     )
-    
+
     result = await engine.evaluate(context, "sandbox")
-    
-    # GTI should not be queried
-    mock_gti.queryIOC.assert_not_called()
-    
-    # GTI penalty (0.2) must be applied
-    # Weights redistributed: CBM gets 50%, Context gets 50%
+    # GTI is budget exhausted, treated as unavailable (redistributed), gti_penalty=0.2 is applied.
+    # Base score (context 100% since CBM is also unavailable) = 0.14
+    # Final threat score = 0.14 + 0.2 = 0.34
+    assert abs(result.threat_score - 0.34) < 0.01
+    assert result.verdict == VerdictDecision.ALLOW
+
+
+@pytest.mark.asyncio
+async def test_weight_redistribution_on_budget_exhaustion(temp_repo):
+    # Setup mock GTI Client that raises GTIBudgetExhaustedError
+    mock_gti = MagicMock(spec=GTIMCPClient)
+    mock_gti.is_degraded.return_value = False
+    mock_gti.queryIOC = AsyncMock(side_effect=GTIBudgetExhaustedError("Budget exhausted"))
+
+    mock_cbm = MagicMock(spec=CodebaseMemoryClient)
+    mock_cbm.get_threat_score_penalty.return_value = 0.0
+    mock_cbm.queryDependencyChain = AsyncMock(return_value=DependencyChain(
+        rootFunction="ProcessOrder",
+        callChain=["ProcessOrder", "ExecuteSQL"],
+        depth=2,
+        hasCriticalSink=True,
+        criticalSinks=["ExecuteSQL"]
+    ))
+    mock_cbm.getBlastRadius = AsyncMock(return_value=BlastRadiusReport(
+        targetNode="ProcessOrder",
+        affectedModules=["src/db"],
+        affectedFunctions=["ProcessOrder"],
+        riskScore=0.8,
+        isolation=BlastRadiusIsolation.MEDIUM
+    ))
+    mock_cbm.identifyCriticalSinks = AsyncMock(return_value=[])
+    mock_cbm.identifyUnsafeSinks = lambda sinks: []
+
+    # CBM score: hasCriticalSink (0.4) + riskScore (0.3 * 0.8 = 0.24) = 0.64
     # Context score: 0.14
-    # CBM score: hasCriticalSink (0.4) + riskScore (0.3 * 0.5 = 0.15) = 0.55
-    # Base score = 0.5 * 0.55 + 0.5 * 0.14 = 0.275 + 0.07 = 0.345
-    # Total score = Base score (0.345) + Penalty (0.2) = 0.545
-    assert abs(result.threat_score - 0.545) < 0.01
-    assert result.verdict == VerdictDecision.QUARANTINE
+    # Since GTI is budget exhausted: CBM (50%), Context (50%) + penalty (0.2)
+    # Expected: 0.5 * 0.64 + 0.5 * 0.14 + 0.2 = 0.32 + 0.07 + 0.2 = 0.59
+    engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti, cbm_client=mock_cbm)
+    context = ToolCallContext(
+        tool_name="safe_tool",
+        arguments={"ip": "1.2.3.4", "targetFunction": "ProcessOrder"}
+    )
+    result = await engine.evaluate(context, "sandbox")
+    assert abs(result.threat_score - 0.59) < 0.01
+
+
+@pytest.mark.asyncio
+async def test_gti_partial_results_preserved_on_budget_exhaustion(temp_repo):
+    """
+    Regression test: When GTI budget is exhausted mid-evaluation after some IOCs
+    have been queried successfully, the partial GTI results should be preserved
+    and incorporated into the threat score, not discarded.
+    """
+    # Setup mock GTI Client: first call succeeds with malicious result, second call raises budget exhaustion
+    mock_gti = MagicMock(spec=GTIMCPClient)
+    mock_gti.is_degraded.return_value = False
+
+    malicious_response = GTIResponse(
+        indicator="1.2.3.4",
+        is_malicious=True,
+        threat_categories=["botnet", "c2"],
+        detection_rate=85.0,
+        confidence=0.9
+    )
+
+    # First queryIOC call succeeds, second raises budget exhausted
+    mock_gti.queryIOC = AsyncMock(side_effect=[
+        malicious_response,  # First IP query succeeds
+        GTIBudgetExhaustedError("Budget exhausted")  # Second URL query fails
+    ])
+
+    engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
+
+    # Context with two IOCs: IP and URL
+    context = ToolCallContext(
+        tool_name="safe_tool",
+        arguments={"ip": "1.2.3.4", "url": "http://evil.example.com/malware"}
+    )
+
+    result = await engine.evaluate(context, "sandbox")
+
+    # GTI score from first (successful) query:
+    # is_malicious (0.5) + detection_rate (0.3 * 0.85 = 0.255) + categories (0.2) = 0.955, capped to 1.0
+    # Since we have partial GTI results, GTI should NOT be treated as unavailable
+    # Weights: GTI (40% / 70% = 57.14%), Context (30% / 70% = 42.86%)
+    # Context score: 0.14
+    # Base score: 0.5714 * 0.955 + 0.4286 * 0.14 = 0.5457 + 0.06 = 0.6057
+    # With gti_penalty (0.2): 0.6057 + 0.2 = 0.8057
+    # Expected threat score should be >= 0.75 (BLOCK threshold)
+
+    assert result.threat_score >= 0.75, f"Expected threat score >= 0.75, got {result.threat_score}"
+    assert result.verdict == VerdictDecision.BLOCK
+
+    # Verify that queryIOC was called twice (once successfully, once with budget exhaustion)
+    assert mock_gti.queryIOC.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_gti_budget_exhaustion_does_not_skip_cached_iocs(temp_repo):
+    """
+    Regression test for Issue 2: When GTI budget is exhausted on an early IOC lookup,
+    subsequent IOC types (especially cached ones like domains/hashes) should still be
+    queried and detected, not skipped due to the exception.
+    """
+    # Pre-cache a malicious domain in the repository
+    malicious_domain_response = {
+        "indicator": "evil.example.com",
+        "is_malicious": True,
+        "threat_categories": ["malware", "phishing"],
+        "detection_rate": 90.0,
+        "last_analysis_date": "2024-01-01T00:00:00Z",
+        "related_campaigns": ["campaign-xyz"],
+        "confidence": 0.95
+    }
+    await temp_repo.cache_gti_response(
+        indicator="evil.example.com",
+        indicator_type="domain",
+        response=malicious_domain_response
+    )
+
+    # Setup mock GTI Client: first IP query raises budget exhaustion
+    mock_gti = MagicMock(spec=GTIMCPClient)
+    mock_gti.is_degraded.return_value = False
+    mock_gti.repo = temp_repo
+
+    # First queryIOC call (IP) raises budget exhaustion
+    # Second queryIOC call (domain) should succeed from cache
+    mock_gti.queryIOC = AsyncMock(side_effect=[
+        GTIBudgetExhaustedError("Budget exhausted"),  # IP query fails
+    ])
+
+    # Override queryIOC to handle cache lookups properly for the domain
+    async def mock_query_ioc(indicator, indicator_type, context=None, skip_budget_check=False):
+        if indicator == "evil.example.com":
+            # Simulate cache hit by returning the cached response
+            return GTIResponse(
+                indicator="evil.example.com",
+                is_malicious=True,
+                threat_categories=["malware", "phishing"],
+                detection_rate=90.0,
+                confidence=0.95
+            )
+        raise GTIBudgetExhaustedError("Budget exhausted")
+
+    mock_gti.queryIOC = AsyncMock(side_effect=mock_query_ioc)
+
+    engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
+
+    # Context with IP (will fail) and domain (should succeed from cache)
+    context = ToolCallContext(
+        tool_name="safe_tool",
+        arguments={"ip": "1.2.3.4", "domain": "evil.example.com"}
+    )
+
+    result = await engine.evaluate(context, "sandbox")
+
+    # Despite budget exhaustion on IP, the cached domain should be detected
+    # GTI score from domain: is_malicious (0.5) + detection_rate (0.3 * 0.9 = 0.27) + categories (0.2) = 0.97
+    # Weights: GTI (57.14%), Context (42.86%)
+    # Context score: 0.14
+    # Base score: 0.5714 * 0.97 + 0.4286 * 0.14 = 0.5542 + 0.06 = 0.6142
+    # With gti_penalty (0.2): 0.6142 + 0.2 = 0.8142
+    # Expected threat score should be >= 0.75 (BLOCK threshold)
+
+    assert result.threat_score >= 0.75, f"Expected threat score >= 0.75 for cached malicious domain, got {result.threat_score}"
+    assert result.verdict == VerdictDecision.BLOCK
+
+    # Verify that queryIOC was called for both IP and domain
+    assert mock_gti.queryIOC.call_count == 2
 
