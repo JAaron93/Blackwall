@@ -23,6 +23,13 @@ def setup_logging(log_level: int = logging.INFO) -> None:
             if event in {"os.system", "os.posix_spawn"} or event.startswith(
                 ("os.exec", "os.spawn", "subprocess.", "pty.")
             ):
+                logger = structlog.get_logger("blackwall.audit")
+                logger.error(
+                    "CRITICAL: Raw execution bypass attempt detected via audit hook",
+                    audit_event=event,
+                    arguments=args,
+                    severity="CRITICAL",
+                )
                 raise PermissionError(
                     f"Operation not permitted: raw execution bypass via {event}"
                 )
