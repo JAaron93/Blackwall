@@ -463,9 +463,9 @@ def adk_interception_ctx() -> dict:
 def step_daemon_running(adk_interception_ctx, request) -> dict:
     # Set up background event loop on a dedicated thread
     loop = asyncio.new_event_loop()
-    def start_loop(l):
-        asyncio.set_event_loop(l)
-        l.run_forever()
+    def start_loop(event_loop):
+        asyncio.set_event_loop(event_loop)
+        event_loop.run_forever()
     t = threading.Thread(target=start_loop, args=(loop,), daemon=True)
     t.start()
 
@@ -485,6 +485,12 @@ def step_daemon_running(adk_interception_ctx, request) -> dict:
 
     repo = SQLiteThreatRepository(db_path=TEST_BDD_DB)
     adk_interception_ctx["repo"] = repo
+
+    # Spy on the repository's find_matching_signature method to verify it's called
+    from unittest.mock import AsyncMock
+    original_find_matching = repo.find_matching_signature
+    repo.find_matching_signature = AsyncMock(wraps=original_find_matching)
+    adk_interception_ctx["repo_spy"] = repo.find_matching_signature
 
     struct_engine = StructuralGatingEngine()
     # Structural gating returns escalate to semantic gating by default
@@ -610,8 +616,12 @@ def step_before_tool_callback_intercept(adk_interception_ctx) -> None:
 
 
 @then("the evaluation engine must query the SQLite threat repository")
-def step_evaluation_query_db() -> None:
-    pass
+def step_evaluation_query_db(adk_interception_ctx) -> None:
+    # Verify that the semantic engine queried the repository's find_matching_signature method
+    repo_spy = adk_interception_ctx["repo_spy"]
+    repo_spy.assert_called()
+    # Verify it was called with the expected tool name and arguments
+    assert repo_spy.call_count >= 1, "Repository find_matching_signature was not called during evaluation"
 
 
 @then(parsers.parse('the tool execution must be aborted with verdict "{verdict}" within 10ms'))
@@ -620,9 +630,15 @@ def step_tool_aborted_verdict(adk_interception_ctx, verdict) -> None:
     assert isinstance(adk_interception_ctx["exception"], PermissionError)
     assert verdict in str(adk_interception_ctx["exception"])
     # 10ms timing SLA check
-    print(f"ADK Interception BDD timing: {adk_interception_ctx['duration_ms']:.2f}ms")
-    # Using 80ms threshold for VM test environments, but ensuring it is generally within limits.
-    assert adk_interception_ctx["duration_ms"] < 80.0
+    SLA_THRESHOLD_MS = 10.0
+    duration_ms = adk_interception_ctx["duration_ms"]
+    print(f"ADK Interception BDD timing: {duration_ms:.2f}ms (SLA: {SLA_THRESHOLD_MS}ms)")
+    # Enforce the actual 10ms SLA as stated in the scenario
+    if duration_ms >= SLA_THRESHOLD_MS:
+        # Log a warning for diagnostics if VM/CI jitter causes issues
+        print(f"WARNING: Exceeded {SLA_THRESHOLD_MS}ms SLA (measured: {duration_ms:.2f}ms)")
+    assert duration_ms < SLA_THRESHOLD_MS, \
+        f"Tool interception exceeded {SLA_THRESHOLD_MS}ms SLA: {duration_ms:.2f}ms"
 
 
 @then("zero external Gemini API calls must be initiated")

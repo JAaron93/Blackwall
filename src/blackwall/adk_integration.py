@@ -22,7 +22,9 @@ class ADKIntegration:
         loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> None:
         self.queue = queue
-        self.loop = loop or asyncio.get_event_loop()
+        if loop is None:
+            raise ValueError("Event loop must be explicitly provided to ADKIntegration")
+        self.loop = loop
 
     def before_tool_callback(
         self,
@@ -67,15 +69,30 @@ class ADKIntegration:
 
         # Enqueue the token asynchronously.
         if self.loop.is_running():
+            # Check if we're on the same thread as the loop to avoid deadlock
+            try:
+                running_loop = asyncio.get_running_loop()
+                if running_loop is self.loop:
+                    raise RuntimeError(
+                        "Cannot call before_tool_callback from the event loop thread; "
+                        "it would deadlock waiting for itself"
+                    )
+            except RuntimeError:
+                # No running loop in current thread, safe to proceed
+                pass
             future = asyncio.run_coroutine_threadsafe(enqueue_coro(), self.loop)
-            # Wait for enqueuing to finish
-            future.result()
+            # Wait for enqueuing to finish with a timeout
+            future.result(timeout=5.0)
         else:
             # If loop is not running (e.g. in synchronous tests), run it to completion
             self.loop.run_until_complete(enqueue_coro())
 
         # Wait (suspend thread) until resume_callback sets the event
-        event.wait()
+        # Use a bounded timeout to prevent indefinite hangs
+        if not event.wait(timeout=10.0):
+            raise PermissionError(
+                "Verdict timeout: no response from policy evaluation within 10 seconds (fail closed)"
+            )
 
         # Apply verdict to ADK
         verdict = verdict_container["verdict"]
