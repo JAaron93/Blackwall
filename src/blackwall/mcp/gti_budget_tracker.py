@@ -160,13 +160,15 @@ class GTIQueryBudgetTracker:
         if self._tokens > 0:
             self._tokens -= 1
             self._queries_executed += 1
+            # Increment exhaustion counter only on transition from non-zero to zero
+            if self._tokens == 0:
+                self._budget_exhaustion_count += 1
             logger.debug(
                 "GTI token acquired. remaining_tokens=%d", self._tokens
             )
             return True
         else:
             self._queries_deferred += 1
-            self._budget_exhaustion_count += 1
             logger.info(
                 "GTI budget exhausted. queries_deferred=%d", self._queries_deferred
             )
@@ -188,13 +190,15 @@ class GTIQueryBudgetTracker:
             if self._tokens > 0:
                 self._tokens -= 1
                 self._queries_executed += 1
+                # Increment exhaustion counter only on transition from non-zero to zero
+                if self._tokens == 0:
+                    self._budget_exhaustion_count += 1
                 logger.debug(
                     "GTI token acquired (async). remaining_tokens=%d", self._tokens
                 )
                 return True
             else:
                 self._queries_deferred += 1
-                self._budget_exhaustion_count += 1
                 logger.info(
                     "GTI budget exhausted (async). queries_deferred=%d",
                     self._queries_deferred,

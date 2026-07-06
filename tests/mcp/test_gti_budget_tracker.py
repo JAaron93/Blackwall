@@ -149,3 +149,97 @@ async def test_reset():
     assert metrics.queries_deferred == 0
     assert metrics.cache_hits == 0
     assert metrics.budget_exhaustion_count == 0
+
+@pytest.mark.asyncio
+async def test_budget_exhaustion_count_increments_only_on_transition_to_zero_sync():
+    """Verify that budget_exhaustion_count only increments when bucket transitions to zero.
+
+    Multiple failed acquire attempts while the bucket is already empty should NOT
+    increment the counter further - only the transition from non-zero to zero counts.
+    """
+    tracker = GTIQueryBudgetTracker()
+
+    # Consume all 4 tokens - the 4th consume should trigger exhaustion counter
+    for i in range(4):
+        assert tracker.tryAcquire() is True
+
+    metrics = tracker.getMetrics()
+    assert metrics.queries_executed == 4
+    assert metrics.queries_deferred == 0
+    assert metrics.budget_exhaustion_count == 1  # Incremented when last token was consumed
+
+    # Now make multiple failed attempts while bucket is empty
+    for i in range(5):
+        assert tracker.tryAcquire() is False
+
+    metrics = tracker.getMetrics()
+    assert metrics.queries_attempted == 9  # 4 successful + 5 failed
+    assert metrics.queries_executed == 4
+    assert metrics.queries_deferred == 5
+    assert metrics.budget_exhaustion_count == 1  # Still 1! Not incremented on failures
+
+@pytest.mark.asyncio
+async def test_budget_exhaustion_count_increments_only_on_transition_to_zero_async():
+    """Verify that budget_exhaustion_count only increments on transition to zero (async variant).
+
+    Tests the same behavior as the sync test but using async_try_acquire().
+    """
+    tracker = GTIQueryBudgetTracker()
+
+    # Consume all 4 tokens - the 4th consume should trigger exhaustion counter
+    for i in range(4):
+        assert await tracker.async_try_acquire() is True
+
+    metrics = tracker.getMetrics()
+    assert metrics.queries_executed == 4
+    assert metrics.queries_deferred == 0
+    assert metrics.budget_exhaustion_count == 1  # Incremented when last token was consumed
+
+    # Now make multiple failed attempts while bucket is empty
+    for i in range(5):
+        assert await tracker.async_try_acquire() is False
+
+    metrics = tracker.getMetrics()
+    assert metrics.queries_attempted == 9  # 4 successful + 5 failed
+    assert metrics.queries_executed == 4
+    assert metrics.queries_deferred == 5
+    assert metrics.budget_exhaustion_count == 1  # Still 1! Not incremented on failures
+
+@pytest.mark.asyncio
+async def test_budget_exhaustion_count_multiple_cycles():
+    """Verify exhaustion counter increments correctly across multiple exhaust-refill cycles."""
+    tracker = GTIQueryBudgetTracker(capacity=4, replenishment_interval=0.05)
+    await tracker.start()
+
+    try:
+        # First cycle: exhaust the bucket
+        for _ in range(4):
+            assert tracker.tryAcquire() is True
+        metrics = tracker.getMetrics()
+        assert metrics.budget_exhaustion_count == 1
+
+        # Multiple failed attempts should not increment
+        assert tracker.tryAcquire() is False
+        assert tracker.tryAcquire() is False
+        metrics = tracker.getMetrics()
+        assert metrics.budget_exhaustion_count == 1  # Still 1
+
+        # Wait for replenishment
+        await asyncio.sleep(0.1)
+        assert tracker.getAvailableTokens() >= 1
+
+        # Second cycle: exhaust again
+        while tracker.tryAcquire():
+            pass
+
+        metrics = tracker.getMetrics()
+        assert metrics.budget_exhaustion_count == 2  # Now 2 (second transition)
+
+        # More failed attempts should not increment
+        assert tracker.tryAcquire() is False
+        assert tracker.tryAcquire() is False
+        metrics = tracker.getMetrics()
+        assert metrics.budget_exhaustion_count == 2  # Still 2
+
+    finally:
+        await tracker.stop()
