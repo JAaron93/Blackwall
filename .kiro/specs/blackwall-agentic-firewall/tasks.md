@@ -490,11 +490,11 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
     - Use semantic gating reason field to extract LLM-derived intent summary
     - Generalize payload patterns: replace specific values (IPs, paths) with typed placeholders
     - **NO REDUNDANT CBM QUERY:** Read dependency chain from SecurityEvent.cbmResponse if present (populated upstream by Hybrid_Policy_Server during evaluation); do NOT issue a new Codebase_Memory_MCP query
-    - Generate 384-dimensional embedding vector using sentence-transformers model
-    - Combine attacker intent + generalized payload + tool name for embedding
+    - Generate 768-dimensional embedding vector using Gemini Embedding API (`gemini-embedding-001`)
+    - Combine attacker intent + generalized payload + tool name for embedding input text
     - Determine mitigation action based on critical sinks and GTI threat categories
     - Create ThreatSignature with all required fields and metadata
-    - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 5.9, 17.1, 17.2, 17.10, 24.1, 24.2_
+    - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 5.9, 17.1, 17.2, 17.10, 27.1, 27.2_
 
   - [x] 11.2 Implement Green Team auto-refactoring for QUARANTINE verdicts
     - Implement triggerRefactoring() analyzing quarantined code paths
@@ -518,7 +518,7 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
     - Test signature generation from BLOCK verdict event
     - Test payload generalization (IPs → [[IP_ADDRESS]], paths → [[FILE_PATH]])
     - Test attacker intent extraction from semantic gating reason
-    - Test embedding vector generation (384 dimensions)
+    - Test embedding vector generation (768 dimensions, via Gemini Embedding API)
     - Test mitigationAction determination based on signals
     - Test behavioral drift detection with tolerance band ±0.5
     - Test Green Team refactoring hint generation for SQL injection
@@ -717,8 +717,8 @@ The architecture was designed event-driven from the start — all async analysis
     - Test bypass attempts logged as high-severity events
     - _Requirements: 1.1, 1.2, 1.6, 10.6, 10.7, 10.8, 16.1, 16.2_
 
-- [ ] 15. Implement evaluation metrics calculator for FRR and Evasion Rate
-  - [ ] 15.1 Create SecurityMetrics calculator with ground truth validation
+- [x] 15. Implement evaluation metrics calculator for FRR and Evasion Rate
+  - [x] 15.1 Create SecurityMetrics calculator with ground truth validation
     - Implement calculateMetrics() accepting TestResult array and GroundTruthLabel array
     - Validate input arrays have matching sizes
     - **EMPTY SUITE GUARD:** If test suite is empty, return zero metrics without division
@@ -737,13 +737,13 @@ The architecture was designed event-driven from the start — all async analysis
     - Export metrics to JSON with keys: false_refusal_rate, evasion_rate, accuracy, precision, recall, f1_score, quarantine_count
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8, 9.9, 9.10, 9.11, 9.12, 9.13, 9.14, 9.15_
 
-  - [ ] 15.2 Test metrics sum validation property
+  - [x] 15.2 Test metrics sum validation property
     - **Property 8: Evaluation Metrics Partition Invariant**
     - **Validates: Requirements 9.1, 9.10**
     - Generate random TestResult and GroundTruthLabel arrays using hypothesis
 
-- [ ] 16. Implement Zero Ambient Authority and JIT token downscoping
-  - [ ] 16.1 Create privilege management and credential handling system
+- [x] 16. Implement Zero Ambient Authority and JIT token downscoping
+  - [x] 16.1 Create privilege management and credential handling system
     - Drop OS privileges for Blackwall agent process (run as unprivileged user)
     - Implement JIT (Just-In-Time) token downscoping per intercepted tool call
     - Fetch temporary scoped credentials from secure vault on-demand
@@ -752,7 +752,7 @@ The architecture was designed event-driven from the start — all async analysis
     - Implement credential vault integration (HashiCorp Vault or local encrypted store)
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5_
 
-  - [ ] 16.2 Write security tests for Zero Ambient Authority
+  - [x] 16.2 Write security tests for Zero Ambient Authority
     - Test Blackwall process runs as unprivileged user (UID check)
     - Test temporary credentials are revoked after tool execution
     - Test no long-lived keys found in memory dump simulation
@@ -760,8 +760,8 @@ The architecture was designed event-driven from the start — all async analysis
     - Test credentials fetched on-demand from vault
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.6, 10.7_
 
-- [ ] 17. Implement error handling, circuit breakers, and resilience
-  - [ ] 17.1 Create comprehensive error handling with graceful degradation
+- [x] 17. Implement error handling, circuit breakers, and resilience
+  - [x] 17.1 Create comprehensive error handling with graceful degradation
     - GTI circuit breaker implementation (already in task 7.1)
     - SQLite write retry with exponential backoff (already in TASK-DB-01)
     - In-memory buffer for failed signature writes (already in TASK-DB-01)
@@ -773,7 +773,7 @@ The architecture was designed event-driven from the start — all async analysis
     - Log all error recovery actions with severity levels
     - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7, 12.8, 12.10, 12.11, 12.12_
 
-  - [ ] 17.2 Write resilience and failure mode tests
+  - [x] 17.2 Write resilience and failure mode tests
     - Test SQLite retry logic on transient lock errors
     - Test in-memory buffer overflow handling (drop oldest entries)
     - **FAIL-CLOSED:** Test emergency fallback on 10-second evaluation timeout returns QUARANTINE (not ALLOW)
@@ -792,31 +792,36 @@ The architecture was designed event-driven from the start — all async analysis
   - Verify CPU usage < 50% on 2-core VM during sustained 300 RPM load
   - Ask the user if questions arise
 
-- [ ] 19. Implement embedding model management with fallback strategies
-  - [ ] 19.1 Create embedding model lifecycle with degraded mode fallback
-    - Load Sentence Transformers model on startup (384-dimensional vectors)
-    - Cache model in memory for fast inference
-    - Implement fallback to FTS5 full-text search on model failure
-    - Reduce similarity threshold to 0.7 in degraded mode
-    - Log all queries using FTS5 fallback
-    - Implement background job to regenerate vectors when model restored
-    - Validate all vectors have exactly 384 dimensions
-    - Exclude signatures with inconsistent dimensionality from queries
-    - _Requirements: 24.1, 24.2, 24.3, 24.4, 24.5, 24.6, 24.7, 24.8, 24.9, 24.10_
+- [ ] 19. Implement Gemini Embedding API client for similarity vector generation
+  - [ ] 19.1 Create GeminiEmbeddingClient with async call and FTS5 fallback
+    - Implement `embed(text: str) -> list[float]` using `gemini-embedding-001` model
+    - Pass `output_dimensionality=768` and `task_type="SEMANTIC_SIMILARITY"` in every request
+    - Reuse the existing paid-tier Gemini API key (no separate credential)
+    - Apply 5-second timeout using asyncio.wait_for() on every embedding call
+    - On timeout or API error: store signature without vector blob, fall back to FTS5 search for that signature
+    - When falling back to FTS5, reduce similarity threshold from 0.85 to 0.7 for affected queries
+    - Log every FTS5 fallback with signature_id, error type, and timestamp
+    - Validate all stored vectors have exactly 768 floats before executing cosine similarity
+    - Exclude signatures with incorrect dimensionality from vector queries and log a warning with the signature_id
+    - Embedding is called exclusively from the async Tier 3 webhook processing flow — never in the synchronous interception path
+    - _Requirements: 27.1, 27.2, 27.3, 27.4, 27.5, 27.6, 27.7, 27.8, 27.9, 27.10_
 
-  - [ ] 19.2 Write unit tests for embedding model management
-    - Test model loads successfully on startup
-    - Test degraded mode switches to FTS5 on model crash
-    - Test similarity threshold reduces to 0.7 in degraded mode
-    - Test vector regeneration background job
-    - Test dimension consistency validation (384 floats)
-    - Test exclusion of inconsistent vectors from queries
-    - _Requirements: 24.1, 24.2, 24.3, 24.4, 24.5, 24.9, 24.10_
+  - [ ] 19.2 Write unit tests for GeminiEmbeddingClient
+    - Test successful embedding call returns list of exactly 768 floats
+    - Test output_dimensionality=768 and task_type="SEMANTIC_SIMILARITY" sent in every request
+    - Test 5-second timeout triggers FTS5 fallback path
+    - Test API error (non-200) triggers FTS5 fallback path
+    - Test FTS5 fallback reduces threshold to 0.7 for the affected signature
+    - Test fallback is logged with signature_id and reason
+    - Test dimension validation rejects stored blobs that are not 768 floats
+    - Test inconsistent-dimension signatures excluded from cosine similarity queries
+    - Mock Gemini Embedding API responses for deterministic testing
+    - _Requirements: 27.1, 27.2, 27.4, 27.5, 27.6, 27.7, 27.8, 27.9, 27.10_
 
 ### TASK-PERF-01: Build Graph LFU/TTL Eviction Routine
 
 **Priority:** MEDIUM
-**Dependencies:** TASK-DB-01, Task 19 (Embedding Model)
+**Dependencies:** TASK-DB-01, Task 19 (Gemini Embedding Client)
 **Estimated Effort:** 2-3 days
 
 **Description:**
@@ -998,7 +1003,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
   - [ ] 25.1 Integrate signature generation into live interception pipeline
     - Wire ABA.generateSignature() to fire after every BLOCK verdict in the pipeline
     - Wire ABA.triggerRefactoring() to fire after every QUARANTINE verdict
-    - Confirm ThreatSignature written to TSG with correct embedding and metadata
+    - Confirm ThreatSignature written to TSG with correct 768-dimensional embedding vector and metadata
     - Confirm OpenTelemetry span records signature creation event
     - Confirm SecurityEvent logged with eventType=SIGNATURE_CREATED and verdict=None
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.12, 11.1_
@@ -1013,7 +1018,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
 
   - [ ] 25.3 Write end-to-end integration tests for self-learning loop
     - Test full pipeline: intercept → evaluate → block → generate signature → block similar
-    - Test signature embedding generated correctly from BLOCK event fields
+    - Test signature 768-dimensional embedding generated correctly from BLOCK event fields via Gemini Embedding API
     - Test second attack matches with similarity >= 0.85
     - Test signature match_count increments on repeated attack patterns
     - Test QUARANTINE events trigger Green Team refactoring hints

@@ -1,19 +1,14 @@
 import os
 import asyncio
-from datetime import datetime, timezone
 from typing import AsyncGenerator
 import pytest
 import pytest_asyncio
-from uuid import UUID, uuid4
 
 from blackwall.models import (
-    BehaviorScore,
     EventType,
     GTIResponse,
     CBMResponse,
-    RefactoringHint,
     SecurityEvent,
-    ThreatSignature,
     ToolCallContext,
     Verdict,
     VerdictDecision,

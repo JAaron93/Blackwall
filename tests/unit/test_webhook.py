@@ -2,14 +2,13 @@ import asyncio
 import hashlib
 import hmac
 import json
-import time
 import os
+import tempfile
+import time
 import uuid
-from typing import Any, Dict
 
 import pytest
 from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
-from aiohttp import web
 
 from blackwall.api.webhook_listener import WebhookListener
 from blackwall.db.repository import SQLiteThreatRepository
@@ -19,8 +18,6 @@ SECRET = "test_secret_key"
 @pytest.fixture(autouse=True)
 def setup_env(monkeypatch):
     monkeypatch.setenv("BLACKWALL_WEBHOOK_SECRET", SECRET)
-
-import tempfile
 
 class TestWebhookListener(AioHTTPTestCase):
 

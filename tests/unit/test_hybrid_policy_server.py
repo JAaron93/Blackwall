@@ -1,10 +1,10 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from hypothesis import given, strategies as st, settings
 
-from blackwall.models import ToolCallContext, Verdict, VerdictDecision, PolicyServerState
+from blackwall.models import ToolCallContext, VerdictDecision, PolicyServerState
 from blackwall.policy import HybridPolicyServer, StructuralGatingEngine, SemanticGatingEngine
 from blackwall.policy.engine import StructuralGatingResult, StructuralAction
 from blackwall.policy.models import GateResult, PolicyConfig

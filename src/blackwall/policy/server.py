@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime, timezone
 import structlog
-from typing import List, Optional
+from typing import List
 
 from blackwall.models import ToolCallContext, Verdict, VerdictDecision, PolicyServerState
 from blackwall.policy.engine import StructuralGatingEngine, StructuralAction

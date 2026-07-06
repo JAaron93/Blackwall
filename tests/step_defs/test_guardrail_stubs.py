@@ -15,17 +15,7 @@ scenario is fully implemented in test_guardrails.py and is not stubbed here.
 import pytest
 from pytest_bdd import scenario
 
-# ---------------------------------------------------------------------------
-# Feature: ADK Tool Execution Interception
-# ---------------------------------------------------------------------------
-
-_ADK = "../features/adk_interception.feature"
-
-
-@pytest.mark.xfail(reason="Step definitions not yet implemented", strict=False)
-@scenario(_ADK, "Blocking a known malicious tool payload via local SQLite graph")
-def test_blocking_known_malicious_payload() -> None:  # pragma: no cover
-    """Stub — pending full step implementation."""
+# ADK interception scenario has been moved to test_guardrails.py
 
 
 # ---------------------------------------------------------------------------

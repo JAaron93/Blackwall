@@ -385,7 +385,6 @@ class AgentBehavioralAnalytics:
                     if len(lines) > 2:
                         output_text = "\n".join(lines[1:-1])
                 data = json.loads(output_text)
-                suggestion_desc = str(data["suggestion"])
                 confidence = float(data["confidence"])
                 vulnerability_type = str(data["vulnerability_type"])
                 suggested_fix = str(data["suggested_fix"])
