@@ -607,9 +607,12 @@ def step_before_tool_callback_intercept(adk_interception_ctx) -> None:
             hook_duration_ms = (time.perf_counter() - t_start) * 1000.0
             result_container["done"] = True
 
-    t = threading.Thread(target=run_hook)
+    t = threading.Thread(target=run_hook, daemon=True)
     t.start()
-    t.join(timeout=3)
+    t.join(timeout=3.0)
+
+    if not result_container["done"]:
+        raise TimeoutError("before_tool_callback execution timed out or hung after 3 seconds")
 
     adk_interception_ctx["duration_ms"] = hook_duration_ms
     adk_interception_ctx["result"] = result_container["result"]
