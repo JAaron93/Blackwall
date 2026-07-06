@@ -6,7 +6,9 @@ import uuid
 import time
 from .pool import AsyncConnectionPool
 
-logger = logging.getLogger(__name__)
+import structlog
+
+logger = structlog.get_logger("blackwall.db.repository")
 
 
 class SQLiteThreatRepository:
@@ -359,8 +361,163 @@ class SQLiteThreatRepository:
                 (int(time.time()), signature_id),
             )
 
-    async def find_matching_signature(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    async def querySimilarSignatures(
+        self,
+        query_text: str,
+        query_vector: Optional[List[float]] = None,
+        threshold: float = 0.85
+    ) -> List[Dict[str, Any]]:
+        """
+        Computes cosine similarity between query_vector and stored signatures.
+        Falls back to FTS5 full-text search if the signature lacks a vector or if
+        no query_vector is provided.
+        """
         await self.initialize()
+        matches = []
+
+        async with self.pool.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
+                "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
+                "false_positive_count, similarity_vector, metadata FROM signatures"
+            )
+            rows = await cursor.fetchall()
+
+            for row in rows:
+                (
+                    sig_id, created_at, last_matched_at, attacker_intent, payload_pattern,
+                    target_tool, target_sink, dependency_chain, mitigation_action, match_count,
+                    false_positive_count, similarity_vector, metadata
+                ) = row
+
+                # Check vector dimension validation
+                is_valid_vector = False
+                vector_floats = None
+
+                if similarity_vector is not None:
+                    try:
+                        import array
+                        arr = array.array("f")
+                        arr.frombytes(similarity_vector)
+                        vector_floats = arr.tolist()
+
+                        if len(vector_floats) == 768:
+                            is_valid_vector = True
+                        else:
+                            # Exclude signatures with inconsistent-dimension signatures from cosine similarity queries
+                            # and log a warning identifying the signature_id
+                            logger.warning(
+                                f"Excluding signature {sig_id} from vector similarity query due to incorrect vector dimension {len(vector_floats)}",
+                                signature_id=sig_id,
+                                dimension=len(vector_floats)
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            f"Excluding signature {sig_id} from vector similarity query due to error decoding vector: {e}",
+                            signature_id=sig_id,
+                            error=str(e)
+                        )
+
+                if similarity_vector is not None and not is_valid_vector:
+                    continue
+
+                # Determine matching approach
+                similarity_score = 0.0
+                used_fts5 = False
+                fallback_reason = ""
+
+                if query_vector is not None and is_valid_vector:
+                    # Perform cosine similarity
+                    import math
+                    dot_product = sum(x * y for x, y in zip(query_vector, vector_floats))
+                    norm_q = math.sqrt(sum(x * x for x in query_vector))
+                    norm_s = math.sqrt(sum(x * x for x in vector_floats))
+                    if norm_q > 0.0 and norm_s > 0.0:
+                        similarity_score = dot_product / (norm_q * norm_s)
+                    else:
+                        similarity_score = 0.0
+                else:
+                    # Fall back to FTS5
+                    used_fts5 = True
+                    if not is_valid_vector:
+                        fallback_reason = "missing or invalid vector"
+                    else:
+                        fallback_reason = "missing query vector"
+
+                if used_fts5:
+                    # Perform FTS5 match
+                    # Clean the query text to be FTS5 safe (alphanumeric words separated by OR)
+                    import re
+                    words = re.findall(r"\w+", query_text)
+                    if words:
+                        fts_query = " OR ".join(words)
+                        fts_cursor = await conn.execute(
+                            "SELECT 1 FROM signature_fts WHERE signature_id = ? AND signature_fts MATCH ?",
+                            (sig_id, fts_query)
+                        )
+                        fts_row = await fts_cursor.fetchone()
+                        if fts_row is not None:
+                            similarity_score = 0.75  # Pass the reduced threshold of 0.7
+
+                    # Reduce similarity threshold from 0.85 to 0.7 for affected queries
+                    current_threshold = 0.7
+                    # Log every FTS5 fallback with signature_id, error type/reason, and timestamp
+                    logger.warning(
+                        "FTS5 fallback triggered for signature similarity match",
+                        signature_id=sig_id,
+                        reason=fallback_reason,
+                        timestamp=int(time.time())
+                    )
+                else:
+                    current_threshold = threshold
+
+                if similarity_score >= current_threshold:
+                    matches.append({
+                        "signature_id": sig_id,
+                        "created_at": created_at,
+                        "last_matched_at": last_matched_at,
+                        "attacker_intent": attacker_intent,
+                        "payload_pattern": payload_pattern,
+                        "target_tool": target_tool,
+                        "target_sink": target_sink,
+                        "dependency_chain": json.loads(dependency_chain) if dependency_chain else None,
+                        "mitigation_action": mitigation_action,
+                        "match_count": match_count,
+                        "false_positive_count": false_positive_count,
+                        "similarity_score": similarity_score,
+                        "metadata": json.loads(metadata) if metadata else None
+                    })
+
+            matches.sort(key=lambda x: x.get("similarity_score", 0.0), reverse=True)
+            return matches
+
+    async def find_matching_signature(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        query_vector: Optional[List[float]] = None,
+        threshold: float = 0.85
+    ) -> Optional[Dict[str, Any]]:
+        await self.initialize()
+
+        # Construct query text for similarity & FTS5 matching
+        args_values = " ".join(str(v) for v in arguments.values())
+        query_text = f"{tool_name} {args_values}"
+
+        # 1. Query similar signatures (Vector similarity + FTS5 fallback)
+        matches = await self.querySimilarSignatures(
+            query_text=query_text,
+            query_vector=query_vector,
+            threshold=threshold
+        )
+
+        if matches:
+            best_match = matches[0]
+            sig_id = best_match["signature_id"]
+            await self.increment_match_count(sig_id)
+            return best_match
+
+        # 2. Substring fallback to maintain backward compatibility
         args_str = json.dumps(arguments)
         async with self.pool.connection() as conn:
             cursor = await conn.execute(
@@ -371,10 +528,7 @@ class SQLiteThreatRepository:
             for row in rows:
                 sig_id, tool, pattern, mitigation, intent = row
                 if pattern in args_str:
-                    await conn.execute(
-                        "UPDATE signatures SET match_count = match_count + 1, last_matched_at = ? WHERE signature_id = ?",
-                        (int(time.time()), sig_id),
-                    )
+                    await self.increment_match_count(sig_id)
                     return {
                         "signature_id": sig_id,
                         "target_tool": tool,
