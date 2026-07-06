@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 class WebhookListener:
+    # Cooldown period to prevent repeated JWKS fetches for unknown kids
+    JWKS_MISS_COOLDOWN_SECONDS = 10.0
+
     def __init__(self, db_repository: SQLiteThreatRepository, gemini_client: Any, audience: str = ""):
         self.db = db_repository
         self.gemini_client = gemini_client
@@ -33,12 +36,13 @@ class WebhookListener:
         # Fail closed: audience is mandatory for webhook JWT validation
         if not self.audience:
             raise ValueError("GEMINI_WEBHOOK_AUDIENCE must be set for webhook listener security")
-        
+
         # JWKS key cache: { kid: public_key }
         self._jwks_cache: Dict[str, Any] = {}
         self._jwks_cache_expiry = 0.0
         self._jwks_cache_ttl = 3600.0  # 1 hour
         self._jwks_lock = asyncio.Lock()
+        self._jwks_last_fetch_attempt = 0.0  # Track last fetch to prevent fetch storms on unknown kids
         
         # Webhook deduplication
         self.processed_webhooks = set()
@@ -102,11 +106,28 @@ class WebhookListener:
 
     async def _get_public_key(self, kid: str) -> Any:
         now = time.time()
+        cache_is_fresh = now <= self._jwks_cache_expiry
+
         if now > self._jwks_cache_expiry or kid not in self._jwks_cache:
+            # If cache is fresh but kid is missing, check cooldown to prevent fetch storms
+            if cache_is_fresh and kid not in self._jwks_cache:
+                time_since_last_fetch = now - self._jwks_last_fetch_attempt
+                if time_since_last_fetch < self.JWKS_MISS_COOLDOWN_SECONDS:
+                    # Recently fetched and kid still not found - don't fetch again
+                    raise ValueError(f"Key ID {kid} not found in JWKS")
+
             async with self._jwks_lock:
+                # Double-check pattern with updated cooldown logic
+                cache_is_fresh = now <= self._jwks_cache_expiry
+                if cache_is_fresh and kid not in self._jwks_cache:
+                    time_since_last_fetch = now - self._jwks_last_fetch_attempt
+                    if time_since_last_fetch < self.JWKS_MISS_COOLDOWN_SECONDS:
+                        raise ValueError(f"Key ID {kid} not found in JWKS")
+
                 if now > self._jwks_cache_expiry or kid not in self._jwks_cache:
                     try:
                         jwks = await self._fetch_jwks()
+                        self._jwks_last_fetch_attempt = now
                         new_cache = {}
                         for key_data in jwks.get("keys", []):
                             k_id = key_data.get("kid")
@@ -120,7 +141,7 @@ class WebhookListener:
                         if kid in self._jwks_cache:
                             return self._jwks_cache[kid]
                         raise
-        
+
         if kid not in self._jwks_cache:
             raise ValueError(f"Key ID {kid} not found in JWKS")
         return self._jwks_cache[kid]
