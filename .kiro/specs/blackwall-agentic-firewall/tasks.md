@@ -536,33 +536,39 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
 **Status**: ✅ Completed
 
 **Description:**
-Build an async HTTP webhook listener bound to localhost:8090. Integrate Gemini Interactions API `background=True` task submission with HMAC signature verification. Enforce zero polling by making all state transitions event-driven via webhook callbacks.
+Build an async HTTP webhook listener bound to localhost:8090. Integrate Gemini Interactions API `background=True` task submission with JWT/JWKS asymmetric signature verification (RS256). Enforce zero polling by making all state transitions event-driven via webhook callbacks. Gemini delivers thin-payload Standard Webhooks envelopes containing only the `interaction_id`; full results are fetched via `client.interactions.get()` after acknowledgement.
 
 **Acceptance Criteria:**
 1. WebhookListener class implements async HTTP server using `aiohttp` (async-first)
 2. Webhook listener binds to `localhost:8090` (configurable via `BLACKWALL_WEBHOOK_PORT` env var)
 3. `POST /webhook/analysis_complete` endpoint accepts incoming Gemini callbacks
-4. All incoming requests validated using HMAC-SHA256 verification of `X-Webhook-Signature` header
-5. If signature verification fails, return `401 Unauthorized` and log rejection
-6. If signature verification succeeds, endpoint returns `202 Accepted` within <50ms
-7. After returning 202, payload queued for non-blocking async processing in background
+4. All incoming requests validated using **JWT/JWKS asymmetric signature verification (RS256)**: extract the JWT from the `Webhook-Signature` header, fetch the public key from `https://generativelanguage.googleapis.com/.well-known/jwks.json` using the `kid` field from the JWT header, verify the RS256 signature and `audience` claim
+5. If signature verification fails, return `400 Bad Request` and log the rejection with details
+6. If signature verification succeeds, endpoint returns `200 OK` within <50ms
+7. After returning 200, payload queued for non-blocking async processing in background
 8. **CRITICAL - ZERO POLLING:** No background threads checking task status, no sleep loops, no polling timers
-9. When processing webhook payload, extract: task_id, analysis_result, threat_signature_candidates, timestamps
-10. Cross-reference task_id with in-flight background tasks in SQLiteThreatRepository
-11. If task_id is unknown or stale (>12 hours old), log warning and discard
-12. For each threat_signature_candidate, invoke Agent_Behavioral_Analytics.generateSignature()
-13. Atomically write all generated signatures to SQLiteThreatRepository in single transaction
-14. Emit OpenTelemetry span for each webhook event with: event_id, task_id, processing_latency_ms, signatures_created_count
-15. Implement graceful shutdown: on SIGTERM/SIGINT, drain in-flight requests with max 30-second grace period
-16. Unit tests verify HMAC signature validation (correct and incorrect signatures)
-17. Unit tests verify 202 response time <50ms
-18. Unit tests verify atomic signature writes with no race conditions
-19. Integration tests verify webhook callbacks are processed before application shutdown
+9. When processing webhook payload, extract the `interaction_id` from `data.id` in the Standard Webhooks envelope (`{type, version, timestamp, data: {id}}`) — the webhook does NOT carry inline analysis results
+10. After extraction, call `client.interactions.get(interaction_id)` to fetch the full analysis output from the Gemini API (fetch latency target: <100ms)
+11. Cross-reference `interaction_id` with in-flight background tasks in SQLiteThreatRepository
+12. If `interaction_id` is unknown or stale (>12 hours old), log warning and discard
+13. Validate `webhook-timestamp` header and reject payloads older than 5 minutes to mitigate replay attacks
+14. Deduplicate webhook deliveries using the `webhook-id` header, discarding events already processed
+15. For each threat signature derived from the fetched interaction output, invoke Agent_Behavioral_Analytics.generateSignature()
+16. Atomically write all generated signatures to SQLiteThreatRepository in single transaction
+17. Emit OpenTelemetry span for each webhook event with: event_id, interaction_id, webhook_latency_ms, fetch_latency_ms, signatures_created_count
+18. Implement graceful shutdown: on SIGTERM/SIGINT, drain in-flight requests with max 30-second grace period
+19. Unit tests verify JWT/JWKS RS256 signature validation (valid JWT, invalid JWT, expired JWT, wrong audience)
+20. Unit tests verify 200 response time <50ms
+21. Unit tests verify `client.interactions.get()` is called after webhook receipt (not before)
+22. Unit tests verify atomic signature writes with no race conditions
+23. Unit tests verify replay attack rejection (timestamp > 5 minutes old)
+24. Unit tests verify duplicate webhook-id is discarded
+25. Integration tests verify webhook callbacks are processed before application shutdown
 
 **Deliverables:**
 - WebhookListener.py (aiohttp-based async listener, 300-400 LOC)
-- HMAC signature verification module
-- Webhook payload processor with async task queuing
+- JWT/JWKS RS256 signature verification module (with JWKS key caching)
+- Webhook payload processor with async task queuing and `interactions.get()` fetch
 - Graceful shutdown handler
 - Unit tests (WebhookListener_test.py)
 - Integration tests with webhook simulation
@@ -624,7 +630,7 @@ The architecture was designed event-driven from the start — all async analysis
    - Imports `AgentBehavioralAnalytics` and asserts `generateSignature` carries no internal `asyncio.sleep` or `time.sleep` calls by inspecting its source via `inspect.getsource`
    - Asserts `submitBackgroundAnalysis` returns without blocking (completes in <10ms with a mocked Gemini client)
    - Asserts `WebhookListener` has no `asyncio.sleep` in its request handler path
-4. Write an integration test that delivers a synthetic webhook payload to `POST /webhook/analysis_complete` and asserts `generateSignature` is called **exactly once** per `threat_signature_candidate` in the payload, with no timer-based delay between delivery and invocation
+4. Write an integration test that delivers a synthetic thin-payload webhook envelope (`{type, version, timestamp, data: {id}}`) to `POST /webhook/analysis_complete`, asserts `client.interactions.get(interaction_id)` is called to fetch the full output, and asserts `generateSignature` is called **exactly once** per threat signature candidate derived from the fetched output, with no timer-based delay between delivery and invocation
 5. Integration test asserts end-to-end processing (webhook delivery → signature written to SQLiteThreatRepository) completes within 100ms
 6. All tests pass under `pytest -v tests/unit/test_event_driven_invariant.py` and the verification script exits 0 on the current codebase
 
