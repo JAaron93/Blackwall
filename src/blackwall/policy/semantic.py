@@ -104,7 +104,7 @@ class SemanticGatingEngine:
         self.repo = repo
         self.gti_client = gti_client
         self.cbm_client = cbm_client
-        self.budget_tracker = budget_tracker or (gti_client.budget_tracker if gti_client else None)
+        self.budget_tracker = budget_tracker or getattr(gti_client, "budget_tracker", None)
 
     async def is_high_risk(
         self,

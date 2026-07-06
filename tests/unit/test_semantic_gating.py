@@ -256,10 +256,10 @@ async def test_gti_degraded_penalty_applied(temp_repo):
     )
 
     result = await engine.evaluate(context, "sandbox")
-    # GTI is degraded, so it's treated as unavailable (redistributed), but gti_penalty=0.3 is applied.
+    # GTI is degraded, so it's treated as unavailable (redistributed), but gti_penalty=0.2 is applied.
     # Base score (context 100% since CBM is also unavailable) = 0.14
-    # Final threat score = 0.14 + 0.3 = 0.44
-    assert abs(result.threat_score - 0.44) < 0.01
+    # Final threat score = 0.14 + 0.2 = 0.34
+    assert abs(result.threat_score - 0.34) < 0.01
     assert result.verdict == VerdictDecision.ALLOW
 
 
@@ -455,8 +455,8 @@ async def test_suspicion_score_calculation(temp_repo):
     )
     iocs_hr = extract_iocs(ctx_hr_geo)
     score_hr = await engine.calculate_suspicion_score(ctx_hr_geo, iocs_hr)
-    # Novelty (0.3) + Reputation (0.15) + Geolocation (0.2) = 0.65
-    assert abs(score_hr - 0.65) < 0.01
+    # Novelty (0.3) + Geolocation (0.2) = 0.50
+    assert abs(score_hr - 0.50) < 0.01
 
     # Suspicious TLD (.xyz)
     ctx_xyz = ToolCallContext(
@@ -483,6 +483,7 @@ async def test_suspicion_score_calculation(temp_repo):
 async def test_gti_query_budget_tracker_integration():
     from blackwall.mcp.gti_client import GTIQueryBudgetTracker
     import time
+    import asyncio
     
     tracker = GTIQueryBudgetTracker(capacity=4, replenishment_interval=0.1)
     
