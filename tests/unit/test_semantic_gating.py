@@ -460,3 +460,54 @@ async def test_weight_redistribution_on_budget_exhaustion(temp_repo):
     )
     result = await engine.evaluate(context, "sandbox")
     assert abs(result.threat_score - 0.59) < 0.01
+
+
+@pytest.mark.asyncio
+async def test_gti_partial_results_preserved_on_budget_exhaustion(temp_repo):
+    """
+    Regression test: When GTI budget is exhausted mid-evaluation after some IOCs
+    have been queried successfully, the partial GTI results should be preserved
+    and incorporated into the threat score, not discarded.
+    """
+    # Setup mock GTI Client: first call succeeds with malicious result, second call raises budget exhaustion
+    mock_gti = MagicMock(spec=GTIMCPClient)
+    mock_gti.is_degraded.return_value = False
+
+    malicious_response = GTIResponse(
+        indicator="1.2.3.4",
+        is_malicious=True,
+        threat_categories=["botnet", "c2"],
+        detection_rate=85.0,
+        confidence=0.9
+    )
+
+    # First queryIOC call succeeds, second raises budget exhausted
+    mock_gti.queryIOC = AsyncMock(side_effect=[
+        malicious_response,  # First IP query succeeds
+        GTIBudgetExhaustedError("Budget exhausted")  # Second URL query fails
+    ])
+
+    engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
+
+    # Context with two IOCs: IP and URL
+    context = ToolCallContext(
+        tool_name="safe_tool",
+        arguments={"ip": "1.2.3.4", "url": "http://evil.example.com/malware"}
+    )
+
+    result = await engine.evaluate(context, "sandbox")
+
+    # GTI score from first (successful) query:
+    # is_malicious (0.5) + detection_rate (0.3 * 0.85 = 0.255) + categories (0.2) = 0.955, capped to 1.0
+    # Since we have partial GTI results, GTI should NOT be treated as unavailable
+    # Weights: GTI (40% / 70% = 57.14%), Context (30% / 70% = 42.86%)
+    # Context score: 0.14
+    # Base score: 0.5714 * 0.955 + 0.4286 * 0.14 = 0.5457 + 0.06 = 0.6057
+    # With gti_penalty (0.2): 0.6057 + 0.2 = 0.8057
+    # Expected threat score should be >= 0.75 (BLOCK threshold)
+
+    assert result.threat_score >= 0.75, f"Expected threat score >= 0.75, got {result.threat_score}"
+    assert result.verdict == VerdictDecision.BLOCK
+
+    # Verify that queryIOC was called twice (once successfully, once with budget exhaustion)
+    assert mock_gti.queryIOC.call_count == 2
