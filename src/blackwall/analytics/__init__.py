@@ -290,11 +290,12 @@ class AgentBehavioralAnalytics:
                 )
             except Exception as e:
                 logger.warning(
-                    f"Gemini embedding API call failed or timed out: {e}. Storing signature without vector blob.",
-                    signature_id=str(sig_id),
-                    error=str(e),
+                    "Gemini embedding API call failed or timed out: %s. Falling back to local embedding.",
+                    str(e),
+                    extra={"signature_id": str(sig_id), "error": str(e)},
                 )
-                vector = None
+                # Fallback to local embedding when Gemini call errors
+                vector = self._get_embedding(combined_text)
         else:
             # Fallback to local/mock embedding when client is not configured
             vector = self._get_embedding(combined_text)

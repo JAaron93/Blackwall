@@ -429,7 +429,12 @@ class SQLiteThreatRepository:
                 if query_vector is not None and is_valid_vector:
                     # Perform cosine similarity
                     import math
-                    dot_product = sum(x * y for x, y in zip(query_vector, vector_floats))
+                    # Validate query_vector dimension before calculating similarity
+                    if len(query_vector) != 768:
+                        raise ValueError(
+                            f"Query vector has incorrect dimension {len(query_vector)}, expected 768"
+                        )
+                    dot_product = sum(x * y for x, y in zip(query_vector, vector_floats, strict=True))
                     norm_q = math.sqrt(sum(x * x for x in query_vector))
                     norm_s = math.sqrt(sum(x * x for x in vector_floats))
                     if norm_q > 0.0 and norm_s > 0.0:
