@@ -1,13 +1,16 @@
 import asyncio
-import hashlib
-import hmac
+import collections
+import datetime
 import json
 import logging
 import os
 import time
 from typing import Any, Dict
 
+import aiohttp
 from aiohttp import web
+import jwt
+from jwt.algorithms import RSAAlgorithm
 from opentelemetry import trace
 
 from blackwall.analytics import Agent_Behavioral_Analytics
@@ -17,63 +20,271 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 class WebhookListener:
-    def __init__(self, db_repository: SQLiteThreatRepository, secret_key: str = ""):
+    # Cooldown period to prevent repeated JWKS fetches for unknown kids
+    JWKS_MISS_COOLDOWN_SECONDS = 10.0
+
+    def __init__(self, db_repository: SQLiteThreatRepository, gemini_client: Any, audience: str = ""):
         self.db = db_repository
-        configured_secret = secret_key or os.environ.get("BLACKWALL_WEBHOOK_SECRET", "")
-        if not configured_secret:
-            raise ValueError("Webhook secret is required. Provide secret_key parameter or set BLACKWALL_WEBHOOK_SECRET environment variable.")
-        self.secret_key = configured_secret
+        self.gemini_client = gemini_client
         self.port = int(os.environ.get("BLACKWALL_WEBHOOK_PORT", 8090))
+        self.jwks_url = os.environ.get(
+            "GEMINI_JWKS_URL",
+            "https://generativelanguage.googleapis.com/.well-known/jwks.json"
+        )
+        self.audience = audience or os.environ.get("GEMINI_WEBHOOK_AUDIENCE", "")
+
+        # Fail closed: audience is mandatory for webhook JWT validation
+        if not self.audience:
+            raise ValueError("GEMINI_WEBHOOK_AUDIENCE must be set for webhook listener security")
+
+        # JWKS key cache: { kid: public_key }
+        self._jwks_cache: Dict[str, Any] = {}
+        self._jwks_cache_expiry = 0.0
+        self._jwks_cache_ttl = 3600.0  # 1 hour
+        self._jwks_lock = asyncio.Lock()
+        self._jwks_last_fetch_attempt = 0.0  # Track last fetch to prevent fetch storms on unknown kids
+        
+        # Webhook deduplication
+        self.processed_webhooks = set()
+        self.processed_webhooks_queue = collections.deque(maxlen=10000)
+        self._dedupe_lock = asyncio.Lock()
+        
         self.app = web.Application()
         self.app.router.add_post("/webhook/analysis_complete", self.handle_webhook)
         self.runner: web.AppRunner | None = None
         self.site: web.TCPSite | None = None
         self.background_tasks: set[asyncio.Task[Any]] = set()
 
-    def _verify_signature(self, payload: bytes, signature: str) -> bool:
-        if not signature:
+    def _reserve_webhook_id(self, webhook_id: str) -> bool:
+        """
+        Atomically reserve a webhook ID for processing.
+        Returns True if reserved successfully, False if already processed.
+        Must be called under self._dedupe_lock.
+        """
+        if webhook_id in self.processed_webhooks:
             return False
-        expected_signature = hmac.new(
-            self.secret_key.encode("utf-8"),
-            payload,
-            hashlib.sha256
-        ).hexdigest()
-        return hmac.compare_digest(expected_signature, signature)
+
+        # Add to both structures atomically
+        self.processed_webhooks.add(webhook_id)
+        self.processed_webhooks_queue.append(webhook_id)
+
+        # Handle eviction from deque (automatic due to maxlen)
+        # Ensure set stays synchronized with queue
+        if len(self.processed_webhooks_queue) == 10000:
+            # Queue is at capacity; next append will auto-evict oldest
+            # We already appended, so if queue was full, oldest was evicted
+            # Reconstruct set from queue to maintain consistency
+            self.processed_webhooks = set(self.processed_webhooks_queue)
+
+        return True
+
+    def _rollback_webhook_id(self, webhook_id: str) -> None:
+        """
+        Remove a webhook ID reservation after a validation failure.
+        Keeps both set and queue synchronized.
+        Must be called under self._dedupe_lock.
+        """
+        self.processed_webhooks.discard(webhook_id)
+        # Remove from queue as well - need to reconstruct to maintain order
+        try:
+            # Convert to list, remove item, and recreate deque
+            queue_list = list(self.processed_webhooks_queue)
+            if webhook_id in queue_list:
+                queue_list.remove(webhook_id)
+                self.processed_webhooks_queue = collections.deque(queue_list, maxlen=10000)
+        except ValueError:
+            # webhook_id not in queue, which is fine
+            pass
+
+    async def _fetch_jwks(self) -> dict:
+        timeout = aiohttp.ClientTimeout(total=5.0)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(self.jwks_url) as resp:
+                if resp.status != 200:
+                    raise Exception(f"Failed to fetch JWKS from {self.jwks_url}: HTTP {resp.status}")
+                return await resp.json()
+
+    async def _get_public_key(self, kid: str) -> Any:
+        now = time.time()
+        cache_is_fresh = now <= self._jwks_cache_expiry
+
+        if now > self._jwks_cache_expiry or kid not in self._jwks_cache:
+            # If cache is fresh but kid is missing, check cooldown to prevent fetch storms
+            if cache_is_fresh and kid not in self._jwks_cache:
+                time_since_last_fetch = now - self._jwks_last_fetch_attempt
+                if time_since_last_fetch < self.JWKS_MISS_COOLDOWN_SECONDS:
+                    # Recently fetched and kid still not found - don't fetch again
+                    raise ValueError(f"Key ID {kid} not found in JWKS")
+
+            async with self._jwks_lock:
+                # Double-check pattern with updated cooldown logic
+                cache_is_fresh = now <= self._jwks_cache_expiry
+                if cache_is_fresh and kid not in self._jwks_cache:
+                    time_since_last_fetch = now - self._jwks_last_fetch_attempt
+                    if time_since_last_fetch < self.JWKS_MISS_COOLDOWN_SECONDS:
+                        raise ValueError(f"Key ID {kid} not found in JWKS")
+
+                if now > self._jwks_cache_expiry or kid not in self._jwks_cache:
+                    try:
+                        jwks = await self._fetch_jwks()
+                        self._jwks_last_fetch_attempt = now
+                        new_cache = {}
+                        for key_data in jwks.get("keys", []):
+                            k_id = key_data.get("kid")
+                            if k_id:
+                                pub_key = RSAAlgorithm.from_jwk(key_data)
+                                new_cache[k_id] = pub_key
+                        self._jwks_cache = new_cache
+                        self._jwks_cache_expiry = now + self._jwks_cache_ttl
+                    except Exception as e:
+                        logger.error(f"Error fetching/parsing JWKS: {e}")
+                        if kid in self._jwks_cache:
+                            return self._jwks_cache[kid]
+                        raise
+
+        if kid not in self._jwks_cache:
+            raise ValueError(f"Key ID {kid} not found in JWKS")
+        return self._jwks_cache[kid]
 
     async def handle_webhook(self, request: web.Request) -> web.Response:
-        signature = request.headers.get("X-Webhook-Signature", "")
+        request_start_time = time.time()
+        
+        token = request.headers.get("Webhook-Signature", "")
+        if not token:
+            logger.warning("Missing Webhook-Signature header.")
+            return web.Response(status=400, text="Bad Request")
+            
+        timestamp_str = request.headers.get("webhook-timestamp", "")
+        if not timestamp_str:
+            logger.warning("Missing webhook-timestamp header.")
+            return web.Response(status=400, text="Bad Request")
+            
+        webhook_id = request.headers.get("webhook-id", "")
+        if not webhook_id:
+            logger.warning("Missing webhook-id header.")
+            return web.Response(status=400, text="Bad Request")
+
+        # Validate timestamp (reject if older than 5 minutes)
+        try:
+            webhook_ts = float(timestamp_str)
+        except ValueError:
+            try:
+                dt = datetime.datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                webhook_ts = dt.timestamp()
+            except ValueError:
+                logger.warning(f"Invalid webhook-timestamp format: {timestamp_str}")
+                return web.Response(status=400, text="Bad Request")
+
+        # Reject timestamps with more than 5 minutes clock skew (both past and future)
+        time_diff = abs(request_start_time - webhook_ts)
+        if time_diff > 300:
+            logger.warning(f"Webhook timestamp rejected (clock skew too large): {webhook_ts} (current: {request_start_time}, diff: {time_diff}s)")
+            return web.Response(status=400, text="Bad Request")
+
+        # Atomically reserve webhook-id to prevent duplicates during async processing
+        async with self._dedupe_lock:
+            if not self._reserve_webhook_id(webhook_id):
+                logger.info(f"Duplicate webhook {webhook_id} ignored.")
+                return web.Response(status=200, text="OK")
+
+        if token.lower().startswith("bearer "):
+            token = token[7:]
+
+        # JWT RS256 Verification and payload validation
+        # Release reservation on failure so legitimate retries aren't blocked
+        try:
+            header = jwt.get_unverified_header(token)
+            kid = header.get("kid")
+            if not kid:
+                logger.warning("JWT header missing kid.")
+                async with self._dedupe_lock:
+                    self._rollback_webhook_id(webhook_id)
+                return web.Response(status=400, text="Bad Request")
+
+            public_key = await self._get_public_key(kid)
+
+            # Fail closed: explicitly require aud and exp claims
+            decoded_claims = jwt.decode(
+                token,
+                public_key,
+                algorithms=["RS256"],
+                audience=self.audience,
+                options={"require": ["aud", "exp"]}
+            )
+        except Exception as e:
+            logger.warning(f"JWT verification failed: {e}")
+            async with self._dedupe_lock:
+                self._rollback_webhook_id(webhook_id)
+            return web.Response(status=400, text="Bad Request")
+
         payload_bytes = await request.read()
-
-        if not self._verify_signature(payload_bytes, signature):
-            logger.warning("Invalid webhook signature.")
-            return web.Response(status=401, text="Unauthorized")
-
         try:
             payload = json.loads(payload_bytes.decode("utf-8"))
         except json.JSONDecodeError:
+            logger.warning("Invalid JSON payload.")
+            async with self._dedupe_lock:
+                self._rollback_webhook_id(webhook_id)
             return web.Response(status=400, text="Bad Request")
 
-        # Offload processing to a background task
-        task = asyncio.create_task(self._process_payload(payload))
+        try:
+            interaction_id = payload["data"]["id"]
+        except (KeyError, TypeError):
+            logger.warning("Payload missing data.id.")
+            async with self._dedupe_lock:
+                self._rollback_webhook_id(webhook_id)
+            return web.Response(status=400, text="Bad Request")
+
+        # Bind JWT to payload: verify a claim matches the interaction_id
+        jwt_sub = decoded_claims.get("sub", "")
+        jwt_interaction_id = decoded_claims.get("interaction_id", "")
+        if jwt_sub != interaction_id and jwt_interaction_id != interaction_id:
+            logger.warning(f"JWT token not bound to payload: sub={jwt_sub}, interaction_id={jwt_interaction_id}, payload.data.id={interaction_id}")
+            async with self._dedupe_lock:
+                self._rollback_webhook_id(webhook_id)
+            return web.Response(status=400, text="Bad Request")
+
+        # Offload to background task
+        webhook_latency_ms = (time.time() - request_start_time) * 1000
+        task = asyncio.create_task(self._process_payload(interaction_id, webhook_latency_ms))
         self.background_tasks.add(task)
         task.add_done_callback(self.background_tasks.discard)
 
-        return web.Response(status=202, text="Accepted")
+        return web.Response(status=200, text="OK")
 
-    async def _process_payload(self, payload: Dict[str, Any]) -> None:
-        start_time = time.time()
-        task_id = payload.get("task_id")
-        threat_candidates = payload.get("threat_signature_candidates", [])
+    async def _process_payload(self, interaction_id: str, webhook_latency_ms: float) -> None:
+        fetch_start = time.time()
         
         with tracer.start_as_current_span("process_webhook_payload") as span:
-            span.set_attribute("event_id", payload.get("event_id", ""))
-            span.set_attribute("task_id", task_id or "")
+            span.set_attribute("interaction_id", interaction_id)
+            span.set_attribute("webhook_latency_ms", webhook_latency_ms)
             
-            if not task_id:
-                logger.warning("Webhook payload missing task_id")
+            try:
+                interaction = await self.gemini_client.interactions.get(interaction_id)
+            except Exception as e:
+                logger.error(f"Failed to fetch interaction {interaction_id}: {e}")
+                span.set_status(trace.StatusCode.ERROR, str(e))
                 return
-
-            # Check if task is valid and not stale
+                
+            fetch_latency_ms = (time.time() - fetch_start) * 1000
+            span.set_attribute("fetch_latency_ms", fetch_latency_ms)
+            
+            task_id = None
+            candidates = []
+            
+            if isinstance(interaction, dict):
+                task_id = interaction.get("task_id")
+                candidates = interaction.get("threat_signature_candidates", [])
+            else:
+                task_id = getattr(interaction, "task_id", None)
+                candidates = getattr(interaction, "threat_signature_candidates", [])
+                
+            if not task_id:
+                logger.warning(f"Interaction {interaction_id} fetched output missing task_id.")
+                span.set_attribute("status", "discarded")
+                return
+                
+            span.set_attribute("task_id", task_id)
+            
             is_valid = await self.db.is_task_valid(task_id)
             if not is_valid:
                 logger.warning(f"Task ID {task_id} is unknown or stale. Discarding.")
@@ -81,7 +292,7 @@ class WebhookListener:
                 return
 
             signatures = []
-            for candidate in threat_candidates:
+            for candidate in candidates:
                 try:
                     sig = await Agent_Behavioral_Analytics.generateSignature(candidate)
                     signatures.append(sig)
@@ -93,14 +304,11 @@ class WebhookListener:
                     await self.db.write_signatures_batch(signatures)
                 except Exception as e:
                     logger.error(f"Failed to write signatures to DB: {e}")
-            
-            # Remove from in-flight
+
             await self.db.remove_in_flight_task(task_id)
 
-            latency_ms = (time.time() - start_time) * 1000
-            span.set_attribute("processing_latency_ms", latency_ms)
             span.set_attribute("signatures_created_count", len(signatures))
-            logger.info(f"Processed webhook for task {task_id} in {latency_ms:.2f}ms")
+            logger.info(f"Processed webhook for task {task_id} (interaction {interaction_id}) in {webhook_latency_ms + fetch_latency_ms:.2f}ms")
 
     async def start(self) -> None:
         self.runner = web.AppRunner(self.app)
@@ -114,7 +322,6 @@ class WebhookListener:
         if self.runner:
             await self.runner.cleanup()
         
-        # Wait for background tasks to complete with a grace period of 30 seconds
         if self.background_tasks:
             logger.info(f"Waiting for {len(self.background_tasks)} background tasks to complete...")
             done, pending = await asyncio.wait(
