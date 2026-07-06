@@ -575,22 +575,19 @@ class SemanticGatingEngine:
             "gti": gti_score if not gti_unavailable else None,
             "cbm": cbm_score,
             "context": context_score,
-            "suspicion": suspicion_score,
         }
 
         base_weights = {
-            "gti": 0.35,
-            "cbm": 0.25,
-            "context": 0.25,
-            "suspicion": 0.15,
+            "gti": 0.4,
+            "cbm": 0.3,
+            "context": 0.3,
         }
 
         if gti_unavailable or gti_score is None:
-            # GTI is unavailable: redistribute GTI weight (35%) proportionally to other signals
+            # GTI is unavailable: redistribute GTI weight (40%) to CBM (+20%) and Context (+20%)
             base_weights["gti"] = 0.0
-            base_weights["cbm"] = 0.35
-            base_weights["context"] = 0.35
-            base_weights["suspicion"] = 0.30
+            base_weights["cbm"] = 0.5
+            base_weights["context"] = 0.5
 
         # Filter signals that are not None and have non-zero weight
         available_signals = {k: v for k, v in signals.items() if v is not None and base_weights[k] > 0.0}
