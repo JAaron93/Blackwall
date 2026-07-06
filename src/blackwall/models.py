@@ -36,6 +36,15 @@ class RelationshipType(str, Enum):
     MITIGATED_BY = "MITIGATED_BY"
 
 
+class GroundTruthLabel(str, Enum):
+    MALICIOUS = "MALICIOUS"
+    BENIGN = "BENIGN"
+
+
+class TestResult(BaseModel):
+    verdict_decision: VerdictDecision
+
+
 class Verdict(BaseModel):
     decision: VerdictDecision
     reasoning: str
@@ -122,9 +131,14 @@ class CBMResponse(BaseModel):
 
 
 class SecurityMetrics(BaseModel):
-    total_events: int
-    blocked_events: int
-    allowed_events: int
+    false_refusal_rate: float = 0.0
+    evasion_rate: float = 0.0
+    accuracy: float = 0.0
+    precision: float = 0.0
+    recall: float = 0.0
+    f1_score: float = 0.0
+    quarantine_count: int = 0
+
 
 
 class GraphStatistics(BaseModel):
