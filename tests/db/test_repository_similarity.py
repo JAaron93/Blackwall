@@ -119,4 +119,4 @@ async def test_fts5_fallback_when_vector_missing(repo: SQLiteThreatRepository, l
 
     # Verify that the fallback was logged with signature_id and reason
     logs = [r for r in log_output.entries if "fts5" in str(r.get("event", "")).lower() or "fallback" in str(r.get("event", "")).lower()]
-    assert any("sig-fts-only" in str(l) for l in logs)
+    assert any("sig-fts-only" in str(entry) for entry in logs)
