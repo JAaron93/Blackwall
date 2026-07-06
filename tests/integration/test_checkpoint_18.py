@@ -1,5 +1,6 @@
 import asyncio
 import json
+import math
 import os
 import resource
 import sys
@@ -179,7 +180,9 @@ async def test_system_latency_targets(policy_yaml_path: str) -> None:
         latencies_struct.append((t1 - t0) * 1000.0)
         
     latencies_struct.sort()
-    p99_struct = latencies_struct[int(len(latencies_struct) * 0.99)]
+    n_struct = len(latencies_struct)
+    p99_index_struct = max(0, min(math.ceil(0.99 * n_struct) - 1, n_struct - 1))
+    p99_struct = latencies_struct[p99_index_struct]
     assert p99_struct < 5.0, f"Structural P99 latency {p99_struct:.2f}ms exceeds 5ms target"
     
     # Measure semantic gating latency
@@ -201,7 +204,9 @@ async def test_system_latency_targets(policy_yaml_path: str) -> None:
         latencies_semantic.append((t1 - t0) * 1000.0)
         
     latencies_semantic.sort()
-    p99_semantic = latencies_semantic[int(len(latencies_semantic) * 0.99)]
+    n_semantic = len(latencies_semantic)
+    p99_index_semantic = max(0, min(math.ceil(0.99 * n_semantic) - 1, n_semantic - 1))
+    p99_semantic = latencies_semantic[p99_index_semantic]
     assert p99_semantic < 300.0, f"Semantic P99 latency {p99_semantic:.2f}ms exceeds 300ms target"
 
 # ===========================================================================
