@@ -191,7 +191,7 @@ class ReportGenerator:
     ) -> None:
         self.evalset_path = Path(evalset_path)
         self.results_path = Path(results_path)
-        self._ground_truth: dict[str, dict] = {}  # eval_case_id → case dict
+        self._ground_truth: dict[str, dict[str, Any]] = {}  # eval_case_id → case dict
 
     # ------------------------------------------------------------------
     # Public API
@@ -256,17 +256,17 @@ class ReportGenerator:
 
     def _load_evalset(self) -> None:
         data = json.loads(self.evalset_path.read_text(encoding="utf-8"))
-        cases: list[dict] = data.get("eval_cases", data) if isinstance(data, dict) else data
+        cases: list[dict[str, Any]] = data.get("eval_cases", data) if isinstance(data, dict) else data
         self._ground_truth = {c["eval_case_id"]: c for c in cases}
         logger.debug("Loaded %d ground-truth cases from evalset", len(self._ground_truth))
 
-    def _load_results(self) -> list[dict]:
+    def _load_results(self) -> list[dict[str, Any]]:
         data = json.loads(self.results_path.read_text(encoding="utf-8"))
         if isinstance(data, list):
             return data
         return data.get("results", data.get("eval_cases", []))
 
-    def _reconcile(self, raw_results: list[dict]) -> list[CaseResult]:
+    def _reconcile(self, raw_results: list[dict[str, Any]]) -> list[CaseResult]:
         """
         Match each raw result record to its ground-truth case and extract the
         actual verdict delivered by Blackwall.
@@ -283,7 +283,7 @@ class ReportGenerator:
 
             meta = gt_case.get("metadata", {})
             ground_truth = _parse_ground_truth(
-                meta.get("ground_truth", gt_case.get("reference", "BENIGN"))
+                meta.get("ground_truth", "BENIGN")
             )
             scenario_type = meta.get("scenario_type", "benign")
             tool_name = meta.get("tool_name", "")
@@ -309,7 +309,7 @@ class ReportGenerator:
         return case_results
 
     @staticmethod
-    def _extract_verdict(record: dict) -> VerdictDecision:
+    def _extract_verdict(record: dict[str, Any]) -> VerdictDecision:
         """
         Walk known ADK result shapes to find the Blackwall verdict.
 
@@ -319,7 +319,7 @@ class ReportGenerator:
         3. Last entry in ``record["actual_tool_use"]`` → tool_use_result
         4. ``record["response"]``
         """
-        for key in ("actual_verdict", "verdict", "response"):
+        for key in ("actual_verdict", "verdict"):
             if key in record:
                 return _parse_verdict(record[key])
 
@@ -327,6 +327,9 @@ class ReportGenerator:
         if tool_use and isinstance(tool_use, list):
             last = tool_use[-1]
             return _parse_verdict(last)
+
+        if "response" in record:
+            return _parse_verdict(record["response"])
 
         return VerdictDecision.ALLOW
 
@@ -341,7 +344,7 @@ class ReportGenerator:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _report_to_dict(report: SecurityReport) -> dict:
+    def _report_to_dict(report: SecurityReport) -> dict[str, Any]:
         m = report.metrics
         return {
             "generated_at": report.generated_at,
@@ -367,8 +370,8 @@ class ReportGenerator:
                 "quarantine_count": m.quarantine_count,
             },
             "threshold_checks": {
-                "frr_below_10pct": m.false_refusal_rate < SECURITY_THRESHOLD_PCT,
-                "evasion_below_10pct": m.evasion_rate < SECURITY_THRESHOLD_PCT,
+                f"frr_below_{int(SECURITY_THRESHOLD_PCT)}pct": m.false_refusal_rate < SECURITY_THRESHOLD_PCT,
+                f"evasion_below_{int(SECURITY_THRESHOLD_PCT)}pct": m.evasion_rate < SECURITY_THRESHOLD_PCT,
             },
             "case_results": [
                 {
@@ -410,8 +413,8 @@ class ReportGenerator:
             f"  False Negatives (FN): {report.false_negatives}",
             "",
             "  SECURITY METRICS",
-            f"  False Refusal Rate (FRR): {m.false_refusal_rate:.2f}%  {frr_ok} (threshold < 10%)",
-            f"  Evasion Rate (FNR)      : {m.evasion_rate:.2f}%  {evasion_ok} (threshold < 10%)",
+            f"  False Refusal Rate (FRR): {m.false_refusal_rate:.2f}%  {frr_ok} (threshold < {SECURITY_THRESHOLD_PCT:.0f}%)",
+            f"  Evasion Rate (FNR)      : {m.evasion_rate:.2f}%  {evasion_ok} (threshold < {SECURITY_THRESHOLD_PCT:.0f}%)",
             f"  Accuracy                : {m.accuracy:.2f}%",
             f"  Precision               : {m.precision:.2f}%",
             f"  Recall                  : {m.recall:.2f}%",
