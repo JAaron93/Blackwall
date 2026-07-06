@@ -377,6 +377,12 @@ class BatchResolver:
         """Submits the sanitized batch synchronously to Gemini 3.1 Flash-Lite."""
         start_time = time.time()
 
+        # Network-level timeout for the Gemini API call (25 seconds).
+        # This applies a real HTTP timeout at the request level, which properly interrupts
+        # blocking HTTP calls even when running in an executor thread.
+        # The asyncio.wait_for(30s) in process_batch() acts as a secondary backstop.
+        API_CALL_TIMEOUT = 25.0
+
         # Build payload
         payload = BatchPayload(
             sanitized_contexts=sanitized_contexts,
@@ -397,9 +403,10 @@ class BatchResolver:
                     model="gemini-3.1-flash-lite",
                     input=payload_json,
                     previous_interaction_id=payload.previous_interaction_id,
+                    timeout=API_CALL_TIMEOUT,
                 )
             else:
-                # Run synchronous call in executor so asyncio.wait_for timeout can properly interrupt it
+                # Run synchronous call in executor with network-level timeout
                 loop = asyncio.get_event_loop()
                 interaction = await loop.run_in_executor(
                     None,
@@ -407,6 +414,7 @@ class BatchResolver:
                         model="gemini-3.1-flash-lite",
                         input=payload_json,
                         previous_interaction_id=payload.previous_interaction_id,
+                        timeout=API_CALL_TIMEOUT,
                     )
                 )
 
@@ -468,6 +476,10 @@ class BatchResolver:
         # Ensure we conform to local rate limits
         await self._acquire_rate_limit_token()
 
+        # Network-level timeout for background tasks (25 seconds).
+        # This applies a real HTTP timeout at the request level.
+        API_CALL_TIMEOUT = 25.0
+
         # Build payload input
         payload_input = {
             "quarantined_context": quarantined_context.model_dump(),
@@ -490,9 +502,10 @@ class BatchResolver:
                     input=json.dumps(payload_input),
                     background=True,
                     webhook_config=webhook_config,
+                    timeout=API_CALL_TIMEOUT,
                 )
             else:
-                # Run synchronous call in executor to avoid blocking the event loop
+                # Run synchronous call in executor with network-level timeout
                 loop = asyncio.get_event_loop()
                 interaction = await loop.run_in_executor(
                     None,
@@ -501,6 +514,7 @@ class BatchResolver:
                         input=json.dumps(payload_input),
                         background=True,
                         webhook_config=webhook_config,
+                        timeout=API_CALL_TIMEOUT,
                     )
                 )
 

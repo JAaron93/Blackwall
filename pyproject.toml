@@ -7,7 +7,7 @@ name = "blackwall"
 version = "0.1.0"
 description = "Blackwall Agentic Firewall"
 readme = "README.md"
-requires-python = ">=3.11.9"
+requires-python = ">=3.11"
 dependencies = [
     "aiosqlite>=0.20.0",
     "pydantic>=2.0.0",
