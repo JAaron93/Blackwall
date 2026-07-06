@@ -1,12 +1,11 @@
 import pytest
-import asyncio
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, AsyncMock
 from datetime import datetime, timezone
 from uuid import uuid4
 
 from blackwall.models import (
     SecurityEvent, EventType, ToolCallContext, Verdict, VerdictDecision,
-    BehaviorScore, SinkType, CBMResponse, GTIResponse
+    SinkType, CBMResponse, GTIResponse
 )
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.analytics.BackgroundTaskSubmitter import AgentBehavioralAnalytics

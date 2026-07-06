@@ -10,7 +10,7 @@ def drop_privileges(user_or_uid: Union[str, int] = "nobody") -> None:
     """Drops process privileges to an unprivileged user if running as root."""
     # If os.getuid is not available (e.g. non-POSIX), do nothing
     if not hasattr(os, "getuid"):
-        logger.warn("Privilege dropping not supported on this platform")
+        logger.warning("Privilege dropping not supported on this platform")
         return
 
     if os.getuid() != 0:
@@ -37,9 +37,9 @@ def drop_privileges(user_or_uid: Union[str, int] = "nobody") -> None:
         os.setuid(uid)
         logger.info("Successfully dropped privileges", uid=uid, gid=gid)
     except Exception as e:
-        logger.error("Failed to drop privileges", error=str(e))
+        logger.warning("Failed to drop privileges", error=str(e))
         # Fail closed: if we cannot drop privileges when running as root, raise error
-        raise PermissionError(f"Could not drop root privileges: {e}")
+        raise PermissionError(f"Could not drop root privileges: {e}") from e
 
 
 class JITCredentialContext:

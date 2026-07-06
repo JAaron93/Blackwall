@@ -29,11 +29,16 @@ class EncryptedLocalStore:
         try:
             with open(self.filepath, "rb") as f:
                 encrypted_data = f.read()
+            if not encrypted_data:
+                # Empty file is treated as empty vault
+                return {}
             decrypted_data = self.cipher.decrypt(encrypted_data)
             return json.loads(decrypted_data.decode("utf-8"))
         except Exception as e:
-            logger.error("Failed to load or decrypt secrets store", error=str(e))
-            return {}
+            # Fail closed: decryption/authentication failures must not return empty vault
+            # This prevents silent secret loss when vault is accessed with wrong key
+            logger.error("Failed to decrypt or parse vault - possible key mismatch or corruption", error=str(e))
+            raise ValueError(f"Vault decryption failed: {str(e)}") from e
 
     def save(self, data: Dict[str, str]) -> None:
         try:

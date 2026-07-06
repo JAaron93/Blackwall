@@ -154,10 +154,10 @@ def then_key_not_stored_in_memory(state):
     for _attr, val in state.vault.__dict__.items():
         # Check if the secret value is stored directly
         if isinstance(val, str):
-            assert val != "cbm-real-key", f"Secret value found cached in vault attribute"
+            assert val != "cbm-real-key", "Secret value found cached in vault attribute"
         # Check nested dictionaries or lists that might contain the secret
         elif isinstance(val, dict):
-            assert "cbm-real-key" not in val.values(), f"Secret value found in vault dict attribute"
+            assert "cbm-real-key" not in val.values(), "Secret value found in vault dict attribute"
 
 
 # --- Scenario: Audit hook blocks raw execution bypasses ---

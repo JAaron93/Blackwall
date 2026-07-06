@@ -21,7 +21,7 @@ dependencies = [
     "opentelemetry-exporter-prometheus>=0.45b0,<0.46",
     "prometheus-client>=0.20.0",
     "google-genai>=0.1.0",
-    "cryptography>=41.0.0"
+    "cryptography>=41.0.2"
 ]
 
 [project.optional-dependencies]
