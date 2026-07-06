@@ -39,6 +39,7 @@ class WebhookListener:
         # Webhook deduplication
         self.processed_webhooks = set()
         self.processed_webhooks_queue = collections.deque(maxlen=10000)
+        self._dedupe_lock = asyncio.Lock()
         
         self.app = web.Application()
         self.app.router.add_post("/webhook/analysis_complete", self.handle_webhook)
@@ -47,7 +48,8 @@ class WebhookListener:
         self.background_tasks: set[asyncio.Task[Any]] = set()
 
     async def _fetch_jwks(self) -> dict:
-        async with aiohttp.ClientSession() as session:
+        timeout = aiohttp.ClientTimeout(total=5.0)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(self.jwks_url) as resp:
                 if resp.status != 200:
                     raise Exception(f"Failed to fetch JWKS from {self.jwks_url}: HTTP {resp.status}")
@@ -107,35 +109,49 @@ class WebhookListener:
                 logger.warning(f"Invalid webhook-timestamp format: {timestamp_str}")
                 return web.Response(status=400, text="Bad Request")
 
-        if request_start_time - webhook_ts > 300:
-            logger.warning(f"Webhook timestamp is stale: {webhook_ts} (current: {request_start_time})")
+        # Reject timestamps with more than 5 minutes clock skew (both past and future)
+        time_diff = abs(request_start_time - webhook_ts)
+        if time_diff > 300:
+            logger.warning(f"Webhook timestamp rejected (clock skew too large): {webhook_ts} (current: {request_start_time}, diff: {time_diff}s)")
             return web.Response(status=400, text="Bad Request")
 
-        # Deduplicate using webhook-id
-        if webhook_id in self.processed_webhooks:
-            logger.info(f"Duplicate webhook {webhook_id} ignored.")
-            return web.Response(status=200, text="OK")
+        # Atomically reserve webhook-id to prevent duplicates during async processing
+        async with self._dedupe_lock:
+            if webhook_id in self.processed_webhooks:
+                logger.info(f"Duplicate webhook {webhook_id} ignored.")
+                return web.Response(status=200, text="OK")
+            # Reserve the ID immediately
+            self.processed_webhooks.add(webhook_id)
+            self.processed_webhooks_queue.append(webhook_id)
+            if len(self.processed_webhooks_queue) > 10000:
+                oldest = self.processed_webhooks_queue.popleft()
+                self.processed_webhooks.discard(oldest)
 
         if token.lower().startswith("bearer "):
             token = token[7:]
 
-        # JWT RS256 Verification
+        # JWT RS256 Verification and payload validation
+        # Release reservation on failure so legitimate retries aren't blocked
         try:
             header = jwt.get_unverified_header(token)
             kid = header.get("kid")
             if not kid:
                 logger.warning("JWT header missing kid.")
+                async with self._dedupe_lock:
+                    self.processed_webhooks.discard(webhook_id)
                 return web.Response(status=400, text="Bad Request")
-                
+
             public_key = await self._get_public_key(kid)
-            
+
             decode_kwargs = {"algorithms": ["RS256"]}
             if self.audience:
                 decode_kwargs["audience"] = self.audience
-                
-            jwt.decode(token, public_key, **decode_kwargs)
+
+            decoded_claims = jwt.decode(token, public_key, **decode_kwargs)
         except Exception as e:
             logger.warning(f"JWT verification failed: {e}")
+            async with self._dedupe_lock:
+                self.processed_webhooks.discard(webhook_id)
             return web.Response(status=400, text="Bad Request")
 
         payload_bytes = await request.read()
@@ -143,20 +159,26 @@ class WebhookListener:
             payload = json.loads(payload_bytes.decode("utf-8"))
         except json.JSONDecodeError:
             logger.warning("Invalid JSON payload.")
+            async with self._dedupe_lock:
+                self.processed_webhooks.discard(webhook_id)
             return web.Response(status=400, text="Bad Request")
 
         try:
             interaction_id = payload["data"]["id"]
         except (KeyError, TypeError):
             logger.warning("Payload missing data.id.")
+            async with self._dedupe_lock:
+                self.processed_webhooks.discard(webhook_id)
             return web.Response(status=400, text="Bad Request")
 
-        # Add to deduplication set
-        if len(self.processed_webhooks_queue) >= 10000:
-            oldest = self.processed_webhooks_queue.popleft()
-            self.processed_webhooks.discard(oldest)
-        self.processed_webhooks.add(webhook_id)
-        self.processed_webhooks_queue.append(webhook_id)
+        # Bind JWT to payload: verify a claim matches the interaction_id
+        jwt_sub = decoded_claims.get("sub", "")
+        jwt_interaction_id = decoded_claims.get("interaction_id", "")
+        if jwt_sub != interaction_id and jwt_interaction_id != interaction_id:
+            logger.warning(f"JWT token not bound to payload: sub={jwt_sub}, interaction_id={jwt_interaction_id}, payload.data.id={interaction_id}")
+            async with self._dedupe_lock:
+                self.processed_webhooks.discard(webhook_id)
+            return web.Response(status=400, text="Bad Request")
 
         # Offload to background task
         webhook_latency_ms = (time.time() - request_start_time) * 1000
