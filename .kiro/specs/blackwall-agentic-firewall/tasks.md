@@ -644,8 +644,8 @@ The architecture was designed event-driven from the start — all async analysis
   - Run `scripts/verify_no_polling.py` and confirm exit 0 (no polling patterns in analysis path)
   - Ask the user if questions arise
 
-- [ ] 13. Implement OpenTelemetry instrumentation and observability
-  - [ ] 13.1 Create OpenTelemetry tracer for distributed tracing
+- [x] 13. Implement OpenTelemetry instrumentation and observability
+  - [x] 13.1 Create OpenTelemetry tracer for distributed tracing
     - Initialize OpenTelemetry SDK with trace provider and OTLP exporter
     - Implement span creation for each SecurityEvent with unique trace ID
     - Include in spans: tool call details, verdict decision, threat score, signature match ID
@@ -656,7 +656,7 @@ The architecture was designed event-driven from the start — all async analysis
     - Compress spans before export to keep bandwidth < 100KB/s
     - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.8_
 
-  - [ ] 13.2 Implement Prometheus metrics export
+  - [x] 13.2 Implement Prometheus metrics export
     - Export metrics: total interceptions, verdicts by type (BLOCK/ALLOW/QUARANTINE)
     - Export average threat scores, API latency percentiles
     - Export batch sizes, cache hit rates (GTI, TSG), error counts
@@ -665,7 +665,7 @@ The architecture was designed event-driven from the start — all async analysis
     - Visualize threat score distributions and signature match rates
     - _Requirements: 11.5, 11.6_
 
-  - [ ] 13.3 Create structured JSON logging for security events
+  - [x] 13.3 Create structured JSON logging for security events
     - Implement JSON logger using structlog with required fields
     - Log SecurityEvent with: event ID, timestamp, agent ID, verdict, telemetry span ID
     - Include all enrichment data: GTI campaigns, CBM chains, signatures, behavioral scores
@@ -677,7 +677,7 @@ The architecture was designed event-driven from the start — all async analysis
     - Support SIEM-compatible export formats (JSON, CEF)
     - _Requirements: 11.7, 5.12, 21.8, 21.9, 25.1, 25.2, 25.3, 25.4, 25.5, 25.6, 25.7, 25.8, 25.9, 25.11_
 
-  - [ ] 13.4 Write unit tests for observability components
+  - [x] 13.4 Write unit tests for observability components
     - Test OpenTelemetry span creation with unique trace IDs
     - Test span includes verdict and threat score fields
     - Test distributed tracing context propagation
@@ -688,8 +688,8 @@ The architecture was designed event-driven from the start — all async analysis
     - Test gzip compression of rotated logs
     - _Requirements: 11.1, 11.2, 11.5, 11.7, 25.4, 25.6, 25.7_
 
-- [ ] 14. Implement ADK integration and before_tool_callback hook
-  - [ ] 14.1 Create ADK callback integration layer with thread suspension
+- [x] 14. Implement ADK integration and before_tool_callback hook
+  - [x] 14.1 Create ADK callback integration layer with thread suspension
     - Implement before_tool_callback() hook intercepting all tool calls
     - Suspend execution thread and create CallbackToken with thread context
     - Enqueue CallbackToken to Interception Queue (async await)
@@ -700,14 +700,14 @@ The architecture was designed event-driven from the start — all async analysis
     - Log all callback resolutions with correlation IDs
     - _Requirements: 1.1, 1.6, 16.1, 16.2, 16.5, 16.6, 16.8_
 
-  - [ ] 14.2 Implement Python Runtime Audit Hooks for bypass prevention
+  - [x] 14.2 Implement Python Runtime Audit Hooks for bypass prevention
     - Register sys.addaudithook for os, subprocess, pty module calls
     - Deny raw execution attempts with PermissionError
     - Force all agent actions through ADK tool layer
     - Log bypass attempts as high-severity security events
     - _Requirements: 10.6, 10.7, 10.8_
 
-  - [ ] 14.3 Write integration tests for ADK callback hook
+  - [x] 14.3 Write integration tests for ADK callback hook
     - Test before_tool_callback suspends execution correctly
     - Test callback token creation and storage in queue
     - Test resumeCallback with ALLOW verdict executes tool
