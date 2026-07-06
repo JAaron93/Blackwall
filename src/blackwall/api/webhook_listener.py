@@ -29,6 +29,10 @@ class WebhookListener:
             "https://generativelanguage.googleapis.com/.well-known/jwks.json"
         )
         self.audience = audience or os.environ.get("GEMINI_WEBHOOK_AUDIENCE", "")
+
+        # Fail closed: audience is mandatory for webhook JWT validation
+        if not self.audience:
+            raise ValueError("GEMINI_WEBHOOK_AUDIENCE must be set for webhook listener security")
         
         # JWKS key cache: { kid: public_key }
         self._jwks_cache: Dict[str, Any] = {}
@@ -46,6 +50,47 @@ class WebhookListener:
         self.runner: web.AppRunner | None = None
         self.site: web.TCPSite | None = None
         self.background_tasks: set[asyncio.Task[Any]] = set()
+
+    def _reserve_webhook_id(self, webhook_id: str) -> bool:
+        """
+        Atomically reserve a webhook ID for processing.
+        Returns True if reserved successfully, False if already processed.
+        Must be called under self._dedupe_lock.
+        """
+        if webhook_id in self.processed_webhooks:
+            return False
+
+        # Add to both structures atomically
+        self.processed_webhooks.add(webhook_id)
+        self.processed_webhooks_queue.append(webhook_id)
+
+        # Handle eviction from deque (automatic due to maxlen)
+        # Ensure set stays synchronized with queue
+        if len(self.processed_webhooks_queue) == 10000:
+            # Queue is at capacity; next append will auto-evict oldest
+            # We already appended, so if queue was full, oldest was evicted
+            # Reconstruct set from queue to maintain consistency
+            self.processed_webhooks = set(self.processed_webhooks_queue)
+
+        return True
+
+    def _rollback_webhook_id(self, webhook_id: str) -> None:
+        """
+        Remove a webhook ID reservation after a validation failure.
+        Keeps both set and queue synchronized.
+        Must be called under self._dedupe_lock.
+        """
+        self.processed_webhooks.discard(webhook_id)
+        # Remove from queue as well - need to reconstruct to maintain order
+        try:
+            # Convert to list, remove item, and recreate deque
+            queue_list = list(self.processed_webhooks_queue)
+            if webhook_id in queue_list:
+                queue_list.remove(webhook_id)
+                self.processed_webhooks_queue = collections.deque(queue_list, maxlen=10000)
+        except ValueError:
+            # webhook_id not in queue, which is fine
+            pass
 
     async def _fetch_jwks(self) -> dict:
         timeout = aiohttp.ClientTimeout(total=5.0)
@@ -117,15 +162,9 @@ class WebhookListener:
 
         # Atomically reserve webhook-id to prevent duplicates during async processing
         async with self._dedupe_lock:
-            if webhook_id in self.processed_webhooks:
+            if not self._reserve_webhook_id(webhook_id):
                 logger.info(f"Duplicate webhook {webhook_id} ignored.")
                 return web.Response(status=200, text="OK")
-            # Reserve the ID immediately
-            self.processed_webhooks.add(webhook_id)
-            self.processed_webhooks_queue.append(webhook_id)
-            if len(self.processed_webhooks_queue) > 10000:
-                oldest = self.processed_webhooks_queue.popleft()
-                self.processed_webhooks.discard(oldest)
 
         if token.lower().startswith("bearer "):
             token = token[7:]
@@ -138,20 +177,23 @@ class WebhookListener:
             if not kid:
                 logger.warning("JWT header missing kid.")
                 async with self._dedupe_lock:
-                    self.processed_webhooks.discard(webhook_id)
+                    self._rollback_webhook_id(webhook_id)
                 return web.Response(status=400, text="Bad Request")
 
             public_key = await self._get_public_key(kid)
 
-            decode_kwargs = {"algorithms": ["RS256"]}
-            if self.audience:
-                decode_kwargs["audience"] = self.audience
-
-            decoded_claims = jwt.decode(token, public_key, **decode_kwargs)
+            # Fail closed: explicitly require aud and exp claims
+            decoded_claims = jwt.decode(
+                token,
+                public_key,
+                algorithms=["RS256"],
+                audience=self.audience,
+                options={"require": ["aud", "exp"]}
+            )
         except Exception as e:
             logger.warning(f"JWT verification failed: {e}")
             async with self._dedupe_lock:
-                self.processed_webhooks.discard(webhook_id)
+                self._rollback_webhook_id(webhook_id)
             return web.Response(status=400, text="Bad Request")
 
         payload_bytes = await request.read()
@@ -160,7 +202,7 @@ class WebhookListener:
         except json.JSONDecodeError:
             logger.warning("Invalid JSON payload.")
             async with self._dedupe_lock:
-                self.processed_webhooks.discard(webhook_id)
+                self._rollback_webhook_id(webhook_id)
             return web.Response(status=400, text="Bad Request")
 
         try:
@@ -168,7 +210,7 @@ class WebhookListener:
         except (KeyError, TypeError):
             logger.warning("Payload missing data.id.")
             async with self._dedupe_lock:
-                self.processed_webhooks.discard(webhook_id)
+                self._rollback_webhook_id(webhook_id)
             return web.Response(status=400, text="Bad Request")
 
         # Bind JWT to payload: verify a claim matches the interaction_id
@@ -177,7 +219,7 @@ class WebhookListener:
         if jwt_sub != interaction_id and jwt_interaction_id != interaction_id:
             logger.warning(f"JWT token not bound to payload: sub={jwt_sub}, interaction_id={jwt_interaction_id}, payload.data.id={interaction_id}")
             async with self._dedupe_lock:
-                self.processed_webhooks.discard(webhook_id)
+                self._rollback_webhook_id(webhook_id)
             return web.Response(status=400, text="Bad Request")
 
         # Offload to background task

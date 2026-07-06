@@ -15,6 +15,85 @@ from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
 from blackwall.api.webhook_listener import WebhookListener
 from blackwall.db.repository import SQLiteThreatRepository
 
+
+# Test fail-closed behavior for missing audience configuration
+@pytest.mark.asyncio
+async def test_missing_audience_rejects_initialization():
+    """Test that WebhookListener initialization fails when audience is not provided (fail-closed)."""
+    temp_dir = tempfile.TemporaryDirectory()
+    try:
+        db_path = os.path.join(temp_dir.name, "test_no_audience.db")
+        db = SQLiteThreatRepository(db_path)
+        await db.initialize()
+
+        mock_gemini = MockGeminiClient()
+
+        # Ensure environment variable is not set
+        old_audience = os.environ.get("GEMINI_WEBHOOK_AUDIENCE")
+        if "GEMINI_WEBHOOK_AUDIENCE" in os.environ:
+            del os.environ["GEMINI_WEBHOOK_AUDIENCE"]
+
+        try:
+            # Should raise ValueError due to missing audience
+            with pytest.raises(ValueError, match="GEMINI_WEBHOOK_AUDIENCE must be set"):
+                WebhookListener(db, gemini_client=mock_gemini, audience="")
+        finally:
+            # Restore environment
+            if old_audience is not None:
+                os.environ["GEMINI_WEBHOOK_AUDIENCE"] = old_audience
+
+        await db.close()
+    finally:
+        temp_dir.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_empty_audience_env_var_rejects_initialization():
+    """Test that WebhookListener initialization fails when GEMINI_WEBHOOK_AUDIENCE is empty (fail-closed)."""
+    temp_dir = tempfile.TemporaryDirectory()
+    try:
+        db_path = os.path.join(temp_dir.name, "test_empty_audience.db")
+        db = SQLiteThreatRepository(db_path)
+        await db.initialize()
+
+        mock_gemini = MockGeminiClient()
+
+        # Set environment variable to empty string
+        old_audience = os.environ.get("GEMINI_WEBHOOK_AUDIENCE")
+        os.environ["GEMINI_WEBHOOK_AUDIENCE"] = ""
+
+        try:
+            # Should raise ValueError due to empty audience
+            with pytest.raises(ValueError, match="GEMINI_WEBHOOK_AUDIENCE must be set"):
+                WebhookListener(db, gemini_client=mock_gemini)
+        finally:
+            # Restore environment
+            if old_audience is not None:
+                os.environ["GEMINI_WEBHOOK_AUDIENCE"] = old_audience
+            else:
+                del os.environ["GEMINI_WEBHOOK_AUDIENCE"]
+
+        await db.close()
+    finally:
+        temp_dir.cleanup()
+
+
+class MockInteractions:
+    def __init__(self):
+        self.get_called_with = None
+        self.return_value = None
+
+    async def get(self, interaction_id):
+        self.get_called_with = interaction_id
+        if isinstance(self.return_value, Exception):
+            raise self.return_value
+        return self.return_value
+
+
+class MockGeminiClient:
+    def __init__(self):
+        self.interactions = MockInteractions()
+
 # Session-scoped test keys to avoid generating RSA keys for every test (slow)
 @pytest.fixture(scope="session")
 def test_keys():
@@ -77,20 +156,6 @@ def mock_jwks_fetch(test_keys):
         mock_get.return_value = MockResponse(200, jwks)
         yield mock_get
 
-class MockInteractions:
-    def __init__(self):
-        self.get_called_with = None
-        self.return_value = None
-
-    async def get(self, interaction_id):
-        self.get_called_with = interaction_id
-        if isinstance(self.return_value, Exception):
-            raise self.return_value
-        return self.return_value
-
-class MockGeminiClient:
-    def __init__(self):
-        self.interactions = MockInteractions()
 
 class TestWebhookListener(AioHTTPTestCase):
 
@@ -468,5 +533,158 @@ class TestWebhookListener(AioHTTPTestCase):
 
         resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
         self.assertEqual(resp.status, 400)
+
+    @unittest_run_loop
+    async def test_jwt_missing_exp_claim_rejected(self):
+        # Test that JWT without exp claim is rejected (fail-closed)
+        payload = {
+            "type": "interaction.completed",
+            "version": "1",
+            "timestamp": "2026-07-06T00:00:00Z",
+            "data": {"id": self.interaction_id}
+        }
+        payload_bytes = json.dumps(payload).encode("utf-8")
+
+        # Generate token without exp claim - manually encode to avoid fixture adding it
+        claims_without_exp = {
+            "iss": "google",
+            "sub": self.interaction_id,
+            "aud": "test_audience",
+            # Missing 'exp' claim
+        }
+        headers_jwt = {"kid": "test-kid", "alg": "RS256"}
+        token_without_exp = jwt.encode(claims_without_exp, self.private_key, algorithm="RS256", headers=headers_jwt)
+
+        headers = {
+            "Webhook-Signature": token_without_exp,
+            "webhook-timestamp": self.timestamp,
+            "webhook-id": self.webhook_id
+        }
+
+        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+        self.assertEqual(resp.status, 400)
+
+    @unittest_run_loop
+    async def test_jwt_missing_aud_claim_rejected(self):
+        # Test that JWT without aud claim is rejected (fail-closed)
+        payload = {
+            "type": "interaction.completed",
+            "version": "1",
+            "timestamp": "2026-07-06T00:00:00Z",
+            "data": {"id": self.interaction_id}
+        }
+        payload_bytes = json.dumps(payload).encode("utf-8")
+
+        # Generate token without aud claim - manually encode to avoid fixture adding it
+        claims_without_aud = {
+            "iss": "google",
+            "exp": int(time.time()) + 3600,
+            "sub": self.interaction_id,
+            # Missing 'aud' claim
+        }
+        headers_jwt = {"kid": "test-kid", "alg": "RS256"}
+        token_without_aud = jwt.encode(claims_without_aud, self.private_key, algorithm="RS256", headers=headers_jwt)
+
+        headers = {
+            "Webhook-Signature": token_without_aud,
+            "webhook-timestamp": self.timestamp,
+            "webhook-id": self.webhook_id
+        }
+
+        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+        self.assertEqual(resp.status, 400)
+
+    @unittest_run_loop
+    async def test_deduplication_rollback_on_jwt_failure(self):
+        # Test that failed JWT validation rolls back the webhook ID reservation
+        # allowing legitimate retries
+        payload = {
+            "type": "interaction.completed",
+            "version": "1",
+            "timestamp": "2026-07-06T00:00:00Z",
+            "data": {"id": self.interaction_id}
+        }
+        payload_bytes = json.dumps(payload).encode("utf-8")
+
+        # First attempt with invalid JWT (missing exp) - manually encode
+        claims_without_exp = {
+            "iss": "google",
+            "sub": self.interaction_id,
+            "aud": "test_audience",
+            # Missing 'exp' claim
+        }
+        headers_jwt = {"kid": "test-kid", "alg": "RS256"}
+        bad_token = jwt.encode(claims_without_exp, self.private_key, algorithm="RS256", headers=headers_jwt)
+
+        headers = {
+            "Webhook-Signature": bad_token,
+            "webhook-timestamp": self.timestamp,
+            "webhook-id": self.webhook_id
+        }
+
+        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+        self.assertEqual(resp.status, 400)
+
+        # Verify webhook_id is NOT in processed_webhooks after rollback
+        async with self.listener._dedupe_lock:
+            self.assertNotIn(self.webhook_id, self.listener.processed_webhooks)
+            self.assertNotIn(self.webhook_id, list(self.listener.processed_webhooks_queue))
+
+        # Second attempt with valid JWT should succeed
+        headers["Webhook-Signature"] = self.valid_token
+        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+        self.assertEqual(resp.status, 200)
+
+        # Wait for background tasks
+        if self.listener.background_tasks:
+            await asyncio.wait(self.listener.background_tasks, timeout=2.0)
+
+        # Verify signature was written
+        async with self.db.pool.connection() as conn:
+            cursor = await conn.execute("SELECT COUNT(*) FROM signatures WHERE payload_pattern = 'test_pattern'")
+            row = await cursor.fetchone()
+            self.assertEqual(row[0], 1)
+
+    @unittest_run_loop
+    async def test_deduplication_structures_stay_synchronized(self):
+        # Test that both set and deque remain synchronized during normal operation
+        webhook_ids = [str(uuid.uuid4()) for _ in range(15)]
+
+        for wid in webhook_ids:
+            payload = {
+                "type": "interaction.completed",
+                "version": "1",
+                "timestamp": "2026-07-06T00:00:00Z",
+                "data": {"id": str(uuid.uuid4())}  # Each needs unique interaction_id
+            }
+            payload_bytes = json.dumps(payload).encode("utf-8")
+
+            # Generate token with matching interaction_id
+            claims = {
+                "iss": "google",
+                "exp": int(time.time()) + 3600,
+                "sub": payload["data"]["id"]
+            }
+            token = self.generate_jwt(claims)
+
+            headers = {
+                "Webhook-Signature": token,
+                "webhook-timestamp": str(time.time()),
+                "webhook-id": wid
+            }
+
+            resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+            self.assertEqual(resp.status, 200)
+
+        # Verify set and queue contain the same elements
+        async with self.listener._dedupe_lock:
+            queue_set = set(self.listener.processed_webhooks_queue)
+            self.assertEqual(self.listener.processed_webhooks, queue_set,
+                           "Deduplication set and queue must stay synchronized")
+
+            # Verify all webhook_ids are present
+            for wid in webhook_ids:
+                self.assertIn(wid, self.listener.processed_webhooks)
+                self.assertIn(wid, queue_set)
 
 
