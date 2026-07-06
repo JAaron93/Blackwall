@@ -183,6 +183,8 @@ class EvictionManager:
         This is intentionally a public coroutine so unit tests can call it
         directly without waiting for the background timer.
         """
+        await self._ensure_stats_schema()
+
         t0 = time.monotonic()
         result = EvictionResult()
 
@@ -315,7 +317,9 @@ class EvictionManager:
 
         candidate_ids = [r[0] for r in rows]
 
-        # Batch-delete using a single parameterised statement.
+        # Batch-delete using atomic DELETE with subquery to re-check
+        # match_count threshold at deletion time, protecting against
+        # concurrent updates that may have promoted candidates to high-value.
         # SQLite supports up to 999 host parameters; chunk to be safe.
         deleted_total = 0
         chunk_size = 900
@@ -324,8 +328,12 @@ class EvictionManager:
             placeholders = ",".join("?" * len(chunk))
             async with self.pool.connection() as conn:
                 cursor = await conn.execute(
-                    f"DELETE FROM signatures WHERE signature_id IN ({placeholders})",
-                    chunk,
+                    f"""
+                    DELETE FROM signatures
+                    WHERE signature_id IN ({placeholders})
+                      AND match_count <= ?
+                    """,
+                    chunk + [self.high_value_threshold],
                 )
                 deleted_total += cursor.rowcount if cursor.rowcount is not None else 0
 
