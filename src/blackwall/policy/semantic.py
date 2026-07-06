@@ -525,17 +525,13 @@ class SemanticGatingEngine:
 
         context_score = 0.4 * tool_risk + 0.3 * argument_novelty + 0.3 * env_risk
 
-        # 5. Calculate Suspicion Score from IOC heuristics
-        suspicion_score = await self.calculate_suspicion_score(context, iocs, structural_result)
-
-        # 6. Signal Aggregation & Normalization
+        # 5. Signal Aggregation & Normalization
         # GTI is only considered unavailable if we have no responses at all due to errors/degradation
         gti_unavailable = (gti_score is None) and (gti_degraded or gti_budget_exhausted or gti_error)
         threat_score = self.computeThreatScore(
             gti_score=gti_score,
             cbm_score=cbm_score,
             context_score=context_score,
-            suspicion_score=suspicion_score,
             gti_penalty=gti_penalty,
             cbm_penalty=cbm_penalty,
             gti_unavailable=gti_unavailable,

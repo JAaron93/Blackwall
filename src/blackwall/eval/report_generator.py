@@ -28,6 +28,11 @@ from blackwall.models import GroundTruthLabel, SecurityMetrics, TestResult, Verd
 
 logger = logging.getLogger(__name__)
 
+# Shared threshold for FRR and Evasion Rate checks (percentage points).
+# Update this single constant to change the threshold in both the JSON
+# export and the human-readable summary.
+SECURITY_THRESHOLD_PCT: float = 10.0
+
 
 # ---------------------------------------------------------------------------
 # Data containers
@@ -46,6 +51,51 @@ class CaseResult:
     matched: bool
     tool_name: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class _CaseCounts:
+    """Raw confusion-matrix and scenario counts derived from a list of CaseResults."""
+
+    tp: int = 0
+    tn: int = 0
+    fp: int = 0
+    fn: int = 0
+    benign: int = 0
+    malicious: int = 0
+    evasion: int = 0
+
+
+def _count_case_results(case_results: list["CaseResult"]) -> "_CaseCounts":
+    """
+    Single source of truth for TP/TN/FP/FN and scenario-type counts.
+
+    Uses identical verdict logic to :func:`blackwall.eval.metrics.calculateMetrics`
+    so that ``SecurityReport`` confusion-matrix fields never drift from the
+    computed ``SecurityMetrics`` values.
+    """
+    counts = _CaseCounts()
+    for cr in case_results:
+        # Scenario breakdown
+        if cr.scenario_type == "benign":
+            counts.benign += 1
+        elif cr.scenario_type == "malicious":
+            counts.malicious += 1
+        elif cr.scenario_type == "evasion":
+            counts.evasion += 1
+
+        # Confusion matrix (mirrors calculateMetrics logic)
+        if cr.ground_truth == GroundTruthLabel.MALICIOUS:
+            if cr.actual_verdict in (VerdictDecision.BLOCK, VerdictDecision.QUARANTINE):
+                counts.tp += 1
+            else:
+                counts.fn += 1
+        else:  # BENIGN
+            if cr.actual_verdict in (VerdictDecision.BLOCK, VerdictDecision.QUARANTINE):
+                counts.fp += 1
+            else:
+                counts.tn += 1
+    return counts
 
 
 @dataclass
@@ -153,21 +203,7 @@ class ReportGenerator:
         raw_results = self._load_results()
         case_results = self._reconcile(raw_results)
         metrics = self._compute_metrics(case_results)
-
-        counts = {"benign": 0, "malicious": 0, "evasion": 0}
-        tp = tn = fp = fn = 0
-        for cr in case_results:
-            counts[cr.scenario_type] = counts.get(cr.scenario_type, 0) + 1
-            if cr.ground_truth == GroundTruthLabel.MALICIOUS:
-                if cr.actual_verdict in (VerdictDecision.BLOCK, VerdictDecision.QUARANTINE):
-                    tp += 1
-                else:
-                    fn += 1
-            else:
-                if cr.actual_verdict in (VerdictDecision.BLOCK, VerdictDecision.QUARANTINE):
-                    fp += 1
-                else:
-                    tn += 1
+        c = _count_case_results(case_results)
 
         return SecurityReport(
             generated_at=datetime.now(timezone.utc).isoformat(),
@@ -176,13 +212,13 @@ class ReportGenerator:
             total_cases=len(case_results),
             case_results=case_results,
             metrics=metrics,
-            benign_count=counts.get("benign", 0),
-            malicious_count=counts.get("malicious", 0),
-            evasion_count=counts.get("evasion", 0),
-            true_positives=tp,
-            true_negatives=tn,
-            false_positives=fp,
-            false_negatives=fn,
+            benign_count=c.benign,
+            malicious_count=c.malicious,
+            evasion_count=c.evasion,
+            true_positives=c.tp,
+            true_negatives=c.tn,
+            false_positives=c.fp,
+            false_negatives=c.fn,
         )
 
     def export_json(
@@ -331,8 +367,8 @@ class ReportGenerator:
                 "quarantine_count": m.quarantine_count,
             },
             "threshold_checks": {
-                "frr_below_10pct": m.false_refusal_rate < 10.0,
-                "evasion_below_10pct": m.evasion_rate < 10.0,
+                "frr_below_10pct": m.false_refusal_rate < SECURITY_THRESHOLD_PCT,
+                "evasion_below_10pct": m.evasion_rate < SECURITY_THRESHOLD_PCT,
             },
             "case_results": [
                 {
@@ -351,8 +387,8 @@ class ReportGenerator:
     @staticmethod
     def _render_summary(report: SecurityReport) -> str:
         m = report.metrics
-        frr_ok = "✅" if m.false_refusal_rate < 10.0 else "❌"
-        evasion_ok = "✅" if m.evasion_rate < 10.0 else "❌"
+        frr_ok = "✅" if m.false_refusal_rate < SECURITY_THRESHOLD_PCT else "❌"
+        evasion_ok = "✅" if m.evasion_rate < SECURITY_THRESHOLD_PCT else "❌"
         lines = [
             "=" * 60,
             "  BLACKWALL SECURITY EVALUATION REPORT",
