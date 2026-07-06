@@ -152,8 +152,18 @@ class GTIMCPClient:
         self, indicator: str, indicator_type: IndicatorType
     ) -> Dict[str, Any]:
         """Performs actual HTTP request to VirusTotal API."""
+        api_key = self.api_key or ""
+        if api_key.startswith("tmp_"):
+            from blackwall.security import get_global_credential_manager
+            manager = get_global_credential_manager()
+            api_key = manager.resolve_token(api_key)
+        elif api_key.startswith("vault://"):
+            from blackwall.security import get_global_vault
+            vault = get_global_vault()
+            api_key = vault.get_secret(api_key)
+
         headers = {
-            "x-apikey": self.api_key,
+            "x-apikey": api_key,
             "accept": "application/json",
         }
 

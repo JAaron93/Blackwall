@@ -262,7 +262,10 @@ class InterceptionQueue:
                 logger.debug("Telemetry update failed in resolveCallbacks", exc_info=True)
 
             try:
-                callback(verdict)
+                from blackwall.security import get_global_credential_manager, JITCredentialContext
+                manager = get_global_credential_manager()
+                with JITCredentialContext(manager, "vault://secrets/gti-api-key", "tool_execution"):
+                    callback(verdict)
             except Exception:
                 logger.error(
                     "Error invoking resume callback for token",
