@@ -105,23 +105,25 @@ async def test_structural_escalate_triggers_semantic():
     server = HybridPolicyServer(mock_struct, mock_semantic)
     context = ToolCallContext(tool_name="write_file", arguments={"path": "foo.txt"})
     
+    struct_res1 = mock_struct.evaluate.return_value
     verdict = await server.evaluate(context, "sandbox")
     
     assert verdict.decision == VerdictDecision.QUARANTINE
     assert verdict.reasoning == "Suspicious pattern matched semantically"
     assert verdict.confidence_score == 0.6
-    mock_semantic.evaluate.assert_called_once_with(context, "sandbox")
+    mock_semantic.evaluate.assert_called_once_with(context, "sandbox", structural_result=struct_res1)
 
     # Case 2: ALLOW but requireSemanticReview is True
-    mock_struct.evaluate.return_value = StructuralGatingResult(
+    struct_res2 = StructuralGatingResult(
         decision=StructuralAction.ALLOW,
         requireSemanticReview=True
     )
+    mock_struct.evaluate.return_value = struct_res2
     mock_semantic.reset_mock()
     
     verdict2 = await server.evaluate(context, "sandbox")
     assert verdict2.decision == VerdictDecision.QUARANTINE
-    mock_semantic.evaluate.assert_called_once_with(context, "sandbox")
+    mock_semantic.evaluate.assert_called_once_with(context, "sandbox", structural_result=struct_res2)
 
 
 @pytest.mark.asyncio

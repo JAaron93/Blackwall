@@ -52,8 +52,10 @@ class HybridPolicyServer:
             )
 
         # 2. Semantic Gating (Escalation Path)
-        # Note: SemanticGatingEngine.evaluate accepts context and environment_role
-        semantic_result = await self.semantic_engine.evaluate(context, environment_role)
+        # Note: SemanticGatingEngine.evaluate accepts context, environment_role and optional structural_result
+        semantic_result = await self.semantic_engine.evaluate(
+            context, environment_role, structural_result=struct_result
+        )
 
         return Verdict(
             decision=semantic_result.verdict,

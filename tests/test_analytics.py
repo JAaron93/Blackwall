@@ -152,7 +152,7 @@ async def test_generate_signature_basic(repo: SQLiteThreatRepository) -> None:
         assert row[2] == "run_command"
         assert row[3] == "PROCESS"
         assert row[4] == "BLOCK_AND_QUARANTINE_CODE_PATH"
-        assert len(row[5]) == 384 * 4  # 384 floats (4 bytes each)
+        assert len(row[5]) == 768 * 4  # 768 floats (4 bytes each)
 
 
 @pytest.mark.asyncio
