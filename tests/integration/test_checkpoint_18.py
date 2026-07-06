@@ -104,7 +104,7 @@ def _make_mock_semantic_engine(
     verdict: VerdictDecision = VerdictDecision.ALLOW,
     latency_ms: float = 0.0,
 ) -> AsyncMock:
-    async def _evaluate(ctx: ToolCallContext, role: str) -> GateResult:
+    async def _evaluate(ctx: ToolCallContext, role: str, *args, **kwargs) -> GateResult:
         # Spin loop to perform actual work and generate measurable CPU usage for resource validation
         start_spin = time.perf_counter()
         while time.perf_counter() - start_spin < 0.005:  # Spin for 5ms to create CPU load

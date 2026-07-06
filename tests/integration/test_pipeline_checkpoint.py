@@ -127,7 +127,7 @@ def _make_mock_semantic_engine(
 ) -> AsyncMock:
     """Creates a mock SemanticGatingEngine that returns a fixed verdict."""
 
-    async def _evaluate(ctx: ToolCallContext, role: str) -> GateResult:
+    async def _evaluate(ctx: ToolCallContext, role: str, *args, **kwargs) -> GateResult:
         if latency_ms > 0:
             await asyncio.sleep(latency_ms / 1000.0)
         return GateResult(
