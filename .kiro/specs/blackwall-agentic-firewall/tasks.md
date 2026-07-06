@@ -927,8 +927,8 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Verify signature-based blocking catches modified attacks
     - _Requirements: 9.7, 15.7, 15.8, 26.1, 26.2_
 
-- [ ] 21. Run formal evaluation and generate metrics report
-  - [ ] 21.1 Build ADK evalset from ground-truth test cases
+- [~] 21. Run formal evaluation and generate metrics report
+  - [x] 21.1 Build ADK evalset from ground-truth test cases
     - Convert all test cases from task 20 into ADK `.evalset.json` format
     - Each eval scenario encodes: the attacker's tool call as the user turn, the expected `before_tool_callback` trajectory (tool name + verdict), and the expected final response (BLOCK/ALLOW/QUARANTINE string)
     - Malicious cases: expected trajectory ends with `before_tool_callback` returning a BLOCK or QUARANTINE verdict
@@ -947,7 +947,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - For any scenario where `tool_trajectory_avg_score < 1.0`, log the actual vs. expected trajectory diff to a failures report
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 15.1, 15.2_
 
-  - [ ] 21.3 Generate SecurityMetrics report from eval results
+  - [x] 21.3 Generate SecurityMetrics report from eval results
     - Parse `raw_adk_results.json` to extract per-scenario verdicts
     - Map ADK pass/fail results back to TP/TN/FP/FN ground truth labels from task 20
     - Calculate FRR, Evasion Rate, accuracy, precision, recall, F1 using `SecurityMetrics` calculator from task 15
@@ -957,7 +957,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Generate human-readable summary embedding ADK rubric scores alongside FRR/Evasion metrics for demo README — the rubric scores serve as reproducible, third-party-verifiable evidence for Kaggle judges
     - _Requirements: 9.5, 9.6, 9.7, 9.8, 9.9, 9.10, 9.11, 9.12, 9.13, 9.14, 9.15_
 
-  - [ ] 21.4 Package evasion evalset as a self-contained judge-reproducible proof
+  - [x] 21.4 Package evasion evalset as a self-contained judge-reproducible proof
     - Create `tests/eval/evalsets/blackwall_evasion_proof.evalset.json` as a standalone two-wave evalset:
       * Wave 1 scenarios: novel attacks with expected trajectory ending in semantic evaluation → BLOCK
       * Wave 2 scenarios: structurally similar variants of wave-1 attacks with expected trajectory ending in TSG signature match → BLOCK (signature path, not semantic path)
