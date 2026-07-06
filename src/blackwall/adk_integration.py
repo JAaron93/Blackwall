@@ -174,3 +174,72 @@ class ADKIntegration:
                 "status": "quarantined",
                 "message": "Tool executed in sandboxed mock environment.",
             }
+
+
+class FreeTierADKIntegration:
+    """
+    Free-tier ADK integration. before_tool_callback directly calls
+    SyncResolver.evaluate() and blocks synchronously
+    (no InterceptionQueue, no batch accumulation).
+    """
+
+    def __init__(
+        self,
+        sync_resolver: Any,
+        loop: Optional[asyncio.AbstractEventLoop] = None,
+    ) -> None:
+        self.sync_resolver = sync_resolver
+        try:
+            self.loop = loop or asyncio.get_event_loop()
+        except RuntimeError:
+            self.loop = asyncio.new_event_loop()
+
+    def before_tool_callback(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        metadata: Optional[Dict[str, Any]] = None,
+        thread_id: Optional[str] = None,
+    ) -> Any:
+        """
+        Synchronous: evaluates inline, returns verdict immediately.
+        """
+        context = ToolCallContext(
+            tool_name=tool_name,
+            arguments=arguments,
+            metadata=metadata,
+        )
+
+        if self.loop.is_running():
+            import concurrent.futures
+
+            future = asyncio.run_coroutine_threadsafe(
+                self.sync_resolver.evaluate(context), self.loop
+            )
+            verdict = future.result(timeout=30.0)
+        else:
+            verdict = self.loop.run_until_complete(
+                self.sync_resolver.evaluate(context)
+            )
+
+        return self._apply_verdict(context, verdict)
+
+    def _apply_verdict(
+        self,
+        context: ToolCallContext,
+        verdict: Verdict,
+    ) -> Any:
+        """Apply verdict identically to paid-tier resumeCallback."""
+        if verdict.decision == VerdictDecision.ALLOW:
+            return context.arguments
+        elif verdict.decision == VerdictDecision.BLOCK:
+            raise PermissionError(
+                f"Operation blocked by Blackwall: [BLOCK] {verdict.reasoning}"
+            )
+        elif verdict.decision == VerdictDecision.QUARANTINE:
+            return {
+                "status": "quarantined",
+                "message": "Tool executed in sandboxed mock environment.",
+            }
+        else:
+            raise ValueError(f"Unknown verdict: {verdict.decision}")

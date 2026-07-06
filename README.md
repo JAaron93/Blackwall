@@ -51,3 +51,51 @@ A passing run exits with code `0` and prints a summary table showing both wave p
 See [`tests/eval/evalsets/blackwall_evasion_proof.evalset.json`](tests/eval/evalsets/blackwall_evasion_proof.evalset.json) for the full evalset and [`tests/eval/eval_config_evasion.json`](tests/eval/eval_config_evasion.json) for the evaluation rubric.
 
 ---
+
+## Free vs. Paid Tier Comparison
+
+Blackwall ships with two operational modes controlled by `BLACKWALL_TIER` in `.env`.
+
+| Feature | Free Tier (Default) | Paid Tier |
+|---------|--------------------|-----------| 
+| **API Method** | `client.models.generate_content()` | `client.interactions.create()` |
+| **Rate Limit** | 15 RPM | 300 RPM |
+| **Async Batching** | ❌ No | ✅ Yes (up to 5 per API call) |
+| **Context Caching** | ❌ No | ✅ 50%+ token savings |
+| **Signature Generation** | Inline after BLOCK (~200-500ms added) | Background webhook (0ms added) |
+| **Billing Required** | ❌ No | ✅ Yes |
+| **Eval Duration (120 cases)** | ~8-10 minutes | ~40 seconds |
+
+### What's identical across both tiers
+
+All core security mechanisms are **tier-agnostic** — free tier is a complete reproduction, not a degraded subset:
+
+- ✅ Hybrid Policy Server (structural YAML + semantic LLM gating)
+- ✅ Threat Signature Graph with cosine similarity (self-learning loop)
+- ✅ Context Hygiene (regex-based PII/secret redaction)
+- ✅ Python audit hooks blocking OS-level bypasses (`sys.addaudithook`)
+- ✅ GTI MCP as secondary validator (4/min token bucket + graceful degradation)
+- ✅ codebase-memory MCP (AST-based taint analysis)
+- ✅ Threat score formula (GTI 40% + CBM 30% + Context 30%)
+- ✅ Dynamic weight redistribution when GTI budget exhausted
+- ✅ Sub-10% FRR and Evasion Rate targets
+- ✅ All 12 correctness properties
+
+### Running the free-tier eval
+
+```bash
+# Default (free tier)
+bash scripts/run_evasion_eval_free.sh
+
+# Or set explicitly and use existing script
+BLACKWALL_TIER=free bash scripts/run_evasion_eval.sh
+```
+
+### Running the paid-tier eval
+
+```bash
+# Requires BLACKWALL_TIER=paid and billing-enabled Gemini API key
+BLACKWALL_TIER=paid bash scripts/run_evasion_eval.sh
+```
+
+---

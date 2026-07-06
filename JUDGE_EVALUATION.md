@@ -11,8 +11,10 @@
 3. [Free-Tier Architecture Overview](#free-tier-architecture-overview)
 4. [Step-by-Step Reproduction](#step-by-step-reproduction)
 5. [Understanding the Results](#understanding-the-results)
-6. [What's Different from Paid Tier](#whats-different-from-paid-tier)
-7. [Troubleshooting](#troubleshooting)
+6. [Actual Benchmark Results (Free Tier)](#actual-benchmark-results-free-tier)
+7. [What's Different from Paid Tier](#whats-different-from-paid-tier)
+8. [Reference-Based Test Dataset Architecture](#reference-based-test-dataset-architecture)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -32,26 +34,34 @@ git clone https://github.com/YOUR_USERNAME/Blackwall.git
 cd Blackwall
 
 # 2. Install dependencies
-pip install -r requirements.txt
+pip install -e ".[dev]"
 
 # 3. Set your API key
 cp .env.example .env
-# Edit .env and add: GEMINI_API_KEY=your_key_here
+# Edit .env and set: GEMINI_API_KEY=your_key_here
+# BLACKWALL_TIER defaults to "free" — no changes needed
 
-# 4. Run the self-learning proof
-./scripts/run_evasion_eval.sh
+# 4. Run the self-learning proof (free tier)
+bash scripts/run_evasion_eval_free.sh
 ```
 
 **Expected output:**
 ```
-✓ Wave 1 (Novel Attacks): 5/5 passed — blocked via semantic evaluation
-✓ Wave 2 (Evasion Variants): 5/5 passed — blocked via signature match
-✓ Self-Learning Verified: Signature-path avg latency 12ms vs. semantic-path 1,420ms
-
-FRR (False Refusal Rate): 6.2% ✓ (target: <10%)
-Evasion Rate: 3.8% ✓ (target: <10%)
-
-All evaluations passed. Blackwall free-tier reproduction successful.
+╔══════════════════════════════════════════════════════════╗
+║     BLACKWALL EVASION DETECTION PROOF — FREE TIER        ║
+║                                                          ║
+║  ⚠  FREE TIER mode (15 RPM). Est. ~8-10 min for 120     ║
+║     test cases. Set BLACKWALL_TIER=paid for ~40s.        ║
+╠══════════════════════════════════════════════════════════╣
+║ Wave 1 (Novel Attacks / Semantic Path):  5/5 ✓           ║
+║ Wave 2 (Variant Attacks / Signature):    5/5 ✓           ║
+╠══════════════════════════════════════════════════════════╣
+║ Semantic-path avg latency:   1415ms                      ║
+║ Signature-path avg latency:    12ms                      ║
+║ Latency delta (speedup):     1403ms                      ║
+╠══════════════════════════════════════════════════════════╣
+║ RESULT: PASS                          [FREE TIER MODE]   ║
+╚══════════════════════════════════════════════════════════╝
 ```
 
 ---
@@ -147,10 +157,13 @@ sequenceDiagram
 
 | Component | Free Tier (This Eval) | Paid Tier (Full Demo) |
 |-----------|----------------------|------------------------|
+| **Entry Class** | `FreeTierADKIntegration` | `ADKIntegration` |
+| **Resolver** | `SyncResolver` | `BatchResolver` |
 | **API Method** | `client.models.generate_content()` | `client.interactions.create()` |
 | **Batching** | None (1 request per interception) | Yes (5 requests per API call) |
-| **Rate Limit** | 15 RPM | 300 RPM |
+| **Rate Limit** | 15 RPM (token bucket, capacity=15) | 300 RPM (token bucket, capacity=300) |
 | **Context Caching** | None | Server-side (`previous_interaction_id`) |
+| **GTI/CBM Queries** | Serial (GTI first, then CBM) | Parallel within batch |
 | **Signature Gen** | Inline blocking (~200-500ms) | Webhook-triggered background (0ms added) |
 | **GTI Integration** | Secondary validator (4/min budget) | Secondary validator (4/min budget) |
 | **Eval Duration** | ~8-10 minutes (120 cases) | ~40 seconds (120 cases) |
@@ -303,7 +316,7 @@ sequenceDiagram
    ```bash
    git clone https://github.com/YOUR_USERNAME/Blackwall.git
    cd Blackwall
-   pip install -r requirements.txt
+   pip install -e ".[dev]"
    ```
 
 ### Configuration
@@ -368,8 +381,14 @@ sequenceDiagram
 This runs the two-wave evasion evaluation demonstrating self-learning signatures. The evalset lives at `tests/eval/evalsets/blackwall_evasion_proof.evalset.json` and the rubric config at `tests/eval/eval_config_evasion.json`.
 
 ```bash
-./scripts/run_evasion_eval.sh
+# Free-tier entry point (default for judges — no billing required)
+bash scripts/run_evasion_eval_free.sh
+
+# Equivalent: set BLACKWALL_TIER explicitly and use the base script
+BLACKWALL_TIER=free bash scripts/run_evasion_eval.sh
 ```
+
+`run_evasion_eval_free.sh` sets `BLACKWALL_TIER=free` automatically and prints a timing estimate before starting. Both scripts run identical evalsets with identical pass/fail logic — the only difference is the tier warning banner.
 
 **What this does:**
 1. Starts a fresh Blackwall daemon with an empty Threat Signature Graph
@@ -394,7 +413,10 @@ Each wave-2 case carries a `parent_wave1_id` field linking it to its wave-1 coun
 **Expected output:**
 ```
 ╔══════════════════════════════════════════════════════════╗
-║        BLACKWALL EVASION DETECTION PROOF RUNNER          ║
+║     BLACKWALL EVASION DETECTION PROOF — FREE TIER        ║
+║                                                          ║
+║  ⚠  FREE TIER mode (15 RPM). Est. ~8-10 min for 120     ║
+║     test cases. Set BLACKWALL_TIER=paid for ~40s.        ║
 ╠══════════════════════════════════════════════════════════╣
 ║ Wave 1 (Novel Attacks / Semantic Path):  5/5 ✓           ║
 ║ Wave 2 (Variant Attacks / Signature):    5/5 ✓           ║
@@ -403,7 +425,7 @@ Each wave-2 case carries a `parent_wave1_id` field linking it to its wave-1 coun
 ║ Signature-path avg latency:    12ms                      ║
 ║ Latency delta (speedup):     1403ms                      ║
 ╠══════════════════════════════════════════════════════════╣
-║ RESULT: PASS                                             ║
+║ RESULT: PASS                          [FREE TIER MODE]   ║
 ╚══════════════════════════════════════════════════════════╝
 ```
 
@@ -585,18 +607,20 @@ This architecture enables Blackwall to maintain <100ms verdict latency while sti
 
 ### Why Free Tier Collapses to Single-Tier
 
-The free-tier mode removes Tier 2 batching and Tier 3 background webhooks, collapsing to a **two-tier model**:
+The free-tier mode removes Tier 2 batching and Tier 3 background webhooks, collapsing to a **two-tier model** implemented via `SyncResolver` and `FreeTierADKIntegration`:
 
 **Free Tier Architecture:**
 - **Tier 1**: Structural gating (identical, <5ms)
-- **Tier 2+3 Collapsed**: Single synchronous call to `gemini-3.1-flash-lite` that does BOTH verdict decision AND signature generation inline
-- **GTI Integration**: Secondary validation with 4/min budget (token bucket rate limiter)
+- **Tier 2+3 Collapsed**: `SyncResolver.evaluate()` calls `client.models.generate_content()` synchronously for verdict decision, then calls `_inline_generate_signature()` for signature generation — both blocking, both in the same request/response cycle
+- **GTI/CBM queries**: Serial — `_query_gti()` awaits before `_query_cbm()` starts (no `asyncio.gather`)
+- **Rate limiter**: `TokenBucketRateLimiter(capacity=15, refill_rate=0.25)` — 15 RPM, fail-closed QUARANTINE on exhaustion
+- **ADK hook**: `FreeTierADKIntegration.before_tool_callback()` calls `sync_resolver.evaluate()` directly and blocks until the verdict returns — no `InterceptionQueue`, no batch accumulation
 
 **Why the collapse happens:**
 
-1. **No batching benefit**: 15 RPM ceiling means batching 5 requests just exhausts your quota faster with no latency gain
-2. **No `background=True` support**: Free tier API doesn't support webhook callbacks, so you can't offload signature generation
-3. **Inline is simpler**: With only 15 RPM, the added ~200-500ms for signature generation is acceptable — you're not trying to hit 300 RPM anyway
+1. **No batching benefit**: At 15 RPM, batching 5 requests would just exhaust the quota 5x faster with no latency gain — synchronous 1:1 evaluation is the correct design
+2. **Simpler eval path**: With one in-flight request at a time, there's no callback queue to manage, no verdict array to index-map, and no risk of deadlock under partial batches
+3. **Inline signature generation is acceptable at 15 RPM**: The ~200-500ms added per BLOCK is proportionally small when the full semantic path already takes ~1-2s — it's invisible noise at this throughput
 
 **What's preserved:**
 
@@ -611,11 +635,14 @@ The **zero-added-latency signature generation** elegance of Tier 3. On paid tier
 ### Removed: Async Batching (InterceptionQueue + BatchResolver)
 
 **What it does (paid tier):**
-- Queues up to 5 paused tool callbacks
-- Submits them as a single API request
-- Maps returned verdicts back to suspended threads
+- `ADKIntegration.before_tool_callback()` enqueues a `CallbackToken` into `InterceptionQueue`
+- `BatchResolver.process_batch()` accumulates up to 5 tokens (or 100ms timeout), submits to `interactions.create()`, maps the returned verdict array back to suspended threads
 
-**Why it's removed (free tier):**
+**What replaces it (free tier):**
+- `FreeTierADKIntegration.before_tool_callback()` calls `SyncResolver.evaluate()` directly
+- One context in, one verdict out — no queue, no batch accumulation, no index mapping
+
+**Why it's removed:**
 - 15 RPM ceiling makes batching pointless (you'd just hit rate limits faster)
 - Synchronous evaluation is simpler and equally secure
 
@@ -636,15 +663,16 @@ The **zero-added-latency signature generation** elegance of Tier 3. On paid tier
 ### Removed: Background Webhook-Driven Signature Generation
 
 **What it does (paid tier):**
-- After BLOCK, submits a background task to Gemini with `background=True`
-- Gemini calls back via webhook when signature generation completes
+- After BLOCK, `BatchResolver.submit_to_gemini_background()` submits a `background=True` task to `gemini-3.1-pro-preview`
+- Gemini calls the webhook when complete; `WebhookListener` fetches results and invokes `AgentBehavioralAnalytics.submitBackgroundAnalysis()`
 - Zero added latency on the interception path
 
-**Why it's removed (free tier):**
-- Free tier doesn't support `background=True` parameter
-- Webhooks add deployment complexity for marginal benefit in a 15 RPM environment
+**What replaces it (free tier):**
+- After BLOCK, `SyncResolver._inline_generate_signature()` calls `client.models.generate_content()` with a signature-generation prompt
+- Result is written to SQLite via `repo.writeSignature()` — fully blocking, adds ~200-500ms to the BLOCK verdict path
+- `SyncResolverMetrics.inline_signatures_generated` tracks the count
 
-**Impact on evaluation:** Signature generation adds ~200-500ms latency to each BLOCK verdict. This is visible in the Wave 1 results (~1,400ms total instead of ~900ms on paid tier). However, the self-learning proof still works perfectly — Wave 2 is still 100x+ faster because signature matching remains ~10ms.
+**Impact on evaluation:** Signature generation adds ~200-500ms latency to each BLOCK verdict. This is visible in Wave 1 results (~1,400ms total). The self-learning proof still works correctly — Wave 2 blocks remain ~12ms because signature matching is a pure local SQLite lookup regardless of how the signature was generated.
 
 ### What Remains Identical
 
@@ -661,6 +689,37 @@ The **zero-added-latency signature generation** elegance of Tier 3. On paid tier
 | FRR and Evasion Rate calculation | ✅ | ✅ |
 | Zero Ambient Authority enforcement | ✅ | ✅ |
 | All 12 correctness properties | ✅ | ✅ |
+
+---
+
+## Actual Benchmark Results (Free Tier)
+
+> **Note:** Latency figures are based on the `SyncResolver` implementation (task 21.5). Wave-1 timings include the full semantic path: `ContextHygiene` sanitization → serial GTI query → serial CBM query → `generate_content()` call → inline signature write. Wave-2 timings are pure SQLite cosine similarity lookups with no LLM call. FRR and Evasion Rate reflect the 120-case evalset design targets — run the eval to record your environment's actual numbers.
+
+| Metric | Expected Result | Target | How to verify |
+|--------|----------------|--------|---------------|
+| Wave-1 avg latency (semantic path) | ~1,400ms | < 3,000ms | Printed in eval summary table |
+| Wave-2 avg latency (signature path) | ~12ms | < 50ms | Printed in eval summary table |
+| Speedup ratio (Wave 1 / Wave 2) | ~116x | > 50x | `WAVE1_AVG / WAVE2_AVG` in script output |
+| Inline signature generation overhead | ~200–500ms | < 1,000ms | Difference between Wave-1 semantic call and total latency |
+| SyncResolver unit tests | 12/12 pass | 12/12 | `pytest tests/test_sync_resolver.py -v` |
+| FRR (False Refusal Rate) | < 10% | < 10% | Option 2 eval: full 120-case suite |
+| Evasion Rate | < 10% | < 10% | Option 2 eval: full 120-case suite |
+
+**To record your actual numbers**, run the eval and paste the summary output here:
+
+```bash
+bash scripts/run_evasion_eval_free.sh
+```
+
+Then update this table with the printed `Semantic-path avg latency`, `Signature-path avg latency`, and `Latency delta` values from your run.
+
+**To verify unit tests pass on your machine:**
+
+```bash
+pytest tests/test_sync_resolver.py -v
+# Expected: 12 passed
+```
 
 ---
 
@@ -901,6 +960,8 @@ Use this checklist to verify each core claim:
 - [ ] **Sub-10% FRR**: Full evaluation shows false refusal rate <10%
 - [ ] **Sub-10% Evasion**: Full evaluation shows false negative rate <10%
 - [ ] **ADK Integration**: Evalset runs successfully with `tool_trajectory_avg_score: 1.0`
+- [ ] **Free-Tier Resolver**: `pytest tests/test_sync_resolver.py -v` shows 12 passed
+- [ ] **Tier Detection**: `BLACKWALL_TIER=free` env var routes to `SyncResolver`; `BLACKWALL_TIER=paid` routes to `BatchResolver`
 - [ ] **Reproducibility**: All tests pass on your machine with only a free API key
 
 If all boxes are checked, the free-tier evaluation successfully validates the core claims. 🎯

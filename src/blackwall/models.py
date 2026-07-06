@@ -154,6 +154,20 @@ class ResolverMetrics(BaseModel):
     cache_hit_rate: float = Field(..., ge=0.0, le=1.0)
 
 
+class SyncResolverMetrics(BaseModel):
+    """Metrics for the free-tier SyncResolver."""
+
+    total_evaluations: int = 0
+    average_latency_ms: float = 0.0
+    rate_limit_hits: int = 0
+    gti_queries_executed: int = 0
+    gti_queries_deferred: int = 0
+    inline_signatures_generated: int = 0
+    block_count: int = 0
+    quarantine_count: int = 0
+    allow_count: int = 0
+
+
 class PolicyServerState(BaseModel):
     version: str
     last_updated: datetime

@@ -975,7 +975,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Document `run_evasion_eval.sh` as the primary reproducibility command in README.md under a **"Reproduce the Evaluation"** section — judges clone the repo, set API keys in `.env`, and run one script
     - _Requirements: 5.1, 5.2, 5.3, 26.1, 26.2, 26.3_
 
-  - [ ] 21.5 Implement free-tier evaluation mode for judge reproducibility
+  - [x] 21.5 Implement free-tier evaluation mode for judge reproducibility
     - **Goal:** Enable zero-friction judge reproduction by shipping a free-tier mode (15 RPM Gemini API) that bypasses all paid-tier optimizations while preserving core security mechanisms
     - Create `SyncResolver` class in `src/blackwall/sync_resolver.py`:
       * Implements synchronous single-request evaluation via `client.models.generate_content()` (not `interactions.create()`)

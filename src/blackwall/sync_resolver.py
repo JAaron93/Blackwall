@@ -1,0 +1,510 @@
+"""
+sync_resolver.py — Free-tier single-request synchronous resolver.
+
+Uses client.models.generate_content() (NOT interactions.create()).
+No InterceptionQueue, no BatchResolver, no webhooks.
+Rate limited to 15 RPM via a token bucket (capacity=15, refill=0.25/s).
+
+Verdict thresholds (identical to paid tier):
+  >= 0.75  → BLOCK
+  >= 0.50  → QUARANTINE
+  <  0.50  → ALLOW
+"""
+
+import logging
+import time
+from typing import Any, Dict, Optional
+
+from blackwall.models import (
+    CBMResponse,
+    GTIResponse,
+    SyncResolverMetrics,
+    ToolCallContext,
+    Verdict,
+    VerdictDecision,
+)
+from blackwall.resolver import ContextHygiene, TokenBucketRateLimiter
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# High-risk tool names and keywords used in context signal scoring
+# ---------------------------------------------------------------------------
+
+_HIGH_RISK_TOOLS = frozenset({
+    "execute_shell",
+    "execute_bash",
+    "execute_terminal",
+    "run_command",
+    "subprocess",
+    "eval",
+    "exec",
+    "os_exec",
+})
+
+_MEDIUM_RISK_TOOLS = frozenset({
+    "read_file",
+    "write_file",
+    "file_write",
+    "save_file",
+    "query_db",
+    "database_query",
+    "http_request",
+    "socket_connect",
+})
+
+_SUSPICIOUS_KEYWORDS = frozenset({
+    "passwd",
+    "shadow",
+    "etc",
+    "reverse",
+    "shell",
+    "payload",
+    "inject",
+    "exploit",
+    "backdoor",
+    "exfil",
+    "beacon",
+    "c2",
+    "wget",
+    "curl",
+    "bash",
+    "nc",
+    "netcat",
+    "chmod",
+    "chown",
+    "sudo",
+    "base64",
+    "obfuscat",
+    "eval(",
+    "exec(",
+    "union",
+    "select",
+    "drop",
+    "truncate",
+    "insert",
+    "delete",
+    "xp_cmd",
+    "cmdshell",
+})
+
+
+class SyncResolver:
+    """
+    Free-tier single-request synchronous resolver using
+    client.models.generate_content().
+
+    No InterceptionQueue, no BatchResolver, no webhooks.
+    Rate limited to 15 RPM via a token bucket.
+    """
+
+    def __init__(
+        self,
+        client: Any,
+        policy_server: Any = None,
+        repo: Any = None,
+        gti_client: Any = None,
+        cbm_client: Any = None,
+        gti_budget_tracker: Any = None,
+    ) -> None:
+        self.client = client
+        self.policy_server = policy_server
+        self.repo = repo
+        self.gti_client = gti_client
+        self.cbm_client = cbm_client
+        self.gti_budget_tracker = gti_budget_tracker
+
+        # Rate limiter: 15 RPM  →  capacity=15, refill_rate=15/60=0.25 t/s
+        self._rate_limiter = TokenBucketRateLimiter(
+            capacity=15.0, refill_rate=0.25
+        )
+
+        # Context hygiene sanitizer
+        self._hygiene = ContextHygiene()
+
+        # Metrics counters
+        self._total_evaluations: int = 0
+        self._total_latency_ms: float = 0.0
+        self._rate_limit_hits: int = 0
+        self._gti_queries_executed: int = 0
+        self._gti_queries_deferred: int = 0
+        self._inline_signatures_generated: int = 0
+        self._block_count: int = 0
+        self._quarantine_count: int = 0
+        self._allow_count: int = 0
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    async def evaluate(self, context: ToolCallContext) -> Verdict:
+        """
+        Single-request evaluation.
+        Rate-checked → hygiene-sanitized → GTI query → CBM query →
+        score aggregation → threshold decision → (optional) inline sig.
+        """
+        t0 = time.time()
+
+        # 1. Rate-limit check (fail-closed: QUARANTINE on exhaustion)
+        allowed = await self._rate_limiter.consume(1.0)
+        if not allowed:
+            self._rate_limit_hits += 1
+            self._quarantine_count += 1
+            self._total_evaluations += 1
+            elapsed = (time.time() - t0) * 1000.0
+            self._total_latency_ms += elapsed
+            return Verdict(
+                decision=VerdictDecision.QUARANTINE,
+                reasoning=(
+                    "Rate limit exhausted (15 RPM). "
+                    "Fail-closed: QUARANTINE pending retry."
+                ),
+                confidence_score=1.0,
+            )
+
+        # 2. Sanitize context
+        sanitized = self._hygiene.sanitize_context(context)
+
+        # 3. Query external signals (serial — GTI first, then CBM)
+        gti_resp: Optional[GTIResponse] = await self._query_gti(sanitized)
+        cbm_resp: Optional[CBMResponse] = await self._query_cbm(sanitized)
+
+        # 4. Compute weighted threat score
+        score = await self._compute_threat_score(sanitized, gti_resp, cbm_resp)
+        score = max(0.0, min(1.0, score))
+
+        # 5. Apply verdict thresholds
+        if score >= 0.75:
+            decision = VerdictDecision.BLOCK
+        elif score >= 0.50:
+            decision = VerdictDecision.QUARANTINE
+        else:
+            decision = VerdictDecision.ALLOW
+
+        verdict = Verdict(
+            decision=decision,
+            reasoning=self._build_reasoning(score, gti_resp, cbm_resp),
+            confidence_score=score,
+        )
+
+        # 6. Inline signature generation after BLOCK
+        if decision == VerdictDecision.BLOCK:
+            self._block_count += 1
+            await self._inline_generate_signature(sanitized, verdict)
+        elif decision == VerdictDecision.QUARANTINE:
+            self._quarantine_count += 1
+        else:
+            self._allow_count += 1
+
+        # 7. Metrics
+        self._total_evaluations += 1
+        elapsed = (time.time() - t0) * 1000.0
+        self._total_latency_ms += elapsed
+
+        return verdict
+
+    # ------------------------------------------------------------------
+    # GTI query
+    # ------------------------------------------------------------------
+
+    async def _query_gti(
+        self, context: ToolCallContext
+    ) -> Optional[GTIResponse]:
+        """
+        Query GTI MCP serially (not parallel). Respects GTI budget tracker.
+        Returns None if no gti_client, budget exhausted, or query fails.
+        """
+        if self.gti_client is None:
+            return None
+
+        # Budget check
+        if self.gti_budget_tracker is not None:
+            acquired = self.gti_budget_tracker.tryAcquire()
+            if not acquired:
+                self._gti_queries_deferred += 1
+                logger.debug(
+                    "GTI budget exhausted — deferring query",
+                    tool=context.tool_name,
+                )
+                return None
+
+        try:
+            # Extract a query indicator from arguments
+            indicator = self._extract_indicator(context)
+            if not indicator:
+                self._gti_queries_deferred += 1
+                return None
+
+            result: GTIResponse = await self.gti_client.query(indicator)
+            self._gti_queries_executed += 1
+            return result
+
+        except Exception as exc:
+            logger.warning(
+                "GTI query failed — continuing without GTI signal",
+                error=str(exc),
+            )
+            self._gti_queries_deferred += 1
+            return None
+
+    # ------------------------------------------------------------------
+    # CBM query
+    # ------------------------------------------------------------------
+
+    async def _query_cbm(
+        self, context: ToolCallContext
+    ) -> Optional[CBMResponse]:
+        """
+        Query CBM MCP serially (not parallel).
+        Returns None if no cbm_client or query fails.
+        """
+        if self.cbm_client is None:
+            return None
+
+        try:
+            result: CBMResponse = await self.cbm_client.query(context)
+            return result
+
+        except Exception as exc:
+            logger.warning(
+                "CBM query failed — continuing without CBM signal",
+                error=str(exc),
+            )
+            return None
+
+    # ------------------------------------------------------------------
+    # Threat score computation
+    # ------------------------------------------------------------------
+
+    async def _compute_threat_score(
+        self,
+        context: ToolCallContext,
+        gti_resp: Optional[GTIResponse],
+        cbm_resp: Optional[CBMResponse],
+    ) -> float:
+        """
+        Weighted aggregation: GTI 40% + CBM 30% + Context 30%.
+        When GTI budget is exhausted (gti_resp is None AND a budget tracker
+        is present that has been depleted), redistributes:
+          GTI 0% (penalty −0.2) + CBM 50% + Context 50%.
+        """
+        gti_score = self._score_gti(gti_resp)
+        cbm_score = self._score_cbm(cbm_resp)
+        ctx_score = self._score_context(context)
+
+        gti_available = (
+            gti_resp is not None
+            or (self.gti_client is None and self.gti_budget_tracker is None)
+        )
+
+        if gti_available and gti_resp is not None:
+            # Normal weights: GTI 40% + CBM 30% + Context 30%
+            score = (
+                gti_score * 0.40
+                + cbm_score * 0.30
+                + ctx_score * 0.30
+            )
+        else:
+            # Degraded: GTI 0% (−0.2 penalty) + CBM 50% + Context 50%
+            score = (
+                cbm_score * 0.50
+                + ctx_score * 0.50
+                - 0.20
+            )
+
+        return score
+
+    # ------------------------------------------------------------------
+    # Inline signature generation (BLOCK path)
+    # ------------------------------------------------------------------
+
+    async def _inline_generate_signature(
+        self, context: ToolCallContext, verdict: Verdict
+    ) -> None:
+        """
+        After BLOCK: generate a threat signature inline using
+        generate_content() and write it to the SQLite repo.
+        Adds ~200-500ms. Skipped gracefully if repo is None or Gemini fails.
+        """
+        try:
+            prompt = (
+                "Generalize this attack pattern into a reusable threat signature.\n"
+                f"Tool: {context.tool_name}\n"
+                f"Arguments: {context.arguments}\n"
+                f"Verdict reasoning: {verdict.reasoning}\n"
+                "Respond with a concise signature description "
+                "(attacker_intent, payload_pattern, target_sink)."
+            )
+
+            response = self.client.models.generate_content(
+                model="gemini-2.0-flash-lite",
+                contents=prompt,
+            )
+            sig_text = (
+                response.text
+                if hasattr(response, "text")
+                else str(response)
+            )
+
+            if self.repo is not None:
+                await self.repo.writeSignature(
+                    {
+                        "attackerIntent": (
+                            f"Blocked tool call: {context.tool_name}"
+                        ),
+                        "payloadPattern": sig_text[:512],
+                        "targetTool": context.tool_name,
+                        "mitigationAction": "BLOCK",
+                        "metadata": {
+                            "confidence_score": verdict.confidence_score,
+                        },
+                    }
+                )
+
+            self._inline_signatures_generated += 1
+
+        except Exception as exc:
+            logger.warning(
+                "Inline signature generation failed — skipping",
+                error=str(exc),
+            )
+
+    # ------------------------------------------------------------------
+    # Metrics
+    # ------------------------------------------------------------------
+
+    def get_metrics(self) -> dict:
+        """Returns a SyncResolverMetrics dataclass as a dict."""
+        avg_latency = (
+            self._total_latency_ms / self._total_evaluations
+            if self._total_evaluations > 0
+            else 0.0
+        )
+        return SyncResolverMetrics(
+            total_evaluations=self._total_evaluations,
+            average_latency_ms=avg_latency,
+            rate_limit_hits=self._rate_limit_hits,
+            gti_queries_executed=self._gti_queries_executed,
+            gti_queries_deferred=self._gti_queries_deferred,
+            inline_signatures_generated=self._inline_signatures_generated,
+            block_count=self._block_count,
+            quarantine_count=self._quarantine_count,
+            allow_count=self._allow_count,
+        ).model_dump()
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _score_gti(self, gti_resp: Optional[GTIResponse]) -> float:
+        """
+        GTI signal (0.0–1.0).
+          is_malicious=True  → 1.0
+          detection_rate     → fractional score
+          Both available     → average of is_malicious score and detection_rate
+        """
+        if gti_resp is None:
+            return 0.0
+
+        malicious_score = 1.0 if gti_resp.is_malicious else 0.0
+        detection_score = max(0.0, min(1.0, gti_resp.detection_rate))
+
+        if gti_resp.is_malicious:
+            # Both components available: average them
+            return (malicious_score + detection_score) / 2.0
+        # Only detection_rate contributes when not flagged malicious
+        return detection_score
+
+    def _score_cbm(self, cbm_resp: Optional[CBMResponse]) -> float:
+        """
+        CBM signal (0.0–1.0).
+          blast_radius normalised: min(blast_radius / 10, 1.0)
+          critical sinks: each sink type adds 0.1 (cap 0.5)
+          Combined as average of the two components.
+        """
+        if cbm_resp is None:
+            return 0.0
+
+        blast_score = min(cbm_resp.blast_radius / 10.0, 1.0)
+        sink_score = min(len(cbm_resp.critical_sinks) * 0.1, 0.5)
+        return (blast_score + sink_score) / 2.0
+
+    def _score_context(self, context: ToolCallContext) -> float:
+        """
+        Context signal (0.0–1.0) based on:
+          - Tool name risk level
+          - Argument novelty (suspicious keyword count)
+          - Environment role (from metadata)
+        """
+        tool_score = self._score_tool_name(context.tool_name)
+        novelty_score = self._score_argument_novelty(context.arguments)
+
+        # Environment role modifier
+        role_modifier = 0.0
+        if context.metadata:
+            role = context.metadata.get("environment_role", "").lower()
+            if role in ("production", "prod"):
+                role_modifier = 0.15
+            elif role in ("staging",):
+                role_modifier = 0.05
+
+        raw = (tool_score * 0.50 + novelty_score * 0.50) + role_modifier
+        return max(0.0, min(1.0, raw))
+
+    def _score_tool_name(self, tool_name: str) -> float:
+        """Returns 0.9 for high-risk tools, 0.45 for medium-risk, else 0.1."""
+        name_lower = tool_name.lower()
+        for risky in _HIGH_RISK_TOOLS:
+            if risky in name_lower:
+                return 0.9
+        for medium in _MEDIUM_RISK_TOOLS:
+            if medium in name_lower:
+                return 0.45
+        return 0.1
+
+    def _score_argument_novelty(
+        self, arguments: Dict[str, Any]
+    ) -> float:
+        """
+        Counts suspicious keywords found in stringified argument values.
+        0 matches → 0.0; 1 → 0.2; 2 → 0.4; 3 → 0.6; 4+ → 0.8+
+        """
+        combined = " ".join(str(v) for v in arguments.values()).lower()
+        count = sum(1 for kw in _SUSPICIOUS_KEYWORDS if kw in combined)
+        return min(count * 0.2, 1.0)
+
+    def _extract_indicator(self, context: ToolCallContext) -> Optional[str]:
+        """Extracts the most useful GTI indicator from the context arguments."""
+        args_str = " ".join(str(v) for v in context.arguments.values())
+        # Try to find an IP-like or URL-like token
+        import re
+
+        ip_match = re.search(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", args_str)
+        if ip_match:
+            return ip_match.group(0)
+
+        url_match = re.search(r"https?://[^\s]+", args_str)
+        if url_match:
+            return url_match.group(0)
+
+        # Fall back to the tool name as a weak indicator
+        return context.tool_name if context.tool_name else None
+
+    @staticmethod
+    def _build_reasoning(
+        score: float,
+        gti_resp: Optional[GTIResponse],
+        cbm_resp: Optional[CBMResponse],
+    ) -> str:
+        parts = [f"Threat score: {score:.3f}"]
+        if gti_resp is not None:
+            parts.append(
+                f"GTI: malicious={gti_resp.is_malicious}, "
+                f"detection_rate={gti_resp.detection_rate:.2f}"
+            )
+        if cbm_resp is not None:
+            parts.append(
+                f"CBM: blast_radius={cbm_resp.blast_radius}, "
+                f"sinks={len(cbm_resp.critical_sinks)}"
+            )
+        return " | ".join(parts)
