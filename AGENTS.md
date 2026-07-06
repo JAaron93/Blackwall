@@ -18,11 +18,12 @@ The blueprint must explicitly define a "Zero-Trust" safety net:
 3. **Behavioral Evaluation:** Define an evaluation protocol utilizing an LLM-as-judge scoring matrix (0-5) to monitor behavioral drift during security events, focusing on tolerance bands rather than binary test assertions.
 
 ## 4. Configured MCP Servers for Blackwall Agent
-1. **Google Threat Intelligence (GTI) MCP: The Live Referee**
-   * **When it is used:** At the exact millisecond an external tool call is intercepted by the ADK `before_tool_callback`.
-   * **The Workflow:** When the Blackwall Agent physically pauses an execution, it uses the GTI server as a real-time referee to query live Indicators of Compromise (IOCs).
-   * **The Execution:** If a rogue agent attempts a `curl` command to an unknown IP, Blackwall instantly asks GTI if that IP is flagged on VirusTotal. Furthermore, if Blackwall needs to understand how a specific malicious script behaves in the wild, it can query GTI for live malware campaign data.
-   * **The Mitigation:** If GTI returns a positive flag for malicious activity, Blackwall immediately blocks the execution and writes a new "Threat Signature" to its self-learning library to dynamically refine its policies.
+1. **Google Threat Intelligence (GTI) MCP: The Secondary Validator**
+   * **When it is used:** During semantic evaluation for high-risk events only (not every tool call interception). GTI is invoked AFTER primary defense layers (SQLite Threat Signature Graph + Structural YAML policies + Codebase Memory MCP) and ONLY when the event meets high-risk classification criteria (new IPs, suspicious hashes, unknown domains).
+   * **The Budget Constraint:** VirusTotal free tier caps at 4 lookups per minute. GTI operates with an intelligent token bucket rate limiter (4 tokens, 15-second replenishment) to stay within this constraint.
+   * **The Workflow:** When Blackwall escalates a high-suspicion event to semantic evaluation, it checks the GTI budget tracker. If budget available, it queries VirusTotal for live Indicators of Compromise (IOCs). If budget exhausted, threat score calculation gracefully degrades with weight redistribution (CBM +20%, Context +20%, GTI penalty -0.2).
+   * **The Execution:** If a rogue agent attempts a `curl` command to an unknown IP that passes structural rules, Blackwall asks GTI if that IP is flagged on VirusTotal. Results are cached locally (24-hour TTL) to minimize repeated queries.
+   * **The Mitigation:** If GTI returns a positive flag for malicious activity, Blackwall blocks the execution and writes a new "Threat Signature" to its self-learning library. If GTI budget exhausted, Blackwall continues operating with reduced detection confidence (primary defense layers still active).
 
 2. **`codebase-memory-mcp`: The Structural Graph**
    * **When exactly it is used:** Blackwall triggers graph searches immediately *after* an incoming action is intercepted, but *before* it decides whether the action poses a structural threat to the application's underlying architecture.
@@ -33,8 +34,9 @@ The blueprint must explicitly define a "Zero-Trust" safety net:
 **The Interception Synthesis (How They Work Together)**
 1. **The Intercept:** A rogue agent attempts to inject an obfuscated payload into a user input field that interacts with a backend function (e.g., `ProcessOrder`). The ADK physically pauses the execution.
 2. **The Structural Verification (Graph):** Blackwall asks the `codebase-memory-mcp`, "What is the dependency chain for `ProcessOrder`?". The structural graph instantly reveals that this function pipes directly into a raw database query, flagging it as a highly vulnerable critical sink.
-3. **The External Verification (GTI):** Because the graph confirmed the target is a critical sink, Blackwall extracts the payload string and queries the GTI MCP to see if this specific syntax matches known, live exploit campaigns.
-4. **The Verdict:** GTI confirms the malicious nature of the payload. Blackwall permanently blocks the execution, writes a Threat Signature detailing the attack vector and the vulnerable call chain, and remains lean and token-efficient.
+3. **The Primary Defense Check:** Blackwall queries its SQLite Threat Signature Graph for similar attack patterns. If no signature match found AND structural YAML rules escalate to semantic evaluation, proceed to GTI validation.
+4. **The External Verification (GTI - Budget Permitting):** Blackwall checks the GTI Query Budget Tracker. If tokens available, it extracts the payload string and queries the GTI MCP to see if this specific syntax matches known, live exploit campaigns on VirusTotal. If budget exhausted, skip GTI and rely on CBM + Context scoring with weight redistribution.
+5. **The Verdict:** If GTI confirms malicious nature (or CBM+Context score exceeds threshold without GTI), Blackwall permanently blocks the execution, writes a Threat Signature detailing the attack vector and the vulnerable call chain, and remains lean and token-efficient.
 
 ## 5. Optimization Engineering & API Constraints
 Blackwall agent will be running through the paid Gemini API tier to utilize server-side context caching, keeping costs low by preventing the need to resubmit massive context payloads on every loop.
