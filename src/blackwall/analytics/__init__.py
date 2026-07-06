@@ -18,6 +18,7 @@ from blackwall.models import (
     SinkType,
 )
 from blackwall.db.repository import SQLiteThreatRepository
+from blackwall.mcp.embeddings import GeminiEmbeddingClient
 
 logger = logging.getLogger("blackwall.analytics")
 
@@ -57,6 +58,7 @@ class AgentBehavioralAnalytics:
         self.model_name = model_name
         self.agbom: Dict[str, Any] = {"tools": {}}
         self._embedding_model = None
+        self.embedding_client = GeminiEmbeddingClient(client) if client is not None else None
 
         if _has_otel:
             self.tracer = trace.get_tracer("blackwall.analytics")
@@ -76,10 +78,10 @@ class AgentBehavioralAnalytics:
         if model is not None:
             return model.encode(text).tolist()
 
-        # Deterministic fallback embedding generation (384 dimensions)
+        # Deterministic fallback embedding generation (768 dimensions)
         seed = int(hashlib.sha256(text.encode("utf-8")).hexdigest(), 16) & 0xFFFFFFFF
         rng = random.Random(seed)
-        return [rng.uniform(-1.0, 1.0) for _ in range(384)]
+        return [rng.uniform(-1.0, 1.0) for _ in range(768)]
 
     def _generalize_string(self, text: str) -> str:
         # Regex-based generalization of known specific patterns
@@ -276,12 +278,29 @@ class AgentBehavioralAnalytics:
         else:
             mitigation_action = "BLOCK_AND_LOG"
 
-        # 5. Generate similarity vector (384 dimensions)
+        # 5. Generate similarity vector
         combined_text = f"{attacker_intent} {payload_pattern} {tool_name}"
-        vector = self._get_embedding(combined_text)
+        vector = None
+        sig_id = uuid4()
+        if self.embedding_client:
+            try:
+                vector = await asyncio.wait_for(
+                    self.embedding_client.embed(combined_text),
+                    timeout=5.0
+                )
+            except Exception as e:
+                logger.warning(
+                    "Gemini embedding API call failed or timed out: %s. Falling back to local embedding.",
+                    str(e),
+                    extra={"signature_id": str(sig_id), "error": str(e)},
+                )
+                # Fallback to local embedding when Gemini call errors
+                vector = self._get_embedding(combined_text)
+        else:
+            # Fallback to local/mock embedding when client is not configured
+            vector = self._get_embedding(combined_text)
 
         # 6. Construct ThreatSignature Pydantic model
-        sig_id = uuid4()
         signature = ThreatSignature(
             signature_id=sig_id,
             pattern=payload_pattern,
