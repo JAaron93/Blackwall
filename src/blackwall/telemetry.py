@@ -28,17 +28,23 @@ def setup_telemetry(metrics_port: int = 8000) -> bool:
     # 1. Tracing Setup (OTLP)
     trace_provider = TracerProvider(resource=resource)
     
-    # Configure OTLP Exporter with gzip compression
-    # We explicitly set compression="gzip" here to meet the requirement.
-    # Note: grpc compression options are passed differently depending on version.
-    # Passing no arguments relies on environment variables like OTEL_EXPORTER_OTLP_COMPRESSION=gzip.
-    # To be explicit, we set it in the environment if not already set.
-    if "OTEL_EXPORTER_OTLP_COMPRESSION" not in os.environ:
-        os.environ["OTEL_EXPORTER_OTLP_COMPRESSION"] = "gzip"
+    if os.environ.get("OTEL_TRACES_EXPORTER") == "none":
+        from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+        from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+        exporter = InMemorySpanExporter()
+        span_processor = SimpleSpanProcessor(exporter)
+    else:
+        # Configure OTLP Exporter with gzip compression
+        # We explicitly set compression="gzip" here to meet the requirement.
+        # Note: grpc compression options are passed differently depending on version.
+        # Passing no arguments relies on environment variables like OTEL_EXPORTER_OTLP_COMPRESSION=gzip.
+        # To be explicit, we set it in the environment if not already set.
+        if "OTEL_EXPORTER_OTLP_COMPRESSION" not in os.environ:
+            os.environ["OTEL_EXPORTER_OTLP_COMPRESSION"] = "gzip"
+            
+        exporter = OTLPSpanExporter()
+        span_processor = BatchSpanProcessor(exporter)
         
-    otlp_exporter = OTLPSpanExporter()
-    
-    span_processor = BatchSpanProcessor(otlp_exporter)
     trace_provider.add_span_processor(span_processor)
     trace.set_tracer_provider(trace_provider)
 

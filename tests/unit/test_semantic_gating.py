@@ -400,6 +400,169 @@ async def test_threat_score_bounded_property(
         assert result.verdict == VerdictDecision.ALLOW
 
 
+@pytest.mark.asyncio
+async def test_high_risk_event_classification(temp_repo):
+    from blackwall.policy.engine import StructuralGatingResult, StructuralAction
+    from blackwall.policy.semantic import extract_iocs
+    
+    engine = SemanticGatingEngine(repo=temp_repo)
+    
+    # Test case 1: Private IP -> Should NOT be high risk
+    ctx_private_ip = ToolCallContext(
+        tool_name="test_tool",
+        arguments={"ip": "127.0.0.1"}
+    )
+    iocs_private = extract_iocs(ctx_private_ip)
+    assert not await engine.is_high_risk(ctx_private_ip, iocs_private)
+    
+    # Test case 2: External IP (new) -> Should be high risk
+    ctx_external_ip = ToolCallContext(
+        tool_name="test_tool",
+        arguments={"ip": "8.8.8.8"}
+    )
+    iocs_external = extract_iocs(ctx_external_ip)
+    assert await engine.is_high_risk(ctx_external_ip, iocs_external)
+
+    # Test case 3: Structural gating escalated -> Should be high risk
+    ctx_escalated = ToolCallContext(
+        tool_name="test_tool",
+        arguments={}
+    )
+    struct_res = StructuralGatingResult(
+        decision=StructuralAction.ESCALATE_TO_SEMANTIC,
+        requireSemanticReview=True
+    )
+    assert await engine.is_high_risk(ctx_escalated, {}, structural_result=struct_res)
+
+
+@pytest.mark.asyncio
+async def test_suspicion_score_calculation(temp_repo):
+    from blackwall.policy.engine import StructuralGatingResult, StructuralAction
+    from blackwall.policy.semantic import extract_iocs
+    
+    engine = SemanticGatingEngine(repo=temp_repo)
+    
+    # Base/empty context
+    ctx_empty = ToolCallContext(tool_name="test_tool", arguments={})
+    score_empty = await engine.calculate_suspicion_score(ctx_empty, {})
+    assert score_empty == 0.0
+    
+    # External IP from high-risk country
+    ctx_hr_geo = ToolCallContext(
+        tool_name="test_tool",
+        arguments={"ip": "8.8.8.8"},
+        metadata={"country": "RU"}
+    )
+    iocs_hr = extract_iocs(ctx_hr_geo)
+    score_hr = await engine.calculate_suspicion_score(ctx_hr_geo, iocs_hr)
+    # Novelty (0.3) + Geolocation (0.2) = 0.50
+    assert abs(score_hr - 0.50) < 0.01
+
+    # Suspicious TLD (.xyz)
+    ctx_xyz = ToolCallContext(
+        tool_name="test_tool",
+        arguments={"domain": "malicious.xyz"}
+    )
+    iocs_xyz = extract_iocs(ctx_xyz)
+    score_xyz = await engine.calculate_suspicion_score(ctx_xyz, iocs_xyz)
+    # Novelty (0.3) + Reputation (0.2) = 0.5
+    assert abs(score_xyz - 0.5) < 0.01
+
+    # High entropy hash
+    ctx_hash = ToolCallContext(
+        tool_name="test_tool",
+        arguments={"file_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"}
+    )
+    iocs_hash = extract_iocs(ctx_hash)
+    score_hash = await engine.calculate_suspicion_score(ctx_hash, iocs_hash)
+    # Novelty (0.3) + Entropy (0.15) = 0.45
+    assert abs(score_hash - 0.45) < 0.01
+
+
+@pytest.mark.asyncio
+async def test_gti_query_budget_tracker_integration():
+    from blackwall.mcp.gti_client import GTIQueryBudgetTracker
+    import asyncio
+    
+    tracker = GTIQueryBudgetTracker(capacity=4, replenishment_interval=0.1)
+    try:
+        # 4 queries should succeed
+        for _ in range(4):
+            assert await tracker.tryAcquire() is True
+            
+        # 5th query should fail (budget exhausted)
+        assert await tracker.tryAcquire() is False
+        assert await tracker.getAvailableTokens() == 0
+        
+        metrics = await tracker.getMetrics()
+        assert metrics["queriesAttempted"] == 5
+        assert metrics["queriesExecuted"] == 4
+        assert metrics["queriesDeferred"] == 1
+        assert metrics["budgetExhaustionCount"] == 1
+        
+        # Wait for replenishment (0.1s replenishment interval)
+        await asyncio.sleep(0.15)
+        assert await tracker.tryAcquire() is True
+    finally:
+        tracker.close()
+
+
+@pytest.mark.asyncio
+async def test_gti_query_skipped_and_redistributed_on_budget_exhaustion(temp_repo):
+    from blackwall.mcp.gti_client import GTIQueryBudgetTracker
+    from blackwall.models import IndicatorType
+    
+    # Mock GTI and CBM
+    mock_gti = MagicMock(spec=GTIMCPClient)
+    mock_gti.is_degraded.return_value = False
+    
+    mock_cbm = MagicMock(spec=CodebaseMemoryClient)
+    mock_cbm.get_threat_score_penalty.return_value = 0.0
+    mock_cbm.queryDependencyChain = AsyncMock(return_value=DependencyChain(
+        rootFunction="f", callChain=[], depth=1, hasCriticalSink=True, criticalSinks=[]
+    ))
+    mock_cbm.getBlastRadius = AsyncMock(return_value=BlastRadiusReport(
+        targetNode="f", affectedModules=[], affectedFunctions=[], riskScore=0.5, isolation=BlastRadiusIsolation.HIGH
+    ))
+    mock_cbm.identifyCriticalSinks = AsyncMock(return_value=[])
+    mock_cbm.identifyUnsafeSinks = lambda sinks: []
+
+    # Exhaust budget tracker
+    tracker = GTIQueryBudgetTracker(capacity=4)
+    try:
+        for _ in range(4):
+            await tracker.tryAcquire()
+        assert await tracker.getAvailableTokens() == 0
+
+        engine = SemanticGatingEngine(
+            repo=temp_repo,
+            gti_client=mock_gti,
+            cbm_client=mock_cbm,
+            budget_tracker=tracker
+        )
+        
+        context = ToolCallContext(
+            tool_name="safe_tool",
+            arguments={"ip": "8.8.8.8", "targetFunction": "f"}
+        )
+        
+        result = await engine.evaluate(context, "sandbox")
+        
+        # GTI should not be queried
+        mock_gti.queryIOC.assert_not_called()
+        
+        # GTI penalty (0.2) must be applied
+        # Weights redistributed: CBM gets 50%, Context gets 50%
+        # Context score: 0.14
+        # CBM score: hasCriticalSink (0.4) + riskScore (0.3 * 0.5 = 0.15) = 0.55
+        # Base score = 0.5 * 0.55 + 0.5 * 0.14 = 0.275 + 0.07 = 0.345
+        # Total score = Base score (0.345) + Penalty (0.2) = 0.545
+        assert abs(result.threat_score - 0.545) < 0.01
+        assert result.verdict == VerdictDecision.QUARANTINE
+    finally:
+        tracker.close()
+
+
 from blackwall.mcp.gti_client import GTIBudgetExhaustedError
 
 @pytest.mark.asyncio
@@ -518,7 +681,8 @@ async def test_gti_budget_exhaustion_does_not_skip_cached_iocs(temp_repo):
     """
     Regression test for Issue 2: When GTI budget is exhausted on an early IOC lookup,
     subsequent IOC types (especially cached ones like domains/hashes) should still be
-    queried and detected, not skipped due to the exception.
+    detected and scored, not skipped due to the exception. After the fix, cached IOCs
+    should be consumed directly from the repo without calling queryIOC.
     """
     # Pre-cache a malicious domain in the repository
     malicious_domain_response = {
@@ -536,35 +700,18 @@ async def test_gti_budget_exhaustion_does_not_skip_cached_iocs(temp_repo):
         response=malicious_domain_response
     )
 
-    # Setup mock GTI Client: first IP query raises budget exhaustion
+    # Setup mock GTI Client: IP query raises budget exhaustion
     mock_gti = MagicMock(spec=GTIMCPClient)
     mock_gti.is_degraded.return_value = False
     mock_gti.repo = temp_repo
 
-    # First queryIOC call (IP) raises budget exhaustion
-    # Second queryIOC call (domain) should succeed from cache
-    mock_gti.queryIOC = AsyncMock(side_effect=[
-        GTIBudgetExhaustedError("Budget exhausted"),  # IP query fails
-    ])
-
-    # Override queryIOC to handle cache lookups properly for the domain
-    async def mock_query_ioc(indicator, indicator_type, context=None):
-        if indicator == "evil.example.com":
-            # Simulate cache hit by returning the cached response
-            return GTIResponse(
-                indicator="evil.example.com",
-                is_malicious=True,
-                threat_categories=["malware", "phishing"],
-                detection_rate=90.0,
-                confidence=0.95
-            )
-        raise GTIBudgetExhaustedError("Budget exhausted")
-
-    mock_gti.queryIOC = AsyncMock(side_effect=mock_query_ioc)
+    # queryIOC should only be called for uncached IP (and fail with budget exhaustion)
+    # Cached domain should NOT call queryIOC - it should use the cached payload directly
+    mock_gti.queryIOC = AsyncMock(side_effect=GTIBudgetExhaustedError("Budget exhausted"))
 
     engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
 
-    # Context with IP (will fail) and domain (should succeed from cache)
+    # Context with IP (will fail) and domain (cached, should succeed)
     context = ToolCallContext(
         tool_name="safe_tool",
         arguments={"ip": "1.2.3.4", "domain": "evil.example.com"}
@@ -583,5 +730,141 @@ async def test_gti_budget_exhaustion_does_not_skip_cached_iocs(temp_repo):
     assert result.threat_score >= 0.75, f"Expected threat score >= 0.75 for cached malicious domain, got {result.threat_score}"
     assert result.verdict == VerdictDecision.BLOCK
 
-    # Verify that queryIOC was called for both IP and domain
-    assert mock_gti.queryIOC.call_count == 2
+    # Verify that queryIOC was only called once for the uncached IP (not for cached domain)
+    assert mock_gti.queryIOC.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_gti_not_applicable_does_not_dilute_threat_score(temp_repo):
+    """
+    Regression test for Finding 2: When GTI is available but no IOCs are applicable
+    (e.g., high-risk command with no external IPs/domains/hashes), GTI should not
+    assign a synthetic clean score of 0.0 that dilutes the overall threat score.
+    """
+    # Setup mock GTI Client (available, not degraded)
+    mock_gti = MagicMock(spec=GTIMCPClient)
+    mock_gti.is_degraded.return_value = False
+    mock_gti.queryIOC = AsyncMock()  # Should not be called
+
+    engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
+
+    # High-risk command with no GTI-applicable IOCs (no IPs, URLs, domains, hashes)
+    # Context score: run_command (1.0) + suspicious patterns (1.0) + production (1.0)
+    # => 0.4 * 1.0 + 0.3 * 1.0 + 0.3 * 1.0 = 1.0
+    context = ToolCallContext(
+        tool_name="run_command",
+        arguments={"cmd": "sudo rm -rf /important/data"}
+    )
+
+    result = await engine.evaluate(context, "production")
+
+    # GTI should NOT be queried (no applicable IOCs)
+    mock_gti.queryIOC.assert_not_called()
+
+    # GTI should be None (not 0.0), so weight redistribution happens
+    # Context gets 100% weight since both GTI and CBM are unavailable
+    # Expected threat score = 1.0 (context score)
+    # This should result in BLOCK verdict (>= 0.75)
+
+    assert result.threat_score >= 0.75, f"Expected threat score >= 0.75, got {result.threat_score}"
+    assert result.verdict == VerdictDecision.BLOCK
+
+
+@pytest.mark.asyncio
+async def test_cached_ioc_uses_repo_payload_not_queryioc(temp_repo):
+    """
+    Regression test for Finding 1: Cached IOC branches should use the cached payload
+    from repo directly, not re-query GTI through queryIOC with skip_budget_check=True.
+    This test verifies all cached IOC types: IP, URL, domain, and hash.
+    """
+    # Pre-cache responses for all IOC types
+    cached_ip_response = {
+        "indicator": "8.8.8.8",
+        "is_malicious": True,
+        "threat_categories": ["botnet"],
+        "detection_rate": 75.0,
+        "last_analysis_date": "2024-01-01T00:00:00Z",
+        "related_campaigns": [],
+        "confidence": 0.75
+    }
+    await temp_repo.cache_gti_response(
+        indicator="8.8.8.8",
+        indicator_type="ip_address",
+        response=cached_ip_response
+    )
+
+    cached_url_response = {
+        "indicator": "http://malicious.example.com/payload",
+        "is_malicious": True,
+        "threat_categories": ["malware"],
+        "detection_rate": 80.0,
+        "last_analysis_date": "2024-01-01T00:00:00Z",
+        "related_campaigns": [],
+        "confidence": 0.8
+    }
+    await temp_repo.cache_gti_response(
+        indicator="http://malicious.example.com/payload",
+        indicator_type="url",
+        response=cached_url_response
+    )
+
+    cached_domain_response = {
+        "indicator": "evil.example.com",
+        "is_malicious": True,
+        "threat_categories": ["phishing"],
+        "detection_rate": 85.0,
+        "last_analysis_date": "2024-01-01T00:00:00Z",
+        "related_campaigns": [],
+        "confidence": 0.85
+    }
+    await temp_repo.cache_gti_response(
+        indicator="evil.example.com",
+        indicator_type="domain",
+        response=cached_domain_response
+    )
+
+    cached_hash_response = {
+        "indicator": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+        "is_malicious": True,
+        "threat_categories": ["trojan"],
+        "detection_rate": 90.0,
+        "last_analysis_date": "2024-01-01T00:00:00Z",
+        "related_campaigns": [],
+        "confidence": 0.9
+    }
+    await temp_repo.cache_gti_response(
+        indicator="a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+        indicator_type="file_hash",
+        response=cached_hash_response
+    )
+
+    # Setup mock GTI Client
+    mock_gti = MagicMock(spec=GTIMCPClient)
+    mock_gti.is_degraded.return_value = False
+    # queryIOC should NEVER be called for cached IOCs
+    mock_gti.queryIOC = AsyncMock()
+
+    engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
+
+    # Context with all cached IOCs
+    context = ToolCallContext(
+        tool_name="safe_tool",
+        arguments={
+            "ip": "8.8.8.8",
+            "url": "http://malicious.example.com/payload",
+            "domain": "evil.example.com",
+            "file_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+        }
+    )
+
+    result = await engine.evaluate(context, "sandbox")
+
+    # CRITICAL: queryIOC should NEVER be called for cached IOCs
+    # The cached payload should be consumed directly from the repo
+    mock_gti.queryIOC.assert_not_called()
+
+    # The threat score should still be high because cached responses indicate malicious IOCs
+    # Even though queryIOC wasn't called, the engine should detect the cached malicious responses
+    # GTI score should be calculated from the cached responses
+    assert result.threat_score >= 0.5, f"Expected threat score >= 0.5 from cached malicious IOCs, got {result.threat_score}"
+

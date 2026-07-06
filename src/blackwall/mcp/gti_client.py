@@ -21,24 +21,36 @@ logger = logging.getLogger("blackwall.mcp.gti_client")
 
 @dataclass
 class BudgetMetrics:
-    queries_attempted: int
-    queries_executed: int
-    queries_deferred: int
-    cache_hits: int
-    cache_hit_rate: float
+    queries_attempted: int = 0
+    queries_executed: int = 0
+    queries_deferred: int = 0
+    cache_hits: int = 0
+    cache_hit_rate: float = 0.0
+    queriesAttempted: int = 0
+    queriesExecuted: int = 0
+    queriesDeferred: int = 0
+    cacheHits: int = 0
+    budgetExhaustionCount: int = 0
+    avgTokenReplenishmentInterval: float = 15.0
 
 
 class GTIQueryBudgetTracker:
     def __init__(self, capacity: int = 4, replenishment_interval: float = 15.0) -> None:
         self.capacity = capacity
         self.replenishment_interval = replenishment_interval
-        self.tokens = capacity
+        self.tokens = float(capacity)
         self.lock = asyncio.Lock()
         
         self.queries_attempted = 0
         self.queries_executed = 0
         self.queries_deferred = 0
         self.cache_hits = 0
+        
+        self.queriesAttempted = 0
+        self.queriesExecuted = 0
+        self.queriesDeferred = 0
+        self.cacheHits = 0
+        self.budgetExhaustionCount = 0
         
         self._replenish_task = None
         self._ensure_task_started()
@@ -65,24 +77,36 @@ class GTIQueryBudgetTracker:
         self._ensure_task_started()
         async with self.lock:
             self.queries_attempted += 1
-            if self.tokens > 0:
-                self.tokens -= 1
+            self.queriesAttempted += 1
+            if self.tokens >= 1.0:
+                self.tokens -= 1.0
                 self.queries_executed += 1
+                self.queriesExecuted += 1
                 return True
             else:
                 self.queries_deferred += 1
+                self.queriesDeferred += 1
+                self.budgetExhaustionCount += 1
                 return False
+
+    async def tryAcquire(self) -> bool:
+        return await self.try_acquire()
 
     async def record_cache_hit(self) -> None:
         self._ensure_task_started()
         async with self.lock:
             self.cache_hits += 1
+            self.cacheHits += 1
             self.queries_attempted += 1
+            self.queriesAttempted += 1
 
     async def get_available_tokens(self) -> int:
         self._ensure_task_started()
         async with self.lock:
-            return self.tokens
+            return int(self.tokens)
+
+    async def getAvailableTokens(self) -> int:
+        return await self.get_available_tokens()
 
     async def get_metrics(self) -> BudgetMetrics:
         self._ensure_task_started()
@@ -95,7 +119,38 @@ class GTIQueryBudgetTracker:
                 queries_deferred=self.queries_deferred,
                 cache_hits=self.cache_hits,
                 cache_hit_rate=hit_rate,
+                queriesAttempted=self.queriesAttempted,
+                queriesExecuted=self.queriesExecuted,
+                queriesDeferred=self.queriesDeferred,
+                cacheHits=self.cacheHits,
+                budgetExhaustionCount=self.budgetExhaustionCount,
+                avgTokenReplenishmentInterval=self.replenishment_interval,
             )
+
+    async def getMetrics(self) -> dict[str, Any]:
+        metrics = await self.get_metrics()
+        return {
+            "queriesAttempted": metrics.queriesAttempted,
+            "queriesExecuted": metrics.queriesExecuted,
+            "queriesDeferred": metrics.queriesDeferred,
+            "cacheHits": metrics.cacheHits,
+            "budgetExhaustionCount": metrics.budgetExhaustionCount,
+            "avgTokenReplenishmentInterval": metrics.avgTokenReplenishmentInterval,
+        }
+
+    async def reset(self) -> None:
+        self._ensure_task_started()
+        async with self.lock:
+            self.tokens = float(self.capacity)
+            self.queries_attempted = 0
+            self.queries_executed = 0
+            self.queries_deferred = 0
+            self.cache_hits = 0
+            self.queriesAttempted = 0
+            self.queriesExecuted = 0
+            self.queriesDeferred = 0
+            self.cacheHits = 0
+            self.budgetExhaustionCount = 0
 
     def close(self) -> None:
         if self._replenish_task:
@@ -184,7 +239,11 @@ class GTIMCPClient:
         return False
 
     async def queryIOC(
-        self, indicator: str, indicator_type: IndicatorType, context: Optional[ToolCallContext] = None
+        self,
+        indicator: str,
+        indicator_type: IndicatorType,
+        context: Optional[ToolCallContext] = None,
+        skip_budget_check: bool = False,
     ) -> GTIResponse:
         """
         Queries the threat intelligence for an indicator with caching, timeout,
@@ -203,24 +262,24 @@ class GTIMCPClient:
         if self.is_degraded():
             raise GTIDegradedError("GTI MCP Client is in degraded mode.")
 
-        # 3. Check high-risk event classification.
-        if not await self.is_high_risk(indicator, indicator_type, context):
-            logger.debug(f"GTI query skipped for low-risk indicator: {indicator}")
-            return GTIResponse(
-                indicator=indicator,
-                is_malicious=False,
-                threat_categories=[],
-                detection_rate=0.0,
-                last_analysis_date=None,
-                related_campaigns=[],
-                confidence=0.0,
-            )
+        # Check high-risk and budget if not skipped
+        if not skip_budget_check:
+            # 3. Check high-risk event classification.
+            if not await self.is_high_risk(indicator, indicator_type, context):
+                logger.debug(f"GTI query skipped for low-risk indicator: {indicator}")
+                return GTIResponse(
+                    indicator=indicator,
+                    is_malicious=False,
+                    threat_categories=[],
+                    detection_rate=0.0,
+                    last_analysis_date=None,
+                    related_campaigns=[],
+                    confidence=0.0,
+                )
 
-        # 4. Check budget tracker.
-        if not await self.budget_tracker.try_acquire():
-            raise GTIBudgetExhaustedError("GTI MCP query budget exhausted.")
-
-        # 5. Perform external API query with 5-second timeout.
+            # 4. Check budget tracker.
+            if not await self.budget_tracker.try_acquire():
+                raise GTIBudgetExhaustedError("GTI MCP query budget exhausted.")
         try:
             # Query inside wait_for to enforce timeout.
             response_dict = await asyncio.wait_for(
