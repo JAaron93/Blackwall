@@ -1,0 +1,74 @@
+{
+  "title": "Blackwall Observability",
+  "tags": ["blackwall"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "title": "Total Interceptions",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(increase(blackwall_interceptions_total[5m]))",
+          "legendFormat": "Interceptions"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 }
+    },
+    {
+      "title": "Verdicts (Decisions)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (decision) (rate(blackwall_verdicts_total[5m]))",
+          "legendFormat": "{{decision}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 0 }
+    },
+    {
+      "title": "API Latency (95th percentile)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(blackwall_api_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "P95 Latency"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+    },
+    {
+      "title": "Batch Size",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(blackwall_batch_size_sum[5m]) / rate(blackwall_batch_size_count[5m])",
+          "legendFormat": "Average Batch Size"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
+    },
+    {
+      "title": "Errors",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(blackwall_errors_total[5m]))",
+          "legendFormat": "Errors"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 }
+    },
+    {
+      "title": "Cache Hits",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(blackwall_cache_hits_total[5m]))",
+          "legendFormat": "Cache Hits"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 }
+    }
+  ],
+  "schemaVersion": 38
+}

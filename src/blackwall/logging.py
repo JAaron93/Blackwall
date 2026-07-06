@@ -1,4 +1,7 @@
+import gzip
 import logging
+import logging.handlers
+import os
 import sys
 from typing import Any
 
@@ -7,14 +10,43 @@ import structlog
 _audit_hook_installed = False
 
 
-def setup_logging(log_level: int = logging.INFO) -> None:
-    """Initialize structured logging with JSON formatting."""
+def _gzip_rotator(source: str, dest: str) -> None:
+    """Compress the rotated log file using gzip."""
+    with open(source, "rb") as sf:
+        with gzip.open(dest, "wb") as df:
+            df.writelines(sf)
+    os.remove(source)
+
+
+def setup_logging(log_level: int = logging.INFO, log_dir: str = "logs") -> None:
+    """Initialize structured logging with JSON formatting and rotation."""
     global _audit_hook_installed
+
+    # Create log directory if it doesn't exist
+    os.makedirs(log_dir, exist_ok=True)
+    
+    log_file = os.path.join(log_dir, "blackwall.log")
+
+    # Setup TimedRotatingFileHandler
+    # midnight rotation, 90 days retention, append mode
+    file_handler = logging.handlers.TimedRotatingFileHandler(
+        filename=log_file,
+        when="midnight",
+        interval=1,
+        backupCount=90,
+        encoding="utf-8"
+    )
+    # Add .gz extension to rotated files
+    file_handler.rotator = _gzip_rotator
+    file_handler.namer = lambda name: name + ".gz"
+
+    stdout_handler = logging.StreamHandler(sys.stdout)
 
     logging.basicConfig(
         format="%(message)s",
-        stream=sys.stdout,
+        handlers=[file_handler, stdout_handler],
         level=log_level,
+        force=True,
     )
 
     if not _audit_hook_installed and "pytest" not in sys.modules:
