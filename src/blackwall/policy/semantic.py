@@ -9,7 +9,8 @@ from typing import Any, Dict, List, Optional
 from blackwall.models import ToolCallContext, VerdictDecision, IndicatorType, GTIResponse
 from blackwall.policy.models import GateResult, StructuralAction
 from blackwall.db.repository import SQLiteThreatRepository
-from blackwall.mcp.gti_client import GTIMCPClient, GTIDegradedError, GTIQueryBudgetTracker, GTIBudgetExhaustedError
+from blackwall.mcp.gti_client import GTIMCPClient, GTIDegradedError, GTIBudgetExhaustedError
+from blackwall.mcp.gti_client import GTIQueryBudgetTracker as AsyncGTIQueryBudgetTracker
 from blackwall.mcp.codebase_memory import CodebaseMemoryClient
 
 logger = logging.getLogger("blackwall.policy.semantic")
@@ -99,13 +100,13 @@ class SemanticGatingEngine:
         repo: Optional[SQLiteThreatRepository] = None,
         gti_client: Optional[GTIMCPClient] = None,
         cbm_client: Optional[CodebaseMemoryClient] = None,
-        budget_tracker: Optional[GTIQueryBudgetTracker] = None,
+        budget_tracker: Optional[AsyncGTIQueryBudgetTracker] = None,
     ) -> None:
         self.repo = repo
         self.gti_client = gti_client
         self.cbm_client = cbm_client
         tracker = budget_tracker or getattr(gti_client, "budget_tracker", None)
-        if tracker is not None and not isinstance(tracker, GTIQueryBudgetTracker):
+        if tracker is not None and not isinstance(tracker, AsyncGTIQueryBudgetTracker):
             tracker = None
         self.budget_tracker = tracker
 
