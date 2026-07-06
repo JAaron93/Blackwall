@@ -517,7 +517,7 @@ def step_daemon_running(adk_interception_ctx, request) -> dict:
                     roles = ["sandbox"] * len(batch)
                     verdicts = await policy_server.evaluateBatch(contexts, roles)
                     await queue.resolveCallbacks(verdicts, batch)
-                await asyncio.sleep(0.001)
+                await asyncio.sleep(0)
         except asyncio.CancelledError:
             pass
 
@@ -605,9 +605,11 @@ def step_before_tool_callback_intercept(adk_interception_ctx) -> None:
         )
 
     result_container = {"result": None, "exception": None, "done": False}
+    hook_duration_ms = 0.0
 
-    start = time.perf_counter()
     def run_hook():
+        nonlocal hook_duration_ms
+        t_start = time.perf_counter()
         try:
             res = integration.before_tool_callback(
                 tool_name=tool_name,
@@ -618,14 +620,17 @@ def step_before_tool_callback_intercept(adk_interception_ctx) -> None:
         except Exception as e:
             result_container["exception"] = e
         finally:
+            hook_duration_ms = (time.perf_counter() - t_start) * 1000.0
             result_container["done"] = True
 
-    t = threading.Thread(target=run_hook)
+    t = threading.Thread(target=run_hook, daemon=True)
     t.start()
-    t.join(timeout=3)
-    end = time.perf_counter()
+    t.join(timeout=3.0)
 
-    adk_interception_ctx["duration_ms"] = (end - start) * 1000.0
+    if not result_container["done"]:
+        raise TimeoutError("before_tool_callback execution timed out or hung after 3 seconds")
+
+    adk_interception_ctx["duration_ms"] = hook_duration_ms
     adk_interception_ctx["result"] = result_container["result"]
     adk_interception_ctx["exception"] = result_container["exception"]
 

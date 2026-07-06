@@ -110,27 +110,30 @@ async def test_webhook_integration_end_to_end():
     
     # Create synthetic payload
     payload_dict = {
-        "event_id": "evt-1",
-        "data": {
-            "id": "test-interaction-123"
-        }
+        "type": "interaction.completed",
+        "version": "1",
+        "timestamp": "2026-07-06T00:00:00Z",
+        "data": {"id": "test-interaction-123"}
     }
     payload_bytes = json.dumps(payload_dict).encode("utf-8")
-    
+
     mock_request = AsyncMock(spec=web.Request)
     mock_request.headers = {
-        "Webhook-Signature": "bearer dummy-token",
+        "Webhook-Signature": "mock-token",
         "webhook-timestamp": str(time.time()),
-        "webhook-id": "webhook-id-123"
+        "webhook-id": "mock-webhook-id"
     }
     mock_request.read.return_value = payload_bytes
 
     # Mock the target generateSignature method
     with patch.object(Agent_Behavioral_Analytics, "generateSignature", new_callable=AsyncMock) as mock_gen_sig, \
-         patch("jwt.get_unverified_header", return_value={"kid": "test-kid"}), \
-         patch.object(listener, "_get_public_key", new_callable=AsyncMock, return_value="dummy-key"), \
-         patch("jwt.decode", return_value={"aud": "test-audience", "exp": time.time() + 100, "sub": "test-interaction-123"}):
-         
+         patch("blackwall.api.webhook_listener.jwt.get_unverified_header") as mock_jwt_header, \
+         patch("blackwall.api.webhook_listener.jwt.decode") as mock_jwt_decode, \
+         patch.object(listener, "_get_public_key", new_callable=AsyncMock) as mock_get_pubkey:
+
+        mock_jwt_header.return_value = {"kid": "test-kid"}
+        mock_jwt_decode.return_value = {"sub": "test-interaction-123"}
+        mock_get_pubkey.return_value = "mock-key"
         mock_gen_sig.return_value = {"sig": "test"}
 
         start_time = time.time()

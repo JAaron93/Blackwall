@@ -206,7 +206,7 @@ sequenceDiagram
    
    # OPTIONAL: These have sensible defaults - leave as-is for free tier
    GEMINI_RPM_LIMIT=15
-   BLACKWALL_MODEL=gemini-2.0-flash-lite
+   BLACKWALL_MODEL=gemini-3.1-flash-lite
    
    # IGNORE FOR FREE TIER: These are only needed for paid-tier or demo harness
    # HYPERBOLIC_API_KEY=         # Only needed for dual-agent demo (rogue agent)
