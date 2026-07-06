@@ -389,9 +389,8 @@ class BatchResolver:
         # Call Gemini Interactions API
         try:
             # We call the client.interactions.create asynchronously to prevent blocking the event loop
-            # If the client library has sync methods, we can run them in an executor or call the async version if available.
-            # We assume client.interactions.create is a coroutine or we call it directly if it supports it.
-            # To be safe, we check if it's a coroutine or run it.
+            # If the client library has sync methods, we run them in an executor so the timeout can be enforced.
+            # If the client library has async methods, we call them directly.
             create_fn = self.client.interactions.create
             if asyncio.iscoroutinefunction(create_fn):
                 interaction = await create_fn(
@@ -400,10 +399,15 @@ class BatchResolver:
                     previous_interaction_id=payload.previous_interaction_id,
                 )
             else:
-                interaction = create_fn(
-                    model="gemini-3.1-flash-lite",
-                    input=payload_json,
-                    previous_interaction_id=payload.previous_interaction_id,
+                # Run synchronous call in executor so asyncio.wait_for timeout can properly interrupt it
+                loop = asyncio.get_event_loop()
+                interaction = await loop.run_in_executor(
+                    None,
+                    lambda: create_fn(
+                        model="gemini-3.1-flash-lite",
+                        input=payload_json,
+                        previous_interaction_id=payload.previous_interaction_id,
+                    )
                 )
 
             # Update last interaction ID for server-side context caching
@@ -488,11 +492,16 @@ class BatchResolver:
                     webhook_config=webhook_config,
                 )
             else:
-                interaction = create_fn(
-                    model="gemini-3.1-pro-preview",
-                    input=json.dumps(payload_input),
-                    background=True,
-                    webhook_config=webhook_config,
+                # Run synchronous call in executor to avoid blocking the event loop
+                loop = asyncio.get_event_loop()
+                interaction = await loop.run_in_executor(
+                    None,
+                    lambda: create_fn(
+                        model="gemini-3.1-pro-preview",
+                        input=json.dumps(payload_input),
+                        background=True,
+                        webhook_config=webhook_config,
+                    )
                 )
 
             self.track_background_submission()
