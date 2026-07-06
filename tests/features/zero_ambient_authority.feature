@@ -29,3 +29,7 @@ Feature: Zero Ambient Authority and JIT Token Downscoping
     Given the Python runtime audit hook is active
     When an adversarial agent attempts to call "pty.spawn" directly
     Then the audit hook must raise a PermissionError
+    When an adversarial agent attempts to call "os.system" directly
+    Then the audit hook must raise a PermissionError
+    When an adversarial agent attempts to call "subprocess.run" directly
+    Then the audit hook must raise a PermissionError

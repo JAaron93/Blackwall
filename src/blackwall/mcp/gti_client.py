@@ -163,6 +163,10 @@ class GTIMCPClient:
                 from blackwall.security import get_global_vault
                 vault = get_global_vault()
                 api_key = vault.get_secret(api_key)
+
+            # Validate API key is not empty after resolution
+            if not api_key:
+                raise ValueError("API key is missing or empty")
         except (ValueError, KeyError) as e:
             # Credential resolution failures should not trigger circuit breaker
             logger.error(f"Failed to resolve API credentials: {str(e)}")

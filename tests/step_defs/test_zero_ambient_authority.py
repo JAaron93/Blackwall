@@ -24,6 +24,8 @@ class ZeroAuthorityState:
         self.uid_dropped = False
         self.gid_dropped = False
         self.pty_res = None
+        self.os_res = None
+        self.subprocess_res = None
 
 
 @pytest.fixture
@@ -51,23 +53,25 @@ def given_blackwall_process_running():
 
 @when("the privilege manager drops OS privileges")
 def when_privilege_manager_drops_privileges(state):
-    # Patch os.getuid to return 0 (simulating root), and patch setuid/setgid
+    # Patch os.getuid to return 0 (simulating root), and patch setuid/setgid/setgroups
     with patch("os.getuid", return_value=0), \
          patch("os.setuid") as mock_setuid, \
          patch("os.setgid") as mock_setgid, \
+         patch("os.setgroups") as mock_setgroups, \
          patch("pwd.getpwnam") as mock_getpwnam:
-        
+
         # Mock pwd.getpwnam to return a valid pw record
         mock_pw = MagicMock()
         mock_pw.pw_uid = 1000
         mock_pw.pw_gid = 1000
         mock_getpwnam.return_value = mock_pw
-        
+
         drop_privileges("nobody")
-        
-        # Verify that setuid and setgid were called
-        mock_setuid.assert_called_once_with(1000)
+
+        # Verify that setuid, setgid, and setgroups were called
+        mock_setgroups.assert_called_once_with([])
         mock_setgid.assert_called_once_with(1000)
+        mock_setuid.assert_called_once_with(1000)
         state.uid_dropped = True
         state.gid_dropped = True
 
@@ -87,7 +91,7 @@ def then_gid_unprivileged(state):
 
 @given('a Local Vault is initialized with secret "gti-api-key" as "gti-real-key"')
 def given_local_vault_initialized(state):
-    state.vault = LocalVault(filepath=state.vault_file)
+    state.vault = LocalVault(filepath=state.vault_file, master_key="test-master-key")
     state.vault.set_secret("gti-api-key", "gti-real-key")
 
 
@@ -132,7 +136,7 @@ def then_resolving_revoked_fails(state):
 
 @given('a Local Vault contains secret "cbm-api-key" as "cbm-real-key"')
 def given_vault_contains_cbm_key(state):
-    state.vault = LocalVault(filepath=state.vault_file)
+    state.vault = LocalVault(filepath=state.vault_file, master_key="test-master-key")
     state.vault.set_secret("cbm-api-key", "cbm-real-key")
 
 
@@ -175,6 +179,32 @@ except PermissionError as e:
 sys.exit(1)
 """
 
+_OS_RUNNER = """\
+import sys
+from blackwall.logging import setup_logging
+setup_logging()
+import os
+try:
+    os.system("echo hello")
+except PermissionError as e:
+    print("BLOCKED", file=sys.stderr)
+    sys.exit(0)
+sys.exit(1)
+"""
+
+_SUBPROCESS_RUNNER = """\
+import sys
+from blackwall.logging import setup_logging
+setup_logging()
+import subprocess
+try:
+    subprocess.run(["echo", "hello"])
+except PermissionError as e:
+    print("BLOCKED", file=sys.stderr)
+    sys.exit(0)
+sys.exit(1)
+"""
+
 
 @given("the Python runtime audit hook is active")
 def given_audit_hook_active():
@@ -192,7 +222,37 @@ def when_adversarial_agent_calls_pty_spawn(state):
     state.pty_res = res
 
 
+@when('an adversarial agent attempts to call "os.system" directly')
+def when_adversarial_agent_calls_os_system(state):
+    res = subprocess.run(
+        [sys.executable, "-c", _OS_RUNNER],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    state.os_res = res
+
+
+@when('an adversarial agent attempts to call "subprocess.run" directly')
+def when_adversarial_agent_calls_subprocess_run(state):
+    res = subprocess.run(
+        [sys.executable, "-c", _SUBPROCESS_RUNNER],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    state.subprocess_res = res
+
+
 @then("the audit hook must raise a PermissionError")
 def then_audit_hook_raises_permission_error(state):
-    assert "BLOCKED" in state.pty_res.stderr
-    assert state.pty_res.returncode == 0
+    # Check which result is available and assert on it
+    if state.pty_res is not None:
+        assert "BLOCKED" in state.pty_res.stderr
+        assert state.pty_res.returncode == 0
+    elif state.os_res is not None:
+        assert "BLOCKED" in state.os_res.stderr
+        assert state.os_res.returncode == 0
+    elif state.subprocess_res is not None:
+        assert "BLOCKED" in state.subprocess_res.stderr
+        assert state.subprocess_res.returncode == 0

@@ -51,6 +51,7 @@ class EncryptedLocalStore:
                 f.write(encrypted_data)
         except Exception as e:
             logger.error("Failed to save or encrypt secrets store", error=str(e))
+            raise
 
 
 class LocalVault:
@@ -87,8 +88,12 @@ class LocalVault:
 class JITCredentialManager:
     """Manages temporary downscoped credentials valid only for a specific execution."""
 
-    def __init__(self, vault: LocalVault):
+    # Default TTL for temporary tokens in seconds (1 hour)
+    DEFAULT_TOKEN_TTL = 3600
+
+    def __init__(self, vault: LocalVault, token_ttl: int = DEFAULT_TOKEN_TTL):
         self.vault = vault
+        self.token_ttl = token_ttl
         # Maps temporary token -> (original_reference, scope, created_at)
         self._active_tokens: Dict[str, Dict[str, Any]] = {}
 
@@ -100,25 +105,34 @@ class JITCredentialManager:
             "scope": scope,
             "created_at": time.time(),
         }
-        logger.debug("Created temporary scoped token", token_id=token_id, scope=scope)
+        logger.debug("Created temporary scoped token", scope=scope)
         return token_id
 
     def resolve_token(self, token_id: str) -> str:
         """Resolves a temporary token to the actual credential value on-demand."""
         if token_id not in self._active_tokens:
             raise ValueError("Invalid or expired temporary token")
-        
+
         token_info = self._active_tokens[token_id]
+
+        # Check if token has expired
+        token_age = time.time() - token_info["created_at"]
+        if token_age > self.token_ttl:
+            # Remove expired token
+            del self._active_tokens[token_id]
+            raise ValueError("Invalid or expired temporary token")
+
         ref = token_info["reference"]
         return self.vault.get_secret(ref)
 
     def revoke_token(self, token_id: str) -> None:
         """Revokes a temporary token, removing it immediately from active tokens."""
         if token_id in self._active_tokens:
+            scope = self._active_tokens[token_id].get("scope", "unknown")
             del self._active_tokens[token_id]
-            logger.debug("Revoked temporary token", token_id=token_id)
+            logger.debug("Revoked temporary token", scope=scope)
         else:
-            logger.warning("Attempted to revoke non-existent or already revoked token", token_id=token_id)
+            logger.warning("Attempted to revoke non-existent or already revoked token")
 
 
 _global_vault: Optional[LocalVault] = None
