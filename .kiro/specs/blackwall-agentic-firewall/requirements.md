@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Blackwall is a **local Minimum Viable Product (MVP)** autonomous Agentic Firewall designed for the Kaggle "AI Agents: Intensive Vibe Coding" hackathon Freestyle track. The system operates as a **single-instance ambient daemon** running exclusively within a **Kali Linux sandbox VM** to demonstrate dual-agent threat mitigation in a controlled environment. Blackwall intercepts and evaluates AI agent execution flows before they reach external systems or the host OS through ADK 2.0's `before_tool_callback` hook, implementing a hybrid defense architecture combining structural YAML-based policies with semantic LLM-based intent analysis. The system leverages self-learning threat signature graphs stored in an embedded **SQLite database** (not Redis or distributed stores), real-time threat intelligence from Google Threat Intelligence (GTI) MCP, and structural code analysis via codebase-memory-mcp to dynamically generate defensive skills with zero static allowlists. The architecture addresses critical API rate constraints (300 RPM Gemini vs 600 RPM attacker) through asynchronous batched evaluation with callback queue management, maintaining sub-10% false positive/negative rates while demonstrating Zero Ambient Authority (unprivileged user + Python runtime audit hooks), Agent Behavioral Analytics, and runtime AgBOM tracing. **All enterprise patterns, horizontal scaling, multi-tenant isolation, and distributed caching abstractions are explicitly out of scope.**
+Blackwall is a **local Minimum Viable Product (MVP)** autonomous Agentic Firewall designed for the Kaggle "AI Agents: Intensive Vibe Coding" hackathon Freestyle track. The system operates as a **single-instance ambient daemon** running exclusively within a **Kali Linux sandbox VM** to demonstrate dual-agent threat mitigation in a controlled environment. Blackwall intercepts and evaluates AI agent execution flows before they reach external systems or the host OS through ADK 2.0's `before_tool_callback` hook, implementing a hybrid defense architecture combining structural YAML-based policies with semantic LLM-based intent analysis. The system leverages self-learning threat signature graphs stored in an embedded **SQLite database** (not Redis or distributed stores), rate-limited secondary validation from Google Threat Intelligence (GTI) MCP (4 queries/minute on free tier), and structural code analysis via codebase-memory-mcp to dynamically generate defensive skills with zero static allowlists. The architecture addresses critical API rate constraints (300 RPM Gemini vs 600 RPM attacker) through asynchronous batched evaluation with callback queue management, maintaining sub-10% false positive/negative rates while demonstrating Zero Ambient Authority (unprivileged user + Python runtime audit hooks), Agent Behavioral Analytics, and runtime AgBOM tracing. **All enterprise patterns, horizontal scaling, multi-tenant isolation, and distributed caching abstractions are explicitly out of scope.**
 
 ## Glossary
 
@@ -17,7 +17,9 @@ Blackwall is a **local Minimum Viable Product (MVP)** autonomous Agentic Firewal
 - **Context_Hygiene**: Regex-based sanitization middleware that strips sensitive data before policy evaluation
 - **Agent_Behavioral_Analytics**: Runtime monitoring engine tracking behavioral drift and generating threat signatures
 - **Threat_Signature_Graph**: SQLite-backed semantic graph database storing learned threat patterns with node/edge schema
-- **GTI_MCP**: Google Threat Intelligence Model Context Protocol server providing VirusTotal IOC validation
+- **GTI_MCP**: Google Threat Intelligence Model Context Protocol server providing VirusTotal IOC validation (rate-limited to 4 queries/minute on free tier; used as secondary validation layer for high-risk events only)
+- **GTI_Query_Budget_Tracker**: Token bucket rate limiter enforcing 4 GTI queries per 60-second sliding window with graceful degradation
+- **High_Risk_Event**: Tool call classified as suspicious based on structural gating signals, unknown external IPs, suspicious file hashes, or unknown domains requiring GTI validation
 - **Codebase_Memory_MCP**: AST-based code analysis server identifying critical sinks and dependency chains
 - **Callback_Token**: Data structure holding suspended thread ID, timestamp, tool name, arguments, and resume function
 - **Verdict**: Decision structure containing ALLOW/BLOCK/QUARANTINE decision with threat score and reasoning
@@ -219,15 +221,20 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 4. IF Structural_Gating returns ESCALATE_TO_SEMANTIC, THE Hybrid_Policy_Server SHALL proceed to Semantic_Gating evaluation
 5. WHEN Semantic_Gating evaluates a context, THE system SHALL first query the Threat_Signature_Graph for similar attack patterns using the default similarity threshold of 0.85
 6. IF a matching signature is found with cosine similarity greater than or equal to 0.85, THE Hybrid_Policy_Server SHALL return a BLOCK verdict with threatScore 0.95 and increment the matched signature's matchCount
-7. IF no matching signature is found AND the context contains extractable IOCs, THE Hybrid_Policy_Server SHALL query GTI_MCP for threat intelligence on each IOC
-8. IF the tool call context has a targetFunction field, THE Hybrid_Policy_Server SHALL query Codebase_Memory_MCP for the dependency chain and critical sinks associated with that function
-9. WHEN aggregating signals from GTI_MCP, Codebase_Memory_MCP, and context analysis, THE Hybrid_Policy_Server SHALL compute a final threatScore using weighted combination: GTI 40 percent, CBM 30 percent, context analysis 30 percent
-10. THE final threatScore SHALL be normalized to the range 0.0 to 1.0 inclusive
-11. IF the threatScore is greater than or equal to 0.75, THE Hybrid_Policy_Server SHALL return a BLOCK verdict with suggestedAction "BLOCK_AND_CREATE_SIGNATURE"
-12. IF the threatScore is greater than or equal to 0.5 AND less than 0.75, THE Hybrid_Policy_Server SHALL return a QUARANTINE verdict with suggestedAction "QUARANTINE_AND_REFACTOR"
-13. IF the threatScore is less than 0.5, THE Hybrid_Policy_Server SHALL return an ALLOW verdict with suggestedAction "ALLOW_WITH_MONITORING"
-14. THE Hybrid_Policy_Server SHALL support hot-reload of YAML policy files without requiring process restart
-15. THE Hybrid_Policy_Server SHALL expose a getCurrentState() method returning a versioned PolicyServerState snapshot used in BatchPayload construction
+7. IF no matching signature is found AND the context contains extractable IOCs AND the event is classified as high-risk, THE Hybrid_Policy_Server SHALL query GTI_MCP for threat intelligence on each IOC
+8. THE system SHALL implement a GTI_Query_Budget_Tracker limiting GTI queries to 4 per 60-second sliding window using a token bucket algorithm
+9. WHEN GTI budget is exhausted (4 queries in 60 seconds), THE system SHALL continue evaluation using Threat_Signature_Graph and Codebase_Memory_MCP signals only, applying a 0.2 threat score penalty for missing GTI validation
+10. IF the tool call context has a targetFunction field, THE Hybrid_Policy_Server SHALL query Codebase_Memory_MCP for the dependency chain and critical sinks associated with that function
+11. WHEN aggregating signals from GTI_MCP, Codebase_Memory_MCP, and context analysis, THE Hybrid_Policy_Server SHALL compute a final threatScore using weighted combination: GTI 40 percent, CBM 30 percent, context analysis 30 percent
+12. WHEN GTI budget is exhausted and GTI signal is unavailable, THE Hybrid_Policy_Server SHALL redistribute GTI weight (40%) proportionally to CBM (20%) and Context (20%) for affected evaluations
+13. THE final threatScore SHALL be normalized to the range 0.0 to 1.0 inclusive
+14. IF the threatScore is greater than or equal to 0.75, THE Hybrid_Policy_Server SHALL return a BLOCK verdict with suggestedAction "BLOCK_AND_CREATE_SIGNATURE"
+15. IF the threatScore is greater than or equal to 0.5 AND less than 0.75, THE Hybrid_Policy_Server SHALL return a QUARANTINE verdict with suggestedAction "QUARANTINE_AND_REFACTOR"
+16. IF the threatScore is less than 0.5, THE Hybrid_Policy_Server SHALL return an ALLOW verdict with suggestedAction "ALLOW_WITH_MONITORING"
+17. THE Hybrid_Policy_Server SHALL support hot-reload of YAML policy files without requiring process restart
+18. THE Hybrid_Policy_Server SHALL expose a getCurrentState() method returning a versioned PolicyServerState snapshot used in BatchPayload construction
+19. THE system SHALL classify events as high-risk based on: new external IP addresses not in local cache, suspicious file hashes, unknown domains, or structural gating signals indicating elevated threat level
+20. THE GTI_Query_Budget_Tracker SHALL prioritize GTI queries for high-risk events by scoring intercepted events and querying GTI for the top-N events within budget
 
 ### Requirement 6: Context Hygiene and Data Sanitization
 
@@ -296,21 +303,29 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 
 ### Requirement 9: Google Threat Intelligence Integration
 
-**User Story:** As a security operations analyst, I want real-time threat intelligence from VirusTotal for IOC validation, so that known malicious indicators are blocked immediately.
+**User Story:** As a security operations analyst, I want intelligent budget-constrained threat intelligence from VirusTotal for high-risk IOC validation, so that known malicious indicators are blocked within strict API rate limits (4 queries/minute free tier).
 
 #### Acceptance Criteria
 
-1. WHEN Semantic_Gating identifies an IOC in a tool call context, THE GTI_MCP client SHALL query the VirusTotal API for that indicator
-2. THE GTI_MCP client SHALL support querying indicator types: IP_ADDRESS, DOMAIN, URL, and FILE_HASH
-3. WHEN querying an IOC, THE GTI_MCP client SHALL return a GTIResponse containing: indicator value, isMalicious boolean, threatCategories array, detectionRate float, lastAnalysisDate timestamp, relatedCampaigns array, and confidence float
-4. THE GTI_MCP client SHALL cache GTIResponse objects with a TTL of 24 hours (86,400 seconds) to reduce API costs
-5. IF a GTI_MCP query does not return a response within 5 seconds, THE system SHALL record that failure toward the circuit breaker counter
-6. WHEN 5 consecutive GTI_MCP queries fail, THE circuit breaker SHALL switch to degraded mode and skip all GTI queries
-7. WHILE in degraded mode, THE Hybrid_Policy_Server SHALL apply a default threat score penalty of 0.3 representing missing GTI signal and redistribute GTI weighting to remaining signals
-8. WHEN the circuit breaker enters degraded mode, THE system SHALL schedule an automatic retry after 60 seconds
-9. IF 3 consecutive retry attempts after the cooldown succeed, THE circuit breaker SHALL restore full GTI integration
-10. THE GTI_MCP client SHALL handle API rate limit responses from VirusTotal with exponential backoff before retrying
-11. WHEN GTI_MCP identifies a malicious IOC, THE GTIResponse SHALL include the associated threat categories (malware, botnet, phishing, C2, ransomware) and related malware campaign identifiers
+1. THE GTI_MCP client SHALL function as a **secondary validation layer** supplementing the primary defense composed of SQLiteThreatRepository, structural YAML policies, and Codebase_Memory_MCP
+2. THE GTI_MCP client SHALL be reserved ONLY for high-risk events: new external IP addresses not in local cache, suspicious file hashes, unknown domains, or events with structural gating signals indicating elevated threat
+3. THE system SHALL implement a GTI_Query_Budget_Tracker using a **token bucket rate limiter** with a hard cap of 4 GTI queries per 60-second sliding window to comply with VirusTotal free tier limits
+4. THE token bucket SHALL initialize with 4 tokens and replenish at a rate of 1 token every 15 seconds (4 tokens per 60 seconds)
+5. WHEN GTI budget is exhausted (0 tokens remaining), THE system SHALL continue evaluation without GTI signal, applying graceful degradation by redistributing GTI weight to other signals
+6. THE system SHALL prioritize GTI queries for high-risk events by ranking intercepted events by suspicion score and querying GTI only for the top-N highest-priority events within available budget
+7. THE suspicion score SHALL be calculated based on: IOC novelty (not in local cache), domain reputation signals, IP geolocation risk, file hash entropy, and structural policy rule violations
+8. WHEN Semantic_Gating identifies a high-risk IOC in a tool call context AND GTI budget allows (tokens > 0), THE GTI_MCP client SHALL query the VirusTotal API for that indicator
+9. THE GTI_MCP client SHALL support querying indicator types: IP_ADDRESS, DOMAIN, URL, and FILE_HASH
+10. WHEN querying an IOC, THE GTI_MCP client SHALL return a GTIResponse containing: indicator value, isMalicious boolean, threatCategories array, detectionRate float, lastAnalysisDate timestamp, relatedCampaigns array, and confidence float
+11. THE GTI_MCP client SHALL cache GTIResponse objects with a TTL of 24 hours (86,400 seconds) to reduce API consumption and maximize budget utilization
+12. IF a GTI_MCP query does not return a response within 5 seconds, THE system SHALL record that failure toward the circuit breaker counter
+13. WHEN 5 consecutive GTI_MCP queries fail due to timeout or service unavailability, THE circuit breaker SHALL switch to degraded mode and skip all GTI queries
+14. WHILE in degraded mode, THE Hybrid_Policy_Server SHALL apply a 0.2 threat score penalty for missing GTI signal and redistribute GTI weight (40%) proportionally to CBM (20%) and Context (20%)
+15. WHEN the circuit breaker enters degraded mode, THE system SHALL schedule an automatic retry after 60 seconds
+16. IF 3 consecutive retry attempts after the cooldown succeed, THE circuit breaker SHALL restore GTI integration
+17. THE GTI_MCP client SHALL handle VirusTotal API rate limit 429 responses by applying exponential backoff (30s, 60s, 120s) before retrying
+18. WHEN GTI_MCP identifies a malicious IOC, THE GTIResponse SHALL include the associated threat categories (malware, botnet, phishing, C2, ransomware) and related malware campaign identifiers
+19. THE system SHALL emit metrics tracking: GTI queries attempted, GTI queries executed, GTI queries deferred due to budget exhaustion, cache hit rate, and average suspicion score for queried events
 
 ### Requirement 10: Codebase Memory Integration for Structural Analysis
 
@@ -436,17 +451,19 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 #### Acceptance Criteria
 
 1. IF GTI_MCP queries fail 5 consecutive times due to timeout or service unavailability, THE circuit breaker SHALL switch to degraded mode skipping GTI queries and relying on Threat_Signature_Graph and Codebase_Memory_MCP signals only
-2. WHILE in degraded mode, THE Hybrid_Policy_Server SHALL apply the 0.3 threat score penalty for missing GTI signal and redistribute GTI weight to remaining signals
-3. IF all exponential backoff retries to the Gemini API fail, THE Batch_Resolver SHALL return QUARANTINE verdicts with warning log messages for all callbacks in the batch (fail closed)
-4. IF SQLite write operations fail due to transient lock errors, THE system SHALL retry with exponential backoff for a maximum of 3 attempts
-5. IF all write retries fail, THE system SHALL queue the signature in an in-memory buffer with a maximum capacity of 100 entries
-6. WHEN the in-memory buffer overflows its 100-entry capacity, THE system SHALL drop the oldest buffered signature and log a warning event for each dropped entry (bounded-loss guarantee)
-7. IF a Context_Hygiene regex pattern execution exceeds 100 milliseconds, THE system SHALL abort that pattern execution, continue with remaining patterns, and log the timeout
-8. IF the same Context_Hygiene pattern causes 10 consecutive timeouts, THE Context_Hygiene SHALL automatically disable that pattern and emit an operator alert
-9. IF the Codebase_Memory_MCP graph is unavailable, stale, or empty, THE Hybrid_Policy_Server SHALL continue evaluation without CBM signals and apply the 0.4 stale-graph threat score penalty
-10. IF batch evaluation processing time exceeds 10 seconds, THE system SHALL apply emergency fallback returning QUARANTINE verdicts for all pending callbacks in that batch (fail closed)
-11. THE system SHALL implement async task cancellation using asyncio.wait_for() with a 30-second hard timeout raising TimeoutError to the caller while cancelling the wrapped coroutine internally, OR subprocess isolation with hard 30-second timeout and SIGKILL process termination if the deadline is exceeded
-12. WHEN async timeout or process termination is triggered, THE system SHALL auto-restart the evaluation pipeline and log a critical error event
+2. WHILE in degraded mode due to circuit breaker, THE Hybrid_Policy_Server SHALL apply the 0.2 threat score penalty for missing GTI signal and redistribute GTI weight (40%) proportionally to CBM (20%) and Context (20%)
+3. WHEN GTI query budget is exhausted (4 queries in 60 seconds), THE system SHALL defer remaining GTI queries and redistribute GTI signal weight (40%) to CBM (20%) and Context (20%) proportionally for affected evaluations
+4. THE GTI budget exhaustion SHALL NOT trigger circuit breaker degraded mode; THE system SHALL continue accepting new GTI queries once budget tokens replenish
+5. IF all exponential backoff retries to the Gemini API fail, THE Batch_Resolver SHALL return QUARANTINE verdicts with warning log messages for all callbacks in the batch (fail closed)
+6. IF SQLite write operations fail due to transient lock errors, THE system SHALL retry with exponential backoff for a maximum of 3 attempts
+7. IF all write retries fail, THE system SHALL queue the signature in an in-memory buffer with a maximum capacity of 100 entries
+8. WHEN the in-memory buffer overflows its 100-entry capacity, THE system SHALL drop the oldest buffered signature and log a warning event for each dropped entry (bounded-loss guarantee)
+9. IF a Context_Hygiene regex pattern execution exceeds 100 milliseconds, THE system SHALL abort that pattern execution, continue with remaining patterns, and log the timeout
+10. IF the same Context_Hygiene pattern causes 10 consecutive timeouts, THE Context_Hygiene SHALL automatically disable that pattern and emit an operator alert
+11. IF the Codebase_Memory_MCP graph is unavailable, stale, or empty, THE Hybrid_Policy_Server SHALL continue evaluation without CBM signals and apply the 0.4 stale-graph threat score penalty
+12. IF batch evaluation processing time exceeds 10 seconds, THE system SHALL apply emergency fallback returning QUARANTINE verdicts for all pending callbacks in that batch (fail closed)
+13. THE system SHALL implement async task cancellation using asyncio.wait_for() with a 30-second hard timeout raising TimeoutError to the caller while cancelling the wrapped coroutine internally, OR subprocess isolation with hard 30-second timeout and SIGKILL process termination if the deadline is exceeded
+14. WHEN async timeout or process termination is triggered, THE system SHALL auto-restart the evaluation pipeline and log a critical error event
 
 
 ### Requirement 16: Performance and Latency Targets

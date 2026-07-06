@@ -312,8 +312,8 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Test deterministic evaluation (same input → same output)
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 14.9, 14.10, 13.1, 22.1, 22.2, 22.7, 22.8, 22.9, 22.10_
 
-- [x] 7. Implement GTI MCP integration with circuit breaker pattern
-  - [x] 7.1 Create GTIMCPClient for VirusTotal API queries with caching and resilience
+- [x] 7. Implement GTI MCP integration with circuit breaker pattern and rate-limit budgeting
+  - [x] 7.1 Create GTIMCPClient for VirusTotal API queries with budget-aware caching and resilience
     - Implement queryIOC() for IP/domain/URL/hash reputation checks
     - Support indicator types: IP_ADDRESS, DOMAIN, URL, FILE_HASH
     - Parse GTIResponse with: isMalicious, threatCategories, detectionRate, confidence score
@@ -321,13 +321,17 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Implement 24-hour TTL caching for responses (86400 seconds) stored in local SQLite (no Redis)
     - Handle 5-second query timeout using asyncio.wait_for() (cooperative cancellation)
     - Implement circuit breaker: switch to degraded mode after 5 consecutive failures
-    - Apply default threat score penalty of 0.3 in degraded mode (missing GTI signal)
+    - Apply default threat score penalty of 0.2 in degraded mode (missing GTI signal)
     - Auto-retry after 60-second cooldown period
     - Restore full GTI integration after 3 consecutive successful retries
     - Handle API rate limit responses with exponential backoff
-    - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10, 7.11, 12.1, 12.2, 21.1, 21.2, 21.3_
+    - **NEW:** Integrate with GTI_Query_Budget_Tracker to check budget before querying
+    - **NEW:** Implement high-risk event classification (new IPs, suspicious hashes, unknown domains)
+    - **NEW:** Calculate suspicion score for event prioritization (IOC novelty, domain reputation, geolocation, entropy)
+    - **NEW:** Only query GTI when budget available AND event is high-risk
+    - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10, 7.11, 9.1, 9.2, 9.3, 9.6, 9.7, 12.1, 12.2, 21.1, 21.2, 21.3_
 
-  - [x] 7.2 Write unit tests for GTI MCP integration
+  - [x] 7.2 Write unit tests for GTI MCP integration with budget awareness
     - Test IOC query for malicious IP returns isMalicious=true
     - Test threat categories extraction (malware, botnet, C2, phishing)
     - Test detection rate calculation
@@ -335,10 +339,39 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Test 5-second timeout via asyncio.wait_for() triggers circuit breaker
     - Test circuit breaker switches to degraded mode after 5 failures
     - Test 60-second cooldown period before retry
-    - Test threat score penalty of 0.3 applied in degraded mode
+    - Test threat score penalty of 0.2 applied in degraded mode
     - Test 3 successful retries restore full integration
+    - **NEW:** Test GTI_Query_Budget_Tracker integration (budget check before query)
+    - **NEW:** Test high-risk event classification logic
+    - **NEW:** Test suspicion score calculation
+    - **NEW:** Test query deferral when budget exhausted
+    - **NEW:** Test weight redistribution (GTI 40% → CBM +20%, Context +20%) when budget exhausted
     - Mock VirusTotal API responses for deterministic testing
-    - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.11, 12.1, 12.2, 21.2, 21.3_
+    - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.11, 9.8, 9.11, 9.19, 12.1, 12.2, 21.2, 21.3_
+
+- [ ] 7.3 Implement GTI Query Budget Tracker with token bucket rate limiter
+  - [ ] 7.3.1 Create GTIQueryBudgetTracker class with token bucket algorithm
+    - Initialize token bucket with 4 tokens (matching VirusTotal free tier: 4 queries/minute)
+    - Implement tryAcquire() method: returns true if token available, consumes 1 token, returns false if budget exhausted
+    - Implement token replenishment: add 1 token every 15 seconds (4 tokens per 60-second sliding window)
+    - Enforce hard cap: maximum 4 tokens (no accumulation beyond capacity)
+    - Implement getAvailableTokens() method returning current token count (0-4)
+    - Implement getMetrics() returning: total queries attempted, queries executed, queries deferred (budget exhausted), cache hit rate
+    - Use asyncio.create_task for background token replenishment coroutine
+    - Ensure thread-safe token operations using asyncio.Lock
+    - _Requirements: 9.3, 9.4, 9.5, 9.19_
+
+  - [ ] 7.3.2 Write unit tests for GTI Query Budget Tracker
+    - Test token bucket initializes with 4 tokens
+    - Test tryAcquire() consumes token when available
+    - Test tryAcquire() returns false when budget exhausted (0 tokens)
+    - Test token replenishment: 1 token added every 15 seconds
+    - Test hard cap enforcement: tokens never exceed 4
+    - Test sliding window behavior: 4 queries in 60 seconds enforced
+    - Test concurrent access thread safety via asyncio.Lock
+    - Test metrics tracking: attempted vs executed queries
+    - Test query deferral counter increments when budget exhausted
+    - _Requirements: 9.3, 9.4, 9.5, 9.19_
 
 - [x] 8. Implement codebase-memory MCP integration with AST analysis
   - [x] 8.1 Create CodebaseMemoryClient for AST-based structural analysis
@@ -405,22 +438,26 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
 
 ---
 
-- [x] 9. Implement Semantic Gating Engine with multi-source threat scoring
-  - [x] 9.1 Create SemanticGatingEngine with LLM-based intent analysis and signal aggregation
+- [x] 9. Implement Semantic Gating Engine with multi-source threat scoring and GTI budget awareness
+  - [x] 9.1 Create SemanticGatingEngine with LLM-based intent analysis, signal aggregation, and rate-limited GTI queries
     - Implement evaluate() querying Threat Signature Graph first (cheapest check)
     - Extract IOCs from context: IP addresses, URLs, domains, file hashes
-    - Query GTI MCP for each IOC if no signature match found
+    - **NEW:** Classify event as high-risk based on: new external IPs not in cache, suspicious file hashes, unknown domains, structural gating signals
+    - **NEW:** Calculate suspicion score for event prioritization (IOC novelty + domain reputation + geolocation + entropy)
+    - **NEW:** Check GTI_Query_Budget_Tracker.tryAcquire() before querying GTI
+    - Query GTI MCP for each IOC ONLY if: (1) event is high-risk AND (2) budget allows (tryAcquire() returns true)
+    - IF budget exhausted, skip GTI query and apply 0.2 threat score penalty
     - Query codebase-memory MCP if context.targetFunction is present
     - Implement computeThreatScore() with weighted signal aggregation:
       * GTI signal: 40% weight (isMalicious, detectionRate, threat category severity)
       * CBM signal: 30% weight (critical sinks, unsafe flag, blast radius risk score)
       * Context signal: 30% weight (tool name risk, argument novelty, environment role)
+    - **NEW:** When GTI unavailable (budget exhausted or circuit breaker), redistribute GTI weight (40%) → CBM (+20%) and Context (+20%)
     - Normalize final threat score to [0.0, 1.0] range
     - Apply verdict thresholds: >=0.75 BLOCK, >=0.5 QUARANTINE, <0.5 ALLOW
-    - Redistribute signal weights proportionally when GTI or CBM unavailable
     - Return GateResult with verdict, reason, threat score, signature ID
     - Ensure deterministic scoring: same inputs → same score
-    - _Requirements: 3.6, 3.7, 3.8, 3.9, 3.10, 3.11, 3.12, 3.13, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 23.7, 23.8, 23.9, 23.10_
+    - _Requirements: 3.6, 3.7, 3.8, 3.9, 3.10, 3.11, 3.12, 3.13, 3.16, 3.17, 9.6, 9.7, 9.8, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 23.7, 23.8, 23.9, 23.10_
 
   - [x] 9.2 Test threat score bounded property
     - **Property 3: Threat Score Bounded**
@@ -433,18 +470,23 @@ Configure tool-caller definitions to sandbox `codebase-memory-mcp` exclusively t
     - Verify QUARANTINE verdict when 0.5 <= score < 0.75
     - Verify ALLOW verdict when score < 0.5
 
-  - [x] 9.3 Write unit tests for Semantic Gating Engine
+  - [x] 9.3 Write unit tests for Semantic Gating Engine with GTI budget constraints
     - Test signature matching returns BLOCK with signatureId
     - Test signature match count increment on successful match
+    - **NEW:** Test high-risk event classification logic (new IPs, suspicious hashes, unknown domains)
+    - **NEW:** Test suspicion score calculation
+    - **NEW:** Test GTI_Query_Budget_Tracker.tryAcquire() called before GTI queries
+    - **NEW:** Test GTI query skipped when budget exhausted (tryAcquire() returns false)
+    - **NEW:** Test 0.2 threat score penalty applied when GTI budget exhausted
     - Test GTI malicious IOC increases threat score appropriately
     - Test CBM critical sink detection increases threat score
     - Test weighted threat score aggregation formula (GTI 40%, CBM 30%, Context 30%)
+    - **NEW:** Test signal weight redistribution when GTI budget exhausted (GTI 40% → CBM +20%, Context +20%)
     - Test verdict thresholds: 0.75 BLOCK, 0.5 QUARANTINE, <0.5 ALLOW
-    - Test signal weight redistribution when GTI unavailable
     - Test signal weight redistribution when CBM unavailable
     - Test deterministic scoring for identical inputs
     - Test threat score included in verdict structure
-    - _Requirements: 3.6, 3.7, 3.8, 3.9, 3.10, 3.11, 3.12, 3.13, 23.1, 23.3, 23.4, 23.5, 23.6, 23.7, 23.8, 23.9, 23.10_
+    - _Requirements: 3.6, 3.7, 3.8, 3.9, 3.10, 3.11, 3.12, 3.13, 3.16, 3.17, 9.6, 9.7, 9.8, 23.1, 23.3, 23.4, 23.5, 23.6, 23.7, 23.8, 23.9, 23.10_
 
 - [x] 10. Implement Hybrid Policy Server orchestrating structural and semantic gating
   - [x] 10.1 Create HybridPolicyServer coordinating dual-layer evaluation

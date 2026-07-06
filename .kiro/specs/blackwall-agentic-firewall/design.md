@@ -30,7 +30,8 @@ Blackwall ships with **two operational modes** controlled by the `BLACKWALL_TIER
 - Self-learning Threat Signature Graph (SQLite with WAL mode, cosine similarity search)
 - Context Hygiene (regex-based PII redaction)
 - Python Runtime Audit Hooks (`sys.addaudithook` blocking OS-level bypasses)
-- GTI MCP (VirusTotal IOC validation) and codebase-memory MCP (AST analysis)
+- GTI MCP (VirusTotal IOC validation - rate-limited secondary validation for high-risk events, 4 queries/minute free tier) and codebase-memory MCP (AST analysis)
+- GTI Query Budget Tracker (token bucket enforcing 4/min cap with intelligent prioritization)
 - Zero Ambient Authority (dropped privileges + JIT credential downscoping)
 - All 12 correctness properties and FRR/Evasion Rate evaluation formulas
 
@@ -73,6 +74,7 @@ graph TB
     subgraph "MCP Boundary-Restricted Access"
         CBM["codebase-memory-mcp<br/>(AST + Static Analysis Only)"]
         GTI["GTI MCP<br/>(IOC Verification Only)"]
+        GTI_BUDGET["GTI Query Budget<br/>Token Bucket (4/min)"]
     end
 
     subgraph "Gemini Interactions API (Dual-Mode)"
@@ -103,6 +105,9 @@ graph TB
     SG -->|YAML Rules| HPS
     TSG_QUERY -->|Local Lookup| DB
     TSG_QUERY -->|Verdict| HPS
+    
+    HPS -->|Check Budget| GTI_BUDGET
+    GTI_BUDGET -->|IF Budget Allows AND High-Risk| GTI
 
     HPS -->|Sync Call| GEMINI_SYNC
     GEMINI_SYNC -->|Inline Verdict| HPS
@@ -140,9 +145,9 @@ graph TB
 
 | Execution Layer | API / Model Tier | Invocation Mechanism | Latency Target | State & Delivery |
 | :--- | :--- | :--- | :--- | :--- |
-| **Local Interception** | None (Local SQLite WAL + Regex) | ADK Callbacks & `sys.addaudithook` | `<10ms` | Synchronous ALLOW/BLOCK decision |
+| **Local Interception** | None (Local SQLite WAL + Regex) | ADK Callbacks & `sys.addaudithook` | `<10ms` | Synchronous ALLOW/BLOCK decision (no GTI queries at this tier) |
 | **Rapid Triage** | `gemini-3.1-flash-lite` | Gemini Interactions API sync call | `<100ms` | Server-side state via `previous_interaction_id` for context caching |
-| **Deep Reasoning** | `gemini-3.1-pro-preview` | Interactions API (`background=True`) | Event-driven | Results pushed via local HTTP **Webhook** receiver |
+| **Deep Reasoning** | `gemini-3.1-pro-preview` | Interactions API (`background=True`) | Event-driven | Results pushed via webhook; GTI queries budgeted here |
 
 **Execution Model:**
 1. **Local Interception (<10ms)**: SQLiteThreatRepository + Compiled Regex + YAML rules (no external API calls)
@@ -262,6 +267,32 @@ Execution agents are strictly restricted from arbitrary tool usage via hardcoded
 - VirusTotal detection rate queries
 - Malware campaign identification and threat category extraction
 - Related IOC lookups and family association
+
+**When it is used:**
+- High-risk events only (not every interception)
+- New external IPs not in local cache
+- Suspicious file hashes requiring external validation
+- Unknown domains with elevated threat indicators
+- Structural gating signals indicating elevated threat level
+
+**The Rate Limit Constraint:**
+- Free tier VirusTotal API: 4 requests per minute (hard cap)
+- Token bucket rate limiter enforcing 4 queries per 60-second sliding window
+- Budget exhaustion triggers graceful degradation (no GTI validation for affected requests)
+- Suspicion scoring prioritizes high-risk events within budget
+
+**The Mitigation:**
+- Intelligent budgeting via GTI_Query_Budget_Tracker token bucket (4 tokens, 15-second replenishment)
+- High-risk event classification based on IOC novelty, domain reputation, geolocation, entropy
+- Query prioritization when budget constrained (top-N events by suspicion score)
+- Graceful degradation: redistribute GTI weight (40%) to CBM (+20%) and Context (+20%)
+- Signature writes capture GTI intelligence when available, enable future local matches
+
+**Rate-Limited Budget Management:**
+- Token bucket (4 queries per 60-second sliding window)
+- Suspicion scoring (IOC novelty + domain reputation + geolocation + entropy)
+- Priority queue for high-risk events
+- Graceful degradation when budget exhausted
 
 **Prohibited Operations:**
 - Synchronous (<10ms) tool-interception path queries (ZERO LLM API calls permitted)
@@ -780,16 +811,81 @@ CREATE VIRTUAL TABLE signature_fts USING fts5(
 
 ---
 
+### Component 6.5: GTI Query Budget Tracker
+
+**Purpose**: Token bucket rate limiter managing 4 GTI queries per 60-second sliding window to enforce VirusTotal free tier constraints with graceful degradation.
+
+**Interface**:
+```pascal
+INTERFACE GTIQueryBudgetTracker
+  tryAcquire(): Boolean
+  getAvailableTokens(): Integer
+  getMetrics(): BudgetMetrics
+  reset(): Void
+END INTERFACE
+
+STRUCTURE BudgetMetrics
+  queriesAttempted: Integer
+  queriesExecuted: Integer
+  queriesDeferred: Integer
+  cacheHits: Integer
+  budgetExhaustionCount: Integer
+  avgTokenReplenishmentInterval: Float
+END STRUCTURE
+```
+
+**Responsibilities**:
+- Initialize token bucket with 4 tokens (matching VirusTotal free tier: 4 queries/minute)
+- Replenish 1 token every 15 seconds (4 tokens per 60-second sliding window)
+- Enforce hard cap of 4 tokens maximum (no token accumulation beyond capacity)
+- Track query deferrals when budget exhausted (queriesAttempted - queriesExecuted)
+- Separate from circuit breaker pattern (budget exhaustion ≠ service failure)
+- Return `false` from tryAcquire() when budget exhausted, enabling graceful degradation
+- Thread-safe token consumption using async locks for concurrent access
+- Emit metrics for observability: budget exhaustion frequency, deferral rate, replenishment intervals
+
+**Token Bucket Algorithm**:
+```
+capacity = 4 tokens
+refill_rate = 1 token / 15 seconds
+current_tokens = 4 (initial state)
+
+ON tryAcquire():
+  IF current_tokens > 0 THEN
+    current_tokens -= 1
+    queriesExecuted += 1
+    RETURN true
+  ELSE
+    queriesDeferred += 1
+    budgetExhaustionCount += 1
+    RETURN false
+  END IF
+
+ON timer_tick (every 15 seconds):
+  IF current_tokens < capacity THEN
+    current_tokens += 1
+  END IF
+```
+
+**Integration with Semantic Gating**:
+- Called before GTI MCP queries: `if gti_budget.tryAcquire() then query_gti() else apply_penalty()`
+- Budget exhaustion applies 0.2 threat score penalty (reduced from GTI's 40% weight)
+- Weight redistribution: GTI 40% → CBM +20%, Context +20% when GTI unavailable
+- High-risk event prioritization: classify events by suspicion score, query GTI for top-N within budget
+
+---
+
 ### Component 7: GTI MCP Integration
 
-**Purpose**: Real-time threat intelligence interface querying Google Threat Intelligence (VirusTotal) for IOC validation and malware campaign data.
+**Purpose**: Real-time threat intelligence interface querying Google Threat Intelligence (VirusTotal) for IOC validation and malware campaign data, with rate-limited budget management for high-risk events only.
 
 **Interface**:
 ```pascal
 INTERFACE GTIMCPClient
-  queryIOC(indicator: String, indicatorType: Enum): GTIResponse
+  queryIOC(indicator: String, indicatorType: Enum, riskScore: Float): GTIResponse
   queryMalwareCampaign(payloadHash: String): CampaignData
   checkReputation(domain: String): ReputationScore
+  shouldQueryGTI(event: ToolCallContext, riskScore: Float): Boolean
   rateLimit(): Boolean
 END INTERFACE
 
