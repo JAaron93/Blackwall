@@ -198,13 +198,28 @@ sequenceDiagram
 
 2. **Edit `.env` and set your API key**
    ```bash
-   # Required: Your Gemini API key
+   # REQUIRED: Your Gemini API key
    GEMINI_API_KEY=AIzaSy...your_key_here
    
-   # Optional: These have sensible defaults
-   BLACKWALL_TIER=free          # Already the default
-   GEMINI_RPM_LIMIT=15          # Free tier rate limit
+   # REQUIRED: Operation mode (already defaults to free)
+   BLACKWALL_TIER=free
+   
+   # OPTIONAL: These have sensible defaults - leave as-is for free tier
+   GEMINI_RPM_LIMIT=15
    BLACKWALL_MODEL=gemini-2.0-flash-lite
+   
+   # IGNORE FOR FREE TIER: These are only needed for paid-tier or demo harness
+   # HYPERBOLIC_API_KEY=         # Only needed for dual-agent demo (rogue agent)
+   # REDTEAM_MODEL=              # Only needed for dual-agent demo
+   # GTI_MCP_API_KEY=            # Optional - free tier works without GTI
+   # WEBHOOK_HOST=               # Only needed for paid-tier background tasks
+   # WEBHOOK_PORT=               # Only needed for paid-tier background tasks
+   ```
+
+   **Minimal free-tier config (just these two lines):**
+   ```bash
+   GEMINI_API_KEY=your_key_here
+   BLACKWALL_TIER=free
    ```
 
 3. **Verify configuration**
