@@ -970,6 +970,11 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
       * Explain paid-tier optimizations: async batching (300 RPM), server-side context caching (50%+ token savings), background webhook analysis (zero latency signature generation)
       * Default judge instructions to free tier with paid tier as optional performance upgrade
     - Update `.env.example` with `BLACKWALL_TIER` variable and explanatory comments
+    - **UPDATE JUDGE_EVALUATION.md:** After successfully running the free-tier evaluation, update `JUDGE_EVALUATION.md` with:
+      * Actual timing results from `run_evasion_eval_free.sh` (wave-1 avg latency, wave-2 avg latency, speedup ratio)
+      * Actual FRR and Evasion Rate percentages from the full 120-case eval
+      * Any judge-facing gotchas discovered during testing (e.g., common errors, timing expectations)
+      * Screenshots or terminal recordings of successful eval runs (optional but recommended for visual proof)
     - _Requirements: 2.1, 9.1, 9.2, 15.1, 15.2, 26.1, 26.2_
 
 - [ ] 22. Implement demo harness and dual-agent showdown setup
