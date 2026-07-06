@@ -260,18 +260,30 @@ class SQLiteThreatRepository:
         return sig_id
 
     async def getStatistics(self) -> Dict[str, Any]:
-        """Returns statistics about the graph."""
+        """Returns statistics about the graph, including cumulative eviction count."""
         await self.initialize()
         async with self.pool.connection() as conn:
             cursor = await conn.execute("SELECT COUNT(*) FROM signatures")
             row = await cursor.fetchone()
             total_signatures = row[0] if row else 0
 
+            # Read cumulative eviction count written by EvictionManager
+            eviction_count = 0
+            try:
+                cursor2 = await conn.execute(
+                    "SELECT COALESCE(SUM(total_evicted), 0) FROM graph_eviction_stats"
+                )
+                ev_row = await cursor2.fetchone()
+                eviction_count = int(ev_row[0]) if ev_row else 0
+            except Exception:
+                # Table may not yet exist if EvictionManager hasn't started
+                pass
+
         return {
             "totalSignatures": total_signatures,
             "avgQueryTimeMs": 0.0,
             "cacheHitRate": 0.0,
-            "evictionCount": 0,
+            "evictionCount": eviction_count,
             "avgMatchesPerSignature": 0.0,
         }
 
