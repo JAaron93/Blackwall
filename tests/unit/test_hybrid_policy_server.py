@@ -314,3 +314,36 @@ def test_update_policy_triggers_reload():
     
     mock_struct.load_policy.assert_called_once_with("dummy_path.yaml")
     assert server.last_updated > t_before
+
+
+@pytest.mark.asyncio
+async def test_evaluate_batch_enforces_10_second_timeout():
+    """
+    Test that evaluateBatch wraps evaluation in asyncio.wait_for with a hardcoded 10s timeout.
+    """
+    mock_struct = MagicMock(spec=StructuralGatingEngine)
+    mock_struct.evaluate.return_value = StructuralGatingResult(
+        decision=StructuralAction.ESCALATE_TO_SEMANTIC,
+        requireSemanticReview=True
+    )
+
+    mock_semantic = AsyncMock(spec=SemanticGatingEngine)
+    
+    with patch("blackwall.policy.server.asyncio.wait_for") as mock_wait_for:
+        mock_wait_for.side_effect = asyncio.TimeoutError("Timeout waiting for LLM")
+        
+        server = HybridPolicyServer(mock_struct, mock_semantic)
+        contexts = [ToolCallContext(tool_name="write_file", arguments={})]
+        roles = ["sandbox"]
+        
+        verdicts = await server.evaluateBatch(contexts, roles)
+        
+        mock_wait_for.assert_called_once()
+        _, kwargs = mock_wait_for.call_args
+        assert kwargs.get("timeout") == 10.0
+        
+        assert len(verdicts) == 1
+        assert verdicts[0].decision == VerdictDecision.QUARANTINE
+        assert "Fail-closed" in verdicts[0].reasoning
+        assert verdicts[0].confidence_score == 0.5
+

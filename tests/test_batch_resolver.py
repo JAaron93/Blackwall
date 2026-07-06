@@ -335,3 +335,32 @@ def test_rate_limit_compliance_property(burst_groups):
             f"Rate limit exceeded in window [{t_start:.2f}s, {t_end:.2f}s]: "
             f"made {len(calls_in_window)} calls, limit is 300"
         )
+
+
+@pytest.mark.asyncio
+async def test_batch_resolver_enforces_30_second_timeout():
+    """
+    Test that process_batch wraps evaluate in asyncio.wait_for with a hardcoded 30s timeout.
+    """
+    client = MagicMock()
+    resolver = BatchResolver(client=client)
+    tokens = [
+        CallbackToken(
+            thread_id="thread-1",
+            tool_context=ToolCallContext(tool_name="tool1", arguments={}),
+        )
+    ]
+    
+    with patch("blackwall.resolver.asyncio.wait_for") as mock_wait_for:
+        mock_wait_for.side_effect = asyncio.TimeoutError("Timeout waiting for API")
+        
+        response = await resolver.process_batch(tokens)
+        
+        mock_wait_for.assert_called_once()
+        _, kwargs = mock_wait_for.call_args
+        assert kwargs.get("timeout") == 30.0
+        
+        assert len(response.verdicts) == 1
+        assert response.verdicts[0].decision == VerdictDecision.QUARANTINE
+        assert "Timeout waiting for API" in response.verdicts[0].reasoning
+

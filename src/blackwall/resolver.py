@@ -229,8 +229,12 @@ class BatchResolver:
                     # Ensure we conform to local rate limits
                     await self._acquire_rate_limit_token()
 
-                    # Execute submitToGeminiSync (API call only)
-                    response = await self.submit_to_gemini_sync(sanitized_contexts)
+                    # Execute submitToGeminiSync (API call only) with a hardcoded 30-second timeout for local MVP.
+                    # asyncio.wait_for() raises TimeoutError to the caller and cancels the wrapped coroutine.
+                    response = await asyncio.wait_for(
+                        self.submit_to_gemini_sync(sanitized_contexts),
+                        timeout=30.0
+                    )
 
                     # Post-response telemetry (best-effort, guarded)
                     latency_ms = (time.time() - start_time) * 1000.0
@@ -271,7 +275,7 @@ class BatchResolver:
                     try:
                         span.set_status(Status(StatusCode.OK))
                     except Exception:
-                        logger.debug("Failed to set span status", exc_info=True)
+                        logger.debug("Failed to log status", exc_info=True)
 
                     # Best-effort: attach span ID to callback tokens for correlation
                     try:
@@ -284,6 +288,12 @@ class BatchResolver:
                     return response
 
                 except (APIRateLimitException, Exception) as e:
+                    # Log critical error on timeout
+                    if isinstance(e, asyncio.TimeoutError):
+                        logger.critical(
+                            "Evaluation pipeline API call timed out (30-second limit exceeded). Auto-restarting pipeline execution."
+                        )
+
                     # Check if this exception is a rate limit error (status 429 or message)
                     err_msg = str(e).lower()
                     is_rate_limit = (
@@ -366,6 +376,12 @@ class BatchResolver:
         """Submits the sanitized batch synchronously to Gemini 3.1 Flash-Lite."""
         start_time = time.time()
 
+        # Network-level timeout for the Gemini API call (25 seconds).
+        # This applies a real HTTP timeout at the request level, which properly interrupts
+        # blocking HTTP calls even when running in an executor thread.
+        # The asyncio.wait_for(30s) in process_batch() acts as a secondary backstop.
+        API_CALL_TIMEOUT = 25.0
+
         # Build payload
         payload = BatchPayload(
             sanitized_contexts=sanitized_contexts,
@@ -378,21 +394,27 @@ class BatchResolver:
         # Call Gemini Interactions API
         try:
             # We call the client.interactions.create asynchronously to prevent blocking the event loop
-            # If the client library has sync methods, we can run them in an executor or call the async version if available.
-            # We assume client.interactions.create is a coroutine or we call it directly if it supports it.
-            # To be safe, we check if it's a coroutine or run it.
+            # If the client library has sync methods, we run them in an executor so the timeout can be enforced.
+            # If the client library has async methods, we call them directly.
             create_fn = self.client.interactions.create
             if asyncio.iscoroutinefunction(create_fn):
                 interaction = await create_fn(
                     model="gemini-3.1-flash-lite",
                     input=payload_json,
                     previous_interaction_id=payload.previous_interaction_id,
+                    timeout=API_CALL_TIMEOUT,
                 )
             else:
-                interaction = create_fn(
-                    model="gemini-3.1-flash-lite",
-                    input=payload_json,
-                    previous_interaction_id=payload.previous_interaction_id,
+                # Run synchronous call in executor with network-level timeout
+                loop = asyncio.get_event_loop()
+                interaction = await loop.run_in_executor(
+                    None,
+                    lambda: create_fn(
+                        model="gemini-3.1-flash-lite",
+                        input=payload_json,
+                        previous_interaction_id=payload.previous_interaction_id,
+                        timeout=API_CALL_TIMEOUT,
+                    )
                 )
 
             # Update last interaction ID for server-side context caching
@@ -453,6 +475,10 @@ class BatchResolver:
         # Ensure we conform to local rate limits
         await self._acquire_rate_limit_token()
 
+        # Network-level timeout for background tasks (25 seconds).
+        # This applies a real HTTP timeout at the request level.
+        API_CALL_TIMEOUT = 25.0
+
         # Build payload input
         payload_input = {
             "quarantined_context": quarantined_context.model_dump(),
@@ -475,13 +501,20 @@ class BatchResolver:
                     input=json.dumps(payload_input),
                     background=True,
                     webhook_config=webhook_config,
+                    timeout=API_CALL_TIMEOUT,
                 )
             else:
-                interaction = create_fn(
-                    model="gemini-3.1-pro-preview",
-                    input=json.dumps(payload_input),
-                    background=True,
-                    webhook_config=webhook_config,
+                # Run synchronous call in executor with network-level timeout
+                loop = asyncio.get_event_loop()
+                interaction = await loop.run_in_executor(
+                    None,
+                    lambda: create_fn(
+                        model="gemini-3.1-pro-preview",
+                        input=json.dumps(payload_input),
+                        background=True,
+                        webhook_config=webhook_config,
+                        timeout=API_CALL_TIMEOUT,
+                    )
                 )
 
             self.track_background_submission()
