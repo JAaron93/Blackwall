@@ -76,7 +76,7 @@ The system demonstrates a **dual-agent showdown** with **dual-tier operation mod
 4. **Use Case:** Full-scale demo showcasing throughput capabilities and optimization engineering
 
 **Free Tier (15 RPM):**
-1. **Blackwall Agent:** Gemini 2.0 Flash-Lite via free Gemini API (15 RPM limit, no billing required)
+1. **Blackwall Agent:** Gemini 3.1 Flash-Lite via free Gemini API (15 RPM limit, no billing required)
 2. **Architecture:** Synchronous single-request evaluation via `client.models.generate_content()`, no batching, inline signature generation
 3. **Performance:** ~1-2s per interception (semantic path), ~10ms per signature match (TSG fast path)
 4. **Use Case:** Zero-friction judge reproduction requiring only an API key with no payment setup
@@ -508,7 +508,7 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 11. THE system SHALL generate a final SecurityMetrics JSON report for Kaggle judge submission
 12. THE sandbox environment SHALL run in a Kali Linux VM with dropped OS privileges and Python audit hooks enforcing ADK tool layer routing
 13. THE rogue agent SHALL use Qwen3-Coder 480B via the Hyperbolic API running at up to 600 RPM
-14. THE Blackwall agent SHALL use Gemini 2.0 Flash via the paid Gemini Interactions API running at 300 RPM
+14. THE Blackwall agent SHALL use Gemini 3.5 Flash via the paid Gemini Interactions API running at 300 RPM
 15. THE demo SHALL target a mock vulnerable application (e.g., Metasploitable) hosted inside the sandbox VM
 16. THE repository SHALL include Mermaid architecture diagrams covering: overall system architecture, main execution sequence, and component interaction flows
 17. THE repository SHALL include Behavior-Driven Development (BDD) scenarios in Gherkin syntax (Given/When/Then) demonstrating key security interception featuresmo video SHALL display real-time logs from Blackwall showing interception, signature creation, and mitigation
@@ -517,7 +517,7 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 11. THE system SHALL generate a final metrics report in JSON format for submission to Kaggle judges
 12. THE system SHALL run in a Kali Linux VM sandbox with dropped privileges and Python audit hooks enforcing ADK tool layer routing
 13. THE rogue agent SHALL use Qwen3-Coder 480B via Hyperbolic API running at 600 RPM
-14. THE Blackwall agent SHALL use Gemini 2.0 Flash via paid Gemini Interactions API running at 300 RPM
+14. THE Blackwall agent SHALL use Gemini 3.5 Flash via paid Gemini Interactions API running at 300 RPM
 15. THE demo SHALL target a mock vulnerable application (e.g., Metasploitable) hosted inside the sandbox
 16. THE final submission SHALL include architectural diagrams in Mermaid or similar format showing component interactions
 17. THE submission SHALL include Behavior-Driven Development (BDD) scenarios in Gherkin syntax demonstrating key security features

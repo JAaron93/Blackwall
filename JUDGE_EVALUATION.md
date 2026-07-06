@@ -20,7 +20,8 @@
 
 **Prerequisites:**
 - Python 3.11+
-- Free Gemini API key ([get one here](https://aistudio.google.com/app/apikey) — no billing required)
+- Free Gemini API key ([step-by-step instructions below](#getting-your-gemini-api-key-free-tier-no-billing-required))
+- VirusTotal API key ([step-by-step instructions below](#getting-your-google-threat-intelligence-gti-api-key))
 - Git
 
 **Run the evaluation:**
@@ -177,10 +178,66 @@ sequenceDiagram
    python --version  # Should show 3.11+
    ```
 
-2. **Get a free Gemini API key**
-   - Visit https://aistudio.google.com/app/apikey
-   - Click "Create API key"
-   - No billing setup required for free tier (15 RPM)
+2. **Get required API keys**
+   
+   ### Getting Your Gemini API Key (Free Tier, No Billing Required)
+   
+   **Step 1:** Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
+   
+   **Step 2:** Sign in with your Google account
+   
+   **Step 3:** Click the **"Create API key"** button
+   
+   **Step 4:** Select an existing Google Cloud project or create a new one
+   - If you don't have a project, click **"Create API key in new project"**
+   - Google will automatically create a project for you
+   
+   **Step 5:** Copy your API key (format: `AIzaSy...`)
+   - **Important:** No billing or credit card required for free tier (15 RPM)
+   - Free tier is sufficient for running all evaluations in this guide
+   
+   **Step 6:** Save the key securely - you'll add it to `.env` in the next step
+   
+   ---
+   
+   ### Getting Your Google Threat Intelligence (GTI) API Key
+   
+   The GTI MCP integration uses the **VirusTotal API** for live IOC (Indicator of Compromise) lookups. Blackwall queries VirusTotal to check if IP addresses, domains, URLs, and file hashes are flagged as malicious.
+   
+   **Step 1:** Visit [VirusTotal](https://www.virustotal.com/)
+   
+   **Step 2:** Sign up for a free account or log in
+   - Click **"Sign Up"** in the top right
+   - You can sign up with Google, GitHub, or email
+   
+   **Step 3:** Navigate to your API key page
+   - After logging in, click your profile icon (top right)
+   - Select **"API key"** from the dropdown menu
+   - Or visit directly: https://www.virustotal.com/gui/my-apikey
+   
+   **Step 4:** Copy your API key
+   - Your personal API key will be displayed (64-character hex string)
+   - Free tier quota: **4 requests per minute** (sufficient for evaluation)
+   - Click the copy icon to copy the key
+   
+   **Step 5:** Save the key securely - you'll add it to `.env` in the next step
+   
+   **Note about GTI usage in Blackwall:**
+   - GTI provides **40% weight** in Blackwall's threat scoring algorithm
+   - Used during semantic evaluation to validate IPs, domains, URLs, and file hashes
+   - Circuit breaker pattern ensures Blackwall continues operating if GTI is unavailable
+   - Results are cached locally in SQLite for 24 hours to minimize API calls
+   
+   ---
+   
+   ### API Key Summary
+   
+   You now have two API keys and will generate a vault key:
+   1. ✅ **Gemini API key** (`AIzaSy...`) - for semantic reasoning
+   2. ✅ **VirusTotal API key** (64-char hex) - for IOC validation
+   3. 🔒 **Vault encryption key** (auto-generated) - for Zero Ambient Authority credential management
+   
+   The first two are **completely free** and require no billing setup. The vault key is generated locally for encrypting API credentials. Proceed to the next step to configure them.
 
 3. **Install dependencies**
    ```bash
@@ -196,10 +253,20 @@ sequenceDiagram
    cp .env.example .env
    ```
 
-2. **Edit `.env` and set your API key**
+2. **Edit `.env` and set your API keys**
    ```bash
    # REQUIRED: Your Gemini API key
    GEMINI_API_KEY=AIzaSy...your_key_here
+   
+   # REQUIRED: Google Threat Intelligence API key for IOC validation
+   # Get your key at: https://cloud.google.com/threat-intelligence
+   # Note: GTI queries are used in semantic evaluation (40% weight in threat scoring)
+   GTI_MCP_API_KEY=your_gti_key_here
+   
+   # REQUIRED: Zero Ambient Authority vault encryption key
+   # Generate a secure key with: python3 -c "import secrets; print(secrets.token_hex(32))"
+   # This encrypts the local credential vault (vault/secrets.enc) used for JIT token downscoping
+   BLACKWALL_VAULT_KEY=your_generated_hex_key_here
    
    # REQUIRED: Operation mode (already defaults to free)
    BLACKWALL_TIER=free
@@ -211,20 +278,27 @@ sequenceDiagram
    # IGNORE FOR FREE TIER: These are only needed for paid-tier or demo harness
    # HYPERBOLIC_API_KEY=         # Only needed for dual-agent demo (rogue agent)
    # REDTEAM_MODEL=              # Only needed for dual-agent demo
-   # GTI_MCP_API_KEY=            # Optional - free tier works without GTI
    # WEBHOOK_HOST=               # Only needed for paid-tier background tasks
    # WEBHOOK_PORT=               # Only needed for paid-tier background tasks
    ```
 
-   **Minimal free-tier config (just these two lines):**
+   **Minimal free-tier config (four required lines):**
    ```bash
    GEMINI_API_KEY=your_key_here
+   GTI_MCP_API_KEY=your_gti_key_here
+   BLACKWALL_VAULT_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
    BLACKWALL_TIER=free
+   ```
+   
+   **Quick vault key generation:**
+   ```bash
+   # Generate and append vault key to .env in one command
+   echo "BLACKWALL_VAULT_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')" >> .env
    ```
 
 3. **Verify configuration**
    ```bash
-   python -c "from dotenv import load_dotenv; load_dotenv(); import os; print('✓ API key loaded' if os.getenv('GEMINI_API_KEY') else '✗ Missing API key')"
+   python -c "from dotenv import load_dotenv; load_dotenv(); import os; print('✓ Gemini API key loaded' if os.getenv('GEMINI_API_KEY') else '✗ Missing Gemini API key'); print('✓ GTI API key loaded' if os.getenv('GTI_MCP_API_KEY') else '✗ Missing GTI API key'); print('✓ Vault key loaded' if os.getenv('BLACKWALL_VAULT_KEY') else '✗ Missing vault key')"
    ```
 
 ### Run the Evaluation
@@ -437,7 +511,7 @@ The free-tier mode removes Tier 2 batching and Tier 3 background webhooks, colla
 
 **Free Tier Architecture:**
 - **Tier 1**: Structural gating (identical, <5ms)
-- **Tier 2+3 Collapsed**: Single synchronous call to `gemini-2.0-flash-lite` that does BOTH verdict decision AND signature generation inline
+- **Tier 2+3 Collapsed**: Single synchronous call to `gemini-3.1-flash-lite` that does BOTH verdict decision AND signature generation inline
 
 **Why the collapse happens:**
 

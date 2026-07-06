@@ -2614,8 +2614,8 @@ result ← ADK.executeToolCall(toolName: "read_file", arguments: {...})
 - **Python 3.11+**: Runtime environment with asyncio support
 
 ### AI/ML Models
-- **Gemini 2.0 Flash (8B)**: Primary LLM for semantic gating and intent analysis (300 RPM paid tier)
-- **Gemini 2.0 Flash Lite (4B)**: Lightweight model for structural gating and scoring
+- **Gemini 3.5 Flash**: Primary LLM for semantic gating and intent analysis (300 RPM paid tier)
+- **Gemini 3.1 Flash-Lite**: Lightweight model for rapid triage evaluation (free tier: 15 RPM, paid tier: 300 RPM)
 - **Gemini Embedding API** (`gemini-embedding-001`): Similarity vector generation (768-dim) via paid API — no local model required
 
 ### MCP Servers
