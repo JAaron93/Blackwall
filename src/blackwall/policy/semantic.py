@@ -3,7 +3,7 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
-from blackwall.models import ToolCallContext, VerdictDecision, GTIResponse, IndicatorType
+from blackwall.models import ToolCallContext, VerdictDecision, IndicatorType
 from blackwall.policy.models import GateResult
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.mcp.gti_client import GTIMCPClient, GTIDegradedError
@@ -174,7 +174,6 @@ class SemanticGatingEngine:
                 cbm_penalty = self.cbm_client.get_threat_score_penalty()
             except Exception as e:
                 logger.error("Error querying CBM MCP: %s", e)
-                cbm_error = True
 
         # 4. Context Score
         # Tool risk

@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from aiohttp import web
 from opentelemetry import trace

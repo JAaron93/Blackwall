@@ -1,12 +1,10 @@
 import os
-import time
 import pytest
 import pytest_asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from hypothesis import given, strategies as st, settings
 
-from blackwall.models import ToolCallContext, VerdictDecision, GTIResponse, IndicatorType, CBMResponse, SinkType
-from blackwall.policy.models import GateResult
+from blackwall.models import ToolCallContext, VerdictDecision, GTIResponse
 from blackwall.policy.semantic import SemanticGatingEngine
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.mcp.gti_client import GTIMCPClient, GTIDegradedError

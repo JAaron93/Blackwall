@@ -188,7 +188,6 @@ class BatchResolver:
         """Entrypoint for Tier 2 evaluation of a batch of callback tokens."""
         from blackwall.telemetry import get_tracer, get_metric
         from opentelemetry.trace import Status, StatusCode, format_span_id
-        import json
 
         tracer = get_tracer("blackwall.resolver")
         batch_size_metric = get_metric("batch_size")
