@@ -790,7 +790,7 @@ The architecture was designed event-driven from the start — all async analysis
     - Test GTI circuit breaker degraded mode (already covered in 7.2)
     - _Requirements: 12.4, 12.5, 12.6, 12.7, 12.8, 12.10, 12.11, 12.12_
 
-- [ ] 18. Checkpoint - Ensure complete system is functional
+- [x] 18. Checkpoint - Ensure complete system is functional
   - Run end-to-end integration tests with all components connected
   - Verify FRR < 10% and Evasion Rate < 10% on test suite
   - Verify all latency targets met: 5ms structural, 300ms semantic (99th percentile)
@@ -798,7 +798,7 @@ The architecture was designed event-driven from the start — all async analysis
   - Verify CPU usage < 50% on 2-core VM during sustained 300 RPM load
   - Ask the user if questions arise
 
-- [ ] 19. Implement Gemini Embedding API client for similarity vector generation
+- [~] 19. Implement Gemini Embedding API client for similarity vector generation
   - [ ] 19.1 Create GeminiEmbeddingClient with async call and FTS5 fallback
     - Implement `embed(text: str) -> list[float]` using `gemini-embedding-001` model
     - Pass `output_dimensionality=768` and `task_type="SEMANTIC_SIMILARITY"` in every request

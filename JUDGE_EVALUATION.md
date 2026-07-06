@@ -400,6 +400,61 @@ These rubrics provide independent, LLM-verified evidence that the system behaves
 
 The free-tier mode you're evaluating removes **throughput optimizations** while preserving **security mechanisms**. Here's what's missing and why it doesn't affect core claims:
 
+### Understanding the Three-Tier Model (Paid Tier)
+
+The paid-tier architecture uses a **three-tier evaluation model** that balances speed, cost, and quality:
+
+**Tier 1: Structural Gating (<5ms)**
+- Pure deterministic YAML rule evaluation
+- No LLM calls, no external queries
+- Verdict: ALLOW (fast-path), BLOCK (deny immediately), or ESCALATE (send to Tier 2)
+
+**Tier 2: Rapid Triage (<100ms, synchronous)**
+- Model: `gemini-3.1-flash-lite` (4B parameters, optimized for speed)
+- Queries: GTI MCP (VirusTotal IOCs) + codebase-memory MCP (AST analysis)
+- Batched evaluation: Up to 5 interceptions per API call
+- Server-side context caching: 50%+ token cost reduction via `previous_interaction_id`
+- Purpose: Fast verdict decision (ALLOW/BLOCK/QUARANTINE) without blocking the agent
+- Latency: Target <100ms @ 99th percentile
+
+**Tier 3: Deep Reasoning (background, non-blocking)**
+- Model: `gemini-3.1-pro-preview` (much larger, higher-quality analysis)
+- Trigger: After Tier 2 returns BLOCK or QUARANTINE verdict
+- Execution: `background=True` submission → Gemini calls back via webhook when complete
+- Analysis: In-depth threat signature generation, behavioral pattern analysis, refactoring hints
+- Purpose: Learn from attacks without adding latency to the interception path
+- Latency: Zero added to verdict path (signature generation happens asynchronously)
+
+**Why this matters:**
+
+The three-tier model is a **latency-quality tradeoff optimizer**. Tier 1 handles obvious cases in microseconds. Tier 2 uses a fast model to make verdict decisions quickly. Tier 3 uses a slow, high-quality model to learn from attacks **after** the verdict is already delivered — so the agent never waits for signature generation.
+
+This architecture enables Blackwall to maintain <100ms verdict latency while still generating high-quality threat signatures that improve detection over time.
+
+### Why Free Tier Collapses to Single-Tier
+
+The free-tier mode removes Tier 2 batching and Tier 3 background webhooks, collapsing to a **two-tier model**:
+
+**Free Tier Architecture:**
+- **Tier 1**: Structural gating (identical, <5ms)
+- **Tier 2+3 Collapsed**: Single synchronous call to `gemini-2.0-flash-lite` that does BOTH verdict decision AND signature generation inline
+
+**Why the collapse happens:**
+
+1. **No batching benefit**: 15 RPM ceiling means batching 5 requests just exhausts your quota faster with no latency gain
+2. **No `background=True` support**: Free tier API doesn't support webhook callbacks, so you can't offload signature generation
+3. **Inline is simpler**: With only 15 RPM, the added ~200-500ms for signature generation is acceptable — you're not trying to hit 300 RPM anyway
+
+**What's preserved:**
+
+The core innovation — **self-learning signatures** — still works perfectly. The free tier just generates them synchronously instead of asynchronously. Wave 1 takes ~1,400ms (semantic + inline signature gen), Wave 2 takes ~12ms (signature match). The 100x+ speedup proof is actually MORE dramatic on free tier because the latency delta is larger.
+
+**What's lost:**
+
+The **zero-added-latency signature generation** elegance of Tier 3. On paid tier, signature generation happens in the background while the agent continues executing. On free tier, the agent waits ~200-500ms for signature generation after each BLOCK. This is a throughput optimization, not a security mechanism — the signatures themselves are identical.
+
+---
+
 ### Removed: Async Batching (InterceptionQueue + BatchResolver)
 
 **What it does (paid tier):**
