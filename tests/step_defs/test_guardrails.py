@@ -511,13 +511,13 @@ def step_daemon_running(adk_interception_ctx, request) -> dict:
     async def daemon_loop():
         try:
             while True:
-                batch = await queue.getBatch(maxSize=5, maxWaitMs=5)
+                batch = await queue.getBatch(maxSize=5, maxWaitMs=1)
                 if batch:
                     contexts = [token.tool_context for token in batch]
                     roles = ["sandbox"] * len(batch)
                     verdicts = await policy_server.evaluateBatch(contexts, roles)
                     await queue.resolveCallbacks(verdicts, batch)
-                await asyncio.sleep(0.005)
+                await asyncio.sleep(0.001)
         except asyncio.CancelledError:
             pass
 
@@ -587,6 +587,22 @@ def step_before_tool_callback_intercept(adk_interception_ctx) -> None:
     integration = adk_interception_ctx["integration"]
     tool_name = adk_interception_ctx["tool_name"]
     arguments = adk_interception_ctx["arguments"]
+
+    # Warmup run to initialize threading, load caches, and heat up SQLite/connections
+    try:
+        integration.before_tool_callback(
+            tool_name="safe_tool",
+            arguments={},
+            thread_id="warmup-thread",
+        )
+    except Exception as e:
+        logger = structlog.get_logger()
+        logger.warning(
+            "warmup_callback_failed",
+            tool_name="safe_tool",
+            exception=str(e),
+            exception_type=type(e).__name__,
+        )
 
     result_container = {"result": None, "exception": None, "done": False}
 

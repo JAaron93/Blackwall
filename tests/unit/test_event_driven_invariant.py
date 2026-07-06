@@ -97,39 +97,47 @@ async def test_webhook_integration_end_to_end():
     mock_repo = AsyncMock()
     mock_repo.is_task_valid.return_value = True
 
-    listener = WebhookListener(db_repository=mock_repo, secret_key="test-secret")
+    mock_gemini = MagicMock()
+    mock_interaction = MagicMock()
+    mock_interaction.task_id = "test-task-123"
+    mock_interaction.threat_signature_candidates = [
+        {"candidate": "1"},
+        {"candidate": "2"}
+    ]
+    mock_gemini.interactions.get = AsyncMock(return_value=mock_interaction)
+
+    listener = WebhookListener(db_repository=mock_repo, gemini_client=mock_gemini, audience="test-audience")
     
     # Create synthetic payload
     payload_dict = {
         "event_id": "evt-1",
-        "task_id": "test-task-123",
-        "threat_signature_candidates": [
-            {"candidate": "1"},
-            {"candidate": "2"}
-        ]
+        "data": {
+            "id": "test-interaction-123"
+        }
     }
     payload_bytes = json.dumps(payload_dict).encode("utf-8")
     
-    # Calculate signature
-    signature = hmac.new(
-        b"test-secret",
-        payload_bytes,
-        hashlib.sha256
-    ).hexdigest()
-
     mock_request = AsyncMock(spec=web.Request)
-    mock_request.headers = {"X-Webhook-Signature": signature}
+    mock_request.headers = {
+        "Webhook-Signature": "bearer dummy-token",
+        "webhook-timestamp": str(time.time()),
+        "webhook-id": "webhook-id-123"
+    }
     mock_request.read.return_value = payload_bytes
 
     # Mock the target generateSignature method
-    with patch.object(Agent_Behavioral_Analytics, "generateSignature", new_callable=AsyncMock) as mock_gen_sig:
+    with patch.object(Agent_Behavioral_Analytics, "generateSignature", new_callable=AsyncMock) as mock_gen_sig, \
+         patch("jwt.get_unverified_header", return_value={"kid": "test-kid"}), \
+         patch.object(listener, "_get_public_key", new_callable=AsyncMock, return_value="dummy-key"), \
+         patch("jwt.decode", return_value={"aud": "test-audience", "exp": time.time() + 100, "sub": "test-interaction-123"}):
+         
         mock_gen_sig.return_value = {"sig": "test"}
 
         start_time = time.time()
         
         # 1. Trigger the webhook
         response = await listener.handle_webhook(mock_request)
-        assert response.status == 202
+        assert response.status == 200
         
         # 2. Wait for background tasks spawned by WebhookListener to complete
         if listener.background_tasks:
