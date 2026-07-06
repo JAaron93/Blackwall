@@ -256,10 +256,10 @@ async def test_gti_degraded_penalty_applied(temp_repo):
     )
 
     result = await engine.evaluate(context, "sandbox")
-    # GTI is degraded, so it's treated as unavailable (redistributed), but gti_penalty=0.3 is applied.
+    # GTI is degraded, so it's treated as unavailable (redistributed), but gti_penalty=0.2 is applied.
     # Base score (context 100% since CBM is also unavailable) = 0.14
-    # Final threat score = 0.14 + 0.3 = 0.44
-    assert abs(result.threat_score - 0.44) < 0.01
+    # Final threat score = 0.14 + 0.2 = 0.34
+    assert abs(result.threat_score - 0.34) < 0.01
     assert result.verdict == VerdictDecision.ALLOW
 
 
@@ -398,3 +398,65 @@ async def test_threat_score_bounded_property(
         assert result.verdict == VerdictDecision.QUARANTINE
     else:
         assert result.verdict == VerdictDecision.ALLOW
+
+
+from blackwall.mcp.gti_client import GTIBudgetExhaustedError
+
+@pytest.mark.asyncio
+async def test_gti_budget_exhausted_penalty_applied(temp_repo):
+    # Setup mock GTI Client that raises GTIBudgetExhaustedError
+    mock_gti = MagicMock(spec=GTIMCPClient)
+    mock_gti.is_degraded.return_value = False
+    mock_gti.queryIOC = AsyncMock(side_effect=GTIBudgetExhaustedError("Budget exhausted"))
+
+    engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
+    context = ToolCallContext(
+        tool_name="safe_tool",
+        arguments={"ip": "1.2.3.4"}
+    )
+
+    result = await engine.evaluate(context, "sandbox")
+    # GTI is budget exhausted, treated as unavailable (redistributed), gti_penalty=0.2 is applied.
+    # Base score (context 100% since CBM is also unavailable) = 0.14
+    # Final threat score = 0.14 + 0.2 = 0.34
+    assert abs(result.threat_score - 0.34) < 0.01
+    assert result.verdict == VerdictDecision.ALLOW
+
+
+@pytest.mark.asyncio
+async def test_weight_redistribution_on_budget_exhaustion(temp_repo):
+    # Setup mock GTI Client that raises GTIBudgetExhaustedError
+    mock_gti = MagicMock(spec=GTIMCPClient)
+    mock_gti.is_degraded.return_value = False
+    mock_gti.queryIOC = AsyncMock(side_effect=GTIBudgetExhaustedError("Budget exhausted"))
+
+    mock_cbm = MagicMock(spec=CodebaseMemoryClient)
+    mock_cbm.get_threat_score_penalty.return_value = 0.0
+    mock_cbm.queryDependencyChain = AsyncMock(return_value=DependencyChain(
+        rootFunction="ProcessOrder",
+        callChain=["ProcessOrder", "ExecuteSQL"],
+        depth=2,
+        hasCriticalSink=True,
+        criticalSinks=["ExecuteSQL"]
+    ))
+    mock_cbm.getBlastRadius = AsyncMock(return_value=BlastRadiusReport(
+        targetNode="ProcessOrder",
+        affectedModules=["src/db"],
+        affectedFunctions=["ProcessOrder"],
+        riskScore=0.8,
+        isolation=BlastRadiusIsolation.MEDIUM
+    ))
+    mock_cbm.identifyCriticalSinks = AsyncMock(return_value=[])
+    mock_cbm.identifyUnsafeSinks = lambda sinks: []
+
+    # CBM score: hasCriticalSink (0.4) + riskScore (0.3 * 0.8 = 0.24) = 0.64
+    # Context score: 0.14
+    # Since GTI is budget exhausted: CBM (50%), Context (50%) + penalty (0.2)
+    # Expected: 0.5 * 0.64 + 0.5 * 0.14 + 0.2 = 0.32 + 0.07 + 0.2 = 0.59
+    engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti, cbm_client=mock_cbm)
+    context = ToolCallContext(
+        tool_name="safe_tool",
+        arguments={"ip": "1.2.3.4", "targetFunction": "ProcessOrder"}
+    )
+    result = await engine.evaluate(context, "sandbox")
+    assert abs(result.threat_score - 0.59) < 0.01
