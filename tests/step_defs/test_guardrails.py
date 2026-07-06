@@ -487,7 +487,6 @@ def step_daemon_running(adk_interception_ctx, request) -> dict:
     adk_interception_ctx["repo"] = repo
 
     # Spy on the repository's find_matching_signature method to verify it's called
-    from unittest.mock import AsyncMock
     original_find_matching = repo.find_matching_signature
     repo.find_matching_signature = AsyncMock(wraps=original_find_matching)
     adk_interception_ctx["repo_spy"] = repo.find_matching_signature
