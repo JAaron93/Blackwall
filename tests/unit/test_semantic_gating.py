@@ -511,3 +511,77 @@ async def test_gti_partial_results_preserved_on_budget_exhaustion(temp_repo):
 
     # Verify that queryIOC was called twice (once successfully, once with budget exhaustion)
     assert mock_gti.queryIOC.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_gti_budget_exhaustion_does_not_skip_cached_iocs(temp_repo):
+    """
+    Regression test for Issue 2: When GTI budget is exhausted on an early IOC lookup,
+    subsequent IOC types (especially cached ones like domains/hashes) should still be
+    queried and detected, not skipped due to the exception.
+    """
+    # Pre-cache a malicious domain in the repository
+    malicious_domain_response = {
+        "indicator": "evil.example.com",
+        "is_malicious": True,
+        "threat_categories": ["malware", "phishing"],
+        "detection_rate": 90.0,
+        "last_analysis_date": "2024-01-01T00:00:00Z",
+        "related_campaigns": ["campaign-xyz"],
+        "confidence": 0.95
+    }
+    await temp_repo.cache_gti_response(
+        indicator="evil.example.com",
+        indicator_type="domain",
+        response=malicious_domain_response
+    )
+
+    # Setup mock GTI Client: first IP query raises budget exhaustion
+    mock_gti = MagicMock(spec=GTIMCPClient)
+    mock_gti.is_degraded.return_value = False
+    mock_gti.repo = temp_repo
+
+    # First queryIOC call (IP) raises budget exhaustion
+    # Second queryIOC call (domain) should succeed from cache
+    mock_gti.queryIOC = AsyncMock(side_effect=[
+        GTIBudgetExhaustedError("Budget exhausted"),  # IP query fails
+    ])
+
+    # Override queryIOC to handle cache lookups properly for the domain
+    async def mock_query_ioc(indicator, indicator_type, context=None):
+        if indicator == "evil.example.com":
+            # Simulate cache hit by returning the cached response
+            return GTIResponse(
+                indicator="evil.example.com",
+                is_malicious=True,
+                threat_categories=["malware", "phishing"],
+                detection_rate=90.0,
+                confidence=0.95
+            )
+        raise GTIBudgetExhaustedError("Budget exhausted")
+
+    mock_gti.queryIOC = AsyncMock(side_effect=mock_query_ioc)
+
+    engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
+
+    # Context with IP (will fail) and domain (should succeed from cache)
+    context = ToolCallContext(
+        tool_name="safe_tool",
+        arguments={"ip": "1.2.3.4", "domain": "evil.example.com"}
+    )
+
+    result = await engine.evaluate(context, "sandbox")
+
+    # Despite budget exhaustion on IP, the cached domain should be detected
+    # GTI score from domain: is_malicious (0.5) + detection_rate (0.3 * 0.9 = 0.27) + categories (0.2) = 0.97
+    # Weights: GTI (57.14%), Context (42.86%)
+    # Context score: 0.14
+    # Base score: 0.5714 * 0.97 + 0.4286 * 0.14 = 0.5542 + 0.06 = 0.6142
+    # With gti_penalty (0.2): 0.6142 + 0.2 = 0.8142
+    # Expected threat score should be >= 0.75 (BLOCK threshold)
+
+    assert result.threat_score >= 0.75, f"Expected threat score >= 0.75 for cached malicious domain, got {result.threat_score}"
+    assert result.verdict == VerdictDecision.BLOCK
+
+    # Verify that queryIOC was called for both IP and domain
+    assert mock_gti.queryIOC.call_count == 2

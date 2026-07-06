@@ -448,7 +448,7 @@ class GTIMCPClient:
                 score += 0.1
                 
             args_str = str(context.arguments).lower()
-            suspicious_patterns = ("curl", "wget", "nc ", "bash", "sh", "python", "chmod", "chown", "rm -rf")
+            suspicious_patterns = ("curl", "wget", "nc ", "bash", "sh ", "/bin/sh", "sh -c", "python", "chmod", "chown", "rm -rf")
             if any(p in args_str for p in suspicious_patterns):
                 score += 0.1
                 

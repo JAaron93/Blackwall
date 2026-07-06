@@ -106,29 +106,30 @@ class SemanticGatingEngine:
         gti_budget_exhausted = False
         gti_error = False
 
-        if self.gti_client:
+        async def query_ioc_safe(indicator: str, ioc_type: IndicatorType) -> None:
+            """Helper to query a single IOC with localized exception handling."""
+            nonlocal gti_degraded, gti_budget_exhausted, gti_error
             try:
-                for ip in iocs["ips"]:
-                    resp = await self.gti_client.queryIOC(ip, IndicatorType.IP_ADDRESS, context)
-                    gti_responses.append(resp)
-                for url in iocs["urls"]:
-                    resp = await self.gti_client.queryIOC(url, IndicatorType.URL, context)
-                    gti_responses.append(resp)
-                for domain in iocs["domains"]:
-                    if not any(domain in u for u in iocs["urls"]):
-                        resp = await self.gti_client.queryIOC(domain, IndicatorType.DOMAIN, context)
-                        gti_responses.append(resp)
-                for h in iocs["hashes"]:
-                    resp = await self.gti_client.queryIOC(h, IndicatorType.FILE_HASH, context)
-                    gti_responses.append(resp)
+                resp = await self.gti_client.queryIOC(indicator, ioc_type, context)
+                gti_responses.append(resp)
             except GTIDegradedError:
                 gti_degraded = True
             except GTIBudgetExhaustedError:
-                # Budget exhausted mid-loop: preserve any partial results already collected
                 gti_budget_exhausted = True
             except Exception as e:  # noqa: BLE001 - fail-closed: catch all GTI client errors to ensure security policy degrades safely
-                logger.error("Error querying GTI MCP: %s", e)
+                logger.error("Error querying GTI MCP for %s: %s", indicator, e)
                 gti_error = True
+
+        if self.gti_client:
+            for ip in iocs["ips"]:
+                await query_ioc_safe(ip, IndicatorType.IP_ADDRESS)
+            for url in iocs["urls"]:
+                await query_ioc_safe(url, IndicatorType.URL)
+            for domain in iocs["domains"]:
+                if not any(domain in u for u in iocs["urls"]):
+                    await query_ioc_safe(domain, IndicatorType.DOMAIN)
+            for h in iocs["hashes"]:
+                await query_ioc_safe(h, IndicatorType.FILE_HASH)
 
         # Apply penalty only for degraded or budget exhaustion (not for general errors)
         gti_penalty = 0.2 if (gti_degraded or gti_budget_exhausted) else 0.0
