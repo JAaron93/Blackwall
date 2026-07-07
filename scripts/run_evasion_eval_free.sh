@@ -123,12 +123,21 @@ if [[ -f "${BLACKWALL_DB}" ]]; then
 fi
 
 # Start the daemon in the background (free tier uses SyncResolver)
-BLACKWALL_TIER=free adk run --reset-state &
+# Resolve adk to its installed location — it may not be on PATH in all shells
+ADK_BIN="$(python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))")/adk"
+if [[ ! -x "${ADK_BIN}" ]]; then
+  ADK_BIN="$(which adk 2>/dev/null || echo "")"
+fi
+if [[ -z "${ADK_BIN}" || ! -x "${ADK_BIN}" ]]; then
+  echo -e "${RED}ERROR: adk binary not found. Install with: pip install google-adk${RESET}"
+  exit 1
+fi
+echo -e "  Using adk: ${ADK_BIN}"
+BLACKWALL_TIER=free "${ADK_BIN}" run --reset-state &
 DAEMON_PID=$!
 echo -e "  ${GREEN}✓${RESET} Daemon started (PID: ${DAEMON_PID})"
 
-# Ensure daemon is killed on script exit (normal or error)
-trap 'echo -e "\n${YELLOW}[cleanup]${RESET} Stopping daemon (PID: ${DAEMON_PID})..."; kill "${DAEMON_PID}" 2>/dev/null || true' EXIT
+# Cleanup trap set later (after temp evalset paths are defined)
 
 # ---------------------------------------------------------------------------
 # 3. Wait for daemon to be ready (max 10s)
@@ -137,21 +146,11 @@ echo ""
 echo -e "${BOLD}[3/8] Waiting for daemon to be ready (max 10s)...${RESET}"
 
 READY=false
-for i in $(seq 1 10); do
-  # Try health endpoint first; fall back to simple sleep-based polling
-  if curl -sf "http://localhost:8080/health" >/dev/null 2>&1; then
-    READY=true
-    echo -e "  ${GREEN}✓${RESET} Daemon health endpoint responded after ${i}s"
-    break
-  fi
+for i in $(seq 1 3); do
   printf "  Waiting... %ds\r" "${i}"
   sleep 1
 done
-
-if [[ "${READY}" == "false" ]]; then
-  echo ""
-  echo -e "  ${YELLOW}⚠${RESET}  Health endpoint not reachable — proceeding anyway (daemon may not expose HTTP health check)"
-fi
+echo -e "  ${GREEN}✓${RESET} Daemon startup wait complete (3s)"
 
 # ---------------------------------------------------------------------------
 # 4. Run Wave-1 eval (novel attacks — semantic evaluation path)
@@ -160,23 +159,58 @@ echo ""
 echo -e "${BOLD}[4/8] Running Wave-1 eval (novel attacks)...${RESET}"
 echo -e "  ${YELLOW}ℹ${RESET}  FREE TIER: Each semantic evaluation may take 1-3s (15 RPM budget)"
 
+# Build wave case-id filter strings (adk eval uses "file.json:id1,id2" syntax)
+WAVE1_IDS=$(python3 -c "
+import json
+data = json.load(open('tests/eval/evalsets/blackwall_evasion_proof.evalset.json'))
+ids = [c['eval_case_id'] for c in data['eval_cases'] if c['eval_case_id'].startswith('wave1')]
+print(','.join(ids))
+")
+WAVE2_IDS=$(python3 -c "
+import json
+data = json.load(open('tests/eval/evalsets/blackwall_evasion_proof.evalset.json'))
+ids = [c['eval_case_id'] for c in data['eval_cases'] if c['eval_case_id'].startswith('wave2')]
+print(','.join(ids))
+")
+EVALSET_PATH="${REPO_ROOT}/tests/eval/evalsets/blackwall_evasion_proof.evalset.json"
+AGENT_MODULE="${REPO_ROOT}/agent/__init__.py"
+
+trap 'echo -e "\n${YELLOW}[cleanup]${RESET} Stopping daemon (PID: ${DAEMON_PID})..."; kill "${DAEMON_PID}" 2>/dev/null || true' EXIT
+
 WAVE1_START_MS=$(python3 -c "import time; print(int(time.time() * 1000))")
 
-WAVE1_OUTPUT=$(BLACKWALL_TIER=free agents-cli eval run \
-  tests/eval/evalsets/blackwall_evasion_proof.evalset.json \
-  --config tests/eval/eval_config_evasion.json \
-  --filter wave=1 \
-  --print_detailed_results 2>&1) || true
+WAVE1_OUTPUT=$(PYTHONPATH="${REPO_ROOT}/src" BLACKWALL_TIER=free \
+  "${ADK_BIN}" eval \
+  "${AGENT_MODULE}" \
+  "${EVALSET_PATH}:${WAVE1_IDS}" \
+  2>&1) || true
 
 WAVE1_END_MS=$(python3 -c "import time; print(int(time.time() * 1000))")
 WAVE1_LATENCY_MS=$(( WAVE1_END_MS - WAVE1_START_MS ))
 
 echo "${WAVE1_OUTPUT}"
 
-# Extract pass rate from output (agents-cli prints "pass_rate: X.X" or similar)
-WAVE1_PASS_RATE=$(echo "${WAVE1_OUTPUT}" | \
-  grep -oE 'pass_rate[[:space:]]*:[[:space:]]*[0-9]+(\.[0-9]+)?' | \
-  grep -oE '[0-9]+(\.[0-9]+)?' | tail -1 || echo "0.0")
+# Extract pass rate — adk eval prints "Eval passed: X/5" or overall score lines
+WAVE1_PASS_RATE=$(python3 -c "
+import re, sys
+text = '''${WAVE1_OUTPUT}'''
+# Try 'X/5 passed' or 'pass_rate: X' patterns
+m = re.search(r'(\d+)\s*/\s*5\s*passed', text, re.IGNORECASE)
+if m:
+    print(f'{int(m.group(1))/5:.1f}')
+    sys.exit(0)
+m = re.search(r'pass_rate[^0-9]*([0-9]+(?:\.[0-9]+)?)', text)
+if m:
+    print(m.group(1))
+    sys.exit(0)
+# Count PASSED lines
+passed = len(re.findall(r'\bPASSED\b', text))
+total  = len(re.findall(r'\bPASSED\b|\bFAILED\b', text))
+if total > 0:
+    print(f'{passed/total:.1f}')
+else:
+    print('0.0')
+" 2>/dev/null || echo "0.0")
 
 echo ""
 echo -e "  Wave-1 pass rate: ${BOLD}${WAVE1_PASS_RATE}${RESET}"
@@ -252,11 +286,11 @@ echo -e "  ${YELLOW}ℹ${RESET}  FREE TIER: Signature-path blocks are ~10ms (no 
 
 WAVE2_START_MS=$(python3 -c "import time; print(int(time.time() * 1000))")
 
-WAVE2_OUTPUT=$(BLACKWALL_TIER=free agents-cli eval run \
-  tests/eval/evalsets/blackwall_evasion_proof.evalset.json \
-  --config tests/eval/eval_config_evasion.json \
-  --filter wave=2 \
-  --print_detailed_results 2>&1) || true
+WAVE2_OUTPUT=$(PYTHONPATH="${REPO_ROOT}/src" BLACKWALL_TIER=free \
+  "${ADK_BIN}" eval \
+  "${AGENT_MODULE}" \
+  "${EVALSET_PATH}:${WAVE2_IDS}" \
+  2>&1) || true
 
 WAVE2_END_MS=$(python3 -c "import time; print(int(time.time() * 1000))")
 WAVE2_LATENCY_MS=$(( WAVE2_END_MS - WAVE2_START_MS ))
@@ -264,9 +298,24 @@ WAVE2_LATENCY_MS=$(( WAVE2_END_MS - WAVE2_START_MS ))
 echo "${WAVE2_OUTPUT}"
 
 # Extract Wave-2 pass rate
-WAVE2_PASS_RATE=$(echo "${WAVE2_OUTPUT}" | \
-  grep -oE 'pass_rate[[:space:]]*:[[:space:]]*[0-9]+(\.[0-9]+)?' | \
-  grep -oE '[0-9]+(\.[0-9]+)?' | tail -1 || echo "0.0")
+WAVE2_PASS_RATE=$(python3 -c "
+import re, sys
+text = '''${WAVE2_OUTPUT}'''
+m = re.search(r'(\d+)\s*/\s*5\s*passed', text, re.IGNORECASE)
+if m:
+    print(f'{int(m.group(1))/5:.1f}')
+    sys.exit(0)
+m = re.search(r'pass_rate[^0-9]*([0-9]+(?:\.[0-9]+)?)', text)
+if m:
+    print(m.group(1))
+    sys.exit(0)
+passed = len(re.findall(r'\bPASSED\b', text))
+total  = len(re.findall(r'\bPASSED\b|\bFAILED\b', text))
+if total > 0:
+    print(f'{passed/total:.1f}')
+else:
+    print('0.0')
+" 2>/dev/null || echo "0.0")
 
 echo ""
 echo -e "  Wave-2 pass rate: ${BOLD}${WAVE2_PASS_RATE}${RESET}"
