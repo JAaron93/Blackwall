@@ -82,11 +82,9 @@ echo ""
 
 # Load .env if present
 if [[ -f "${REPO_ROOT}/.env" ]]; then
-  while IFS= read -r line || [[ -n "${line}" ]]; do
-    # Skip blank lines and comments
-    [[ -z "${line}" || "${line}" =~ ^[[:space:]]*# ]] && continue
-    export "${line?}"
-  done < <(grep -v '^#' "${REPO_ROOT}/.env" | grep -v '^[[:space:]]*$')
+  # shellcheck source=scripts/lib/load_env.sh
+  source "${SCRIPT_DIR}/lib/load_env.sh"
+  load_env_file "${REPO_ROOT}/.env"
 fi
 
 # Re-assert BLACKWALL_TIER=free after .env load (in case .env overrides it)
