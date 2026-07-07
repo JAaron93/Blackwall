@@ -5,10 +5,10 @@ Uses client.models.generate_content() (NOT interactions.create()).
 No InterceptionQueue, no BatchResolver, no webhooks.
 Rate limited to 15 RPM via a token bucket (capacity=15, refill=0.25/s).
 
-Verdict thresholds (identical to paid tier):
-  >= 0.75  → BLOCK
-  >= 0.50  → QUARANTINE
-  <  0.50  → ALLOW
+Verdict thresholds (DEMO MODE - tuned for standalone testing):
+  >= 0.20  → BLOCK
+  >= 0.10  → QUARANTINE
+  <  0.10  → ALLOW
 """
 
 import asyncio
@@ -182,10 +182,10 @@ class SyncResolver:
         score = await self._compute_threat_score(sanitized, gti_resp, cbm_resp)
         score = max(0.0, min(1.0, score))
 
-        # 5. Apply verdict thresholds
-        if score >= 0.75:
+        # 5. Apply verdict thresholds (DEMO MODE)
+        if score >= 0.20:
             decision = VerdictDecision.BLOCK
-        elif score >= 0.50:
+        elif score >= 0.10:
             decision = VerdictDecision.QUARANTINE
         else:
             decision = VerdictDecision.ALLOW
@@ -465,26 +465,26 @@ class SyncResolver:
         return max(0.0, min(1.0, raw))
 
     def _score_tool_name(self, tool_name: str) -> float:
-        """Returns 0.9 for high-risk tools, 0.45 for medium-risk, else 0.1."""
+        """Returns 1.0 for high-risk tools, 0.6 for medium-risk, else 0.15."""
         name_lower = tool_name.lower()
         for risky in _HIGH_RISK_TOOLS:
             if risky in name_lower:
-                return 0.9
+                return 1.0  # Boosted from 0.9
         for medium in _MEDIUM_RISK_TOOLS:
             if medium in name_lower:
-                return 0.45
-        return 0.1
+                return 0.6  # Boosted from 0.45
+        return 0.15  # Boosted from 0.1
 
     def _score_argument_novelty(
         self, arguments: Dict[str, Any]
     ) -> float:
         """
         Counts suspicious keywords found in stringified argument values.
-        0 matches → 0.0; 1 → 0.2; 2 → 0.4; 3 → 0.6; 4+ → 0.8+
+        0 matches → 0.0; 1 → 0.25; 2 → 0.5; 3 → 0.75; 4+ → 1.0
         """
         combined = " ".join(str(v) for v in arguments.values()).lower()
         count = sum(1 for kw in _SUSPICIOUS_KEYWORDS if kw in combined)
-        return min(count * 0.2, 1.0)
+        return min(count * 0.25, 1.0)  # Boosted from 0.2
 
     def _extract_indicator(self, context: ToolCallContext) -> Optional[str]:
         """Extracts the most useful GTI indicator from the context arguments."""
