@@ -452,6 +452,7 @@ pytest tests/features/blackwall_guardrails.feature -v
 | Document | Purpose |
 |----------|---------|
 | **[JUDGE_EVALUATION.md](JUDGE_EVALUATION.md)** | Complete free-tier reproduction guide (no billing required) |
+| **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** | Known issues and workarounds (evaluation performance) |
 | **[design.md](.kiro/specs/blackwall-agentic-firewall/design.md)** | Full technical design (40+ pages, all architectural details) |
 | **[requirements.md](.kiro/specs/blackwall-agentic-firewall/requirements.md)** | 28 EARS-compliant requirements with acceptance criteria |
 | **[tasks.md](.kiro/specs/blackwall-agentic-firewall/tasks.md)** | Implementation plan with 97 tasks, dependencies, estimates |

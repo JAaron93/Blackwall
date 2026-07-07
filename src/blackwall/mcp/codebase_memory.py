@@ -305,3 +305,37 @@ class CodebaseMemoryClient:
         return hints.get(
             sink_type, "No specific mitigation hint available for this sink type."
         )
+
+    async def query(self, context: Any) -> "CBMResponse":
+        """
+        Adapter called by SyncResolver._query_cbm(). Accepts a ToolCallContext,
+        queries the dependency chain for the tool function, identifies critical
+        sinks, and returns a CBMResponse.
+        """
+        from blackwall.models import CBMResponse, SinkType
+
+        # Extract function name — prefer tool_name from context
+        func_name = getattr(context, "tool_name", None) or str(context)
+
+        # Query dependency chain
+        dep_chain = await self.queryDependencyChain(func_name)
+
+        # Identify critical sinks on the dependency chain root
+        raw_sinks = await self.identifyCriticalSinks(func_name)
+        unsafe_sinks = self.identifyUnsafeSinks(raw_sinks)
+
+        # Map CriticalSink → SinkType for CBMResponse
+        sink_types: List[SinkType] = []
+        for sink in unsafe_sinks:
+            try:
+                sink_types.append(SinkType(sink.sinkType.value))
+            except (ValueError, AttributeError):
+                pass
+
+        # blast_radius: use depth as a proxy (1–10 scale)
+        blast_radius = float(min(dep_chain.depth * 2, 10))
+
+        return CBMResponse(
+            blast_radius=blast_radius,
+            critical_sinks=sink_types,
+        )

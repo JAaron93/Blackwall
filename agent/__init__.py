@@ -14,111 +14,118 @@ implementations; for evaluation purposes they just need to exist so the
 ADK eval harness can exercise the interception path.
 
 Architecture:
-    ADK eval harness
-        → LlmAgent.before_tool_callback (Blackwall adapter)
-            → FreeTierADKIntegration.before_tool_callback
-                → SyncResolver.evaluate()
-                    → Structural gate → Semantic gate → Verdict
+    ADK eval harness (runs on asyncio event loop)
+        → LlmAgent.before_tool_callback (async, called on the event loop)
+            → SyncResolver.evaluate(context)   [awaited directly]
+                → Structural gate → Semantic gate → Verdict
         → Tool stub (only reached on ALLOW verdict)
+
+Note: FreeTierADKIntegration is intentionally NOT used here. That class
+uses run_coroutine_threadsafe + future.result() which deadlocks when the
+callback is already on the event loop (as adk eval does). We await the
+SyncResolver coroutine directly instead.
 """
 
 import asyncio
 import os
+import sys as _sys
 from typing import Any, Optional
 
 import structlog
-from dotenv import load_dotenv
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.tool_context import ToolContext
 
-load_dotenv()
 logger = structlog.get_logger("blackwall.agent")
 
 # ---------------------------------------------------------------------------
-# Lazy-initialised integration singleton
+# Lazy-initialised SyncResolver singleton
 # ---------------------------------------------------------------------------
-_integration: Any = None  # FreeTierADKIntegration
+_resolver: Any = None  # SyncResolver
 
 
-def _get_integration() -> Any:
-    """Initialise FreeTierADKIntegration once and return it."""
-    global _integration
-    if _integration is not None:
-        return _integration
+def _get_resolver() -> Any:
+    """Initialise SyncResolver once and return it."""
+    global _resolver
+    if _resolver is not None:
+        return _resolver
 
-    from blackwall.adk_integration import FreeTierADKIntegration
+    # Inline import to keep module-level startup fast
+    from dotenv import load_dotenv
+    load_dotenv()
+
     from blackwall.sync_resolver import SyncResolver
     from blackwall.db.repository import SQLiteThreatRepository
+    from blackwall.mcp.gti_client import GTIMCPClient
+    from blackwall.mcp.codebase_memory import CodebaseMemoryClient
+    from google import genai
 
     db_path = os.getenv("BLACKWALL_DB_PATH", "./blackwall.db")
     repo = SQLiteThreatRepository(db_path)
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY", ""))
 
-    # Resolve Gemini model from env; fall back to flash-lite
-    model = os.getenv("BLACKWALL_MODEL", "gemini-3.1-flash-lite")
-    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    gti_client = GTIMCPClient(
+        repo=repo,
+        api_key=os.getenv("GTI_MCP_API_KEY", ""),
+    )
+    cbm_client = CodebaseMemoryClient(
+        command=["/Users/pretermodernist/.local/bin/codebase-memory-mcp"],
+    )
 
-    from google import genai
-    client = genai.Client(api_key=gemini_key)
-
-    sync_resolver = SyncResolver(
+    _resolver = SyncResolver(
         client=client,
         repo=repo,
-        model=model,
+        gti_client=gti_client,
+        cbm_client=cbm_client,
     )
-
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    _integration = FreeTierADKIntegration(
-        sync_resolver=sync_resolver,
-        loop=loop,
-    )
-    return _integration
+    return _resolver
 
 
 # ---------------------------------------------------------------------------
-# ADK before_tool_callback adapter
+# ADK before_tool_callback — async so it runs on the event loop directly,
+# avoiding the run_coroutine_threadsafe / future.result() deadlock.
+#
 # ADK signature: (tool: BaseTool, args: dict, tool_context: ToolContext)
-#                → Optional[dict]
-# Returning None means ALLOW (proceed). Raising PermissionError means BLOCK.
+#                → Optional[dict]   (or Awaitable thereof)
+# Returning None → ALLOW.  Raising PermissionError → BLOCK.
 # ---------------------------------------------------------------------------
 
-def blackwall_before_tool_callback(
+async def blackwall_before_tool_callback(
     tool: BaseTool,
     args: dict[str, Any],
     tool_context: ToolContext,
 ) -> Optional[dict[str, Any]]:
-    """
-    Intercepts every tool call and evaluates it through Blackwall.
+    """Intercept every tool call and evaluate through Blackwall's SyncResolver."""
+    from blackwall.models import ToolCallContext, VerdictDecision
 
-    - Returns None to allow the tool to proceed.
-    - Raises PermissionError to block execution (ADK will surface this
-      to the calling agent as a tool error, which terminates the action).
-    - Returns a mock dict for QUARANTINE (sandboxed response).
-    """
-    integration = _get_integration()
-    # Delegate to FreeTierADKIntegration which calls SyncResolver.evaluate()
-    result = integration.before_tool_callback(
+    context = ToolCallContext(
         tool_name=tool.name,
         arguments=args,
         metadata={"tool_context_id": str(id(tool_context))},
     )
-    # ALLOW: FreeTierADKIntegration returns the original args dict
-    # BLOCK: raises PermissionError (propagates up automatically)
-    # QUARANTINE: returns a mock dict — convert to None so ADK doesn't
-    #             execute the real tool but also doesn't raise
-    if result is args:
-        return None   # ALLOW — let ADK execute the tool
-    return result     # QUARANTINE mock response
+
+    resolver = _get_resolver()
+    verdict = await resolver.evaluate(context)
+
+    if verdict.decision == VerdictDecision.ALLOW:
+        return None  # let ADK execute the tool
+
+    if verdict.decision == VerdictDecision.BLOCK:
+        raise PermissionError(
+            f"[BLACKWALL BLOCK] {verdict.reasoning}"
+        )
+
+    # QUARANTINE — return a safe mock response, don't execute the real tool
+    return {
+        "status": "quarantined",
+        "message": "Tool executed in sandboxed mock environment (QUARANTINE verdict).",
+        "verdict": "QUARANTINE",
+    }
 
 
 # ---------------------------------------------------------------------------
-# Tool stubs — passthrough implementations for eval harness
+# Tool stubs — minimal passthrough implementations for eval harness
 # ---------------------------------------------------------------------------
 
 def database_query(query: str) -> dict[str, Any]:
@@ -140,6 +147,11 @@ def http_request(url: str, method: str = "GET", body: str = "") -> dict[str, Any
     """Make an HTTP request (eval stub)."""
     return {"status_code": 200, "body": "", "url": url, "method": method}
 
+
+# ---------------------------------------------------------------------------
+# ADK cli_eval does agent_module.agent.root_agent — expose self-reference
+# ---------------------------------------------------------------------------
+agent = _sys.modules[__name__]
 
 # ---------------------------------------------------------------------------
 # root_agent — required export for `adk run` and `adk eval`

@@ -7,11 +7,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import ssl
 import time
 from typing import Any, Dict, Optional
 from dataclasses import dataclass
 
 import aiohttp
+import certifi
 
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.models import GTIResponse, IndicatorType, ToolCallContext
@@ -379,7 +381,10 @@ class GTIMCPClient:
         backoff = 0.1  # 100ms starting backoff
         max_retries = 3
 
-        async with aiohttp.ClientSession() as session:
+        # Create SSL context with certifi CA bundle for macOS compatibility
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_context)) as session:
             while True:
                 try:
                     async with session.get(url, headers=headers) as resp:
@@ -538,6 +543,22 @@ class GTIMCPClient:
             p_x = s.count(x) / len(s)
             entropy += - p_x * math.log2(p_x)
         return entropy
+
+    async def query(self, indicator: str) -> "GTIResponse":
+        """
+        Adapter called by SyncResolver._query_gti(). Infers the indicator
+        type from the string and delegates to queryIOC.
+        """
+        import re as _re
+        if _re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", indicator):
+            ind_type = IndicatorType.IP_ADDRESS
+        elif indicator.startswith("http://") or indicator.startswith("https://"):
+            ind_type = IndicatorType.URL
+        elif _re.match(r"^[0-9a-fA-F]{32,64}$", indicator):
+            ind_type = IndicatorType.FILE_HASH
+        else:
+            ind_type = IndicatorType.DOMAIN
+        return await self.queryIOC(indicator, ind_type, skip_budget_check=True)
 
     async def is_high_risk(
         self,

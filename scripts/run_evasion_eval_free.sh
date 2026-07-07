@@ -108,10 +108,10 @@ echo -e "  ${GREEN}✓${RESET} GEMINI_API_KEY is set"
 echo -e "  ${GREEN}✓${RESET} BLACKWALL_TIER=free"
 
 # ---------------------------------------------------------------------------
-# 2. Start a fresh Blackwall daemon with clean state
+# 2. Prepare clean eval state (no daemon needed — adk eval runs inline)
 # ---------------------------------------------------------------------------
 echo ""
-echo -e "${BOLD}[2/8] Starting fresh Blackwall daemon (clean state, FREE TIER)...${RESET}"
+echo -e "${BOLD}[2/8] Preparing clean eval state...${RESET}"
 
 cd "${REPO_ROOT}"
 
@@ -122,35 +122,23 @@ if [[ -f "${BLACKWALL_DB}" ]]; then
   rm -f "${BLACKWALL_DB}"
 fi
 
-# Start the daemon in the background (free tier uses SyncResolver)
-# Resolve adk to its installed location — it may not be on PATH in all shells
-ADK_BIN="$(python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))")/adk"
-if [[ ! -x "${ADK_BIN}" ]]; then
-  ADK_BIN="$(which adk 2>/dev/null || echo "")"
-fi
-if [[ -z "${ADK_BIN}" || ! -x "${ADK_BIN}" ]]; then
-  echo -e "${RED}ERROR: adk binary not found. Install with: pip install google-adk${RESET}"
-  exit 1
-fi
-echo -e "  Using adk: ${ADK_BIN}"
-BLACKWALL_TIER=free "${ADK_BIN}" run --reset-state &
-DAEMON_PID=$!
-echo -e "  ${GREEN}✓${RESET} Daemon started (PID: ${DAEMON_PID})"
+DAEMON_PID=""  # no daemon; kept for trap compatibility
+trap 'echo -e "\n${YELLOW}[cleanup]${RESET} Done."; [[ -n "${DAEMON_PID}" ]] && kill "${DAEMON_PID}" 2>/dev/null || true' EXIT
 
-# Cleanup trap set later (after temp evalset paths are defined)
+echo -e "  ${GREEN}✓${RESET} Clean state ready (blackwall.db removed)"
 
 # ---------------------------------------------------------------------------
-# 3. Wait for daemon to be ready (max 10s)
+# 3. (No daemon startup needed for inline adk eval)
 # ---------------------------------------------------------------------------
 echo ""
-echo -e "${BOLD}[3/8] Waiting for daemon to be ready (max 10s)...${RESET}"
+echo -e "${BOLD}[3/8] Verifying agent module...${RESET}"
 
-READY=false
-for i in $(seq 1 3); do
-  printf "  Waiting... %ds\r" "${i}"
-  sleep 1
-done
-echo -e "  ${GREEN}✓${RESET} Daemon startup wait complete (3s)"
+AGENT_MODULE="${REPO_ROOT}/agent"
+if [[ ! -f "${AGENT_MODULE}/__init__.py" ]]; then
+  echo -e "${RED}ERROR: agent/__init__.py not found at ${AGENT_MODULE}${RESET}"
+  exit 1
+fi
+echo -e "  ${GREEN}✓${RESET} Agent module found: ${AGENT_MODULE}"
 
 # ---------------------------------------------------------------------------
 # 4. Run Wave-1 eval (novel attacks — semantic evaluation path)
@@ -159,23 +147,33 @@ echo ""
 echo -e "${BOLD}[4/8] Running Wave-1 eval (novel attacks)...${RESET}"
 echo -e "  ${YELLOW}ℹ${RESET}  FREE TIER: Each semantic evaluation may take 1-3s (15 RPM budget)"
 
+# Resolve adk binary
+ADK_BIN="$(python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))")/adk"
+if [[ ! -x "${ADK_BIN}" ]]; then
+  ADK_BIN="$(which adk 2>/dev/null || echo "")"
+fi
+if [[ -z "${ADK_BIN}" || ! -x "${ADK_BIN}" ]]; then
+  echo -e "${RED}ERROR: adk binary not found. Install with: pip install 'google-adk[eval]'${RESET}"
+  exit 1
+fi
+
 # Build wave case-id filter strings (adk eval uses "file.json:id1,id2" syntax)
 WAVE1_IDS=$(python3 -c "
 import json
 data = json.load(open('tests/eval/evalsets/blackwall_evasion_proof.evalset.json'))
-ids = [c['eval_case_id'] for c in data['eval_cases'] if c['eval_case_id'].startswith('wave1')]
+ids = [c['eval_id'] for c in data['eval_cases'] if c['eval_id'].startswith('wave1')]
 print(','.join(ids))
 ")
 WAVE2_IDS=$(python3 -c "
 import json
 data = json.load(open('tests/eval/evalsets/blackwall_evasion_proof.evalset.json'))
-ids = [c['eval_case_id'] for c in data['eval_cases'] if c['eval_case_id'].startswith('wave2')]
+ids = [c['eval_id'] for c in data['eval_cases'] if c['eval_id'].startswith('wave2')]
 print(','.join(ids))
 ")
 EVALSET_PATH="${REPO_ROOT}/tests/eval/evalsets/blackwall_evasion_proof.evalset.json"
-AGENT_MODULE="${REPO_ROOT}/agent/__init__.py"
+AGENT_MODULE="${REPO_ROOT}/agent"
 
-trap 'echo -e "\n${YELLOW}[cleanup]${RESET} Stopping daemon (PID: ${DAEMON_PID})..."; kill "${DAEMON_PID}" 2>/dev/null || true' EXIT
+trap 'echo -e "\n${YELLOW}[cleanup]${RESET} Done."' EXIT
 
 WAVE1_START_MS=$(python3 -c "import time; print(int(time.time() * 1000))")
 

@@ -289,3 +289,20 @@ logs/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# =============================================================================
+# Blackwall-specific
+# =============================================================================
+# Runtime database files (created during evaluation/testing)
+blackwall.db
+blackwall.db-shm
+blackwall.db-wal
+test_blackwall.db
+test_blackwall.db-shm
+test_blackwall.db-wal
+*.db
+*.db-shm
+*.db-wal
+
+# Git worktrees (if using git worktree for parallel branches)
+.worktrees/
