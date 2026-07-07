@@ -508,7 +508,7 @@ pytest tests/features/blackwall_guardrails.feature -v
 | Self-learning works | Wave 1→Wave 2 latency delta (1,415ms→12ms) | JUDGE_EVALUATION.md, eval results |
 | Hybrid gating effective | Structural layer <5ms, semantic <100ms @ P99 | design.md, test logs |
 | Zero static allowlists | All signatures learned from Wave 1, Wave 2 uses none | evalset, signature query logs |
-| <10% error rates | 120-case suite: FRR 6%, Evasion 3.8% | eval_config.json results |
+| <10% error rates | 120-case suite: FRR 6.0% (3÷50), Evasion Rate 2.9% (2÷70) | eval_config.json results |
 | Zero Ambient Authority | Audit hook logs block subprocess before kernel | test_sync_resolver.py |
 | Production-ready | 28 EARS requirements + 12 properties proven | requirements.md, property tests |
 
@@ -520,8 +520,8 @@ pytest tests/features/blackwall_guardrails.feature -v
 
 With Gemini API capped at 300 RPM and attackers at 600 RPM:
 - **Without batching**: Each attack triggers 1 API call. Requests exceeding 300 RPM hit rate limit, get throttled with exponential backoff (100ms, 200ms, 400ms retries), then fail-closed to QUARANTINE verdicts
-- **With batching**: 5 attacks accumulated per batch; 5 attacks/batch × 300 RPM = 1,500 attacks/minute evaluated (5x throughput improvement). Requests above 300 RPM are still rate-limited but benefit from batch packing
-- **Async batching**: Callbacks suspended in Interception Queue while batch accumulates (max 5 or 100ms timeout); verdict array returned to all suspended threads simultaneously, preventing deadlock
+- **With batching**: Up to 5 attacks accumulated per batch; at full saturation, 5 attacks/batch × 300 RPM = 1,500 attacks/minute (5x ceiling). Realised throughput scales with average batch size — partial batches under bursty or low-volume traffic proportionally reduce it (e.g. avg size 3 → 900 attacks/min)
+- **Async batching**: Callbacks suspended in Interception Queue while the batch accumulates (max 5 items or 100ms timeout, whichever fires first); the 100ms flush guarantees forward progress but produces partial batches under low/bursty load, reducing realised throughput. Verdict array returned to all suspended threads simultaneously, preventing deadlock
 
 ### Why GTI Budget Tracking Matters
 
