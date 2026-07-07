@@ -489,19 +489,28 @@ class SyncResolver:
     def _extract_indicator(self, context: ToolCallContext) -> Optional[str]:
         """Extracts the most useful GTI indicator from the context arguments."""
         args_str = " ".join(str(v) for v in context.arguments.values())
-        # Try to find an IP-like or URL-like token
         import re
+        from urllib.parse import urlparse
 
+        # Try to find IP addresses
         ip_match = re.search(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", args_str)
         if ip_match:
             return ip_match.group(0)
 
-        url_match = re.search(r"https?://[^\s]+", args_str)
+        # Try to extract domain from URLs
+        url_match = re.search(r"https?://([^\s/:]+)", args_str)
         if url_match:
-            return url_match.group(0)
+            domain = url_match.group(1)
+            # Skip localhost and private domains
+            if domain not in ("localhost", "127.0.0.1") and not domain.startswith("192.168."):
+                return domain
 
-        # Fall back to the tool name as a weak indicator
-        return context.tool_name if context.tool_name else None
+        # Look for standalone domain patterns
+        domain_match = re.search(r"\b([a-z0-9-]+\.)+[a-z]{2,}\b", args_str, re.IGNORECASE)
+        if domain_match:
+            return domain_match.group(0)
+
+        return None
 
     @staticmethod
     def _build_reasoning(
