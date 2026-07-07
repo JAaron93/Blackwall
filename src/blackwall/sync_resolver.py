@@ -107,6 +107,7 @@ class SyncResolver:
         gti_client: Any = None,
         cbm_client: Any = None,
         gti_budget_tracker: Any = None,
+        demo_mode: bool = False,
     ) -> None:
         self.client = client
         self.policy_server = policy_server
@@ -114,6 +115,7 @@ class SyncResolver:
         self.gti_client = gti_client
         self.cbm_client = cbm_client
         self.gti_budget_tracker = gti_budget_tracker
+        self.demo_mode = demo_mode
 
         # Rate limiter: 15 RPM  →  capacity=15, refill_rate=15/60=0.25 t/s
         self._rate_limiter = TokenBucketRateLimiter(
@@ -182,13 +184,21 @@ class SyncResolver:
         score = await self._compute_threat_score(sanitized, gti_resp, cbm_resp)
         score = max(0.0, min(1.0, score))
 
-        # 5. Apply verdict thresholds (DEMO MODE)
-        if score >= 0.20:
-            decision = VerdictDecision.BLOCK
-        elif score >= 0.10:
-            decision = VerdictDecision.QUARANTINE
+        # 5. Apply verdict thresholds
+        if self.demo_mode:
+            if score >= 0.20:
+                decision = VerdictDecision.BLOCK
+            elif score >= 0.10:
+                decision = VerdictDecision.QUARANTINE
+            else:
+                decision = VerdictDecision.ALLOW
         else:
-            decision = VerdictDecision.ALLOW
+            if score >= 0.75:
+                decision = VerdictDecision.BLOCK
+            elif score >= 0.50:
+                decision = VerdictDecision.QUARANTINE
+            else:
+                decision = VerdictDecision.ALLOW
 
         verdict = Verdict(
             decision=decision,
@@ -465,26 +475,35 @@ class SyncResolver:
         return max(0.0, min(1.0, raw))
 
     def _score_tool_name(self, tool_name: str) -> float:
-        """Returns 1.0 for high-risk tools, 0.6 for medium-risk, else 0.15."""
+        """Returns scoring for tool name based on risk level."""
         name_lower = tool_name.lower()
-        for risky in _HIGH_RISK_TOOLS:
-            if risky in name_lower:
-                return 1.0  # Boosted from 0.9
-        for medium in _MEDIUM_RISK_TOOLS:
-            if medium in name_lower:
-                return 0.6  # Boosted from 0.45
-        return 0.15  # Boosted from 0.1
+        if self.demo_mode:
+            for risky in _HIGH_RISK_TOOLS:
+                if risky in name_lower:
+                    return 1.0
+            for medium in _MEDIUM_RISK_TOOLS:
+                if medium in name_lower:
+                    return 0.6
+            return 0.15
+        else:
+            for risky in _HIGH_RISK_TOOLS:
+                if risky in name_lower:
+                    return 0.9
+            for medium in _MEDIUM_RISK_TOOLS:
+                if medium in name_lower:
+                    return 0.45
+            return 0.1
 
     def _score_argument_novelty(
         self, arguments: Dict[str, Any]
     ) -> float:
-        """
-        Counts suspicious keywords found in stringified argument values.
-        0 matches → 0.0; 1 → 0.25; 2 → 0.5; 3 → 0.75; 4+ → 1.0
-        """
+        """Counts suspicious keywords found in stringified argument values."""
         combined = " ".join(str(v) for v in arguments.values()).lower()
         count = sum(1 for kw in _SUSPICIOUS_KEYWORDS if kw in combined)
-        return min(count * 0.25, 1.0)  # Boosted from 0.2
+        if self.demo_mode:
+            return min(count * 0.25, 1.0)  # Boosted from 0.2
+        else:
+            return min(count * 0.2, 1.0)  # Specification-mandated multiplier
 
     def _extract_indicator(self, context: ToolCallContext) -> Optional[str]:
         """Extracts the most useful GTI indicator from the context arguments."""

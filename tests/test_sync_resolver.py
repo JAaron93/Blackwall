@@ -134,7 +134,7 @@ async def test_gti_cbm_queries_execute_serially():
     cbm_client.query = AsyncMock(side_effect=mock_cbm_query)
 
     resolver = _make_resolver(gti_client=gti_client, cbm_client=cbm_client)
-    context = _make_context()
+    context = _make_context(arguments={"host": "wd-bouygues.com"})
 
     await resolver.evaluate(context)
 

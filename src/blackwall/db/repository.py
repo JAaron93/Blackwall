@@ -387,26 +387,56 @@ class SQLiteThreatRepository:
         await self.initialize()
         matches = []
 
+        # Helper to parse sqlite rows into dict matches
+        def _parse_row(row, score):
+            (
+                sig_id, created_at, last_matched_at, attacker_intent, payload_pattern,
+                target_tool, target_sink, dependency_chain, mitigation_action, match_count,
+                false_positive_count, _, metadata
+            ) = row
+            return {
+                "signature_id": sig_id,
+                "created_at": created_at,
+                "last_matched_at": last_matched_at,
+                "attacker_intent": attacker_intent,
+                "payload_pattern": payload_pattern,
+                "target_tool": target_tool,
+                "target_sink": target_sink,
+                "dependency_chain": json.loads(dependency_chain) if dependency_chain else None,
+                "mitigation_action": mitigation_action,
+                "match_count": match_count,
+                "false_positive_count": false_positive_count,
+                "similarity_score": score,
+                "metadata": json.loads(metadata) if metadata else None
+            }
+
+        import re
+        words = re.findall(r"\w+", query_text)
+        fts_query = " OR ".join(words) if words else ""
+
         async with self.pool.connection() as conn:
-            cursor = await conn.execute(
-                "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
-                "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
-                "false_positive_count, similarity_vector, metadata FROM signatures"
-            )
-            rows = await cursor.fetchall()
+            if query_vector is not None:
+                # 1. Load signatures with vectors for cosine similarity
+                cursor = await conn.execute(
+                    "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
+                    "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
+                    "false_positive_count, similarity_vector, metadata FROM signatures "
+                    "WHERE similarity_vector IS NOT NULL"
+                )
+                vector_rows = await cursor.fetchall()
 
-            for row in rows:
-                (
-                    sig_id, created_at, last_matched_at, attacker_intent, payload_pattern,
-                    target_tool, target_sink, dependency_chain, mitigation_action, match_count,
-                    false_positive_count, similarity_vector, metadata
-                ) = row
+                # Validate query_vector dimension
+                if len(query_vector) != 768:
+                    raise ValueError(
+                        f"Query vector has incorrect dimension {len(query_vector)}, expected 768"
+                    )
 
-                # Check vector dimension validation
-                is_valid_vector = False
-                vector_floats = None
+                for row in vector_rows:
+                    sig_id = row[0]
+                    similarity_vector = row[11]
 
-                if similarity_vector is not None:
+                    is_valid_vector = False
+                    vector_floats = None
                     try:
                         import array
                         arr = array.array("f")
@@ -416,8 +446,6 @@ class SQLiteThreatRepository:
                         if len(vector_floats) == 768:
                             is_valid_vector = True
                         else:
-                            # Exclude signatures with inconsistent-dimension signatures from cosine similarity queries
-                            # and log a warning identifying the signature_id
                             logger.warning(
                                 f"Excluding signature {sig_id} from vector similarity query due to incorrect vector dimension {len(vector_floats)}",
                                 signature_id=sig_id,
@@ -430,80 +458,59 @@ class SQLiteThreatRepository:
                             error=str(e)
                         )
 
-                if similarity_vector is not None and not is_valid_vector:
-                    continue
+                    if not is_valid_vector:
+                        continue
 
-                # Determine matching approach
-                similarity_score = 0.0
-                used_fts5 = False
-                fallback_reason = ""
-
-                if query_vector is not None and is_valid_vector:
-                    # Perform cosine similarity
+                    # Calculate cosine similarity
                     import math
-                    # Validate query_vector dimension before calculating similarity
-                    if len(query_vector) != 768:
-                        raise ValueError(
-                            f"Query vector has incorrect dimension {len(query_vector)}, expected 768"
-                        )
                     dot_product = sum(x * y for x, y in zip(query_vector, vector_floats, strict=True))
                     norm_q = math.sqrt(sum(x * x for x in query_vector))
                     norm_s = math.sqrt(sum(x * x for x in vector_floats))
-                    if norm_q > 0.0 and norm_s > 0.0:
-                        similarity_score = dot_product / (norm_q * norm_s)
-                    else:
-                        similarity_score = 0.0
-                else:
-                    # Fall back to FTS5
-                    used_fts5 = True
-                    if not is_valid_vector:
-                        fallback_reason = "missing or invalid vector"
-                    else:
-                        fallback_reason = "missing query vector"
+                    similarity_score = dot_product / (norm_q * norm_s) if norm_q > 0.0 and norm_s > 0.0 else 0.0
 
-                if used_fts5:
-                    # Perform FTS5 match
-                    # Clean the query text to be FTS5 safe (alphanumeric words separated by OR)
-                    import re
-                    words = re.findall(r"\w+", query_text)
-                    if words:
-                        fts_query = " OR ".join(words)
-                        fts_cursor = await conn.execute(
-                            "SELECT 1 FROM signature_fts WHERE signature_id = ? AND signature_fts MATCH ?",
-                            (sig_id, fts_query)
-                        )
-                        fts_row = await fts_cursor.fetchone()
-                        if fts_row is not None:
-                            similarity_score = 0.75  # Pass the reduced threshold of 0.7
+                    if similarity_score >= threshold:
+                        matches.append(_parse_row(row, similarity_score))
 
-                    # Reduce similarity threshold from 0.85 to 0.7 for affected queries
-                    current_threshold = 0.7
-                    # Log every FTS5 fallback with signature_id, error type/reason, and timestamp
-                    logger.warning(
-                        "FTS5 fallback triggered for signature similarity match",
-                        signature_id=sig_id,
-                        reason=fallback_reason,
-                        timestamp=int(time.time())
+                # 2. For signatures without vectors, query them via FTS5 if there's a query
+                if fts_query:
+                    cursor = await conn.execute(
+                        "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
+                        "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
+                        "false_positive_count, similarity_vector, metadata FROM signatures "
+                        "WHERE similarity_vector IS NULL "
+                        "AND signature_id IN (SELECT signature_id FROM signature_fts WHERE signature_fts MATCH ?)",
+                        (fts_query,)
                     )
-                else:
-                    current_threshold = threshold
-
-                if similarity_score >= current_threshold:
-                    matches.append({
-                        "signature_id": sig_id,
-                        "created_at": created_at,
-                        "last_matched_at": last_matched_at,
-                        "attacker_intent": attacker_intent,
-                        "payload_pattern": payload_pattern,
-                        "target_tool": target_tool,
-                        "target_sink": target_sink,
-                        "dependency_chain": json.loads(dependency_chain) if dependency_chain else None,
-                        "mitigation_action": mitigation_action,
-                        "match_count": match_count,
-                        "false_positive_count": false_positive_count,
-                        "similarity_score": similarity_score,
-                        "metadata": json.loads(metadata) if metadata else None
-                    })
+                    fts_rows = await cursor.fetchall()
+                    for row in fts_rows:
+                        sig_id = row[0]
+                        logger.warning(
+                            "FTS5 fallback triggered for signature similarity match",
+                            signature_id=sig_id,
+                            reason="missing or invalid vector",
+                            timestamp=int(time.time())
+                        )
+                        matches.append(_parse_row(row, 0.75))
+            else:
+                # No query vector provided: all signatures fallback to FTS5
+                if fts_query:
+                    cursor = await conn.execute(
+                        "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
+                        "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
+                        "false_positive_count, similarity_vector, metadata FROM signatures "
+                        "WHERE signature_id IN (SELECT signature_id FROM signature_fts WHERE signature_fts MATCH ?)",
+                        (fts_query,)
+                    )
+                    fts_rows = await cursor.fetchall()
+                    for row in fts_rows:
+                        sig_id = row[0]
+                        logger.warning(
+                            "FTS5 fallback triggered for signature similarity match",
+                            signature_id=sig_id,
+                            reason="missing query vector",
+                            timestamp=int(time.time())
+                        )
+                        matches.append(_parse_row(row, 0.75))
 
             matches.sort(key=lambda x: x.get("similarity_score", 0.0), reverse=True)
             return matches
