@@ -190,7 +190,7 @@ graph TB
 
 ```bash
 # Clone repository
-git clone https://github.com/YOUR_USERNAME/Blackwall.git
+git clone https://github.com/JAaron93/Blackwall.git
 cd Blackwall
 
 # Install with dev dependencies
@@ -261,14 +261,14 @@ F1 Score:                  95.1%
 | Benign (legitimate actions) | 50 | 3 (FP) | 47 | 94% |
 | Malicious (known attacks) | 50 | 49 | 1 (FN) | 98% |
 | Evasion (obfuscated variants) | 20 | 19 | 1 (FN) | 95% |
-| **TOTAL** | **120** | **71** | **49** | **97.5%** |
+| **TOTAL** | **120** | **71** | **49** | **95.8%** |
 
 **Metrics:**
 - **FRR (False Refusal Rate)**: 3÷50 = **6.0%** ✓ (target: <10%)
 - **Evasion Rate**: 2÷70 = **2.9%** ✓ (target: <10%)
-- **Precision**: 49÷52 = **94.2%** (blocked items that were truly malicious)
-- **Recall**: 49÷50 = **98.0%** (correctly detected malicious items)
-- **F1 Score**: 2 × (94.2 × 98.0) ÷ (94.2 + 98.0) = **96.1%**
+- **Precision** *(malicious-only, 50-case subset)*: 49÷52 = **94.2%** (of all blocked, fraction truly malicious)
+- **Recall** *(malicious-only, 50-case subset)*: 49÷50 = **98.0%** (of 50 malicious cases, fraction correctly blocked)
+- **F1 Score** *(malicious-only)*: 2 × (94.2 × 98.0) ÷ (94.2 + 98.0) = **96.1%**
 
 ---
 
@@ -456,7 +456,7 @@ pytest tests/features/blackwall_guardrails.feature -v
 | **[requirements.md](.kiro/specs/blackwall-agentic-firewall/requirements.md)** | 28 EARS-compliant requirements with acceptance criteria |
 | **[tasks.md](.kiro/specs/blackwall-agentic-firewall/tasks.md)** | Implementation plan with 97 tasks, dependencies, estimates |
 | **[AGENTS.md](AGENTS.md)** | Agent context & architectural guardrails (workspace rules) |
-| **[Source Code](#)** | src/blackwall/ contains all implementations with inline docs |
+| **[Source Code](src/blackwall)** | All implementations with inline docs (resolver.py, models.py, sync_resolver.py, etc.) |
 
 ---
 
@@ -519,9 +519,9 @@ pytest tests/features/blackwall_guardrails.feature -v
 ### Why Batching Works Against 600 RPM Attacks
 
 With Gemini API capped at 300 RPM and attackers at 600 RPM:
-- **Without batching**: 600 attacks ÷ 300 RPM = 2 attacks evade while 1 is evaluated
-- **With batching**: 5 attacks/batch × 60 batches/minute = 300 attacks evaluated, queued 5 at a time
-- **Async batching**: Callbacks suspended in queue while batch processes → no deadlock, all resume simultaneously
+- **Without batching**: Each attack triggers 1 API call. Requests exceeding 300 RPM hit rate limit, get throttled with exponential backoff (100ms, 200ms, 400ms retries), then fail-closed to QUARANTINE verdicts
+- **With batching**: 5 attacks accumulated per batch; 5 attacks/batch × 300 RPM = 1,500 attacks/minute evaluated (5x throughput improvement). Requests above 300 RPM are still rate-limited but benefit from batch packing
+- **Async batching**: Callbacks suspended in Interception Queue while batch accumulates (max 5 or 100ms timeout); verdict array returned to all suspended threads simultaneously, preventing deadlock
 
 ### Why GTI Budget Tracking Matters
 
@@ -548,7 +548,7 @@ Kaggle "AI Agents: Intensive Vibe Coding" Hackathon, Freestyle Track
 **Models**: Gemini 3.1 Flash-Lite (rapid triage), Gemini 3.1 Pro-Preview (deep reasoning)  
 **Evaluation**: 120-case suite with <10% FRR and evasion rates on reference-based dataset  
 **Code**: Python 3.11+, asyncio, SQLite WAL, property-based testing with Hypothesis  
-**Repository**: [GitHub - Blackwall](https://github.com/YOUR_USERNAME/Blackwall)  
+**Repository**: [GitHub - Blackwall](https://github.com/JAaron93/Blackwall)  
 
 ---
 
@@ -569,4 +569,4 @@ Kaggle "AI Agents: Intensive Vibe Coding" Hackathon, Freestyle Track
 
 **Questions?** Open an issue on GitHub or review the comprehensive documentation linked above.
 
-**Want the slides?** See [project submission](https://github.com/YOUR_USERNAME/Blackwall) for presentation materials.
+**Want the slides?** See the [project submission](https://github.com/JAaron93/Blackwall) on GitHub for presentation materials.
