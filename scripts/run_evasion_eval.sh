@@ -54,8 +54,10 @@ echo -e "${BOLD}[1/8] Checking environment...${RESET}"
 
 # Load .env if present
 if [[ -f "${REPO_ROOT}/.env" ]]; then
-  # shellcheck disable=SC2046
-  export $(grep -v '^#' "${REPO_ROOT}/.env" | xargs -d '\n') 2>/dev/null || true
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    [[ -z "${line}" || "${line}" =~ ^[[:space:]]*# ]] && continue
+    export "${line?}"
+  done < <(grep -v '^#' "${REPO_ROOT}/.env" | grep -v '^[[:space:]]*$')
 fi
 
 if [[ -z "${GEMINI_API_KEY:-}" ]]; then
