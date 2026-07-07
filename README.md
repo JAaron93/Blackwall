@@ -10,6 +10,24 @@ Blackwall is a production-ready local MVP autonomous Agentic Firewall designed f
 
 ---
 
+## 🚀 Quick Start
+
+**See Blackwall in action in 7 seconds:**
+
+```bash
+git clone https://github.com/JAaron93/Blackwall.git
+cd Blackwall
+pip install -e . && pip install certifi
+cp .env.example .env  # Add your GEMINI_API_KEY
+python3 demo_live.py
+```
+
+**Expected output:** Real-time threat evaluation with colorful progress display, showing BLOCK/QUARANTINE/ALLOW decisions for 5 attacks.
+
+**For detailed setup:** See [JUDGE_EVALUATION.md](JUDGE_EVALUATION.md)
+
+---
+
 ## 🎯 Core Innovations
 
 ### 1. **Self-Learning Threat Signatures**
