@@ -80,3 +80,10 @@ To ensure all architectural guardrails are strictly enforced, Blackwall utilizes
 * **Feature Contract:** The authoritative behavioral requirements are defined in `tests/features/blackwall_guardrails.feature`. Do NOT modify or remove the Gherkin scenarios in this file without explicit human authorization.
 * **Step Definitions:** Step definitions must be implemented in `tests/step_defs/test_guardrails.py` and bind directly to the existing Given-When-Then statements in the `.feature` file.
 * **The Verification Gate:** Before marking any implementation task in `tasks.md` as complete, you must run `pytest -v tests/` and confirm that all BDD guardrail scenarios pass. Never bypass a failing BDD test by weakening the test assertion.
+
+## 8. Testing SLA, Sanitization, and Presentation Guardrails
+
+* **Database / SLA Benchmarking Warmups**: When writing or modifying query latency SLA tests (e.g. verifying database search latency under 10ms), always execute at least one warmup query before beginning the latency timer. This prevents initial connection pool initialization, engine cache warming, and SQLite FTS5 query-parser compilation overhead from skewing latency metrics.
+* **Sanitization in Integration Testing**: When testing external intelligence indicators (like GTI or VirusTotal) that extract URLs or IPs from a tool context, be aware that the `ContextHygiene` sanitization middleware runs beforehand. To prevent URLs or IPs from being redacted (e.g., replaced with `[[URL]]` or `[[IP_ADDRESS]]`) and causing extraction failure in tests, pass un-redacted standalone hostname domains (e.g., `wd-bouygues.com`) that do not trigger the sanitization regexes.
+* **Separation of Presentation/Demo Configuration**: Never hardcode tuned visual presentation thresholds or scoring weights directly into core product classes. Always preserve official security specification defaults and use parameterization, environment variables, or a dedicated `demo_mode` flag to enable presentation-specific overrides (such as the judge-friendly lowered thresholds).
+
