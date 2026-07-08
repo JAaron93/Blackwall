@@ -490,7 +490,9 @@ class SQLiteThreatRepository:
                             reason="missing or invalid vector",
                             timestamp=int(time.time())
                         )
-                        matches.append(_parse_row(row, 0.75))
+                        current_threshold = min(threshold, 0.7)
+                        if 0.75 >= current_threshold:
+                            matches.append(_parse_row(row, 0.75))
             else:
                 # No query vector provided: all signatures fallback to FTS5
                 if fts_query:
@@ -510,7 +512,9 @@ class SQLiteThreatRepository:
                             reason="missing query vector",
                             timestamp=int(time.time())
                         )
-                        matches.append(_parse_row(row, 0.75))
+                        current_threshold = min(threshold, 0.7)
+                        if 0.75 >= current_threshold:
+                            matches.append(_parse_row(row, 0.75))
 
             matches.sort(key=lambda x: x.get("similarity_score", 0.0), reverse=True)
             return matches
