@@ -481,11 +481,14 @@ async def test_background_loop_idempotent_start(repo: SQLiteThreatRepository) ->
 
 @pytest.mark.asyncio
 async def test_query_latency_under_10ms_after_large_eviction(
-    repo: SQLiteThreatRepository, mgr: EvictionManager
+    repo: SQLiteThreatRepository, mgr: EvictionManager, safe_sla_limit
 ) -> None:
     """
     AC-12: After evicting a large batch of signatures, a pattern-match query
     must complete in < 10ms at p99 over 100 iterations.
+    
+    The default 10ms threshold may be overridden using the BLACKWALL_SLA_LIMIT_MS
+    environment variable.
 
     We insert 500 signatures, evict most via LFU, then hammer the lookup.
     """
@@ -516,8 +519,7 @@ async def test_query_latency_under_10ms_after_large_eviction(
         await repo.find_matching_signature("tool", {"arg": "some_payload"})
         latencies_ms.append((time.monotonic() - t0) * 1000.0)
  
-    import os
-    limit = float(os.getenv("BLACKWALL_SLA_LIMIT_MS", "10.0"))
+    limit = safe_sla_limit("BLACKWALL_SLA_LIMIT_MS", 10.0)
     # In a sorted list of 100 latencies, index 98 is the 99th element (the 99th percentile)
     p99 = sorted(latencies_ms)[98]
     assert p99 < limit, (

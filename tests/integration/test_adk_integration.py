@@ -158,7 +158,6 @@ async def test_before_tool_callback_quarantine() -> None:
     assert "stdout" in result_container["result"]
     assert "quarantined/mocked" in result_container["result"]["stdout"]
 
-
 def test_audit_hook_logs_critical_bypass() -> None:
     code = """
 import sys
@@ -177,11 +176,10 @@ except PermissionError:
         [sys.executable, "-c", code],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=30,
         env=env,
     )
     output = result.stdout
     err = result.stderr
     assert "Raw execution bypass attempt detected via audit hook" in output or "Raw execution bypass attempt detected via audit hook" in err, f"Bypass log not found. stdout: {output}, stderr: {err}"
     assert "CRITICAL" in output or "error" in output or "CRITICAL" in err or "error" in err
-

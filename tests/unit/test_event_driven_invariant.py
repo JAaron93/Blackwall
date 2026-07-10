@@ -33,8 +33,12 @@ def test_WebhookListener_no_sleep():
     assert "asyncio.sleep" not in source_process, "Polling pattern found in _process_payload!"
     assert "time.sleep" not in source_process, "Polling pattern found in _process_payload!"
 
-async def test_submitBackgroundAnalysis_non_blocking():
-    """Asserts submitBackgroundAnalysis returns without blocking (completes in <10ms) using aio path."""
+async def test_submitBackgroundAnalysis_non_blocking(safe_sla_limit):
+    """Asserts submitBackgroundAnalysis returns without blocking (completes in <25ms) using aio path.
+    
+    The default 25ms threshold may be overridden using the BLACKWALL_SUBMIT_SLA_LIMIT_MS
+    environment variable.
+    """
     mock_repo = AsyncMock()
     # Create a mock with aio attribute to test the async client.aio path
     mock_client = MagicMock()
@@ -58,13 +62,16 @@ async def test_submitBackgroundAnalysis_non_blocking():
     end_time = time.time()
     latency_ms = (end_time - start_time) * 1000
 
-    import os
-    limit = float(os.getenv("BLACKWALL_SUBMIT_SLA_LIMIT_MS", "25.0"))
+    limit = safe_sla_limit("BLACKWALL_SUBMIT_SLA_LIMIT_MS", 25.0)
     assert task_id == "test-task-123"
     assert latency_ms < limit, f"submitBackgroundAnalysis blocked for {latency_ms}ms! Must be <{limit}ms."
 
-async def test_submitBackgroundAnalysis_to_thread_fallback():
-    """Asserts submitBackgroundAnalysis uses asyncio.to_thread fallback when client lacks aio attribute."""
+async def test_submitBackgroundAnalysis_to_thread_fallback(safe_sla_limit):
+    """Asserts submitBackgroundAnalysis uses asyncio.to_thread fallback when client lacks aio attribute (completes in <25ms).
+    
+    The default 25ms threshold may be overridden using the BLACKWALL_SUBMIT_SLA_LIMIT_MS
+    environment variable.
+    """
     mock_repo = AsyncMock()
     # Create a spec-limited mock without aio attribute to force asyncio.to_thread path
     mock_client = MagicMock(spec=['interactions'])
@@ -88,15 +95,17 @@ async def test_submitBackgroundAnalysis_to_thread_fallback():
     end_time = time.time()
     latency_ms = (end_time - start_time) * 1000
 
-    import os
-    limit = float(os.getenv("BLACKWALL_SUBMIT_SLA_LIMIT_MS", "25.0"))
+    limit = safe_sla_limit("BLACKWALL_SUBMIT_SLA_LIMIT_MS", 25.0)
     assert task_id == "test-task-456"
     assert latency_ms < limit, f"submitBackgroundAnalysis blocked for {latency_ms}ms! Must be <{limit}ms."
 
-async def test_webhook_integration_end_to_end():
+async def test_webhook_integration_end_to_end(safe_sla_limit):
     """
     Delivers a synthetic webhook payload and asserts generateSignature is called exactly once 
-    per candidate with no timer-based delay, and end-to-end processing completes within 100ms.
+    per candidate with no timer-based delay, and end-to-end processing completes within 250ms.
+    
+    The default 250ms threshold may be overridden using the BLACKWALL_WEBHOOK_SLA_LIMIT_MS
+    environment variable.
     """
     mock_repo = AsyncMock()
     mock_repo.is_task_valid.return_value = True
@@ -152,8 +161,7 @@ async def test_webhook_integration_end_to_end():
             
         end_time = time.time()
         
-        import os
-        limit = float(os.getenv("BLACKWALL_WEBHOOK_SLA_LIMIT_MS", "250.0"))
+        limit = safe_sla_limit("BLACKWALL_WEBHOOK_SLA_LIMIT_MS", 250.0)
         latency_ms = (end_time - start_time) * 1000
         
         # Verify generateSignature called exactly once per candidate
