@@ -45,6 +45,12 @@ The serialization, parsing, and proxying of JSON-RPC messages MUST add no more t
 ### NFR-03: Agent Agnosticism
 The protocol proxy MUST NOT contain hardcoded rules specific to Hermes Agent. It must adhere strictly to the MCP/ACP specification, ensuring compatibility with any future Python-based agent that adopts these protocols.
 
+### NFR-04: Test-Driven Development (TDD)
+All implementation tasks MUST follow strict TDD. Developers MUST write failing unit tests or reproduction commands before generating the minimum code required to pass the test.
+
+### NFR-05: Behavior-Driven Development (BDD)
+End-to-end security and interception workflows MUST be defined authoritatively using Gherkin syntax in a `.feature` file. The execution MUST be validated using `pytest-bdd` to ensure human-readable contracts for firewall behavior.
+
 ## User Stories
 
 ### US-01: Seamless Integration for Hermes Admin

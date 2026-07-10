@@ -48,6 +48,9 @@ Routes the extracted payload through Blackwall's existing defenses:
     }
     ```
 
+## Quality Assurance (TDD & BDD)
+To strictly enforce behavior, all protocol interception logic must be developed using a **Test-Driven Development (TDD)** approach. Furthermore, end-to-end integration flows (such as simulating a rogue agent payload) must be governed by **Behavior-Driven Development (BDD)** using Gherkin syntax and `pytest-bdd`. No new middleware proxy features can be merged without corresponding `.feature` specifications.
+
 ## Python Exclusivity & Hermes Compatibility
 This implementation will be 100% Python-based. Hermes Agent, being a Python-based Agent OS, relies heavily on background services and tool orchestration. By configuring Hermes to route its tool requests through Blackwall's local MCP/ACP port (or via stdio piping), Blackwall protects the host OS without requiring any Node.js gateways or custom forks of the Hermes codebase.
 

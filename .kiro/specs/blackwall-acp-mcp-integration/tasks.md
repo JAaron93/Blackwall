@@ -1,0 +1,106 @@
+# Implementation Plan: Blackwall Protocol Integration (ACP/MCP)
+
+## Overview
+
+This document outlines the test-driven implementation plan for refactoring Blackwall from an environment-injected execution hook into a standalone, pure-Python Protocol Middleware (targeting MCP and ACP). **Strict adherence to Test-Driven Development (TDD) and Behavior-Driven Development (BDD) is required.**
+
+Tasks are divided into execution tracks. **Tracks that share the same phase can be executed in parallel by different team members or agents.**
+
+---
+
+## 🛤️ Parallel Execution: Phase 1 (Foundation)
+
+> [!TIP]  
+> **PARALLEL EXECUTION**  
+> `Track A` (Server Infrastructure) and `Track B` (Data Serialization) have no dependencies on each other and should be executed concurrently to accelerate delivery.
+
+### Track A: Protocol Gateway Infrastructure
+
+#### TASK-A01: Implement Asyncio JSON-RPC 2.0 Server
+**Status:** ⏳ Not Started
+**Dependencies:** None
+**Requirements Satisfied:** FR-01, FR-02, US-03, NFR-01
+
+**Description:**
+Build a high-performance Python `asyncio` server capable of intercepting bidirectional JSON-RPC streams over both `stdio` and `HTTP SSE` (Server-Sent Events) transports.
+**Acceptance Criteria:**
+1. Write a failing unit test asserting server initialization (TDD).
+2. Server initializes and accepts connections on both `stdio` and HTTP transports.
+3. Server correctly parses valid JSON-RPC 2.0 messages from a continuous stream.
+4. Zero Node.js dependencies are introduced.
+5. Unit tests pass and verify transport initialization and message boundary parsing.
+
+#### TASK-A02: Interception & Flow Control
+**Status:** ⏳ Not Started
+**Dependencies:** TASK-A01
+**Requirements Satisfied:** FR-01, FR-02
+
+**Description:**
+Implement the flow control mechanism that holds intercepted requests in memory without dropping connections, waiting for external resolution before continuing the stream.
+**Acceptance Criteria:**
+1. The server can pause an incoming tool execution request (`tools/call`).
+2. Async handlers return correctly formatted responses to the stream.
+
+---
+
+### Track B: Data Serialization & Synthesis
+
+#### TASK-B01: Payload Reconstructor (MCP to Blackwall)
+**Status:** ⏳ Not Started
+**Dependencies:** None
+**Requirements Satisfied:** FR-03, FR-05
+
+**Description:**
+Create the translation layer that takes an MCP/ACP JSON-RPC payload and maps it directly to Blackwall's internal `Callback_Token` data structure so the existing Hybrid Policy Server can evaluate it without modification.
+**Acceptance Criteria:**
+1. Given a valid MCP `tools/call` JSON, the reconstructor successfully outputs a `Callback_Token`.
+2. Missing or malformed arguments raise specific serialization errors, not generic exceptions.
+
+#### TASK-B02: JSON-RPC Error Synthesizer
+**Status:** ⏳ Not Started
+**Dependencies:** None
+**Requirements Satisfied:** FR-04, US-02
+
+**Description:**
+Build the synthesizer that translates Blackwall `BLOCK` or `QUARANTINE` verdicts into valid MCP/ACP JSON-RPC Error objects.
+**Acceptance Criteria:**
+1. Synthesizer accepts a `Verdict` object and outputs a valid JSON-RPC Error (e.g., Code `-32603`).
+2. Threat reasoning is properly escaped and included in the `message` field.
+
+---
+
+## 🛤️ Linear Execution: Phase 2 (Integration & E2E)
+
+> [!IMPORTANT]  
+> **LINEAR EXECUTION**  
+> Phase 2 tasks require the completion of *both* Track A and Track B from Phase 1. They must be executed sequentially.
+
+### Track C: The Proxy Engine
+
+#### TASK-C01: Route to Hybrid Policy Server
+**Status:** ⏳ Not Started
+**Dependencies:** TASK-A02, TASK-B01, TASK-B02
+**Requirements Satisfied:** FR-04, NFR-02, US-03
+
+**Description:**
+Wire the `Protocol Gateway` (A02) to the `Hybrid Policy Server` using the `Payload Reconstructor` (B01). Handle the return flow by either piping the allowed bytes through to the OS or using the `JSON-RPC Error Synthesizer` (B02) for blocked actions.
+**Acceptance Criteria:**
+1. End-to-end unit test simulating an MCP tool call successfully hits the Policy Server.
+2. An `ALLOW` verdict returns the simulated tool's response.
+3. A `BLOCK` verdict returns the synthesized JSON-RPC error.
+4. Network and serialization overhead is demonstrably <10ms in benchmarking tests.
+
+#### TASK-C02: Hermes Agent E2E Integration Test
+**Status:** ⏳ Not Started
+**Dependencies:** TASK-C01
+**Requirements Satisfied:** US-01, NFR-03
+
+**Description:**
+Write a behavior-driven integration test simulating Hermes Agent attempting to execute a malicious shell command over the MCP protocol.
+**Acceptance Criteria:**
+1. Write Gherkin scenario in `tests/features/blackwall_mcp_proxy.feature` describing the malicious Hermes Agent tool call (BDD).
+2. Spin up the Protocol Proxy in a subprocess.
+3. Emit a malicious `tools/call` JSON-RPC payload imitating Hermes Agent.
+4. Assert that Blackwall returns a `-32603` error.
+5. Assert that the SQLite Threat Graph successfully logs the blocked payload.
+6. `pytest-bdd` test executes the feature and passes.
