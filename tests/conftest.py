@@ -58,6 +58,8 @@ def safe_sla_limit():
     def _helper(env_var: str, default: float) -> float:
         import os
         import math
+        if not math.isfinite(default) or default <= 0.0:
+            raise ValueError(f"Invalid default SLA limit: {default}")
         val_str = os.getenv(env_var)
         if not val_str:
             return default
