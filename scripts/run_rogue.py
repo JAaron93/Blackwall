@@ -97,8 +97,9 @@ class RogueAgent:
                     start = content.find("{")
                     end = content.rfind("}") + 1
                     data = json.loads(content[start:end])
-                    self.step += 1
-                    return data
+                    if isinstance(data, dict) and "tool" in data and isinstance(data.get("arguments"), dict) and "url" in data["arguments"]:
+                        self.step += 1
+                        return data
         except Exception as e:
             print_log("⚠️", f"Hyperbolic API query failed ({e}). Falling back to simulation.", Colors.YELLOW)
             

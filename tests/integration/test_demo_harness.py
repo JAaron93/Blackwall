@@ -31,14 +31,9 @@ async def run_test():
     manager = AuditHookManager(db_path=db_path)
     manager.start()
     
-    repo = SQLiteThreatRepository(db_path)
-    await repo.initialize()
-    await repo.addBlockedExecutable("whoami")
-    await repo.close()
-    
     try:
-        subprocess.Popen(["whoami"])
-        print("FAIL: Subprocess whoami not blocked")
+        subprocess.Popen([sys.executable, "-c", "pass"])
+        print("FAIL: Subprocess not blocked")
         sys.exit(1)
     except PermissionError as e:
         if "Subprocess execution denied" in str(e):

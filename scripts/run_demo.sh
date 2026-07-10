@@ -84,6 +84,7 @@ else
   
   # 1. Start mock FastAPI app
   echo "📦 Starting mock FastAPI application..."
+  mkdir -p logs
   python scripts/mock_app.py > logs/mock_app.log 2>&1 &
   PIDS+=($!)
   

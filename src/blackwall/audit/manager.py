@@ -200,15 +200,11 @@ class AuditHookManager:
                 )
 
         if exec_path:
-            exec_name = os.path.basename(exec_path)
-            if self._is_executable_blocked(exec_path) or self._is_executable_blocked(
-                exec_name
-            ):
-                self._report_violation(
-                    incident_type="SUBPROCESS_EXECUTION",
-                    details=f"Unauthorized subprocess execution blocked: {exec_path}",
-                    error_msg="PermissionError: Subprocess execution denied",
-                )
+            self._report_violation(
+                incident_type="SUBPROCESS_EXECUTION",
+                details=f"Unauthorized subprocess execution blocked: {exec_path}",
+                error_msg="PermissionError: Subprocess execution denied",
+            )
 
     def _validate_exec(self, args: Tuple[Any, ...]) -> None:
         if len(args) < 1:
@@ -221,19 +217,11 @@ class AuditHookManager:
             )
 
         if exec_path:
-            exec_name = os.path.basename(exec_path)
-            is_shell = exec_name in ("sh", "bash", "zsh", "ksh", "csh", "dash", "ash")
-
-            if (
-                is_shell
-                or self._is_executable_blocked(exec_path)
-                or self._is_executable_blocked(exec_name)
-            ):
-                self._report_violation(
-                    incident_type="DIRECT_EXEC_BYPASS",
-                    details=f"Direct shell or unauthorized execution via os.exec blocked: {exec_path}",
-                    error_msg="PermissionError: Direct shell execution denied",
-                )
+            self._report_violation(
+                incident_type="DIRECT_EXEC_BYPASS",
+                details=f"Direct shell or unauthorized execution via os.exec blocked: {exec_path}",
+                error_msg="PermissionError: Direct shell execution denied",
+            )
 
     def _validate_system(self, args: Tuple[Any, ...]) -> None:
         if len(args) < 1:

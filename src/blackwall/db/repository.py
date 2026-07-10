@@ -377,7 +377,9 @@ class SQLiteThreatRepository:
         self,
         query_text: str,
         query_vector: Optional[List[float]] = None,
-        threshold: float = 0.85
+        threshold: float = 0.85,
+        fts_fallback_score: float = 0.75,
+        fts_threshold_cap: float = 0.70
     ) -> List[Dict[str, Any]]:
         """
         Computes cosine similarity between query_vector and stored signatures.
@@ -490,9 +492,9 @@ class SQLiteThreatRepository:
                             reason="missing or invalid vector",
                             timestamp=int(time.time())
                         )
-                        current_threshold = min(threshold, 0.7)
-                        if 0.75 >= current_threshold:
-                            matches.append(_parse_row(row, 0.75))
+                        current_threshold = min(threshold, fts_threshold_cap)
+                        if fts_fallback_score >= current_threshold:
+                            matches.append(_parse_row(row, fts_fallback_score))
             else:
                 # No query vector provided: all signatures fallback to FTS5
                 if fts_query:
@@ -512,9 +514,9 @@ class SQLiteThreatRepository:
                             reason="missing query vector",
                             timestamp=int(time.time())
                         )
-                        current_threshold = min(threshold, 0.7)
-                        if 0.75 >= current_threshold:
-                            matches.append(_parse_row(row, 0.75))
+                        current_threshold = min(threshold, fts_threshold_cap)
+                        if fts_fallback_score >= current_threshold:
+                            matches.append(_parse_row(row, fts_fallback_score))
 
             matches.sort(key=lambda x: x.get("similarity_score", 0.0), reverse=True)
             return matches
@@ -524,7 +526,9 @@ class SQLiteThreatRepository:
         tool_name: str,
         arguments: Dict[str, Any],
         query_vector: Optional[List[float]] = None,
-        threshold: float = 0.85
+        threshold: float = 0.85,
+        fts_fallback_score: float = 0.75,
+        fts_threshold_cap: float = 0.70
     ) -> Optional[Dict[str, Any]]:
         await self.initialize()
 
@@ -536,7 +540,9 @@ class SQLiteThreatRepository:
         matches = await self.querySimilarSignatures(
             query_text=query_text,
             query_vector=query_vector,
-            threshold=threshold
+            threshold=threshold,
+            fts_fallback_score=fts_fallback_score,
+            fts_threshold_cap=fts_threshold_cap
         )
 
         if matches:

@@ -31,21 +31,24 @@ For each finding, output:
 - **Finding**: Summary of the suggestion.
 - **Verdict**: *Resolve* (with planned fix details) or *Skip* (with clear explanation of why it is invalid).
 
-### 4. Apply Fixes
+### 4. Establish a Reproduction
+Before modifying code, run and record a failing focused test or reproduction command.
+
+### 5. Apply Fixes
 Modify the corresponding files using code edit tools to resolve the *Resolve* items. Ensure edits are minimal, targeted, and respect the project style.
 
-### 5. Verify via Test Suite
-Run the test suite to ensure the fixes have not introduced regressions:
+### 6. Verify via Test Suite
+Run the test suite and verify all BDD guardrail scenarios pass:
 ```bash
-.venv/bin/pytest
+pytest -v tests/
 ```
 
-### 6. Iterate
+### 7. Iterate
 - If code changes were made and tests pass, loop back to **Step 2** to request another review.
 - Repeat the review-fix-test cycle up to a maximum of **3 times**.
 - If no new valid suggestions are found in a cycle, or the 3-loop limit is reached, terminate the loop.
 
-### 7. Commit
+### 8. Commit
 Once the loop is completed and the test suite is green, stage the final changes and commit:
 ```bash
 git add <modified-files>
