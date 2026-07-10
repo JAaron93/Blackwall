@@ -79,10 +79,20 @@ class SQLiteThreatRepository:
                     "CREATE INDEX IF NOT EXISTS idx_type ON signature_relationships(relationship_type);"
                 )
 
+                # Self-healing migration for FTS virtual table to include target_tool if missing
+                cursor = await conn.execute("PRAGMA table_info(signature_fts);")
+                columns = [row[1] for row in await cursor.fetchall()]
+                if columns and "target_tool" not in columns:
+                    await conn.execute("DROP TRIGGER IF EXISTS signatures_ai;")
+                    await conn.execute("DROP TRIGGER IF EXISTS signatures_ad;")
+                    await conn.execute("DROP TRIGGER IF EXISTS signatures_au;")
+                    await conn.execute("DROP TABLE IF EXISTS signature_fts;")
+
                 # FTS5 virtual table
                 await conn.execute("""
                 CREATE VIRTUAL TABLE IF NOT EXISTS signature_fts USING fts5(
                     signature_id UNINDEXED,
+                    target_tool,
                     payload_pattern,
                     attacker_intent,
                     content=signatures,
@@ -93,24 +103,24 @@ class SQLiteThreatRepository:
                 # Triggers to keep FTS in sync with the signatures table
                 await conn.execute("""
                 CREATE TRIGGER IF NOT EXISTS signatures_ai AFTER INSERT ON signatures BEGIN
-                    INSERT INTO signature_fts(rowid, signature_id, payload_pattern, attacker_intent)
-                    VALUES (new.rowid, new.signature_id, new.payload_pattern, new.attacker_intent);
+                    INSERT INTO signature_fts(rowid, signature_id, target_tool, payload_pattern, attacker_intent)
+                    VALUES (new.rowid, new.signature_id, new.target_tool, new.payload_pattern, new.attacker_intent);
                 END;
                 """)
 
                 await conn.execute("""
                 CREATE TRIGGER IF NOT EXISTS signatures_ad AFTER DELETE ON signatures BEGIN
-                    INSERT INTO signature_fts(signature_fts, rowid, signature_id, payload_pattern, attacker_intent)
-                    VALUES('delete', old.rowid, old.signature_id, old.payload_pattern, old.attacker_intent);
+                    INSERT INTO signature_fts(signature_fts, rowid, signature_id, target_tool, payload_pattern, attacker_intent)
+                    VALUES('delete', old.rowid, old.signature_id, old.target_tool, old.payload_pattern, old.attacker_intent);
                 END;
                 """)
 
                 await conn.execute("""
                 CREATE TRIGGER IF NOT EXISTS signatures_au AFTER UPDATE ON signatures BEGIN
-                    INSERT INTO signature_fts(signature_fts, rowid, signature_id, payload_pattern, attacker_intent)
-                    VALUES('delete', old.rowid, old.signature_id, old.payload_pattern, old.attacker_intent);
-                    INSERT INTO signature_fts(rowid, signature_id, payload_pattern, attacker_intent)
-                    VALUES (new.rowid, new.signature_id, new.payload_pattern, new.attacker_intent);
+                    INSERT INTO signature_fts(signature_fts, rowid, signature_id, target_tool, payload_pattern, attacker_intent)
+                    VALUES('delete', old.rowid, old.signature_id, old.target_tool, old.payload_pattern, old.attacker_intent);
+                    INSERT INTO signature_fts(rowid, signature_id, target_tool, payload_pattern, attacker_intent)
+                    VALUES (new.rowid, new.signature_id, new.target_tool, new.payload_pattern, new.attacker_intent);
                 END;
                 """)
                 # Audit Incidents table
@@ -414,7 +424,8 @@ class SQLiteThreatRepository:
 
         import re
         words = re.findall(r"\w+", query_text)
-        fts_query = " OR ".join(words) if words else ""
+        # Quote each token in double quotes to prevent FTS5 parsing errors on bare operators (AND/OR/NOT)
+        fts_query = " ".join(f'"{w.replace("\"", "\"\"")}"' for w in words) if words else ""
 
         async with self.pool.connection() as conn:
             if query_vector is not None:

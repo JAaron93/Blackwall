@@ -517,8 +517,9 @@ async def test_query_latency_under_10ms_after_large_eviction(
         latencies_ms.append((time.monotonic() - t0) * 1000.0)
  
     import os
-    limit = float(os.getenv("BLACKWALL_SLA_LIMIT_MS", "20.0"))
-    p99 = sorted(latencies_ms)[int(len(latencies_ms) * 0.99)]
+    limit = float(os.getenv("BLACKWALL_SLA_LIMIT_MS", "10.0"))
+    # In a sorted list of 100 latencies, index 98 is the 99th element (the 99th percentile)
+    p99 = sorted(latencies_ms)[98]
     assert p99 < limit, (
         f"p99 query latency {p99:.2f}ms exceeds {limit}ms budget. "
         f"median={statistics.median(latencies_ms):.2f}ms"

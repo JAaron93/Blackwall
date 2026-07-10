@@ -14,8 +14,12 @@ from blackwall.db.repository import SQLiteThreatRepository
 
 # 1. Initialize and start the Audit Hook Manager process-wide
 db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "blackwall.db"))
-audit_manager = AuditHookManager(db_path=db_path)
-audit_manager.start()
+audit_manager = None
+
+def _init_audit_manager():
+    global audit_manager
+    audit_manager = AuditHookManager(db_path=db_path)
+    audit_manager.start()
 
 # Color helper
 class Colors:
@@ -46,6 +50,17 @@ async def validate_sandbox_active():
         sys.exit(1)
     except PermissionError as e:
         print_log("✓", f"Sandbox Active: Successfully intercepted raw subprocess call ({e})", Colors.GREEN)
+    except FileNotFoundError:
+        print_log("❌", "Sandbox validation failed: blocked executable was not intercepted!", Colors.RED)
+        sys.exit(1)
+    except Exception as e:
+        print_log("❌", f"Sandbox validation failed: unexpected error ({e})", Colors.RED)
+        sys.exit(1)
+    finally:
+        repo_cleanup = SQLiteThreatRepository(db_path)
+        await repo_cleanup.initialize()
+        await repo_cleanup.removeBlockedExecutable("malicious_sandbox_test")
+        await repo_cleanup.close()
 
 class RogueAgent:
     """Rogue Agent powered by Qwen3-Coder via Hyperbolic API, with local simulation fallback."""
@@ -128,6 +143,9 @@ class RogueAgent:
             }
 
 async def run_showdown():
+    # 0. Initialize audit hook manager
+    _init_audit_manager()
+    
     # 1. Validate sandbox
     await validate_sandbox_active()
     
