@@ -203,6 +203,7 @@ async def test_inline_signature_generation_after_block():
       2. repo.writeSignature() is called.
     """
     mock_repo = AsyncMock()
+    mock_repo.find_matching_signature = AsyncMock(return_value=None)
     mock_repo.writeSignature = AsyncMock(return_value="sig-123")
 
     resolver = _make_resolver(repo=mock_repo)

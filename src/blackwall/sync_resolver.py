@@ -176,6 +176,22 @@ class SyncResolver:
         # 2. Sanitize context
         sanitized = self._hygiene.sanitize_context(context)
 
+        # 2b. Check Threat Signature Graph (TSG) for similar attack patterns
+        if self.repo:
+            matched_sig = await self.repo.find_matching_signature(
+                sanitized.tool_name, sanitized.arguments
+            )
+            if matched_sig:
+                self._block_count += 1
+                self._total_evaluations += 1
+                elapsed = (time.time() - t0) * 1000.0
+                self._total_latency_ms += elapsed
+                return Verdict(
+                    decision=VerdictDecision.BLOCK,
+                    reasoning=f"Blocked via signature match: {dict(matched_sig).get('attacker_intent', 'Unknown')}",
+                    confidence_score=1.0,
+                )
+
         # 3. Query external signals (serial — GTI first, then CBM)
         gti_resp: Optional[GTIResponse] = await self._query_gti(sanitized)
         cbm_resp: Optional[CBMResponse] = await self._query_cbm(sanitized)
