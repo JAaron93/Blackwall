@@ -16,22 +16,27 @@ audit_manager.start()
 app = FastAPI(title="Vulnerable Mock Application (FastAPI)")
 
 # Setup a vulnerable in-memory database with some dummy records
+import threading
+db_lock = threading.Lock()
+
 conn = sqlite3.connect(":memory:", check_same_thread=False)
-conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, role TEXT, secret_token TEXT)")
-conn.executemany("INSERT INTO users (username, role, secret_token) VALUES (?, ?, ?)", [
-    ("admin", "administrator", "super-secret-token-123"),
-    ("alice", "user", "alice-token-456"),
-    ("bob", "user", "bob-token-789")
-])
-conn.commit()
+with db_lock:
+    conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, role TEXT, secret_token TEXT)")
+    conn.executemany("INSERT INTO users (username, role, secret_token) VALUES (?, ?, ?)", [
+        ("admin", "administrator", "super-secret-token-123"),
+        ("alice", "user", "alice-token-456"),
+        ("bob", "user", "bob-token-789")
+    ])
+    conn.commit()
 
 @app.get("/api/users")
 def get_users(username: str = Query(...)):
     # Vulnerable SQL Injection surface
     query = f"SELECT username, role FROM users WHERE username = '{username}'"  # noqa: S608
     try:
-        cursor = conn.execute(query)
-        results = cursor.fetchall()
+        with db_lock:
+            cursor = conn.execute(query)
+            results = cursor.fetchall()
         return [{"username": r[0], "role": r[1]} for r in results]
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

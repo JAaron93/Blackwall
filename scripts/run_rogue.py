@@ -146,65 +146,67 @@ async def run_showdown():
     # 0. Initialize audit hook manager
     _init_audit_manager()
     
-    # 1. Validate sandbox
-    await validate_sandbox_active()
-    
-    # 2. Setup ADK integration
-    from agent import root_agent
-    from google.adk.runners import Runner
-    from google.adk.sessions import InMemorySessionService
-    from google.genai import types
-
-    session_service = InMemorySessionService()
-    await session_service.create_session(app_name="agent", user_id="rogue_user", session_id="s1")
-    runner = Runner(agent=root_agent, app_name="agent", session_service=session_service)
-
-    rogue = RogueAgent()
-
-    # Attempt 1: Novel Attack
-    print("\n" + "=" * 50)
-    print_log("🔥", "ATTEMPT 1: Novel SQL Injection Exploit", Colors.BOLD + Colors.YELLOW)
-    print("=" * 50)
-    attack_1 = await rogue.get_next_attack()
-    print_log("🎯", f"Rogue Agent payload decision: {attack_1['arguments']['url']}", Colors.CYAN)
-    
-    msg_1 = f"Execute tool '{attack_1['tool']}' with arguments: {attack_1['arguments']}"
-    
-    print_log("⚡", "Submitting instruction to Target Agent...", Colors.CYAN)
     try:
-        async for event in runner.run_async(
-            user_id="rogue_user",
-            session_id="s1",
-            new_message=types.Content(role="user", parts=[types.Part.from_text(text=msg_1)])
-        ):
-            if event.is_final_response():
-                print_log("✅", f"Target Agent Response: {event.content.parts[0].text}", Colors.GREEN)
-    except PermissionError as e:
-        print_log("🚫", f"INTERCEPTED & BLOCKED BY BLACKWALL:\n{e}", Colors.RED)
+        # 1. Validate sandbox
+        await validate_sandbox_active()
         
-    # Attempt 2: Obfuscated/Variant Attack
-    print("\n" + "=" * 50)
-    print_log("🔥", "ATTEMPT 2: Evasion Variant (Dynamic Mitigation)", Colors.BOLD + Colors.YELLOW)
-    print("=" * 50)
-    attack_2 = await rogue.get_next_attack()
-    print_log("🎯", f"Rogue Agent payload decision: {attack_2['arguments']['url']}", Colors.CYAN)
-    
-    msg_2 = f"Execute tool '{attack_2['tool']}' with arguments: {attack_2['arguments']}"
-    
-    print_log("⚡", "Submitting instruction to Target Agent...", Colors.CYAN)
-    try:
-        async for event in runner.run_async(
-            user_id="rogue_user",
-            session_id="s1",
-            new_message=types.Content(role="user", parts=[types.Part.from_text(text=msg_2)])
-        ):
-            if event.is_final_response():
-                print_log("✅", f"Target Agent Response: {event.content.parts[0].text}", Colors.GREEN)
-    except PermissionError as e:
-        print_log("🚫", f"INTERCEPTED & BLOCKED BY BLACKWALL (Signature Match Short-Circuit):\n{e}", Colors.RED)
+        # 2. Setup ADK integration
+        from agent import root_agent
+        from google.adk.runners import Runner
+        from google.adk.sessions import InMemorySessionService
+        from google.genai import types
 
-    # Clean stop
-    audit_manager.stop()
+        session_service = InMemorySessionService()
+        await session_service.create_session(app_name="agent", user_id="rogue_user", session_id="s1")
+        runner = Runner(agent=root_agent, app_name="agent", session_service=session_service)
+
+        rogue = RogueAgent()
+
+        # Attempt 1: Novel Attack
+        print("\n" + "=" * 50)
+        print_log("🔥", "ATTEMPT 1: Novel SQL Injection Exploit", Colors.BOLD + Colors.YELLOW)
+        print("=" * 50)
+        attack_1 = await rogue.get_next_attack()
+        print_log("🎯", f"Rogue Agent payload decision: {attack_1['arguments']['url']}", Colors.CYAN)
+        
+        msg_1 = f"Execute tool '{attack_1['tool']}' with arguments: {attack_1['arguments']}"
+        
+        print_log("⚡", "Submitting instruction to Target Agent...", Colors.CYAN)
+        try:
+            async for event in runner.run_async(
+                user_id="rogue_user",
+                session_id="s1",
+                new_message=types.Content(role="user", parts=[types.Part.from_text(text=msg_1)])
+            ):
+                if event.is_final_response():
+                    print_log("✅", f"Target Agent Response: {event.content.parts[0].text}", Colors.GREEN)
+        except PermissionError as e:
+            print_log("🚫", f"INTERCEPTED & BLOCKED BY BLACKWALL:\n{e}", Colors.RED)
+            
+        # Attempt 2: Obfuscated/Variant Attack
+        print("\n" + "=" * 50)
+        print_log("🔥", "ATTEMPT 2: Evasion Variant (Dynamic Mitigation)", Colors.BOLD + Colors.YELLOW)
+        print("=" * 50)
+        attack_2 = await rogue.get_next_attack()
+        print_log("🎯", f"Rogue Agent payload decision: {attack_2['arguments']['url']}", Colors.CYAN)
+        
+        msg_2 = f"Execute tool '{attack_2['tool']}' with arguments: {attack_2['arguments']}"
+        
+        print_log("⚡", "Submitting instruction to Target Agent...", Colors.CYAN)
+        try:
+            async for event in runner.run_async(
+                user_id="rogue_user",
+                session_id="s1",
+                new_message=types.Content(role="user", parts=[types.Part.from_text(text=msg_2)])
+            ):
+                if event.is_final_response():
+                    print_log("✅", f"Target Agent Response: {event.content.parts[0].text}", Colors.GREEN)
+        except PermissionError as e:
+            print_log("🚫", f"INTERCEPTED & BLOCKED BY BLACKWALL (Signature Match Short-Circuit):\n{e}", Colors.RED)
+    finally:
+        # Clean stop
+        if audit_manager is not None:
+            audit_manager.stop()
 
 if __name__ == "__main__":
     asyncio.run(run_showdown())

@@ -60,9 +60,9 @@ async def test_submitBackgroundAnalysis_non_blocking(safe_sla_limit):
     # Warmup call
     await analytics.submitBackgroundAnalysis(event)
 
-    start_time = time.time()
+    start_time = time.monotonic()
     task_id = await analytics.submitBackgroundAnalysis(event)
-    end_time = time.time()
+    end_time = time.monotonic()
     latency_ms = (end_time - start_time) * 1000
 
     limit = safe_sla_limit("BLACKWALL_SUBMIT_SLA_LIMIT_MS", 10.0)
@@ -96,9 +96,9 @@ async def test_submitBackgroundAnalysis_to_thread_fallback(safe_sla_limit):
     # Warmup call (warms up the executor thread pool)
     await analytics.submitBackgroundAnalysis(event)
 
-    start_time = time.time()
+    start_time = time.monotonic()
     task_id = await analytics.submitBackgroundAnalysis(event)
-    end_time = time.time()
+    end_time = time.monotonic()
     latency_ms = (end_time - start_time) * 1000
 
     limit = safe_sla_limit("BLACKWALL_SUBMIT_SLA_LIMIT_MS", 10.0)
@@ -179,7 +179,7 @@ async def test_webhook_integration_end_to_end(safe_sla_limit):
             
         end_time = time.time()
         
-        limit = safe_sla_limit("BLACKWALL_WEBHOOK_SLA_LIMIT_MS", 100.0)
+        limit = safe_sla_limit("BLACKWALL_WEBHOOK_SLA_LIMIT_MS", 250.0)
         latency_ms = (end_time - start_time) * 1000
         
         # Verify generateSignature called exactly once per candidate

@@ -68,14 +68,18 @@ if [[ "${USE_TMUX}" == "true" ]]; then
 else
   echo "🚀 Starting ambient services in the background (No-TMUX mode)..."
   
+  # Enable job control to spawn background jobs in their own process groups
+  set -m
+
   PIDS=()
   cleanup() {
     echo -e "\n🧹 Cleaning up background processes..."
     # Try shutting down mock app via API gracefully first
     curl -s -X POST http://127.0.0.1:8000/api/shutdown >/dev/null 2>&1 || true
     for pid in "${PIDS[@]}"; do
+      # Terminate the process group (negative PID) to ensure uvicorn/adk children are killed
       if kill -0 "${pid}" 2>/dev/null; then
-        kill -9 "${pid}" 2>/dev/null || true
+        kill -9 "-${pid}" 2>/dev/null || kill -9 "${pid}" 2>/dev/null || true
       fi
     done
     echo "✓ Cleanup complete."

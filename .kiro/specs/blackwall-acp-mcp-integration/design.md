@@ -29,10 +29,11 @@ Extracts the semantic intent from the protocol payload.
 *   **Payload Reconstruction:** Extracts `name` and `arguments` from the JSON-RPC packet and reformats it into Blackwall's internal `Callback_Token` equivalent, ensuring compatibility with the existing Hybrid Policy Server.
 
 ### 3. Engine Router
-Routes the extracted payload through Blackwall's existing defenses:
-*   **Structural Gating:** Validates the tool name and arguments against `policy.yaml`.
-*   **SQLite Threat Signature Graph:** Checks for structural similarities with known malicious payloads.
-*   **Semantic Gating (GTI / Codebase Memory):** (Optional) Escalates to LLM evaluation if deemed high-risk.
+Routes the extracted payload through Blackwall's defenses in a strict, mandatory sequence:
+1.  **SQLite Threat Signature Graph:** First, checks for structural similarities with known malicious payloads in the local database.
+2.  **Structural Gating:** If no signature matches, validates the tool name and arguments against `policy.yaml`.
+3.  **Codebase Memory MCP:** Next, runs Codebase Memory MCP evaluation to trace AST and dependency blast radius.
+4.  **Google Threat Intelligence (GTI):** Finally, invokes the GTI router to query VirusTotal for external IP/domain indicators, but ONLY for events classified as high risk after the preceding checks.
 
 ### 4. Response Synthesizer
 *   **ALLOW Verdict:** The proxy forwards the exact byte-stream to the destination and pipes the response back.
@@ -57,4 +58,7 @@ This implementation will be 100% Python-based. Hermes Agent, being a Python-base
 ## Constraints & Assumptions
 *   **No Node.js:** The entire proxy stack will be written using Python's `asyncio` and `pydantic`.
 *   **Performance:** The proxy adds network/serialization overhead. The `asyncio` streaming must ensure <10ms overhead on top of Blackwall's core evaluation latency.
-*   **State Persistence:** The Agent Behavioral Analytics and Threat Signatures will continue to use the embedded SQLite WAL database.
+*   **State Persistence:** The Agent Behavioral Analytics and Threat Signatures will continue to use the embedded SQLite database under the following constraints:
+    - **Threat Signature Graph Schema:** Node types include `AttackerIntent`, `PayloadStructure`, and `TargetTool`. Edge types include `SIMILAR_TO` and `MITIGATED_BY` to support semantic relational queries.
+    - **Database Configuration:** Must be initialized in WAL (Write-Ahead Logging) mode with strict connection pooling to minimize lock contention.
+    - **Pruning Policy:** To prevent database bloat, a TTL (Time-To-Live) or LFU (Least Frequently Used) pruning mechanism must autonomously evict stale signatures, keeping SQLite query latencies under 10ms and preventing write locks.
