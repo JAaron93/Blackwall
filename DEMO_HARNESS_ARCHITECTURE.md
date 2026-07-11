@@ -36,10 +36,10 @@ The demo harness consists of five primary components designed to showcase the ag
 
 The orchestrated showdown follows a specific narrative arc:
 
-1. **The Novel Attack (Attempt 1):** 
+1. **The Novel Attack (Attempt 1):**
    - The Rogue Agent attempts a novel exploit against the mock application.
    - Because the action must pass through the ADK tools (due to the audit hooks), Blackwall physically pauses the execution.
-   - Blackwall evaluates the intent (using the SQLite graph, structural YAML rules, and optionally the Google Threat Intelligence MCP).
+   - Blackwall evaluates the intent through mandatory primary layers: the SQLite Threat Signature Graph, structural YAML rules, and Codebase Memory (AST analysis and dependency blast radius). Only after all primary layers complete does Blackwall optionally consult the Google Threat Intelligence MCP for external IOC validation.
    - Recognizing the threat, Blackwall blocks the action and dynamically generates a new Threat Signature.
 
 2. **The Dynamic Mitigation (Attempt 2):**

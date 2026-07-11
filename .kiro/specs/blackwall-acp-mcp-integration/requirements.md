@@ -22,7 +22,8 @@ Blackwall MUST implement a standalone `asyncio`-based server capable of receivin
 ### FR-02: Transport Layer Support
 The proxy MUST support two primary transport methods for agent communication:
 1.  **stdio:** Intercepting standard input/output streams for local CLI agents.
-2.  **SSE (Server-Sent Events) over HTTP:** Intercepting network-bound tool requests. The proxy MUST define a POST endpoint (e.g., `/message`) for the agent to submit `tools/call` requests as bidirectional Streamable HTTP contracts. Responses and events MUST return asynchronously over the established SSE channel. This explicit HTTP/SSE transport contract connects directly to the interception requirements in FR-03.
+2.  **MCP Streamable HTTP (POST + SSE):** Intercepting network-bound tool requests. The proxy MUST define a POST endpoint (e.g., `/message`) for the agent to submit `tools/call` requests as bidirectional Streamable HTTP contracts. Responses and events MUST return asynchronously over the established SSE channel. This explicit HTTP/SSE transport contract connects directly to the interception requirements in FR-03.
+    *   **Transport Security (Mandatory):** The HTTP/SSE endpoint MUST validate `Origin` and `Host` headers to prevent DNS rebinding attacks. Local deployments MUST bind to loopback interfaces only (127.0.0.1/::1). Network-bound requests MUST require authentication (e.g., bearer tokens, mutual TLS). Unauthenticated network access MUST be rejected to prevent unauthorized agent control.
 
 ### FR-03: Message Interception & Payload Extraction
 When an agent attempts a `tools/call` request, Blackwall MUST pause the stream, extract the tool `name` and `arguments`, and format this data into a schema compatible with Blackwall's existing `HybridPolicyServer`.
@@ -32,7 +33,7 @@ When an agent attempts a `tools/call` request, Blackwall MUST pause the stream, 
 *   **BLOCK:** If a BLOCK verdict is reached, Blackwall MUST NOT forward the request. It MUST synthesize an MCP-compliant JSON-RPC Error object (e.g., Error Code `-32603`). To prevent leaking redaction information to the agent, the error MUST be bounded and generic (e.g., "Blackwall Firewall: Execution blocked"), without exposing the internal threat reasoning or redacted context.
 
 ### FR-05: Threat Signature Logging
-All blocked protocol payloads MUST be logged into the embedded SQLite Threat Signature Graph just as they are in the ADK integration, ensuring Blackwall's self-learning loop continues to function. This persistence MUST be isolated from the error response returned to the agent.
+All blocked protocol payloads MUST be redacted (e.g., credentials, secrets, PII removed) before being logged into the embedded SQLite Threat Signature Graph, ensuring Blackwall's self-learning loop continues to function without persisting sensitive data. Detailed threat reasoning MUST be restricted to protected local diagnostics (e.g., structured logs, audit trails) and MUST NOT be included in the persistence layer. This persistence MUST be isolated from the error response returned to the agent.
 
 ## Non-Functional Requirements
 

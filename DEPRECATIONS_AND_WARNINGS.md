@@ -38,7 +38,7 @@ These warnings require minor configuration updates or test file modifications wi
         ```
 *   **`pytest-bdd` Scoping Deprecations**:
     *   **Warning:** `PytestRemovedIn10Warning: Passing nodeid to _register_fixture is deprecated. Pass node instead for fixture scoping.` and `Passing baseid to FixtureDef is deprecated.`
-    *   **Fix:** Upgrade the `pytest-bdd` dependency in `pyproject.toml` to the latest version that supports Pytest 8.x/9.x natively without relying on deprecated fixture scoping internals.
+    *   **Fix:** Upgrade the `pytest-bdd` dependency in `pyproject.toml` to a version compatible with the declared `pytest>=8.0.0` and `pytest-bdd>=8.0.0` requirements. The tested compatible range is `pytest-bdd>=8.0.0,<9.0.0` paired with `pytest>=8.0.0,<9.0.0`. Versions beyond this range may introduce breaking changes in fixture scoping internals and should be validated before upgrading.
 *   **Incorrect `pytest.mark.asyncio` Usage**:
     *   **Warning:** `PytestWarning: The test <Function test_generateSignature_no_sleep> is marked with '@pytest.mark.asyncio' but it is not an async function.` (Also applies to `test_WebhookListener_no_sleep`).
     *   **Location:** `tests/unit/test_event_driven_invariant.py`.

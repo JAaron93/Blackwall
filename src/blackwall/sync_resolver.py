@@ -192,11 +192,21 @@ class SyncResolver:
                     confidence_score=1.0,
                 )
 
-        # 3. Query external signals (serial — GTI first, then CBM)
-        gti_resp: Optional[GTIResponse] = await self._query_gti(sanitized)
+        # 3. Query structural policy and Codebase Memory first (gating before external query)
         cbm_resp: Optional[CBMResponse] = await self._query_cbm(sanitized)
 
-        # 4. Compute weighted threat score
+        # 3b. Classify event as high-risk based on structural/CBM signals
+        ctx_score = self._score_context(sanitized)
+        cbm_score = self._score_cbm(cbm_resp)
+        preliminary_score = (cbm_score * 0.50 + ctx_score * 0.50)
+        is_high_risk = preliminary_score >= 0.30  # High-risk threshold for GTI gating
+
+        # 4. Query GTI only for high-risk events
+        gti_resp: Optional[GTIResponse] = None
+        if is_high_risk:
+            gti_resp = await self._query_gti(sanitized)
+
+        # 5. Compute weighted threat score
         score = await self._compute_threat_score(sanitized, gti_resp, cbm_resp)
         score = max(0.0, min(1.0, score))
 

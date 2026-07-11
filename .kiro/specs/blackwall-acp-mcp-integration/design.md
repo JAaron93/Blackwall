@@ -20,7 +20,7 @@ Currently, Blackwall injects itself into the execution context (via ADK). In the
 
 ### 1. Protocol Gateway (The Proxy Layer)
 A high-performance `asyncio` server designed to handle bidirectional JSON-RPC streams.
-*   **Transports Supported:** `stdio` (standard input/output redirection) and `SSE` (Server-Sent Events over HTTP).
+*   **Transports Supported:** `stdio` (standard input/output redirection) and **MCP Streamable HTTP** (bidirectional POST endpoint with SSE responses). The gateway targets the **MCP 2024-11-05 revision**. Legacy HTTP+SSE compatibility is **not** intentional; only the current Streamable HTTP contract (POST `/message` endpoint for agent requests, SSE responses for tool results/events) is supported. The endpoint establishes per-session isolation, validates Origin and Host headers for local deployments, and requires authentication for network-bound requests.
 *   **Role:** Replaces the direct connection between the Agent and the Tool Server.
 
 ### 2. Message Parser & Interceptor

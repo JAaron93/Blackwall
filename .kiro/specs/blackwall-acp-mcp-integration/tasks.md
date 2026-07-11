@@ -63,10 +63,10 @@ Create the translation layer that takes an MCP/ACP JSON-RPC payload and maps it 
 **Requirements Satisfied:** FR-04, US-02
 
 **Description:**
-Build the synthesizer that translates Blackwall `BLOCK` verdicts into valid MCP/ACP JSON-RPC Error objects. The synthesizer contract is restricted strictly to `BLOCK` verdicts: it must extract and reuse the incoming JSON-RPC `id` and return a bounded, generic error message (without leaking internal threat reasoning). Conversely, the proxy layer must pass `ALLOW` payloads through completely unchanged, and the synthesizer must reject `ALLOW` inputs or raise an exception if invoked with one. Threat signature persistence MUST be handled separately.
+Build the synthesizer that translates Blackwall `BLOCK` verdicts into valid MCP/ACP JSON-RPC Error objects. The synthesizer contract is restricted strictly to `BLOCK` verdicts: it must extract and reuse the incoming JSON-RPC `id` and return a bounded, generic error message (without leaking internal threat reasoning). Conversely, the proxy layer must pass `ALLOW` payloads through completely unchanged (the synthesizer is never invoked for `ALLOW` verdicts), and the synthesizer must reject `ALLOW` inputs or raise an exception if invoked with one. Threat signature persistence MUST be handled separately.
 **Acceptance Criteria:**
 1. Synthesizer accepts a `Verdict` object (strictly `BLOCK` state; raises an exception for `ALLOW`) and an incoming `id`, and outputs a valid JSON-RPC Error (e.g., Code `-32603`) using the matched `id`.
-2. `ALLOW` inputs are validated to trigger pass-through logic unchanged rather than error synthesis.
+2. The proxy layer passes `ALLOW` payloads through unchanged without invoking the synthesizer. The synthesizer rejects `ALLOW` inputs (raises an exception) if incorrectly invoked with one.
 3. Threat reasoning is NOT included in the `message` field, which instead contains a bounded, generic error string (e.g., "Execution blocked").
 
 ---

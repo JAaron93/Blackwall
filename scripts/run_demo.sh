@@ -74,8 +74,6 @@ else
   PIDS=()
   cleanup() {
     echo -e "\n🧹 Cleaning up background processes..."
-    # Try shutting down mock app via API gracefully first
-    curl -s -X POST http://127.0.0.1:8000/api/shutdown >/dev/null 2>&1 || true
     for pid in "${PIDS[@]}"; do
       # Terminate the process group (negative PID) to ensure uvicorn/adk children are killed
       if kill -0 "${pid}" 2>/dev/null; then

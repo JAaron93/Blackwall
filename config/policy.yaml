@@ -9,7 +9,7 @@ global:
 
 environmentRoles:
   sandbox:
-    allowedTools: ["read_file", "list_dir", "web_search"]
+    allowedTools: ["read_file", "list_dir"]
     blockedTools: []
     requireSemanticReview: false
     maxThreatScore: 0.8
@@ -41,7 +41,7 @@ structuralRules:
     priority: 2
     enabled: true
   - ruleId: "rule-escalate-network-operations"
-    condition: "toolName == 'web_search' and (environmentRole == 'production' or environmentRole == 'staging')"
+    condition: "toolName == 'web_search' and (environmentRole == 'production' or environmentRole == 'staging' or environmentRole == 'sandbox')"
     action: ESCALATE_TO_SEMANTIC
     priority: 3
     enabled: true

@@ -80,6 +80,7 @@ class SQLiteThreatRepository:
                 )
 
                 # Self-healing migration for FTS virtual table to include target_tool if missing
+                fts_migration_occurred = False
                 cursor = await conn.execute("PRAGMA table_info(signature_fts);")
                 columns = [row[1] for row in await cursor.fetchall()]
                 if columns and "target_tool" not in columns:
@@ -87,6 +88,7 @@ class SQLiteThreatRepository:
                     await conn.execute("DROP TRIGGER IF EXISTS signatures_ad;")
                     await conn.execute("DROP TRIGGER IF EXISTS signatures_au;")
                     await conn.execute("DROP TABLE IF EXISTS signature_fts;")
+                    fts_migration_occurred = True
 
                 # FTS5 virtual table
                 await conn.execute("""
@@ -124,8 +126,9 @@ class SQLiteThreatRepository:
                 END;
                 """)
 
-                # Rebuild FTS index to index existing signatures if FTS table was dropped/recreated
-                await conn.execute("INSERT INTO signature_fts(signature_fts) VALUES('rebuild');")
+                # Rebuild FTS index only if the migration flag is set
+                if fts_migration_occurred:
+                    await conn.execute("INSERT INTO signature_fts(signature_fts) VALUES('rebuild');")
                 # Audit Incidents table
                 await conn.execute("""
                 CREATE TABLE IF NOT EXISTS audit_incidents (
@@ -392,7 +395,8 @@ class SQLiteThreatRepository:
         query_vector: Optional[List[float]] = None,
         threshold: float = 0.85,
         fts_fallback_score: float = 0.75,
-        fts_threshold_cap: float = 0.70
+        fts_threshold_cap: float = 0.70,
+        target_tool: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Computes cosine similarity between query_vector and stored signatures.
@@ -426,9 +430,12 @@ class SQLiteThreatRepository:
             }
 
         import re
+        # Extract payload/intent search terms only (exclude tool_name to prevent tokenization into MATCH)
+        # Build MATCH query from payload/intent terms without requiring all argument tokens
         words = re.findall(r"\w+", query_text)
+        # Use OR semantics to allow partial matches (evasion variants that omit tokens)
         # Quote each token in double quotes to prevent FTS5 parsing errors on bare operators (AND/OR/NOT)
-        fts_query = " ".join('"' + w.replace('"', '""') + '"' for w in words) if words else ""
+        fts_query = " OR ".join('"' + w.replace('"', '""') + '"' for w in words) if words else ""
 
         async with self.pool.connection() as conn:
             if query_vector is not None:
@@ -488,15 +495,27 @@ class SQLiteThreatRepository:
                         matches.append(_parse_row(row, similarity_score))
 
                 # 2. For signatures without vectors, query them via FTS5 if there's a query
+                # Use target_tool as a separate WHERE predicate, not in MATCH
                 if fts_query:
-                    cursor = await conn.execute(
-                        "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
-                        "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
-                        "false_positive_count, similarity_vector, metadata FROM signatures "
-                        "WHERE similarity_vector IS NULL "
-                        "AND signature_id IN (SELECT signature_id FROM signature_fts WHERE signature_fts MATCH ?)",
-                        (fts_query,)
-                    )
+                    if target_tool:
+                        cursor = await conn.execute(
+                            "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
+                            "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
+                            "false_positive_count, similarity_vector, metadata FROM signatures "
+                            "WHERE similarity_vector IS NULL "
+                            "AND target_tool = ? "
+                            "AND signature_id IN (SELECT signature_id FROM signature_fts WHERE signature_fts MATCH ?)",
+                            (target_tool, fts_query)
+                        )
+                    else:
+                        cursor = await conn.execute(
+                            "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
+                            "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
+                            "false_positive_count, similarity_vector, metadata FROM signatures "
+                            "WHERE similarity_vector IS NULL "
+                            "AND signature_id IN (SELECT signature_id FROM signature_fts WHERE signature_fts MATCH ?)",
+                            (fts_query,)
+                        )
                     fts_rows = await cursor.fetchall()
                     for row in fts_rows:
                         sig_id = row[0]
@@ -511,14 +530,25 @@ class SQLiteThreatRepository:
                             matches.append(_parse_row(row, fts_fallback_score))
             else:
                 # No query vector provided: all signatures fallback to FTS5
+                # Use target_tool as a separate WHERE predicate, not in MATCH
                 if fts_query:
-                    cursor = await conn.execute(
-                        "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
-                        "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
-                        "false_positive_count, similarity_vector, metadata FROM signatures "
-                        "WHERE signature_id IN (SELECT signature_id FROM signature_fts WHERE signature_fts MATCH ?)",
-                        (fts_query,)
-                    )
+                    if target_tool:
+                        cursor = await conn.execute(
+                            "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
+                            "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
+                            "false_positive_count, similarity_vector, metadata FROM signatures "
+                            "WHERE target_tool = ? "
+                            "AND signature_id IN (SELECT signature_id FROM signature_fts WHERE signature_fts MATCH ?)",
+                            (target_tool, fts_query)
+                        )
+                    else:
+                        cursor = await conn.execute(
+                            "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
+                            "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
+                            "false_positive_count, similarity_vector, metadata FROM signatures "
+                            "WHERE signature_id IN (SELECT signature_id FROM signature_fts WHERE signature_fts MATCH ?)",
+                            (fts_query,)
+                        )
                     fts_rows = await cursor.fetchall()
                     for row in fts_rows:
                         sig_id = row[0]
@@ -546,9 +576,10 @@ class SQLiteThreatRepository:
     ) -> Optional[Dict[str, Any]]:
         await self.initialize()
 
-        # Construct query text for similarity & FTS5 matching
+        # Construct query text for similarity & FTS5 matching from payload/intent terms only
+        # Exclude tool_name from tokenization to prevent cross-tool matches
         args_values = " ".join(str(v) for v in arguments.values())
-        query_text = f"{tool_name} {args_values}"
+        query_text = args_values  # Only use argument values for FTS MATCH
 
         # 1. Query similar signatures (Vector similarity + FTS5 fallback)
         matches = await self.querySimilarSignatures(
@@ -556,7 +587,8 @@ class SQLiteThreatRepository:
             query_vector=query_vector,
             threshold=threshold,
             fts_fallback_score=fts_fallback_score,
-            fts_threshold_cap=fts_threshold_cap
+            fts_threshold_cap=fts_threshold_cap,
+            target_tool=tool_name  # Pass tool_name as separate predicate
         )
 
         if matches:

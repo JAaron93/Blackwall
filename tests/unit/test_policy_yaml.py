@@ -33,7 +33,7 @@ def test_concrete_policy_yaml_loading() -> None:
     sandbox_role = policy.environmentRoles["sandbox"]
     assert "read_file" in sandbox_role.allowedTools
     assert "list_dir" in sandbox_role.allowedTools
-    assert "web_search" in sandbox_role.allowedTools
+    assert "web_search" not in sandbox_role.allowedTools
     assert sandbox_role.requireSemanticReview is False
     assert sandbox_role.maxThreatScore == 0.8
 
@@ -91,12 +91,19 @@ def test_concrete_policy_rules_evaluation() -> None:
     assert res_escalate1.requireSemanticReview is True
     assert res_escalate1.ruleId == "rule-escalate-write-operations"
 
-    # 4. ESCALATE rule: web_search in staging/production (but sandbox is allowed or escalates if no rule matches sandbox)
+    # 4. ESCALATE rule: web_search in staging/production/sandbox
     ctx_escalate2 = ToolCallContext(tool_name="web_search", arguments={"query": "exploit"})
     res_escalate2 = engine.evaluate(ctx_escalate2, "production")
     assert res_escalate2.decision == StructuralAction.ESCALATE_TO_SEMANTIC
     assert res_escalate2.requireSemanticReview is True
     assert res_escalate2.ruleId == "rule-escalate-network-operations"
+
+    # 4b. ESCALATE rule: web_search in sandbox now routes through semantic review
+    ctx_escalate2_sandbox = ToolCallContext(tool_name="web_search", arguments={"query": "API_KEY=secret"})
+    res_escalate2_sandbox = engine.evaluate(ctx_escalate2_sandbox, "sandbox")
+    assert res_escalate2_sandbox.decision == StructuralAction.ESCALATE_TO_SEMANTIC
+    assert res_escalate2_sandbox.requireSemanticReview is True
+    assert res_escalate2_sandbox.ruleId == "rule-escalate-network-operations"
 
     # 5. ALLOW rule: read_file in development
     ctx_allow1 = ToolCallContext(tool_name="read_file", arguments={"path": "README.md"})
