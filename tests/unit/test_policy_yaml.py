@@ -92,7 +92,6 @@ def test_concrete_policy_rules_evaluation() -> None:
     assert res_escalate1.ruleId == "rule-escalate-write-operations"
 
     # 4. ESCALATE rule: web_search in staging/production (but sandbox is allowed or escalates if no rule matches sandbox)
-    # Wait, sandbox ALLOWS web_search in environmentRoles. But what if we run it in production?
     ctx_escalate2 = ToolCallContext(tool_name="web_search", arguments={"query": "exploit"})
     res_escalate2 = engine.evaluate(ctx_escalate2, "production")
     assert res_escalate2.decision == StructuralAction.ESCALATE_TO_SEMANTIC

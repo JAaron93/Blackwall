@@ -53,9 +53,6 @@ def run_async(coro):
     return asyncio.run(coro)
 
 
-_shared_hygiene = ContextHygiene()
-
-
 @settings(max_examples=50, deadline=None)
 @given(arguments=mixed_json_strategy)
 def test_property_4_sanitization_idempotence(arguments):
@@ -65,7 +62,7 @@ def test_property_4_sanitization_idempotence(arguments):
     Applying sanitization twice should yield the same result as applying it once.
     """
     context = ToolCallContext(tool_name="test_tool", arguments=arguments)
-    hygiene = _shared_hygiene
+    hygiene = ContextHygiene()
 
     # First sanitization
     result1 = run_async(hygiene.sanitize(context))
@@ -95,7 +92,7 @@ def test_property_5_sanitization_structure_preservation(arguments):
     Sanitizing should not break JSON parsing and should preserve top-level keys.
     """
     context = ToolCallContext(tool_name="test_tool", arguments=arguments)
-    hygiene = _shared_hygiene
+    hygiene = ContextHygiene()
 
     result = run_async(hygiene.sanitize(context))
 

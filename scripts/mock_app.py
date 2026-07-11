@@ -28,13 +28,13 @@ conn.commit()
 @app.get("/api/users")
 def get_users(username: str = Query(...)):
     # Vulnerable SQL Injection surface
-    query = f"SELECT username, role FROM users WHERE username = '{username}'"
+    query = f"SELECT username, role FROM users WHERE username = '{username}'"  # noqa: S608
     try:
         cursor = conn.execute(query)
         results = cursor.fetchall()
         return [{"username": r[0], "role": r[1]} for r in results]
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 @app.post("/api/shutdown")
 def shutdown():

@@ -591,8 +591,8 @@ def step_before_tool_callback_intercept(adk_interception_ctx) -> None:
     # Warmup run to initialize threading, load caches, and heat up SQLite/connections
     try:
         integration.before_tool_callback(
-            tool_name=tool_name,
-            arguments=arguments,
+            tool_name="harmless_warmup_tool",
+            arguments={"safe": "data"},
             thread_id="warmup-thread",
         )
     except Exception as e:

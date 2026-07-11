@@ -123,6 +123,9 @@ class SQLiteThreatRepository:
                     VALUES (new.rowid, new.signature_id, new.target_tool, new.payload_pattern, new.attacker_intent);
                 END;
                 """)
+
+                # Rebuild FTS index to index existing signatures if FTS table was dropped/recreated
+                await conn.execute("INSERT INTO signature_fts(signature_fts) VALUES('rebuild');")
                 # Audit Incidents table
                 await conn.execute("""
                 CREATE TABLE IF NOT EXISTS audit_incidents (
@@ -425,7 +428,7 @@ class SQLiteThreatRepository:
         import re
         words = re.findall(r"\w+", query_text)
         # Quote each token in double quotes to prevent FTS5 parsing errors on bare operators (AND/OR/NOT)
-        fts_query = " ".join(f'"{w.replace("\"", "\"\"")}"' for w in words) if words else ""
+        fts_query = " ".join('"' + w.replace('"', '""') + '"' for w in words) if words else ""
 
         async with self.pool.connection() as conn:
             if query_vector is not None:

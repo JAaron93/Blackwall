@@ -5,7 +5,6 @@ import pytest
 import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 
-from blackwall.audit.manager import AuditHookManager
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.models import ToolCallContext, Verdict, VerdictDecision, CBMResponse
 
