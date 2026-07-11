@@ -2,8 +2,6 @@ import asyncio
 import inspect
 import json
 import time
-import hmac
-import hashlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest

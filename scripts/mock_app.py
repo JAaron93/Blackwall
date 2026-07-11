@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import asyncio
+import atexit
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 
@@ -17,9 +18,20 @@ audit_manager.start()
 
 app = FastAPI(title="Vulnerable Mock Application (FastAPI)")
 
-# Setup a WAL-enabled connection pool backed by a file-based temporary demo database
-demo_db_path = os.path.join(tempfile.gettempdir(), "blackwall_demo_mock_app.db")
+# Setup a WAL-enabled connection pool backed by a securely created temporary demo database
+demo_db_fd, demo_db_path = tempfile.mkstemp(suffix=".db", prefix="blackwall_demo_")
+os.close(demo_db_fd)  # Close the file descriptor, pool will open it
 db_pool = AsyncConnectionPool(db_path=demo_db_path, max_connections=10)
+
+def cleanup_demo_db():
+    """Clean up the temporary database file on process exit."""
+    if os.path.exists(demo_db_path):
+        try:
+            os.remove(demo_db_path)
+        except Exception:
+            pass
+
+atexit.register(cleanup_demo_db)
 
 @app.on_event("startup")
 async def startup_event():
@@ -39,8 +51,9 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Close the connection pool on shutdown."""
+    """Close the connection pool and clean up the temporary database on shutdown."""
     await db_pool.close()
+    cleanup_demo_db()
 
 @app.get("/api/users")
 async def get_users(username: str = Query(...)):

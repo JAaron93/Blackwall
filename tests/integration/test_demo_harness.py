@@ -2,7 +2,6 @@ import os
 import sys
 import tempfile
 import pytest
-import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 
 # Ensure PYTHONPATH is correct (must be before any blackwall imports)
@@ -10,7 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from blackwall.db.repository import SQLiteThreatRepository
-from blackwall.models import ToolCallContext, Verdict, VerdictDecision, CBMResponse
+from blackwall.models import ToolCallContext, VerdictDecision, CBMResponse
 
 # Note: test_audit_hook_blocks_subprocess and test_rogue_agent_interception are now
 # covered by the existing BDD scenarios in audit_hook_enforcement.feature and
@@ -34,9 +33,12 @@ async def test_attack_sequences() -> None:
     temp_db_path = temp_db.name
     temp_db.close()
 
+    repo = None
+    repo_initialized = False
     try:
         repo = SQLiteThreatRepository(db_path=temp_db_path)
         await repo.initialize()
+        repo_initialized = True
 
         # Mock GTI and CBM clients to prevent external network calls
         mock_gti = MagicMock()
@@ -88,8 +90,10 @@ async def test_attack_sequences() -> None:
         assert verdict_2.decision == VerdictDecision.BLOCK
         assert "Blocked via signature match" in verdict_2.reasoning
 
-        await repo.close()
     finally:
+        # Close repository if it was initialized
+        if repo is not None and repo_initialized:
+            await repo.close()
         # Clean up temporary database
         if os.path.exists(temp_db_path):
             os.remove(temp_db_path)

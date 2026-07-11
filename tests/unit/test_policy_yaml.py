@@ -1,5 +1,4 @@
 import os
-import pytest
 from blackwall.models import ToolCallContext
 from blackwall.policy.engine import StructuralGatingEngine
 from blackwall.policy.models import StructuralAction

@@ -535,7 +535,6 @@ class SyncResolver:
         """Extracts the most useful GTI indicator from the context arguments."""
         args_str = " ".join(str(v) for v in context.arguments.values())
         import re
-        from urllib.parse import urlparse
 
         # Try to find IP addresses
         ip_match = re.search(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", args_str)

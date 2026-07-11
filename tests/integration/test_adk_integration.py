@@ -1,12 +1,10 @@
 import asyncio
-import logging
 import threading
 import subprocess
 import sys
 import pytest
-from typing import Any, Dict
 
-from blackwall.models import CallbackToken, ToolCallContext, Verdict, VerdictDecision
+from blackwall.models import Verdict, VerdictDecision
 from blackwall.interception import InterceptionQueue
 from blackwall.adk_integration import ADKIntegration
 

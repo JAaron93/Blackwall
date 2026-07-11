@@ -18,7 +18,6 @@ Test coverage:
 from __future__ import annotations
 
 import asyncio
-import os
 import time
 from typing import AsyncGenerator, List
 
@@ -32,7 +31,6 @@ from blackwall.db.eviction import (
     EvictionManager,
     EvictionResult,
 )
-from blackwall.db.pool import AsyncConnectionPool
 from blackwall.db.repository import SQLiteThreatRepository
 
 # ---------------------------------------------------------------------------
