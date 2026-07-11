@@ -15,8 +15,8 @@ The demo harness consists of five primary components designed to showcase the ag
 - **Security:** Built using FastAPI, it runs entirely on `localhost`.
 
 ### B. The Python Runtime Audit Hook (The Ultimate Sandbox Constraint)
-- **Role:** Dropping OS privileges for a rogue agent is insufficient to prevent all local execution bypasses. To enforce strict routing through the Agent Development Kit (ADK) tool layer, the sandbox implements a strict runtime block via a **Python Runtime Audit Hook (`sys.addaudithook`)**.
-- **Mechanism:** The hook intercepts all raw `os`, `subprocess`, and `pty` execution paths, immediately raising a `PermissionError`. This forces the hostile agent to use the ADK's registered tools to interact with the system.
+- **Role:** Dropping OS privileges for a rogue agent is insufficient to prevent all local execution bypasses. To enforce strict routing through the Agent Development Kit (ADK) tool layer, the sandbox implements a strict runtime block via a **Python Runtime Audit Hook (`sys.addaudithook`)**. This hook is one layer of sandbox enforcement and operates strictly within the *current interpreter*. Separate rogue-agent or child processes require independent hook installation to be constrained.
+- **Mechanism:** Within the interpreter where it is installed, the hook intercepts all raw `os`, `subprocess`, and `pty` execution paths, immediately raising a `PermissionError`. This forces the hostile agent to use the ADK's registered tools to interact with the system and prevents it from spawning unmonitored child processes to bypass enforcement.
 - **Why it matters:** By funneling all actions through the ADK tools, Blackwall’s `before_tool_callback` can safely pause and evaluate every single intent *before* execution occurs.
 
 ### C. The Rogue Agent (Red-Teamer)

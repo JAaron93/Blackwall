@@ -22,17 +22,17 @@ Blackwall MUST implement a standalone `asyncio`-based server capable of receivin
 ### FR-02: Transport Layer Support
 The proxy MUST support two primary transport methods for agent communication:
 1.  **stdio:** Intercepting standard input/output streams for local CLI agents.
-2.  **SSE (Server-Sent Events) over HTTP:** Intercepting network-bound tool requests.
+2.  **SSE (Server-Sent Events) over HTTP:** Intercepting network-bound tool requests. The proxy MUST define a POST endpoint (e.g., `/message`) for the agent to submit `tools/call` requests as bidirectional Streamable HTTP contracts. Responses and events MUST return asynchronously over the established SSE channel. This explicit HTTP/SSE transport contract connects directly to the interception requirements in FR-03.
 
 ### FR-03: Message Interception & Payload Extraction
 When an agent attempts a `tools/call` request, Blackwall MUST pause the stream, extract the tool `name` and `arguments`, and format this data into a schema compatible with Blackwall's existing `HybridPolicyServer`.
 
 ### FR-04: Verdict Enforcement via Protocol Synthesis
 *   **ALLOW:** If the Hybrid Policy Server returns an ALLOW verdict, the original JSON-RPC payload MUST be passed cleanly to the destination tool execution context.
-*   **BLOCK:** If a BLOCK verdict is reached, Blackwall MUST NOT forward the request. It MUST synthesize an MCP-compliant JSON-RPC Error object (e.g., Error Code `-32603`) containing the firewall's threat reasoning and return it directly to the agent.
+*   **BLOCK:** If a BLOCK verdict is reached, Blackwall MUST NOT forward the request. It MUST synthesize an MCP-compliant JSON-RPC Error object (e.g., Error Code `-32603`). To prevent leaking redaction information to the agent, the error MUST be bounded and generic (e.g., "Blackwall Firewall: Execution blocked"), without exposing the internal threat reasoning or redacted context.
 
 ### FR-05: Threat Signature Logging
-All blocked protocol payloads MUST be logged into the embedded SQLite Threat Signature Graph just as they are in the ADK integration, ensuring Blackwall's self-learning loop continues to function.
+All blocked protocol payloads MUST be logged into the embedded SQLite Threat Signature Graph just as they are in the ADK integration, ensuring Blackwall's self-learning loop continues to function. This persistence MUST be isolated from the error response returned to the agent.
 
 ## Non-Functional Requirements
 

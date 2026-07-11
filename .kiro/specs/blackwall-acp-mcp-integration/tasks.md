@@ -36,10 +36,11 @@ Build a high-performance Python `asyncio` server capable of intercepting bidirec
 **Requirements Satisfied:** FR-01, FR-02
 
 **Description:**
-Implement the flow control mechanism that holds intercepted requests in memory without dropping connections, waiting for external resolution before continuing the stream.
+Implement the flow control mechanism that holds intercepted requests in memory without dropping connections, waiting for external resolution before continuing the stream. The stream layer MUST track all in-flight requests by JSON-RPC `id` to ensure concurrent calls are not mismatched when held, blocked, or resumed. It MUST enforce a configurable maximum in-memory queue, per-request timeout handling, cancellation handling, partial-batch flushing, and deterministic cleanup of abandoned requests. Asynchronous `before_tool_callback` handlers MUST resolve without blocking or deadlocking.
 **Acceptance Criteria:**
 1. The server can pause an incoming tool execution request (`tools/call`).
-2. Async handlers return correctly formatted responses to the stream.
+2. In-flight requests are correctly tracked by their incoming JSON-RPC `id` and abandoned requests are deterministically cleaned up.
+3. Async handlers return correctly formatted stream responses for timeout, cancellation, overflow, and successful resolution cases, matching the corresponding `id`.
 
 ---
 
@@ -62,10 +63,10 @@ Create the translation layer that takes an MCP/ACP JSON-RPC payload and maps it 
 **Requirements Satisfied:** FR-04, US-02
 
 **Description:**
-Build the synthesizer that translates Blackwall `BLOCK` or `QUARANTINE` verdicts into valid MCP/ACP JSON-RPC Error objects.
+Build the synthesizer that translates Blackwall `BLOCK` verdicts into valid MCP/ACP JSON-RPC Error objects. The synthesizer MUST extract and reuse the incoming JSON-RPC `id`, and ensure the error message is bounded and generic without leaking internal threat reasoning or redacted context. Threat signature persistence MUST be handled separately.
 **Acceptance Criteria:**
-1. Synthesizer accepts a `Verdict` object and outputs a valid JSON-RPC Error (e.g., Code `-32603`).
-2. Threat reasoning is properly escaped and included in the `message` field.
+1. Synthesizer accepts a `Verdict` object (ALLOW or BLOCK states only) and an incoming `id`, and outputs a valid JSON-RPC Error (e.g., Code `-32603`) using the matched `id`.
+2. Threat reasoning is NOT included in the `message` field, which instead contains a bounded, generic error string (e.g., "Execution blocked").
 
 ---
 
@@ -96,11 +97,12 @@ Wire the `Protocol Gateway` (A02) to the `Hybrid Policy Server` using the `Paylo
 **Requirements Satisfied:** US-01, NFR-03
 
 **Description:**
-Write a behavior-driven integration test simulating Hermes Agent attempting to execute a malicious shell command over the MCP protocol.
+Write a behavior-driven integration test simulating Hermes Agent attempting to execute a malicious shell command over the MCP protocol. The proxy MUST be launched in a new process group with guaranteed cleanup.
 **Acceptance Criteria:**
-1. Write Gherkin scenario in `tests/features/blackwall_mcp_proxy.feature` describing the malicious Hermes Agent tool call (BDD).
-2. Spin up the Protocol Proxy in a subprocess.
+1. Update existing Gherkin scenarios in `tests/features/blackwall_guardrails.feature` and implement direct step bindings in `tests/step_defs/test_guardrails.py` to cover the malicious Hermes Agent MCP tool call.
+2. Spin up the Protocol Proxy in a subprocess configured with process-group isolation (e.g., `preexec_fn=os.setsid`).
 3. Emit a malicious `tools/call` JSON-RPC payload imitating Hermes Agent.
 4. Assert that Blackwall returns a `-32603` error.
 5. Assert that the SQLite Threat Graph successfully logs the blocked payload.
-6. `pytest-bdd` test executes the feature and passes.
+6. The entire subprocess group MUST be terminated in a `finally` or `trap` handler, including complete cleanup on test failures.
+7. `pytest-bdd` test executes the feature and passes.

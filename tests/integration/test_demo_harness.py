@@ -5,12 +5,12 @@ import pytest
 import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 
-from blackwall.db.repository import SQLiteThreatRepository
-from blackwall.models import ToolCallContext, Verdict, VerdictDecision, CBMResponse
-
-# Ensure PYTHONPATH is correct
+# Ensure PYTHONPATH is correct (must be before any blackwall imports)
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "src")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
+from blackwall.db.repository import SQLiteThreatRepository
+from blackwall.models import ToolCallContext, Verdict, VerdictDecision, CBMResponse
 
 # 1. Test that the audit hook blocks raw subprocess calls
 def test_audit_hook_blocks_subprocess() -> None:

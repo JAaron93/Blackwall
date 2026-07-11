@@ -599,7 +599,8 @@ def step_before_tool_callback_intercept(adk_interception_ctx) -> None:
         logger = structlog.get_logger()
         logger.warning(
             "warmup_callback_failed",
-            tool_name=tool_name,
+            tool_name="harmless_warmup_tool",
+            scenario_tool=tool_name,
             exception=str(e),
             exception_type=type(e).__name__,
         )

@@ -36,11 +36,11 @@ Routes the extracted payload through Blackwall's existing defenses:
 
 ### 4. Response Synthesizer
 *   **ALLOW Verdict:** The proxy forwards the exact byte-stream to the destination and pipes the response back.
-*   **BLOCK Verdict:** The proxy drops the request and synthesizes a valid JSON-RPC response:
+*   **BLOCK Verdict:** The proxy drops the request and synthesizes a valid JSON-RPC response. It explicitly extracts and reuses the incoming JSON-RPC request `id` in the synthesized error response. Furthermore, the stream layer tracks all in-flight requests by `id` to ensure that concurrent calls cannot be mismatched when responses are held, blocked, or resumed.
     ```json
     {
       "jsonrpc": "2.0",
-      "id": 123,
+      "id": "<extracted_request_id>",
       "error": {
         "code": -32603,
         "message": "Blackwall Firewall: Execution blocked due to threat signature match."
