@@ -22,13 +22,13 @@ Tasks are divided into execution tracks. **Tracks that share the same phase can 
 **Requirements Satisfied:** FR-01, FR-02, US-03, NFR-01
 
 **Description:**
-Build a high-performance Python `asyncio` server capable of intercepting bidirectional JSON-RPC streams over both `stdio` and `HTTP SSE` (Server-Sent Events) transports.
+Build a high-performance Python `asyncio` server capable of intercepting bidirectional JSON-RPC streams over both `stdio` and `MCP Streamable HTTP` (POST + SSE) transports. It MUST enforce Transport Security by validating `Origin` and `Host` headers, binding local deployments to loopback interfaces, and requiring authentication for network-bound requests.
 **Acceptance Criteria:**
 1. Write a failing unit test asserting server initialization (TDD).
 2. Server initializes and accepts connections on both `stdio` and HTTP transports.
 3. Server correctly parses valid JSON-RPC 2.0 messages from a continuous stream.
 4. Zero Node.js dependencies are introduced.
-5. Unit tests pass and verify transport initialization and message boundary parsing.
+5. Unit tests pass and verify transport initialization, message boundary parsing, and Transport Security (rejects unauthenticated requests, invalid origins, and enforces loopback when applicable).
 
 #### TASK-A02: Interception & Flow Control
 **Status:** ⏳ Not Started
@@ -52,10 +52,11 @@ Implement the flow control mechanism that holds intercepted requests in memory w
 **Requirements Satisfied:** FR-03, FR-05
 
 **Description:**
-Create the translation layer that takes an MCP/ACP JSON-RPC payload and maps it directly to Blackwall's internal `Callback_Token` data structure so the existing Hybrid Policy Server can evaluate it without modification.
+Create the translation layer that takes an MCP/ACP JSON-RPC payload and maps it directly to Blackwall's internal `Callback_Token` data structure so the existing Hybrid Policy Server can evaluate it without modification. It MUST ensure that payloads are redacted (e.g., credentials, secrets, PII removed) before they are passed to the logging layer, preserving threat reasoning only in local diagnostics.
 **Acceptance Criteria:**
 1. Given a valid MCP `tools/call` JSON, the reconstructor successfully outputs a `Callback_Token`.
 2. Missing or malformed arguments raise specific serialization errors, not generic exceptions.
+3. Blocked protocol payloads are successfully redacted (e.g. via `ContextResolver`) before being logged to the embedded SQLite Threat Signature Graph.
 
 #### TASK-B02: JSON-RPC Error Synthesizer
 **Status:** ⏳ Not Started
