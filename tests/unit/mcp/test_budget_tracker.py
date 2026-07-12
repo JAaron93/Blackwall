@@ -1,7 +1,6 @@
 import asyncio
 import pytest
-from unittest.mock import patch, AsyncMock
-from blackwall.mcp.gti_client import GTIQueryBudgetTracker, BudgetMetrics
+from blackwall.mcp.gti_client import GTIQueryBudgetTracker
 
 @pytest.mark.asyncio
 async def test_budget_tracker_initialization():

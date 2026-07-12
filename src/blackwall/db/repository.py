@@ -1,6 +1,5 @@
 import asyncio
 import json
-import logging
 from typing import Dict, Any, List, Optional
 import uuid
 import time
@@ -79,10 +78,22 @@ class SQLiteThreatRepository:
                     "CREATE INDEX IF NOT EXISTS idx_type ON signature_relationships(relationship_type);"
                 )
 
+                # Self-healing migration for FTS virtual table to include target_tool if missing
+                fts_migration_occurred = False
+                cursor = await conn.execute("PRAGMA table_info(signature_fts);")
+                columns = [row[1] for row in await cursor.fetchall()]
+                if columns and "target_tool" not in columns:
+                    await conn.execute("DROP TRIGGER IF EXISTS signatures_ai;")
+                    await conn.execute("DROP TRIGGER IF EXISTS signatures_ad;")
+                    await conn.execute("DROP TRIGGER IF EXISTS signatures_au;")
+                    await conn.execute("DROP TABLE IF EXISTS signature_fts;")
+                    fts_migration_occurred = True
+
                 # FTS5 virtual table
                 await conn.execute("""
                 CREATE VIRTUAL TABLE IF NOT EXISTS signature_fts USING fts5(
                     signature_id UNINDEXED,
+                    target_tool,
                     payload_pattern,
                     attacker_intent,
                     content=signatures,
@@ -93,26 +104,30 @@ class SQLiteThreatRepository:
                 # Triggers to keep FTS in sync with the signatures table
                 await conn.execute("""
                 CREATE TRIGGER IF NOT EXISTS signatures_ai AFTER INSERT ON signatures BEGIN
-                    INSERT INTO signature_fts(rowid, signature_id, payload_pattern, attacker_intent)
-                    VALUES (new.rowid, new.signature_id, new.payload_pattern, new.attacker_intent);
+                    INSERT INTO signature_fts(rowid, signature_id, target_tool, payload_pattern, attacker_intent)
+                    VALUES (new.rowid, new.signature_id, new.target_tool, new.payload_pattern, new.attacker_intent);
                 END;
                 """)
 
                 await conn.execute("""
                 CREATE TRIGGER IF NOT EXISTS signatures_ad AFTER DELETE ON signatures BEGIN
-                    INSERT INTO signature_fts(signature_fts, rowid, signature_id, payload_pattern, attacker_intent)
-                    VALUES('delete', old.rowid, old.signature_id, old.payload_pattern, old.attacker_intent);
+                    INSERT INTO signature_fts(signature_fts, rowid, signature_id, target_tool, payload_pattern, attacker_intent)
+                    VALUES('delete', old.rowid, old.signature_id, old.target_tool, old.payload_pattern, old.attacker_intent);
                 END;
                 """)
 
                 await conn.execute("""
                 CREATE TRIGGER IF NOT EXISTS signatures_au AFTER UPDATE ON signatures BEGIN
-                    INSERT INTO signature_fts(signature_fts, rowid, signature_id, payload_pattern, attacker_intent)
-                    VALUES('delete', old.rowid, old.signature_id, old.payload_pattern, old.attacker_intent);
-                    INSERT INTO signature_fts(rowid, signature_id, payload_pattern, attacker_intent)
-                    VALUES (new.rowid, new.signature_id, new.payload_pattern, new.attacker_intent);
+                    INSERT INTO signature_fts(signature_fts, rowid, signature_id, target_tool, payload_pattern, attacker_intent)
+                    VALUES('delete', old.rowid, old.signature_id, old.target_tool, old.payload_pattern, old.attacker_intent);
+                    INSERT INTO signature_fts(rowid, signature_id, target_tool, payload_pattern, attacker_intent)
+                    VALUES (new.rowid, new.signature_id, new.target_tool, new.payload_pattern, new.attacker_intent);
                 END;
                 """)
+
+                # Rebuild FTS index only if the migration flag is set
+                if fts_migration_occurred:
+                    await conn.execute("INSERT INTO signature_fts(signature_fts) VALUES('rebuild');")
                 # Audit Incidents table
                 await conn.execute("""
                 CREATE TABLE IF NOT EXISTS audit_incidents (
@@ -377,7 +392,10 @@ class SQLiteThreatRepository:
         self,
         query_text: str,
         query_vector: Optional[List[float]] = None,
-        threshold: float = 0.85
+        threshold: float = 0.85,
+        fts_fallback_score: float = 0.75,
+        fts_threshold_cap: float = 0.70,
+        target_tool: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Computes cosine similarity between query_vector and stored signatures.
@@ -387,26 +405,60 @@ class SQLiteThreatRepository:
         await self.initialize()
         matches = []
 
+        # Helper to parse sqlite rows into dict matches
+        def _parse_row(row, score):
+            (
+                sig_id, created_at, last_matched_at, attacker_intent, payload_pattern,
+                target_tool, target_sink, dependency_chain, mitigation_action, match_count,
+                false_positive_count, _, metadata
+            ) = row
+            return {
+                "signature_id": sig_id,
+                "created_at": created_at,
+                "last_matched_at": last_matched_at,
+                "attacker_intent": attacker_intent,
+                "payload_pattern": payload_pattern,
+                "target_tool": target_tool,
+                "target_sink": target_sink,
+                "dependency_chain": json.loads(dependency_chain) if dependency_chain else None,
+                "mitigation_action": mitigation_action,
+                "match_count": match_count,
+                "false_positive_count": false_positive_count,
+                "similarity_score": score,
+                "metadata": json.loads(metadata) if metadata else None
+            }
+
+        import re
+        # Extract payload/intent search terms only (exclude tool_name to prevent tokenization into MATCH)
+        # Build MATCH query from payload/intent terms without requiring all argument tokens
+        words = re.findall(r"\w+", query_text)
+        # Use OR semantics to allow partial matches (evasion variants that omit tokens)
+        # Quote each token in double quotes to prevent FTS5 parsing errors on bare operators (AND/OR/NOT)
+        fts_query = " OR ".join('"' + w.replace('"', '""') + '"' for w in words) if words else ""
+
         async with self.pool.connection() as conn:
-            cursor = await conn.execute(
-                "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
-                "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
-                "false_positive_count, similarity_vector, metadata FROM signatures"
-            )
-            rows = await cursor.fetchall()
+            if query_vector is not None:
+                # 1. Load signatures with vectors for cosine similarity
+                cursor = await conn.execute(
+                    "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
+                    "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
+                    "false_positive_count, similarity_vector, metadata FROM signatures "
+                    "WHERE similarity_vector IS NOT NULL"
+                )
+                vector_rows = await cursor.fetchall()
 
-            for row in rows:
-                (
-                    sig_id, created_at, last_matched_at, attacker_intent, payload_pattern,
-                    target_tool, target_sink, dependency_chain, mitigation_action, match_count,
-                    false_positive_count, similarity_vector, metadata
-                ) = row
+                # Validate query_vector dimension
+                if len(query_vector) != 768:
+                    raise ValueError(
+                        f"Query vector has incorrect dimension {len(query_vector)}, expected 768"
+                    )
 
-                # Check vector dimension validation
-                is_valid_vector = False
-                vector_floats = None
+                for row in vector_rows:
+                    sig_id = row[0]
+                    similarity_vector = row[11]
 
-                if similarity_vector is not None:
+                    is_valid_vector = False
+                    vector_floats = None
                     try:
                         import array
                         arr = array.array("f")
@@ -416,8 +468,6 @@ class SQLiteThreatRepository:
                         if len(vector_floats) == 768:
                             is_valid_vector = True
                         else:
-                            # Exclude signatures with inconsistent-dimension signatures from cosine similarity queries
-                            # and log a warning identifying the signature_id
                             logger.warning(
                                 f"Excluding signature {sig_id} from vector similarity query due to incorrect vector dimension {len(vector_floats)}",
                                 signature_id=sig_id,
@@ -430,80 +480,114 @@ class SQLiteThreatRepository:
                             error=str(e)
                         )
 
-                if similarity_vector is not None and not is_valid_vector:
-                    continue
+                    if not is_valid_vector:
+                        continue
 
-                # Determine matching approach
-                similarity_score = 0.0
-                used_fts5 = False
-                fallback_reason = ""
-
-                if query_vector is not None and is_valid_vector:
-                    # Perform cosine similarity
+                    # Calculate cosine similarity
                     import math
-                    # Validate query_vector dimension before calculating similarity
-                    if len(query_vector) != 768:
-                        raise ValueError(
-                            f"Query vector has incorrect dimension {len(query_vector)}, expected 768"
-                        )
                     dot_product = sum(x * y for x, y in zip(query_vector, vector_floats, strict=True))
                     norm_q = math.sqrt(sum(x * x for x in query_vector))
                     norm_s = math.sqrt(sum(x * x for x in vector_floats))
-                    if norm_q > 0.0 and norm_s > 0.0:
-                        similarity_score = dot_product / (norm_q * norm_s)
-                    else:
-                        similarity_score = 0.0
-                else:
-                    # Fall back to FTS5
-                    used_fts5 = True
-                    if not is_valid_vector:
-                        fallback_reason = "missing or invalid vector"
-                    else:
-                        fallback_reason = "missing query vector"
+                    similarity_score = dot_product / (norm_q * norm_s) if norm_q > 0.0 and norm_s > 0.0 else 0.0
 
-                if used_fts5:
-                    # Perform FTS5 match
-                    # Clean the query text to be FTS5 safe (alphanumeric words separated by OR)
-                    import re
-                    words = re.findall(r"\w+", query_text)
-                    if words:
-                        fts_query = " OR ".join(words)
-                        fts_cursor = await conn.execute(
-                            "SELECT 1 FROM signature_fts WHERE signature_id = ? AND signature_fts MATCH ?",
-                            (sig_id, fts_query)
+                    if similarity_score >= threshold:
+                        matches.append(_parse_row(row, similarity_score))
+
+                # 2. For signatures without vectors, query them via FTS5 if there's a query
+                # Use target_tool as a separate WHERE predicate, not in MATCH
+                # Use BM25 ranking for dynamic score instead of fixed fallback score
+                if fts_query:
+                    if target_tool:
+                        cursor = await conn.execute(
+                            "SELECT s.signature_id, s.created_at, s.last_matched_at, s.attacker_intent, s.payload_pattern, "
+                            "s.target_tool, s.target_sink, s.dependency_chain, s.mitigation_action, s.match_count, "
+                            "s.false_positive_count, s.similarity_vector, s.metadata, fts.rank "
+                            "FROM signatures s "
+                            "JOIN signature_fts fts ON s.signature_id = fts.signature_id "
+                            "WHERE s.similarity_vector IS NULL "
+                            "AND s.target_tool = ? "
+                            "AND fts.signature_fts MATCH ? "
+                            "ORDER BY fts.rank",
+                            (target_tool, fts_query)
                         )
-                        fts_row = await fts_cursor.fetchone()
-                        if fts_row is not None:
-                            similarity_score = 0.75  # Pass the reduced threshold of 0.7
+                    else:
+                        cursor = await conn.execute(
+                            "SELECT s.signature_id, s.created_at, s.last_matched_at, s.attacker_intent, s.payload_pattern, "
+                            "s.target_tool, s.target_sink, s.dependency_chain, s.mitigation_action, s.match_count, "
+                            "s.false_positive_count, s.similarity_vector, s.metadata, fts.rank "
+                            "FROM signatures s "
+                            "JOIN signature_fts fts ON s.signature_id = fts.signature_id "
+                            "WHERE s.similarity_vector IS NULL "
+                            "AND fts.signature_fts MATCH ? "
+                            "ORDER BY fts.rank",
+                            (fts_query,)
+                        )
+                    fts_rows = await cursor.fetchall()
+                    for row in fts_rows:
+                        sig_id = row[0]
+                        bm25_rank = row[13]  # FTS5 rank is negative, higher absolute value = better match
+                        # Normalize BM25 rank to 0-1 range capped by fts_threshold_cap
+                        # BM25 rank typically ranges from -15 (excellent) to 0 (weak)
+                        normalized_score = min(abs(bm25_rank) / 15.0, 1.0) * fts_threshold_cap
 
-                    # Reduce similarity threshold from 0.85 to 0.7 for affected queries
-                    current_threshold = 0.7
-                    # Log every FTS5 fallback with signature_id, error type/reason, and timestamp
-                    logger.warning(
-                        "FTS5 fallback triggered for signature similarity match",
-                        signature_id=sig_id,
-                        reason=fallback_reason,
-                        timestamp=int(time.time())
-                    )
-                else:
-                    current_threshold = threshold
+                        logger.warning(
+                            "FTS5 fallback triggered for signature similarity match",
+                            signature_id=sig_id,
+                            reason="missing or invalid vector",
+                            bm25_rank=bm25_rank,
+                            normalized_score=normalized_score,
+                            timestamp=int(time.time())
+                        )
+                        current_threshold = min(threshold, fts_threshold_cap)
+                        if normalized_score >= current_threshold:
+                            matches.append(_parse_row(row[:13], normalized_score))
+            else:
+                # No query vector provided: all signatures fallback to FTS5
+                # Use target_tool as a separate WHERE predicate, not in MATCH
+                # Use BM25 ranking for dynamic score instead of fixed fallback score
+                if fts_query:
+                    if target_tool:
+                        cursor = await conn.execute(
+                            "SELECT s.signature_id, s.created_at, s.last_matched_at, s.attacker_intent, s.payload_pattern, "
+                            "s.target_tool, s.target_sink, s.dependency_chain, s.mitigation_action, s.match_count, "
+                            "s.false_positive_count, s.similarity_vector, s.metadata, fts.rank "
+                            "FROM signatures s "
+                            "JOIN signature_fts fts ON s.signature_id = fts.signature_id "
+                            "WHERE s.target_tool = ? "
+                            "AND fts.signature_fts MATCH ? "
+                            "ORDER BY fts.rank",
+                            (target_tool, fts_query)
+                        )
+                    else:
+                        cursor = await conn.execute(
+                            "SELECT s.signature_id, s.created_at, s.last_matched_at, s.attacker_intent, s.payload_pattern, "
+                            "s.target_tool, s.target_sink, s.dependency_chain, s.mitigation_action, s.match_count, "
+                            "s.false_positive_count, s.similarity_vector, s.metadata, fts.rank "
+                            "FROM signatures s "
+                            "JOIN signature_fts fts ON s.signature_id = fts.signature_id "
+                            "WHERE fts.signature_fts MATCH ? "
+                            "ORDER BY fts.rank",
+                            (fts_query,)
+                        )
+                    fts_rows = await cursor.fetchall()
+                    for row in fts_rows:
+                        sig_id = row[0]
+                        bm25_rank = row[13]  # FTS5 rank is negative, higher absolute value = better match
+                        # Normalize BM25 rank to 0-1 range capped by fts_threshold_cap
+                        # BM25 rank typically ranges from -15 (excellent) to 0 (weak)
+                        normalized_score = min(abs(bm25_rank) / 15.0, 1.0) * fts_threshold_cap
 
-                if similarity_score >= current_threshold:
-                    matches.append({
-                        "signature_id": sig_id,
-                        "created_at": created_at,
-                        "last_matched_at": last_matched_at,
-                        "attacker_intent": attacker_intent,
-                        "payload_pattern": payload_pattern,
-                        "target_tool": target_tool,
-                        "target_sink": target_sink,
-                        "dependency_chain": json.loads(dependency_chain) if dependency_chain else None,
-                        "mitigation_action": mitigation_action,
-                        "match_count": match_count,
-                        "false_positive_count": false_positive_count,
-                        "similarity_score": similarity_score,
-                        "metadata": json.loads(metadata) if metadata else None
-                    })
+                        logger.warning(
+                            "FTS5 fallback triggered for signature similarity match",
+                            signature_id=sig_id,
+                            reason="missing query vector",
+                            bm25_rank=bm25_rank,
+                            normalized_score=normalized_score,
+                            timestamp=int(time.time())
+                        )
+                        current_threshold = min(threshold, fts_threshold_cap)
+                        if normalized_score >= current_threshold:
+                            matches.append(_parse_row(row[:13], normalized_score))
 
             matches.sort(key=lambda x: x.get("similarity_score", 0.0), reverse=True)
             return matches
@@ -513,19 +597,25 @@ class SQLiteThreatRepository:
         tool_name: str,
         arguments: Dict[str, Any],
         query_vector: Optional[List[float]] = None,
-        threshold: float = 0.85
+        threshold: float = 0.85,
+        fts_fallback_score: float = 0.75,
+        fts_threshold_cap: float = 0.70
     ) -> Optional[Dict[str, Any]]:
         await self.initialize()
 
-        # Construct query text for similarity & FTS5 matching
+        # Construct query text for similarity & FTS5 matching from payload/intent terms only
+        # Exclude tool_name from tokenization to prevent cross-tool matches
         args_values = " ".join(str(v) for v in arguments.values())
-        query_text = f"{tool_name} {args_values}"
+        query_text = args_values  # Only use argument values for FTS MATCH
 
         # 1. Query similar signatures (Vector similarity + FTS5 fallback)
         matches = await self.querySimilarSignatures(
             query_text=query_text,
             query_vector=query_vector,
-            threshold=threshold
+            threshold=threshold,
+            fts_fallback_score=fts_fallback_score,
+            fts_threshold_cap=fts_threshold_cap,
+            target_tool=tool_name  # Pass tool_name as separate predicate
         )
 
         if matches:

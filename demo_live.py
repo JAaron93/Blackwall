@@ -82,7 +82,7 @@ async def main():
     
     # Create resolver
     print_step("⚙️", "Assembling SyncResolver (3-signal fusion)...")
-    resolver = SyncResolver(client=client, repo=repo, gti_client=gti, cbm_client=cbm)
+    resolver = SyncResolver(client=client, repo=repo, gti_client=gti, cbm_client=cbm, demo_mode=True)
     print_step("✓", "Resolver ready - all systems operational!", Colors.GREEN)
     
     # Define attack scenarios

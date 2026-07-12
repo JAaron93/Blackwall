@@ -1,7 +1,5 @@
 import asyncio
-import json
 import math
-import os
 import resource
 import sys
 import time
@@ -15,10 +13,9 @@ from blackwall.models import (
     GroundTruthLabel,
     TestResult,
     ToolCallContext,
-    Verdict,
     VerdictDecision,
 )
-from blackwall.policy.engine import StructuralGatingEngine, StructuralGatingResult
+from blackwall.policy.engine import StructuralGatingEngine
 from blackwall.policy.models import GateResult, StructuralAction
 from blackwall.policy.semantic import SemanticGatingEngine
 from blackwall.policy.server import HybridPolicyServer
