@@ -26,7 +26,7 @@ The proxy MUST support two primary transport methods for agent communication:
     *   **Transport Security (Mandatory):** The HTTP/SSE endpoint MUST validate `Origin` and `Host` headers to prevent DNS rebinding attacks. Local deployments MUST bind to loopback interfaces only (127.0.0.1/::1). Network-bound requests MUST require authentication (e.g., bearer tokens, mutual TLS). Unauthenticated network access MUST be rejected to prevent unauthorized agent control.
 
 ### FR-03: Message Interception & Payload Extraction
-When an agent attempts a `tools/call` request, Blackwall MUST pause the stream, extract the tool `name` and `arguments`, and format this data into a schema compatible with Blackwall's existing `HybridPolicyServer`.
+When an agent attempts a `tools/call` request, Blackwall MUST pause the stream, extract the tool `name` and `arguments`, and pass them through the regex-based ContextResolver to replace sensitive values with generic placeholders before HybridPolicyServer evaluation or further agent processing. The redacted payload MUST then be formatted into a schema compatible with Blackwall's existing `HybridPolicyServer`. The original sensitive payload MUST NOT be forwarded during policy or agent processing.
 
 ### FR-04: Verdict Enforcement via Protocol Synthesis
 *   **ALLOW:** If the Hybrid Policy Server returns an ALLOW verdict, the original JSON-RPC payload MUST be passed cleanly to the destination tool execution context.

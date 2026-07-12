@@ -36,14 +36,9 @@ def print_log(emoji, text, color=Colors.CYAN):
 async def validate_sandbox_active():
     """Validates that the sandbox audit hooks are active by attempting to trigger them."""
     print_log("🛡️", "Validating sandbox environment...", Colors.YELLOW)
-    
-    # Check 1: Add a test blocked executable to SQLite
-    repo = SQLiteThreatRepository(db_path)
-    await repo.initialize()
-    await repo.addBlockedExecutable("malicious_sandbox_test")
-    await repo.close()
-    
-    # Check 2: Try to execute the blocked executable and verify PermissionError
+
+    # Try to execute a non-existent command and verify PermissionError from audit hook
+    # Note: This tests unconditional subprocess denial by the audit hook, not blocked_executables
     try:
         subprocess.Popen(["malicious_sandbox_test"])  # noqa: S607
         print_log("❌", "Sandbox validation failed: blocked executable was not intercepted!", Colors.RED)
@@ -56,11 +51,6 @@ async def validate_sandbox_active():
     except Exception as e:
         print_log("❌", f"Sandbox validation failed: unexpected error ({e})", Colors.RED)
         sys.exit(1)
-    finally:
-        repo_cleanup = SQLiteThreatRepository(db_path)
-        await repo_cleanup.initialize()
-        await repo_cleanup.removeBlockedExecutable("malicious_sandbox_test")
-        await repo_cleanup.close()
 
 class RogueAgent:
     """Rogue Agent powered by Qwen3-Coder via Hyperbolic API, with local simulation fallback."""

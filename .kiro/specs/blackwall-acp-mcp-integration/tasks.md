@@ -28,7 +28,7 @@ Build a high-performance Python `asyncio` server capable of intercepting bidirec
 2. Server initializes and accepts connections on both `stdio` and HTTP transports.
 3. Server correctly parses valid JSON-RPC 2.0 messages from a continuous stream.
 4. Zero Node.js dependencies are introduced.
-5. Unit tests pass and verify transport initialization, message boundary parsing, and Transport Security (rejects unauthenticated requests, invalid origins, and enforces loopback when applicable).
+5. Unit tests pass and verify transport initialization, message boundary parsing, and Transport Security (rejects unauthenticated requests, invalid origins, invalid Host headers, and enforces loopback when applicable).
 
 #### TASK-A02: Interception & Flow Control
 **Status:** ⏳ Not Started

@@ -495,71 +495,99 @@ class SQLiteThreatRepository:
 
                 # 2. For signatures without vectors, query them via FTS5 if there's a query
                 # Use target_tool as a separate WHERE predicate, not in MATCH
+                # Use BM25 ranking for dynamic score instead of fixed fallback score
                 if fts_query:
                     if target_tool:
                         cursor = await conn.execute(
-                            "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
-                            "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
-                            "false_positive_count, similarity_vector, metadata FROM signatures "
-                            "WHERE similarity_vector IS NULL "
-                            "AND target_tool = ? "
-                            "AND signature_id IN (SELECT signature_id FROM signature_fts WHERE signature_fts MATCH ?)",
+                            "SELECT s.signature_id, s.created_at, s.last_matched_at, s.attacker_intent, s.payload_pattern, "
+                            "s.target_tool, s.target_sink, s.dependency_chain, s.mitigation_action, s.match_count, "
+                            "s.false_positive_count, s.similarity_vector, s.metadata, fts.rank "
+                            "FROM signatures s "
+                            "JOIN signature_fts fts ON s.signature_id = fts.signature_id "
+                            "WHERE s.similarity_vector IS NULL "
+                            "AND s.target_tool = ? "
+                            "AND fts.signature_fts MATCH ? "
+                            "ORDER BY fts.rank",
                             (target_tool, fts_query)
                         )
                     else:
                         cursor = await conn.execute(
-                            "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
-                            "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
-                            "false_positive_count, similarity_vector, metadata FROM signatures "
-                            "WHERE similarity_vector IS NULL "
-                            "AND signature_id IN (SELECT signature_id FROM signature_fts WHERE signature_fts MATCH ?)",
+                            "SELECT s.signature_id, s.created_at, s.last_matched_at, s.attacker_intent, s.payload_pattern, "
+                            "s.target_tool, s.target_sink, s.dependency_chain, s.mitigation_action, s.match_count, "
+                            "s.false_positive_count, s.similarity_vector, s.metadata, fts.rank "
+                            "FROM signatures s "
+                            "JOIN signature_fts fts ON s.signature_id = fts.signature_id "
+                            "WHERE s.similarity_vector IS NULL "
+                            "AND fts.signature_fts MATCH ? "
+                            "ORDER BY fts.rank",
                             (fts_query,)
                         )
                     fts_rows = await cursor.fetchall()
                     for row in fts_rows:
                         sig_id = row[0]
+                        bm25_rank = row[13]  # FTS5 rank is negative, higher absolute value = better match
+                        # Normalize BM25 rank to 0-1 range capped by fts_threshold_cap
+                        # BM25 rank typically ranges from -15 (excellent) to 0 (weak)
+                        normalized_score = min(abs(bm25_rank) / 15.0, 1.0) * fts_threshold_cap
+
                         logger.warning(
                             "FTS5 fallback triggered for signature similarity match",
                             signature_id=sig_id,
                             reason="missing or invalid vector",
+                            bm25_rank=bm25_rank,
+                            normalized_score=normalized_score,
                             timestamp=int(time.time())
                         )
                         current_threshold = min(threshold, fts_threshold_cap)
-                        if fts_fallback_score >= current_threshold:
-                            matches.append(_parse_row(row, fts_fallback_score))
+                        if normalized_score >= current_threshold:
+                            matches.append(_parse_row(row[:13], normalized_score))
             else:
                 # No query vector provided: all signatures fallback to FTS5
                 # Use target_tool as a separate WHERE predicate, not in MATCH
+                # Use BM25 ranking for dynamic score instead of fixed fallback score
                 if fts_query:
                     if target_tool:
                         cursor = await conn.execute(
-                            "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
-                            "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
-                            "false_positive_count, similarity_vector, metadata FROM signatures "
-                            "WHERE target_tool = ? "
-                            "AND signature_id IN (SELECT signature_id FROM signature_fts WHERE signature_fts MATCH ?)",
+                            "SELECT s.signature_id, s.created_at, s.last_matched_at, s.attacker_intent, s.payload_pattern, "
+                            "s.target_tool, s.target_sink, s.dependency_chain, s.mitigation_action, s.match_count, "
+                            "s.false_positive_count, s.similarity_vector, s.metadata, fts.rank "
+                            "FROM signatures s "
+                            "JOIN signature_fts fts ON s.signature_id = fts.signature_id "
+                            "WHERE s.target_tool = ? "
+                            "AND fts.signature_fts MATCH ? "
+                            "ORDER BY fts.rank",
                             (target_tool, fts_query)
                         )
                     else:
                         cursor = await conn.execute(
-                            "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
-                            "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
-                            "false_positive_count, similarity_vector, metadata FROM signatures "
-                            "WHERE signature_id IN (SELECT signature_id FROM signature_fts WHERE signature_fts MATCH ?)",
+                            "SELECT s.signature_id, s.created_at, s.last_matched_at, s.attacker_intent, s.payload_pattern, "
+                            "s.target_tool, s.target_sink, s.dependency_chain, s.mitigation_action, s.match_count, "
+                            "s.false_positive_count, s.similarity_vector, s.metadata, fts.rank "
+                            "FROM signatures s "
+                            "JOIN signature_fts fts ON s.signature_id = fts.signature_id "
+                            "WHERE fts.signature_fts MATCH ? "
+                            "ORDER BY fts.rank",
                             (fts_query,)
                         )
                     fts_rows = await cursor.fetchall()
                     for row in fts_rows:
                         sig_id = row[0]
+                        bm25_rank = row[13]  # FTS5 rank is negative, higher absolute value = better match
+                        # Normalize BM25 rank to 0-1 range capped by fts_threshold_cap
+                        # BM25 rank typically ranges from -15 (excellent) to 0 (weak)
+                        normalized_score = min(abs(bm25_rank) / 15.0, 1.0) * fts_threshold_cap
+
                         logger.warning(
                             "FTS5 fallback triggered for signature similarity match",
                             signature_id=sig_id,
                             reason="missing query vector",
+                            bm25_rank=bm25_rank,
+                            normalized_score=normalized_score,
                             timestamp=int(time.time())
                         )
                         current_threshold = min(threshold, fts_threshold_cap)
-                        if fts_fallback_score >= current_threshold:
-                            matches.append(_parse_row(row, fts_fallback_score))
+                        if normalized_score >= current_threshold:
+                            matches.append(_parse_row(row[:13], normalized_score))
 
             matches.sort(key=lambda x: x.get("similarity_score", 0.0), reverse=True)
             return matches
