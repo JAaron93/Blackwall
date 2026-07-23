@@ -18,9 +18,9 @@ def test_sterilize_environment(sidecar):
     mock_env = {
         "PATH": "/usr/bin:/bin",
         "USER": "developer",
-        "MOCK_API_KEY_VAL": "secret_abc123_xyz",
+        "MOCK_API_KEY_VAL": "BW_SYNTHETIC_MOCK_SECRET_0192",
         "KUBECONFIG_VAR": "/home/user/.kube/config",
-        "DATABASE_URL_VAR": "postgres://user:pass@localhost:5432/db",
+        "DATABASE_URL_VAR": "postgres://user:BW_SYNTHETIC_MOCK_SECRET_0192@localhost:5432/db",
     }
     sterilized = sidecar.sterilize_environment(mock_env)
 
