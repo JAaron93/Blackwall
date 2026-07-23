@@ -13,12 +13,22 @@ __version__ = "1.0.0-enterprise"
 ENTERPRISE_ENABLED = True
 
 from blackwall.enterprise.identity import SecretVaultSidecar
-from blackwall.enterprise.mcp import VaultMCPAdapter
+from blackwall.enterprise.mcp import ContainerSandboxMCPAdapter, VaultMCPAdapter
+from blackwall.enterprise.pipeline import (
+    ASTPipelineFilter,
+    PipelineSandboxManager,
+    guard_pipeline,
+)
 
 __all__ = [
     "__version__",
     "ENTERPRISE_ENABLED",
     "SecretVaultSidecar",
     "VaultMCPAdapter",
+    "ContainerSandboxMCPAdapter",
+    "ASTPipelineFilter",
+    "PipelineSandboxManager",
+    "guard_pipeline",
 ]
+
 
