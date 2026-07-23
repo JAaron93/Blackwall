@@ -62,7 +62,7 @@ class ASTPipelineFilter:
             tree = ast.parse(inspect.cleandoc(code_str))
             alias_map: Dict[str, str] = {}
 
-            # First pass: collect import aliases
+            # First pass: collect import aliases and variable assignment aliases
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     for alias_item in node.names:
@@ -74,6 +74,14 @@ class ASTPipelineFilter:
                         asname = alias_item.asname or alias_item.name
                         full_qual = f"{module}.{alias_item.name}" if module else alias_item.name
                         alias_map[asname] = full_qual
+                elif isinstance(node, ast.Assign):
+                    value_name = self._get_func_name(node.value)
+                    if value_name:
+                        resolved_val = self._resolve_alias(value_name, alias_map)
+                        for target in node.targets:
+                            target_name = self._get_func_name(target)
+                            if target_name:
+                                alias_map[target_name] = resolved_val
 
             # Second pass: check call expressions
             for node in ast.walk(tree):

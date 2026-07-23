@@ -47,6 +47,12 @@ def test_ast_filter_detects_import_alias(ast_filter):
     res2 = ast_filter.inspect_code(alias_code_2)
     assert res2["is_safe"] is False
 
+    # Tests resolution of variable assignment alias 'runner = os.system'
+    alias_code_3 = "import os\nrunner = os.system\nrunner('rm -rf /')"
+    res3 = ast_filter.inspect_code(alias_code_3)
+    assert res3["is_safe"] is False
+    assert "os.system" in res3["violations"]
+
 
 def test_ast_filter_detects_ssti_injection(ast_filter):
     unsafe_template = "{{ ''.__class__.__mro__[2].__subclasses__() }}"
