@@ -72,26 +72,27 @@ class LightweightForensicParser:
                     max_severity = severity
 
         # AST inspection on string content if command / python code provided
-        cmd_code = log_payload.get("command") or log_payload.get("code")
-        if isinstance(cmd_code, str):
-            try:
-                tree = ast.parse(cmd_code)
-                for node in ast.walk(tree):
-                    if isinstance(node, ast.Call):
-                        func_name = ""
-                        if isinstance(node.func, ast.Name):
-                            func_name = node.func.id
-                        elif isinstance(node.func, ast.Attribute):
-                            func_name = node.func.attr
-                        if func_name in ("eval", "exec", "system", "popen", "spawn"):
-                            if "command_injection" not in matched_categories:
-                                matched_categories.append("command_injection")
-                                matched_patterns.append(f"ast:{func_name}")
-                                descriptions.append(f"AST heuristic identified unsafe call to '{func_name}'")
-                                if severity_rank["HIGH"] > severity_rank[max_severity]:
-                                    max_severity = "HIGH"
-            except Exception:
-                pass  # Not valid Python code, skip AST check
+        for field_name in ("command", "code", "script", "payload"):
+            cmd_code = log_payload.get(field_name)
+            if isinstance(cmd_code, str):
+                try:
+                    tree = ast.parse(cmd_code)
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.Call):
+                            func_name = ""
+                            if isinstance(node.func, ast.Name):
+                                func_name = node.func.id
+                            elif isinstance(node.func, ast.Attribute):
+                                func_name = node.func.attr
+                            if func_name.lower() in ("eval", "exec", "system", "popen", "spawn", "loads", "call", "run"):
+                                if "command_injection" not in matched_categories:
+                                    matched_categories.append("command_injection")
+                                    matched_patterns.append(f"ast:{func_name}")
+                                    descriptions.append(f"AST heuristic identified unsafe call to '{func_name}'")
+                                    if severity_rank["HIGH"] > severity_rank[max_severity]:
+                                        max_severity = "HIGH"
+                except Exception:
+                    pass  # Not valid Python code, skip AST check
 
         is_threat = len(matched_categories) > 0
 

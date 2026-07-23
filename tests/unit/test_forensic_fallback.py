@@ -44,6 +44,31 @@ def test_fallback_parser_benign_log():
     assert report["mode"] == "standalone_fallback"
 
 
+def test_fallback_parser_capitalized_func_name_ast():
+    parser = LightweightForensicParser()
+    log_data = {
+        "command": "import subprocess\nsubprocess.Popen(['ls', '-la'])",
+        "pid": 5510,
+    }
+    report = parser.parse(log_data)
+    assert report["is_threat"] is True
+    assert "command_injection" in report["categories"]
+    assert "Popen" in report["extracted_pattern"]
+
+
+def test_fallback_parser_scans_all_code_fields():
+    parser = LightweightForensicParser()
+    log_data = {
+        "command": "python app.py",
+        "code": "exec(user_input)",
+        "pid": 5520,
+    }
+    report = parser.parse(log_data)
+    assert report["is_threat"] is True
+    assert "command_injection" in report["categories"]
+    assert "exec" in report["extracted_pattern"]
+
+
 def test_fallback_parser_100_percent_availability():
     """Verify 100% availability of standalone parser with zero network/GPU dependency."""
     parser = LightweightForensicParser()
