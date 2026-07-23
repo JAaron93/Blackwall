@@ -18,3 +18,4 @@ This document configures Macroscope's automated code review agent for the Blackw
 - **TDD Requirement**: Reject PRs containing feature code or bug fixes without corresponding unit/integration tests.
 - **BDD Requirements**: Confirm all end-to-end security behaviors pass via `pytest-bdd` in `tests/features/`.
 - **Test Isolation**: Verify `sys.addaudithook` imports are scoped inside test functions, and background processes use `os.killpg` process group cleanup.
+- **Mock Credential Hygiene**: Ensure synthetic test strings do not contain patterns matching live cloud provider key formats (e.g. `AWS_KEY_<digits>`) to prevent secret scanner false positives.
