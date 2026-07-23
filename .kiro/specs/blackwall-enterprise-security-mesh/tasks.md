@@ -8,12 +8,12 @@ This document details the test-driven implementation plan for **Blackwall Enterp
 
 ```mermaid
 graph TD
-    Track0["Track 0: Product Tier Isolation (TASK-T01)"]
-    Track1["Track 1: Kernel Interception & Falco MCP (TASK-K01..K02)"]
-    Track2["Track 2: Distributed Mesh (TASK-M01..M02)"]
-    Track3["Track 3: Identity Sidecar & Vault MCP (TASK-I01..I02)"]
-    Track4["Track 4: Pipeline Wrappers & Sandbox MCP (TASK-P01..P02)"]
-    Track5["Track 5: Local Forensics & OTel MCP (TASK-F01..F02)"]
+    Track0["Track 0: Product Tier Isolation (TASK-T01) [COMPLETED]"]
+    Track1["Track 1: Kernel Interception & Falco MCP (TASK-K01..K02) [COMPLETED]"]
+    Track2["Track 2: Distributed Mesh (TASK-M01..M02) [COMPLETED]"]
+    Track3["Track 3: Identity Sidecar & Vault MCP (TASK-I01..I02) [COMPLETED]"]
+    Track4["Track 4: Pipeline Wrappers & Sandbox MCP (TASK-P01..P02) [COMPLETED]"]
+    Track5["Track 5: Local Forensics & OTel MCP (TASK-F01..F02) [COMPLETED]"]
     Track6["Track 6: End-to-End BDD (TASK-E01)"]
     Track7["Track 7: W&B Weave Evaluation Suite (TASK-V01..V05)"]
 
@@ -36,7 +36,8 @@ graph TD
 
 ## Track 0: Product Tier Packaging & Isolation
 
-### TASK-T01: Core vs Enterprise Modular Packaging
+### [x] TASK-T01: Core vs Enterprise Modular Packaging
+- **Status**: Completed
 - **Description**: Refactor `src/blackwall/` layout to ensure `Blackwall Core` remains a zero-dependency, single-host Python daemon while isolating enterprise capabilities under `src/blackwall/enterprise/`.
 - **Traceability**: `FR-00`, `NFR-05`
 - **Dependencies**: None
@@ -46,13 +47,15 @@ graph TD
 
 ## Track 1: Kernel-Level Interception Engine (`blackwall.enterprise.kernel`)
 
-### TASK-K01: Kernel Probe Interface & macOS Fallback Audit Driver
+### [x] TASK-K01: Kernel Probe Interface & macOS Fallback Audit Driver
+- **Status**: Completed
 - **Description**: Implement `KernelProbeDriver` base interface and `UserSpaceAuditDriver` for macOS/Windows process monitoring using Python `sys.addaudithook`.
 - **Traceability**: `FR-01`, `FR-02`
 - **Dependencies**: `TASK-T01`
 - **Verification Command**: `pytest -v tests/unit/test_kernel_probe.py`
 
-### TASK-K02: `ebpf-falco-mcp` Integration
+### [x] TASK-K02: `ebpf-falco-mcp` Integration
+- **Status**: Completed
 - **Description**: Implement local open-source `ebpf-falco-mcp` adapter exposing kernel syscall events and process lineage.
 - **Traceability**: `FR-16`, `NFR-03`
 - **Dependencies**: `TASK-K01`
@@ -62,13 +65,15 @@ graph TD
 
 ## Track 2: Distributed Threat Mesh (`blackwall.enterprise.mesh`)
 
-### TASK-M01: ZeroMQ Pub/Sub Mesh Broadcaster
+### [x] TASK-M01: ZeroMQ Pub/Sub Mesh Broadcaster
+- **Status**: Completed
 - **Description**: Build `MeshBroadcaster` service in `src/blackwall/enterprise/mesh/broadcaster.py` publishing signatures over ZeroMQ sockets.
 - **Traceability**: `FR-04`, `NFR-02`
 - **Dependencies**: `TASK-T01`
 - **Verification Command**: `pytest -v tests/unit/test_mesh_broadcaster.py`
 
-### TASK-M02: Mesh Receiver & SQLite Ingestion Worker
+### [x] TASK-M02: Mesh Receiver & SQLite Ingestion Worker
+- **Status**: Completed
 - **Description**: Implement `MeshReceiver` service in `src/blackwall/enterprise/mesh/receiver.py` ingesting incoming mesh signatures into SQLite.
 - **Traceability**: `FR-05`, `FR-06`, `NFR-01`, `NFR-02`
 - **Dependencies**: `TASK-M01`
@@ -78,13 +83,15 @@ graph TD
 
 ## Track 3: Secret Masking & Ephemeral Identity Sidecar (`blackwall.enterprise.identity`)
 
-### TASK-I01: Environment Sterilization & Synthetic Honey-Tokens
+### [x] TASK-I01: Environment Sterilization & Synthetic Honey-Tokens
+- **Status**: Completed
 - **Description**: Implement `SecretVaultSidecar` replacing real credentials with synthetic honey-tokens (`BW_SYNTHETIC_*`).
 - **Traceability**: `FR-07`, `FR-08`
 - **Dependencies**: `TASK-T01`
 - **Verification Command**: `pytest -v tests/unit/test_identity_sidecar.py`
 
-### TASK-I02: `hashicorp-vault-mcp` Integration (Vault Dev Mode / LocalStack)
+### [x] TASK-I02: `hashicorp-vault-mcp` Integration (Vault Dev Mode / LocalStack)
+- **Status**: Completed
 - **Description**: Build `hashicorp-vault-mcp` adapter providing JIT token exchange via local `vault server -dev` or LocalStack mock STS endpoints.
 - **Traceability**: `FR-09`, `FR-17`, `NFR-03`
 - **Dependencies**: `TASK-I01`
@@ -94,13 +101,15 @@ graph TD
 
 ## Track 4: Application Pipeline Interception Wrappers (`blackwall.enterprise.pipeline`)
 
-### TASK-P01: Micro-Sandbox Pipeline Decorator & AST Filter
+### [x] TASK-P01: Micro-Sandbox Pipeline Decorator & AST Filter
+- **Status**: Completed
 - **Description**: Create `@blackwall.guard_pipeline` decorator and AST parser for isolating dataset loaders and template engines.
 - **Traceability**: `FR-10`, `FR-11`
 - **Dependencies**: `TASK-T01`
 - **Verification Command**: `pytest -v tests/unit/test_pipeline_wrapper.py`
 
-### TASK-P02: `container-sandbox-mcp` Integration (Docker API / gVisor)
+### [x] TASK-P02: `container-sandbox-mcp` Integration (Docker API / gVisor)
+- **Status**: Completed
 - **Description**: Implement `container-sandbox-mcp` adapter controlling local Docker container or gVisor (`runsc`) sandboxes.
 - **Traceability**: `FR-18`, `NFR-03`
 - **Dependencies**: `TASK-P01`
@@ -110,13 +119,15 @@ graph TD
 
 ## Track 5: Native Local Forensic Triage Engine (`blackwall.enterprise.forensics`)
 
-### TASK-F01: Primary Ollama Open-Weight LLM Triage Engine & `opentelemetry-mcp`
+### [x] TASK-F01: Primary Ollama Open-Weight LLM Triage Engine & `opentelemetry-mcp`
+- **Status**: Completed
 - **Description**: Implement `OllamaForensicEngine` streaming logs to local Ollama LLM endpoint and exporting incident traces via open-source `opentelemetry-mcp`.
 - **Traceability**: `FR-12`, `FR-13`, `FR-16`
 - **Dependencies**: `TASK-T01`
 - **Verification Command**: `pytest -v tests/unit/test_ollama_forensics.py`
 
-### TASK-F02: Standalone Lightweight Fallback Parser
+### [x] TASK-F02: Standalone Lightweight Fallback Parser
+- **Status**: Completed
 - **Description**: Implement `LightweightForensicParser` providing regex/AST heuristic signature extraction when Ollama/GPU is offline.
 - **Traceability**: `FR-14`, `FR-15`, `NFR-04`
 - **Dependencies**: `TASK-F01`
@@ -127,6 +138,7 @@ graph TD
 ## Track 6: End-to-End Integration & BDD Verification
 
 ### TASK-E01: Behavior-Driven Development (BDD) Feature Test Suite
+- **Status**: Pending
 - **Description**: Implement `tests/features/blackwall_enterprise_mesh.feature` and step definitions covering Core vs Enterprise tiers, 4 open-source MCP adapters, and forensic fallback.
 - **Traceability**: `US-01`, `US-02`, `NFR-03`, `NFR-04`
 - **Dependencies**: `TASK-T01`, `TASK-K02`, `TASK-M02`, `TASK-I02`, `TASK-P02`, `TASK-F02`
@@ -137,21 +149,26 @@ graph TD
 ## Track 7: W&B Weave Evaluation Suite (`tests/evals/`)
 
 ### TASK-V01: W&B Weave Track 1 Eval (Kernel Interception Accuracy)
+- **Status**: Pending
 - **Description**: Implement `eval_kernel_interception` evaluating system call interception accuracy across eBPF and Audit Hook drivers.
 - **Verification Command**: `python -m pytest tests/evals/test_enterprise_weave_evals.py -k test_eval_kernel_interception`
 
 ### TASK-V02: W&B Weave Track 2 Eval (Threat Mesh Sync Latency)
+- **Status**: Pending
 - **Description**: Implement `eval_mesh_sync_latency` benchmarking multi-node signature broadcast and SQLite ingestion speed against the `< 15 ms` SLA.
 - **Verification Command**: `python -m pytest tests/evals/test_enterprise_weave_evals.py -k test_eval_mesh_sync_latency`
 
 ### TASK-V03: W&B Weave Track 3 Eval (Honey-Token & Secret Vault Exchange)
+- **Status**: Pending
 - **Description**: Implement `eval_identity_honeytoken` evaluating synthetic credential exfiltration detection rate (100%) and JIT token swap accuracy.
 - **Verification Command**: `python -m pytest tests/evals/test_enterprise_weave_evals.py -k test_eval_identity_honeytoken`
 
 ### TASK-V04: W&B Weave Track 4 Eval (Pipeline Micro-Sandbox Containment)
+- **Status**: Pending
 - **Description**: Implement `eval_pipeline_containment` evaluating dataset loader RCE and Jinja template injection neutralization score.
 - **Verification Command**: `python -m pytest tests/evals/test_enterprise_weave_evals.py -k test_eval_pipeline_containment`
 
 ### TASK-V05: W&B Weave Track 5 Eval (Dual-Mode Local Forensic Triage)
+- **Status**: Pending
 - **Description**: Implement `eval_forensics_dual_mode` evaluating log triage accuracy across Primary Ollama LLM and Standalone Fallback modes with 0% safety refusal.
 - **Verification Command**: `python -m pytest tests/evals/test_enterprise_weave_evals.py -k test_eval_forensics_dual_mode`
