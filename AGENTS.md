@@ -8,7 +8,7 @@ Blackwall is structured into **two distinct product tiers**:
 
 1. **Blackwall Core (Individual Developer Edition)**:
    - Single-host Python daemon centered around ADK callbacks (`before_tool_callback`), Python runtime audit hooks (`sys.addaudithook`), and local SQLite threat graph.
-   - Zero external C or mesh/peer-to-peer networking dependencies (Core API clients such as GTI/Gemini are exempt).
+   - Zero cluster-mesh/peer-to-peer networking (ZeroMQ/NATS) or C-kernel eBPF dependencies (exemption: standard outbound HTTPS API clients for Gemini API and VirusTotal GTI MCP are fully supported in Core).
 2. **Blackwall Enterprise Mesh (Enterprise Edition)**:
    - Multi-host security mesh isolated under `src/blackwall/enterprise/`.
    - Features C/Python eBPF kernel probes, ZeroMQ pub/sub signature sync, Ephemeral Identity Sidecar, Data Pipeline Wrappers, Dual-Mode Local Forensic Triage Engine, and 4 Open-Source Local MCP adapters.

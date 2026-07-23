@@ -4,7 +4,7 @@ This document configures Macroscope's automated code review agent for the Blackw
 
 ## 1. Product Tier Isolation Rules
 
-- **Core Tier Integrity**: Verify that `Blackwall Core` (`src/blackwall/core/` or `src/blackwall/`) remains a lightweight, single-host Python daemon. Block any PR that introduces ZeroMQ, eBPF C headers, or network mesh dependencies into `Blackwall Core`.
+- **Core Tier Integrity**: Verify that `Blackwall Core` (`src/blackwall/core/` or `src/blackwall/`) remains a lightweight, single-host Python daemon. Block any PR that introduces ZeroMQ/NATS mesh networking or eBPF C headers into `Blackwall Core` (standard outbound HTTPS API clients like Gemini API and GTI MCP are permitted).
 - **Enterprise Isolation**: Ensure all enterprise capabilities (eBPF kernel probes, ZeroMQ threat mesh, ephemeral identity sidecars, micro-sandbox wrappers, local forensic engine) are cleanly modularized in `src/blackwall/enterprise/`.
 
 ## 2. Security & Guardrail Checkpoints
