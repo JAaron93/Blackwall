@@ -61,7 +61,7 @@ class VaultMCPAdapter:
 
         self._issued_tokens[token_id] = token_info
         logger.debug("VaultMCPAdapter issued JIT token %s for role %s (TTL: %ds)", token_id, role, ttl_seconds)
-        return token_info
+        return dict(token_info)
 
     async def revoke_token(self, token_id: str) -> bool:
         """Revoke an active JIT token immediately."""
