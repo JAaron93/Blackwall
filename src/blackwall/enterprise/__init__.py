@@ -12,8 +12,18 @@ Modularized subpackage for enterprise multi-host security features:
 __version__ = "1.0.0-enterprise"
 ENTERPRISE_ENABLED = True
 
+from blackwall.enterprise.forensics import (
+    ForensicTriageManager,
+    LightweightForensicParser,
+    OllamaForensicEngine,
+)
 from blackwall.enterprise.identity import SecretVaultSidecar
-from blackwall.enterprise.mcp import ContainerSandboxMCPAdapter, VaultMCPAdapter
+from blackwall.enterprise.mcp import (
+    ContainerSandboxMCPAdapter,
+    FalcoMCPAdapter,
+    OpenTelemetryMCPAdapter,
+    VaultMCPAdapter,
+)
 from blackwall.enterprise.pipeline import (
     ASTPipelineFilter,
     PipelineSandboxManager,
@@ -26,9 +36,12 @@ __all__ = [
     "SecretVaultSidecar",
     "VaultMCPAdapter",
     "ContainerSandboxMCPAdapter",
+    "FalcoMCPAdapter",
+    "OpenTelemetryMCPAdapter",
     "ASTPipelineFilter",
     "PipelineSandboxManager",
     "guard_pipeline",
+    "OllamaForensicEngine",
+    "LightweightForensicParser",
+    "ForensicTriageManager",
 ]
-
-

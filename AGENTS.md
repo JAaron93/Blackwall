@@ -66,6 +66,7 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
 - Out-of-band telemetry log stream analyzer with **Dual-Mode execution**:
   - **Primary**: Local Ollama open-weight LLM endpoint (Qwen3 / GLM-5.2) without cloud safety refusals.
   - **Fallback**: `LightweightForensicParser` (regex/AST heuristic engine) automatically active when GPU/Ollama is offline.
+- `LightweightForensicParser` AST inspection MUST resolve fully qualified callee names (e.g. `os.system`, `subprocess.Popen`, `pickle.loads`) rather than bare attribute names to prevent false-positive threat classifications on benign modules like `json.loads` or `asyncio.run`.
 - Exports telemetry via `opentelemetry-mcp` (OpenTelemetry Collector / Jaeger UI local runner).
 
 ---
@@ -107,3 +108,8 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
 * **SLA Default Validation**: SLA helper functions (`safe_sla_limit`) MUST validate that default parameters are finite, positive numbers (`math.isfinite(default) and default > 0.0`) before returning.
 * **Mock Credential Hygiene for Secret Scanners**: When creating synthetic test inputs or honey-token strings in unit/integration tests, NEVER use strings containing cloud provider keyword patterns (e.g. `AWS_KEY`, `AKIA`, `SLACK_TOKEN`) or high-entropy literals with `secret_`/`key_`/`pass_` prefixes (e.g. `secret_abc123_xyz`). Always use generic prefixes such as `BW_SYNTHETIC_MOCK_SECRET_0192` to prevent automated secret scanners (GitGuardian) from triggering false-positive alerts.
 * **Worktree Environment Path Alignment**: When executing test suites inside isolated git worktrees, ensure `pip install -e .` is run or pass `PYTHONPATH=src` so pytest imports modules from the current worktree rather than stale global site-packages.
+* **Async Coroutine Creation Safety**: When lazy-starting background tasks in classes or trackers (e.g. `_ensure_task_started()`), retrieve the running loop via `asyncio.get_running_loop()` before calling the coroutine function (e.g., `loop.create_task(self._loop())`) to prevent unawaited coroutine `RuntimeWarning` exceptions if no event loop is running.
+* **Pytest Asyncio Marker Scoping**: In test modules containing both synchronous (`def`) and asynchronous (`async def`) tests, do NOT declare global module-level `pytestmark = pytest.mark.asyncio`. Decorate `async def` test functions individually with `@pytest.mark.asyncio` to prevent `PytestWarning` on synchronous test functions.
+* **`aiohttp` Test Decorator Modernization**: Do not use the deprecated `@unittest_run_loop` decorator on `AioHTTPTestCase` subclasses; async test methods execute natively under modern `aiohttp` (>= 3.8).
+* **Pytest Custom Marker Registration**: All custom markers used in BDD features or unit tests (e.g., `@pytest.mark.guardrails`, `@pytest.mark.zero_ambient_authority`) MUST be explicitly registered under `[tool.pytest.ini_options].markers` in `pyproject.toml` to prevent `PytestUnknownMarkWarning`.
+

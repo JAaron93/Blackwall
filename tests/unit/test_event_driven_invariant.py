@@ -14,7 +14,8 @@ from blackwall.analytics.BackgroundTaskSubmitter import AgentBehavioralAnalytics
 from blackwall.api.webhook_listener import WebhookListener
 from blackwall.models import SecurityEvent, Verdict, VerdictDecision, ToolCallContext
 
-pytestmark = pytest.mark.asyncio
+# Decorate async test functions individually instead of global module-level pytestmark
+# to prevent PytestWarning on sync test functions.
 
 def test_generateSignature_no_sleep():
     """Asserts AgentBehavioralAnalytics.generateSignature carries no internal asyncio.sleep or time.sleep calls."""
@@ -31,6 +32,7 @@ def test_WebhookListener_no_sleep():
     assert "asyncio.sleep" not in source_process, "Polling pattern found in _process_payload!"
     assert "time.sleep" not in source_process, "Polling pattern found in _process_payload!"
 
+@pytest.mark.asyncio
 async def test_submitBackgroundAnalysis_non_blocking(safe_sla_limit):
     """Asserts submitBackgroundAnalysis returns without blocking (completes in <10ms) using aio path.
     
@@ -67,6 +69,7 @@ async def test_submitBackgroundAnalysis_non_blocking(safe_sla_limit):
     assert task_id == "test-task-123"
     assert latency_ms < limit, f"submitBackgroundAnalysis blocked for {latency_ms}ms! Must be <{limit}ms."
 
+@pytest.mark.asyncio
 async def test_submitBackgroundAnalysis_to_thread_fallback(safe_sla_limit):
     """Asserts submitBackgroundAnalysis uses asyncio.to_thread fallback when client lacks aio attribute (completes in <10ms).
     
@@ -103,6 +106,7 @@ async def test_submitBackgroundAnalysis_to_thread_fallback(safe_sla_limit):
     assert task_id == "test-task-456"
     assert latency_ms < limit, f"submitBackgroundAnalysis blocked for {latency_ms}ms! Must be <{limit}ms."
 
+@pytest.mark.asyncio
 async def test_webhook_integration_end_to_end(safe_sla_limit):
     """
     Delivers a synthetic webhook payload and asserts generateSignature is called exactly once 

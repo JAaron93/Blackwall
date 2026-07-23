@@ -64,6 +64,21 @@ from blackwall.enterprise.pipeline import guard_pipeline
 async def load_untrusted_dataset(url: str):
     # Routine is inspected by ASTPipelineFilter and executed inside gVisor microVM
     return process(url)
+
+# Track 5: Native Local Forensic Triage Engine & OpenTelemetry MCP Adapter
+from blackwall.enterprise.forensics import ForensicTriageManager, OpenTelemetryMCPAdapter
+
+otel_adapter = OpenTelemetryMCPAdapter(endpoint="http://localhost:4318")
+manager = ForensicTriageManager(otel_adapter=otel_adapter)
+report = await manager.triage_log_event({"command": "reverse_shell /bin/bash -i"})
+# Dual-mode execution: primary local Ollama (Qwen3) with failover to AST/regex parser
+```
+
+#### 🧪 Enterprise BDD Verification (Track 6)
+
+```bash
+# Run end-to-end Gherkin BDD test scenarios across all 5 enterprise pillars
+pytest tests/features/blackwall_enterprise_mesh.feature -v
 ```
 
 ---
