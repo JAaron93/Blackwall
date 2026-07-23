@@ -28,6 +28,25 @@ python3 demo_live.py
 
 ---
 
+## 🛡 Dual-Tier Product Architecture
+
+Blackwall is structured into **two distinct product tiers** to serve both developer workstations and enterprise cloud infrastructure:
+
+| Feature / Tier | **Blackwall Core** (Individual Edition) | **Blackwall Enterprise Mesh** (Enterprise Edition) |
+| :--- | :--- | :--- |
+| **Deployment Mode** | Single-host local Python daemon | Multi-host distributed cloud security mesh |
+| **Interception Drivers** | ADK callbacks + `sys.addaudithook` | C/Python eBPF kernel probes + macOS fallback |
+| **Threat Signature Sync** | Local SQLite graph (WAL mode) | Real-time ZeroMQ / NATS pub-sub mesh broadcast |
+| **Identity & Secrets** | Regex prompt credential masking | Ephemeral Identity Sidecar & JIT Vault STS exchange |
+| **Pipeline Protection** | Local AST input filters | Micro-sandboxed container loader wrappers |
+| **Forensic Triage Engine**| SQLite audit log records | Dual-Mode Local Open-Weight LLM (Ollama) + Fallback |
+| **Developer Test Cost** | **$0.00 (100% Free)** | **$0.00 (100% Free local open-source MCP adapters)** |
+
+> [!NOTE]
+> For the complete technical specifications of the Enterprise Security Mesh, see [.kiro/specs/blackwall-enterprise-security-mesh/](.kiro/specs/blackwall-enterprise-security-mesh/).
+
+---
+
 ## 🎯 Core Innovations
 
 ### 1. **Self-Learning Threat Signatures**
