@@ -5,6 +5,7 @@ Streams telemetry log events to local Ollama LLM endpoint (Qwen3 / GLM-5.2) with
 
 import json
 import logging
+import re
 from typing import Any, Dict, Optional
 import aiohttp
 
@@ -103,11 +104,22 @@ class OllamaForensicEngine:
             }
         except Exception as err:
             logger.debug("Failed to parse Ollama JSON response: %s", err)
+            # Check for explicit key pattern or return neutral fallback instead of prose substring search
+            is_threat = bool(re.search(r'"is_threat"\s*:\s*true', raw_text, re.IGNORECASE))
+            threat_level = "LOW"
+            if is_threat:
+                if re.search(r'"threat_level"\s*:\s*"CRITICAL"', raw_text, re.IGNORECASE):
+                    threat_level = "CRITICAL"
+                elif re.search(r'"threat_level"\s*:\s*"HIGH"', raw_text, re.IGNORECASE):
+                    threat_level = "HIGH"
+                else:
+                    threat_level = "MEDIUM"
+
             return {
-                "is_threat": True if "threat" in raw_text.lower() or "shell" in raw_text.lower() else False,
-                "threat_level": "HIGH" if "critical" in raw_text.lower() or "threat" in raw_text.lower() else "LOW",
+                "is_threat": is_threat,
+                "threat_level": threat_level,
                 "mode": "ollama_primary",
                 "model": self.model,
-                "description": raw_text[:200],
-                "extracted_pattern": raw_text[:100],
+                "description": f"Ollama response non-standard JSON fallback: {raw_text[:200]}",
+                "extracted_pattern": raw_text[:100] if is_threat else "",
             }

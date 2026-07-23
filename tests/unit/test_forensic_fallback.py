@@ -32,6 +32,32 @@ def test_fallback_parser_credential_exfiltration():
     assert "credential_access" in report["categories"]
 
 
+def test_fallback_parser_single_level_directory_traversal():
+    parser = LightweightForensicParser()
+    log_data = {
+        "action": "read_file",
+        "path": "../secret.txt",
+        "pid": 5103,
+    }
+    report = parser.parse(log_data)
+    assert report["is_threat"] is True
+    assert report["threat_level"] == "HIGH"
+    assert "directory_traversal" in report["categories"]
+
+
+def test_fallback_parser_windows_directory_traversal():
+    parser = LightweightForensicParser()
+    log_data = {
+        "action": "read_file",
+        "path": r"..\..\config.ini",
+        "pid": 5104,
+    }
+    report = parser.parse(log_data)
+    assert report["is_threat"] is True
+    assert report["threat_level"] == "HIGH"
+    assert "directory_traversal" in report["categories"]
+
+
 def test_fallback_parser_benign_log():
     parser = LightweightForensicParser()
     log_data = {

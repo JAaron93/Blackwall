@@ -76,3 +76,27 @@ async def test_ollama_analyze_log_stream_success():
         assert report["mode"] == "ollama_primary"
         assert report["model"] == "qwen3:8b"
         assert "nc -e /bin/sh" in report["extracted_pattern"]
+
+
+@pytest.mark.asyncio
+async def test_ollama_analyze_log_stream_prose_benign_fallback():
+    engine = OllamaForensicEngine(endpoint="http://localhost:11434", model="qwen3:8b")
+
+    # Benign prose response without valid JSON formatting
+    mock_json_data = {"response": "No threat detected in event log."}
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.json = AsyncMock(return_value=mock_json_data)
+
+    session_mock = _create_mock_session(response_mock=mock_response)
+
+    log_payload = {
+        "timestamp": "2026-07-23T09:00:00Z",
+        "command": "python3 main.py",
+    }
+
+    with patch("aiohttp.ClientSession", return_value=session_mock):
+        report = await engine.analyze_log_stream(log_payload)
+        assert report["is_threat"] is False
+        assert report["threat_level"] == "LOW"
+        assert report["mode"] == "ollama_primary"

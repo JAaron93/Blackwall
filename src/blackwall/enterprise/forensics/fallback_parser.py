@@ -36,7 +36,7 @@ class LightweightForensicParser:
             "Unauthorized access attempt to sensitive system/cloud credentials",
         ),
         (
-            r"(\.\.\/\.\.\/|\.\.\\\.\.\\)",
+            r"((\.\.\/|\.\.\\)+)",
             "HIGH",
             "directory_traversal",
             "Path traversal sequence detected in file access request",
