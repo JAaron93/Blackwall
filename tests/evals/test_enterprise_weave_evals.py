@@ -130,7 +130,7 @@ def test_eval_mesh_sync_latency():
 
 
 def test_eval_identity_honeytoken():
-    res = eval_identity_honeytoken_score("BW_SYNTHETIC_AWS_KEY_0192", "CRITICAL")
+    res = eval_identity_honeytoken_score("BW_SYNTHETIC_MOCK_SECRET_0192", "CRITICAL")
     assert res["detection_passed"] is True
 
 
