@@ -74,7 +74,7 @@ class ContainerSandboxMCPAdapter:
     async def destroy_sandbox(self, sandbox_id: str) -> bool:
         """Destroy container sandbox and free ephemeral resources."""
         if sandbox_id in self._active_sandboxes and self._active_sandboxes[sandbox_id]["status"] != "DESTROYED":
-            self._active_sandboxes[sandbox_id]["status"] = "DESTROYED"
+            del self._active_sandboxes[sandbox_id]
             logger.info("ContainerSandboxMCPAdapter destroyed sandbox: %s", sandbox_id)
             return True
         logger.warning("ContainerSandboxMCPAdapter destroy requested for invalid sandbox: %s", sandbox_id)

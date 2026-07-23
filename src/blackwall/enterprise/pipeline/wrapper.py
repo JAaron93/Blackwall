@@ -59,7 +59,7 @@ class ASTPipelineFilter:
 
         # Parse AST if valid Python code
         try:
-            tree = ast.parse(code_str)
+            tree = ast.parse(inspect.cleandoc(code_str))
             alias_map: Dict[str, str] = {}
 
             # First pass: collect import aliases
@@ -83,7 +83,7 @@ class ASTPipelineFilter:
 
                     if resolved_name in UNSAFE_AST_NODES or raw_func_name in UNSAFE_AST_NODES:
                         violations.append(resolved_name)
-                    elif raw_func_name in UNSAFE_BARE_FUNCTIONS:
+                    elif raw_func_name in UNSAFE_BARE_FUNCTIONS and raw_func_name not in alias_map:
                         violations.append(raw_func_name)
         except SyntaxError:
             # Fallback pattern search for raw strings/templates
@@ -165,8 +165,13 @@ class PipelineSandboxManager:
 
         # Construct actual invocation payload with source code and call expression
         fn_name = getattr(routine_fn, "__name__", "routine")
-        args_repr = ", ".join(repr(a) for a in args)
-        kwargs_repr = ", ".join(f"{k}={v!r}" for k, v in kwargs.items())
+        def _safe_repr(val: Any) -> str:
+            if isinstance(val, (int, float, bool, str, bytes, type(None))):
+                return repr(val)
+            return f"<{type(val).__name__} object at {hex(id(val))}>"
+
+        args_repr = ", ".join(_safe_repr(a) for a in args)
+        kwargs_repr = ", ".join(f"{k}={_safe_repr(v)}" for k, v in kwargs.items())
         call_params = ", ".join(filter(None, [args_repr, kwargs_repr]))
         invocation_call = f"{fn_name}({call_params})"
         full_payload = f"{fn_source}\n# Execution Invocation:\n{invocation_call}"
