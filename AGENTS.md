@@ -59,6 +59,7 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
 
 ### Pillar 4: Application Pipeline Interception Wrappers (`blackwall.enterprise.pipeline`) & `container-sandbox-mcp`
 - `@blackwall.guard_pipeline` decorator and AST parser protecting dataset loaders, pickle parsers, and Jinja/SQL template renderers.
+- `ASTPipelineFilter` MUST clean source indentation via `inspect.cleandoc` prior to `ast.parse` and track both import aliases (`ast.Import`/`ast.ImportFrom`) and variable assignment aliases (`ast.Assign`) to resolve indirect calls (e.g. `runner = os.system; runner(...)`).
 - Interfaces with `container-sandbox-mcp` controlling local Docker or gVisor (`runsc`) microVM sandboxes.
 
 ### Pillar 5: Native Local Forensic Triage Engine (`blackwall.enterprise.forensics`) & `opentelemetry-mcp`
@@ -104,5 +105,5 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
 * **Audit Hook Isolation**: Tests evaluating `sys.addaudithook` MUST defer import to function scope or isolated subprocesses. Never import hook-registering code at global module scope in test files.
 * **Subprocess Process Group Cleanup**: Background test servers MUST use `preexec_fn=os.setsid` and `os.killpg(os.getpgid(pid), signal.SIGTERM)` in `finally` blocks to guarantee zero zombie processes or port leaks.
 * **SLA Default Validation**: SLA helper functions (`safe_sla_limit`) MUST validate that default parameters are finite, positive numbers (`math.isfinite(default) and default > 0.0`) before returning.
-* **Mock Credential Hygiene for Secret Scanners**: When creating synthetic test inputs or honey-token strings in unit/integration tests, NEVER use strings containing cloud provider keyword patterns (e.g. `AWS_KEY`, `AKIA`, `SLACK_TOKEN`). Use generic prefixes such as `BW_SYNTHETIC_MOCK_SECRET_0192` to prevent automated secret scanners (GitGuardian) from triggering false-positive alerts.
+* **Mock Credential Hygiene for Secret Scanners**: When creating synthetic test inputs or honey-token strings in unit/integration tests, NEVER use strings containing cloud provider keyword patterns (e.g. `AWS_KEY`, `AKIA`, `SLACK_TOKEN`) or high-entropy literals with `secret_`/`key_`/`pass_` prefixes (e.g. `secret_abc123_xyz`). Always use generic prefixes such as `BW_SYNTHETIC_MOCK_SECRET_0192` to prevent automated secret scanners (GitGuardian) from triggering false-positive alerts.
 * **Worktree Environment Path Alignment**: When executing test suites inside isolated git worktrees, ensure `pip install -e .` is run or pass `PYTHONPATH=src` so pytest imports modules from the current worktree rather than stale global site-packages.
