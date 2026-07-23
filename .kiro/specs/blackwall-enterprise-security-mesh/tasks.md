@@ -14,7 +14,8 @@ graph TD
     Track3["Track 3: Identity Sidecar & Vault MCP (TASK-I01..I02)"]
     Track4["Track 4: Pipeline Wrappers & Sandbox MCP (TASK-P01..P02)"]
     Track5["Track 5: Local Forensics & OTel MCP (TASK-F01..F02)"]
-    Track6["Track 6: End-to-End Integration & BDD (TASK-E01..E02)"]
+    Track6["Track 6: End-to-End BDD (TASK-E01)"]
+    Track7["Track 7: W&B Weave Evaluation Suite (TASK-V01..V05)"]
 
     Track0 --> Track1
     Track0 --> Track2
@@ -27,6 +28,8 @@ graph TD
     Track3 --> Track6
     Track4 --> Track6
     Track5 --> Track6
+    
+    Track6 --> Track7
 ```
 
 ---
@@ -37,8 +40,6 @@ graph TD
 - **Description**: Refactor `src/blackwall/` layout to ensure `Blackwall Core` remains a zero-dependency, single-host Python daemon while isolating enterprise capabilities under `src/blackwall/enterprise/`.
 - **Traceability**: `FR-00`, `NFR-05`
 - **Dependencies**: None
-- **TDD Criteria**:
-  - Test verifying `import blackwall` (Core) succeeds without requiring ZeroMQ, eBPF C headers, or network ports.
 - **Verification Command**: `pytest -v tests/unit/test_tier_isolation.py`
 
 ---
@@ -52,7 +53,7 @@ graph TD
 - **Verification Command**: `pytest -v tests/unit/test_kernel_probe.py`
 
 ### TASK-K02: `ebpf-falco-mcp` Integration
-- **Description**: Implement local open-source `ebpf-falco-mcp` adapter exposing kernel syscall events and process lineage to Blackwall semantic evaluation engine.
+- **Description**: Implement local open-source `ebpf-falco-mcp` adapter exposing kernel syscall events and process lineage.
 - **Traceability**: `FR-16`, `NFR-03`
 - **Dependencies**: `TASK-K01`
 - **Verification Command**: `pytest -v tests/unit/test_falco_mcp.py`
@@ -130,3 +131,27 @@ graph TD
 - **Traceability**: `US-01`, `US-02`, `NFR-03`, `NFR-04`
 - **Dependencies**: `TASK-T01`, `TASK-K02`, `TASK-M02`, `TASK-I02`, `TASK-P02`, `TASK-F02`
 - **Verification Command**: `pytest -v tests/step_defs/test_enterprise_mesh.py`
+
+---
+
+## Track 7: W&B Weave Evaluation Suite (`tests/evals/`)
+
+### TASK-V01: W&B Weave Track 1 Eval (Kernel Interception Accuracy)
+- **Description**: Implement `eval_kernel_interception` evaluating system call interception accuracy across eBPF and Audit Hook drivers.
+- **Verification Command**: `python -m pytest tests/evals/test_enterprise_weave_evals.py -k test_eval_kernel_interception`
+
+### TASK-V02: W&B Weave Track 2 Eval (Threat Mesh Sync Latency)
+- **Description**: Implement `eval_mesh_sync_latency` benchmarking multi-node signature broadcast and SQLite ingestion speed against the `< 15 ms` SLA.
+- **Verification Command**: `python -m pytest tests/evals/test_enterprise_weave_evals.py -k test_eval_mesh_sync_latency`
+
+### TASK-V03: W&B Weave Track 3 Eval (Honey-Token & Secret Vault Exchange)
+- **Description**: Implement `eval_identity_honeytoken` evaluating synthetic credential exfiltration detection rate (100%) and JIT token swap accuracy.
+- **Verification Command**: `python -m pytest tests/evals/test_enterprise_weave_evals.py -k test_eval_identity_honeytoken`
+
+### TASK-V04: W&B Weave Track 4 Eval (Pipeline Micro-Sandbox Containment)
+- **Description**: Implement `eval_pipeline_containment` evaluating dataset loader RCE and Jinja template injection neutralization score.
+- **Verification Command**: `python -m pytest tests/evals/test_enterprise_weave_evals.py -k test_eval_pipeline_containment`
+
+### TASK-V05: W&B Weave Track 5 Eval (Dual-Mode Local Forensic Triage)
+- **Description**: Implement `eval_forensics_dual_mode` evaluating log triage accuracy across Primary Ollama LLM and Standalone Fallback modes with 0% safety refusal.
+- **Verification Command**: `python -m pytest tests/evals/test_enterprise_weave_evals.py -k test_eval_forensics_dual_mode`
