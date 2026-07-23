@@ -10,7 +10,7 @@ from unittest.mock import patch
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 import pytest
-from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
+from aiohttp.test_utils import AioHTTPTestCase
 
 from blackwall.api.webhook_listener import WebhookListener
 from blackwall.db.repository import SQLiteThreatRepository
@@ -205,7 +205,6 @@ class TestWebhookListener(AioHTTPTestCase):
         self.temp_dir.cleanup()
         await super().tearDownAsync()
 
-    @unittest_run_loop
     async def test_jwt_validation_missing_signature(self):
         payload = {
             "type": "interaction.completed",
@@ -222,7 +221,6 @@ class TestWebhookListener(AioHTTPTestCase):
         resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
         self.assertEqual(resp.status, 400)
 
-    @unittest_run_loop
     async def test_jwt_validation_invalid_signature(self):
         payload = {
             "type": "interaction.completed",
@@ -239,7 +237,6 @@ class TestWebhookListener(AioHTTPTestCase):
         resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
         self.assertEqual(resp.status, 400)
 
-    @unittest_run_loop
     async def test_jwt_wrong_audience(self):
         payload = {
             "type": "interaction.completed",
@@ -259,7 +256,6 @@ class TestWebhookListener(AioHTTPTestCase):
         resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
         self.assertEqual(resp.status, 400)
 
-    @unittest_run_loop
     async def test_validation_success_and_response_time(self):
         # We verify fire-and-forget behavior by blocking the DB write and ensuring the response returns immediately.
         # This guarantees that the HTTP response is sent before the database write has completed.
@@ -317,7 +313,6 @@ class TestWebhookListener(AioHTTPTestCase):
             row = await cursor.fetchone()
             self.assertEqual(row[0], 1)
 
-    @unittest_run_loop
     async def test_stale_or_unknown_task_discarded(self):
         # Setup an interaction that returns a different (unknown) task_id
         unknown_task_id = str(uuid.uuid4())
@@ -352,7 +347,6 @@ class TestWebhookListener(AioHTTPTestCase):
             row = await cursor.fetchone()
             self.assertEqual(row[0], 0)
 
-    @unittest_run_loop
     async def test_atomic_signature_writes(self):
         self.mock_gemini.interactions.return_value = {
             "task_id": self.task_id,
@@ -390,7 +384,6 @@ class TestWebhookListener(AioHTTPTestCase):
             self.assertEqual(rows[0][0], "pattern1")
             self.assertEqual(rows[1][0], "pattern2")
 
-    @unittest_run_loop
     async def test_graceful_shutdown(self):
         # Mock the db to sleep during write
         original_write = self.db.write_signatures_batch
@@ -429,7 +422,6 @@ class TestWebhookListener(AioHTTPTestCase):
             row = await cursor.fetchone()
             self.assertEqual(row[0], "test_pattern")
 
-    @unittest_run_loop
     async def test_webhook_deduplication(self):
         payload = {
             "type": "interaction.completed",
@@ -469,7 +461,6 @@ class TestWebhookListener(AioHTTPTestCase):
             row = await cursor.fetchone()
             self.assertEqual(row[0], 1)
 
-    @unittest_run_loop
     async def test_replay_rejection(self):
         payload = {
             "type": "interaction.completed",
@@ -490,7 +481,6 @@ class TestWebhookListener(AioHTTPTestCase):
         resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
         self.assertEqual(resp.status, 400)
 
-    @unittest_run_loop
     async def test_jwt_replay_with_different_payload(self):
         # Test that JWT token cannot be replayed with a different payload
         different_interaction_id = str(uuid.uuid4())
@@ -512,7 +502,6 @@ class TestWebhookListener(AioHTTPTestCase):
         resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
         self.assertEqual(resp.status, 400)
 
-    @unittest_run_loop
     async def test_future_timestamp_rejected(self):
         # Test that timestamps in the future are also rejected
         payload = {
@@ -534,7 +523,6 @@ class TestWebhookListener(AioHTTPTestCase):
         resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
         self.assertEqual(resp.status, 400)
 
-    @unittest_run_loop
     async def test_jwt_missing_exp_claim_rejected(self):
         # Test that JWT without exp claim is rejected (fail-closed)
         payload = {
@@ -564,7 +552,6 @@ class TestWebhookListener(AioHTTPTestCase):
         resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
         self.assertEqual(resp.status, 400)
 
-    @unittest_run_loop
     async def test_jwt_missing_aud_claim_rejected(self):
         # Test that JWT without aud claim is rejected (fail-closed)
         payload = {
@@ -594,7 +581,6 @@ class TestWebhookListener(AioHTTPTestCase):
         resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
         self.assertEqual(resp.status, 400)
 
-    @unittest_run_loop
     async def test_deduplication_rollback_on_jwt_failure(self):
         # Test that failed JWT validation rolls back the webhook ID reservation
         # allowing legitimate retries
@@ -645,7 +631,6 @@ class TestWebhookListener(AioHTTPTestCase):
             row = await cursor.fetchone()
             self.assertEqual(row[0], 1)
 
-    @unittest_run_loop
     async def test_deduplication_structures_stay_synchronized(self):
         # Test that both set and deque remain synchronized during normal operation
         webhook_ids = [str(uuid.uuid4()) for _ in range(15)]
