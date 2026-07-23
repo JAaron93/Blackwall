@@ -59,6 +59,7 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
 
 ### Pillar 4: Application Pipeline Interception Wrappers (`blackwall.enterprise.pipeline`) & `container-sandbox-mcp`
 - `@blackwall.guard_pipeline` decorator and AST parser protecting dataset loaders, pickle parsers, and Jinja/SQL template renderers.
+- `ASTPipelineFilter` MUST clean source indentation via `inspect.cleandoc` prior to `ast.parse` and track both import aliases (`ast.Import`/`ast.ImportFrom`) and variable assignment aliases (`ast.Assign`) to resolve indirect calls (e.g. `runner = os.system; runner(...)`).
 - Interfaces with `container-sandbox-mcp` controlling local Docker or gVisor (`runsc`) microVM sandboxes.
 
 ### Pillar 5: Native Local Forensic Triage Engine (`blackwall.enterprise.forensics`) & `opentelemetry-mcp`
