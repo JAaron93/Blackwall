@@ -45,6 +45,27 @@ Blackwall is structured into **two distinct product tiers** to serve both develo
 > [!NOTE]
 > For the complete technical specifications of the Enterprise Security Mesh, see [.kiro/specs/blackwall-enterprise-security-mesh/](.kiro/specs/blackwall-enterprise-security-mesh/).
 
+### ⚡ Enterprise Security Mesh Quick Start
+
+```python
+# Track 3: Secret Masking & Ephemeral Identity Sidecar
+from blackwall.enterprise.identity import SecretVaultSidecar
+
+sidecar = SecretVaultSidecar()
+sterilized_env = sidecar.sterilize_environment(os.environ)
+# Replaces sensitive credentials with synthetic honey-tokens (BW_SYNTHETIC_*)
+verdict = sidecar.evaluate_access("BW_SYNTHETIC_AWS_SECRET_ACCESS_KEY")
+# Returns verdict: "CRITICAL" upon exfiltration attempt
+
+# Track 4: Application Pipeline Interception Wrappers
+from blackwall.enterprise.pipeline import guard_pipeline
+
+@guard_pipeline(sandbox_type="gvisor")
+async def load_untrusted_dataset(url: str):
+    # Routine is inspected by ASTPipelineFilter and executed inside gVisor microVM
+    return process(url)
+```
+
 ---
 
 ## 🎯 Core Innovations
