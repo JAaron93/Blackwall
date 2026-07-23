@@ -12,7 +12,13 @@ Modularized subpackage for enterprise multi-host security features:
 __version__ = "1.0.0-enterprise"
 ENTERPRISE_ENABLED = True
 
+from blackwall.enterprise.identity import SecretVaultSidecar
+from blackwall.enterprise.mcp import VaultMCPAdapter
+
 __all__ = [
     "__version__",
     "ENTERPRISE_ENABLED",
+    "SecretVaultSidecar",
+    "VaultMCPAdapter",
 ]
+
