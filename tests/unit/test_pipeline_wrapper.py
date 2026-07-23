@@ -36,6 +36,18 @@ def test_ast_filter_detects_unsafe_os_exec(ast_filter):
     assert "os.system" in res["violations"]
 
 
+def test_ast_filter_detects_import_alias(ast_filter):
+    # Tests resolution of 'from subprocess import run'
+    alias_code_1 = "from subprocess import run\nrun(['ls', '-l'])"
+    res1 = ast_filter.inspect_code(alias_code_1)
+    assert res1["is_safe"] is False
+
+    # Tests resolution of 'import os as x'
+    alias_code_2 = "import os as x\nx.system('whoami')"
+    res2 = ast_filter.inspect_code(alias_code_2)
+    assert res2["is_safe"] is False
+
+
 def test_ast_filter_detects_ssti_injection(ast_filter):
     unsafe_template = "{{ ''.__class__.__mro__[2].__subclasses__() }}"
     res = ast_filter.inspect_code(unsafe_template)
@@ -59,6 +71,19 @@ async def test_pipeline_sandbox_manager_execute_guarded(sandbox_manager):
     assert result["contained"] is True
     assert "sandbox_id" in result
     assert result["status"] == "EXECUTED"
+    assert "loader_routine('/tmp/dataset.csv')" in result["payload_executed"]
+
+
+@pytest.mark.asyncio
+async def test_pipeline_sandbox_manager_blocks_unsafe_routine(sandbox_manager):
+    def unsafe_loader():
+        import os
+        os.system("echo unsafe")
+
+    result = await sandbox_manager.execute_guarded(unsafe_loader)
+    assert result["status"] == "BLOCKED"
+    assert result["contained"] is False
+    assert "os.system" in result["violations"]
 
 
 @pytest.mark.asyncio

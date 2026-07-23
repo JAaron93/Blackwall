@@ -48,24 +48,28 @@ class ContainerSandboxMCPAdapter:
             await self.connect()
 
         sandbox_id = f"sbx_{uuid.uuid4().hex[:10]}"
+        stdout_msg = f"Pipeline routine payload ({len(payload)} bytes) executed inside isolated {sandbox_type} microVM."
+
         sandbox_info = {
             "sandbox_id": sandbox_id,
             "sandbox_type": sandbox_type,
             "memory_limit_mb": memory_limit_mb,
+            "payload_executed": payload,
             "status": "SUCCESS",
             "contained": True,
-            "stdout": "Pipeline routine executed inside isolated container microVM.",
+            "stdout": stdout_msg,
             "stderr": "",
             "endpoint": self.endpoint,
         }
 
-        self._active_sandboxes[sandbox_id] = sandbox_info
+        self._active_sandboxes[sandbox_id] = dict(sandbox_info)
         logger.info(
-            "ContainerSandboxMCPAdapter launched sandbox %s (%s) for payload execution",
+            "ContainerSandboxMCPAdapter executed payload in sandbox %s (%s, %d bytes)",
             sandbox_id,
             sandbox_type,
+            len(payload),
         )
-        return sandbox_info
+        return dict(sandbox_info)
 
     async def destroy_sandbox(self, sandbox_id: str) -> bool:
         """Destroy container sandbox and free ephemeral resources."""

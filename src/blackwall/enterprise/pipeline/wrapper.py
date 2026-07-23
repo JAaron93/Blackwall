@@ -26,6 +26,12 @@ UNSAFE_AST_NODES = {
     "subprocess.call",
 }
 
+UNSAFE_BARE_FUNCTIONS = {
+    "system",
+    "Popen",
+    "loads",
+}
+
 SSTI_INJECTION_PATTERNS = (
     "__class__",
     "__mro__",
@@ -42,6 +48,7 @@ class ASTPipelineFilter:
         """
         Parse code payload using Python AST and inspect for unsafe deserialization,
         process execution, or Server-Side Template Injection (SSTI) patterns.
+        Resolves import aliases (e.g. from subprocess import run / import os as x).
         """
         violations: List[str] = []
 
@@ -53,13 +60,33 @@ class ASTPipelineFilter:
         # Parse AST if valid Python code
         try:
             tree = ast.parse(code_str)
+            alias_map: Dict[str, str] = {}
+
+            # First pass: collect import aliases
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias_item in node.names:
+                        asname = alias_item.asname or alias_item.name
+                        alias_map[asname] = alias_item.name
+                elif isinstance(node, ast.ImportFrom):
+                    module = node.module or ""
+                    for alias_item in node.names:
+                        asname = alias_item.asname or alias_item.name
+                        full_qual = f"{module}.{alias_item.name}" if module else alias_item.name
+                        alias_map[asname] = full_qual
+
+            # Second pass: check call expressions
             for node in ast.walk(tree):
                 if isinstance(node, ast.Call):
-                    func_name = self._get_func_name(node.func)
-                    if func_name in UNSAFE_AST_NODES:
-                        violations.append(func_name)
+                    raw_func_name = self._get_func_name(node.func)
+                    resolved_name = self._resolve_alias(raw_func_name, alias_map)
+
+                    if resolved_name in UNSAFE_AST_NODES or raw_func_name in UNSAFE_AST_NODES:
+                        violations.append(resolved_name)
+                    elif raw_func_name in UNSAFE_BARE_FUNCTIONS:
+                        violations.append(raw_func_name)
         except SyntaxError:
-            # If code_str is a raw string/template rather than pure Python AST, fallback to pattern search
+            # Fallback pattern search for raw strings/templates
             for unsafe in UNSAFE_AST_NODES:
                 if unsafe in code_str:
                     violations.append(unsafe)
@@ -74,6 +101,15 @@ class ASTPipelineFilter:
             "code_summary": code_str[:100],
         }
 
+    def _resolve_alias(self, func_name: str, alias_map: Dict[str, str]) -> str:
+        """Resolve function name against import alias map."""
+        if func_name in alias_map:
+            return alias_map[func_name]
+        parts = func_name.split(".", 1)
+        if len(parts) == 2 and parts[0] in alias_map:
+            return f"{alias_map[parts[0]]}.{parts[1]}"
+        return func_name
+
     def _get_func_name(self, node: ast.AST) -> str:
         """Extract full function name from AST Name or Attribute node."""
         if isinstance(node, ast.Name):
@@ -87,8 +123,13 @@ class ASTPipelineFilter:
 class PipelineSandboxManager:
     """Manager for dispatching untrusted dataset loader routines into container sandboxes."""
 
-    def __init__(self, sandbox_adapter: Optional[ContainerSandboxMCPAdapter] = None) -> None:
+    def __init__(
+        self,
+        sandbox_adapter: Optional[ContainerSandboxMCPAdapter] = None,
+        ast_filter: Optional[ASTPipelineFilter] = None,
+    ) -> None:
         self.sandbox_adapter: ContainerSandboxMCPAdapter = sandbox_adapter or ContainerSandboxMCPAdapter()
+        self.ast_filter: ASTPipelineFilter = ast_filter or ASTPipelineFilter()
 
     async def execute_guarded(
         self,
@@ -97,18 +138,41 @@ class PipelineSandboxManager:
         sandbox_type: str = "gvisor",
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        """Execute a pipeline routine safely inside a container sandbox via container-sandbox-mcp."""
-        if not self.sandbox_adapter.is_connected:
-            await self.sandbox_adapter.connect()
-
+        """
+        Inspect routine via AST filter, build invocation payload with args/kwargs,
+        and execute safely inside a container microVM sandbox.
+        """
         fn_source = ""
         try:
             fn_source = inspect.getsource(routine_fn)
         except Exception:
             fn_source = str(routine_fn)
 
+        # Pre-execution AST security gate
+        inspection = self.ast_filter.inspect_code(fn_source)
+        if not inspection["is_safe"]:
+            logger.error("Pipeline execution BLOCKED by AST filter: %s", inspection["violations"])
+            return {
+                "status": "BLOCKED",
+                "contained": False,
+                "violations": inspection["violations"],
+                "code_summary": inspection["code_summary"],
+                "message": "Routine blocked due to unsafe AST patterns.",
+            }
+
+        if not self.sandbox_adapter.is_connected:
+            await self.sandbox_adapter.connect()
+
+        # Construct actual invocation payload with source code and call expression
+        fn_name = getattr(routine_fn, "__name__", "routine")
+        args_repr = ", ".join(repr(a) for a in args)
+        kwargs_repr = ", ".join(f"{k}={v!r}" for k, v in kwargs.items())
+        call_params = ", ".join(filter(None, [args_repr, kwargs_repr]))
+        invocation_call = f"{fn_name}({call_params})"
+        full_payload = f"{fn_source}\n# Execution Invocation:\n{invocation_call}"
+
         sandbox_result = await self.sandbox_adapter.run_in_sandbox(
-            payload=fn_source,
+            payload=full_payload,
             sandbox_type=sandbox_type,
         )
 
@@ -117,6 +181,8 @@ class PipelineSandboxManager:
             "contained": True,
             "sandbox_id": sandbox_result.get("sandbox_id"),
             "sandbox_type": sandbox_type,
+            "payload_executed": full_payload,
+            "stdout": sandbox_result.get("stdout"),
             "args": args,
             "kwargs": kwargs,
         }
