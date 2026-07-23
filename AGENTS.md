@@ -66,6 +66,7 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
 - Out-of-band telemetry log stream analyzer with **Dual-Mode execution**:
   - **Primary**: Local Ollama open-weight LLM endpoint (Qwen3 / GLM-5.2) without cloud safety refusals.
   - **Fallback**: `LightweightForensicParser` (regex/AST heuristic engine) automatically active when GPU/Ollama is offline.
+- `LightweightForensicParser` AST inspection MUST resolve fully qualified callee names (e.g. `os.system`, `subprocess.Popen`, `pickle.loads`) rather than bare attribute names to prevent false-positive threat classifications on benign modules like `json.loads` or `asyncio.run`.
 - Exports telemetry via `opentelemetry-mcp` (OpenTelemetry Collector / Jaeger UI local runner).
 
 ---
