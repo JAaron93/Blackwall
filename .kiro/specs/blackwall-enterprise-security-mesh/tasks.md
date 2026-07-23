@@ -14,7 +14,7 @@ graph TD
     Track3["Track 3: Identity Sidecar & Vault MCP (TASK-I01..I02) [COMPLETED]"]
     Track4["Track 4: Pipeline Wrappers & Sandbox MCP (TASK-P01..P02) [COMPLETED]"]
     Track5["Track 5: Local Forensics & OTel MCP (TASK-F01..F02) [COMPLETED]"]
-    Track6["Track 6: End-to-End BDD (TASK-E01)"]
+    Track6["Track 6: End-to-End BDD (TASK-E01) [COMPLETED]"]
     Track7["Track 7: W&B Weave Evaluation Suite (TASK-V01..V05)"]
 
     Track0 --> Track1
@@ -137,8 +137,8 @@ graph TD
 
 ## Track 6: End-to-End Integration & BDD Verification
 
-### TASK-E01: Behavior-Driven Development (BDD) Feature Test Suite
-- **Status**: Pending
+### [x] TASK-E01: Behavior-Driven Development (BDD) Feature Test Suite
+- **Status**: Completed
 - **Description**: Implement `tests/features/blackwall_enterprise_mesh.feature` and step definitions covering Core vs Enterprise tiers, 4 open-source MCP adapters, and forensic fallback.
 - **Traceability**: `US-01`, `US-02`, `NFR-03`, `NFR-04`
 - **Dependencies**: `TASK-T01`, `TASK-K02`, `TASK-M02`, `TASK-I02`, `TASK-P02`, `TASK-F02`
