@@ -49,6 +49,15 @@ class LightweightForensicParser:
         ),
     ]
 
+    def _get_call_name(self, node_func: ast.AST) -> str:
+        """Extract qualified call name (e.g., 'os.system', 'json.loads') from AST node."""
+        if isinstance(node_func, ast.Name):
+            return node_func.id
+        elif isinstance(node_func, ast.Attribute):
+            base = self._get_call_name(node_func.value)
+            return f"{base}.{node_func.attr}" if base else node_func.attr
+        return ""
+
     def parse(self, log_payload: Dict[str, Any]) -> Dict[str, Any]:
         """
         Parse log event dictionary using regex and AST heuristics.
@@ -71,6 +80,14 @@ class LightweightForensicParser:
                 if severity_rank[severity] > severity_rank[max_severity]:
                     max_severity = severity
 
+        # Dangerous callee target definitions (qualified or built-in)
+        DANGEROUS_CALLEES = {
+            "eval", "exec",
+            "os.system", "os.popen", "os.spawn", "os.spawnve",
+            "subprocess.popen", "subprocess.call", "subprocess.run", "subprocess.check_output",
+            "pickle.loads", "yaml.unsafe_load", "pty.spawn",
+        }
+
         # AST inspection on string content if command / python code provided
         for field_name in ("command", "code", "script", "payload"):
             cmd_code = log_payload.get(field_name)
@@ -79,16 +96,15 @@ class LightweightForensicParser:
                     tree = ast.parse(cmd_code)
                     for node in ast.walk(tree):
                         if isinstance(node, ast.Call):
-                            func_name = ""
-                            if isinstance(node.func, ast.Name):
-                                func_name = node.func.id
-                            elif isinstance(node.func, ast.Attribute):
-                                func_name = node.func.attr
-                            if func_name.lower() in ("eval", "exec", "system", "popen", "spawn", "loads", "call", "run"):
+                            call_name = self._get_call_name(node.func).lower()
+                            if call_name in DANGEROUS_CALLEES or any(
+                                call_name.endswith(f".{target}") and not call_name.startswith(("json.", "logging.", "asyncio.", "math."))
+                                for target in ("system", "popen", "spawnve")
+                            ):
                                 if "command_injection" not in matched_categories:
                                     matched_categories.append("command_injection")
-                                    matched_patterns.append(f"ast:{func_name}")
-                                    descriptions.append(f"AST heuristic identified unsafe call to '{func_name}'")
+                                    matched_patterns.append(f"ast:{call_name}")
+                                    descriptions.append(f"AST heuristic identified unsafe call to '{call_name}'")
                                     if severity_rank["HIGH"] > severity_rank[max_severity]:
                                         max_severity = "HIGH"
                 except Exception:

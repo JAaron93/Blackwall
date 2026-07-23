@@ -70,6 +70,18 @@ def test_fallback_parser_benign_log():
     assert report["mode"] == "standalone_fallback"
 
 
+def test_fallback_parser_benign_json_and_asyncio_calls():
+    """Verify benign calls like json.loads() or asyncio.run() do not trigger false positive command_injection."""
+    parser = LightweightForensicParser()
+    log_data = {
+        "code": "import json\nimport asyncio\ndata = json.loads('{\"status\": \"ok\"}')\nasyncio.run(main())",
+        "pid": 1205,
+    }
+    report = parser.parse(log_data)
+    assert report["is_threat"] is False
+    assert report["threat_level"] == "LOW"
+
+
 def test_fallback_parser_capitalized_func_name_ast():
     parser = LightweightForensicParser()
     log_data = {
@@ -79,7 +91,7 @@ def test_fallback_parser_capitalized_func_name_ast():
     report = parser.parse(log_data)
     assert report["is_threat"] is True
     assert "command_injection" in report["categories"]
-    assert "Popen" in report["extracted_pattern"]
+    assert "popen" in report["extracted_pattern"].lower()
 
 
 def test_fallback_parser_scans_all_code_fields():
