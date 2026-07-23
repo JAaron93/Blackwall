@@ -63,10 +63,14 @@ class ForensicTriageManager:
                     span_name="forensic_log_triage",
                     attributes=span_attributes,
                 )
-                await self.otel_adapter.ingest_log_event(log_payload)
                 otel_exported = True
             except Exception as err:
                 logger.warning("Failed to export OTel span during triage: %s", err)
+
+            try:
+                await self.otel_adapter.ingest_log_event(log_payload)
+            except Exception as err:
+                logger.warning("Failed to ingest OTel log event during triage: %s", err)
 
         report["otel_span_exported"] = otel_exported
         return report

@@ -8,6 +8,8 @@ import logging
 import uuid
 from typing import Any, Dict, List
 
+import aiohttp
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,8 +31,26 @@ class OpenTelemetryMCPAdapter:
     def is_connected(self) -> bool:
         return self._is_connected
 
-    async def connect(self) -> bool:
+    async def connect(self, verify_endpoint: bool = True) -> bool:
         """Establish connection to local OpenTelemetry Collector daemon."""
+        if verify_endpoint and self.endpoint and not self.endpoint.startswith("mock://"):
+            try:
+                timeout_cfg = aiohttp.ClientTimeout(total=1.5)
+                async with aiohttp.ClientSession(timeout=timeout_cfg) as session:
+                    async with session.get(self.endpoint) as resp:
+                        if resp.status < 500:
+                            self._is_connected = True
+                            logger.info(
+                                "OpenTelemetryMCPAdapter connected to endpoint: %s (Jaeger UI: %s)",
+                                self.endpoint,
+                                self.jaeger_ui,
+                            )
+                            return True
+            except Exception as err:
+                logger.debug("OpenTelemetryMCPAdapter connection to %s failed: %s", self.endpoint, err)
+                self._is_connected = False
+                return False
+
         self._is_connected = True
         logger.info(
             "OpenTelemetryMCPAdapter connected to endpoint: %s (Jaeger UI: %s)",
