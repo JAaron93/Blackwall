@@ -68,6 +68,7 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
   - **Fallback**: `LightweightForensicParser` (regex/AST heuristic engine) automatically active when GPU/Ollama is offline.
 - `LightweightForensicParser` AST inspection MUST resolve fully qualified callee names (e.g. `os.system`, `subprocess.Popen`, `pickle.loads`) rather than bare attribute names to prevent false-positive threat classifications on benign modules like `json.loads` or `asyncio.run`.
 - Exports telemetry via `opentelemetry-mcp` (OpenTelemetry Collector / Jaeger UI local runner).
+- Local MCP server adapters storing event streams or trace logs in memory (e.g., `OpenTelemetryMCPAdapter`) MUST use bounded queues (`collections.deque(maxlen=max_buffer_size)`) with configurable maximum capacities (defaulting to 1000 items) and provide explicit `clear_buffers()` methods to prevent memory growth in long-running daemons.
 
 ---
 
@@ -112,4 +113,5 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
 * **Pytest Asyncio Marker Scoping**: In test modules containing both synchronous (`def`) and asynchronous (`async def`) tests, do NOT declare global module-level `pytestmark = pytest.mark.asyncio`. Decorate `async def` test functions individually with `@pytest.mark.asyncio` to prevent `PytestWarning` on synchronous test functions.
 * **`aiohttp` Test Decorator Modernization**: Do not use the deprecated `@unittest_run_loop` decorator on `AioHTTPTestCase` subclasses; async test methods execute natively under modern `aiohttp` (>= 3.8).
 * **Pytest Custom Marker Registration**: All custom markers used in BDD features or unit tests (e.g., `@pytest.mark.guardrails`, `@pytest.mark.zero_ambient_authority`) MUST be explicitly registered under `[tool.pytest.ini_options].markers` in `pyproject.toml` to prevent `PytestUnknownMarkWarning`.
+* **Mocked Async Coroutine Teardown**: When mocking `asyncio.wait_for` or async wrapper functions with side-effects (e.g. raising `asyncio.TimeoutError`), the mock `side_effect` MUST invoke `if hasattr(fut, "close"): fut.close()` on the coroutine parameter before raising to prevent unawaited `RuntimeWarning` exceptions during garbage collection.
 
