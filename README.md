@@ -66,7 +66,7 @@ async def load_untrusted_dataset(url: str):
     return process(url)
 
 # Track 5: Native Local Forensic Triage Engine & OpenTelemetry MCP Adapter
-from blackwall.enterprise.forensics import ForensicTriageManager, OpenTelemetryMCPAdapter
+from blackwall.enterprise import ForensicTriageManager, OpenTelemetryMCPAdapter
 
 otel_adapter = OpenTelemetryMCPAdapter(endpoint="http://localhost:4318")
 manager = ForensicTriageManager(otel_adapter=otel_adapter)
