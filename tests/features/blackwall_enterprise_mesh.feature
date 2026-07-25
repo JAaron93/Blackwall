@@ -24,7 +24,7 @@ Feature: Blackwall Enterprise Security Mesh End-to-End Integration
 
   Scenario: Secret masking sidecar and Vault JIT token exchange
     Given an Ephemeral Identity Sidecar initialized on a worker node
-    And environment variables containing sensitive keys "AWS_SECRET_ACCESS_KEY=secret_key_123"
+    And environment variables containing sensitive keys "AWS_SECRET_ACCESS_KEY=BW_SYNTHETIC_MOCK_SECRET_0192"
     When the sidecar sterilizes the host environment
     Then real credentials are replaced with synthetic honey-tokens "BW_SYNTHETIC_AWS_SECRET_ACCESS_KEY"
     And any exfiltration attempt of "BW_SYNTHETIC_" triggers a "CRITICAL" threat alert

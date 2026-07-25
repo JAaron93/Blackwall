@@ -175,9 +175,9 @@ def init_identity_sidecar(state):
     run_async(state.vault_adapter.connect())
 
 
-@given('environment variables containing sensitive keys "AWS_SECRET_ACCESS_KEY=secret_key_123"')
+@given('environment variables containing sensitive keys "AWS_SECRET_ACCESS_KEY=BW_SYNTHETIC_MOCK_SECRET_0192"')
 def set_env_credentials(state):
-    state.env_before["AWS_SECRET_ACCESS_KEY"] = "secret_key_123"
+    state.env_before["AWS_SECRET_ACCESS_KEY"] = "BW_SYNTHETIC_MOCK_SECRET_0192"
 
 
 @when("the sidecar sterilizes the host environment")
