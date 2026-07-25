@@ -4,6 +4,7 @@ Interfaces with local OpenTelemetry Collector & Jaeger UI runners for out-of-ban
 Developer Cost: $0.00 (100% Free & Open Source)
 """
 
+import collections
 import logging
 import uuid
 from typing import Any, Dict, List
@@ -20,12 +21,14 @@ class OpenTelemetryMCPAdapter:
         self,
         endpoint: str = "http://localhost:4318",
         jaeger_ui: str = "http://localhost:16686",
+        max_buffer_size: int = 1000,
     ) -> None:
         self.endpoint: str = endpoint
         self.jaeger_ui: str = jaeger_ui
+        self.max_buffer_size: int = max_buffer_size
         self._is_connected: bool = False
-        self._exported_spans: List[Dict[str, Any]] = []
-        self._ingested_logs: List[Dict[str, Any]] = []
+        self._exported_spans: collections.deque[Dict[str, Any]] = collections.deque(maxlen=max_buffer_size)
+        self._ingested_logs: collections.deque[Dict[str, Any]] = collections.deque(maxlen=max_buffer_size)
 
     @property
     def is_connected(self) -> bool:
@@ -63,6 +66,12 @@ class OpenTelemetryMCPAdapter:
         """Disconnect from local OpenTelemetry Collector."""
         self._is_connected = False
         logger.info("OpenTelemetryMCPAdapter disconnected.")
+
+    def clear_buffers(self) -> None:
+        """Clear all buffered trace spans and ingested logs."""
+        self._exported_spans.clear()
+        self._ingested_logs.clear()
+        logger.debug("OpenTelemetryMCPAdapter buffers cleared.")
 
     async def export_trace_span(
         self, trace_id: str, span_name: str, attributes: Dict[str, Any]
@@ -107,3 +116,7 @@ class OpenTelemetryMCPAdapter:
     async def get_active_spans(self) -> List[Dict[str, Any]]:
         """Retrieve active or recently exported trace spans."""
         return list(self._exported_spans)
+
+    async def get_ingested_logs(self) -> List[Dict[str, Any]]:
+        """Retrieve active or recently ingested log events."""
+        return list(self._ingested_logs)

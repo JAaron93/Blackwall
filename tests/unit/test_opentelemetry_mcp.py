@@ -105,3 +105,37 @@ async def test_opentelemetry_mcp_get_active_spans():
     spans = await adapter.get_active_spans()
     assert len(spans) >= 2
     assert any(s["trace_id"] == "tr_1" for s in spans)
+
+
+@pytest.mark.asyncio
+async def test_opentelemetry_mcp_bounded_retention():
+    adapter = OpenTelemetryMCPAdapter(max_buffer_size=5)
+    await adapter.connect(verify_endpoint=False)
+
+    for i in range(10):
+        await adapter.export_trace_span(f"tr_{i}", f"span_{i}", {"seq": i})
+        await adapter.ingest_log_event({"msg": f"log_{i}"})
+
+    spans = await adapter.get_active_spans()
+    logs = await adapter.get_ingested_logs()
+    assert len(spans) == 5
+    assert len(logs) == 5
+    assert spans[0]["trace_id"] == "tr_5"
+    assert spans[-1]["trace_id"] == "tr_9"
+
+
+@pytest.mark.asyncio
+async def test_opentelemetry_mcp_clear_buffers():
+    adapter = OpenTelemetryMCPAdapter()
+    await adapter.connect(verify_endpoint=False)
+
+    await adapter.export_trace_span("tr_clear", "span_clear", {})
+    await adapter.ingest_log_event({"msg": "clear_me"})
+
+    assert len(await adapter.get_active_spans()) == 1
+    assert len(await adapter.get_ingested_logs()) == 1
+
+    adapter.clear_buffers()
+
+    assert len(await adapter.get_active_spans()) == 0
+    assert len(await adapter.get_ingested_logs()) == 0
