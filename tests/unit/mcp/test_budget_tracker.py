@@ -1,4 +1,5 @@
 import asyncio
+import gc
 import pytest
 from blackwall.mcp.gti_client import GTIQueryBudgetTracker
 
@@ -113,6 +114,8 @@ def test_budget_tracker_sync_instantiation_no_running_loop(recwarn):
     try:
         assert tracker.tokens == 4.0
         assert tracker._replenish_task is None
+        # Force garbage collection to trigger warning if unawaited coroutine was instantiated
+        gc.collect()
         runtime_warnings = [w for w in recwarn.list if issubclass(w.category, RuntimeWarning)]
         assert len(runtime_warnings) == 0, f"Expected 0 RuntimeWarnings, got: {runtime_warnings}"
     finally:
