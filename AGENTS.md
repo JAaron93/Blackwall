@@ -1,4 +1,4 @@
-# Macroscope & Antigravity Agent Constitution: Blackwall Project Context & Architecture
+# Qodo & Antigravity Agent Constitution: Blackwall Project Context & Architecture
 
 ## 1. Dual-Tier Project Context & Requirements
 
@@ -15,11 +15,11 @@ Blackwall is structured into **two distinct product tiers**:
 
 ---
 
-## 2. Macroscope Review Agent Directives & SDD Rules
+## 2. Qodo Review Agent Directives & SDD Rules
 
-All code submitted via pull requests or feature branches must be reviewed against these Macroscope agent guardrails:
+All code submitted via pull requests or feature branches must be reviewed against these Qodo agent guardrails:
 
-* **No CodeRabbit Residuals**: Replace legacy CodeRabbit review directives with Macroscope agent review standards. Macroscope reviews must verify both Core and Enterprise architecture invariants.
+* **Qodo Review Directives**: Enforce Qodo agent review standards configured in `.qodo.yaml` and `pr_compliance_checklist.yaml`. Qodo reviews must verify both Core and Enterprise architecture invariants.
 * **Spec-Driven Consistency**: All edits must align with `.kiro/specs/blackwall-enterprise-security-mesh/` (`design.md`, `requirements.md`, `tasks.md`).
 * **Behavior-Driven Specifications**: Verify all security behavior contracts using Gherkin syntax via `pytest-bdd` scenarios in `tests/features/`.
 * **Strict Test-Driven Development (TDD)**: Every feature addition or bug fix must include a failing unit test or reproduction script before code changes are staged.
@@ -28,7 +28,7 @@ All code submitted via pull requests or feature branches must be reviewed agains
 
 ## 3. Core Architecture & Interception Flow (Base Branch Invariants)
 
-Macroscope reviews must enforce the existing base branch architectural patterns:
+Qodo reviews must enforce the existing base branch architectural patterns:
 
 1. **Async Interception Resolver (`SyncResolver`) Sequence**:
    - Execution flow MUST follow: `Rate Check` -> `ContextHygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Conditional GTI Validation (High-Risk Only)` -> `Score Aggregation` -> `Threshold Verdict` -> `Optional Inline Signature Generation`.
