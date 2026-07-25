@@ -105,6 +105,10 @@ async def test_budget_tracker_concurrent_access():
 
 def test_budget_tracker_sync_instantiation_no_running_loop(recwarn):
     """Test that instantiating GTIQueryBudgetTracker outside an event loop does not emit unawaited coroutine RuntimeWarning."""
+    # Explicitly verify there is no running event loop in this test context
+    with pytest.raises(RuntimeError, match="no running event loop"):
+        asyncio.get_running_loop()
+
     tracker = GTIQueryBudgetTracker(capacity=4)
     try:
         assert tracker.tokens == 4.0
