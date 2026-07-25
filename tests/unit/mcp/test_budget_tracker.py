@@ -101,3 +101,15 @@ async def test_budget_tracker_concurrent_access():
         assert metrics.queries_deferred == 6
     finally:
         tracker.close()
+
+
+def test_budget_tracker_sync_instantiation_no_running_loop(recwarn):
+    """Test that instantiating GTIQueryBudgetTracker outside an event loop does not emit unawaited coroutine RuntimeWarning."""
+    tracker = GTIQueryBudgetTracker(capacity=4)
+    try:
+        assert tracker.tokens == 4.0
+        assert tracker._replenish_task is None
+        runtime_warnings = [w for w in recwarn.list if issubclass(w.category, RuntimeWarning)]
+        assert len(runtime_warnings) == 0, f"Expected 0 RuntimeWarnings, got: {runtime_warnings}"
+    finally:
+        tracker.close()
