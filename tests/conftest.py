@@ -10,6 +10,17 @@ def fixture_log_output() -> LogCapture:
 
 
 @pytest.fixture(autouse=True)
+def fixture_gcp_vertex_ai_env(monkeypatch) -> None:
+    """Ensure GCP Vertex AI Mode environment variables are present during tests."""
+    monkeypatch.setenv("GCP_PROJECT", "dummy-gcp-project")
+    monkeypatch.setenv("GCP_LOCATION", "global")
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    monkeypatch.setenv("GEMINI_TIER", "paid")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def fixture_configure_structlog(log_output: LogCapture) -> None:
     structlog.configure(
         processors=[log_output],

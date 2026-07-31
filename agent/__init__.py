@@ -59,11 +59,11 @@ def _get_resolver() -> Any:
     from blackwall.db.repository import SQLiteThreatRepository
     from blackwall.mcp.gti_client import GTIMCPClient
     from blackwall.mcp.codebase_memory import CodebaseMemoryClient
-    from google import genai
+    from blackwall.config import get_genai_client
 
     db_path = os.getenv("BLACKWALL_DB_PATH", "./blackwall.db")
     repo = SQLiteThreatRepository(db_path)
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY", ""))
+    client = get_genai_client()
 
     gti_client = GTIMCPClient(
         repo=repo,

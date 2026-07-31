@@ -8,6 +8,10 @@ qodo:
   require_score_review: false
   enable_semantic_files_types: true
 
+  # Compliance Checklist Reference
+  compliance:
+    custom_compliance_path: "pr_compliance_checklist.yaml"
+
   # GitHub App Automation Triggers
   github_app:
     # Automated commands when a PR is opened, reopened, or marked ready
@@ -15,6 +19,7 @@ qodo:
     pr_commands:
       - "/describe"
       - "/review"
+      - "/compliance"
 
     # Automatically re-run reviews whenever new commits are pushed to an open PR
     handle_push_trigger: true
@@ -30,11 +35,8 @@ qodo:
     auto_describe: true
     auto_improve: false
     require_score_review: false
-    num_code_suggestions: 4
-    inline_code_comments: true
-
-    # Imperative Directives Translated from Macroscope Constitutions
     extra_instructions: |
+      - Mandatory 100% GCP Vertex AI Mode: Flag any PR reintroducing Google AI Studio API key configurations (e.g. GEMINI_API_KEY, LLM_API_KEY) or free-tier rate limit fallbacks. Ensure google-genai clients instantiate with vertexai=True, require GCP_PROJECT, and run in paid tier mode.
       - Verify that Blackwall Core (`src/blackwall/core/` or top-level `src/blackwall/`) remains a lightweight single-host daemon and does not import ZeroMQ, NATS, or eBPF C headers.
       - Ensure all enterprise capabilities (eBPF probes, ZeroMQ threat mesh, ephemeral identity sidecars, micro-sandbox wrappers, forensic engine) are cleanly isolated under `src/blackwall/enterprise/`.
       - Verify that execution flow in `SyncResolver` strictly maintains the order: Rate Check -> ContextHygiene Sanitization -> Threat Signature Graph Check -> Codebase Memory MCP AST Query -> Conditional GTI Validation -> Score Aggregation -> Threshold Verdict.

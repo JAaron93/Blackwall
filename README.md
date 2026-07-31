@@ -18,7 +18,7 @@ Blackwall is a production-ready local MVP autonomous Agentic Firewall designed f
 git clone https://github.com/JAaron93/Blackwall.git
 cd Blackwall
 pip install -e . && pip install certifi
-cp .env.example .env  # Add your GEMINI_API_KEY
+cp .env.example .env  # Add your GCP_PROJECT
 python3 demo_live.py
 ```
 
@@ -169,7 +169,7 @@ cp .env.example .env
 
 # Edit .env with your API keys
 nano .env
-# Set: GEMINI_API_KEY, GTI_MCP_API_KEY, BLACKWALL_VAULT_KEY
+# Set: GCP_PROJECT, GTI_MCP_API_KEY, BLACKWALL_VAULT_KEY
 ```
 
 ### Run the Evaluation
