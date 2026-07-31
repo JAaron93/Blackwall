@@ -1,4 +1,5 @@
 import asyncio
+import gc
 import pytest
 from blackwall.mcp.gti_client import GTIQueryBudgetTracker
 
@@ -99,5 +100,23 @@ async def test_budget_tracker_concurrent_access():
         assert metrics.queries_attempted == 10
         assert metrics.queries_executed == 4
         assert metrics.queries_deferred == 6
+    finally:
+        tracker.close()
+
+
+def test_budget_tracker_sync_instantiation_no_running_loop(recwarn):
+    """Test that instantiating GTIQueryBudgetTracker outside an event loop does not emit unawaited coroutine RuntimeWarning."""
+    # Explicitly verify there is no running event loop in this test context
+    with pytest.raises(RuntimeError, match="no running event loop"):
+        asyncio.get_running_loop()
+
+    tracker = GTIQueryBudgetTracker(capacity=4)
+    try:
+        assert tracker.tokens == 4.0
+        assert tracker._replenish_task is None
+        # Force garbage collection to trigger warning if unawaited coroutine was instantiated
+        gc.collect()
+        runtime_warnings = [w for w in recwarn.list if issubclass(w.category, RuntimeWarning)]
+        assert len(runtime_warnings) == 0, f"Expected 0 RuntimeWarnings, got: {runtime_warnings}"
     finally:
         tracker.close()

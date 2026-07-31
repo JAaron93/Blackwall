@@ -1,0 +1,32 @@
+# Qodo PR Compliance Checklist Configuration (pr_compliance_checklist.yaml)
+# Strict repository policy and security compliance checkpoints for Blackwall Security Suite.
+
+requirement_1:
+  title: "Core Tier Architecture & Zero-eBPF Integrity"
+  description: "Verify Blackwall Core contains zero ZeroMQ/NATS cluster mesh or eBPF C dependencies and remains a single-host daemon."
+  severity: "CRITICAL"
+
+requirement_2:
+  title: "Enterprise Subsystem Modularization"
+  description: "Verify all enterprise mesh capabilities (eBPF probes, ZeroMQ pub/sub, Vault sidecars, sandboxes, forensic engine) are isolated under src/blackwall/enterprise/."
+  severity: "HIGH"
+
+requirement_3:
+  title: "Synthetic Honey-Token & Secret Masking Compliance"
+  description: "Verify sensitive environment variables in enterprise identity components use BW_SYNTHETIC_* placeholders and route JIT swaps via hashicorp-vault-mcp."
+  severity: "CRITICAL"
+
+requirement_4:
+  title: "Test-Driven Development (TDD) & BDD Coverage"
+  description: "Ensure PRs modifying src/ include corresponding unit/integration tests in tests/ and validate security contracts via pytest-bdd in tests/features/."
+  severity: "HIGH"
+
+requirement_5:
+  title: "Secret Scanner Hygiene in Test Artifacts"
+  description: "Ensure test files contain no live cloud credential patterns or high-entropy secret prefixes (e.g. AWS_KEY_<digits>)."
+  severity: "HIGH"
+
+requirement_6:
+  title: "Process Group Cleanup & Audit Hook Scoping"
+  description: "Verify sys.addaudithook imports in test modules are deferred to function scope and background test processes clean up process groups via os.killpg."
+  severity: "MEDIUM"

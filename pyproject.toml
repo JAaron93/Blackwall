@@ -46,6 +46,10 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "guardrails: Security guardrail test scenarios",
+    "zero_ambient_authority: Zero ambient authority test scenarios",
+]
 
 [tool.ruff]
 line-length = 88
