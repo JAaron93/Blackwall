@@ -1,32 +1,67 @@
 # Qodo PR Compliance Checklist Configuration (pr_compliance_checklist.yaml)
 # Strict repository policy and security compliance checkpoints for Blackwall Security Suite.
+# Translated from Macroscope Code Review Rules (.macroscope/review-agent.md & AGENTS.md)
 
-requirement_1:
-  title: "Core Tier Architecture & Zero-eBPF Integrity"
-  description: "Verify Blackwall Core contains zero ZeroMQ/NATS cluster mesh or eBPF C dependencies and remains a single-host daemon."
-  severity: "CRITICAL"
+pr_compliances:
+  - title: "100% GCP Vertex AI Mode (Paid Tier) Vendor Compliance"
+    compliance_label: true
+    objective: "Enforce 100% GCP Vertex AI Mode (vertexai=True, GCP_PROJECT) and lock GEMINI_TIER to paid tier without AI Studio API keys."
+    success_criteria: "Google GenAI clients instantiate with vertexai=True, require GCP_PROJECT, and run in paid tier mode."
+    failure_criteria: "PR reintroduces Google AI Studio API key configurations (GEMINI_API_KEY, LLM_API_KEY) or free-tier rate limit fallbacks."
+    severity: "CRITICAL"
 
-requirement_2:
-  title: "Enterprise Subsystem Modularization"
-  description: "Verify all enterprise mesh capabilities (eBPF probes, ZeroMQ pub/sub, Vault sidecars, sandboxes, forensic engine) are isolated under src/blackwall/enterprise/."
-  severity: "HIGH"
+  - title: "Core Tier Architecture & Zero-eBPF Integrity"
+    compliance_label: true
+    objective: "Verify Blackwall Core contains zero ZeroMQ/NATS cluster mesh or eBPF C dependencies and remains a single-host daemon."
+    success_criteria: "Files under src/blackwall/ outside enterprise/ contain zero imports or dependencies on ZeroMQ, NATS, or eBPF C headers."
+    failure_criteria: "PR introduces ZeroMQ/NATS mesh networking or eBPF C headers into Blackwall Core."
+    severity: "CRITICAL"
 
-requirement_3:
-  title: "Synthetic Honey-Token & Secret Masking Compliance"
-  description: "Verify sensitive environment variables in enterprise identity components use BW_SYNTHETIC_* placeholders and route JIT swaps via hashicorp-vault-mcp."
-  severity: "CRITICAL"
+  - title: "Enterprise Subsystem Modularization"
+    compliance_label: true
+    objective: "Verify all enterprise mesh capabilities (eBPF probes, ZeroMQ pub/sub, Vault sidecars, sandboxes, forensic engine) are isolated under src/blackwall/enterprise/."
+    success_criteria: "Enterprise features (eBPF kernel probes, ZeroMQ threat mesh, Vault sidecar, container sandboxes, local forensic engine) are cleanly modularized inside src/blackwall/enterprise/."
+    failure_criteria: "Enterprise capabilities leak into Blackwall Core directory instead of remaining under src/blackwall/enterprise/."
+    severity: "HIGH"
 
-requirement_4:
-  title: "Test-Driven Development (TDD) & BDD Coverage"
-  description: "Ensure PRs modifying src/ include corresponding unit/integration tests in tests/ and validate security contracts via pytest-bdd in tests/features/."
-  severity: "HIGH"
+  - title: "Async Interception Pipeline Resolver Order"
+    compliance_label: true
+    objective: "Verify SyncResolver execution flow strictly maintains: Rate Check -> ContextHygiene Sanitization -> TSG Check -> CBM AST Query -> Conditional GTI Validation -> Score Aggregation -> Threshold Verdict."
+    success_criteria: "SyncResolver maintains the exact 7-stage execution sequence."
+    failure_criteria: "SyncResolver execution order is modified or bypasses sanitization, TSG, or CBM AST stages."
+    severity: "CRITICAL"
 
-requirement_5:
-  title: "Secret Scanner Hygiene in Test Artifacts"
-  description: "Ensure test files contain no live cloud credential patterns or high-entropy secret prefixes (e.g. AWS_KEY_<digits>)."
-  severity: "HIGH"
+  - title: "Synthetic Honey-Token & Secret Masking Compliance"
+    compliance_label: true
+    objective: "Verify sensitive environment variables in enterprise identity components use BW_SYNTHETIC_* placeholders and route JIT swaps via hashicorp-vault-mcp."
+    success_criteria: "Environment variable readers in src/blackwall/enterprise/identity/ replace sensitive keys with BW_SYNTHETIC_* honey-tokens and handle JIT swaps via hashicorp-vault-mcp."
+    failure_criteria: "Raw sensitive credentials (e.g. AWS_SECRET_ACCESS_KEY, KUBECONFIG) are stored or accessed without synthetic honey-tokens."
+    severity: "CRITICAL"
 
-requirement_6:
-  title: "Process Group Cleanup & Audit Hook Scoping"
-  description: "Verify sys.addaudithook imports in test modules are deferred to function scope and background test processes clean up process groups via os.killpg."
-  severity: "MEDIUM"
+  - title: "Forensic Engine Dual-Mode & AST Resolution Integrity"
+    compliance_label: true
+    objective: "Verify ForensicTriageEngine supports Ollama open-weight LLM triage with automatic failover to LightweightForensicParser, resolving fully qualified callee names."
+    success_criteria: "Forensic engine falls back to LightweightForensicParser when GPU/Ollama is offline, and AST inspection resolves fully qualified callee names (e.g. os.system, subprocess.Popen)."
+    failure_criteria: "Missing failover handler or AST inspection using bare attribute names that produce false positives."
+    severity: "HIGH"
+
+  - title: "Test-Driven Development (TDD) & BDD Coverage"
+    compliance_label: true
+    objective: "Ensure PRs modifying src/ include corresponding unit/integration tests in tests/ and validate security contracts via pytest-bdd in tests/features/."
+    success_criteria: "PRs modifying source code include unit or integration tests in tests/ and BDD feature scenarios in tests/features/."
+    failure_criteria: "Source code changes submitted without unit/integration tests or BDD feature coverage."
+    severity: "HIGH"
+
+  - title: "Secret Scanner Hygiene in Test Artifacts"
+    compliance_label: true
+    objective: "Ensure test files contain no live cloud credential patterns or high-entropy secret prefixes (e.g. AWS_KEY_<digits>)."
+    success_criteria: "Synthetic test data strings use clean non-matching placeholders rather than live cloud credential format patterns."
+    failure_criteria: "Test files contain strings matching live cloud key formats (e.g. AWS_KEY_12345)."
+    severity: "HIGH"
+
+  - title: "Process Group Cleanup & Audit Hook Scoping"
+    compliance_label: true
+    objective: "Verify sys.addaudithook imports in test modules are deferred to function scope and background test processes clean up process groups via os.killpg."
+    success_criteria: "sys.addaudithook registrations in tests are scoped inside isolated test functions and background processes use os.killpg process group cleanup."
+    failure_criteria: "Global sys.addaudithook calls in test modules or missing os.killpg cleanup for child processes."
+    severity: "MEDIUM"

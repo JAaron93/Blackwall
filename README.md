@@ -18,7 +18,7 @@ Blackwall is a production-ready local MVP autonomous Agentic Firewall designed f
 git clone https://github.com/JAaron93/Blackwall.git
 cd Blackwall
 pip install -e . && pip install certifi
-cp .env.example .env  # Add your GEMINI_API_KEY
+cp .env.example .env  # Add your GCP_PROJECT
 python3 demo_live.py
 ```
 
@@ -169,19 +169,14 @@ cp .env.example .env
 
 # Edit .env with your API keys
 nano .env
-# Set: GEMINI_API_KEY, GTI_MCP_API_KEY, BLACKWALL_VAULT_KEY
+# Set: GCP_PROJECT, GTI_MCP_API_KEY, BLACKWALL_VAULT_KEY
 ```
 
 ### Run the Evaluation
 
 ```bash
-# Free tier (judge-friendly, no billing required)
-bash scripts/run_evasion_eval_free.sh
-
-# Expected runtime: 8-10 minutes for 120 test cases
-# Or paid tier (requires billing)
-BLACKWALL_TIER=paid bash scripts/run_evasion_eval.sh
-# Expected runtime: ~40 seconds with async batching
+# Evasion evaluation proof script (100% GCP Vertex AI Mode)
+bash scripts/run_evasion_eval.sh
 ```
 
 **Expected output (Free Tier):**
@@ -402,7 +397,7 @@ pytest tests/property/ -v
 
 ### Full Evaluation Suite (120 Cases)
 ```bash
-bash scripts/run_evasion_eval_free.sh
+bash scripts/run_evasion_eval.sh
 # Wave 1: 5 novel attacks → semantic evaluation → signatures learned
 # Wave 2: 5 structural variants → signature matching → 100x+ speedup
 ```
@@ -419,7 +414,7 @@ pytest tests/features/blackwall_guardrails.feature -v
 
 | Document | Purpose |
 |----------|---------|
-| **[JUDGE_EVALUATION.md](JUDGE_EVALUATION.md)** | Complete free-tier reproduction guide (no billing required) |
+| **[JUDGE_EVALUATION.md](JUDGE_EVALUATION.md)** | Complete reproduction guide (100% GCP Vertex AI Mode) |
 | **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** | Known issues and workarounds (evaluation performance) |
 | **[design.md](.kiro/specs/blackwall-agentic-firewall/design.md)** | Full technical design (40+ pages, all architectural details) |
 | **[requirements.md](.kiro/specs/blackwall-agentic-firewall/requirements.md)** | 28 EARS-compliant requirements with acceptance criteria |
@@ -465,8 +460,8 @@ pytest tests/features/blackwall_guardrails.feature -v
 
 ### How to Verify Claims
 
-1. **Start Here:** [JUDGE_EVALUATION.md](JUDGE_EVALUATION.md) (5-minute setup, no billing)
-2. **Run Free Tier:** `bash scripts/run_evasion_eval_free.sh` (8-10 minutes)
+1. **Start Here:** [JUDGE_EVALUATION.md](JUDGE_EVALUATION.md) (5-minute setup)
+2. **Run Evaluation:** `bash scripts/run_evasion_eval.sh`
 3. **See Results:** Wave 1 blocks novel attacks → Wave 2 blocks variants 100x faster
 4. **Read Design:** [design.md](.kiro/specs/blackwall-agentic-firewall/design.md) for full architecture
 
@@ -523,9 +518,9 @@ Kaggle "AI Agents: Intensive Vibe Coding" Hackathon, Freestyle Track
 
 ## 🚀 Ready to Get Started?
 
-**For Judges (Free Tier):**
-1. See [JUDGE_EVALUATION.md](JUDGE_EVALUATION.md) for complete setup (5 minutes, no billing)
-2. Run `bash scripts/run_evasion_eval_free.sh`
+**For Judges:**
+1. See [JUDGE_EVALUATION.md](JUDGE_EVALUATION.md) for complete setup (5 minutes)
+2. Run `bash scripts/run_evasion_eval.sh`
 3. Review results and check [design.md](.kiro/specs/blackwall-agentic-firewall/design.md)
 
 **For Developers:**

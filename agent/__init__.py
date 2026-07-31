@@ -59,11 +59,11 @@ def _get_resolver() -> Any:
     from blackwall.db.repository import SQLiteThreatRepository
     from blackwall.mcp.gti_client import GTIMCPClient
     from blackwall.mcp.codebase_memory import CodebaseMemoryClient
-    from google import genai
+    from blackwall.config import get_genai_client
 
     db_path = os.getenv("BLACKWALL_DB_PATH", "./blackwall.db")
     repo = SQLiteThreatRepository(db_path)
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY", ""))
+    client = get_genai_client()
 
     gti_client = GTIMCPClient(
         repo=repo,
@@ -153,9 +153,17 @@ def http_request(url: str, method: str = "GET", body: str = "") -> dict[str, Any
 # ---------------------------------------------------------------------------
 agent = _sys.modules[__name__]
 
-# ---------------------------------------------------------------------------
-# root_agent — required export for `adk run` and `adk eval`
-# ---------------------------------------------------------------------------
+from blackwall.config import configure_provider_env
+
+# Ensure provider environment (GCP_PROJECT check, Vertex AI mode) is initialized for ADK root_agent.
+# In production, a missing GCP_PROJECT immediately raises ValueError to prevent silent misconfiguration.
+try:
+    configure_provider_env()
+except ValueError as exc:
+    if "PYTEST_CURRENT_TEST" in os.environ or "BLACKWALL_TEST_MODE" in os.environ:
+        logger.warning("GCP_PROJECT omitted during test module import: %s", exc)
+    else:
+        raise
 
 _model = os.getenv("BLACKWALL_MODEL", "gemini-3.1-flash-lite")
 

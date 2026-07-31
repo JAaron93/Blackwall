@@ -18,7 +18,7 @@
 #   bash scripts/run_evasion_eval.sh
 #
 # REQUIREMENTS:
-#   - GEMINI_API_KEY must be set in environment or .env file
+#   - GCP_PROJECT or GOOGLE_CLOUD_PROJECT must be set in environment or .env file
 #   - Python 3.x with sqlite3 module (stdlib)
 #   - agents-cli installed (pip install -e ".[dev]")
 #   - adk installed (pip install google-adk)
@@ -59,18 +59,23 @@ if [[ -f "${REPO_ROOT}/.env" ]]; then
   load_env_file "${REPO_ROOT}/.env"
 fi
 
-if [[ -z "${GEMINI_API_KEY:-}" ]]; then
-  echo -e "${RED}ERROR: GEMINI_API_KEY is not set.${RESET}"
+GCP_PROJ="${GCP_PROJECT:-${GOOGLE_CLOUD_PROJECT:-}}"
+if [[ -z "${GCP_PROJ}" ]]; then
+  echo -e "${RED}ERROR: GCP_PROJECT or GOOGLE_CLOUD_PROJECT is not set.${RESET}"
   echo ""
   echo "  Set it in your environment:"
-  echo "    export GEMINI_API_KEY=your_key_here"
+  echo "    export GCP_PROJECT=your_gcp_project_id"
   echo ""
-  echo "  Or copy .env.example to .env and fill in your key:"
+  echo "  Or copy .env.example to .env and fill in your GCP project:"
   echo "    cp .env.example .env && nano .env"
   exit 1
 fi
 
-echo -e "  ${GREEN}✓${RESET} GEMINI_API_KEY is set"
+export GOOGLE_GENAI_USE_VERTEXAI="true"
+export GEMINI_TIER="paid"
+
+echo -e "  ${GREEN}✓${RESET} GCP_PROJECT is set (${GCP_PROJ})"
+echo -e "  ${GREEN}✓${RESET} 100% GCP Vertex AI Mode (Paid Tier) active"
 
 # ---------------------------------------------------------------------------
 # 2. Start a fresh Blackwall daemon with clean state

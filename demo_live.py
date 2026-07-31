@@ -16,7 +16,7 @@ from blackwall.mcp.gti_client import GTIMCPClient
 from blackwall.mcp.codebase_memory import CodebaseMemoryClient
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.models import ToolCallContext
-from google import genai
+from blackwall.config import get_genai_client
 import os
 from dotenv import load_dotenv
 
@@ -76,9 +76,9 @@ async def main():
     print_step("✓", "Codebase Memory connected", Colors.GREEN)
     
     # Initialize Gemini
-    print_step("🤖", "Connecting to Gemini API for semantic evaluation...")
-    client = genai.Client(api_key=os.getenv('GEMINI_API_KEY', ''))
-    print_step("✓", "Gemini client ready", Colors.GREEN)
+    print_step("🤖", "Connecting to GCP Vertex AI for semantic evaluation...")
+    client = get_genai_client()
+    print_step("✓", "Gemini client ready (Vertex AI Mode)", Colors.GREEN)
     
     # Create resolver
     print_step("⚙️", "Assembling SyncResolver (3-signal fusion)...")
