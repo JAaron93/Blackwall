@@ -437,7 +437,6 @@ async def test_high_risk_event_classification(temp_repo):
 
 @pytest.mark.asyncio
 async def test_suspicion_score_calculation(temp_repo):
-    from blackwall.policy.engine import StructuralGatingResult, StructuralAction
     from blackwall.policy.semantic import extract_iocs
     
     engine = SemanticGatingEngine(repo=temp_repo)
@@ -510,7 +509,6 @@ async def test_gti_query_budget_tracker_integration():
 @pytest.mark.asyncio
 async def test_gti_query_skipped_and_redistributed_on_budget_exhaustion(temp_repo):
     from blackwall.mcp.gti_client import GTIQueryBudgetTracker
-    from blackwall.models import IndicatorType
     
     # Mock GTI and CBM
     mock_gti = MagicMock(spec=GTIMCPClient)

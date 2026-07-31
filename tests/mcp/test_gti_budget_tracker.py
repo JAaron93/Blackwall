@@ -1,7 +1,6 @@
 import asyncio
 import pytest
-from unittest.mock import patch
-from blackwall.mcp.gti_budget_tracker import GTIQueryBudgetTracker, GTIBudgetMetrics
+from blackwall.mcp.gti_budget_tracker import GTIQueryBudgetTracker
 
 @pytest.mark.asyncio
 async def test_initializes_with_four_tokens():

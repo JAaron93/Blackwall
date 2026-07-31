@@ -1,0 +1,88 @@
+# Blackwall Agentic Firewall Production-Ready Policy Configuration
+version: "1.0.0"
+
+global:
+  threatThreshold: 0.75
+  quarantineThreshold: 0.5
+  enableStructuralGating: true
+  enableSemanticGating: true
+
+environmentRoles:
+  sandbox:
+    allowedTools: ["read_file", "list_dir"]
+    blockedTools: []
+    requireSemanticReview: false
+    maxThreatScore: 0.8
+  development:
+    allowedTools: ["read_file", "list_dir"]
+    blockedTools: []
+    requireSemanticReview: false
+    maxThreatScore: 0.7
+  staging:
+    allowedTools: ["read_file", "list_dir"]
+    blockedTools: ["execute_bash"]
+    requireSemanticReview: true
+    maxThreatScore: 0.6
+  production:
+    allowedTools: []
+    blockedTools: ["execute_bash", "run_python", "install_package"]
+    requireSemanticReview: true
+    maxThreatScore: 0.5
+
+structuralRules:
+  - ruleId: "rule-block-dangerous-tools-prod-staging"
+    condition: "(toolName == 'execute_bash' or toolName == 'run_python' or toolName == 'install_package') and (environmentRole == 'production' or environmentRole == 'staging')"
+    action: BLOCK
+    priority: 1
+    enabled: true
+  - ruleId: "rule-escalate-write-operations"
+    condition: "toolName == 'write_file'"
+    action: ESCALATE_TO_SEMANTIC
+    priority: 2
+    enabled: true
+  - ruleId: "rule-escalate-network-operations"
+    condition: "toolName == 'web_search' and (environmentRole == 'production' or environmentRole == 'staging' or environmentRole == 'sandbox')"
+    action: ESCALATE_TO_SEMANTIC
+    priority: 3
+    enabled: true
+  - ruleId: "rule-allow-safe-read-dev"
+    condition: "(toolName == 'read_file' or toolName == 'list_dir') and environmentRole == 'development'"
+    action: ALLOW
+    priority: 4
+    enabled: true
+    requireSemanticReview: false
+  - ruleId: "rule-allow-safe-read-sandbox"
+    condition: "(toolName == 'read_file' or toolName == 'list_dir') and environmentRole == 'sandbox'"
+    action: ALLOW
+    priority: 5
+    enabled: true
+    requireSemanticReview: false
+
+semanticGuidelines:
+  - "Do not allow execution of shell commands containing piping, redirection, or command chaining operators (|, &&, ||, ;, `)."
+  - "Ensure no sensitive credentials or internal keys are leaked to external network tools or search engines."
+  - "Verify that all file read operations are restricted to non-system, non-configuration directories."
+  - "Block any tool argument patterns matching SQL injection, path traversal, or command injection payloads."
+
+mcpServers:
+  gti:
+    enabled: true
+    apiKey: "vault://gti"
+    cacheEnabled: true
+    cacheTTL: 86400
+    timeout: 5000
+  codebaseMemory:
+    enabled: true
+    apiKey: "vault://cbm"
+    cacheEnabled: true
+    cacheTTL: 3600
+    timeout: 2000
+
+threatSignatureGraph:
+  dbPath: "./blackwall_tsg.db"
+  walMode: true
+  maxConnections: 10
+  similarityThreshold: 0.85
+  ttlSeconds: 86400
+  maxSignatures: 10000
+  embeddingDimension: 768

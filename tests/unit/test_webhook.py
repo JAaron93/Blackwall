@@ -5,7 +5,7 @@ import os
 import tempfile
 import time
 import uuid
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import patch
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
