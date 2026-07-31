@@ -1,4 +1,4 @@
-# Macroscope & Antigravity Agent Constitution: Blackwall Project Context & Architecture
+# Qodo & Antigravity Agent Constitution: Blackwall Project Context & Architecture
 
 ## 1. Dual-Tier Project Context & Requirements
 
@@ -15,11 +15,11 @@ Blackwall is structured into **two distinct product tiers**:
 
 ---
 
-## 2. Macroscope Review Agent Directives & SDD Rules
+## 2. Qodo Review Agent Directives & SDD Rules
 
-All code submitted via pull requests or feature branches must be reviewed against these Macroscope agent guardrails:
+All code submitted via pull requests or feature branches must be reviewed against these Qodo agent guardrails:
 
-* **No CodeRabbit Residuals**: Replace legacy CodeRabbit review directives with Macroscope agent review standards. Macroscope reviews must verify both Core and Enterprise architecture invariants.
+* **Qodo Review Directives**: Enforce Qodo agent review standards configured in `.qodo.yaml` and `pr_compliance_checklist.yaml`. Qodo reviews must verify both Core and Enterprise architecture invariants.
 * **Spec-Driven Consistency**: All edits must align with `.kiro/specs/blackwall-enterprise-security-mesh/` (`design.md`, `requirements.md`, `tasks.md`).
 * **Behavior-Driven Specifications**: Verify all security behavior contracts using Gherkin syntax via `pytest-bdd` scenarios in `tests/features/`.
 * **Strict Test-Driven Development (TDD)**: Every feature addition or bug fix must include a failing unit test or reproduction script before code changes are staged.
@@ -28,7 +28,7 @@ All code submitted via pull requests or feature branches must be reviewed agains
 
 ## 3. Core Architecture & Interception Flow (Base Branch Invariants)
 
-Macroscope reviews must enforce the existing base branch architectural patterns:
+Qodo reviews must enforce the existing base branch architectural patterns:
 
 1. **Async Interception Resolver (`SyncResolver`) Sequence**:
    - Execution flow MUST follow: `Rate Check` -> `ContextHygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Conditional GTI Validation (High-Risk Only)` -> `Score Aggregation` -> `Threshold Verdict` -> `Optional Inline Signature Generation`.
@@ -66,7 +66,9 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
 - Out-of-band telemetry log stream analyzer with **Dual-Mode execution**:
   - **Primary**: Local Ollama open-weight LLM endpoint (Qwen3 / GLM-5.2) without cloud safety refusals.
   - **Fallback**: `LightweightForensicParser` (regex/AST heuristic engine) automatically active when GPU/Ollama is offline.
+- `LightweightForensicParser` AST inspection MUST resolve fully qualified callee names (e.g. `os.system`, `subprocess.Popen`, `pickle.loads`) rather than bare attribute names to prevent false-positive threat classifications on benign modules like `json.loads` or `asyncio.run`.
 - Exports telemetry via `opentelemetry-mcp` (OpenTelemetry Collector / Jaeger UI local runner).
+- Local MCP server adapters storing event streams or trace logs in memory (e.g., `OpenTelemetryMCPAdapter`) MUST use bounded queues (`collections.deque(maxlen=max_buffer_size)`) with configurable maximum capacities (defaulting to 1000 items) and provide explicit `clear_buffers()` methods to prevent memory growth in long-running daemons.
 
 ---
 
@@ -107,3 +109,9 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
 * **SLA Default Validation**: SLA helper functions (`safe_sla_limit`) MUST validate that default parameters are finite, positive numbers (`math.isfinite(default) and default > 0.0`) before returning.
 * **Mock Credential Hygiene for Secret Scanners**: When creating synthetic test inputs or honey-token strings in unit/integration tests, NEVER use strings containing cloud provider keyword patterns (e.g. `AWS_KEY`, `AKIA`, `SLACK_TOKEN`) or high-entropy literals with `secret_`/`key_`/`pass_` prefixes (e.g. `secret_abc123_xyz`). Always use generic prefixes such as `BW_SYNTHETIC_MOCK_SECRET_0192` to prevent automated secret scanners (GitGuardian) from triggering false-positive alerts.
 * **Worktree Environment Path Alignment**: When executing test suites inside isolated git worktrees, ensure `pip install -e .` is run or pass `PYTHONPATH=src` so pytest imports modules from the current worktree rather than stale global site-packages.
+* **Async Coroutine Creation Safety**: When lazy-starting background tasks in classes or trackers (e.g. `_ensure_task_started()`), retrieve the running loop via `asyncio.get_running_loop()` before calling the coroutine function (e.g., `loop.create_task(self._loop())`) to prevent unawaited coroutine `RuntimeWarning` exceptions if no event loop is running.
+* **Pytest Asyncio Marker Scoping**: In test modules containing both synchronous (`def`) and asynchronous (`async def`) tests, do NOT declare global module-level `pytestmark = pytest.mark.asyncio`. Decorate `async def` test functions individually with `@pytest.mark.asyncio` to prevent `PytestWarning` on synchronous test functions.
+* **`aiohttp` Test Decorator Modernization**: Do not use the deprecated `@unittest_run_loop` decorator on `AioHTTPTestCase` subclasses; async test methods execute natively under modern `aiohttp` (>= 3.8).
+* **Pytest Custom Marker Registration**: All custom markers used in BDD features or unit tests (e.g., `@pytest.mark.guardrails`, `@pytest.mark.zero_ambient_authority`) MUST be explicitly registered under `[tool.pytest.ini_options].markers` in `pyproject.toml` to prevent `PytestUnknownMarkWarning`.
+* **Mocked Async Coroutine Teardown**: When mocking `asyncio.wait_for` or async wrapper functions with side-effects (e.g. raising `asyncio.TimeoutError`), the mock `side_effect` MUST invoke `if hasattr(fut, "close"): fut.close()` on the coroutine parameter before raising to prevent unawaited `RuntimeWarning` exceptions during garbage collection.
+

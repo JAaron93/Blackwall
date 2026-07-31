@@ -60,7 +60,8 @@ class GTIQueryBudgetTracker:
     def _ensure_task_started(self) -> None:
         if self._replenish_task is None:
             try:
-                self._replenish_task = asyncio.create_task(self._replenish_loop())
+                loop = asyncio.get_running_loop()
+                self._replenish_task = loop.create_task(self._replenish_loop())
             except RuntimeError:
                 pass
 

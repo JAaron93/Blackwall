@@ -10,11 +10,11 @@ Contains 4 zero-cost local developer MCP server integration adapters:
 from blackwall.enterprise.mcp.falco_mcp import FalcoMCPAdapter
 from blackwall.enterprise.mcp.vault_mcp import VaultMCPAdapter
 from blackwall.enterprise.mcp.sandbox_mcp import ContainerSandboxMCPAdapter
+from blackwall.enterprise.mcp.opentelemetry_mcp import OpenTelemetryMCPAdapter
 
 __all__ = [
     "FalcoMCPAdapter",
     "VaultMCPAdapter",
     "ContainerSandboxMCPAdapter",
+    "OpenTelemetryMCPAdapter",
 ]
-
-
