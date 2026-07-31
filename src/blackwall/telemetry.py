@@ -41,7 +41,12 @@ def setup_telemetry(metrics_port: int = 8000) -> bool:
             from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
             exporter = OTLPSpanExporter()
             span_processor = BatchSpanProcessor(exporter)
-        except (ImportError, AttributeError):
+        except (ImportError, AttributeError, Exception) as exc:
+            logger.warning(
+                "OTLPSpanExporter initialization failed (%s). "
+                "Falling back to InMemorySpanExporter for local tracing.",
+                exc,
+            )
             from opentelemetry.sdk.trace.export import SimpleSpanProcessor
             from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
             exporter = InMemorySpanExporter()

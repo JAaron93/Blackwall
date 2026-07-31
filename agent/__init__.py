@@ -153,9 +153,13 @@ def http_request(url: str, method: str = "GET", body: str = "") -> dict[str, Any
 # ---------------------------------------------------------------------------
 agent = _sys.modules[__name__]
 
-# ---------------------------------------------------------------------------
-# root_agent — required export for `adk run` and `adk eval`
-# ---------------------------------------------------------------------------
+from blackwall.config import configure_provider_env
+
+# Ensure provider environment (GCP_PROJECT check, Vertex AI mode) is initialized for ADK root_agent
+try:
+    configure_provider_env()
+except ValueError:
+    pass  # Allow import in test environments where env is patched per test
 
 _model = os.getenv("BLACKWALL_MODEL", "gemini-3.1-flash-lite")
 

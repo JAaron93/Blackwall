@@ -12,7 +12,7 @@ def test_config_success(monkeypatch):
     monkeypatch.setenv("GCP_LOCATION", "us-central1")
     monkeypatch.setenv("GEMINI_API_KEY", "stale-key-12345")
 
-    settings = configure_provider_env()
+    settings = configure_provider_env(force=True)
 
     assert settings.effective_gcp_project == "test-gcp-project"
     assert settings.gcp_location == "us-central1"
@@ -26,7 +26,7 @@ def test_config_google_cloud_project_fallback(monkeypatch):
     monkeypatch.delenv("GCP_PROJECT", raising=False)
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "fallback-gcp-project")
 
-    settings = configure_provider_env()
+    settings = configure_provider_env(force=True)
     assert settings.effective_gcp_project == "fallback-gcp-project"
 
 
@@ -35,4 +35,4 @@ def test_config_missing_gcp_project_raises_value_error(monkeypatch):
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
 
     with pytest.raises(ValueError, match="GCP_PROJECT or GOOGLE_CLOUD_PROJECT is not configured"):
-        configure_provider_env()
+        configure_provider_env(force=True)

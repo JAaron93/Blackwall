@@ -87,25 +87,24 @@ if [[ -f "${REPO_ROOT}/.env" ]]; then
   load_env_file "${REPO_ROOT}/.env"
 fi
 
-# Re-assert BLACKWALL_TIER=free after .env load (in case .env overrides it)
-export BLACKWALL_TIER=free
-
-if [[ -z "${GEMINI_API_KEY:-}" ]]; then
-  echo -e "${RED}ERROR: GEMINI_API_KEY is not set.${RESET}"
+GCP_PROJ="${GCP_PROJECT:-${GOOGLE_CLOUD_PROJECT:-}}"
+if [[ -z "${GCP_PROJ}" ]]; then
+  echo -e "${RED}ERROR: GCP_PROJECT or GOOGLE_CLOUD_PROJECT is not set.${RESET}"
   echo ""
   echo "  Set it in your environment:"
-  echo "    export GEMINI_API_KEY=your_key_here"
+  echo "    export GCP_PROJECT=your_gcp_project_id"
   echo ""
-  echo "  Or copy .env.example to .env and fill in your key:"
+  echo "  Or copy .env.example to .env and fill in your GCP project:"
   echo "    cp .env.example .env && nano .env"
-  echo ""
-  echo "  FREE TIER: No billing required. Get a free key at:"
-  echo "    https://aistudio.google.com/app/apikey"
   exit 1
 fi
 
-echo -e "  ${GREEN}✓${RESET} GEMINI_API_KEY is set"
-echo -e "  ${GREEN}✓${RESET} BLACKWALL_TIER=free"
+export GOOGLE_GENAI_USE_VERTEXAI="true"
+export GEMINI_TIER="paid"
+export BLACKWALL_TIER="paid"
+
+echo -e "  ${GREEN}✓${RESET} GCP_PROJECT is set (${GCP_PROJ})"
+echo -e "  ${GREEN}✓${RESET} 100% GCP Vertex AI Mode active"
 
 # ---------------------------------------------------------------------------
 # 2. Prepare clean eval state (no daemon needed — adk eval runs inline)

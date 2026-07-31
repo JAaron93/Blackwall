@@ -117,9 +117,12 @@ class SyncResolver:
         self.gti_budget_tracker = gti_budget_tracker
         self.demo_mode = demo_mode
 
-        # Rate limiter: 15 RPM  →  capacity=15, refill_rate=15/60=0.25 t/s
+        # Rate limiter: Paid tier (300 RPM → capacity=300, refill_rate=5.0 t/s) vs Free tier (15 RPM)
+        tier = (os.getenv("GEMINI_TIER") or os.getenv("BLACKWALL_TIER") or "paid").lower()
+        capacity = 300.0 if tier == "paid" else 15.0
+        refill = 5.0 if tier == "paid" else 0.25
         self._rate_limiter = TokenBucketRateLimiter(
-            capacity=15.0, refill_rate=0.25
+            capacity=capacity, refill_rate=refill
         )
 
         # Context hygiene sanitizer

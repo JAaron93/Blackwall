@@ -47,10 +47,28 @@ async def verify_environment() -> bool:
             return False
     print("  ✓ Confirmed zero legacy AI Studio API keys in runtime environment")
 
-    # 3. Instantiate Vertex AI GenAI Client
+    # 3. Instantiate Vertex AI GenAI Client & Test Authenticated Connectivity
     try:
         client = get_genai_client()
         print("  ✓ google-genai Client initialized strictly in Vertex AI Mode (vertexai=True)")
+
+        # Verify authenticated endpoint connectivity if not running with dummy project in tests
+        if settings.effective_gcp_project != "dummy-gcp-project":
+            try:
+                res = await asyncio.wait_for(
+                    client.aio.models.generate_content(
+                        model="gemini-3.1-flash-lite",
+                        contents="ping",
+                    ),
+                    timeout=10.0,
+                )
+                if res and res.text:
+                    print("  ✓ Authenticated Vertex AI model inference call succeeded")
+            except Exception as conn_err:
+                print(f"  ❌ Authenticated Vertex AI Connectivity Failed: {conn_err}", file=sys.stderr)
+                return False
+        else:
+            print("  ✓ Authenticated connectivity check skipped for dummy test project")
     except Exception as e:
         print(f"  ❌ Client Initialization Failed: {e}", file=sys.stderr)
         return False

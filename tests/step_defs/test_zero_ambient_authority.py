@@ -256,3 +256,39 @@ def then_audit_hook_raises_permission_error(state):
     elif state.subprocess_res is not None:
         assert "BLOCKED" in state.subprocess_res.stderr
         assert state.subprocess_res.returncode == 0
+
+
+# --- Scenario: Enforce 100% GCP Vertex AI mode and purge legacy API keys ---
+
+
+@given('a GCP project "test-gcp-project" is configured')
+def given_gcp_project_configured(monkeypatch):
+    monkeypatch.setenv("GCP_PROJECT", "test-gcp-project")
+
+
+@given('legacy API keys "GEMINI_API_KEY" and "LLM_API_KEY" are present in environment')
+def given_legacy_api_keys_present(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "stale-gemini-key")
+    monkeypatch.setenv("LLM_API_KEY", "stale-llm-key")
+
+
+@when("the provider environment is configured for Vertex AI mode")
+def when_provider_env_configured_for_vertex():
+    from blackwall.config import configure_provider_env
+    configure_provider_env(force=True)
+
+
+@then('Vertex AI mode variable "GOOGLE_GENAI_USE_VERTEXAI" must be set to "true"')
+def then_vertex_ai_mode_set():
+    assert os.getenv("GOOGLE_GENAI_USE_VERTEXAI") == "true"
+
+
+@then('Gemini tier variable "GEMINI_TIER" must be set to "paid"')
+def then_gemini_tier_set_paid():
+    assert os.getenv("GEMINI_TIER") == "paid"
+
+
+@then('legacy API key variables "GEMINI_API_KEY" and "LLM_API_KEY" must be purged from environment')
+def then_legacy_api_keys_purged():
+    assert "GEMINI_API_KEY" not in os.environ
+    assert "LLM_API_KEY" not in os.environ

@@ -32,15 +32,22 @@ class Settings:
         return self.gcp_project
 
 
-def configure_provider_env() -> Settings:
+_env_configured: bool = False
+
+
+def configure_provider_env(force: bool = False) -> Settings:
     """
     Synchronize provider environment variables for GCP Vertex AI Mode.
 
     - Strictly requires GCP_PROJECT / GOOGLE_CLOUD_PROJECT.
     - Sets GOOGLE_GENAI_USE_VERTEXAI="true".
-    - Locks GEMINI_TIER="paid".
+    - Locks GEMINI_TIER="paid" and BLACKWALL_TIER="paid".
     - Purges any stale GEMINI_API_KEY, LLM_API_KEY, or BACKUP_LLM_API_KEY.
     """
+    global _env_configured
+    if _env_configured and not force:
+        return Settings()
+
     # Purge legacy AI Studio API key environment variables to prevent accidental fallback
     for key in ("GEMINI_API_KEY", "LLM_API_KEY", "BACKUP_LLM_API_KEY"):
         if key in os.environ:
@@ -52,6 +59,8 @@ def configure_provider_env() -> Settings:
 
     os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "true"
     os.environ["GEMINI_TIER"] = "paid"
+    os.environ["BLACKWALL_TIER"] = "paid"
+    _env_configured = True
     return settings
 
 

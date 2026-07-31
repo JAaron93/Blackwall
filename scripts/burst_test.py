@@ -14,22 +14,28 @@ from typing import List
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
-from blackwall.config import configure_provider_env, Settings
+from blackwall.config import configure_provider_env, get_genai_client, Settings
 
-async def mock_async_worker(worker_id: int, semaphore: asyncio.Semaphore) -> float:
+async def burst_worker(worker_id: int, semaphore: asyncio.Semaphore, client, is_dummy: bool) -> float:
     async with semaphore:
         start = time.perf_counter()
-        # Simulate high-throughput non-blocking paid-tier model invocation
-        await asyncio.sleep(0.05)
+        if not is_dummy:
+            await client.aio.models.generate_content(
+                model="gemini-3.1-flash-lite",
+                contents=f"burst worker {worker_id}",
+            )
+        else:
+            await asyncio.sleep(0.01)
         return time.perf_counter() - start
 
 async def run_burst_test(concurrency_count: int = 20) -> bool:
     print(f"🚀 Launching {concurrency_count} parallel async requests (Paid Tier Burst Test)...")
 
-    # Enforce settings instantiation dynamically inside function entrypoint
     try:
         settings = Settings(_env_file=None)
         configure_provider_env()
+        client = get_genai_client()
+        is_dummy = (settings.effective_gcp_project == "dummy-gcp-project")
         print(f"  ✓ Verified GCP Project: {settings.effective_gcp_project} (Tier: {settings.gemini_tier})")
     except ValueError as e:
         print(f"  ❌ Burst Test Aborted: {e}", file=sys.stderr)
@@ -38,8 +44,12 @@ async def run_burst_test(concurrency_count: int = 20) -> bool:
     semaphore = asyncio.Semaphore(10)  # Paid-tier max concurrent semaphore
     start_total = time.perf_counter()
 
-    tasks = [mock_async_worker(i, semaphore) for i in range(concurrency_count)]
-    latencies: List[float] = await asyncio.gather(*tasks)
+    try:
+        tasks = [burst_worker(i, semaphore, client, is_dummy) for i in range(concurrency_count)]
+        latencies: List[float] = await asyncio.gather(*tasks)
+    except Exception as e:
+        print(f"  ❌ Burst Request Execution Failed: {e}", file=sys.stderr)
+        return False
 
     total_time = time.perf_counter() - start_total
     rps = concurrency_count / total_time if total_time > 0 else 0
