@@ -18,7 +18,7 @@
 #   bash scripts/run_evasion_eval.sh
 #
 # REQUIREMENTS:
-#   - GEMINI_API_KEY must be set in environment or .env file
+#   - GCP_PROJECT or GOOGLE_CLOUD_PROJECT must be set in environment or .env file
 #   - Python 3.x with sqlite3 module (stdlib)
 #   - agents-cli installed (pip install -e ".[dev]")
 #   - adk installed (pip install google-adk)

@@ -53,3 +53,12 @@ These occur when a test runner exits before an internally scheduled asyncio task
     *   **Warning:** `RuntimeWarning: coroutine 'GTIQueryBudgetTracker._replenish_loop' was never awaited`
     *   **Warning:** `RuntimeWarning: coroutine 'HybridPolicyServer.evaluate' was never awaited`
     *   **Fix:** Ensure that mock objects return valid awaited futures if they are mocked out, or ensure that background tasks (like `_replenish_loop` or background submissions) are properly cancelled and awaited during `teardown`/`pytest_fixture` cleanup steps.
+
+## 4. Platform Architectural Deprecations
+
+*   **Google AI Studio API Key Mode (`GEMINI_API_KEY`, `LLM_API_KEY`)**:
+    *   **Status:** Permanently removed and deprecated.
+    *   **Replacement:** 100% GCP Vertex AI Mode (`GOOGLE_GENAI_USE_VERTEXAI="true"`, `GEMINI_TIER="paid"` via Gemini Enterprise Agent Platform). Authentication requires Application Default Credentials (ADC) with `GCP_PROJECT` or `GOOGLE_CLOUD_PROJECT`.
+*   **Free-Tier API Key Rate Limit Spacing (15 RPM)**:
+    *   **Status:** Deprecated.
+    *   **Replacement:** High-throughput paid tier quota (300+ RPM). Diagnostic scripts (`scripts/run_evasion_eval_free.sh`) now function as deprecation wrappers delegating to `scripts/run_evasion_eval.sh`.

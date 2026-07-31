@@ -31,8 +31,8 @@ pip install certifi
 
 # 4. Configure environment variables
 cp .env.example .env
-# Edit .env and add your API keys:
-#   GEMINI_API_KEY=your_gemini_key_here
+# Edit .env and configure GCP project:
+#   GCP_PROJECT=your_gcp_project_id
 #   GTI_MCP_API_KEY=your_virustotal_key_here  # Optional
 
 # 5. Run the live demo

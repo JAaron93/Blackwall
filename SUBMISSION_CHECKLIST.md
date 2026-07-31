@@ -94,7 +94,7 @@ git clone https://github.com/JAaron93/Blackwall.git
 cd Blackwall
 pip install -e . && pip install certifi
 cp .env.example .env
-# Add GEMINI_API_KEY to .env
+# Set GCP_PROJECT in .env
 python3 demo_live.py
 ```
 

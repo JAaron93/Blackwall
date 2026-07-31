@@ -36,7 +36,7 @@ async def test():
     
     gti = GTIMCPClient(repo=repo, api_key=os.getenv('GTI_MCP_API_KEY',''))
     cbm = CodebaseMemoryClient(command=[os.path.expanduser('~/.local/bin/codebase-memory-mcp')])
-    client = genai.Client(api_key=os.getenv('GEMINI_API_KEY',''))
+    client = genai.Client(vertexai=True, project=os.getenv('GCP_PROJECT','dummy-gcp-project'), location='global')
     r = SyncResolver(client=client, repo=repo, gti_client=gti, cbm_client=cbm)
     
     # Test a SQL injection attack
