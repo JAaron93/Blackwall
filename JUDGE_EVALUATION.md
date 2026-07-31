@@ -130,8 +130,8 @@ pip install codebase-memory-mcp
 ### Run Full Evaluation
 
 ```bash
-# Free tier evaluation (15 RPM)
-bash scripts/run_evasion_eval_free.sh
+# Evasion evaluation proof script (100% GCP Vertex AI Mode)
+bash scripts/run_evasion_eval.sh
 ```
 
 **Note:** Due to a known performance issue with the ADK 2.3.0 evaluation harness, this script may run longer than expected. The standalone demo above is recommended for quick verification.
@@ -170,10 +170,9 @@ pip install certifi
 pip install -e .
 ```
 
-### "429 RESOURCE_EXHAUSTED" (Gemini API quota)
-- Wait 60 seconds for free tier quota to reset
-- The free tier allows 15 requests per minute
-- Run the demo again after the cooldown period
+### "GCP_PROJECT or GOOGLE_CLOUD_PROJECT is not configured"
+- Set `export GCP_PROJECT=your_project_id` or configure `.env`
+- Confirm Application Default Credentials (ADC) are initialized
 
 ### "GTI query failed: 400 Bad Request"
 - This is expected if no valid IP/domain/URL is found in the attack
@@ -188,7 +187,7 @@ pip install -e .
 Blackwall/
 ├── demo_live.py              # ⭐ Live demo script (recommended)
 ├── scripts/
-│   └── run_evasion_eval_free.sh  # Full ADK evaluation
+│   └── run_evasion_eval.sh   # Full ADK evaluation
 ├── src/blackwall/            # Core implementation
 │   ├── sync_resolver.py      # Threat evaluation logic
 │   ├── mcp/
