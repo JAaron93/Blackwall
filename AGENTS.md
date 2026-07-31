@@ -91,6 +91,10 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
    - Tool callbacks paused via `before_tool_callback` are held in an asynchronous queue, batched, dispatched to Gemini Interactions API (300 RPM limit), and mapped back to paused threads simultaneously.
 2. **SQLite WAL Concurrency**:
    - SQLite database must operate in **WAL mode** with strict connection pooling and LFU/TTL signature pruning to guarantee fast-path queries under 8ms.
+3. **Unconditional Credential Purging**:
+   - Provider configuration helpers (`configure_provider_env()`) MUST purge legacy API keys (`GEMINI_API_KEY`, `LLM_API_KEY`) and re-assert required mode variables (`GOOGLE_GENAI_USE_VERTEXAI="true"`, `GEMINI_TIER="paid"`) on *every* call, regardless of module-level caching flags.
+4. **Production Import Error Enforcement**:
+   - Module entrypoints (`agent/__init__.py`) MUST NOT swallow missing configuration `ValueError` exceptions in production. Exception suppression is permitted ONLY when `PYTEST_CURRENT_TEST` or `BLACKWALL_TEST_MODE` is present in `os.environ`.
 
 ---
 
@@ -114,4 +118,5 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
 * **`aiohttp` Test Decorator Modernization**: Do not use the deprecated `@unittest_run_loop` decorator on `AioHTTPTestCase` subclasses; async test methods execute natively under modern `aiohttp` (>= 3.8).
 * **Pytest Custom Marker Registration**: All custom markers used in BDD features or unit tests (e.g., `@pytest.mark.guardrails`, `@pytest.mark.zero_ambient_authority`) MUST be explicitly registered under `[tool.pytest.ini_options].markers` in `pyproject.toml` to prevent `PytestUnknownMarkWarning`.
 * **Mocked Async Coroutine Teardown**: When mocking `asyncio.wait_for` or async wrapper functions with side-effects (e.g. raising `asyncio.TimeoutError`), the mock `side_effect` MUST invoke `if hasattr(fut, "close"): fut.close()` on the coroutine parameter before raising to prevent unawaited `RuntimeWarning` exceptions during garbage collection.
+* **Async CLI Test Script Timeouts & Range Validation**: Async CLI test tools using `asyncio.gather` MUST validate numerical arguments (`concurrency_count > 0`) at function entry, wrap individual async network calls in per-request timeouts (e.g. `asyncio.wait_for(..., timeout=10.0)`), and wrap total batch gathers in overall timeouts with `return_exceptions=True` to report diagnostic summaries cleanly.
 
