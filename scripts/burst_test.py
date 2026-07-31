@@ -20,15 +20,18 @@ async def burst_worker(worker_id: int, semaphore: asyncio.Semaphore, client, is_
     async with semaphore:
         start = time.perf_counter()
         if not is_dummy:
-            await client.aio.models.generate_content(
-                model="gemini-3.1-flash-lite",
-                contents=f"burst worker {worker_id}",
+            await asyncio.wait_for(
+                client.aio.models.generate_content(
+                    model="gemini-3.1-flash-lite",
+                    contents=f"burst worker {worker_id}",
+                ),
+                timeout=10.0,
             )
         else:
             await asyncio.sleep(0.01)
         return time.perf_counter() - start
 
-async def run_burst_test(concurrency_count: int = 20) -> bool:
+async def run_burst_test(concurrency_count: int = 20, total_timeout: float = 30.0) -> bool:
     print(f"🚀 Launching {concurrency_count} parallel async requests (Paid Tier Burst Test)...")
 
     try:
@@ -44,11 +47,27 @@ async def run_burst_test(concurrency_count: int = 20) -> bool:
     semaphore = asyncio.Semaphore(10)  # Paid-tier max concurrent semaphore
     start_total = time.perf_counter()
 
+    tasks = [burst_worker(i, semaphore, client, is_dummy) for i in range(concurrency_count)]
     try:
-        tasks = [burst_worker(i, semaphore, client, is_dummy) for i in range(concurrency_count)]
-        latencies: List[float] = await asyncio.gather(*tasks)
-    except Exception as e:
-        print(f"  ❌ Burst Request Execution Failed: {e}", file=sys.stderr)
+        results = await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True),
+            timeout=total_timeout,
+        )
+    except asyncio.TimeoutError:
+        print(f"  ❌ Burst Test Failed: Overall run exceeded {total_timeout}s timeout limit", file=sys.stderr)
+        return False
+
+    latencies: List[float] = []
+    failures: List[Exception] = []
+
+    for res in results:
+        if isinstance(res, Exception):
+            failures.append(res)
+        else:
+            latencies.append(res)
+
+    if failures:
+        print(f"  ❌ Burst Test Failed: {len(failures)}/{concurrency_count} requests failed or timed out: {failures[0]}", file=sys.stderr)
         return False
 
     total_time = time.perf_counter() - start_total
