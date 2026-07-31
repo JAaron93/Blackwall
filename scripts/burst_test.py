@@ -32,6 +32,10 @@ async def burst_worker(worker_id: int, semaphore: asyncio.Semaphore, client, is_
         return time.perf_counter() - start
 
 async def run_burst_test(concurrency_count: int = 20, total_timeout: float = 30.0) -> bool:
+    if concurrency_count <= 0:
+        print(f"  ❌ Burst Test Aborted: concurrency_count must be a positive integer > 0 (got {concurrency_count}).", file=sys.stderr)
+        return False
+
     print(f"🚀 Launching {concurrency_count} parallel async requests (Paid Tier Burst Test)...")
 
     try:
@@ -72,13 +76,21 @@ async def run_burst_test(concurrency_count: int = 20, total_timeout: float = 30.
 
     total_time = time.perf_counter() - start_total
     rps = concurrency_count / total_time if total_time > 0 else 0
+    avg_latency = (sum(latencies) / len(latencies)) * 1000 if latencies else 0.0
 
     print(f"  ✓ Processed {concurrency_count} requests in {total_time:.3f}s ({rps:.1f} req/sec)")
-    print(f"  ✓ Avg Request Latency: {(sum(latencies)/len(latencies))*1000:.2f}ms")
+    print(f"  ✓ Avg Request Latency: {avg_latency:.2f}ms")
     print("✅ Burst Verification Complete: Paid Tier high-throughput concurrency validated.")
     return True
 
 if __name__ == "__main__":
-    count = int(sys.argv[1]) if len(sys.argv) > 1 else 20
+    count = 20
+    if len(sys.argv) > 1:
+        try:
+            count = int(sys.argv[1])
+        except ValueError:
+            print(f"Usage: python3 scripts/burst_test.py [concurrency_count > 0] (invalid integer: {sys.argv[1]})", file=sys.stderr)
+            sys.exit(1)
+
     success = asyncio.run(run_burst_test(count))
     sys.exit(0 if success else 1)
