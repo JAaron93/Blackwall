@@ -28,6 +28,61 @@ python3 demo_live.py
 
 ---
 
+## 🛡 Dual-Tier Product Architecture
+
+Blackwall is structured into **two distinct product tiers** to serve both developer workstations and enterprise cloud infrastructure:
+
+| Feature / Tier | **Blackwall Core** (Individual Edition) | **Blackwall Enterprise Mesh** (Enterprise Edition) |
+| :--- | :--- | :--- |
+| **Deployment Mode** | Single-host local Python daemon | Multi-host distributed cloud security mesh |
+| **Interception Drivers** | ADK callbacks + `sys.addaudithook` | C/Python eBPF kernel probes + macOS fallback |
+| **Threat Signature Sync** | Local SQLite graph (WAL mode) | Real-time ZeroMQ / NATS pub-sub mesh broadcast |
+| **Identity & Secrets** | Regex prompt credential masking | Ephemeral Identity Sidecar & JIT Vault STS exchange |
+| **Pipeline Protection** | Local AST input filters | Micro-sandboxed container loader wrappers |
+| **Forensic Triage Engine**| SQLite audit log records | Dual-Mode Local Open-Weight LLM (Ollama) + Fallback |
+| **Developer Test Cost** | **$0.00 (100% Free)** | **$0.00 (100% Free local open-source MCP adapters)** |
+
+> [!NOTE]
+> For the complete technical specifications of the Enterprise Security Mesh, see [.kiro/specs/blackwall-enterprise-security-mesh/](.kiro/specs/blackwall-enterprise-security-mesh/).
+
+### ⚡ Enterprise Security Mesh Quick Start
+
+```python
+# Track 3: Secret Masking & Ephemeral Identity Sidecar
+from blackwall.enterprise.identity import SecretVaultSidecar
+
+sidecar = SecretVaultSidecar()
+sterilized_env = sidecar.sterilize_environment(os.environ)
+# Replaces sensitive credentials with synthetic honey-tokens (BW_SYNTHETIC_*)
+verdict = sidecar.evaluate_access("BW_SYNTHETIC_AWS_SECRET_ACCESS_KEY")
+# Returns verdict: "CRITICAL" upon exfiltration attempt
+
+# Track 4: Application Pipeline Interception Wrappers
+from blackwall.enterprise.pipeline import guard_pipeline
+
+@guard_pipeline(sandbox_type="gvisor")
+async def load_untrusted_dataset(url: str):
+    # Routine is inspected by ASTPipelineFilter and executed inside gVisor microVM
+    return process(url)
+
+# Track 5: Native Local Forensic Triage Engine & OpenTelemetry MCP Adapter
+from blackwall.enterprise import ForensicTriageManager, OpenTelemetryMCPAdapter
+
+otel_adapter = OpenTelemetryMCPAdapter(endpoint="http://localhost:4318")
+manager = ForensicTriageManager(otel_adapter=otel_adapter)
+report = await manager.triage_log_event({"command": "reverse_shell /bin/bash -i"})
+# Dual-mode execution: primary local Ollama (Qwen3) with failover to AST/regex parser
+```
+
+#### 🧪 Enterprise BDD Verification (Track 6)
+
+```bash
+# Run end-to-end Gherkin BDD test scenarios across all 5 enterprise pillars
+pytest tests/features/blackwall_enterprise_mesh.feature -v
+```
+
+---
+
 ## 🎯 Core Innovations
 
 ### 1. **Self-Learning Threat Signatures**

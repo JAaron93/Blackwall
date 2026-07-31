@@ -2,6 +2,8 @@
 Blackwall Agentic Firewall
 """
 
+__version__ = "1.0.0"
+
 from blackwall.audit.manager import AuditHookManager
 from blackwall.interception import (
     BatchResolutionError,
