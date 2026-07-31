@@ -32,7 +32,7 @@ class Settings:
         return self.gcp_project
 
 
-_env_configured: bool = False
+_env_configured: bool = True
 
 
 def configure_provider_env(force: bool = False) -> Settings:
@@ -45,21 +45,19 @@ def configure_provider_env(force: bool = False) -> Settings:
     - Purges any stale GEMINI_API_KEY, LLM_API_KEY, or BACKUP_LLM_API_KEY.
     """
     global _env_configured
-    if _env_configured and not force:
-        return Settings()
 
-    # Purge legacy AI Studio API key environment variables to prevent accidental fallback
+    # Always purge legacy AI Studio API key environment variables to prevent accidental fallback
     for key in ("GEMINI_API_KEY", "LLM_API_KEY", "BACKUP_LLM_API_KEY"):
-        if key in os.environ:
-            os.environ.pop(key, None)
+        os.environ.pop(key, None)
+
+    # Always enforce Vertex AI mode and paid tier environment variables
+    os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "true"
+    os.environ["GEMINI_TIER"] = "paid"
+    os.environ["BLACKWALL_TIER"] = "paid"
 
     settings = Settings()
     # Force settings evaluation to raise ValueError immediately if GCP_PROJECT is missing
     _ = settings.effective_gcp_project
-
-    os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "true"
-    os.environ["GEMINI_TIER"] = "paid"
-    os.environ["BLACKWALL_TIER"] = "paid"
     _env_configured = True
     return settings
 

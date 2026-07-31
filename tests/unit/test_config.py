@@ -52,3 +52,17 @@ def test_agent_import_without_gcp_project_raises_error(monkeypatch):
 
     with pytest.raises(ValueError, match="GCP_PROJECT or GOOGLE_CLOUD_PROJECT is not configured"):
         importlib.reload(agent)
+
+
+def test_repeated_configure_provider_env_purges_newly_injected_keys(monkeypatch):
+    monkeypatch.setenv("GCP_PROJECT", "test-gcp-project")
+    configure_provider_env()
+
+    # Simulate subsequent injection of legacy key
+    monkeypatch.setenv("GEMINI_API_KEY", "injected-key-6789")
+    assert "GEMINI_API_KEY" in os.environ
+
+    # Subsequent call without force must still purge the newly injected key and re-assert env
+    configure_provider_env()
+    assert "GEMINI_API_KEY" not in os.environ
+    assert os.getenv("GOOGLE_GENAI_USE_VERTEXAI") == "true"
