@@ -155,11 +155,15 @@ agent = _sys.modules[__name__]
 
 from blackwall.config import configure_provider_env
 
-# Ensure provider environment (GCP_PROJECT check, Vertex AI mode) is initialized for ADK root_agent
+# Ensure provider environment (GCP_PROJECT check, Vertex AI mode) is initialized for ADK root_agent.
+# In production, a missing GCP_PROJECT immediately raises ValueError to prevent silent misconfiguration.
 try:
     configure_provider_env()
-except ValueError:
-    pass  # Allow import in test environments where env is patched per test
+except ValueError as exc:
+    if "PYTEST_CURRENT_TEST" in os.environ or "BLACKWALL_TEST_MODE" in os.environ:
+        logger.warning("GCP_PROJECT omitted during test module import: %s", exc)
+    else:
+        raise
 
 _model = os.getenv("BLACKWALL_MODEL", "gemini-3.1-flash-lite")
 
