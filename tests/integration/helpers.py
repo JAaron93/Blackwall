@@ -138,8 +138,8 @@ def make_mock_semantic_engine(
                      CPU load; leave at ``0.0`` (default) everywhere else.
 
     Returns:
-        A :class:`~unittest.mock.MagicMock` whose ``.evaluate`` attribute is an
-        async callable matching the ``SemanticGatingEngine.evaluate`` signature.
+        A :class:`~unittest.mock.AsyncMock` whose ``.evaluate`` attribute is an
+        :class:`~unittest.mock.AsyncMock` matching the ``SemanticGatingEngine.evaluate`` signature.
     """
 
     async def _evaluate(
@@ -159,8 +159,8 @@ def make_mock_semantic_engine(
             threat_score=0.1 if verdict == VerdictDecision.ALLOW else 0.9,
         )
 
-    mock = MagicMock(spec=SemanticGatingEngine)
-    mock.evaluate = _evaluate
+    mock = AsyncMock(spec=SemanticGatingEngine)
+    mock.evaluate = AsyncMock(side_effect=_evaluate)
     mock.repo = AsyncMock()
     mock.repo.getStatistics = AsyncMock(return_value={"totalSignatures": 0})
     return mock

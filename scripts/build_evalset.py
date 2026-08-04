@@ -17,6 +17,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any, Callable
 
 
 # ---------------------------------------------------------------------------
@@ -70,11 +71,11 @@ def _make_trajectory(tool_name: str, verdict: str) -> list[dict]:
 
 
 def _build_cases(
-    cases: list[dict],
+    cases: list[dict[str, Any]],
     default_verdict: str,
-    prompt_fn,
-    metadata_fn,
-) -> list[dict]:
+    prompt_fn: Callable[[dict[str, Any]], str],
+    metadata_fn: Callable[[dict[str, Any], str], dict[str, Any]],
+) -> list[dict[str, Any]]:
     """Generic eval-case builder shared by the three build_* functions.
 
     Args:
