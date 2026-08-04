@@ -80,3 +80,9 @@ To ensure all architectural guardrails are strictly enforced, Blackwall utilizes
 * **Feature Contract:** The authoritative behavioral requirements are defined in `tests/features/blackwall_guardrails.feature`. Do NOT modify or remove the Gherkin scenarios in this file without explicit human authorization.
 * **Step Definitions:** Step definitions must be implemented in `tests/step_defs/test_guardrails.py` and bind directly to the existing Given-When-Then statements in the `.feature` file.
 * **The Verification Gate:** Before marking any implementation task in `tasks.md` as complete, you must run `pytest -v tests/` and confirm that all BDD guardrail scenarios pass. Never bypass a failing BDD test by weakening the test assertion.
+
+## 8. Test and Documentation Hygiene Rules
+
+* **Absolute Imports in Test Modules:** In `tests/` subdirectories (e.g., `tests/integration/`, `tests/unit/`), always use absolute imports from the repository root (e.g., `from tests.integration.helpers import ...`) rather than relative imports (`from .helpers import ...`). Relative imports in test submodules cause `ImportError` during pytest collection.
+* **Portable Documentation Links:** Markdown documentation files in `docs/` must use **repo-relative markdown paths** (e.g., `[helpers.py](../tests/integration/helpers.py)`), and must **never** hard-code local environment `file:///Users/...` or `file:///C:/...` URLs.
+* **Mock Type Signature Alignment:** Test helper functions creating mock objects must ensure the return type annotation matches the actual mock class instantiated (`AsyncMock` vs `MagicMock`). Async side-effect handlers assigned to mock methods should be wrapped with `AsyncMock(side_effect=_fn)`.
