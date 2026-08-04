@@ -4,13 +4,14 @@ from google import genai
 
 from blackwall.models import SecurityEvent, VerdictDecision
 from blackwall.db.repository import SQLiteThreatRepository
+from blackwall.config import get_genai_client
 
 logger = logging.getLogger(__name__)
 
 class AgentBehavioralAnalytics:
     def __init__(self, repo: SQLiteThreatRepository, client: Optional[genai.Client] = None):
         self.repo = repo
-        self.client = client or genai.Client()
+        self.client = client or get_genai_client()
         self.webhook_url = "http://localhost:8090/webhook/analysis_complete"
 
     async def submitBackgroundAnalysis(self, event: SecurityEvent) -> Optional[str]:

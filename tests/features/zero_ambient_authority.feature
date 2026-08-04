@@ -33,3 +33,11 @@ Feature: Zero Ambient Authority and JIT Token Downscoping
     Then the audit hook must raise a PermissionError
     When an adversarial agent attempts to call "subprocess.run" directly
     Then the audit hook must raise a PermissionError
+
+  Scenario: Enforce 100% GCP Vertex AI mode and purge legacy API keys
+    Given a GCP project "test-gcp-project" is configured
+    And legacy API keys "GEMINI_API_KEY" and "LLM_API_KEY" are present in environment
+    When the provider environment is configured for Vertex AI mode
+    Then Vertex AI mode variable "GOOGLE_GENAI_USE_VERTEXAI" must be set to "true"
+    And Gemini tier variable "GEMINI_TIER" must be set to "paid"
+    And legacy API key variables "GEMINI_API_KEY" and "LLM_API_KEY" must be purged from environment

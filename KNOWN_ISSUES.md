@@ -3,7 +3,7 @@
 ## Evaluation Script Performance (Non-Blocking)
 
 ### Issue Description
-When running `bash scripts/run_evasion_eval_free.sh`, the ADK evaluation harness occasionally experiences longer-than-expected execution times. The expected duration for 10 test cases on the free tier (15 RPM) is approximately 48 seconds, but in some environments the process may run for several minutes.
+When running `bash scripts/run_evasion_eval.sh`, the ADK evaluation harness occasionally experiences longer-than-expected execution times under high-concurrency conditions.
 
 ### Root Cause
 The issue appears to be related to the ADK 2.3.0 evaluation harness's handling of async callbacks when combined with MCP client operations (Codebase Memory and GTI queries) under rate-limited conditions.
@@ -36,7 +36,7 @@ async def test():
     
     gti = GTIMCPClient(repo=repo, api_key=os.getenv('GTI_MCP_API_KEY',''))
     cbm = CodebaseMemoryClient(command=[os.path.expanduser('~/.local/bin/codebase-memory-mcp')])
-    client = genai.Client(api_key=os.getenv('GEMINI_API_KEY',''))
+    client = genai.Client(vertexai=True, project=os.getenv('GCP_PROJECT','dummy-gcp-project'), location='global')
     r = SyncResolver(client=client, repo=repo, gti_client=gti, cbm_client=cbm)
     
     # Test a SQL injection attack

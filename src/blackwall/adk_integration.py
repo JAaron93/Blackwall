@@ -1,8 +1,7 @@
 import asyncio
 import structlog
 import threading
-from typing import Any, Callable, Dict, Optional
-from uuid import uuid4
+from typing import Any, Dict, Optional
 
 from blackwall.models import CallbackToken, ToolCallContext, Verdict, VerdictDecision
 from blackwall.interception import InterceptionQueue
@@ -211,7 +210,6 @@ class FreeTierADKIntegration:
         )
 
         if self.loop.is_running():
-            import concurrent.futures
 
             future = asyncio.run_coroutine_threadsafe(
                 self.sync_resolver.evaluate(context), self.loop

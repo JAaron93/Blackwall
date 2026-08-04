@@ -18,13 +18,68 @@ Blackwall is a production-ready local MVP autonomous Agentic Firewall designed f
 git clone https://github.com/JAaron93/Blackwall.git
 cd Blackwall
 pip install -e . && pip install certifi
-cp .env.example .env  # Add your GEMINI_API_KEY
+cp .env.example .env  # Add your GCP_PROJECT
 python3 demo_live.py
 ```
 
 **Expected output:** Real-time threat evaluation with colorful progress display, showing BLOCK/QUARANTINE/ALLOW decisions for 5 attacks.
 
 **For detailed setup:** See [JUDGE_EVALUATION.md](JUDGE_EVALUATION.md)
+
+---
+
+## 🛡 Dual-Tier Product Architecture
+
+Blackwall is structured into **two distinct product tiers** to serve both developer workstations and enterprise cloud infrastructure:
+
+| Feature / Tier | **Blackwall Core** (Individual Edition) | **Blackwall Enterprise Mesh** (Enterprise Edition) |
+| :--- | :--- | :--- |
+| **Deployment Mode** | Single-host local Python daemon | Multi-host distributed cloud security mesh |
+| **Interception Drivers** | ADK callbacks + `sys.addaudithook` | C/Python eBPF kernel probes + macOS fallback |
+| **Threat Signature Sync** | Local SQLite graph (WAL mode) | Real-time ZeroMQ / NATS pub-sub mesh broadcast |
+| **Identity & Secrets** | Regex prompt credential masking | Ephemeral Identity Sidecar & JIT Vault STS exchange |
+| **Pipeline Protection** | Local AST input filters | Micro-sandboxed container loader wrappers |
+| **Forensic Triage Engine**| SQLite audit log records | Dual-Mode Local Open-Weight LLM (Ollama) + Fallback |
+| **Developer Test Cost** | **$0.00 (100% Free)** | **$0.00 (100% Free local open-source MCP adapters)** |
+
+> [!NOTE]
+> For the complete technical specifications of the Enterprise Security Mesh, see [.kiro/specs/blackwall-enterprise-security-mesh/](.kiro/specs/blackwall-enterprise-security-mesh/).
+
+### ⚡ Enterprise Security Mesh Quick Start
+
+```python
+# Track 3: Secret Masking & Ephemeral Identity Sidecar
+from blackwall.enterprise.identity import SecretVaultSidecar
+
+sidecar = SecretVaultSidecar()
+sterilized_env = sidecar.sterilize_environment(os.environ)
+# Replaces sensitive credentials with synthetic honey-tokens (BW_SYNTHETIC_*)
+verdict = sidecar.evaluate_access("BW_SYNTHETIC_AWS_SECRET_ACCESS_KEY")
+# Returns verdict: "CRITICAL" upon exfiltration attempt
+
+# Track 4: Application Pipeline Interception Wrappers
+from blackwall.enterprise.pipeline import guard_pipeline
+
+@guard_pipeline(sandbox_type="gvisor")
+async def load_untrusted_dataset(url: str):
+    # Routine is inspected by ASTPipelineFilter and executed inside gVisor microVM
+    return process(url)
+
+# Track 5: Native Local Forensic Triage Engine & OpenTelemetry MCP Adapter
+from blackwall.enterprise import ForensicTriageManager, OpenTelemetryMCPAdapter
+
+otel_adapter = OpenTelemetryMCPAdapter(endpoint="http://localhost:4318")
+manager = ForensicTriageManager(otel_adapter=otel_adapter)
+report = await manager.triage_log_event({"command": "reverse_shell /bin/bash -i"})
+# Dual-mode execution: primary local Ollama (Qwen3) with failover to AST/regex parser
+```
+
+#### 🧪 Enterprise BDD Verification (Track 6)
+
+```bash
+# Run end-to-end Gherkin BDD test scenarios across all 5 enterprise pillars
+pytest tests/features/blackwall_enterprise_mesh.feature -v
+```
 
 ---
 
@@ -114,19 +169,14 @@ cp .env.example .env
 
 # Edit .env with your API keys
 nano .env
-# Set: GEMINI_API_KEY, GTI_MCP_API_KEY, BLACKWALL_VAULT_KEY
+# Set: GCP_PROJECT, GTI_MCP_API_KEY, BLACKWALL_VAULT_KEY
 ```
 
 ### Run the Evaluation
 
 ```bash
-# Free tier (judge-friendly, no billing required)
-bash scripts/run_evasion_eval_free.sh
-
-# Expected runtime: 8-10 minutes for 120 test cases
-# Or paid tier (requires billing)
-BLACKWALL_TIER=paid bash scripts/run_evasion_eval.sh
-# Expected runtime: ~40 seconds with async batching
+# Evasion evaluation proof script (100% GCP Vertex AI Mode)
+bash scripts/run_evasion_eval.sh
 ```
 
 **Expected output (Free Tier):**
@@ -347,7 +397,7 @@ pytest tests/property/ -v
 
 ### Full Evaluation Suite (120 Cases)
 ```bash
-bash scripts/run_evasion_eval_free.sh
+bash scripts/run_evasion_eval.sh
 # Wave 1: 5 novel attacks → semantic evaluation → signatures learned
 # Wave 2: 5 structural variants → signature matching → 100x+ speedup
 ```
@@ -364,7 +414,7 @@ pytest tests/features/blackwall_guardrails.feature -v
 
 | Document | Purpose |
 |----------|---------|
-| **[JUDGE_EVALUATION.md](JUDGE_EVALUATION.md)** | Complete free-tier reproduction guide (no billing required) |
+| **[JUDGE_EVALUATION.md](JUDGE_EVALUATION.md)** | Complete reproduction guide (100% GCP Vertex AI Mode) |
 | **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** | Known issues and workarounds (evaluation performance) |
 | **[design.md](.kiro/specs/blackwall-agentic-firewall/design.md)** | Full technical design (40+ pages, all architectural details) |
 | **[requirements.md](.kiro/specs/blackwall-agentic-firewall/requirements.md)** | 28 EARS-compliant requirements with acceptance criteria |
@@ -410,8 +460,8 @@ pytest tests/features/blackwall_guardrails.feature -v
 
 ### How to Verify Claims
 
-1. **Start Here:** [JUDGE_EVALUATION.md](JUDGE_EVALUATION.md) (5-minute setup, no billing)
-2. **Run Free Tier:** `bash scripts/run_evasion_eval_free.sh` (8-10 minutes)
+1. **Start Here:** [JUDGE_EVALUATION.md](JUDGE_EVALUATION.md) (5-minute setup)
+2. **Run Evaluation:** `bash scripts/run_evasion_eval.sh`
 3. **See Results:** Wave 1 blocks novel attacks → Wave 2 blocks variants 100x faster
 4. **Read Design:** [design.md](.kiro/specs/blackwall-agentic-firewall/design.md) for full architecture
 
@@ -468,9 +518,9 @@ Kaggle "AI Agents: Intensive Vibe Coding" Hackathon, Freestyle Track
 
 ## 🚀 Ready to Get Started?
 
-**For Judges (Free Tier):**
-1. See [JUDGE_EVALUATION.md](JUDGE_EVALUATION.md) for complete setup (5 minutes, no billing)
-2. Run `bash scripts/run_evasion_eval_free.sh`
+**For Judges:**
+1. See [JUDGE_EVALUATION.md](JUDGE_EVALUATION.md) for complete setup (5 minutes)
+2. Run `bash scripts/run_evasion_eval.sh`
 3. Review results and check [design.md](.kiro/specs/blackwall-agentic-firewall/design.md)
 
 **For Developers:**

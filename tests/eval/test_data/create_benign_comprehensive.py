@@ -1270,7 +1270,7 @@ try:
                 missing_fields.append(f"Case {case['id']}: missing '{field}'")
     
     if missing_fields:
-        print(f"✗ Field validation failed:")
+        print("✗ Field validation failed:")
         for error in missing_fields:
             print(f"  {error}")
     else:
@@ -1279,7 +1279,7 @@ try:
     # Verify ground_truth values
     ground_truth_values = set(case["ground_truth"] for case in parsed)
     if ground_truth_values == {"BENIGN"}:
-        print(f"✓ Ground truth validation passed - all cases marked as BENIGN")
+        print("✓ Ground truth validation passed - all cases marked as BENIGN")
     else:
         print(f"✗ Ground truth validation failed - found non-BENIGN values: {ground_truth_values}")
     
@@ -1288,7 +1288,7 @@ try:
     for case in parsed:
         for cat in case["categories"]:
             category_count[cat] = category_count.get(cat, 0) + 1
-    print(f"\n✓ Category distribution:")
+    print("\n✓ Category distribution:")
     for cat, count in sorted(category_count.items()):
         print(f"  {cat}: {count} cases")
         

@@ -7,15 +7,12 @@ All tests use mock data — no live ADK runner, no real network calls.
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 
 import pytest
 
 from blackwall.eval.report_generator import (
-    CaseResult,
     ReportGenerator,
-    SecurityReport,
     _parse_ground_truth,
     _parse_verdict,
 )

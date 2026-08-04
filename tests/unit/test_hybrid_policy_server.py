@@ -332,7 +332,12 @@ async def test_evaluate_batch_enforces_10_second_timeout():
     mock_semantic = AsyncMock(spec=SemanticGatingEngine)
     
     with patch("blackwall.policy.server.asyncio.wait_for") as mock_wait_for:
-        mock_wait_for.side_effect = asyncio.TimeoutError("Timeout waiting for LLM")
+        async def fake_wait_for(fut, timeout=None):
+            if hasattr(fut, "close"):
+                fut.close()
+            raise asyncio.TimeoutError("Timeout waiting for LLM")
+
+        mock_wait_for.side_effect = fake_wait_for
         
         server = HybridPolicyServer(mock_struct, mock_semantic)
         contexts = [ToolCallContext(tool_name="write_file", arguments={})]

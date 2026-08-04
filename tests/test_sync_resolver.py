@@ -12,7 +12,6 @@ Tests:
 """
 
 import asyncio
-import time
 from typing import List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -134,7 +133,7 @@ async def test_gti_cbm_queries_execute_serially():
     cbm_client.query = AsyncMock(side_effect=mock_cbm_query)
 
     resolver = _make_resolver(gti_client=gti_client, cbm_client=cbm_client)
-    context = _make_context()
+    context = _make_context(arguments={"host": "wd-bouygues.com"})
 
     await resolver.evaluate(context)
 
@@ -203,6 +202,7 @@ async def test_inline_signature_generation_after_block():
       2. repo.writeSignature() is called.
     """
     mock_repo = AsyncMock()
+    mock_repo.find_matching_signature = AsyncMock(return_value=None)
     mock_repo.writeSignature = AsyncMock(return_value="sig-123")
 
     resolver = _make_resolver(repo=mock_repo)

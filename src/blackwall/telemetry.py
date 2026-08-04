@@ -3,7 +3,6 @@ import os
 from typing import Any, Dict
 
 from opentelemetry import metrics, trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.exporter.prometheus import PrometheusMetricReader
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.resources import Resource
@@ -35,15 +34,23 @@ def setup_telemetry(metrics_port: int = 8000) -> bool:
         span_processor = SimpleSpanProcessor(exporter)
     else:
         # Configure OTLP Exporter with gzip compression
-        # We explicitly set compression="gzip" here to meet the requirement.
-        # Note: grpc compression options are passed differently depending on version.
-        # Passing no arguments relies on environment variables like OTEL_EXPORTER_OTLP_COMPRESSION=gzip.
-        # To be explicit, we set it in the environment if not already set.
         if "OTEL_EXPORTER_OTLP_COMPRESSION" not in os.environ:
             os.environ["OTEL_EXPORTER_OTLP_COMPRESSION"] = "gzip"
             
-        exporter = OTLPSpanExporter()
-        span_processor = BatchSpanProcessor(exporter)
+        try:
+            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+            exporter = OTLPSpanExporter()
+            span_processor = BatchSpanProcessor(exporter)
+        except (ImportError, AttributeError, Exception) as exc:
+            logger.warning(
+                "OTLPSpanExporter initialization failed (%s). "
+                "Falling back to InMemorySpanExporter for local tracing.",
+                exc,
+            )
+            from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+            from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+            exporter = InMemorySpanExporter()
+            span_processor = SimpleSpanProcessor(exporter)
         
     trace_provider.add_span_processor(span_processor)
     trace.set_tracer_provider(trace_provider)

@@ -10,6 +10,17 @@ def fixture_log_output() -> LogCapture:
 
 
 @pytest.fixture(autouse=True)
+def fixture_gcp_vertex_ai_env(monkeypatch) -> None:
+    """Ensure GCP Vertex AI Mode environment variables are present during tests."""
+    monkeypatch.setenv("GCP_PROJECT", "dummy-gcp-project")
+    monkeypatch.setenv("GCP_LOCATION", "global")
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    monkeypatch.setenv("GEMINI_TIER", "paid")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def fixture_configure_structlog(log_output: LogCapture) -> None:
     structlog.configure(
         processors=[log_output],
@@ -51,3 +62,23 @@ def mock_gti_client() -> AsyncMock:
     client.lookup_domain = AsyncMock(return_value="mock_domain")
     client.lookup_file_hash = AsyncMock(return_value="mock_hash")
     return client
+
+
+@pytest.fixture
+def safe_sla_limit():
+    def _helper(env_var: str, default: float) -> float:
+        import os
+        import math
+        if not math.isfinite(default) or default <= 0.0:
+            raise ValueError(f"Invalid default SLA limit: {default}")
+        val_str = os.getenv(env_var)
+        if not val_str:
+            return default
+        try:
+            val = float(val_str)
+            if math.isfinite(val) and val > 0.0:
+                return val
+        except ValueError:
+            pass
+        return default
+    return _helper
