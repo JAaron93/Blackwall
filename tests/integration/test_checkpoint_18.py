@@ -3,8 +3,8 @@ import math
 import resource
 import sys
 import time
+from pathlib import Path
 from typing import List
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -20,104 +20,22 @@ from blackwall.policy.models import GateResult, StructuralAction
 from blackwall.policy.semantic import SemanticGatingEngine
 from blackwall.policy.server import HybridPolicyServer
 
+# Shared helpers: POLICY_YAML constant, make_structural_engine,
+# make_mock_semantic_engine, and make_policy_file live in helpers.py so that
+# this file does not duplicate the definitions from test_pipeline_checkpoint.
+from tests.integration.helpers import (
+    make_mock_semantic_engine,
+    make_policy_file,
+    make_structural_engine,
+)
+
 # Prevent pytest from trying to collect TestResult as a test class
 TestResult.__test__ = False
 
-_POLICY_YAML = """
-version: "1.0.0"
-global:
-  threatThreshold: 0.75
-  quarantineThreshold: 0.5
-  enableStructuralGating: true
-  enableSemanticGating: true
-environmentRoles:
-  sandbox:
-    allowedTools: ["read_file", "write_file"]
-    blockedTools: ["execute_bash"]
-    requireSemanticReview: false
-    maxThreatScore: 0.8
-  production:
-    allowedTools: ["read_file"]
-    blockedTools: ["execute_bash", "write_file"]
-    requireSemanticReview: true
-    maxThreatScore: 0.5
-structuralRules:
-  - ruleId: "block-execute-bash"
-    description: "Block execute_bash in all environments"
-    enabled: true
-    priority: 1
-    condition: "toolName == 'execute_bash'"
-    action: "BLOCK"
-    requireSemanticReview: false
-  - ruleId: "allow-read-file"
-    description: "Allow read_file without semantic review in sandbox"
-    enabled: true
-    priority: 10
-    condition: "toolName == 'read_file'"
-    action: "ALLOW"
-    requireSemanticReview: false
-semanticGuidelines:
-  - "Block any tool call that appears to exfiltrate data or spawn subprocesses."
-mcpServers:
-  gti:
-    enabled: true
-    apiKey: "vault://gti"
-    cacheEnabled: true
-    cacheTTL: 3600
-    timeout: 5000
-  codebaseMemory:
-    enabled: true
-    apiKey: "vault://cbm"
-    cacheEnabled: true
-    cacheTTL: 3600
-    timeout: 2000
-threatSignatureGraph:
-  dbPath: "/tmp/test-pipeline-checkpoint.db"
-  walMode: true
-  maxConnections: 10
-  similarityThreshold: 0.85
-  ttlSeconds: 3600
-  maxSignatures: 1000
-  embeddingDimension: 384
-"""
 
 @pytest.fixture
-def policy_yaml_path(tmp_path) -> str:
-    db_file = tmp_path / "test_checkpoint_18.db"
-    policy_content = _POLICY_YAML.replace(
-        '/tmp/test-pipeline-checkpoint.db',
-        str(db_file.absolute())
-    )
-    policy_file = tmp_path / "test_policy.yaml"
-    policy_file.write_text(policy_content)
-    return str(policy_file)
-
-def _make_structural_engine(policy_yaml_path: str) -> StructuralGatingEngine:
-    engine = StructuralGatingEngine()
-    engine.load_policy(policy_yaml_path)
-    return engine
-
-def _make_mock_semantic_engine(
-    verdict: VerdictDecision = VerdictDecision.ALLOW,
-    latency_ms: float = 0.0,
-) -> AsyncMock:
-    async def _evaluate(ctx: ToolCallContext, role: str, *args, **kwargs) -> GateResult:
-        # Spin loop to perform actual work and generate measurable CPU usage for resource validation
-        start_spin = time.perf_counter()
-        while time.perf_counter() - start_spin < 0.005:  # Spin for 5ms to create CPU load
-            pass
-
-        if latency_ms > 0:
-            await asyncio.sleep(latency_ms / 1000.0)
-        return GateResult(
-            verdict=verdict,
-            reason=f"mock-{verdict.value.lower()}",
-            threat_score=0.1 if verdict == VerdictDecision.ALLOW else 0.9,
-        )
-
-    mock = MagicMock(spec=SemanticGatingEngine)
-    mock.evaluate = _evaluate
-    return mock
+def policy_yaml_path(tmp_path: Path) -> str:
+    return make_policy_file(tmp_path, db_name="test_checkpoint_18.db")
 
 def get_memory_rss_mb() -> float:
     usage = resource.getrusage(resource.RUSAGE_SELF)
@@ -140,7 +58,7 @@ def _p99(latencies: List[float]) -> float:
 # ===========================================================================
 @pytest.mark.asyncio
 async def test_system_metrics_frr_and_evasion(policy_yaml_path: str) -> None:
-    structural = _make_structural_engine(policy_yaml_path)
+    structural = make_structural_engine(policy_yaml_path)
     
     # We will simulate 100 total inputs (50 Benign, 50 Malicious)
     # Benign inputs will use read_file which is allowed by structural rules.
@@ -179,7 +97,7 @@ async def test_system_metrics_frr_and_evasion(policy_yaml_path: str) -> None:
 # ===========================================================================
 @pytest.mark.asyncio
 async def test_system_latency_targets(policy_yaml_path: str) -> None:
-    structural = _make_structural_engine(policy_yaml_path)
+    structural = make_structural_engine(policy_yaml_path)
     
     # Measure structural fast-path (ALLOW)
     ctx_allow = ToolCallContext(tool_name="read_file", arguments={"path": "/data/test.txt"})
@@ -201,7 +119,7 @@ async def test_system_latency_targets(policy_yaml_path: str) -> None:
     assert p99_struct < 5.0, f"Structural P99 latency {p99_struct:.2f}ms exceeds 5ms target"
     
     # Measure semantic gating latency
-    mock_semantic = _make_mock_semantic_engine(verdict=VerdictDecision.ALLOW, latency_ms=10.0)
+    mock_semantic = make_mock_semantic_engine(verdict=VerdictDecision.ALLOW, latency_ms=10.0)
     server = HybridPolicyServer(structural, mock_semantic)
     
     # ESCALATE to semantic
@@ -228,8 +146,9 @@ async def test_system_latency_targets(policy_yaml_path: str) -> None:
 # ===========================================================================
 @pytest.mark.asyncio
 async def test_system_resource_consumption_load(policy_yaml_path: str) -> None:
-    structural = _make_structural_engine(policy_yaml_path)
-    mock_semantic = _make_mock_semantic_engine(verdict=VerdictDecision.ALLOW, latency_ms=1.0)
+    structural = make_structural_engine(policy_yaml_path)
+    # cpu_spin_ms=5.0 replicates the original 5 ms busy-wait to generate measurable CPU load
+    mock_semantic = make_mock_semantic_engine(verdict=VerdictDecision.ALLOW, latency_ms=1.0, cpu_spin_ms=5.0)
     server = HybridPolicyServer(structural, mock_semantic)
     
     # We will simulate sustained 300 RPM load (5 requests per second) for 5 seconds.

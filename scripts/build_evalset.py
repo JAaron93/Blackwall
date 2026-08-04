@@ -17,6 +17,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any, Callable
 
 
 # ---------------------------------------------------------------------------
@@ -69,104 +70,97 @@ def _make_trajectory(tool_name: str, verdict: str) -> list[dict]:
     ]
 
 
+def _build_cases(
+    cases: list[dict[str, Any]],
+    default_verdict: str,
+    prompt_fn: Callable[[dict[str, Any]], str],
+    metadata_fn: Callable[[dict[str, Any], str], dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Generic eval-case builder shared by the three build_* functions.
+
+    Args:
+        cases:           Raw case dicts loaded from a JSON test-data file.
+        default_verdict: Fallback verdict string when the case has no
+                         ``expected_verdict`` key (e.g. ``"ALLOW"`` or ``"BLOCK"``)
+        prompt_fn:       Callable ``(case: dict) -> str`` that produces the
+                         user-facing conversation prompt for the case.
+        metadata_fn:     Callable ``(case: dict, expected_verdict: str) -> dict``
+                         that produces the ``metadata`` dict for the eval case.
+
+    Returns:
+        List of ADK EvalCase-formatted dicts.
+    """
+    eval_cases = []
+    for case in cases:
+        expected_verdict = case.get("expected_verdict", default_verdict)
+        eval_cases.append(
+            {
+                "eval_case_id": case["id"],
+                "conversation": [
+                    {
+                        "role": "user",
+                        "parts": [{"text": prompt_fn(case)}],
+                    }
+                ],
+                "expected_tool_use": _make_trajectory(
+                    case["tool_name"], expected_verdict
+                ),
+                "reference": expected_verdict,
+                "metadata": metadata_fn(case, expected_verdict),
+            }
+        )
+    return eval_cases
+
+
 # ---------------------------------------------------------------------------
 # Case builders
 # ---------------------------------------------------------------------------
 
 def build_benign_cases(cases: list[dict]) -> list[dict]:
-    eval_cases = []
-    for case in cases:
-        expected_verdict = case.get("expected_verdict", "ALLOW")
-        eval_cases.append(
-            {
-                "eval_case_id": case["id"],
-                "conversation": [
-                    {
-                        "role": "user",
-                        "parts": [{"text": _benign_prompt(case)}],
-                    }
-                ],
-                "expected_tool_use": _make_trajectory(
-                    case["tool_name"], expected_verdict
-                ),
-                "reference": expected_verdict,
-                # Metadata kept outside ADK fields for report_generator lookup
-                "metadata": {
-                    "ground_truth": case.get("ground_truth", "BENIGN"),
-                    "scenario_type": "benign",
-                    "tool_name": case["tool_name"],
-                    "reason": case.get("reason", ""),
-                    "categories": case.get("categories", []),
-                },
-            }
-        )
-    return eval_cases
+    def _metadata(case: dict, expected_verdict: str) -> dict:
+        return {
+            "ground_truth": case.get("ground_truth", "BENIGN"),
+            "scenario_type": "benign",
+            "tool_name": case["tool_name"],
+            "reason": case.get("reason", ""),
+            "categories": case.get("categories", []),
+        }
+
+    return _build_cases(cases, "ALLOW", _benign_prompt, _metadata)
 
 
 def build_malicious_cases(cases: list[dict]) -> list[dict]:
-    eval_cases = []
-    for case in cases:
-        expected_verdict = case.get("expected_verdict", "BLOCK")
-        eval_cases.append(
-            {
-                "eval_case_id": case["id"],
-                "conversation": [
-                    {
-                        "role": "user",
-                        "parts": [{"text": _malicious_prompt(case)}],
-                    }
-                ],
-                "expected_tool_use": _make_trajectory(
-                    case["tool_name"], expected_verdict
-                ),
-                "reference": expected_verdict,
-                "metadata": {
-                    "ground_truth": case.get("ground_truth", "MALICIOUS"),
-                    "scenario_type": "malicious",
-                    "tool_name": case["tool_name"],
-                    "attack_type": case.get("attack_type", ""),
-                    "cwe_id": case.get("cwe_id", ""),
-                    "severity": case.get("severity", ""),
-                    "description": case.get("description", ""),
-                },
-            }
-        )
-    return eval_cases
+    def _metadata(case: dict, expected_verdict: str) -> dict:
+        return {
+            "ground_truth": case.get("ground_truth", "MALICIOUS"),
+            "scenario_type": "malicious",
+            "tool_name": case["tool_name"],
+            "attack_type": case.get("attack_type", ""),
+            "cwe_id": case.get("cwe_id", ""),
+            "severity": case.get("severity", ""),
+            "description": case.get("description", ""),
+        }
+
+    return _build_cases(cases, "BLOCK", _malicious_prompt, _metadata)
 
 
 def build_evasion_cases(cases: list[dict]) -> list[dict]:
-    eval_cases = []
-    for case in cases:
-        expected_verdict = case.get("expected_verdict", "BLOCK")
-        eval_cases.append(
-            {
-                "eval_case_id": case["id"],
-                "conversation": [
-                    {
-                        "role": "user",
-                        "parts": [{"text": _evasion_prompt(case)}],
-                    }
-                ],
-                "expected_tool_use": _make_trajectory(
-                    case["tool_name"], expected_verdict
-                ),
-                "reference": expected_verdict,
-                "metadata": {
-                    "ground_truth": case.get("ground_truth", "MALICIOUS"),
-                    "scenario_type": "evasion",
-                    "tool_name": case["tool_name"],
-                    "evasion_type": case.get("evasion_type", ""),
-                    "parent_case_id": case.get("parent_case_id", ""),
-                    "expected_detection_path": case.get(
-                        "expected_detection_path", "SIGNATURE_MATCH"
-                    ),
-                    "severity": case.get("severity", ""),
-                    "wave": case.get("wave", 1),
-                    "description": case.get("description", ""),
-                },
-            }
-        )
-    return eval_cases
+    def _metadata(case: dict, expected_verdict: str) -> dict:
+        return {
+            "ground_truth": case.get("ground_truth", "MALICIOUS"),
+            "scenario_type": "evasion",
+            "tool_name": case["tool_name"],
+            "evasion_type": case.get("evasion_type", ""),
+            "parent_case_id": case.get("parent_case_id", ""),
+            "expected_detection_path": case.get(
+                "expected_detection_path", "SIGNATURE_MATCH"
+            ),
+            "severity": case.get("severity", ""),
+            "wave": case.get("wave", 1),
+            "description": case.get("description", ""),
+        }
+
+    return _build_cases(cases, "BLOCK", _evasion_prompt, _metadata)
 
 
 # ---------------------------------------------------------------------------
