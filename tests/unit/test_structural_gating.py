@@ -8,69 +8,8 @@ from blackwall.policy.engine import StructuralGatingEngine, normalize_operators
 from blackwall.policy.models import StructuralAction
 from blackwall.policy.watcher import PolicyWatcher
 
-BASE_YAML_TEMPLATE = """
-version: "{version}"
-global:
-  threatThreshold: 0.75
-  quarantineThreshold: 0.5
-  enableStructuralGating: true
-  enableSemanticGating: true
-environmentRoles:
-  sandbox:
-    allowedTools: ["read_file", "write_file"]
-    blockedTools: ["execute_bash"]
-    requireSemanticReview: false
-    maxThreatScore: 0.8
-  production:
-    allowedTools: ["read_file"]
-    blockedTools: ["execute_bash", "write_file"]
-    requireSemanticReview: true
-    maxThreatScore: 0.5
-structuralRules:
-{rules}
-semanticGuidelines:
-  - "Test guideline"
-mcpServers:
-  gti:
-    enabled: true
-    apiKey: "vault://gti"
-    cacheEnabled: true
-    cacheTTL: 3600
-    timeout: 5000
-  codebaseMemory:
-    enabled: true
-    apiKey: "vault://cbm"
-    cacheEnabled: true
-    cacheTTL: 3600
-    timeout: 2000
-threatSignatureGraph:
-  dbPath: "/tmp/test-tsg.db"
-  walMode: true
-  maxConnections: 10
-  similarityThreshold: 0.85
-  ttlSeconds: 3600
-  maxSignatures: 1000
-  embeddingDimension: 384
-"""
-
-
-def make_yaml(rules_yaml: str, version: str = "1.0.0") -> str:
-    # Indent rules properly
-    indented_rules = (
-        "\n".join("  " + line for line in rules_yaml.strip().split("\n"))
-        if rules_yaml.strip()
-        else ""
-    )
-    if not indented_rules:
-        indented_rules = "  []"
-    return BASE_YAML_TEMPLATE.format(version=version, rules=indented_rules)
-
-
-def write_temp_yaml(content: str) -> str:
-    fd, path = tempfile.mkstemp(suffix=".yaml")
-    with os.fdopen(fd, "w") as f:
-        f.write(content)
-    return path
+# Shared YAML template helpers — single canonical source of truth.
+from tests.unit.policy_yaml_helpers import make_yaml, write_temp_yaml
 
 
 def test_normalize_operators() -> None:

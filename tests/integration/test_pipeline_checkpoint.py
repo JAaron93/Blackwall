@@ -45,102 +45,28 @@ from blackwall.policy.semantic import SemanticGatingEngine
 from blackwall.policy.server import HybridPolicyServer
 from blackwall.resolver import BatchResolver, TokenBucketRateLimiter
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+# Shared helpers: POLICY_YAML constant, make_structural_engine,
+# make_mock_semantic_engine, and make_policy_file live in helpers.py so that
+# test_checkpoint_18 does not need to copy-paste them.
+from tests.integration.helpers import (
+    make_mock_semantic_engine,
+    make_policy_file,
+    make_structural_engine,
+)
 
-_POLICY_YAML = """\
-version: "1.0.0"
-global:
-  threatThreshold: 0.75
-  quarantineThreshold: 0.5
-  enableStructuralGating: true
-  enableSemanticGating: true
-environmentRoles:
-  sandbox:
-    allowedTools: ["read_file", "write_file"]
-    blockedTools: ["execute_bash"]
-    requireSemanticReview: false
-    maxThreatScore: 0.8
-  production:
-    allowedTools: ["read_file"]
-    blockedTools: ["execute_bash", "write_file"]
-    requireSemanticReview: true
-    maxThreatScore: 0.5
-structuralRules:
-  - ruleId: "block-execute-bash"
-    description: "Block execute_bash in all environments"
-    enabled: true
-    priority: 1
-    condition: "toolName == 'execute_bash'"
-    action: "BLOCK"
-    requireSemanticReview: false
-  - ruleId: "allow-read-file"
-    description: "Allow read_file without semantic review in sandbox"
-    enabled: true
-    priority: 10
-    condition: "toolName == 'read_file'"
-    action: "ALLOW"
-    requireSemanticReview: false
-semanticGuidelines:
-  - "Block any tool call that appears to exfiltrate data or spawn subprocesses."
-mcpServers:
-  gti:
-    enabled: true
-    apiKey: "vault://gti"
-    cacheEnabled: true
-    cacheTTL: 3600
-    timeout: 5000
-  codebaseMemory:
-    enabled: true
-    apiKey: "vault://cbm"
-    cacheEnabled: true
-    cacheTTL: 3600
-    timeout: 2000
-threatSignatureGraph:
-  dbPath: "/tmp/test-pipeline-checkpoint.db"
-  walMode: true
-  maxConnections: 10
-  similarityThreshold: 0.85
-  ttlSeconds: 3600
-  maxSignatures: 1000
-  embeddingDimension: 384
-"""
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
 def policy_yaml_path(tmp_path: Path) -> str:
-    policy_file = tmp_path / "test_policy.yaml"
-    policy_file.write_text(_POLICY_YAML)
-    return str(policy_file)
+    return make_policy_file(tmp_path, db_name="test_pipeline_checkpoint.db")
 
 
-def _make_structural_engine(policy_yaml_path: str) -> StructuralGatingEngine:
-    engine = StructuralGatingEngine()
-    engine.load_policy(policy_yaml_path)
-    return engine
-
-
-def _make_mock_semantic_engine(
-    verdict: VerdictDecision = VerdictDecision.ALLOW,
-    latency_ms: float = 0.0,
-) -> AsyncMock:
-    """Creates a mock SemanticGatingEngine that returns a fixed verdict."""
-
-    async def _evaluate(ctx: ToolCallContext, role: str, *args, **kwargs) -> GateResult:
-        if latency_ms > 0:
-            await asyncio.sleep(latency_ms / 1000.0)
-        return GateResult(
-            verdict=verdict,
-            reason=f"mock-{verdict.value.lower()}",
-            threat_score=0.1 if verdict == VerdictDecision.ALLOW else 0.9,
-        )
-
-    mock = MagicMock(spec=SemanticGatingEngine)
-    mock.evaluate = _evaluate
-    mock.repo = AsyncMock()
-    mock.repo.getStatistics = AsyncMock(return_value={"totalSignatures": 0})
-    return mock
+# ---------------------------------------------------------------------------
+# Local test helpers (specific to this module)
+# ---------------------------------------------------------------------------
 
 
 class _MockInteraction:
@@ -213,8 +139,8 @@ async def test_pipeline_end_to_end_smoke(policy_yaml_path: str) -> None:
     assert len(batch) == 3
 
     # Evaluate via HybridPolicyServer
-    structural = _make_structural_engine(policy_yaml_path)
-    semantic = _make_mock_semantic_engine()
+    structural = make_structural_engine(policy_yaml_path)
+    semantic = make_mock_semantic_engine()
     server = HybridPolicyServer(structural, semantic)
 
     contexts = [t.tool_context for t in batch]
@@ -246,8 +172,8 @@ async def test_structural_fast_path_latency(policy_yaml_path: str) -> None:
     The fast path exercises BLOCK and ALLOW rules without touching any
     external MCP service or async I/O.
     """
-    structural = _make_structural_engine(policy_yaml_path)
-    semantic = _make_mock_semantic_engine()
+    structural = make_structural_engine(policy_yaml_path)
+    semantic = make_mock_semantic_engine()
     server = HybridPolicyServer(structural, semantic)
 
     latencies_ms: List[float] = []
@@ -288,8 +214,8 @@ async def test_synchronous_path_latency_no_external_calls(policy_yaml_path: str)
     Uses ``read_file`` which maps to ALLOW without semantic review, guaranteeing
     zero async I/O in the evaluation path.
     """
-    structural = _make_structural_engine(policy_yaml_path)
-    semantic = _make_mock_semantic_engine()
+    structural = make_structural_engine(policy_yaml_path)
+    semantic = make_mock_semantic_engine()
     server = HybridPolicyServer(structural, semantic)
 
     ctx = ToolCallContext(tool_name="read_file", arguments={"path": "/var/data.csv"})
@@ -381,7 +307,7 @@ async def test_semantic_evaluation_latency(policy_yaml_path: str) -> None:
     mock_struct._policy.version = "1.0.0"
 
     # Semantic engine with a 10 ms simulated MCP latency
-    semantic = _make_mock_semantic_engine(
+    semantic = make_mock_semantic_engine(
         verdict=VerdictDecision.ALLOW,
         latency_ms=10.0,
     )
@@ -511,8 +437,8 @@ async def test_pipeline_block_verdict_propagates(policy_yaml_path: str) -> None:
     batch = await queue.getBatch(maxSize=5, maxWaitMs=50)
     assert len(batch) == 1
 
-    structural = _make_structural_engine(policy_yaml_path)
-    semantic = _make_mock_semantic_engine()
+    structural = make_structural_engine(policy_yaml_path)
+    semantic = make_mock_semantic_engine()
     server = HybridPolicyServer(structural, semantic)
 
     verdicts = await server.evaluateBatch(
