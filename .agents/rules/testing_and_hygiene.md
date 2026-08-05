@@ -4,7 +4,7 @@
 * **Rule:** Latency SLA tests MUST run at least one untimed warmup query prior to starting timers to bypass FTS5 parser compilation, database pool initialization, and JIT compilation overhead.
 
 ## 2. Async BDD Step Execution Pattern
-* **Rule:** In `pytest-bdd` step definitions executing asynchronous coroutines within synchronous step functions, steps MUST use the project's centralized `run_async(coro)` helper function (which creates an isolated event loop per execution) rather than declaring nested `async def` functions with inline `asyncio.run(...)`.
+* **Rule:** In `pytest-bdd` step definitions executing asynchronous coroutines within synchronous step functions, steps MUST import and use the centralized `run_async(coro)` helper from `tests.step_defs.async_utils` (`from tests.step_defs.async_utils import run_async`) rather than declaring local `run_async` functions or nested `async def` coroutines with inline `asyncio.run(...)`.
 
 ## 3. Early Parameter Validation for Model Invariants
 * **Rule:** Store query methods and API functions constructing Pydantic models with length or range invariants (e.g. `min_path_length >= 2` for `AttackPath`) MUST validate parameters at entry and raise `ValueError` before triggering downstream Pydantic validation exceptions.
