@@ -1,7 +1,7 @@
 import re
 from enum import Enum
 from typing import Dict, List, Optional
-from pydantic import BaseModel, Field, field_validator, model_validator
+from blackwall.validators import validate_semver_format
 from blackwall.models import VerdictDecision
 
 
@@ -88,11 +88,7 @@ class PolicyConfig(BaseModel):
     @field_validator("version")
     @classmethod
     def validate_semver(cls, v: str) -> str:
-        if not re.match(r"^\d+\.\d+\.\d+$", v):
-            raise ValueError(
-                "Version must be in MAJOR.MINOR.PATCH semantic versioning format"
-            )
-        return v
+        return validate_semver_format(v)
 
     @model_validator(mode="after")
     def validate_rules_and_roles(self) -> "PolicyConfig":

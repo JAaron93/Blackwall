@@ -10,13 +10,7 @@ from blackwall.enterprise.advanced_threat_detection.enums import (
     EventSource,
     ExploitCategory,
 )
-
-
-def _validate_utc_datetime(v: datetime) -> datetime:
-    """Helper to validate that a datetime is timezone-aware and set to UTC."""
-    if v.tzinfo is None or v.utcoffset() != timezone.utc.utcoffset(v):
-        raise ValueError("timestamp must be UTC timezone-aware")
-    return v
+from blackwall.validators import validate_utc_datetime
 
 
 class NormalizedEvent(BaseModel):
@@ -47,7 +41,7 @@ class NormalizedEvent(BaseModel):
     @classmethod
     def validate_utc_timestamp(cls, v: datetime) -> datetime:
         """Validate timestamp is timezone-aware and set to UTC."""
-        return _validate_utc_datetime(v)
+        return validate_utc_datetime(v)
 
     @field_validator("agent_id")
     @classmethod
@@ -83,7 +77,7 @@ class AttackPath(BaseModel):
     @classmethod
     def validate_utc_timestamps(cls, v: datetime) -> datetime:
         """Validate start_time and end_time are UTC timezone-aware."""
-        return _validate_utc_datetime(v)
+        return validate_utc_datetime(v)
 
     @field_validator("nodes")
     @classmethod
@@ -116,7 +110,7 @@ class SwarmEvidence(BaseModel):
     @classmethod
     def validate_utc_timestamps(cls, v: datetime) -> datetime:
         """Validate first_seen and last_seen are UTC timezone-aware."""
-        return _validate_utc_datetime(v)
+        return validate_utc_datetime(v)
 
     @field_validator("agent_ids")
     @classmethod
