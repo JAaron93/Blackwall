@@ -12,6 +12,13 @@ from blackwall.enterprise.advanced_threat_detection.enums import (
 )
 
 
+def _validate_utc_datetime(v: datetime) -> datetime:
+    """Helper to validate that a datetime is timezone-aware and set to UTC."""
+    if v.tzinfo is None or v.utcoffset() != timezone.utc.utcoffset(v):
+        raise ValueError("timestamp must be UTC timezone-aware")
+    return v
+
+
 class NormalizedEvent(BaseModel):
     """Normalized threat event schema across all five Blackwall pillars."""
 
@@ -40,9 +47,7 @@ class NormalizedEvent(BaseModel):
     @classmethod
     def validate_utc_timestamp(cls, v: datetime) -> datetime:
         """Validate timestamp is timezone-aware and set to UTC."""
-        if v.tzinfo is None or v.utcoffset() != timezone.utc.utcoffset(v):
-            raise ValueError("timestamp must be UTC timezone-aware")
-        return v
+        return _validate_utc_datetime(v)
 
     @field_validator("agent_id")
     @classmethod
@@ -74,6 +79,12 @@ class AttackPath(BaseModel):
     attack_stages: List[str] = Field(default_factory=list)
     correlation_score: float = Field(..., ge=0.0, le=1.0)
 
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def validate_utc_timestamps(cls, v: datetime) -> datetime:
+        """Validate start_time and end_time are UTC timezone-aware."""
+        return _validate_utc_datetime(v)
+
     @field_validator("nodes")
     @classmethod
     def validate_min_nodes(cls, v: List[AttackNode]) -> List[AttackNode]:
@@ -101,6 +112,12 @@ class SwarmEvidence(BaseModel):
     first_seen: datetime
     last_seen: datetime
 
+    @field_validator("first_seen", "last_seen")
+    @classmethod
+    def validate_utc_timestamps(cls, v: datetime) -> datetime:
+        """Validate first_seen and last_seen are UTC timezone-aware."""
+        return _validate_utc_datetime(v)
+
     @field_validator("agent_ids")
     @classmethod
     def validate_min_agents(cls, v: Set[str]) -> Set[str]:
@@ -108,6 +125,13 @@ class SwarmEvidence(BaseModel):
         if len(v) < 2:
             raise ValueError("SwarmEvidence agent_ids must contain at least 2 agents")
         return v
+
+    @model_validator(mode="after")
+    def validate_temporal_ordering(self) -> "SwarmEvidence":
+        """Validate last_seen >= first_seen."""
+        if self.last_seen < self.first_seen:
+            raise ValueError("last_seen must be greater than or equal to first_seen")
+        return self
 
 
 class ExploitChainEvidence(BaseModel):

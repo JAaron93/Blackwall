@@ -18,10 +18,6 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     SwarmEvidence,
 )
 
-# Global settings for property tests
-settings.register_profile("atd_100", max_examples=100)
-settings.load_profile("atd_100")
-
 # Strategies
 valid_uuid4_st = st.uuids(version=4).map(str)
 utc_datetime_st = st.datetimes(
@@ -57,6 +53,7 @@ def attack_node_st(draw):
 
 
 # Property 3: Normalized Event UUID Validity
+@settings(max_examples=100)
 @given(valid_uuid=valid_uuid4_st)
 def test_property_3_normalized_event_uuid_validity(valid_uuid):
     """Property 3: For any created Normalized_Event, event_id SHALL be a valid UUID v4."""
@@ -74,6 +71,7 @@ def test_property_3_normalized_event_uuid_validity(valid_uuid):
 
 
 # Property 4: Normalized Event Timestamp Timezone
+@settings(max_examples=100)
 @given(ts=utc_datetime_st)
 def test_property_4_normalized_event_timestamp_timezone(ts):
     """Property 4: For any created Normalized_Event, timestamp SHALL be timezone-aware and UTC."""
@@ -91,6 +89,7 @@ def test_property_4_normalized_event_timestamp_timezone(ts):
 
 
 # Property 5: Risk Score Bounds
+@settings(max_examples=100)
 @given(score=valid_risk_score_st)
 def test_property_5_risk_score_bounds_valid(score):
     """Property 5: For any created Normalized_Event, risk_score SHALL be in range [0.0, 1.0]."""
@@ -106,6 +105,7 @@ def test_property_5_risk_score_bounds_valid(score):
     assert 0.0 <= event.risk_score <= 1.0
 
 
+@settings(max_examples=100)
 @given(
     invalid_score=st.one_of(
         st.floats(max_value=-0.0001),
@@ -127,6 +127,7 @@ def test_property_5_risk_score_bounds_invalid(invalid_score):
 
 
 # Property 10: Attack Path Minimum Node Validation
+@settings(max_examples=100)
 @given(node=attack_node_st())
 def test_property_10_attack_path_min_nodes(node):
     """Property 10: Attack_Path with fewer than 2 nodes SHALL be rejected."""
@@ -144,6 +145,7 @@ def test_property_10_attack_path_min_nodes(node):
 
 
 # Property 11: Attack Path Temporal Validity
+@settings(max_examples=100)
 @given(
     nodes=st.lists(attack_node_st(), min_size=2, max_size=5),
     start=utc_datetime_st,
@@ -164,6 +166,7 @@ def test_property_11_attack_path_temporal_validity(nodes, start, offset_sec):
     assert path.end_time >= path.start_time
 
 
+@settings(max_examples=100)
 @given(
     nodes=st.lists(attack_node_st(), min_size=2, max_size=5),
     start=utc_datetime_st,
@@ -185,6 +188,7 @@ def test_property_11_attack_path_temporal_invalidity(nodes, start, offset_sec):
 
 
 # Property 26: Swarm Evidence Agent Count Validation
+@settings(max_examples=100)
 @given(agents=st.sets(non_empty_str_st, min_size=2, max_size=10))
 def test_property_26_swarm_evidence_agent_count_valid(agents):
     """Property 26: Swarm_Evidence agent_ids set SHALL contain at least 2 distinct agent identifiers."""
@@ -200,6 +204,7 @@ def test_property_26_swarm_evidence_agent_count_valid(agents):
     assert len(evidence.agent_ids) >= 2
 
 
+@settings(max_examples=100)
 @given(agents=st.sets(non_empty_str_st, max_size=1))
 def test_property_26_swarm_evidence_agent_count_invalid(agents):
     """Property 26 rejection: Swarm_Evidence with fewer than 2 agents must fail validation."""
@@ -216,6 +221,7 @@ def test_property_26_swarm_evidence_agent_count_invalid(agents):
 
 
 # Property 27: Swarm Evidence Correlation Threshold Validation
+@settings(max_examples=100)
 @given(corr=st.floats(min_value=0.0, max_value=1.0))
 def test_property_27_swarm_evidence_correlation_threshold_bounds(corr):
     """Property 27: For any valid Swarm_Evidence, temporal_correlation SHALL be in [0.0, 1.0]."""

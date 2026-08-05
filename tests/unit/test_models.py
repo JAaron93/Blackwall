@@ -157,6 +157,52 @@ def test_attack_path_temporal_ordering_validation():
         )
 
 
+def test_attack_path_naive_or_non_utc_timestamps_validation():
+    """Test AttackPath raises ValidationError for naive or non-UTC start_time / end_time."""
+    now_utc = datetime.now(timezone.utc)
+    now_naive = datetime.now()
+    est = timezone(timedelta(hours=-5))
+    now_est = datetime.now(est)
+    node1 = AttackNode(node_id="n1", event=create_valid_event())
+    node2 = AttackNode(node_id="n2", event=create_valid_event())
+
+    # Naive start_time
+    with pytest.raises(ValidationError):
+        AttackPath(
+            path_id="p1",
+            agent_id="a1",
+            nodes=[node1, node2],
+            start_time=now_naive,
+            end_time=now_utc,
+            risk_score=0.5,
+            correlation_score=0.5,
+        )
+
+    # Naive end_time
+    with pytest.raises(ValidationError):
+        AttackPath(
+            path_id="p1",
+            agent_id="a1",
+            nodes=[node1, node2],
+            start_time=now_utc,
+            end_time=now_naive,
+            risk_score=0.5,
+            correlation_score=0.5,
+        )
+
+    # Non-UTC end_time
+    with pytest.raises(ValidationError):
+        AttackPath(
+            path_id="p1",
+            agent_id="a1",
+            nodes=[node1, node2],
+            start_time=now_utc,
+            end_time=now_est,
+            risk_score=0.5,
+            correlation_score=0.5,
+        )
+
+
 def test_swarm_evidence_valid():
     """Test SwarmEvidence construction."""
     now = datetime.now(timezone.utc)
@@ -183,6 +229,47 @@ def test_swarm_evidence_min_agents_validation():
             coordination_score=0.9,
             first_seen=now,
             last_seen=now,
+        )
+
+
+def test_swarm_evidence_time_window_validation():
+    """Test SwarmEvidence rejects last_seen < first_seen, naive datetimes, or non-UTC datetimes."""
+    now_utc = datetime.now(timezone.utc)
+    now_naive = datetime.now()
+    est = timezone(timedelta(hours=-5))
+    now_est = datetime.now(est)
+
+    # last_seen < first_seen
+    with pytest.raises(ValidationError):
+        SwarmEvidence(
+            swarm_id="sw-1",
+            agent_ids={"a1", "a2"},
+            temporal_correlation=0.8,
+            coordination_score=0.8,
+            first_seen=now_utc,
+            last_seen=now_utc - timedelta(seconds=1),
+        )
+
+    # Naive first_seen
+    with pytest.raises(ValidationError):
+        SwarmEvidence(
+            swarm_id="sw-1",
+            agent_ids={"a1", "a2"},
+            temporal_correlation=0.8,
+            coordination_score=0.8,
+            first_seen=now_naive,
+            last_seen=now_utc,
+        )
+
+    # Non-UTC last_seen
+    with pytest.raises(ValidationError):
+        SwarmEvidence(
+            swarm_id="sw-1",
+            agent_ids={"a1", "a2"},
+            temporal_correlation=0.8,
+            coordination_score=0.8,
+            first_seen=now_utc,
+            last_seen=now_est,
         )
 
 
