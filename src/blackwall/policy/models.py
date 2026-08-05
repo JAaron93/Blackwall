@@ -1,6 +1,6 @@
-import re
 from enum import Enum
 from typing import Dict, List, Optional
+from pydantic import BaseModel, Field, field_validator, model_validator
 from blackwall.validators import validate_semver_format
 from blackwall.models import VerdictDecision
 

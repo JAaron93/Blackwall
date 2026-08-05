@@ -6,19 +6,19 @@ This document serves as the centralized reference for reusable helper functions 
 
 ## 1. Validation & Utility Helpers (`src/blackwall/validators.py`)
 
-Module Location: [`src/blackwall/validators.py`](file:///Users/pretermodernist/.gemini/antigravity/worktrees/Blackwall/implement_blackwall_task_three/src/blackwall/validators.py)
+Module Location: [`src/blackwall/validators.py`](../src/blackwall/validators.py)
 
 | Function | Signature | Description / Purpose | Use Cases & Applied Locations |
 | :--- | :--- | :--- | :--- |
-| `validate_semver_format` | `(v: str) -> str` | Validates that a version string strictly follows the `MAJOR.MINOR.PATCH` semantic versioning format via regex `^\d+\.\d+\.\d+$`. Raises `ValueError` on mismatch. | `PolicyServerState.validate_semver` ([models.py](file:///Users/pretermodernist/.gemini/antigravity/worktrees/Blackwall/implement_blackwall_task_three/src/blackwall/models.py)), `PolicyConfig.validate_semver` ([policy/models.py](file:///Users/pretermodernist/.gemini/antigravity/worktrees/Blackwall/implement_blackwall_task_three/src/blackwall/policy/models.py)). |
-| `validate_utc_datetime` | `(v: datetime) -> datetime` | Validates that a `datetime` object is timezone-aware and set to UTC (`v.tzinfo` is not None and UTC offset matches UTC). Raises `ValueError` if naive or non-UTC. | `NormalizedEvent`, `AttackPath`, `SwarmEvidence` field validators ([enterprise/advanced_threat_detection/models.py](file:///Users/pretermodernist/.gemini/antigravity/worktrees/Blackwall/implement_blackwall_task_three/src/blackwall/enterprise/advanced_threat_detection/models.py)). |
+| `validate_semver_format` | `(v: str) -> str` | Validates that a version string strictly follows the `MAJOR.MINOR.PATCH` semantic versioning format via regex `^\d+\.\d+\.\d+$`. Raises `ValueError` on mismatch. | `PolicyServerState.validate_semver` ([models.py](../src/blackwall/models.py)), `PolicyConfig.validate_semver` ([policy/models.py](../src/blackwall/policy/models.py)). |
+| `validate_utc_datetime` | `(v: datetime) -> datetime` | Validates that a `datetime` object is timezone-aware and set to UTC (`v.tzinfo` is not None and UTC offset matches UTC). Raises `ValueError` if naive or non-UTC. | `NormalizedEvent`, `AttackPath`, `SwarmEvidence` field validators ([enterprise/advanced_threat_detection/models.py](../src/blackwall/enterprise/advanced_threat_detection/models.py)). |
 | `utc_now` | `() -> datetime` | Returns the current timezone-aware UTC `datetime` (`datetime.now(timezone.utc)`). | Default factories in Pydantic models, telemetry spans, audit timestamps. |
 
 ---
 
 ## 2. Test Step Async Helper (`tests/step_defs/async_utils.py`)
 
-Module Location: [`tests/step_defs/async_utils.py`](file:///Users/pretermodernist/.gemini/antigravity/worktrees/Blackwall/implement_blackwall_task_three/tests/step_defs/async_utils.py)
+Module Location: [`tests/step_defs/async_utils.py`](../tests/step_defs/async_utils.py)
 
 | Function | Signature | Description / Purpose | Use Cases & Applied Locations |
 | :--- | :--- | :--- | :--- |
