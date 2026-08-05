@@ -1,4 +1,3 @@
-import re
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
@@ -168,6 +167,9 @@ class SyncResolverMetrics(BaseModel):
     allow_count: int = 0
 
 
+from blackwall.validators import validate_semver_format
+
+
 class PolicyServerState(BaseModel):
     version: str
     last_updated: datetime
@@ -176,11 +178,7 @@ class PolicyServerState(BaseModel):
     @field_validator("version")
     @classmethod
     def validate_semver(cls, v: str) -> str:
-        if not re.match(r"^\d+\.\d+\.\d+$", v):
-            raise ValueError(
-                "Version must be in MAJOR.MINOR.PATCH semantic versioning format"
-            )
-        return v
+        return validate_semver_format(v)
 
 
 class SecurityEvent(BaseModel):

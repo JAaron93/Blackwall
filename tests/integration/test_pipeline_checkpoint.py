@@ -21,7 +21,6 @@ integration tests, as an intentional exception to any pytest-bdd guideline.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import subprocess
 import sys
@@ -40,8 +39,7 @@ from blackwall.models import (
     VerdictDecision,
 )
 from blackwall.policy.engine import StructuralGatingEngine, StructuralGatingResult
-from blackwall.policy.models import GateResult, StructuralAction
-from blackwall.policy.semantic import SemanticGatingEngine
+from blackwall.policy.models import StructuralAction
 from blackwall.policy.server import HybridPolicyServer
 from blackwall.resolver import BatchResolver, TokenBucketRateLimiter
 

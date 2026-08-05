@@ -16,8 +16,7 @@ from __future__ import annotations
 import asyncio
 import time
 from pathlib import Path
-from typing import Optional
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 from blackwall.models import ToolCallContext, VerdictDecision
 from blackwall.policy.engine import StructuralGatingEngine

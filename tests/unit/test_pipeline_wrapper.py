@@ -4,7 +4,6 @@ Tests ASTPipelineFilter, PipelineSandboxManager, and @guard_pipeline decorator.
 """
 
 import pytest
-import asyncio
 from blackwall.enterprise.pipeline import (
     ASTPipelineFilter,
     PipelineSandboxManager,

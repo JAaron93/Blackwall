@@ -6,7 +6,7 @@ Streams telemetry log events to local Ollama LLM endpoint (Qwen3 / GLM-5.2) with
 import json
 import logging
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 import aiohttp
 
 logger = logging.getLogger(__name__)

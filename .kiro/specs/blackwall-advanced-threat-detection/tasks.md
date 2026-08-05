@@ -70,7 +70,7 @@ The implementation follows a test-driven development approach with property-base
     - **Validates: Requirements 2.1, 2.2, 2.3, 2.5**
     - _Verification: `pytest tests/property/test_attack_graph_properties.py --hypothesis-iterations=100 -v`_
 
-- [ ] 3. Checkpoint - Verify core infrastructure
+- [x] 3. Checkpoint - Verify core infrastructure
   - Ensure all tests pass, ask the user if questions arise.
 
 
