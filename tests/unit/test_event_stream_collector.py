@@ -3,7 +3,8 @@
 import logging
 import uuid
 from collections.abc import AsyncIterator
-from datetime import UTC
+from datetime import UTC, datetime
+
 from typing import Any
 
 import pytest
@@ -200,6 +201,43 @@ async def test_invalid_string_timestamp_logging(caplog):
 
     assert norm.metadata.get("raw_timestamp") == "invalid-iso-format"
     assert "Failed to parse string timestamp" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_naive_datetime_timestamp_logging(caplog):
+    """Naive datetime timestamps log a warning, preserve raw_timestamp, and fallback to UTC now."""
+    collector = EventStreamCollector()
+    naive_dt = datetime.now()
+    raw = {
+        "agent_id": "agent-naive-dt",
+        "action": "execve",
+        "target": "/bin/bash",
+        "timestamp": naive_dt,
+    }
+    with caplog.at_level(logging.WARNING):
+        norm = collector.normalize_event(EventSource.KERNEL_SYSCALL, raw)
+
+    assert norm.metadata.get("raw_timestamp") == str(naive_dt)
+    assert norm.timestamp.tzinfo is not None
+    assert "Naive datetime" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_timezoneless_iso_string_timestamp_logging(caplog):
+    """Timezone-less ISO string timestamps log a warning, preserve raw_timestamp, and fallback to UTC now."""
+    collector = EventStreamCollector()
+    raw = {
+        "agent_id": "agent-tzless-iso",
+        "action": "execve",
+        "target": "/bin/bash",
+        "timestamp": "2026-08-05T12:00:00",
+    }
+    with caplog.at_level(logging.WARNING):
+        norm = collector.normalize_event(EventSource.KERNEL_SYSCALL, raw)
+
+    assert norm.metadata.get("raw_timestamp") == "2026-08-05T12:00:00"
+    assert norm.timestamp.tzinfo is not None
+    assert "Timezone-less ISO string timestamp" in caplog.text
 
 
 @pytest.mark.asyncio

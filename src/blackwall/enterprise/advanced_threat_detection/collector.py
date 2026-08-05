@@ -58,7 +58,12 @@ class EventStreamCollector:
         timestamp: datetime
         if isinstance(raw_ts, datetime):
             if raw_ts.tzinfo is None:
-                timestamp = raw_ts.replace(tzinfo=UTC)
+                logger.warning(
+                    "Naive datetime %r provided for source %s; falling back to current UTC time",
+                    raw_ts,
+                    source,
+                )
+                timestamp = datetime.now(UTC)
             else:
                 timestamp = raw_ts.astimezone(UTC)
         elif isinstance(raw_ts, str):
@@ -66,7 +71,12 @@ class EventStreamCollector:
             try:
                 parsed_dt = datetime.fromisoformat(clean_ts)
                 if parsed_dt.tzinfo is None:
-                    timestamp = parsed_dt.replace(tzinfo=UTC)
+                    logger.warning(
+                        "Timezone-less ISO string timestamp %r provided for source %s; falling back to current UTC time",
+                        raw_ts,
+                        source,
+                    )
+                    timestamp = datetime.now(UTC)
                 else:
                     timestamp = parsed_dt.astimezone(UTC)
             except Exception as parse_err:
@@ -116,8 +126,8 @@ class EventStreamCollector:
         )
         metadata["ingested_at"] = datetime.now(UTC).isoformat()
         metadata["pillar_source"] = source.value
-        if isinstance(raw_ts, str) and "raw_timestamp" not in metadata:
-            metadata.setdefault("raw_timestamp", raw_ts)
+        if isinstance(raw_ts, (str, datetime)) and "raw_timestamp" not in metadata:
+            metadata.setdefault("raw_timestamp", str(raw_ts))
 
         # Initial risk score calculation
         if "risk_score" in raw_event and isinstance(
