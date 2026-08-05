@@ -7,6 +7,9 @@ import pytest
 from pytest_bdd import given, scenarios, then, when
 from pydantic import ValidationError
 
+from blackwall.enterprise.advanced_threat_detection.collector import (
+    EventStreamCollector,
+)
 from blackwall.enterprise.advanced_threat_detection.enums import EventSource
 from blackwall.enterprise.advanced_threat_detection.models import (
     AttackNode,
@@ -14,8 +17,11 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     NormalizedEvent,
     SwarmEvidence,
 )
+from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
+from tests.step_defs.async_utils import run_async
 
 scenarios("../features/advanced_threat_detection.feature")
+
 
 
 class ATDBDDState:
@@ -224,8 +230,6 @@ def then_invalid_swarm_evidence_rejected(atd_state):
 
 
 # Scenario 4 steps (AttackGraphStore)
-from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
-from tests.step_defs.async_utils import run_async
 
 
 @given("an initialized AttackGraphStore instance")
@@ -274,10 +278,10 @@ def then_store_persists_and_returns_paths(atd_state):
 
 
 # Scenario 5 steps (EventStreamCollector)
-from blackwall.enterprise.advanced_threat_detection.collector import EventStreamCollector
 
 
 @given("an EventStreamCollector instance and heterogeneous raw events from 5 pillars")
+
 def given_event_collector_and_raw_events(atd_state):
     atd_state.collector = EventStreamCollector()
     atd_state.raw_pillar_events = {
