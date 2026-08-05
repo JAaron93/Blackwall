@@ -95,6 +95,12 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
    - Provider configuration helpers (`configure_provider_env()`) MUST purge legacy API keys (`GEMINI_API_KEY`, `LLM_API_KEY`) and re-assert required mode variables (`GOOGLE_GENAI_USE_VERTEXAI="true"`, `GEMINI_TIER="paid"`) on *every* call, regardless of module-level caching flags.
 4. **Production Import Error Enforcement**:
    - Module entrypoints (`agent/__init__.py`) MUST NOT swallow missing configuration `ValueError` exceptions in production. Exception suppression is permitted ONLY when `PYTEST_CURRENT_TEST` or `BLACKWALL_TEST_MODE` is present in `os.environ`.
+5. **DSN & Credential Log Sanitization**:
+   - Log messages MUST NEVER include raw DSN connection strings (`self.dsn`), URLs containing embedded credentials, or raw authentication keys. Omit DSN parameters or log sanitized host/port strings to prevent credential exposure in failure logs.
+6. **Atomic Database Transactions & Cache Synchronization**:
+   - Store modules persisting data across both a database backend and an in-memory cache MUST wrap database persistence statements in an explicit transaction (`async with conn.transaction():`), and mutate in-memory cache structures ONLY after successful DB commit. Re-ingesting duplicate items MUST preserve existing cached edge/relationship lists.
+7. **Explicit Connection Error Escalation**:
+   - Persistent store initialization methods MUST NOT silently degrade to in-memory mode when an explicit DSN is provided and `in_memory=False`. Connection exceptions MUST be raised to signal non-durable state to callers.
 
 ---
 
@@ -125,4 +131,7 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
 * **Pydantic v2 Datetime Validation Hygiene**: Data models performing temporal comparisons in `@model_validator(mode="after")` (e.g. `end_time >= start_time`, `last_seen >= first_seen`) MUST enforce UTC timezone-awareness via `@field_validator` on all datetime fields to prevent unhandled `TypeError` exceptions on naive or non-UTC inputs.
 * **Hypothesis Test Scope Isolation**: Property test modules MUST NOT call `settings.load_profile()` or `settings.register_profile()` at module import scope. Decorate individual test functions with `@settings(max_examples=100)` to prevent cross-test settings mutation.
 * **Enterprise Mesh BDD Feature Alignment**: When implementing new enterprise security pillars or capabilities, add Gherkin scenarios to `tests/features/blackwall_enterprise_mesh.feature` and step definitions to `tests/step_defs/test_enterprise_mesh.py` in addition to any dedicated feature files.
+* **Async BDD Step Execution Pattern**: In `pytest-bdd` step definitions executing asynchronous coroutines within synchronous step functions, steps MUST use the project's centralized `run_async(coro)` helper function rather than declaring nested `async def` functions with inline `asyncio.run(...)`.
+* **Early Parameter Validation for Model Invariants**: Store query methods constructing Pydantic models with length or range invariants (e.g., `min_path_length >= 2` for `AttackPath`) MUST validate parameters at entry and raise `ValueError` before triggering downstream Pydantic validation exceptions.
+
 
