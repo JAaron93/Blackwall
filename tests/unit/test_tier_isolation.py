@@ -4,8 +4,6 @@ Verifies that Blackwall Core remains a zero-dependency single-host daemon
 and blackwall.enterprise is cleanly modularized.
 """
 
-import sys
-import pytest
 
 
 def test_core_package_imports_cleanly():

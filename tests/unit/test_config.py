@@ -4,7 +4,7 @@ Unit tests for Blackwall Config & GCP Vertex AI Mode Provider Settings.
 
 import os
 import pytest
-from blackwall.config import Settings, configure_provider_env
+from blackwall.config import configure_provider_env
 
 
 def test_config_success(monkeypatch):

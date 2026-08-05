@@ -1,7 +1,7 @@
 """Data models for Blackwall Advanced Threat Detection pillar."""
 
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set, Tuple
+from datetime import datetime
+from typing import Any, Dict, List, Set, Tuple
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator

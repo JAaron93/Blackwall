@@ -1,4 +1,3 @@
-import re
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
@@ -168,7 +167,7 @@ class SyncResolverMetrics(BaseModel):
     allow_count: int = 0
 
 
-from blackwall.validators import utc_now, validate_semver_format
+from blackwall.validators import validate_semver_format
 
 
 class PolicyServerState(BaseModel):

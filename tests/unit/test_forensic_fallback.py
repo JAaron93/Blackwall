@@ -2,7 +2,6 @@
 Unit tests for Standalone Lightweight Fallback Parser (`src/blackwall/enterprise/forensics/fallback_parser.py`).
 """
 
-import pytest
 from blackwall.enterprise.forensics.fallback_parser import LightweightForensicParser
 
 

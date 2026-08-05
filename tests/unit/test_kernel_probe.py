@@ -2,8 +2,6 @@
 Unit tests for Task K01: Kernel Probe Interface & macOS Fallback Audit Driver.
 """
 
-import sys
-import subprocess
 import pytest
 
 

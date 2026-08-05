@@ -3,7 +3,6 @@ Kernel Interception Engine & Audit Driver Abstraction (`blackwall.enterprise.ker
 Provides Linux eBPF probe driver and macOS/Windows user-space audit hook driver.
 """
 
-import os
 import sys
 import logging
 from abc import ABC, abstractmethod

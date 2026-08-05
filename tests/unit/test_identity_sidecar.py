@@ -4,7 +4,6 @@ Tests environment variable sterilization, synthetic honey-tokens (BW_SYNTHETIC_*
 exfiltration detection (CRITICAL verdict), and JIT token integration.
 """
 
-import os
 import pytest
 from blackwall.enterprise.identity import SecretVaultSidecar
 
