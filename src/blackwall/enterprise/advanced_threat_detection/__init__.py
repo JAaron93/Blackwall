@@ -44,5 +44,3 @@ __all__ = [
     "EventStreamCollector",
     "logger",
 ]
-
-
