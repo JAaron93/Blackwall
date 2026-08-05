@@ -84,6 +84,18 @@ def then_invalid_uuid_or_ts_rejected(atd_state):
             target="/usr/bin/cat",
             risk_score=0.3,
         )
+    # Non-UTC timezone-aware timestamp
+    est = timezone(timedelta(hours=-5))
+    with pytest.raises(ValidationError):
+        NormalizedEvent(
+            event_id=str(uuid.uuid4()),
+            timestamp=datetime.now(est),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id="agent-bdd-01",
+            action="execve",
+            target="/usr/bin/cat",
+            risk_score=0.3,
+        )
 
 
 # Scenario 2 steps
