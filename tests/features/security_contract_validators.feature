@@ -23,3 +23,8 @@ Feature: Security Contract Centralized Validation Guardrails
     Given a naive datetime without timezone info
     When the UTC datetime validation helper is executed
     Then a ValueError should be raised with "UTC timezone-aware"
+
+  Scenario: Validate UTC datetime fails for non-UTC timezone-aware datetime
+    Given a non-UTC timezone-aware datetime
+    When the UTC datetime validation helper is executed
+    Then a ValueError should be raised with "UTC timezone-aware"

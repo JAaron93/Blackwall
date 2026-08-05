@@ -1,6 +1,6 @@
 """Pytest-BDD step definitions for security contract validation guardrails."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import pytest
 from pytest_bdd import given, parsers, scenarios, then, when
 
@@ -71,4 +71,10 @@ def verify_utc_datetime(state: ValidatorState):
 
 @given("a naive datetime without timezone info")
 def set_naive_datetime(state: ValidatorState):
-    state.input_dt = datetime.now()
+    state.input_dt = datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+@given("a non-UTC timezone-aware datetime")
+def set_non_utc_datetime(state: ValidatorState):
+    est = timezone(timedelta(hours=-5))
+    state.input_dt = datetime.now(est)
