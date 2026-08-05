@@ -38,12 +38,14 @@ qodo:
     extra_instructions: |
       - Mandatory 100% GCP Vertex AI Mode: Flag any PR reintroducing Google AI Studio API key configurations (e.g. GEMINI_API_KEY, LLM_API_KEY) or free-tier rate limit fallbacks. Ensure google-genai clients instantiate with vertexai=True, require GCP_PROJECT, and run in paid tier mode.
       - Verify that Blackwall Core (`src/blackwall/core/` or top-level `src/blackwall/`) remains a lightweight single-host daemon and does not import ZeroMQ, NATS, or eBPF C headers.
-      - Ensure all enterprise capabilities (eBPF probes, ZeroMQ threat mesh, ephemeral identity sidecars, micro-sandbox wrappers, forensic engine) are cleanly isolated under `src/blackwall/enterprise/`.
+      - Ensure all enterprise capabilities (eBPF probes, ZeroMQ threat mesh, ephemeral identity sidecars, micro-sandbox wrappers, forensic engine, advanced threat detection) are cleanly isolated under `src/blackwall/enterprise/`.
+      - Verify that all Pillar 6 Advanced Threat Detection components (EventStreamCollector, AttackGraphStore, AgentSwarmDetector, ExploitChainAnalyzer, AILMTracker, C2InfrastructureDetector, K8sDefenseLayer, RegistryMonitor) reside under `src/blackwall/enterprise/advanced_threat_detection/`.
+      - Ensure all Advanced Threat Detection data models in `src/blackwall/enterprise/advanced_threat_detection/models.py` enforce Pydantic v2 validation (UUID v4 format for event_id, UTC timezone awareness for timestamps, score bounds [0.0, 1.0], minimum sequence lengths, and end_time >= start_time).
       - Verify that execution flow in `SyncResolver` strictly maintains the order: Rate Check -> ContextHygiene Sanitization -> Threat Signature Graph Check -> Codebase Memory MCP AST Query -> Conditional GTI Validation -> Score Aggregation -> Threshold Verdict.
       - Ensure environment variable readers in `src/blackwall/enterprise/identity/` replace sensitive credentials (`AWS_SECRET_ACCESS_KEY`, `KUBECONFIG`) with synthetic honey-tokens (`BW_SYNTHETIC_*`) and handle JIT token swaps via `hashicorp-vault-mcp`.
       - Verify `ForensicTriageEngine` supports primary Ollama open-weight LLM triage with automatic failover to `LightweightForensicParser` when GPU/Ollama is offline.
       - Ensure `LightweightForensicParser` AST inspection resolves fully qualified callee names (e.g. `os.system`, `subprocess.Popen`, `pickle.loads`) rather than bare attribute names to prevent false-positive threat classifications on benign modules like `json.loads` or `asyncio.run`.
-      - Flag any PR adding or modifying feature code without corresponding unit or integration tests under `tests/`.
+      - Flag any PR adding or modifying feature code without corresponding unit or integration tests under `tests/`, and property-based tests under `tests/property/` for data models and analysis engines.
       - Confirm all end-to-end security behavior contracts pass via `pytest-bdd` scenarios in `tests/features/`.
       - Verify `sys.addaudithook` registrations in tests are scoped inside isolated test functions, and background processes clean up process groups via `os.killpg(os.getpgid(pid), signal.SIGTERM)`.
       - Flag any synthetic test credentials matching live cloud provider key formats (e.g. `AWS_KEY_<digits>`) to prevent secret scanner false positives.

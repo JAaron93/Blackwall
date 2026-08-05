@@ -19,10 +19,18 @@ pr_compliances:
 
   - title: "Enterprise Subsystem Modularization"
     compliance_label: true
-    objective: "Verify all enterprise mesh capabilities (eBPF probes, ZeroMQ pub/sub, Vault sidecars, sandboxes, forensic engine) are isolated under src/blackwall/enterprise/."
-    success_criteria: "Enterprise features (eBPF kernel probes, ZeroMQ threat mesh, Vault sidecar, container sandboxes, local forensic engine) are cleanly modularized inside src/blackwall/enterprise/."
+    objective: "Verify all enterprise mesh capabilities (eBPF probes, ZeroMQ pub/sub, Vault sidecars, sandboxes, forensic engine, advanced threat detection) are isolated under src/blackwall/enterprise/."
+    success_criteria: "Enterprise features (eBPF kernel probes, ZeroMQ threat mesh, Vault sidecar, container sandboxes, local forensic engine, advanced threat detection) are cleanly modularized inside src/blackwall/enterprise/."
     failure_criteria: "Enterprise capabilities leak into Blackwall Core directory instead of remaining under src/blackwall/enterprise/."
     severity: "HIGH"
+
+  - title: "Advanced Threat Detection (Pillar 6) Isolation & Model Validation"
+    compliance_label: true
+    objective: "Verify Pillar 6 Advanced Threat Detection components are isolated under src/blackwall/enterprise/advanced_threat_detection/ and data models enforce strict Pydantic v2 validation (UUID v4, UTC timestamps, score bounds [0.0, 1.0], min sequence sizes, temporal ordering)."
+    success_criteria: "Pillar 6 modules are isolated under src/blackwall/enterprise/advanced_threat_detection/ and Pydantic data models enforce UUID v4, UTC timestamps, score bounds [0.0, 1.0], min sequence sizes, temporal ordering, and Hypothesis property tests."
+    failure_criteria: "Pillar 6 components placed outside enterprise/ or data models missing Pydantic v2 validation for UUID v4, UTC timestamps, score bounds, sequence sizes, or temporal ordering."
+    severity: "HIGH"
+
 
   - title: "Async Interception Pipeline Resolver Order"
     compliance_label: true
