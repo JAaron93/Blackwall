@@ -1,0 +1,180 @@
+"""Data models for Blackwall Advanced Threat Detection pillar."""
+
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Set, Tuple
+from uuid import UUID
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from blackwall.enterprise.advanced_threat_detection.enums import (
+    EventSource,
+    ExploitCategory,
+)
+
+
+def _validate_utc_datetime(v: datetime) -> datetime:
+    """Helper to validate that a datetime is timezone-aware and set to UTC."""
+    if v.tzinfo is None or v.utcoffset() != timezone.utc.utcoffset(v):
+        raise ValueError("timestamp must be UTC timezone-aware")
+    return v
+
+
+class NormalizedEvent(BaseModel):
+    """Normalized threat event schema across all five Blackwall pillars."""
+
+    event_id: str
+    timestamp: datetime
+    source: EventSource
+    agent_id: str
+    action: str
+    target: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    risk_score: float = Field(..., ge=0.0, le=1.0)
+
+    @field_validator("event_id")
+    @classmethod
+    def validate_uuid_v4(cls, v: str) -> str:
+        """Validate event_id is a valid UUID v4."""
+        try:
+            parsed = UUID(v)
+            if parsed.version != 4:
+                raise ValueError("event_id must be a valid UUID v4")
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise ValueError(f"Invalid UUID v4 format: {v}") from exc
+        return str(v)
+
+    @field_validator("timestamp")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        """Validate timestamp is timezone-aware and set to UTC."""
+        return _validate_utc_datetime(v)
+
+    @field_validator("agent_id")
+    @classmethod
+    def validate_non_empty_agent_id(cls, v: str) -> str:
+        """Validate agent_id is not empty or whitespace only."""
+        if not v or not v.strip():
+            raise ValueError("agent_id must not be empty")
+        return v
+
+
+class AttackNode(BaseModel):
+    """Graph node encapsulating a normalized event and edge connections."""
+
+    node_id: str
+    event: NormalizedEvent
+    incoming_edges: List[str] = Field(default_factory=list)
+    outgoing_edges: List[str] = Field(default_factory=list)
+
+
+class AttackPath(BaseModel):
+    """Multi-hop attack path correlated across sequence of nodes."""
+
+    path_id: str
+    agent_id: str
+    nodes: List[AttackNode]
+    start_time: datetime
+    end_time: datetime
+    risk_score: float = Field(..., ge=0.0, le=1.0)
+    attack_stages: List[str] = Field(default_factory=list)
+    correlation_score: float = Field(..., ge=0.0, le=1.0)
+
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def validate_utc_timestamps(cls, v: datetime) -> datetime:
+        """Validate start_time and end_time are UTC timezone-aware."""
+        return _validate_utc_datetime(v)
+
+    @field_validator("nodes")
+    @classmethod
+    def validate_min_nodes(cls, v: List[AttackNode]) -> List[AttackNode]:
+        """Validate nodes contains at least 2 nodes."""
+        if len(v) < 2:
+            raise ValueError("AttackPath nodes must contain at least 2 events")
+        return v
+
+    @model_validator(mode="after")
+    def validate_temporal_ordering(self) -> "AttackPath":
+        """Validate end_time >= start_time."""
+        if self.end_time < self.start_time:
+            raise ValueError("end_time must be greater than or equal to start_time")
+        return self
+
+
+class SwarmEvidence(BaseModel):
+    """Evidence structure for coordinated multi-agent swarm behavior."""
+
+    swarm_id: str
+    agent_ids: Set[str]
+    shared_patterns: List[str] = Field(default_factory=list)
+    temporal_correlation: float = Field(..., ge=0.0, le=1.0)
+    coordination_score: float = Field(..., ge=0.0, le=1.0)
+    first_seen: datetime
+    last_seen: datetime
+
+    @field_validator("first_seen", "last_seen")
+    @classmethod
+    def validate_utc_timestamps(cls, v: datetime) -> datetime:
+        """Validate first_seen and last_seen are UTC timezone-aware."""
+        return _validate_utc_datetime(v)
+
+    @field_validator("agent_ids")
+    @classmethod
+    def validate_min_agents(cls, v: Set[str]) -> Set[str]:
+        """Validate agent_ids contains at least 2 agents."""
+        if len(v) < 2:
+            raise ValueError("SwarmEvidence agent_ids must contain at least 2 agents")
+        return v
+
+    @model_validator(mode="after")
+    def validate_temporal_ordering(self) -> "SwarmEvidence":
+        """Validate last_seen >= first_seen."""
+        if self.last_seen < self.first_seen:
+            raise ValueError("last_seen must be greater than or equal to first_seen")
+        return self
+
+
+class ExploitChainEvidence(BaseModel):
+    """Evidence structure for zero-day exploit chaining sequences."""
+
+    chain_id: str
+    exploits: List[Tuple[str, ExploitCategory]] = Field(default_factory=list)
+    novelty_score: float = Field(..., ge=0.0, le=1.0)
+    chaining_confidence: float = Field(..., ge=0.0, le=1.0)
+
+
+class AILMEvidence(BaseModel):
+    """Evidence structure for AI-Induced Lateral Movement (AILM)."""
+
+    agent_id: str
+    composed_permissions: Set[str] = Field(default_factory=set)
+    boundary_crossings: List[str] = Field(default_factory=list)
+    risk_level: str
+
+
+class C2Evidence(BaseModel):
+    """Evidence structure for Command-and-Control (C2) infrastructure establishment."""
+
+    agent_id: str
+    c2_endpoints: List[str] = Field(default_factory=list)
+    communication_pattern: str
+    persistence_indicators: List[str] = Field(default_factory=list)
+
+
+class K8sThreatEvidence(BaseModel):
+    """Evidence structure for Kubernetes-specific container threats."""
+
+    threat_type: str
+    namespace: str
+    pod_name: str
+    service_account: str
+    evidence: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RegistryThreatEvidence(BaseModel):
+    """Evidence structure for package registry probing or exploitation."""
+
+    registry_type: str
+    package_name: str
+    exploit_indicators: List[str] = Field(default_factory=list)
+    cve_candidates: List[str] = Field(default_factory=list)

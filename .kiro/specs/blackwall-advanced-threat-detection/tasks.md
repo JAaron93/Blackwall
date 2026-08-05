@@ -8,21 +8,21 @@ The implementation follows a test-driven development approach with property-base
 
 ## Tasks
 
-- [ ] 1. Set up core project structure and data models
-  - [ ] 1.1 Create directory structure under `src/blackwall/enterprise/advanced_threat_detection/`
+- [x] 1. Set up core project structure and data models
+  - [x] 1.1 Create directory structure under `src/blackwall/enterprise/advanced_threat_detection/`
     - Create `__init__.py`, `models.py`, `enums.py`
     - Set up module exports and basic logging configuration
     - _Requirements: 15.1, 15.2, 15.3, 15.4_
     - _Verification: `python -c "from blackwall.enterprise.advanced_threat_detection import models"`_
   
-  - [ ] 1.2 Implement core data models with Pydantic validation
+  - [x] 1.2 Implement core data models with Pydantic validation
     - Create `NormalizedEvent`, `AttackNode`, `AttackPath`, `SwarmEvidence`, `ExploitChainEvidence`, `AILMEvidence`, `C2Evidence`, `K8sThreatEvidence`, `RegistryThreatEvidence` models
     - Implement field validators for UUID v4, timezone-aware timestamps, score ranges [0.0, 1.0]
     - Add validator for minimum list/set sizes (paths >= 2 nodes, swarms >= 2 agents)
     - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7, 15.8, 15.9_
     - _Verification: `pytest tests/unit/test_models.py -v`_
   
-  - [ ]* 1.3 Write property tests for data model validation
+  - [x]* 1.3 Write property tests for data model validation
     - **Property 3: Normalized Event UUID Validity**
     - **Property 4: Normalized Event Timestamp Timezone**
     - **Property 5: Risk Score Bounds**

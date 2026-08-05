@@ -40,10 +40,11 @@ Blackwall is structured into **two distinct product tiers** to serve both develo
 | **Identity & Secrets** | Regex prompt credential masking | Ephemeral Identity Sidecar & JIT Vault STS exchange |
 | **Pipeline Protection** | Local AST input filters | Micro-sandboxed container loader wrappers |
 | **Forensic Triage Engine**| SQLite audit log records | Dual-Mode Local Open-Weight LLM (Ollama) + Fallback |
+| **Advanced Threat Engine**| Local single-event scoring | Temporal Graph Correlation, Swarm Detection & AILM (Pillar 6) |
 | **Developer Test Cost** | **$0.00 (100% Free)** | **$0.00 (100% Free local open-source MCP adapters)** |
 
 > [!NOTE]
-> For the complete technical specifications of the Enterprise Security Mesh, see [.kiro/specs/blackwall-enterprise-security-mesh/](.kiro/specs/blackwall-enterprise-security-mesh/).
+> For complete technical specifications of the Enterprise Security Mesh and Advanced Threat Detection, see [.kiro/specs/blackwall-enterprise-security-mesh/](.kiro/specs/blackwall-enterprise-security-mesh/) and [.kiro/specs/blackwall-advanced-threat-detection/](.kiro/specs/blackwall-advanced-threat-detection/).
 
 ### ⚡ Enterprise Security Mesh Quick Start
 
@@ -72,13 +73,27 @@ otel_adapter = OpenTelemetryMCPAdapter(endpoint="http://localhost:4318")
 manager = ForensicTriageManager(otel_adapter=otel_adapter)
 report = await manager.triage_log_event({"command": "reverse_shell /bin/bash -i"})
 # Dual-mode execution: primary local Ollama (Qwen3) with failover to AST/regex parser
+
+# Track 6: Advanced Threat Detection & Property-Validated Schemas (Pillar 6)
+from datetime import datetime, timezone
+from blackwall.enterprise.advanced_threat_detection import NormalizedEvent, EventSource
+
+event = NormalizedEvent(
+    event_id="550e8400-e29b-41d4-a716-446655440000",
+    timestamp=datetime.now(timezone.utc),
+    source=EventSource.KERNEL_SYSCALL,
+    agent_id="agent-007",
+    action="execve",
+    target="/usr/bin/python3",
+    risk_score=0.85,
+)
 ```
 
-#### 🧪 Enterprise BDD Verification (Track 6)
+#### 🧪 Enterprise BDD & Property Verification
 
 ```bash
-# Run end-to-end Gherkin BDD test scenarios across all 5 enterprise pillars
-pytest tests/features/blackwall_enterprise_mesh.feature -v
+# Run end-to-end Gherkin BDD test scenarios and Hypothesis property tests across all 6 enterprise pillars
+pytest tests/features/ tests/property/ -v
 ```
 
 ---
