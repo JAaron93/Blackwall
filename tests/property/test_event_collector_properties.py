@@ -3,18 +3,17 @@
 Uses Hypothesis to verify properties 1, 2, and 76 across generated inputs.
 """
 
-from datetime import datetime, timezone, timedelta
-import uuid
+from datetime import timedelta
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from pydantic import ValidationError
 
 from blackwall.enterprise.advanced_threat_detection.collector import (
     EventStreamCollector,
 )
 from blackwall.enterprise.advanced_threat_detection.enums import EventSource
-from blackwall.enterprise.advanced_threat_detection.models import NormalizedEvent
 
 # Strategies
 non_empty_str_st = st.text(min_size=1).filter(lambda s: bool(s.strip()))

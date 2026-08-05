@@ -1,13 +1,12 @@
 """Unit tests for EventStreamCollector (Task 4)."""
 
-import asyncio
-from datetime import datetime, timezone
 import logging
-from typing import AsyncIterator, Dict, Any
 import uuid
+from collections.abc import AsyncIterator
+from datetime import UTC
+from typing import Any
 
 import pytest
-from pydantic import ValidationError
 
 from blackwall.enterprise.advanced_threat_detection.collector import (
     EventStreamCollector,
@@ -47,33 +46,28 @@ async def test_pillar_subscriptions():
 
     tool_events = [
         ev
-        async for ev in collector.collect_from_tool_intercepts(
-            sample_stream(raw_tool)
-        )
+        async for ev in collector.collect_from_tool_intercepts(sample_stream(raw_tool))
     ]
     assert len(tool_events) == 1
     assert tool_events[0].source == EventSource.TOOL_CALL
     assert tool_events[0].agent_id == "agent-t1"
 
     identity_events = [
-        ev
-        async for ev in collector.collect_from_identity(sample_stream(raw_identity))
+        ev async for ev in collector.collect_from_identity(sample_stream(raw_identity))
     ]
     assert len(identity_events) == 1
     assert identity_events[0].source == EventSource.IDENTITY_ACCESS
     assert identity_events[0].agent_id == "agent-i1"
 
     pipeline_events = [
-        ev
-        async for ev in collector.collect_from_pipeline(sample_stream(raw_pipeline))
+        ev async for ev in collector.collect_from_pipeline(sample_stream(raw_pipeline))
     ]
     assert len(pipeline_events) == 1
     assert pipeline_events[0].source == EventSource.PIPELINE_EXECUTION
     assert pipeline_events[0].agent_id == "agent-p1"
 
     forensic_events = [
-        ev
-        async for ev in collector.collect_from_forensics(sample_stream(raw_forensic))
+        ev async for ev in collector.collect_from_forensics(sample_stream(raw_forensic))
     ]
     assert len(forensic_events) == 1
     assert forensic_events[0].source == EventSource.FORENSIC_ALERT
@@ -102,7 +96,7 @@ async def test_normalization():
 
     # UTC timestamp check
     assert norm.timestamp.tzinfo is not None
-    assert norm.timestamp.utcoffset() == timezone.utc.utcoffset(norm.timestamp)
+    assert norm.timestamp.utcoffset() == UTC.utcoffset(norm.timestamp)
 
     # Metadata enrichment check
     assert norm.agent_id == "agent-norm-01"
@@ -125,14 +119,17 @@ async def test_error_handling(caplog):
     raw_events = [
         {"agent_id": "agent-valid-1", "action": "read", "target": "/etc/hosts"},
         "not_a_dict_malformed",  # Malformed event
-        {"agent_id": "", "action": "write", "target": "/tmp/test"},  # Invalid empty agent_id
+        {
+            "agent_id": "",
+            "action": "write",
+            "target": "/tmp/test",
+        },  # Invalid empty agent_id
         {"agent_id": "agent-valid-2", "action": "write", "target": "/etc/passwd"},
     ]
 
     with caplog.at_level(logging.WARNING):
         events = [
-            ev
-            async for ev in collector.collect_from_kernel(sample_stream(raw_events))
+            ev async for ev in collector.collect_from_kernel(sample_stream(raw_events))
         ]
 
     # Malformed & schema invalid events should be skipped without halting
@@ -192,7 +189,12 @@ async def test_falsy_agent_id():
 async def test_invalid_string_timestamp_logging(caplog):
     """Bug fix: Invalid string timestamp should log warning and record raw_timestamp in metadata."""
     collector = EventStreamCollector()
-    raw = {"agent_id": "agent-ts-1", "action": "read", "target": "/etc/hosts", "timestamp": "invalid-iso-format"}
+    raw = {
+        "agent_id": "agent-ts-1",
+        "action": "read",
+        "target": "/etc/hosts",
+        "timestamp": "invalid-iso-format",
+    }
     with caplog.at_level(logging.WARNING):
         norm = collector.normalize_event(EventSource.KERNEL_SYSCALL, raw)
 
@@ -216,10 +218,15 @@ async def test_reconnect_async_def_factory():
     collector = EventStreamCollector()
 
     async def async_factory():
-        return sample_stream([{"agent_id": "a-coro", "action": "read", "target": "/etc/shadow"}])
+        return sample_stream(
+            [{"agent_id": "a-coro", "action": "read", "target": "/etc/shadow"}]
+        )
 
     events = [
-        ev async for ev in collector.collect_with_reconnect(EventSource.KERNEL_SYSCALL, async_factory)
+        ev
+        async for ev in collector.collect_with_reconnect(
+            EventSource.KERNEL_SYSCALL, async_factory
+        )
     ]
     assert len(events) == 1
     assert events[0].agent_id == "a-coro"
@@ -233,15 +240,21 @@ async def test_reconnect_non_async_iterable_raises_type_error():
     def bad_factory():
         return 12345  # Not an AsyncIterable
 
-    with pytest.raises(TypeError, match="stream_factory returned non-AsyncIterable object"):
-        async for _ in collector.collect_with_reconnect(EventSource.TOOL_CALL, bad_factory):
+    with pytest.raises(
+        TypeError, match="stream_factory returned non-AsyncIterable object"
+    ):
+        async for _ in collector.collect_with_reconnect(
+            EventSource.TOOL_CALL, bad_factory
+        ):
             pass
 
 
 @pytest.mark.asyncio
 async def test_reconnect_programming_error_fails_fast():
     """Fail fast without backoff retries when stream_factory raises TypeError or ValueError."""
-    collector = EventStreamCollector(reconnect_max_attempts=3, reconnect_backoff_base=10.0)
+    collector = EventStreamCollector(
+        reconnect_max_attempts=3, reconnect_backoff_base=10.0
+    )
 
     attempts = 0
 
@@ -251,9 +264,9 @@ async def test_reconnect_programming_error_fails_fast():
         raise TypeError("Programming error in factory")
 
     with pytest.raises(TypeError, match="Programming error in factory"):
-        async for _ in collector.collect_with_reconnect(EventSource.TOOL_CALL, error_factory):
+        async for _ in collector.collect_with_reconnect(
+            EventSource.TOOL_CALL, error_factory
+        ):
             pass
 
     assert attempts == 1  # No retries occurred
-
-

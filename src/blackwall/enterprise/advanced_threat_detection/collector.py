@@ -1,11 +1,12 @@
 """EventStreamCollector component for Blackwall Advanced Threat Detection (Pillar 6)."""
 
 import asyncio
-from datetime import datetime, timezone
 import inspect
 import logging
-from typing import Any, AsyncIterable, AsyncIterator, Callable, Dict, Optional
 import uuid
+from collections.abc import AsyncIterable, AsyncIterator, Callable
+from datetime import UTC, datetime
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -13,7 +14,6 @@ from blackwall.enterprise.advanced_threat_detection.enums import EventSource
 from blackwall.enterprise.advanced_threat_detection.models import NormalizedEvent
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.collector")
-
 
 
 class EventStreamCollector:
@@ -28,14 +28,16 @@ class EventStreamCollector:
         self.reconnect_backoff_base = reconnect_backoff_base
 
     def normalize_event(
-        self, source: EventSource, raw_event: Dict[str, Any]
+        self, source: EventSource, raw_event: dict[str, Any]
     ) -> NormalizedEvent:
         """Normalize heterogeneous raw event into standard NormalizedEvent.
 
         Enriches event with temporal context, UUID v4 ID, agent metadata, and initial risk score.
         """
         if not isinstance(raw_event, dict):
-            raise ValueError(f"Discarding malformed event payload: expected dict, got {type(raw_event)}")
+            raise ValueError(
+                f"Discarding malformed event payload: expected dict, got {type(raw_event)}"
+            )
 
         # Event ID validation or generation
         event_id = raw_event.get("event_id")
@@ -56,17 +58,17 @@ class EventStreamCollector:
         timestamp: datetime
         if isinstance(raw_ts, datetime):
             if raw_ts.tzinfo is None:
-                timestamp = raw_ts.replace(tzinfo=timezone.utc)
+                timestamp = raw_ts.replace(tzinfo=UTC)
             else:
-                timestamp = raw_ts.astimezone(timezone.utc)
+                timestamp = raw_ts.astimezone(UTC)
         elif isinstance(raw_ts, str):
             clean_ts = raw_ts.strip().replace("Z", "+00:00")
             try:
                 parsed_dt = datetime.fromisoformat(clean_ts)
                 if parsed_dt.tzinfo is None:
-                    timestamp = parsed_dt.replace(tzinfo=timezone.utc)
+                    timestamp = parsed_dt.replace(tzinfo=UTC)
                 else:
-                    timestamp = parsed_dt.astimezone(timezone.utc)
+                    timestamp = parsed_dt.astimezone(UTC)
             except Exception as parse_err:
                 logger.warning(
                     "Failed to parse string timestamp %r for source %s (%s); falling back to current UTC time",
@@ -74,11 +76,11 @@ class EventStreamCollector:
                     source,
                     parse_err,
                 )
-                timestamp = datetime.now(timezone.utc)
+                timestamp = datetime.now(UTC)
         elif isinstance(raw_ts, (int, float)):
-            timestamp = datetime.fromtimestamp(raw_ts, tz=timezone.utc)
+            timestamp = datetime.fromtimestamp(raw_ts, tz=UTC)
         else:
-            timestamp = datetime.now(timezone.utc)
+            timestamp = datetime.now(UTC)
 
         # Agent ID extraction (explicit None check to preserve falsy non-empty IDs like 0)
         raw_agent_id = raw_event.get("agent_id")
@@ -109,14 +111,18 @@ class EventStreamCollector:
 
         # Metadata enrichment
         raw_metadata = raw_event.get("metadata")
-        metadata: Dict[str, Any] = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
-        metadata["ingested_at"] = datetime.now(timezone.utc).isoformat()
+        metadata: dict[str, Any] = (
+            dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
+        )
+        metadata["ingested_at"] = datetime.now(UTC).isoformat()
         metadata["pillar_source"] = source.value
         if isinstance(raw_ts, str) and "raw_timestamp" not in metadata:
             metadata.setdefault("raw_timestamp", raw_ts)
 
         # Initial risk score calculation
-        if "risk_score" in raw_event and isinstance(raw_event["risk_score"], (int, float)):
+        if "risk_score" in raw_event and isinstance(
+            raw_event["risk_score"], (int, float)
+        ):
             risk_score = float(raw_event["risk_score"])
             risk_score = max(0.0, min(1.0, risk_score))
         else:
@@ -139,7 +145,9 @@ class EventStreamCollector:
         if source == EventSource.FORENSIC_ALERT:
             return 0.8
         elif source == EventSource.KERNEL_SYSCALL:
-            if any(k in act_lower for k in ("exec", "socket", "connect", "ptrace", "chmod")):
+            if any(
+                k in act_lower for k in ("exec", "socket", "connect", "ptrace", "chmod")
+            ):
                 return 0.6
             return 0.3
         elif source == EventSource.TOOL_CALL:
@@ -147,7 +155,10 @@ class EventStreamCollector:
                 return 0.5
             return 0.2
         elif source == EventSource.IDENTITY_ACCESS:
-            if any(k in act_lower for k in ("token", "secret", "grant", "sudo", "privilege")):
+            if any(
+                k in act_lower
+                for k in ("token", "secret", "grant", "sudo", "privilege")
+            ):
                 return 0.7
             return 0.3
         elif source == EventSource.PIPELINE_EXECUTION:
@@ -155,7 +166,9 @@ class EventStreamCollector:
         return 0.2
 
     async def _process_stream(
-        self, source: EventSource, source_stream: Optional[AsyncIterable[Dict[str, Any]]]
+        self,
+        source: EventSource,
+        source_stream: AsyncIterable[dict[str, Any]] | None,
     ) -> AsyncIterator[NormalizedEvent]:
         """Internal helper to iterate and normalize raw events from stream."""
         if source_stream is None:
@@ -163,13 +176,17 @@ class EventStreamCollector:
 
         async for raw_item in source_stream:
             if not isinstance(raw_item, dict):
-                logger.warning(f"Discarding malformed event payload: expected dict, got {type(raw_item)}")
+                logger.warning(
+                    f"Discarding malformed event payload: expected dict, got {type(raw_item)}"
+                )
                 continue
             try:
                 normalized = self.normalize_event(source, raw_item)
                 yield normalized
             except (ValueError, ValidationError) as exc:
-                logger.warning(f"Validation error normalizing event from {source}: {exc}")
+                logger.warning(
+                    f"Validation error normalizing event from {source}: {exc}"
+                )
                 continue
 
     async def collect_with_reconnect(
@@ -212,38 +229,40 @@ class EventStreamCollector:
                 )
                 await asyncio.sleep(backoff)
 
-
-
     async def collect_from_kernel(
-        self, source_stream: Optional[AsyncIterable[Dict[str, Any]]] = None
+        self, source_stream: AsyncIterable[dict[str, Any]] | None = None
     ) -> AsyncIterator[NormalizedEvent]:
         """Stream events from Pillar 1: Kernel eBPF/Audit hooks."""
         async for ev in self._process_stream(EventSource.KERNEL_SYSCALL, source_stream):
             yield ev
 
     async def collect_from_tool_intercepts(
-        self, source_stream: Optional[AsyncIterable[Dict[str, Any]]] = None
+        self, source_stream: AsyncIterable[dict[str, Any]] | None = None
     ) -> AsyncIterator[NormalizedEvent]:
         """Stream events from ADK tool call interceptions."""
         async for ev in self._process_stream(EventSource.TOOL_CALL, source_stream):
             yield ev
 
     async def collect_from_identity(
-        self, source_stream: Optional[AsyncIterable[Dict[str, Any]]] = None
+        self, source_stream: AsyncIterable[dict[str, Any]] | None = None
     ) -> AsyncIterator[NormalizedEvent]:
         """Stream events from Pillar 3: Identity Sidecar."""
-        async for ev in self._process_stream(EventSource.IDENTITY_ACCESS, source_stream):
+        async for ev in self._process_stream(
+            EventSource.IDENTITY_ACCESS, source_stream
+        ):
             yield ev
 
     async def collect_from_pipeline(
-        self, source_stream: Optional[AsyncIterable[Dict[str, Any]]] = None
+        self, source_stream: AsyncIterable[dict[str, Any]] | None = None
     ) -> AsyncIterator[NormalizedEvent]:
         """Stream events from Pillar 4: Pipeline Wrappers."""
-        async for ev in self._process_stream(EventSource.PIPELINE_EXECUTION, source_stream):
+        async for ev in self._process_stream(
+            EventSource.PIPELINE_EXECUTION, source_stream
+        ):
             yield ev
 
     async def collect_from_forensics(
-        self, source_stream: Optional[AsyncIterable[Dict[str, Any]]] = None
+        self, source_stream: AsyncIterable[dict[str, Any]] | None = None
     ) -> AsyncIterator[NormalizedEvent]:
         """Stream events from Pillar 5: Forensic Triage Engine."""
         async for ev in self._process_stream(EventSource.FORENSIC_ALERT, source_stream):
