@@ -26,8 +26,24 @@ Module Location: [`tests/step_defs/async_utils.py`](../tests/step_defs/async_uti
 
 ---
 
+## 3. BDD Security Contract Helpers (`tests/step_defs/test_security_contract_validators_steps.py`)
+
+Module Location: [`tests/step_defs/test_security_contract_validators_steps.py`](../tests/step_defs/test_security_contract_validators_steps.py)
+Feature Location: [`tests/features/security_contract_validators.feature`](../tests/features/security_contract_validators.feature)
+
+| Step Definition | Gherkin Pattern | Description / Purpose |
+| :--- | :--- | :--- |
+| `set_version_string` | `Given a version string "{version_str}"` | Sets test version input on `ValidatorState`. |
+| `execute_semver_validation` | `When the semver validation helper is executed` | Executes `validate_semver_format` and captures exceptions into state. |
+| `execute_utc_datetime_validation` | `When the UTC datetime validation helper is executed` | Executes `validate_utc_datetime` and captures exceptions into state. |
+| `set_naive_datetime` | `Given a naive datetime without timezone info` | Generates a naive datetime without timezone info (`tzinfo=None`). |
+| `set_non_utc_datetime` | `Given a non-UTC timezone-aware datetime` | Generates a non-UTC timezone-aware datetime object. |
+
+---
+
 ## Guidelines for Adding New Helpers
 1. Place general domain/validation helpers in `src/blackwall/validators.py` or dedicated sub-package utility modules.
 2. Ensure all helper functions follow the **Single Responsibility Principle**.
 3. Always add unit tests for new helper functions in `tests/unit/test_validators.py`.
-4. Update this document whenever new shared helper functions are added or modified.
+4. Add corresponding BDD security contract scenarios under `tests/features/` and executable steps under `tests/step_defs/`.
+5. Update this document whenever new shared helper functions are added or modified.
