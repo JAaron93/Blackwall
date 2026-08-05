@@ -3,10 +3,13 @@ BDD Step Definitions for Blackwall Enterprise Security Mesh (`tests/features/bla
 """
 
 import asyncio
+from datetime import datetime, timezone, timedelta
 import os
 import time
+import uuid
 
 import pytest
+from pydantic import ValidationError
 from pytest_bdd import given, scenarios, then, when
 
 from blackwall.enterprise import (
@@ -18,6 +21,12 @@ from blackwall.enterprise import (
     OpenTelemetryMCPAdapter,
     SecretVaultSidecar,
     VaultMCPAdapter,
+)
+from blackwall.enterprise.advanced_threat_detection import (
+    EventSource,
+    NormalizedEvent,
+    AttackNode,
+    AttackPath,
 )
 
 # Link to Gherkin feature file
@@ -284,3 +293,123 @@ def verify_otel_span_exported(state):
     assert state.forensic_report["otel_span_exported"] is True
     spans = run_async(state.otel_adapter.get_active_spans())
     assert len(spans) >= 1
+
+
+# --- Scenario: Pillar 6 Advanced Threat Detection data model and temporal validation ---
+
+
+@given("an Advanced Threat Detection engine receiving cross-pillar events")
+def init_atd_engine(state):
+    state.atd_event_id = "550e8400-e29b-41d4-a716-446655440000"
+    state.atd_timestamp = datetime.now(timezone.utc)
+
+
+@when(
+    'a threat event is ingested with UUID v4 "550e8400-e29b-41d4-a716-446655440000" and UTC timestamp'
+)
+def ingest_atd_event(state):
+    state.atd_event = NormalizedEvent(
+        event_id=state.atd_event_id,
+        timestamp=state.atd_timestamp,
+        source=EventSource.KERNEL_SYSCALL,
+        agent_id="agent-mesh-01",
+        action="execve",
+        target="/usr/bin/cat",
+        risk_score=0.4,
+    )
+
+
+@then("the NormalizedEvent model accepts valid UUID v4 and UTC timestamp")
+def verify_atd_event_accepted(state):
+    assert state.atd_event.event_id == "550e8400-e29b-41d4-a716-446655440000"
+    assert state.atd_event.timestamp.tzinfo is not None
+
+
+@then("invalid UUIDs, naive timestamps, and out-of-bound risk scores are rejected")
+def verify_atd_event_rejections(state):
+    # Invalid UUID
+    with pytest.raises(ValidationError):
+        NormalizedEvent(
+            event_id="bad-uuid",
+            timestamp=datetime.now(timezone.utc),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id="a1",
+            action="exec",
+            target="t1",
+            risk_score=0.5,
+        )
+    # Naive timestamp
+    with pytest.raises(ValidationError):
+        NormalizedEvent(
+            event_id=str(uuid.uuid4()),
+            timestamp=datetime.now(),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id="a1",
+            action="exec",
+            target="t1",
+            risk_score=0.5,
+        )
+    # Out of bounds risk_score
+    with pytest.raises(ValidationError):
+        NormalizedEvent(
+            event_id=str(uuid.uuid4()),
+            timestamp=datetime.now(timezone.utc),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id="a1",
+            action="exec",
+            target="t1",
+            risk_score=1.5,
+        )
+
+
+@then("AttackPaths enforce minimum 2 nodes and temporal ordering end_time >= start_time")
+def verify_atd_attack_path_rules(state):
+    now = datetime.now(timezone.utc)
+    ev1 = state.atd_event
+    ev2 = NormalizedEvent(
+        event_id=str(uuid.uuid4()),
+        timestamp=now + timedelta(seconds=2),
+        source=EventSource.TOOL_CALL,
+        agent_id="agent-mesh-01",
+        action="connect",
+        target="10.0.0.1:8080",
+        risk_score=0.8,
+    )
+    node1 = AttackNode(node_id="n1", event=ev1)
+    node2 = AttackNode(node_id="n2", event=ev2)
+
+    # Valid AttackPath
+    path = AttackPath(
+        path_id="p1",
+        agent_id="agent-mesh-01",
+        nodes=[node1, node2],
+        start_time=now,
+        end_time=now + timedelta(seconds=10),
+        risk_score=0.8,
+        correlation_score=0.9,
+    )
+    assert len(path.nodes) == 2
+
+    # Reject < 2 nodes
+    with pytest.raises(ValidationError):
+        AttackPath(
+            path_id="p-bad",
+            agent_id="agent-mesh-01",
+            nodes=[node1],
+            start_time=now,
+            end_time=now + timedelta(seconds=10),
+            risk_score=0.8,
+            correlation_score=0.9,
+        )
+
+    # Reject end_time < start_time
+    with pytest.raises(ValidationError):
+        AttackPath(
+            path_id="p-bad2",
+            agent_id="agent-mesh-01",
+            nodes=[node1, node2],
+            start_time=now,
+            end_time=now - timedelta(seconds=1),
+            risk_score=0.8,
+            correlation_score=0.9,
+        )

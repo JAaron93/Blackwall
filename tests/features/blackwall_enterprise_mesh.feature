@@ -1,6 +1,6 @@
 Feature: Blackwall Enterprise Security Mesh End-to-End Integration
   As an Enterprise Security Systems Engineer
-  I want to verify the Blackwall Enterprise Security Mesh across all 5 defensive pillars and 4 local open-source MCP adapters
+  I want to verify the Blackwall Enterprise Security Mesh across all defensive pillars and local open-source MCP adapters
   So that enterprise clusters are protected against agentic zero-day exploits, credential exfiltration, and multi-node attack vectors
 
   Scenario: Core vs Enterprise product tier packaging and modular isolation
@@ -43,3 +43,10 @@ Feature: Blackwall Enterprise Security Mesh End-to-End Integration
     Then if Ollama is online the primary LLM analyzes the log without safety refusals
     And if Ollama is offline the standalone lightweight parser achieves 100% fallback availability
     And the incident triage report is exported as a trace span via OpenTelemetry MCP
+
+  Scenario: Pillar 6 Advanced Threat Detection data model and temporal validation
+    Given an Advanced Threat Detection engine receiving cross-pillar events
+    When a threat event is ingested with UUID v4 "550e8400-e29b-41d4-a716-446655440000" and UTC timestamp
+    Then the NormalizedEvent model accepts valid UUID v4 and UTC timestamp
+    And invalid UUIDs, naive timestamps, and out-of-bound risk scores are rejected
+    And AttackPaths enforce minimum 2 nodes and temporal ordering end_time >= start_time
