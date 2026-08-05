@@ -221,3 +221,63 @@ def then_invalid_swarm_evidence_rejected(atd_state):
             first_seen=now,
             last_seen=now - timedelta(seconds=1),
         )
+
+
+# Scenario 4 steps (AttackGraphStore)
+import asyncio
+from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
+
+
+@given("an initialized AttackGraphStore instance")
+def given_initialized_attack_graph_store(atd_state):
+    async def _init():
+        store = AttackGraphStore(in_memory=True)
+        await store.initialize()
+        return store
+
+    atd_state.store = asyncio.run(_init())
+
+
+@when("security events are ingested and causally linked")
+def when_events_ingested_and_linked(atd_state):
+    async def _run():
+        now = datetime.now(timezone.utc)
+        ev1 = NormalizedEvent(
+            event_id=str(uuid.uuid4()),
+            timestamp=now,
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id="agent-bdd-store",
+            action="execve",
+            target="/usr/bin/python3",
+            risk_score=0.5,
+        )
+        ev2 = NormalizedEvent(
+            event_id=str(uuid.uuid4()),
+            timestamp=now + timedelta(seconds=2),
+            source=EventSource.TOOL_CALL,
+            agent_id="agent-bdd-store",
+            action="connect",
+            target="192.168.1.1:4444",
+            risk_score=0.9,
+        )
+        n1 = await atd_state.store.insert_event(ev1)
+        n2 = await atd_state.store.insert_event(ev2)
+        await atd_state.store.link_events(n1.node_id, n2.node_id, "SPAWNED")
+        return now, now + timedelta(seconds=2)
+
+    atd_state.start_time, atd_state.end_time = asyncio.run(_run())
+
+
+@then("the AttackGraphStore persists node edges and returns correlated multi-hop attack paths")
+def then_store_persists_and_returns_paths(atd_state):
+    async def _verify():
+        time_window = (atd_state.start_time - timedelta(minutes=1), atd_state.end_time + timedelta(minutes=1))
+        paths = await atd_state.store.query_paths(agent_id="agent-bdd-store", time_window=time_window, min_path_length=2)
+        assert len(paths) >= 1
+        assert len(paths[0].nodes) == 2
+        assert len(paths[0].nodes[0].outgoing_edges) == 1
+        await atd_state.store.close()
+
+    asyncio.run(_verify())
+
+

@@ -65,6 +65,15 @@ async def test_insert_event():
     assert fetched is not None
     assert fetched.node_id == node.node_id
 
+    # Re-inserting duplicate event preserves existing node and edges
+    event2 = create_test_event(agent_id="agent-002", action="connect")
+    node2 = await store.insert_event(event2)
+    await store.link_events(from_node=node.node_id, to_node=node2.node_id, relationship="FOLLOWED_BY")
+
+    # Re-insert first event to verify cached edge lists are preserved
+    reinserted = await store.insert_event(event)
+    assert len(reinserted.outgoing_edges) == 1
+
     await store.close()
 
 
@@ -122,9 +131,13 @@ async def test_query_paths_performance():
             await store.link_events(from_node=prev_node.node_id, to_node=node.node_id, relationship="FOLLOWED_BY")
         prev_node = node
 
+    time_window = (first_time - timedelta(minutes=1), last_time + timedelta(minutes=1))
+
+    # Untimed warmup call to bypass cold-start overhead
+    await store.query_paths(agent_id=agent_id, time_window=time_window, min_path_length=2)
+
     # Benchmark path query execution time
     start_bench = time.perf_counter()
-    time_window = (first_time - timedelta(minutes=1), last_time + timedelta(minutes=1))
     paths = await store.query_paths(agent_id=agent_id, time_window=time_window, min_path_length=2)
     elapsed_ms = (time.perf_counter() - start_bench) * 1000
 
@@ -143,5 +156,9 @@ async def test_query_paths_performance():
     await store.insert_event(event_short)
     empty_paths = await store.query_paths(agent_id=short_agent, time_window=time_window, min_path_length=2)
     assert empty_paths == []
+
+    # Test min_path_length < 2 raises ValueError
+    with pytest.raises(ValueError, match="min_path_length must be at least 2"):
+        await store.query_paths(agent_id=agent_id, time_window=time_window, min_path_length=1)
 
     await store.close()

@@ -57,8 +57,10 @@ class AttackGraphStore:
                     max_size=self.max_pool_size,
                 )
             except Exception as exc:
-                logger.warning("Failed to connect to PostgreSQL DSN (%s). Falling back to in-memory mode: %s", self.dsn, exc)
-                self.in_memory = True
+                # Do not log DSN raw string to prevent credentials leakage
+                logger.warning("Failed to connect to PostgreSQL database pool: %s", exc)
+                # If explicit DSN was provided and in_memory wasn't requested, do not silently fallback
+                raise
 
         if self._pool:
             async with self._pool.acquire() as conn:
@@ -128,6 +130,11 @@ class AttackGraphStore:
     async def insert_event(self, event: NormalizedEvent) -> AttackNode:
         """Insert event as node in attack graph, preserving temporal ordering."""
         node_id = event.event_id
+
+        # Preserve cached node and its edges if re-inserted
+        if node_id in self._nodes:
+            return self._nodes[node_id]
+
         node = AttackNode(
             node_id=node_id,
             event=event,
@@ -179,7 +186,33 @@ class AttackGraphStore:
         edge_id = str(uuid.uuid4())
         created_at = datetime.now(timezone.utc)
 
-        # Update in-memory node structures
+        # Database persistence inside atomic transaction first
+        if self._pool:
+            async with self._pool.acquire() as conn:
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        INSERT INTO causal_edges (edge_id, from_node, to_node, relationship, created_at)
+                        VALUES ($1, $2, $3, $4, $5);
+                        """,
+                        edge_id,
+                        from_node,
+                        to_node,
+                        relationship,
+                        created_at,
+                    )
+                    await conn.execute(
+                        "UPDATE event_nodes SET outgoing_edges = outgoing_edges || $1::jsonb WHERE node_id = $2;",
+                        json.dumps([edge_id]),
+                        from_node,
+                    )
+                    await conn.execute(
+                        "UPDATE event_nodes SET incoming_edges = incoming_edges || $1::jsonb WHERE node_id = $2;",
+                        json.dumps([edge_id]),
+                        to_node,
+                    )
+
+        # Update in-memory node structures only after DB write succeeds (or in in-memory mode)
         src_node = self._nodes[from_node]
         tgt_node = self._nodes[to_node]
 
@@ -196,30 +229,6 @@ class AttackGraphStore:
             "created_at": created_at,
         }
         self._edges.append(edge_record)
-
-        if self._pool:
-            async with self._pool.acquire() as conn:
-                await conn.execute(
-                    """
-                    INSERT INTO causal_edges (edge_id, from_node, to_node, relationship, created_at)
-                    VALUES ($1, $2, $3, $4, $5);
-                    """,
-                    edge_id,
-                    from_node,
-                    to_node,
-                    relationship,
-                    created_at,
-                )
-                await conn.execute(
-                    "UPDATE event_nodes SET outgoing_edges = outgoing_edges || $1::jsonb WHERE node_id = $2;",
-                    json.dumps([edge_id]),
-                    from_node,
-                )
-                await conn.execute(
-                    "UPDATE event_nodes SET incoming_edges = incoming_edges || $1::jsonb WHERE node_id = $2;",
-                    json.dumps([edge_id]),
-                    to_node,
-                )
 
     async def get_node(self, node_id: str) -> Optional[AttackNode]:
         """Retrieve AttackNode by node_id."""
@@ -261,6 +270,9 @@ class AttackGraphStore:
         min_path_length: int = 2,
     ) -> List[AttackPath]:
         """Query multi-hop attack paths for agent within specified time window."""
+        if min_path_length < 2:
+            raise ValueError("min_path_length must be at least 2")
+
         start_time_win, end_time_win = time_window
 
         # Fetch candidate nodes for agent in time window, ordered by timestamp ASC

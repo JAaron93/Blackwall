@@ -51,7 +51,7 @@ async def test_attack_sequences() -> None:
         from blackwall.sync_resolver import SyncResolver
         mock_client = MagicMock()
         mock_response = MagicMock()
-        mock_response.text = "generalized SQL injection signature"
+        mock_response.text = "[[URL]]"
         mock_client.models.generate_content.return_value = mock_response
 
         resolver = SyncResolver(

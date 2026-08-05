@@ -13,6 +13,7 @@ Verdict thresholds (DEMO MODE - tuned for standalone testing):
 
 import asyncio
 import logging
+import os
 import time
 from typing import Any, Dict, Optional
 
