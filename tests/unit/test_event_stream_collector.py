@@ -177,3 +177,35 @@ async def test_reconnection_backoff():
     assert events[0].agent_id == "agent-before"
     assert events[1].agent_id == "agent-after"
     assert attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_falsy_agent_id():
+    """Bug fix: Falsy agent_id like 0 should be preserved as '0' rather than dropped as empty."""
+    collector = EventStreamCollector()
+    raw = {"agent_id": 0, "action": "read", "target": "/etc/hosts"}
+    norm = collector.normalize_event(EventSource.KERNEL_SYSCALL, raw)
+    assert norm.agent_id == "0"
+
+
+@pytest.mark.asyncio
+async def test_invalid_string_timestamp_logging(caplog):
+    """Bug fix: Invalid string timestamp should log warning and record raw_timestamp in metadata."""
+    collector = EventStreamCollector()
+    raw = {"agent_id": "agent-ts-1", "action": "read", "target": "/etc/hosts", "timestamp": "invalid-iso-format"}
+    with caplog.at_level(logging.WARNING):
+        norm = collector.normalize_event(EventSource.KERNEL_SYSCALL, raw)
+
+    assert norm.metadata.get("raw_timestamp") == "invalid-iso-format"
+    assert "Failed to parse string timestamp" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_reconnect_non_callable_error():
+    """Bug fix: collect_with_reconnect must raise ValueError if stream_factory is not callable."""
+    collector = EventStreamCollector()
+    stream = sample_stream([{"agent_id": "a1", "action": "act", "target": "t"}])
+    with pytest.raises(ValueError, match="stream_factory must be a callable"):
+        async for _ in collector.collect_with_reconnect(EventSource.TOOL_CALL, stream):
+            pass
+

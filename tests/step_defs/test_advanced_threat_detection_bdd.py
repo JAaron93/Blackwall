@@ -273,5 +273,57 @@ def then_store_persists_and_returns_paths(atd_state):
     run_async(atd_state.store.close())
 
 
+# Scenario 5 steps (EventStreamCollector)
+from blackwall.enterprise.advanced_threat_detection.collector import EventStreamCollector
+
+
+@given("an EventStreamCollector instance and heterogeneous raw events from 5 pillars")
+def given_event_collector_and_raw_events(atd_state):
+    atd_state.collector = EventStreamCollector()
+    atd_state.raw_pillar_events = {
+        EventSource.KERNEL_SYSCALL: [{"action": "execve", "target": "/bin/ls", "agent_id": "agent-bdd-k"}],
+        EventSource.TOOL_CALL: [{"action": "run_command", "target": "ls", "agent_id": "agent-bdd-t"}],
+        EventSource.IDENTITY_ACCESS: [{"action": "get_token", "target": "vault", "agent_id": "agent-bdd-i"}],
+        EventSource.PIPELINE_EXECUTION: [{"action": "pipeline", "target": "build", "agent_id": "agent-bdd-p"}],
+        EventSource.FORENSIC_ALERT: [{"action": "alert", "target": "rule1", "agent_id": "agent-bdd-f"}],
+    }
+
+
+@when("the raw events are ingested through the EventStreamCollector")
+def when_events_ingested(atd_state):
+    normalized_list = []
+    for source, events in atd_state.raw_pillar_events.items():
+        norm = atd_state.collector.normalize_event(source, events[0])
+        normalized_list.append(norm)
+    atd_state.normalized_list = normalized_list
+
+
+@then("each event is normalized with UUID v4 ID, UTC timestamp, and pillar source enum")
+def then_each_event_normalized(atd_state):
+    assert len(atd_state.normalized_list) == 5
+    for norm in atd_state.normalized_list:
+        parsed_id = uuid.UUID(norm.event_id)
+        assert parsed_id.version == 4
+        assert norm.timestamp.tzinfo is not None
+        assert isinstance(norm.source, EventSource)
+
+
+@then("malformed events or non-callable reconnect attempts are rejected cleanly")
+def then_malformed_events_rejected(atd_state):
+    with pytest.raises(ValueError):
+        atd_state.collector.normalize_event(EventSource.KERNEL_SYSCALL, "not_a_dict")
+
+    with pytest.raises(ValueError, match="stream_factory must be a callable"):
+        async def dummy_iter():
+            yield {}
+
+        run_async(
+            atd_state.collector.collect_with_reconnect(
+                EventSource.TOOL_CALL, dummy_iter()
+            ).__anext__()
+        )
+
+
+
 
 

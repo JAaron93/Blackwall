@@ -58,21 +58,32 @@ class EventStreamCollector:
             else:
                 timestamp = raw_ts.astimezone(timezone.utc)
         elif isinstance(raw_ts, str):
+            clean_ts = raw_ts.strip().replace("Z", "+00:00")
             try:
-                parsed_dt = datetime.fromisoformat(raw_ts)
+                parsed_dt = datetime.fromisoformat(clean_ts)
                 if parsed_dt.tzinfo is None:
                     timestamp = parsed_dt.replace(tzinfo=timezone.utc)
                 else:
                     timestamp = parsed_dt.astimezone(timezone.utc)
-            except Exception:
+            except Exception as parse_err:
+                logger.warning(
+                    "Failed to parse string timestamp %r for source %s (%s); falling back to current UTC time",
+                    raw_ts,
+                    source,
+                    parse_err,
+                )
                 timestamp = datetime.now(timezone.utc)
         elif isinstance(raw_ts, (int, float)):
             timestamp = datetime.fromtimestamp(raw_ts, tz=timezone.utc)
         else:
             timestamp = datetime.now(timezone.utc)
 
-        # Agent ID extraction
-        raw_agent_id = raw_event.get("agent_id") or raw_event.get("agent") or ""
+        # Agent ID extraction (explicit None check to preserve falsy non-empty IDs like 0)
+        raw_agent_id = raw_event.get("agent_id")
+        if raw_agent_id is None:
+            raw_agent_id = raw_event.get("agent")
+        if raw_agent_id is None:
+            raw_agent_id = ""
         agent_id = str(raw_agent_id).strip()
         if not agent_id:
             raise ValueError("agent_id must not be empty")
@@ -99,6 +110,8 @@ class EventStreamCollector:
         metadata: Dict[str, Any] = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
         metadata["ingested_at"] = datetime.now(timezone.utc).isoformat()
         metadata["pillar_source"] = source.value
+        if isinstance(raw_ts, str) and "raw_timestamp" not in metadata:
+            metadata.setdefault("raw_timestamp", raw_ts)
 
         # Initial risk score calculation
         if "risk_score" in raw_event and isinstance(raw_event["risk_score"], (int, float)):
@@ -160,13 +173,18 @@ class EventStreamCollector:
     async def collect_with_reconnect(
         self,
         source: EventSource,
-        stream_factory: Callable[[], AsyncIterable[Dict[str, Any]]] | AsyncIterable[Dict[str, Any]],
+        stream_factory: Callable[[], AsyncIterable[Dict[str, Any]]],
     ) -> AsyncIterator[NormalizedEvent]:
         """Stream events with exponential backoff reconnection on failure."""
+        if not callable(stream_factory):
+            raise ValueError(
+                "stream_factory must be a callable returning a fresh AsyncIterable to support reconnection"
+            )
+
         attempt = 0
         while attempt <= self.reconnect_max_attempts:
             try:
-                stream = stream_factory() if callable(stream_factory) else stream_factory
+                stream = stream_factory()
                 async for normalized in self._process_stream(source, stream):
                     yield normalized
                 break  # Completed stream successfully
@@ -182,6 +200,7 @@ class EventStreamCollector:
                     f"Pillar stream {source} lost ({exc}). Retrying attempt {attempt}/{self.reconnect_max_attempts} in {backoff:.2f}s..."
                 )
                 await asyncio.sleep(backoff)
+
 
     async def collect_from_kernel(
         self, source_stream: Optional[AsyncIterable[Dict[str, Any]]] = None
