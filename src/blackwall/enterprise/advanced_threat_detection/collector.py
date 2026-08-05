@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import datetime, timezone
+import inspect
 import logging
 from typing import Any, AsyncIterable, AsyncIterator, Callable, Dict, Optional
 import uuid
@@ -12,6 +13,7 @@ from blackwall.enterprise.advanced_threat_detection.enums import EventSource
 from blackwall.enterprise.advanced_threat_detection.models import NormalizedEvent
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.collector")
+
 
 
 class EventStreamCollector:
@@ -173,7 +175,7 @@ class EventStreamCollector:
     async def collect_with_reconnect(
         self,
         source: EventSource,
-        stream_factory: Callable[[], AsyncIterable[Dict[str, Any]]],
+        stream_factory: Callable[[], Any],
     ) -> AsyncIterator[NormalizedEvent]:
         """Stream events with exponential backoff reconnection on failure."""
         if not callable(stream_factory):
@@ -185,9 +187,18 @@ class EventStreamCollector:
         while attempt <= self.reconnect_max_attempts:
             try:
                 stream = stream_factory()
+                if inspect.iscoroutine(stream):
+                    stream = await stream
+                if not hasattr(stream, "__aiter__"):
+                    raise TypeError(
+                        f"stream_factory returned non-AsyncIterable object of type {type(stream).__name__}"
+                    )
                 async for normalized in self._process_stream(source, stream):
                     yield normalized
                 break  # Completed stream successfully
+            except (TypeError, ValueError):
+                # Fail fast on deterministic programming/configuration errors
+                raise
             except Exception as exc:
                 attempt += 1
                 if attempt > self.reconnect_max_attempts:
@@ -200,6 +211,7 @@ class EventStreamCollector:
                     f"Pillar stream {source} lost ({exc}). Retrying attempt {attempt}/{self.reconnect_max_attempts} in {backoff:.2f}s..."
                 )
                 await asyncio.sleep(backoff)
+
 
 
     async def collect_from_kernel(

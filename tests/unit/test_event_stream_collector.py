@@ -209,3 +209,51 @@ async def test_reconnect_non_callable_error():
         async for _ in collector.collect_with_reconnect(EventSource.TOOL_CALL, stream):
             pass
 
+
+@pytest.mark.asyncio
+async def test_reconnect_async_def_factory():
+    """Support async def stream_factory returning a coroutine that resolves to an AsyncIterable."""
+    collector = EventStreamCollector()
+
+    async def async_factory():
+        return sample_stream([{"agent_id": "a-coro", "action": "read", "target": "/etc/shadow"}])
+
+    events = [
+        ev async for ev in collector.collect_with_reconnect(EventSource.KERNEL_SYSCALL, async_factory)
+    ]
+    assert len(events) == 1
+    assert events[0].agent_id == "a-coro"
+
+
+@pytest.mark.asyncio
+async def test_reconnect_non_async_iterable_raises_type_error():
+    """Fail fast with TypeError if stream_factory returns a non-AsyncIterable object."""
+    collector = EventStreamCollector()
+
+    def bad_factory():
+        return 12345  # Not an AsyncIterable
+
+    with pytest.raises(TypeError, match="stream_factory returned non-AsyncIterable object"):
+        async for _ in collector.collect_with_reconnect(EventSource.TOOL_CALL, bad_factory):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_reconnect_programming_error_fails_fast():
+    """Fail fast without backoff retries when stream_factory raises TypeError or ValueError."""
+    collector = EventStreamCollector(reconnect_max_attempts=3, reconnect_backoff_base=10.0)
+
+    attempts = 0
+
+    def error_factory():
+        nonlocal attempts
+        attempts += 1
+        raise TypeError("Programming error in factory")
+
+    with pytest.raises(TypeError, match="Programming error in factory"):
+        async for _ in collector.collect_with_reconnect(EventSource.TOOL_CALL, error_factory):
+            pass
+
+    assert attempts == 1  # No retries occurred
+
+
