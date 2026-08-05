@@ -187,7 +187,9 @@ class EventStreamCollector:
         async for raw_item in source_stream:
             if not isinstance(raw_item, dict):
                 logger.warning(
-                    f"Discarding malformed event payload: expected dict, got {type(raw_item)}"
+                    "Discarding malformed event payload for source %s: expected dict, got %s",
+                    source,
+                    type(raw_item),
                 )
                 continue
             try:
@@ -195,7 +197,9 @@ class EventStreamCollector:
                 yield normalized
             except (ValueError, ValidationError) as exc:
                 logger.warning(
-                    f"Validation error normalizing event from {source}: {exc}"
+                    "Validation error normalizing event from %s: %s",
+                    source,
+                    exc,
                 )
                 continue
 

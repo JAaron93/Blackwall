@@ -138,10 +138,15 @@ async def test_error_handling(caplog):
     assert events[0].agent_id == "agent-valid-1"
     assert events[1].agent_id == "agent-valid-2"
 
-    # Warnings should be logged
+    # Warnings should be logged with source attribution
     assert any(
-        "Discarding malformed event payload" in rec.message
-        or "Validation error" in rec.message
+        "Discarding malformed event payload for source EventSource.KERNEL_SYSCALL"
+        in rec.message
+        for rec in caplog.records
+    )
+    assert any(
+        "Validation error normalizing event from EventSource.KERNEL_SYSCALL"
+        in rec.message
         for rec in caplog.records
     )
 
