@@ -20,3 +20,9 @@ Feature: Blackwall Advanced Threat Detection Pillar Data Validation
     When SwarmEvidence is constructed with 2 or more distinct agent IDs and valid time window
     Then the SwarmEvidence model is created successfully
     And SwarmEvidence with fewer than 2 agents or last_seen earlier than first_seen is rejected
+
+  Scenario: Attack Graph Store event ingestion, causal linking, and path query
+    Given an initialized AttackGraphStore instance
+    When security events are ingested and causally linked
+    Then the AttackGraphStore persists node edges and returns correlated multi-hop attack paths
+

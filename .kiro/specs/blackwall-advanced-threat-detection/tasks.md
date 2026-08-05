@@ -34,35 +34,35 @@ The implementation follows a test-driven development approach with property-base
     - _Verification: `pytest tests/property/test_models_properties.py --hypothesis-iterations=100 -v`_
 
 
-- [ ] 2. Implement Attack Graph Store with PostgreSQL/TimescaleDB
-  - [ ] 2.1 Create AttackGraphStore class with connection pooling
+- [x] 2. Implement Attack Graph Store with PostgreSQL/TimescaleDB
+  - [x] 2.1 Create AttackGraphStore class with connection pooling
     - Implement async PostgreSQL connection pool using `asyncpg`
     - Create schema for event nodes and temporal edges
     - Set up TimescaleDB hypertable for time-series optimization
     - _Requirements: 11.5, 11.6_
     - _Verification: `pytest tests/integration/test_attack_graph_store.py::test_connection_pool -v`_
   
-  - [ ] 2.2 Implement event insertion with temporal ordering
+  - [x] 2.2 Implement event insertion with temporal ordering
     - Create `insert_event()` method storing NormalizedEvent as AttackNode
     - Maintain incoming/outgoing edge lists for each node
     - Ensure temporal ordering preserved in graph structure
     - _Requirements: 2.1, 2.5_
     - _Verification: `pytest tests/integration/test_attack_graph_store.py::test_insert_event -v`_
   
-  - [ ] 2.3 Implement causal edge creation
+  - [x] 2.3 Implement causal edge creation
     - Create `link_events()` method with relationship type parameter
     - Update edge lists for both source and target nodes
     - _Requirements: 2.2_
     - _Verification: `pytest tests/integration/test_attack_graph_store.py::test_link_events -v`_
   
-  - [ ] 2.4 Implement multi-hop path query engine
+  - [x] 2.4 Implement multi-hop path query engine
     - Create `query_paths()` method with time window and minimum path length filters
     - Optimize queries for 17K+ event graphs (response time < 500ms)
     - Return AttackPath objects ordered by risk_score descending
     - _Requirements: 2.3, 2.4, 11.2_
     - _Verification: `pytest tests/integration/test_attack_graph_store.py::test_query_paths_performance -v`_
   
-  - [ ]* 2.5 Write property tests for Attack Graph Store
+  - [x]* 2.5 Write property tests for Attack Graph Store
     - **Property 6: Temporal Ordering Preservation**
     - **Property 7: Causal Edge Creation**
     - **Property 8: Path Query Minimum Length Enforcement**

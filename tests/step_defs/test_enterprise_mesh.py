@@ -33,13 +33,7 @@ from blackwall.enterprise.advanced_threat_detection import (
 scenarios("../features/blackwall_enterprise_mesh.feature")
 
 
-def run_async(coro):
-    """Helper to execute async coroutines in synchronous BDD step definitions."""
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+from tests.step_defs.async_utils import run_async
 
 
 class EnterpriseBDDState:

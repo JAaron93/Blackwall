@@ -58,12 +58,7 @@ def set_sensitive_context(state):
     )
 
 
-def run_async(coro):
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+from tests.step_defs.async_utils import run_async
 
 
 @when("the batch is processed by the resolver")

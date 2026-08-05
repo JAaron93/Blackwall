@@ -75,17 +75,40 @@ report = await manager.triage_log_event({"command": "reverse_shell /bin/bash -i"
 # Dual-mode execution: primary local Ollama (Qwen3) with failover to AST/regex parser
 
 # Track 6: Advanced Threat Detection & Property-Validated Schemas (Pillar 6)
-from datetime import datetime, timezone
-from blackwall.enterprise.advanced_threat_detection import NormalizedEvent, EventSource
+from datetime import datetime, timezone, timedelta
+from blackwall.enterprise.advanced_threat_detection import NormalizedEvent, EventSource, AttackGraphStore
 
-event = NormalizedEvent(
+store = AttackGraphStore(in_memory=True)
+await store.initialize()
+
+now = datetime.now(timezone.utc)
+event1 = NormalizedEvent(
     event_id="550e8400-e29b-41d4-a716-446655440000",
-    timestamp=datetime.now(timezone.utc),
+    timestamp=now,
     source=EventSource.KERNEL_SYSCALL,
     agent_id="agent-007",
     action="execve",
     target="/usr/bin/python3",
     risk_score=0.85,
+)
+event2 = NormalizedEvent(
+    event_id="660e8400-e29b-41d4-a716-446655440001",
+    timestamp=now + timedelta(seconds=5),
+    source=EventSource.TOOL_CALL,
+    agent_id="agent-007",
+    action="connect",
+    target="192.168.1.1:4444",
+    risk_score=0.95,
+)
+
+node1 = await store.insert_event(event1)
+node2 = await store.insert_event(event2)
+await store.link_events(node1.node_id, node2.node_id, "SPAWNED")
+
+paths = await store.query_paths(
+    agent_id="agent-007",
+    time_window=(now - timedelta(minutes=1), now + timedelta(minutes=10)),
+    min_path_length=2,
 )
 ```
 

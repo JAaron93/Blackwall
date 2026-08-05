@@ -21,6 +21,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     RegistryThreatEvidence,
     SwarmEvidence,
 )
+from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection")
 
@@ -36,5 +37,7 @@ __all__ = [
     "C2Evidence",
     "K8sThreatEvidence",
     "RegistryThreatEvidence",
+    "AttackGraphStore",
     "logger",
 ]
+
