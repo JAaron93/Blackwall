@@ -74,23 +74,20 @@ manager = ForensicTriageManager(otel_adapter=otel_adapter)
 report = await manager.triage_log_event({"command": "reverse_shell /bin/bash -i"})
 # Dual-mode execution: primary local Ollama (Qwen3) with failover to AST/regex parser
 
-# Track 6: Advanced Threat Detection & Property-Validated Schemas (Pillar 6)
+# Track 6: Advanced Threat Detection & Unified Ingestion (Pillar 6)
 from datetime import datetime, timezone, timedelta
-from blackwall.enterprise.advanced_threat_detection import NormalizedEvent, EventSource, AttackGraphStore
+from blackwall.enterprise.advanced_threat_detection import (
+    EventStreamCollector, NormalizedEvent, EventSource, AttackGraphStore
+)
+
+collector = EventStreamCollector()
+raw_kernel_event = {"action": "execve", "target": "/usr/bin/python3", "agent_id": "agent-007"}
+event1 = collector.normalize_event(EventSource.KERNEL_SYSCALL, raw_kernel_event)
 
 store = AttackGraphStore(in_memory=True)
 await store.initialize()
 
 now = datetime.now(timezone.utc)
-event1 = NormalizedEvent(
-    event_id="550e8400-e29b-41d4-a716-446655440000",
-    timestamp=now,
-    source=EventSource.KERNEL_SYSCALL,
-    agent_id="agent-007",
-    action="execve",
-    target="/usr/bin/python3",
-    risk_score=0.85,
-)
 event2 = NormalizedEvent(
     event_id="660e8400-e29b-41d4-a716-446655440001",
     timestamp=now + timedelta(seconds=5),
@@ -110,6 +107,7 @@ paths = await store.query_paths(
     time_window=(now - timedelta(minutes=1), now + timedelta(minutes=10)),
     min_path_length=2,
 )
+
 ```
 
 #### 🧪 Enterprise BDD & Property Verification
