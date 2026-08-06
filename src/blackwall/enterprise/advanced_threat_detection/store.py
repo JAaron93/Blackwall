@@ -237,6 +237,22 @@ class AttackGraphStore:
         }
         self._edges.append(edge_record)
 
+    def _parse_edge_uuids(self, raw_edges: Any) -> List[uuid.UUID]:
+        """Safely parse edge UUIDs from DB JSON/list, logging warnings for malformed entries."""
+        if not raw_edges:
+            return []
+        edge_list = json.loads(raw_edges) if isinstance(raw_edges, str) else raw_edges
+        if not isinstance(edge_list, list):
+            return []
+
+        valid_edges: List[uuid.UUID] = []
+        for item in edge_list:
+            try:
+                valid_edges.append(validate_uuid_v4_format(item))
+            except (ValueError, TypeError) as exc:
+                logger.warning("Skipping malformed edge UUID '%s' from DB record: %s", item, exc)
+        return valid_edges
+
     async def get_node(self, node_id: Union[uuid.UUID, str]) -> Optional[AttackNode]:
         """Retrieve AttackNode by node_id."""
         node_uuid = validate_uuid_v4_format(node_id)
@@ -258,10 +274,8 @@ class AttackGraphStore:
                         metadata=json.loads(row["metadata"]) if isinstance(row["metadata"], str) else row["metadata"],
                         risk_score=row["risk_score"],
                     )
-                    raw_inc = json.loads(row["incoming_edges"]) if isinstance(row["incoming_edges"], str) else row["incoming_edges"]
-                    raw_out = json.loads(row["outgoing_edges"]) if isinstance(row["outgoing_edges"], str) else row["outgoing_edges"]
-                    inc = [validate_uuid_v4_format(e) for e in raw_inc]
-                    out = [validate_uuid_v4_format(e) for e in raw_out]
+                    inc = self._parse_edge_uuids(row["incoming_edges"])
+                    out = self._parse_edge_uuids(row["outgoing_edges"])
 
                     node = AttackNode(
                         node_id=row["node_id"],
@@ -312,10 +326,8 @@ class AttackGraphStore:
                         metadata=json.loads(row["metadata"]) if isinstance(row["metadata"], str) else row["metadata"],
                         risk_score=row["risk_score"],
                     )
-                    raw_inc = json.loads(row["incoming_edges"]) if isinstance(row["incoming_edges"], str) else row["incoming_edges"]
-                    raw_out = json.loads(row["outgoing_edges"]) if isinstance(row["outgoing_edges"], str) else row["outgoing_edges"]
-                    inc = [validate_uuid_v4_format(e) for e in raw_inc]
-                    out = [validate_uuid_v4_format(e) for e in raw_out]
+                    inc = self._parse_edge_uuids(row["incoming_edges"])
+                    out = self._parse_edge_uuids(row["outgoing_edges"])
 
                     db_node = AttackNode(
                         node_id=row["node_id"],

@@ -210,3 +210,52 @@ async def test_query_nodes_db_mode_does_not_pollute_memory_cache():
 
     # Verify self._nodes is still empty (no memory leak/accumulation)
     assert len(store._nodes) == 0
+
+
+@pytest.mark.asyncio
+async def test_query_nodes_skips_malformed_edge_uuids_with_warning(caplog):
+    """Verify query_nodes skips malformed edge UUID entries and logs warning instead of raising ValueError."""
+    import logging
+    from unittest.mock import AsyncMock, MagicMock
+
+    store = AttackGraphStore(in_memory=False)
+    mock_pool = MagicMock()
+    mock_conn = AsyncMock()
+
+    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
+    agent_id = "agent-malformed-edge"
+
+    valid_edge = uuid.uuid4()
+    bad_edge = "not-a-valid-uuid-v4"
+    node_id = uuid.uuid4()
+
+    rows = [
+        {
+            "node_id": node_id,
+            "event_id": uuid.uuid4(),
+            "timestamp": base_time,
+            "source": EventSource.KERNEL_SYSCALL.value,
+            "agent_id": agent_id,
+            "action": "exec",
+            "target": "/bin/sh",
+            "metadata": {},
+            "risk_score": 0.8,
+            "incoming_edges": [str(valid_edge), bad_edge],
+            "outgoing_edges": [bad_edge],
+        }
+    ]
+
+    mock_conn.fetch = AsyncMock(return_value=rows)
+    mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=None)
+    store._pool = mock_pool
+
+    time_win = (base_time - timedelta(minutes=1), base_time + timedelta(minutes=1))
+
+    with caplog.at_level(logging.WARNING):
+        fetched_nodes = await store.query_nodes(agent_id, time_win)
+
+    assert len(fetched_nodes) == 1
+    assert fetched_nodes[0].incoming_edges == [valid_edge]
+    assert fetched_nodes[0].outgoing_edges == []
+    assert "Skipping malformed edge UUID 'not-a-valid-uuid-v4'" in caplog.text
