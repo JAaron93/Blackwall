@@ -2,8 +2,9 @@
 
 from datetime import datetime
 from typing import Any, Dict, List, Set, Tuple
+from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, UUID4, field_validator, model_validator
 
 from blackwall.enterprise.advanced_threat_detection.enums import (
     EventSource,
@@ -21,7 +22,7 @@ from blackwall.validators import (
 class NormalizedEvent(BaseModel):
     """Normalized threat event schema across all five Blackwall pillars."""
 
-    event_id: str
+    event_id: UUID4
     timestamp: datetime
     source: EventSource
     agent_id: str
@@ -32,7 +33,7 @@ class NormalizedEvent(BaseModel):
 
     @field_validator("event_id")
     @classmethod
-    def validate_uuid_v4(cls, v: str) -> str:
+    def validate_uuid_v4(cls, v: Any) -> UUID:
         """Validate event_id is a valid UUID v4."""
         return validate_uuid_v4_format(v)
 
@@ -52,16 +53,16 @@ class NormalizedEvent(BaseModel):
 class AttackNode(BaseModel):
     """Graph node encapsulating a normalized event and edge connections."""
 
-    node_id: str
+    node_id: UUID4
     event: NormalizedEvent
-    incoming_edges: List[str] = Field(default_factory=list)
-    outgoing_edges: List[str] = Field(default_factory=list)
+    incoming_edges: List[UUID4] = Field(default_factory=list)
+    outgoing_edges: List[UUID4] = Field(default_factory=list)
 
 
 class AttackPath(BaseModel):
     """Multi-hop attack path correlated across sequence of nodes."""
 
-    path_id: str
+    path_id: UUID4
     agent_id: str
     nodes: List[AttackNode]
     start_time: datetime
@@ -99,7 +100,7 @@ class AttackPath(BaseModel):
 class SwarmEvidence(BaseModel):
     """Evidence structure for coordinated multi-agent swarm behavior."""
 
-    swarm_id: str
+    swarm_id: UUID4
     agent_ids: Set[str]
     shared_patterns: List[str] = Field(default_factory=list)
     temporal_correlation: float = Field(..., ge=0.0, le=1.0)
@@ -136,7 +137,7 @@ class SwarmEvidence(BaseModel):
 class ExploitChainEvidence(BaseModel):
     """Evidence structure for zero-day exploit chaining sequences."""
 
-    chain_id: str
+    chain_id: UUID4
     exploits: List[Tuple[str, ExploitCategory]] = Field(default_factory=list)
     novelty_score: float = Field(..., ge=0.0, le=1.0)
     chaining_confidence: float = Field(..., ge=0.0, le=1.0)

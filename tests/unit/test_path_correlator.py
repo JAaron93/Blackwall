@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone, timedelta
 import uuid
+from typing import Union
 import pytest
 
 from blackwall.enterprise.advanced_threat_detection import (
@@ -27,7 +28,7 @@ def create_event(
         base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
     
     return NormalizedEvent(
-        event_id=str(uuid.uuid4()),
+        event_id=uuid.uuid4(),
         timestamp=base_time + timedelta(seconds=offset_seconds),
         source=source,
         agent_id=agent_id,
@@ -38,10 +39,10 @@ def create_event(
     )
 
 
-def create_node(event: NormalizedEvent, node_id: str = None) -> AttackNode:
+def create_node(event: NormalizedEvent, node_id: Union[str, uuid.UUID] = None) -> AttackNode:
     """Helper to create an AttackNode."""
     return AttackNode(
-        node_id=node_id or f"node-{uuid.uuid4()}",
+        node_id=node_id or uuid.uuid4(),
         event=event,
         incoming_edges=[],
         outgoing_edges=[],
@@ -64,31 +65,30 @@ async def test_temporal_adjacency():
     event_c = create_event(offset_seconds=400.0, base_time=base_time)  # > 300s, no causal edge
     event_d = create_event(offset_seconds=500.0, base_time=base_time)  # > 300s, with causal edge
 
-    edge_id = f"edge-{uuid.uuid4()}"
-    node_a = create_node(event_a, node_id="node-a")
+    edge_id = uuid.uuid4()
+    node_a = create_node(event_a)
     node_a.outgoing_edges.append(edge_id)
 
-    node_b = create_node(event_b, node_id="node-b")
+    node_b = create_node(event_b)
+    node_c = create_node(event_c)
 
-    node_c = create_node(event_c, node_id="node-c")
-
-    node_d = create_node(event_d, node_id="node-d")
+    node_d = create_node(event_d)
     node_d.incoming_edges.append(edge_id)
 
     nodes = [node_a, node_b, node_c, node_d]
     adj_graph = correlator.build_temporal_adjacency_graph(nodes)
 
     # Check node A neighbors
-    neighbors_a = [target.node_id for target, weight in adj_graph["node-a"]]
+    neighbors_a = [target.node_id for target, weight in adj_graph[node_a.node_id]]
 
     # node_b is within 200s <= 300s, so it must be linked
-    assert "node-b" in neighbors_a
+    assert node_b.node_id in neighbors_a
 
     # node_c is 400s > 300s apart without causal edge, so it must NOT be linked directly from node_a
-    assert "node-c" not in neighbors_a
+    assert node_c.node_id not in neighbors_a
 
     # node_d is 500s > 300s apart BUT shares a causal edge (edge_id), so it MUST be linked
-    assert "node-d" in neighbors_a
+    assert node_d.node_id in neighbors_a
 
 
 @pytest.mark.asyncio
@@ -221,17 +221,16 @@ async def test_unsorted_nodes_temporal_adjacency():
     base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
 
     # Node 1 is at T+600s, Node 2 is at T+0s
-    node_late = create_node(create_event(offset_seconds=600.0, base_time=base_time), node_id="node-late")
-    node_early = create_node(create_event(offset_seconds=0.0, base_time=base_time), node_id="node-early")
+    node_late = create_node(create_event(offset_seconds=600.0, base_time=base_time))
+    node_early = create_node(create_event(offset_seconds=0.0, base_time=base_time))
 
     # Pass unsorted nodes list [node_late, node_early]
     adj_graph = correlator.build_temporal_adjacency_graph([node_late, node_early])
 
     # node_late occurs 600s after node_early (> 300s). No edge from node_early to node_late.
-    neighbors_early = [target.node_id for target, _ in adj_graph["node-early"]]
-    assert "node-late" not in neighbors_early
+    neighbors_early = [target.node_id for target, _ in adj_graph[node_early.node_id]]
+    assert node_late.node_id not in neighbors_early
 
     # No reverse-time edge from node_late to node_early either
-    neighbors_late = [target.node_id for target, _ in adj_graph["node-late"]]
-    assert "node-early" not in neighbors_late
-
+    neighbors_late = [target.node_id for target, _ in adj_graph[node_late.node_id]]
+    assert node_early.node_id not in neighbors_late

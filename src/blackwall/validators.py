@@ -29,8 +29,12 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def validate_uuid_v4_format(v: str) -> str:
-    """Validate that a string is a valid UUID v4 format."""
+def validate_uuid_v4_format(v: Any) -> UUID:
+    """Validate that a string or UUID is a valid UUID v4 format and return UUID instance."""
+    if isinstance(v, UUID):
+        if v.version != 4:
+            raise ValueError("event_id must be a valid UUID v4")
+        return v
     try:
         parsed = UUID(str(v))
     except (ValueError, TypeError, AttributeError) as exc:
@@ -38,18 +42,17 @@ def validate_uuid_v4_format(v: str) -> str:
 
     if parsed.version != 4:
         raise ValueError("event_id must be a valid UUID v4")
-    return str(v)
+    return parsed
 
 
-
-def ensure_uuid_v4(v: Any = None) -> str:
-    """Return valid UUID v4 string if input is valid UUID v4, otherwise generate a new UUID v4 string."""
+def ensure_uuid_v4(v: Any = None) -> UUID:
+    """Return valid UUID v4 instance if input is valid UUID v4, otherwise generate a new UUID v4 instance."""
     if v is not None:
         try:
-            return validate_uuid_v4_format(str(v))
+            return validate_uuid_v4_format(v)
         except ValueError:
             pass
-    return str(uuid4())
+    return uuid4()
 
 
 def validate_non_empty_string(v: str, field_name: str = "string") -> str:

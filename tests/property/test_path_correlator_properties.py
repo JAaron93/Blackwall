@@ -57,7 +57,7 @@ def normalized_events(draw, agent_id: str = "agent-prop-correlator", base_time: 
 def attack_nodes(draw, agent_id: str = "agent-prop-correlator"):
     """Strategy to generate AttackNode instances."""
     event = draw(normalized_events(agent_id=agent_id))
-    node_id = f"node-{uuid.uuid4()}"
+    node_id = uuid.uuid4()
     return AttackNode(
         node_id=node_id,
         event=event,

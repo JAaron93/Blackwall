@@ -64,9 +64,16 @@ def test_utc_now():
 
 
 def test_validate_uuid_v4_format_valid():
-    """Verify valid UUID v4 strings pass validation."""
-    valid_uuid = str(uuid.uuid4())
-    assert validate_uuid_v4_format(valid_uuid) == valid_uuid
+    """Verify valid UUID v4 strings pass validation and return UUID object."""
+    raw_v4 = uuid.uuid4()
+    valid_uuid_str = str(raw_v4)
+    res_str = validate_uuid_v4_format(valid_uuid_str)
+    assert isinstance(res_str, uuid.UUID)
+    assert res_str == raw_v4
+
+    res_obj = validate_uuid_v4_format(raw_v4)
+    assert isinstance(res_obj, uuid.UUID)
+    assert res_obj == raw_v4
 
 
 def test_validate_uuid_v4_format_invalid():
@@ -79,17 +86,26 @@ def test_validate_uuid_v4_format_invalid():
     with pytest.raises(ValueError, match="must be a valid UUID v4"):
         validate_uuid_v4_format(uuid_v1_str)
 
+    uuid_v1_obj = uuid.uuid1()
+    with pytest.raises(ValueError, match="must be a valid UUID v4"):
+        validate_uuid_v4_format(uuid_v1_obj)
+
 
 def test_ensure_uuid_v4():
-    """Verify ensure_uuid_v4 returns original if valid v4, or generates new v4 if invalid or None."""
-    valid_v4 = str(uuid.uuid4())
-    assert ensure_uuid_v4(valid_v4) == valid_v4
+    """Verify ensure_uuid_v4 returns original UUID if valid v4, or generates new v4 UUID if invalid or None."""
+    valid_v4_obj = uuid.uuid4()
+    valid_v4_str = str(valid_v4_obj)
+
+    assert ensure_uuid_v4(valid_v4_str) == valid_v4_obj
+    assert ensure_uuid_v4(valid_v4_obj) == valid_v4_obj
 
     new_from_invalid = ensure_uuid_v4("bad-uuid")
-    assert uuid.UUID(new_from_invalid).version == 4
+    assert isinstance(new_from_invalid, uuid.UUID)
+    assert new_from_invalid.version == 4
 
     new_from_none = ensure_uuid_v4(None)
-    assert uuid.UUID(new_from_none).version == 4
+    assert isinstance(new_from_none, uuid.UUID)
+    assert new_from_none.version == 4
 
 
 def test_validate_non_empty_string():

@@ -352,7 +352,7 @@ class AttackGraphStore:
 
     def _build_attack_path(self, agent_id: str, nodes: List[AttackNode]) -> AttackPath:
         """Helper to create valid AttackPath object from list of nodes."""
-        path_id = str(uuid.uuid4())
+        path_id = uuid.uuid4()
         start_time = nodes[0].event.timestamp
         end_time = nodes[-1].event.timestamp
 

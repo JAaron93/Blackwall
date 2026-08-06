@@ -66,7 +66,7 @@ def when_event_normalized(atd_state):
 
 @then("the NormalizedEvent model accepts the valid UUID v4 and UTC timestamp")
 def then_normalized_event_accepts(atd_state):
-    assert atd_state.normalized_event.event_id == "550e8400-e29b-41d4-a716-446655440000"
+    assert atd_state.normalized_event.event_id == uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
     assert atd_state.normalized_event.timestamp.tzinfo is not None
 
 
@@ -131,8 +131,8 @@ def given_set_of_attack_nodes(atd_state):
         risk_score=0.7,
     )
     atd_state.nodes = [
-        AttackNode(node_id="n1", event=event1),
-        AttackNode(node_id="n2", event=event2),
+        AttackNode(node_id=uuid.uuid4(), event=event1),
+        AttackNode(node_id=uuid.uuid4(), event=event2),
     ]
 
 
@@ -140,7 +140,7 @@ def given_set_of_attack_nodes(atd_state):
 def when_attack_path_constructed(atd_state):
     now = datetime.now(UTC)
     atd_state.attack_path = AttackPath(
-        path_id="path-bdd-1",
+        path_id=uuid.uuid4(),
         agent_id="agent-bdd-01",
         nodes=atd_state.nodes,
         start_time=now,
@@ -164,7 +164,7 @@ def then_invalid_attack_path_rejected(atd_state):
     # Fewer than 2 nodes
     with pytest.raises(ValidationError):
         AttackPath(
-            path_id="path-bdd-bad",
+            path_id=uuid.uuid4(),
             agent_id="agent-bdd-01",
             nodes=[atd_state.nodes[0]],
             start_time=now,
@@ -175,7 +175,7 @@ def then_invalid_attack_path_rejected(atd_state):
     # end_time < start_time
     with pytest.raises(ValidationError):
         AttackPath(
-            path_id="path-bdd-bad2",
+            path_id=uuid.uuid4(),
             agent_id="agent-bdd-01",
             nodes=atd_state.nodes,
             start_time=now,
@@ -197,7 +197,7 @@ def given_correlated_agents(atd_state):
 def when_swarm_evidence_constructed(atd_state):
     now = datetime.now(UTC)
     atd_state.swarm_evidence = SwarmEvidence(
-        swarm_id="swarm-bdd-1",
+        swarm_id=uuid.uuid4(),
         agent_ids=atd_state.agent_ids,
         temporal_correlation=0.85,
         coordination_score=0.9,
@@ -220,7 +220,7 @@ def then_invalid_swarm_evidence_rejected(atd_state):
     # Fewer than 2 agents
     with pytest.raises(ValidationError):
         SwarmEvidence(
-            swarm_id="swarm-bdd-bad",
+            swarm_id=uuid.uuid4(),
             agent_ids={"agent-alpha"},
             temporal_correlation=0.85,
             coordination_score=0.9,
@@ -230,7 +230,7 @@ def then_invalid_swarm_evidence_rejected(atd_state):
     # last_seen < first_seen
     with pytest.raises(ValidationError):
         SwarmEvidence(
-            swarm_id="swarm-bdd-bad2",
+            swarm_id=uuid.uuid4(),
             agent_ids=atd_state.agent_ids,
             temporal_correlation=0.85,
             coordination_score=0.9,
@@ -334,8 +334,8 @@ def when_events_ingested(atd_state):
 def then_each_event_normalized(atd_state):
     assert len(atd_state.normalized_list) == 5
     for norm in atd_state.normalized_list:
-        parsed_id = uuid.UUID(norm.event_id)
-        assert parsed_id.version == 4
+        assert isinstance(norm.event_id, uuid.UUID)
+        assert norm.event_id.version == 4
         assert norm.timestamp.tzinfo is not None
         assert isinstance(norm.source, EventSource)
 

@@ -121,7 +121,8 @@ def execute_uuid_v4_validation(state: ValidatorState):
 @then("the validated UUID string should match the input")
 def verify_uuid_v4_match(state: ValidatorState):
     assert state.error is None
-    assert state.output_uuid == state.input_uuid
+    assert isinstance(state.output_uuid, uuid.UUID)
+    assert str(state.output_uuid) == state.input_uuid
 
 
 # Non-empty string steps

@@ -137,7 +137,7 @@ class PathCorrelator:
             attack_stages = self.map_mitre_techniques(path_nodes)
 
             path_obj = AttackPath(
-                path_id=f"path-{uuid.uuid4()}",
+                path_id=uuid.uuid4(),
                 agent_id=agent_id,
                 nodes=path_nodes,
                 start_time=start_time,
