@@ -273,15 +273,13 @@ class PathCorrelator:
         max_depth: int = 10,
         max_results: int = 1000,
     ) -> None:
-        """Recursive DFS traversal to find paths meeting min_path_length up to max_depth and max_results."""
-        if len(results) >= max_results:
-            return
+        if max_depth < min_path_length:
+            raise ValueError("max_depth cannot be less than min_path_length")
 
-        effective_max_depth = max(max_depth, min_path_length)
         if len(current_path) >= min_path_length:
             results.append(list(current_path))
 
-        if len(current_path) >= effective_max_depth:
+        if len(current_path) >= max_depth:
             return
 
         neighbors = adj_graph.get(current_node.node_id, [])
