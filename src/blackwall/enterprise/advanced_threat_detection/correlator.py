@@ -125,6 +125,8 @@ class PathCorrelator:
 
             start_time = path_nodes[0].event.timestamp
             end_time = path_nodes[-1].event.timestamp
+            if end_time < start_time:
+                continue
 
             # Compute edge weights along path
             edge_weights: List[float] = []
@@ -135,17 +137,20 @@ class PathCorrelator:
             risk_score, correlation_score = self.compute_path_scores(path_nodes, edge_weights)
             attack_stages = self.map_mitre_techniques(path_nodes)
 
-            path_obj = AttackPath(
-                path_id=uuid.uuid4(),
-                agent_id=agent_id,
-                nodes=path_nodes,
-                start_time=start_time,
-                end_time=end_time,
-                risk_score=risk_score,
-                attack_stages=attack_stages,
-                correlation_score=correlation_score,
-            )
-            attack_paths.append(path_obj)
+            try:
+                path_obj = AttackPath(
+                    path_id=uuid.uuid4(),
+                    agent_id=agent_id,
+                    nodes=path_nodes,
+                    start_time=start_time,
+                    end_time=end_time,
+                    risk_score=risk_score,
+                    attack_stages=attack_stages,
+                    correlation_score=correlation_score,
+                )
+                attack_paths.append(path_obj)
+            except ValueError:
+                continue
 
         # 5. Order paths by risk_score descending (Requirement 3.5 & Property 18)
         attack_paths.sort(key=lambda p: p.risk_score, reverse=True)
@@ -174,11 +179,15 @@ class PathCorrelator:
                 weight = self.compute_edge_weight(node_a, node_b)
                 adj[node_a.node_id].append((node_b, weight))
 
-            # 2. Direct O(1) causal edge lookup for outgoing edges
+            # 2. Direct O(1) causal edge lookup for outgoing edges (requiring chronological ordering)
             added_target_ids = {b.node_id for b, _ in adj[node_a.node_id]}
             for out_edge in node_a.outgoing_edges:
                 for target_node in edge_to_target_nodes.get(out_edge, []):
-                    if target_node.node_id != node_a.node_id and target_node.node_id not in added_target_ids:
+                    if (
+                        target_node.node_id != node_a.node_id
+                        and target_node.node_id not in added_target_ids
+                        and target_node.event.timestamp >= node_a.event.timestamp
+                    ):
                         weight = self.compute_edge_weight(node_a, target_node)
                         adj[node_a.node_id].append((target_node, weight))
                         added_target_ids.add(target_node.node_id)

@@ -454,3 +454,49 @@ async def test_path_longer_than_default_depth():
 
     assert len(paths) >= 1
     assert any(len(p.nodes) == 12 for p in paths)
+
+
+@pytest.mark.asyncio
+async def test_causal_link_to_older_event_ignored_gracefully():
+    """Verify causal edges pointing to older events do not cause reverse temporal ordering or crashes."""
+    store = AttackGraphStore(in_memory=True)
+    await store.initialize()
+
+    agent_id = "agent-reverse-causal"
+    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
+
+    # Node 1 at T=100s
+    ev1 = NormalizedEvent(
+        event_id=uuid.uuid4(),
+        timestamp=base_time + timedelta(seconds=100),
+        source=EventSource.KERNEL_SYSCALL,
+        agent_id=agent_id,
+        action="execve",
+        target="/usr/bin/python",
+        risk_score=0.8,
+    )
+    node1 = await store.insert_event(ev1)
+
+    # Node 2 at T=10s (older than Node 1)
+    ev2 = NormalizedEvent(
+        event_id=uuid.uuid4(),
+        timestamp=base_time + timedelta(seconds=10),
+        source=EventSource.TOOL_CALL,
+        agent_id=agent_id,
+        action="connect",
+        target="192.168.1.1",
+        risk_score=0.9,
+    )
+    node2 = await store.insert_event(ev2)
+
+    # Manually link Node 1 (T=100s) -> Node 2 (T=10s)
+    await store.link_events(from_node=node1.node_id, to_node=node2.node_id, relationship="REVERSE_CAUSAL")
+
+    correlator = PathCorrelator(store=store)
+    time_win = (base_time, base_time + timedelta(seconds=300))
+
+    # Should run without crashing and not return reverse-ordered paths (end_time < start_time)
+    paths = await correlator.correlate_attack_paths(agent_id, time_win, min_path_length=2)
+
+    for path in paths:
+        assert path.end_time >= path.start_time
