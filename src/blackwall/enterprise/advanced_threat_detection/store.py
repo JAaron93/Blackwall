@@ -283,14 +283,6 @@ class AttackGraphStore:
         """Fetch all AttackNodes for an agent within the specified time window."""
         start_time_win, end_time_win = time_window
 
-        nodes_map: Dict[uuid.UUID, AttackNode] = {}
-        for node in self._nodes.values():
-            if (
-                node.event.agent_id == agent_id
-                and start_time_win <= node.event.timestamp <= end_time_win
-            ):
-                nodes_map[node.node_id] = node
-
         if self._pool:
             async with self._pool.acquire() as conn:
                 query = """
@@ -308,6 +300,7 @@ class AttackGraphStore:
                     start_time_win,
                     end_time_win,
                 )
+                db_nodes: List[AttackNode] = []
                 for row in rows:
                     ev = NormalizedEvent(
                         event_id=row["event_id"],
@@ -330,8 +323,17 @@ class AttackGraphStore:
                         incoming_edges=inc,
                         outgoing_edges=out,
                     )
-                    self._nodes[db_node.node_id] = db_node
-                    nodes_map[db_node.node_id] = db_node
+                    db_nodes.append(db_node)
+                return db_nodes
+
+        # In-memory mode (self._pool is None)
+        nodes_map: Dict[uuid.UUID, AttackNode] = {}
+        for node in self._nodes.values():
+            if (
+                node.event.agent_id == agent_id
+                and start_time_win <= node.event.timestamp <= end_time_win
+            ):
+                nodes_map[node.node_id] = node
 
         candidate_nodes = list(nodes_map.values())
         candidate_nodes.sort(key=lambda n: n.event.timestamp)
