@@ -82,3 +82,82 @@ def safe_sla_limit():
             pass
         return default
     return _helper
+
+
+# ---------------------------------------------------------------------------
+# Weave evaluation marker: collection-time skip + detector_suite fixture
+# ---------------------------------------------------------------------------
+
+def _weave_available() -> bool:
+    """Return True if Weave is enabled and the weave package is importable."""
+    import os
+    if os.getenv("WEAVE_DISABLED") == "true":
+        return False
+    if os.getenv("WEAVE_OFFLINE") == "true":
+        try:
+            import weave  # noqa: F401
+            return True
+        except ImportError:
+            return False
+    if os.getenv("WANDB_API_KEY"):
+        try:
+            import weave  # noqa: F401
+            return True
+        except ImportError:
+            return False
+    # No credentials and not offline — Weave not available
+    return False
+
+
+def pytest_collection_modifyitems(items: list) -> None:
+    """Auto-skip @pytest.mark.weave tests when Weave is unavailable.
+
+    This makes the marker description in pyproject.toml accurate: tests
+    are collected but skipped with a clear reason rather than failing with
+    ImportError or producing misleading results.
+    """
+    if _weave_available():
+        return  # Weave is active; nothing to skip
+
+    skip_reason = pytest.mark.skip(
+        reason=(
+            "Weave not available: set WANDB_API_KEY or WEAVE_OFFLINE=true "
+            "and ensure 'weave' is installed (pip install -e \".[weave]\"). "
+            "Set WEAVE_DISABLED=true to suppress this message entirely."
+        )
+    )
+    for item in items:
+        if item.get_closest_marker("weave"):
+            item.add_marker(skip_reason)
+
+
+@pytest.fixture
+def detector_suite(request):
+    """Yield a DetectorSuite with traced or bare components based on the weave marker.
+
+    - @pytest.mark.weave tests: WeaveTraced* wrappers (when should_enable_weave() is True)
+    - All other tests: bare components, zero Weave overhead regardless of env vars
+
+    Marker state is read via request.node.get_closest_marker() — pytest's
+    stable public API. build_detector_suite() has no marker-detection logic.
+    """
+    try:
+        from blackwall.enterprise.advanced_threat_detection.weave_factory import (
+            build_detector_suite,
+        )
+        from blackwall.enterprise.advanced_threat_detection.correlator import PathCorrelator
+        from blackwall.enterprise.advanced_threat_detection.collector import EventStreamCollector
+        from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
+    except ImportError:
+        pytest.skip("Advanced threat detection components not yet implemented")
+        return
+
+    marked = request.node.get_closest_marker("weave") is not None
+    return build_detector_suite(
+        correlator=PathCorrelator(),
+        swarm_detector=None,   # placeholder until AgentSwarmDetector is implemented
+        ailm_tracker=None,
+        exploit_analyzer=None,
+        c2_detector=None,
+        force_traced=marked,
+    )

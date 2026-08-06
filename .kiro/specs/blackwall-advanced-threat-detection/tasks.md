@@ -822,6 +822,10 @@ The implementation follows a test-driven development approach with property-base
       - Return a `DetectorSuite` dataclass whose members are either bare components or `WeaveTraced*` wrappers
       - This is the **only** code path allowed to instantiate `WeaveTraced*` classes
     - Do **not** implement `_test_is_weave_marked()` — marker detection belongs exclusively in the `detector_suite` fixture via `request.node.get_closest_marker("weave")`
+    - Add `pytest_collection_modifyitems` hook to `tests/conftest.py`:
+      - Implement `_weave_available()` helper checking `WEAVE_DISABLED`, `WEAVE_OFFLINE`, `WANDB_API_KEY`, and importability of `weave` package
+      - When `_weave_available()` returns `False`, add `pytest.mark.skip` with a descriptive reason to all items carrying `@pytest.mark.weave`
+      - This makes the marker description in `pyproject.toml` accurate and prevents `ImportError` from replaced by a clean skip
     - Add `detector_suite` fixture to `tests/conftest.py`:
       - Reads `marked = request.node.get_closest_marker("weave") is not None` using pytest's public `request` API
       - Calls `build_detector_suite(..., force_traced=marked)`
