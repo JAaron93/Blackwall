@@ -806,15 +806,22 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 16.13, 18.4, 18.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 20.7, 20.8, 20.9, 20.10_
     - _Verification: `pytest tests/integration/test_weave_backward_compat.py -v`_
   
-  - [ ] 22.9 Create Weave evaluation test suite
-    - Create `test_atd_weave_evaluations.py` in tests/evals/
-    - Implement @pytest.mark.weave decorator for Weave-enabled tests
-    - Create evaluation tests for multi-stage attack detection with Weave tracking
-    - Create evaluation tests for agent swarm detection with metrics
-    - Create evaluation tests for AILM detection with boundary crossing metrics
-    - Create evaluation tests for exploit chain novelty scoring
+  - [ ] 22.9 Create Weave evaluation test suite and detector factory
+    - Implement `build_detector_suite()` factory in `src/blackwall/enterprise/advanced_threat_detection/weave_factory.py`:
+      - Accept bare component instances + optional `force_traced` flag
+      - Gate traced-wrapper construction on `should_enable_weave() and (_test_is_weave_marked() or force_traced)`
+      - Return a `DetectorSuite` dataclass whose members are either bare components or `WeaveTraced*` wrappers
+      - This is the **only** code path allowed to instantiate `WeaveTraced*` classes
+    - Implement `_test_is_weave_marked()` helper that reads the currently-running pytest item's markers (returns `False` outside pytest)
+    - Add `detector_suite` fixture to `tests/conftest.py`:
+      - Uses `request.node.get_closest_marker("weave")` to detect the marker
+      - Calls `build_detector_suite(..., force_traced=marked)`
+      - Yields bare components for unmarked tests (zero Weave overhead regardless of env vars)
+      - Yields traced wrappers for `@pytest.mark.weave` tests (when `should_enable_weave()` is also True)
+    - Create `test_atd_weave_evaluations.py` in `tests/evals/` consuming `detector_suite` fixture
+    - Implement evaluation tests for multi-stage attack detection, swarm detection, AILM, and exploit chain novelty scoring
     - Verify precision >= 0.95, recall >= 0.90, FPR <= 0.05
-    - _Requirements: 16.3, 16.6, 16.7, 17.6, 17.7, 17.8_
+    - _Requirements: 16.3, 16.6, 16.7, 17.6, 17.7, 17.8, 20.2, 20.8, 20.10_
     - _Verification: `pytest tests/evals/test_atd_weave_evaluations.py -v -m weave`_
   
   - [ ] 22.10 Write property tests for Weave integration

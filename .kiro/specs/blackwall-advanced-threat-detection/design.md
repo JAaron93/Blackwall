@@ -1385,6 +1385,110 @@ class WeaveTracedAILMTracker:
 - Enable call graph visualization in Weave UI
 - Track multi-stage correlation flows
 
+#### Component 2a: WeaveDetectorFactory
+
+**Purpose**: Centralized factory that reads both `should_enable_weave()` and the pytest `weave` marker to decide whether to return traced or undecorated detector instances. This is the single decision point that enforces marker-based opt-in — no other code path should construct `WeaveTraced*` wrappers directly.
+
+**Interface**:
+```python
+import pytest
+from typing import Union
+
+def _test_is_weave_marked() -> bool:
+    """Return True if the currently-running pytest item carries @pytest.mark.weave.
+    
+    Falls back to False outside of a pytest session (e.g., production runtime).
+    """
+    try:
+        # pytest stores the current item on the worker thread via a plugin;
+        # _pytest.config.get_plugin_manager() is stable across pytest >= 7.
+        import _pytest.config
+        manager = _pytest.config.get_plugin_manager()
+        current_item = manager.get_plugin("current_item")
+        if current_item is None:
+            return False
+        return current_item.get_closest_marker("weave") is not None
+    except Exception:
+        return False
+
+def build_detector_suite(
+    correlator: PathCorrelator,
+    swarm_detector: AgentSwarmDetector,
+    ailm_tracker: AILMTracker,
+    exploit_analyzer: ExploitChainAnalyzer,
+    c2_detector: C2InfrastructureDetector,
+    *,
+    force_traced: bool = False,
+) -> "DetectorSuite":
+    """Return traced wrappers when Weave is active AND the test is marked,
+    or when force_traced=True (e.g. explicit programmatic opt-in).
+    Unmarked tests and disabled-Weave paths always receive bare components.
+    
+    Decision logic:
+      traced = should_enable_weave() and (_test_is_weave_marked() or force_traced)
+    """
+    traced = should_enable_weave() and (_test_is_weave_marked() or force_traced)
+    if traced:
+        return DetectorSuite(
+            path_correlator=WeaveTracedPathCorrelator(correlator),
+            swarm_detector=WeaveTracedSwarmDetector(swarm_detector),
+            ailm_tracker=WeaveTracedAILMTracker(ailm_tracker),
+            exploit_analyzer=WeaveTracedExploitChainAnalyzer(exploit_analyzer),
+            c2_detector=WeaveTracedC2Detector(c2_detector),
+        )
+    return DetectorSuite(
+        path_correlator=correlator,
+        swarm_detector=swarm_detector,
+        ailm_tracker=ailm_tracker,
+        exploit_analyzer=exploit_analyzer,
+        c2_detector=c2_detector,
+    )
+
+@dataclass
+class DetectorSuite:
+    """Typed container returned by build_detector_suite().
+    Members may be bare components or Weave-traced wrappers."""
+    path_correlator: Union[PathCorrelator, WeaveTracedPathCorrelator]
+    swarm_detector: Union[AgentSwarmDetector, WeaveTracedSwarmDetector]
+    ailm_tracker: Union[AILMTracker, WeaveTracedAILMTracker]
+    exploit_analyzer: Union[ExploitChainAnalyzer, WeaveTracedExploitChainAnalyzer]
+    c2_detector: Union[C2InfrastructureDetector, WeaveTracedC2Detector]
+```
+
+**pytest fixture** (placed in `tests/conftest.py`):
+```python
+import pytest
+from blackwall.enterprise.advanced_threat_detection.weave_factory import build_detector_suite
+
+@pytest.fixture
+def detector_suite(
+    path_correlator,       # existing fixtures providing bare components
+    swarm_detector,
+    ailm_tracker,
+    exploit_analyzer,
+    c2_detector,
+    request,
+):
+    """Fixture that yields traced wrappers for @pytest.mark.weave tests,
+    and bare components for all other tests. Zero Weave overhead for
+    unmarked tests regardless of environment variables."""
+    marked = request.node.get_closest_marker("weave") is not None
+    return build_detector_suite(
+        path_correlator,
+        swarm_detector,
+        ailm_tracker,
+        exploit_analyzer,
+        c2_detector,
+        force_traced=marked,
+    )
+```
+
+**Responsibilities**:
+- Be the **sole** construction path for `WeaveTraced*` wrappers — no test or component should instantiate them directly
+- Gate tracing on both `should_enable_weave()` and the pytest `weave` marker (or explicit `force_traced`)
+- Guarantee zero Weave overhead for unmarked tests and disabled-Weave environments
+- Expose a `DetectorSuite` container so call-sites remain type-safe regardless of which variant is active
+
 #### Component 3: WeaveMetricsCollector
 
 **Purpose**: Collects and aggregates threat detection metrics, computing standard evaluation measures (precision, recall, F1, FPR) and custom threat-specific metrics.
@@ -1724,10 +1828,11 @@ async def test_eval_agent_swarm_detection(weave_harness):
 
 The Weave integration maintains full backward compatibility with the existing pytest-based evaluation infrastructure:
 
-1. **Optional Weave Activation**: Weave tracing is activated only when `WANDB_API_KEY` is present or `@pytest.mark.weave` decorator is used
-2. **Fallback to Standard Pytest**: Tests run normally without Weave if credentials are unavailable
-3. **Existing Test Preservation**: All existing unit, integration, and property tests continue to work unchanged
-4. **Progressive Enhancement**: Weave features are additive and don't break existing workflows
+1. **Optional Weave Activation**: Weave tracing is activated only when `should_enable_weave()` returns `True` **and** the test carries `@pytest.mark.weave` (or `force_traced=True` is passed to the factory). Environment variables alone are insufficient — the marker is always required for pytest-driven tracing.
+2. **Single construction gate**: All `WeaveTraced*` wrapper instantiation flows through `build_detector_suite()` in `weave_factory.py`. Tests use the `detector_suite` fixture from `conftest.py`; production code calls the factory directly with `force_traced=False`.
+3. **Fallback to Standard Pytest**: Tests without `@pytest.mark.weave` receive bare, undecorated components from `build_detector_suite()` regardless of env vars — zero Weave overhead guaranteed.
+4. **Existing Test Preservation**: All existing unit, integration, and property tests continue to work unchanged because they neither use the `detector_suite` fixture with the marker nor set `force_traced`.
+5. **Progressive Enhancement**: Weave features are additive and don't break existing workflows.
 
 #### Compatibility Implementation
 
@@ -1753,9 +1858,15 @@ def should_enable_weave() -> bool:
     # Check for netrc or config file credentials
     return has_wandb_credentials()
 
-# Conditional decorator application
+# weave_op_if_enabled is kept for standalone function decoration outside
+# of the detector-suite pattern (e.g. WeaveEvaluationHarness methods).
 def weave_op_if_enabled(func):
-    """Apply @weave.op() only if Weave is enabled"""
+    """Apply @weave.op() only if Weave is enabled.
+    
+    NOTE: For detector components, prefer build_detector_suite() /
+    the detector_suite fixture rather than this decorator directly,
+    so that pytest marker state is also checked.
+    """
     if should_enable_weave():
         return weave.op()(func)
     return func
