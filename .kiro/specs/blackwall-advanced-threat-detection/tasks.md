@@ -22,7 +22,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7, 15.8, 15.9_
     - _Verification: `pytest tests/unit/test_models.py -v`_
   
-  - [x]* 1.3 Write property tests for data model validation
+  - [x] 1.3 Write property tests for data model validation
     - **Property 3: Normalized Event UUID Validity**
     - **Property 4: Normalized Event Timestamp Timezone**
     - **Property 5: Risk Score Bounds**
@@ -32,6 +32,15 @@ The implementation follows a test-driven development approach with property-base
     - **Property 27: Swarm Evidence Correlation Threshold Validation**
     - **Validates: Requirements 15.1, 15.2, 15.3, 15.5, 15.6, 15.7, 15.8**
     - _Verification: `pytest tests/property/test_models_properties.py --hypothesis-iterations=100 -v`_
+  
+  - [ ] 1.4 Write BDD feature tests for core data models
+    - Create tests/features/data_models.feature with Gherkin scenarios
+    - Implement Given/When/Then steps for NormalizedEvent creation with valid UUID and timezone
+    - Implement scenarios for score validation bounds [0.0, 1.0]
+    - Implement scenarios for AttackPath minimum node validation (>= 2 nodes)
+    - Implement scenarios for SwarmEvidence minimum agent validation (>= 2 agents)
+    - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7, 15.8, 15.9_
+    - _Verification: `pytest tests/step_defs/test_data_models_bdd.py -v`_
 
 
 - [x] 2. Implement Attack Graph Store with PostgreSQL/TimescaleDB
@@ -62,13 +71,22 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 2.3, 2.4, 11.2_
     - _Verification: `pytest tests/integration/test_attack_graph_store.py::test_query_paths_performance -v`_
   
-  - [x]* 2.5 Write property tests for Attack Graph Store
+  - [x] 2.5 Write property tests for Attack Graph Store
     - **Property 6: Temporal Ordering Preservation**
     - **Property 7: Causal Edge Creation**
     - **Property 8: Path Query Minimum Length Enforcement**
     - **Property 9: Node Edge List Integrity**
     - **Validates: Requirements 2.1, 2.2, 2.3, 2.5**
     - _Verification: `pytest tests/property/test_attack_graph_properties.py --hypothesis-iterations=100 -v`_
+  
+  - [ ] 2.6 Write BDD feature tests for Attack Graph Store
+    - Create tests/features/attack_graph_store.feature with Gherkin scenarios
+    - Implement Given/When/Then steps for event insertion with temporal ordering
+    - Implement scenarios for causal edge creation between related events
+    - Implement scenarios for multi-hop path queries with time windows
+    - Implement scenarios for path query performance (< 500ms for 17K+ events)
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 11.2_
+    - _Verification: `pytest tests/step_defs/test_attack_graph_store_bdd.py -v`_
 
 - [x] 3. Checkpoint - Verify core infrastructure
   - Ensure all tests pass, ask the user if questions arise.
@@ -96,12 +114,21 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: Error Handling - Event Collection Errors_
     - _Verification: `pytest tests/unit/test_event_stream_collector.py::test_error_handling -v`_
   
-  - [x]* 4.4 Write property tests for event normalization
+  - [x] 4.4 Write property tests for event normalization
     - **Property 1: Event Normalization Source Mapping**
     - **Property 2: Event Enrichment Completeness**
     - **Property 76: Agent ID Non-Empty Validation**
     - **Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 15.4**
     - _Verification: `pytest tests/property/test_event_collector_properties.py --hypothesis-iterations=100 -v`_
+  
+  - [ ] 4.5 Write BDD feature tests for Event Stream Collector
+    - Create tests/features/event_stream_collector.feature with Gherkin scenarios
+    - Implement Given/When/Then steps for pillar event subscription and normalization
+    - Implement scenarios for event source mapping (KERNEL_SYSCALL, TOOL_CALL, IDENTITY_ACCESS, etc.)
+    - Implement scenarios for event enrichment with temporal context and agent metadata
+    - Implement scenarios for error handling with exponential backoff reconnection
+    - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 12.1, 12.2, 12.3, 12.4, 12.5_
+    - _Verification: `pytest tests/step_defs/test_event_stream_collector_bdd.py -v`_
 
 
 
@@ -134,7 +161,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 2.9, 2.10, 3.5_
     - _Verification: `pytest tests/unit/test_path_correlator.py::test_risk_scoring -v`_
   
-  - [x]* 5.5 Write property tests for path correlation
+  - [x] 5.5 Write property tests for path correlation
     - **Property 14: Time Window Filtering**
     - **Property 15: Temporal Adjacency Rule**
     - **Property 16: Edge Weight Computation**
@@ -144,6 +171,15 @@ The implementation follows a test-driven development approach with property-base
     - **Property 20: MITRE Technique Mapping**
     - **Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7**
     - _Verification: `pytest tests/property/test_path_correlator_properties.py --hypothesis-iterations=100 -v`_
+  
+  - [ ] 5.6 Write BDD feature tests for Multi-Stage Attack Path Correlation
+    - Create tests/features/path_correlation.feature with Gherkin scenarios
+    - Implement Given/When/Then steps for temporal adjacency graph construction (5-minute windows)
+    - Implement scenarios for depth-first search path finding with minimum length constraints
+    - Implement scenarios for MITRE ATT&CK technique mapping to attack stages
+    - Implement scenarios for risk score computation and path ranking
+    - _Requirements: 2.8, 2.9, 2.10, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7_
+    - _Verification: `pytest tests/step_defs/test_path_correlation_bdd.py -v`_
 
 - [x] 6. Checkpoint - Verify attack path correlation
   - Ensure all tests pass, ask the user if questions arise.
@@ -177,7 +213,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 4.5, 15.9_
     - _Verification: `pytest tests/unit/test_agent_swarm_detector.py::test_coordination_score -v`_
   
-  - [ ]* 7.5 Write property tests for swarm detection
+  - [ ] 7.5 Write property tests for swarm detection
     - **Property 21: Behavioral Fingerprint Generation**
     - **Property 22: Swarm Correlation Threshold Enforcement**
     - **Property 23: Swarm Minimum Size Enforcement**
@@ -186,6 +222,15 @@ The implementation follows a test-driven development approach with property-base
     - **Property 28: High-Confidence Swarm Threshold**
     - **Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5, 4.8**
     - _Verification: `pytest tests/property/test_swarm_detector_properties.py --hypothesis-iterations=100 -v`_
+  
+  - [ ] 7.6 Write BDD feature tests for Agent Swarm Detector
+    - Create tests/features/agent_swarm_detector.feature with Gherkin scenarios
+    - Implement Given/When/Then steps for behavioral fingerprinting using action sequence hashing
+    - Implement scenarios for temporal correlation analysis (threshold >= 0.75)
+    - Implement scenarios for shared infrastructure detection (IP addresses, domains)
+    - Implement scenarios for coordination score computation with temporal alignment
+    - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 15.7, 15.8, 15.9_
+    - _Verification: `pytest tests/step_defs/test_agent_swarm_detector_bdd.py -v`_
 
 
 - [ ] 8. Implement Exploit Chain Analyzer
@@ -216,7 +261,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 5.6_
     - _Verification: `pytest tests/unit/test_exploit_chain_analyzer.py::test_chaining_confidence -v`_
   
-  - [ ]* 8.5 Write property tests for exploit chain analysis
+  - [ ] 8.5 Write property tests for exploit chain analysis
     - **Property 29: Exploit Event Classification**
     - **Property 30: Exploit Chain Pattern Detection**
     - **Property 31: Novelty Score Baseline Comparison**
@@ -225,6 +270,15 @@ The implementation follows a test-driven development approach with property-base
     - **Property 34: Chaining Confidence Computation**
     - **Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5, 5.6**
     - _Verification: `pytest tests/property/test_exploit_chain_properties.py --hypothesis-iterations=100 -v`_
+  
+  - [ ] 8.6 Write BDD feature tests for Exploit Chain Analyzer
+    - Create tests/features/exploit_chain_analyzer.feature with Gherkin scenarios
+    - Implement Given/When/Then steps for exploit classification (RCE, Privilege Escalation, Credential Theft, etc.)
+    - Implement scenarios for exploit chain pattern detection (e.g., RCE → Privilege Escalation → Credential Theft)
+    - Implement scenarios for novelty scoring against baseline patterns
+    - Implement scenarios for chaining confidence computation
+    - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6_
+    - _Verification: `pytest tests/step_defs/test_exploit_chain_analyzer_bdd.py -v`_
 
 - [ ] 9. Checkpoint - Verify detection engines
   - Ensure all tests pass, ask the user if questions arise.
@@ -256,7 +310,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 6.5, 6.6_
     - _Verification: `pytest tests/unit/test_ailm_tracker.py::test_risk_level -v`_
   
-  - [ ]* 10.5 Write property tests for AILM tracking
+  - [ ] 10.5 Write property tests for AILM tracking
     - **Property 35: Permission Grant Recording**
     - **Property 36: Permission Accumulation Detection**
     - **Property 37: Cross-Boundary Permission Detection**
@@ -265,6 +319,15 @@ The implementation follows a test-driven development approach with property-base
     - **Property 40: AILM Evidence Completeness**
     - **Validates: Requirements 6.1, 6.2, 6.3, 6.4, 6.5, 6.6**
     - _Verification: `pytest tests/property/test_ailm_tracker_properties.py --hypothesis-iterations=100 -v`_
+  
+  - [ ] 10.6 Write BDD feature tests for AILM Tracker
+    - Create tests/features/ailm_tracker.feature with Gherkin scenarios
+    - Implement Given/When/Then steps for permission grant recording with grantor/grantee/scope
+    - Implement scenarios for permission composition detection across time windows
+    - Implement scenarios for security boundary crossing identification
+    - Implement scenarios for risk level computation (LOW, MEDIUM, HIGH, CRITICAL)
+    - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6_
+    - _Verification: `pytest tests/step_defs/test_ailm_tracker_bdd.py -v`_
 
 
 - [ ] 11. Implement C2 Infrastructure Detector
@@ -295,7 +358,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 7.5, 7.6_
     - _Verification: `pytest tests/unit/test_c2_detector.py::test_persistence_indicators -v`_
   
-  - [ ]* 11.5 Write property tests for C2 detection
+  - [ ] 11.5 Write property tests for C2 detection
     - **Property 41: C2 Endpoint Detection**
     - **Property 42: Beaconing Pattern Detection**
     - **Property 43: C2 Communication Pattern Classification**
@@ -303,6 +366,15 @@ The implementation follows a test-driven development approach with property-base
     - **Property 45: Cross-Pillar C2 Correlation**
     - **Validates: Requirements 7.2, 7.3, 7.4, 7.5, 7.6**
     - _Verification: `pytest tests/property/test_c2_detector_properties.py --hypothesis-iterations=100 -v`_
+  
+  - [ ] 11.6 Write BDD feature tests for C2 Infrastructure Detector
+    - Create tests/features/c2_infrastructure_detector.feature with Gherkin scenarios
+    - Implement Given/When/Then steps for endpoint classification (RequestBin, Pastebin, GitHub Gist, etc.)
+    - Implement scenarios for C2 establishment detection
+    - Implement scenarios for beaconing pattern analysis with periodic timing
+    - Implement scenarios for persistence indicator identification (self-respawning, cron jobs)
+    - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6_
+    - _Verification: `pytest tests/step_defs/test_c2_infrastructure_detector_bdd.py -v`_
 
 
 - [ ] 12. Implement Kubernetes Defense Layer
@@ -331,7 +403,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 8.6_
     - _Verification: `pytest tests/unit/test_k8s_defense.py::test_self_respawn -v`_
   
-  - [ ]* 12.5 Write property tests for Kubernetes defense
+  - [ ] 12.5 Write property tests for Kubernetes defense
     - **Property 46: Pod Token Theft Detection**
     - **Property 47: Fleet Spawning Detection**
     - **Property 48: Secrets Exfiltration Detection**
@@ -340,6 +412,15 @@ The implementation follows a test-driven development approach with property-base
     - **Property 51: Self-Respawning Pod Detection**
     - **Validates: Requirements 8.1, 8.2, 8.3, 8.4, 8.5, 8.6**
     - _Verification: `pytest tests/property/test_k8s_defense_properties.py --hypothesis-iterations=100 -v`_
+  
+  - [ ] 12.6 Write BDD feature tests for Kubernetes Defense Layer
+    - Create tests/features/kubernetes_defense.feature with Gherkin scenarios
+    - Implement Given/When/Then steps for pod token theft detection (service account token access)
+    - Implement scenarios for fleet spawning detection (rapid pod creation across nodes)
+    - Implement scenarios for secrets exfiltration detection (bulk Kubernetes API secret reads)
+    - Implement scenarios for self-respawning pod detection (restart loop patterns)
+    - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6_
+    - _Verification: `pytest tests/step_defs/test_kubernetes_defense_bdd.py -v`_
 
 
 - [ ] 13. Implement Package Registry Monitor
@@ -363,7 +444,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 9.6_
     - _Verification: `pytest tests/unit/test_registry_monitor.py::test_cve_correlation -v`_
   
-  - [ ]* 13.4 Write property tests for registry monitoring
+  - [ ] 13.4 Write property tests for registry monitoring
     - **Property 52: Malformed Registry Request Detection**
     - **Property 53: Unusual Registry Pattern Detection**
     - **Property 54: Registry Threat Evidence Type**
@@ -371,6 +452,15 @@ The implementation follows a test-driven development approach with property-base
     - **Property 56: Registry CVE Correlation**
     - **Validates: Requirements 9.2, 9.3, 9.4, 9.5, 9.6**
     - _Verification: `pytest tests/property/test_registry_monitor_properties.py --hypothesis-iterations=100 -v`_
+  
+  - [ ] 13.5 Write BDD feature tests for Package Registry Monitor
+    - Create tests/features/package_registry_monitor.feature with Gherkin scenarios
+    - Implement Given/When/Then steps for registry access monitoring (Artifactory, npm, PyPI)
+    - Implement scenarios for exploit probing detection (malformed requests, unusual patterns)
+    - Implement scenarios for CVE correlation with known exploitation signatures
+    - Implement scenarios for RegistryThreatEvidence generation with registry type and indicators
+    - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
+    - _Verification: `pytest tests/step_defs/test_package_registry_monitor_bdd.py -v`_
 
 - [ ] 14. Checkpoint - Verify all detection components
   - Ensure all tests pass, ask the user if questions arise.
@@ -405,7 +495,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 10.3, 10.4, 10.5, 10.6, 10.7_
     - _Verification: `pytest tests/unit/test_alert_generation.py::test_all_alert_types -v`_
   
-  - [ ]* 15.5 Write property tests for alert generation
+  - [ ] 15.5 Write property tests for alert generation
     - **Property 57: Swarm Detection Alert Generation**
     - **Property 58: AILM Alert Severity Mapping**
     - **Property 59: Exploit Chain Alert Severity Mapping**
@@ -415,6 +505,16 @@ The implementation follows a test-driven development approach with property-base
     - **Property 63: Registry Threat Alert Severity Mapping**
     - **Validates: Requirements 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7**
     - _Verification: `pytest tests/property/test_alert_generation_properties.py --hypothesis-iterations=100 -v`_
+  
+  - [ ] 15.6 Write BDD feature tests for Alert Generation
+    - Create tests/features/alert_generation.feature with Gherkin scenarios
+    - Implement Given/When/Then steps for AlertBus publication with severity levels
+    - Implement scenarios for swarm detection alerts (CRITICAL severity)
+    - Implement scenarios for AILM alert severity mapping (HIGH/CRITICAL based on risk_level)
+    - Implement scenarios for exploit chain, attack path, C2, K8s, and registry threat alerts
+    - Implement scenarios for alert retry logic (up to 5 retries)
+    - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7_
+    - _Verification: `pytest tests/step_defs/test_alert_generation_bdd.py -v`_
 
 
 - [ ] 16. Implement Performance Optimization and SLA Validation
@@ -442,6 +542,15 @@ The implementation follows a test-driven development approach with property-base
     - Implement incremental fingerprint updates
     - _Requirements: 11.4_
     - _Verification: `pytest tests/integration/test_performance.py::test_fingerprint_latency -v`_
+  
+  - [ ] 16.5 Write BDD feature tests for Performance and SLA Validation
+    - Create tests/features/performance_sla.feature with Gherkin scenarios
+    - Implement Given/When/Then steps for event processing latency (< 100ms)
+    - Implement scenarios for path query performance (< 500ms for 17K+ events)
+    - Implement scenarios for sustained throughput (1,000 events/second for 5+ minutes)
+    - Implement scenarios for swarm fingerprint latency (< 2 seconds for 1-hour windows)
+    - _Requirements: 11.1, 11.2, 11.3, 11.4_
+    - _Verification: `pytest tests/step_defs/test_performance_sla_bdd.py -v`_
 
 
 - [ ] 17. Implement Retrospective Analysis and Historical Queries
@@ -468,13 +577,22 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 13.5_
     - _Verification: `pytest tests/unit/test_graph_export.py::test_export_formats -v`_
   
-  - [ ]* 17.5 Write property tests for retrospective analysis
+  - [ ] 17.5 Write property tests for retrospective analysis
     - **Property 65: Historical Time Window Support**
     - **Property 66: Retrospective Path Detection**
     - **Property 67: Multi-Agent Historical Correlation**
     - **Property 68: Attack Graph Export Format Compliance**
     - **Validates: Requirements 13.1, 13.2, 13.3, 13.5**
     - _Verification: `pytest tests/property/test_retrospective_properties.py --hypothesis-iterations=100 -v`_
+  
+  - [ ] 17.6 Write BDD feature tests for Retrospective Analysis
+    - Create tests/features/retrospective_analysis.feature with Gherkin scenarios
+    - Implement Given/When/Then steps for historical time window queries (days/weeks)
+    - Implement scenarios for retrospective path detection (missed in real-time)
+    - Implement scenarios for multi-agent historical correlation (delayed swarm patterns)
+    - Implement scenarios for attack graph export (JSON, GraphML formats)
+    - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5_
+    - _Verification: `pytest tests/step_defs/test_retrospective_analysis_bdd.py -v`_
 
 
 - [ ] 18. Implement Evaluation Environment Support
@@ -496,13 +614,30 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 14.4_
     - _Verification: `pytest tests/unit/test_evaluation_mode.py::test_state_reset -v`_
   
-  - [ ]* 18.4 Write property tests for evaluation mode
+  - [ ] 18.4 Write property tests for evaluation mode
     - **Property 69: Evaluation Mode Event Labeling**
     - **Property 70: Evaluation Mode Alert Isolation**
     - **Property 71: Evaluation Environment Graph Isolation**
     - **Property 72: Evaluation State Reset**
     - **Validates: Requirements 14.1, 14.2, 14.3, 14.4**
     - _Verification: `pytest tests/property/test_evaluation_mode_properties.py --hypothesis-iterations=100 -v`_
+  
+  - [ ] 18.5 Write BDD feature tests for Evaluation Environment Support
+    - Create tests/features/evaluation_environment.feature with Gherkin scenarios
+    - Implement Given/When/Then steps for evaluation environment labeling
+    - Implement scenarios for evaluation alert isolation (preventing production workflow triggers)
+    - Implement scenarios for isolated attack graph instances per eval environment
+    - Implement scenarios for evaluation state reset (clean state restoration)
+    - _Requirements: 14.1, 14.2, 14.3, 14.4_
+    - _Verification: `pytest tests/step_defs/test_evaluation_environment_bdd.py -v`_
+  - [ ] 18.5 Write BDD feature tests for Evaluation Environment Support
+    - Create tests/features/evaluation_environment.feature with Gherkin scenarios
+    - Implement Given/When/Then steps for evaluation environment labeling
+    - Implement scenarios for alert isolation (preventing production workflow triggers)
+    - Implement scenarios for isolated attack graph instances per environment
+    - Implement scenarios for evaluation state reset
+    - _Requirements: 14.1, 14.2, 14.3, 14.4_
+    - _Verification: `pytest tests/step_defs/test_evaluation_environment_bdd.py -v`_
 
 - [ ] 19. Checkpoint - Verify auxiliary features
   - Ensure all tests pass, ask the user if questions arise.
@@ -531,11 +666,20 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: Error Handling - Detection Engine Errors_
     - _Verification: `pytest tests/unit/test_error_handling.py::test_detection_error_recovery -v`_
   
-  - [ ]* 20.4 Write integration tests for error scenarios
+  - [ ] 20.4 Write integration tests for error scenarios
     - Test pillar disconnection and reconnection
     - Test database failover scenarios
     - Test partial system degradation
     - _Verification: `pytest tests/integration/test_error_scenarios.py -v`_
+  
+  - [ ] 20.5 Write BDD feature tests for Error Handling and Resilience
+    - Create tests/features/error_handling.feature with Gherkin scenarios
+    - Implement Given/When/Then steps for pillar connection failure with exponential backoff
+    - Implement scenarios for database failure handling with transaction retries
+    - Implement scenarios for detection engine error recovery without service crashes
+    - Implement scenarios for resource exhaustion throttling
+    - _Requirements: Error Handling - Event Collection Errors, Attack Graph Errors, Detection Engine Errors_
+    - _Verification: `pytest tests/step_defs/test_error_handling_bdd.py -v`_
 
 
 - [ ] 21. Integration and System Wiring
@@ -563,56 +707,201 @@ The implementation follows a test-driven development approach with property-base
     - Validate configuration on startup
     - _Verification: `pytest tests/unit/test_configuration.py -v`_
   
-  - [ ]* 21.4 Write end-to-end integration tests
+  - [ ] 21.4 Write end-to-end integration tests
     - Test complete event flow from pillar ingestion to alert generation
     - Verify all detection engines activate on appropriate patterns
     - Test multi-pillar event correlation
     - **Property 64: Passive Observation Invariant**
     - **Validates: Requirement 12.7**
     - _Verification: `pytest tests/integration/test_end_to_end.py -v`_
+  
+  - [ ] 21.5 Write BDD feature tests for Integration and System Wiring
+    - Create tests/features/system_integration.feature with Gherkin scenarios
+    - Implement Given/When/Then steps for component wiring (EventStreamCollector → AttackGraphStore → Detection Engines → AlertBus)
+    - Implement scenarios for pillar integration points (all 5 pillars)
+    - Implement scenarios for passive observation (no blocking of pillar operations)
+    - Implement scenarios for end-to-end event flow from ingestion to alert
+    - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7_
+    - _Verification: `pytest tests/step_defs/test_system_integration_bdd.py -v`_
 
 
-- [ ] 22. Red Team Evaluation Scenarios
-  - [ ] 22.1 Create red team scenario: Agent swarm attack
+- [ ] 22. Implement Weave Evaluation Tracking Integration
+  - [ ] 22.1 Create Weave configuration and initialization infrastructure
+    - Implement WeaveConfig dataclass with project_name, entity, offline_mode, parallelism, tags
+    - Create `should_enable_weave()` function checking for WANDB_API_KEY and WEAVE_DISABLED env vars
+    - Implement graceful fallback when Weave credentials unavailable
+    - Create weave_config.yaml parser for .kiro/evals/ directory
+    - _Requirements: 16.1, 16.2, 16.14, 18.1, 18.2, 18.3, 18.4, 18.8_
+    - _Verification: `pytest tests/unit/test_weave_config.py -v`_
+  
+  - [ ] 22.2 Implement WeaveEvaluationHarness class
+    - Create initialization with WeaveConfig, handling offline mode and parallelism
+    - Implement `run_evaluation()` with @weave.op() decorator creating Weave runs
+    - Add scenario name, timestamp, and tags to Weave run metadata
+    - Implement `track_detection_metrics()` computing precision, recall, F1, FPR
+    - _Requirements: 16.3, 16.8, 19.5_
+    - _Verification: `pytest tests/unit/test_weave_harness.py -v`_
+  
+  - [ ] 22.3 Implement Weave traced wrappers for detection components
+    - Create WeaveTracedPathCorrelator wrapping PathCorrelator with @weave.op() decorators
+    - Create WeaveTracedSwarmDetector wrapping AgentSwarmDetector with tracing
+    - Create WeaveTracedAILMTracker wrapping AILMTracker with tracing
+    - Create WeaveTracedExploitChainAnalyzer wrapping ExploitChainAnalyzer with tracing
+    - Create WeaveTracedC2Detector wrapping C2InfrastructureDetector with tracing
+    - Log input parameters, execution time, and output results for each operation
+    - _Requirements: 16.4, 16.5, 16.9, 16.10, 16.11_
+    - _Verification: `pytest tests/unit/test_weave_traced_detectors.py -v`_
+  
+  - [ ] 22.4 Implement WeaveMetricsCollector for aggregated metrics
+    - Create ThreatDetectionMetrics dataclass with precision, recall, F1, FPR, latency, TP, FP, TN, FN
+    - Implement `compute_detection_metrics()` computing standard classification metrics
+    - Implement `compute_path_correlation_metrics()` with path correlation accuracy
+    - Implement `compute_swarm_detection_metrics()` with swarm detection accuracy
+    - Implement `compute_ailm_detection_metrics()` with AILM accuracy and boundary crossing accuracy
+    - Implement `compute_exploit_chain_metrics()` with exploit chain accuracy and novelty score accuracy
+    - Implement `export_metrics_to_weave()` for aggregated metric export
+    - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7, 17.8, 17.9, 17.10_
+    - _Verification: `pytest tests/unit/test_weave_metrics_collector.py -v`_
+  
+  - [ ] 22.5 Implement Weave Dataset creation from YAML scenarios
+    - Create `create_evaluation_dataset()` loading YAML files from scenarios directory
+    - Parse scenario fields: name, description, events, expected_detections
+    - Create Weave Dataset rows with scenario data
+    - Implement validation for malformed scenario files
+    - Support attack_path, swarm, AILM, exploit_chain, C2, k8s, registry threat expectations
+    - _Requirements: 19.1, 19.2, 19.3, 19.4, 19.7, 19.8, 19.9_
+    - _Verification: `pytest tests/unit/test_weave_datasets.py -v`_
+  
+  - [ ] 22.6 Implement environment variable and configuration management
+    - Support WANDB_API_KEY for authentication
+    - Support WEAVE_PROJECT_NAME, WEAVE_ENTITY for project configuration
+    - Support WEAVE_OFFLINE for offline mode without cloud sync
+    - Support WEAVE_PARALLELISM for parallel worker count
+    - Support WEAVE_DISABLED to completely disable Weave
+    - Implement configuration file loading from .kiro/evals/weave_config.yaml
+    - Add per-engine trace_enabled and metrics_enabled flags
+    - _Requirements: 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 18.7, 18.9, 18.10_
+    - _Verification: `pytest tests/unit/test_weave_environment.py -v`_
+  
+  - [ ] 22.7 Implement Weave integration with AttackGraphStore
+    - Create WeaveTracedAttackGraphStore wrapping AttackGraphStore
+    - Trace `insert_event()` with event metadata
+    - Trace `query_paths()` with latency tracking and result counts
+    - Log query_latency_ms and paths_found to Weave
+    - _Requirements: 16.4, 16.5_
+    - _Verification: `pytest tests/unit/test_weave_attack_graph.py -v`_
+  
+  - [ ] 22.8 Implement backward compatibility helpers
+    - Create `weave_op_if_enabled()` decorator applying @weave.op() conditionally
+    - Ensure tests without @pytest.mark.weave execute without Weave overhead
+    - Verify existing unit, integration, property tests pass regardless of Weave config
+    - Implement zero-overhead when Weave disabled
+    - _Requirements: 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 20.7, 20.8, 20.9, 20.10_
+    - _Verification: `pytest tests/integration/test_weave_backward_compat.py -v`_
+  
+  - [ ] 22.9 Create Weave evaluation test suite
+    - Create `test_atd_weave_evaluations.py` in tests/evals/
+    - Implement @pytest.mark.weave decorator for Weave-enabled tests
+    - Create evaluation tests for multi-stage attack detection with Weave tracking
+    - Create evaluation tests for agent swarm detection with metrics
+    - Create evaluation tests for AILM detection with boundary crossing metrics
+    - Create evaluation tests for exploit chain novelty scoring
+    - Verify precision >= 0.95, recall >= 0.90, FPR <= 0.05
+    - _Requirements: 16.3, 16.6, 16.7, 17.6, 17.7, 17.8_
+    - _Verification: `pytest tests/evals/test_atd_weave_evaluations.py -v -m weave`_
+  
+  - [ ] 22.10 Write property tests for Weave integration
+    - **Property 82: Weave Initialization Fallback**
+    - **Property 83: Weave Offline Mode Compliance**
+    - **Property 84: Weave Metric Precision Calculation**
+    - **Property 85: Weave Metric Recall Calculation**
+    - **Property 86: Weave Metric F1 Score Calculation**
+    - **Property 87: Weave Metric FPR Calculation**
+    - **Property 88: Weave Trace Parameter Logging**
+    - **Validates: Requirements 16.2, 16.4, 16.5, 16.13, 17.2, 17.3, 17.4, 17.5**
+    - _Verification: `pytest tests/property/test_weave_properties.py --hypothesis-iterations=100 -v`_
+  
+  - [ ] 22.11 Write BDD feature tests for Weave Evaluation Tracking
+    - Create tests/features/weave_evaluation.feature with Gherkin scenarios
+    - Implement Given/When/Then steps for Weave initialization with graceful fallback
+    - Implement scenarios for evaluation run tracking with scenario metadata
+    - Implement scenarios for detection metrics computation (precision, recall, F1, FPR)
+    - Implement scenarios for Weave traced wrappers (PathCorrelator, SwarmDetector, AILMTracker, etc.)
+    - Implement scenarios for backward compatibility (zero overhead when disabled)
+    - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 17.1, 17.2, 17.3, 17.4, 17.5, 18.1-18.10, 19.1-19.10, 20.1-20.10_
+    - _Verification: `pytest tests/step_defs/test_weave_evaluation_bdd.py -v`_
+    - **Property 87: Weave Metric FPR Calculation**
+    - **Property 88: Weave Trace Parameter Logging**
+    - **Validates: Requirements 16.2, 16.4, 16.5, 16.13, 17.2, 17.3, 17.4, 17.5**
+    - _Verification: `pytest tests/property/test_weave_properties.py --hypothesis-iterations=100 -v`_
+
+- [ ] 23. Red Team Evaluation Scenarios with Weave Tracking
+  - [ ] 23.1 Create red team scenario: Agent swarm attack with Weave metrics
     - Simulate coordinated multi-agent attack with shared infrastructure
     - Verify swarm detection triggers CRITICAL alert
-    - Measure detection latency and accuracy
-    - _Requirements: 4.2, 4.3, 10.1_
-    - _Verification: `pytest tests/evaluation/test_swarm_scenario.py -v`_
+    - Measure detection latency and accuracy with Weave
+    - Track temporal_correlation and coordination_score in Weave
+    - _Requirements: 4.2, 4.3, 10.1, 16.3, 16.10, 17.7_
+    - _Verification: `pytest tests/evaluation/test_swarm_scenario.py -v -m weave`_
   
-  - [ ] 22.2 Create red team scenario: Multi-stage exploit chain
+  - [ ] 23.2 Create red team scenario: Multi-stage exploit chain with Weave metrics
     - Simulate RCE → Privilege Escalation → Credential Theft chain
     - Verify exploit chain detection with appropriate novelty score
     - Test both known and novel chain patterns
-    - _Requirements: 5.2, 5.4, 5.5, 10.3_
-    - _Verification: `pytest tests/evaluation/test_exploit_chain_scenario.py -v`_
+    - Track novelty_score and chaining_confidence in Weave
+    - _Requirements: 5.2, 5.4, 5.5, 10.3, 16.3, 17.9_
+    - _Verification: `pytest tests/evaluation/test_exploit_chain_scenario.py -v -m weave`_
   
-  - [ ] 22.3 Create red team scenario: C2 infrastructure establishment
+  - [ ] 23.3 Create red team scenario: C2 infrastructure establishment with Weave metrics
     - Simulate agent establishing RequestBin/Pastebin C2 with beaconing
     - Verify C2 detection triggers CRITICAL alert
     - Test persistence indicator detection
-    - _Requirements: 7.2, 7.3, 7.5, 10.5_
-    - _Verification: `pytest tests/evaluation/test_c2_scenario.py -v`_
+    - Track beaconing pattern detection metrics in Weave
+    - _Requirements: 7.2, 7.3, 7.5, 10.5, 16.3_
+    - _Verification: `pytest tests/evaluation/test_c2_scenario.py -v -m weave`_
   
-  - [ ] 22.4 Create red team scenario: Kubernetes pod token theft and fleet spawning
+  - [ ] 23.4 Create red team scenario: Kubernetes pod token theft with Weave metrics
     - Simulate service account token theft followed by rapid pod creation
     - Verify Kubernetes defense layer detects both threats
-    - _Requirements: 8.1, 8.2, 10.6_
-    - _Verification: `pytest tests/evaluation/test_k8s_scenario.py -v`_
+    - Track K8s threat detection latency in Weave
+    - _Requirements: 8.1, 8.2, 10.6, 16.3_
+    - _Verification: `pytest tests/evaluation/test_k8s_scenario.py -v -m weave`_
   
-  - [ ] 22.5 Create red team scenario: AILM across trust boundaries
+  - [ ] 23.5 Create red team scenario: AILM across trust boundaries with Weave metrics
     - Simulate permission accumulation spanning multiple boundaries
     - Verify AILM tracker detects composition and computes correct risk level
-    - _Requirements: 6.2, 6.3, 6.5, 10.2_
-    - _Verification: `pytest tests/evaluation/test_ailm_scenario.py -v`_
+    - Track boundary_crossing_accuracy in Weave
+    - _Requirements: 6.2, 6.3, 6.5, 10.2, 16.3, 16.11, 17.8_
+    - _Verification: `pytest tests/evaluation/test_ailm_scenario.py -v -m weave`_
+  
+  - [ ] 23.6 Create end-to-end Weave evaluation comparing detection algorithms
+    - Run multiple evaluation scenarios with different threshold configurations
+    - Compare precision, recall, F1, FPR across configurations in Weave UI
+    - Generate Weave comparison reports for algorithm tuning
+    - _Requirements: 16.8, 17.10_
+    - _Verification: `pytest tests/evaluation/test_weave_algorithm_comparison.py -v -m weave`_
+  
+  - [ ] 23.7 Write BDD feature tests for Red Team Evaluation Scenarios
+    - Create tests/features/red_team_scenarios.feature with Gherkin scenarios
+    - Implement Given/When/Then steps for agent swarm attack simulation with Weave metrics
+    - Implement scenarios for multi-stage exploit chain detection (RCE → Privilege Escalation → Credential Theft)
+    - Implement scenarios for C2 infrastructure establishment with beaconing patterns
+    - Implement scenarios for Kubernetes pod token theft and fleet spawning
+    - Implement scenarios for AILM across trust boundaries
+    - Verify all scenarios track metrics in Weave and meet accuracy thresholds (precision >= 0.95, recall >= 0.90)
+    - _Requirements: 4.2, 4.3, 5.2, 5.4, 5.5, 6.2, 6.3, 6.5, 7.2, 7.3, 7.5, 8.1, 8.2, 10.1, 10.2, 10.3, 10.5, 10.6, 16.3, 17.7, 17.8, 17.9_
+    - _Verification: `pytest tests/step_defs/test_red_team_scenarios_bdd.py -v -m weave`_
 
-- [ ] 23. Final checkpoint - Complete system verification
+- [ ] 24. Checkpoint - Verify Weave integration
+  - Ensure all Weave tests pass with credentials, ask the user if questions arise.
+  - Verify backward compatibility: all tests pass without WANDB_API_KEY
+
+- [ ] 25. Final checkpoint - Complete system verification
   - Ensure all tests pass, ask the user if questions arise.
 
 
 ## Notes
 
-- Tasks marked with `*` are optional property-based test tasks and can be skipped for faster MVP delivery
 - Each task references specific requirements for traceability
 - Verification commands use `pytest` with verbose output to validate implementation
 - Property tests use Hypothesis with minimum 100 iterations as specified in design
@@ -626,6 +915,8 @@ The implementation follows a test-driven development approach with property-base
 - All timestamps use UTC timezone-aware datetime objects
 - Score fields (risk_score, correlation_score, temporal_correlation, coordination_score, novelty_score, chaining_confidence) are validated to range [0.0, 1.0]
 - Minimum cardinality constraints are enforced: attack paths >= 2 nodes, swarms >= 2 agents
+- **Weave Integration (Tasks 22.x)**: Weave evaluation tracking is fully optional and backward compatible. All tests run without Weave when WANDB_API_KEY is unavailable. Use `-m weave` marker to run Weave-specific tests. Weave tracks evaluation metrics (precision, recall, F1, FPR, latency) and provides tracing for multi-stage attack correlation flows.
+- **Weave Configuration**: Set WEAVE_OFFLINE=true for offline mode, WEAVE_DISABLED=true to completely disable Weave, WEAVE_PARALLELISM to control worker count (1-10). Configuration file at .kiro/evals/weave_config.yaml provides per-engine trace and metrics toggles.
 
 
 ## Task Dependency Graph
@@ -723,15 +1014,35 @@ The implementation follows a test-driven development approach with property-base
     },
     {
       "id": 22,
-      "tasks": ["21.4"]
+      "tasks": ["21.4", "22.1"]
     },
     {
       "id": 23,
-      "tasks": ["22.1", "22.2", "22.3"]
+      "tasks": ["22.2", "22.5", "22.6"]
     },
     {
       "id": 24,
-      "tasks": ["22.4", "22.5"]
+      "tasks": ["22.3", "22.4", "22.7"]
+    },
+    {
+      "id": 25,
+      "tasks": ["22.8", "22.9"]
+    },
+    {
+      "id": 26,
+      "tasks": ["22.10"]
+    },
+    {
+      "id": 27,
+      "tasks": ["23.1", "23.2", "23.3"]
+    },
+    {
+      "id": 28,
+      "tasks": ["23.4", "23.5"]
+    },
+    {
+      "id": 29,
+      "tasks": ["23.6"]
     }
   ]
 }
