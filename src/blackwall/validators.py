@@ -2,6 +2,10 @@
 
 from datetime import datetime, timezone
 import re
+from typing import Any, Collection, Optional, TypeVar
+from uuid import UUID, uuid4
+
+T = TypeVar("T", bound=Collection[Any])
 
 
 def validate_semver_format(v: str) -> str:
@@ -23,3 +27,58 @@ def validate_utc_datetime(v: datetime) -> datetime:
 def utc_now() -> datetime:
     """Return current timezone-aware UTC datetime."""
     return datetime.now(timezone.utc)
+
+
+def validate_uuid_v4_format(v: str) -> str:
+    """Validate that a string is a valid UUID v4 format."""
+    try:
+        parsed = UUID(str(v))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise ValueError(f"Invalid UUID v4 format: {v}") from exc
+
+    if parsed.version != 4:
+        raise ValueError("event_id must be a valid UUID v4")
+    return str(v)
+
+
+
+def ensure_uuid_v4(v: Any = None) -> str:
+    """Return valid UUID v4 string if input is valid UUID v4, otherwise generate a new UUID v4 string."""
+    if v is not None:
+        try:
+            return validate_uuid_v4_format(str(v))
+        except ValueError:
+            pass
+    return str(uuid4())
+
+
+def validate_non_empty_string(v: str, field_name: str = "string") -> str:
+    """Validate that a string is not empty or whitespace only."""
+    if not v or not v.strip():
+        raise ValueError(f"{field_name} must not be empty")
+    return v
+
+
+def validate_min_items(
+    v: T, min_items: int = 2, field_name: str = "collection", custom_msg: Optional[str] = None
+) -> T:
+    """Validate that a collection contains at least min_items elements."""
+    if len(v) < min_items:
+        msg = custom_msg or f"{field_name} must contain at least {min_items} items"
+        raise ValueError(msg)
+    return v
+
+
+def validate_temporal_sequence(
+    start_time: datetime,
+    end_time: datetime,
+    start_name: str = "start_time",
+    end_name: str = "end_time",
+    custom_msg: Optional[str] = None,
+) -> None:
+    """Validate that end_time >= start_time for UTC-aware datetimes."""
+    validate_utc_datetime(start_time)
+    validate_utc_datetime(end_time)
+    if end_time < start_time:
+        msg = custom_msg or f"{end_name} must be greater than or equal to {start_name}"
+        raise ValueError(msg)

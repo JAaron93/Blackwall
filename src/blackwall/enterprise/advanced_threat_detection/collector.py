@@ -13,11 +13,14 @@ from pydantic import ValidationError
 from blackwall.enterprise.advanced_threat_detection.enums import EventSource
 from blackwall.enterprise.advanced_threat_detection.models import NormalizedEvent
 
+from blackwall.validators import ensure_uuid_v4
+
+
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.collector")
 
 
 class EventStreamCollector:
-    """Unified ingestion collector normalizing telemetry across all five Blackwall pillars."""
+    """Collector component normalizing heterogeneous event streams from all five Blackwall pillars."""
 
     def __init__(
         self,
@@ -26,6 +29,7 @@ class EventStreamCollector:
     ) -> None:
         self.reconnect_max_attempts = reconnect_max_attempts
         self.reconnect_backoff_base = reconnect_backoff_base
+        self.stream_subscriptions: dict[EventSource, Callable[[], AsyncIterator[dict[str, Any]]]] = {}
 
     def normalize_event(
         self, source: EventSource, raw_event: dict[str, Any]
@@ -39,19 +43,8 @@ class EventStreamCollector:
                 f"Discarding malformed event payload: expected dict, got {type(raw_event)}"
             )
 
-        # Event ID validation or generation
-        event_id = raw_event.get("event_id")
-        if event_id:
-            try:
-                parsed = uuid.UUID(str(event_id))
-                if parsed.version != 4:
-                    event_id = str(uuid.uuid4())
-                else:
-                    event_id = str(event_id)
-            except Exception:
-                event_id = str(uuid.uuid4())
-        else:
-            event_id = str(uuid.uuid4())
+        # Event ID validation or generation using centralized helper
+        event_id = ensure_uuid_v4(raw_event.get("event_id"))
 
         # Timestamp validation or generation
         raw_ts = raw_event.get("timestamp")

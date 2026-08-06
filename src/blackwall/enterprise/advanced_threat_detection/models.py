@@ -2,7 +2,6 @@
 
 from datetime import datetime
 from typing import Any, Dict, List, Set, Tuple
-from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -10,7 +9,13 @@ from blackwall.enterprise.advanced_threat_detection.enums import (
     EventSource,
     ExploitCategory,
 )
-from blackwall.validators import validate_utc_datetime
+from blackwall.validators import (
+    validate_min_items,
+    validate_non_empty_string,
+    validate_temporal_sequence,
+    validate_utc_datetime,
+    validate_uuid_v4_format,
+)
 
 
 class NormalizedEvent(BaseModel):
@@ -29,13 +34,7 @@ class NormalizedEvent(BaseModel):
     @classmethod
     def validate_uuid_v4(cls, v: str) -> str:
         """Validate event_id is a valid UUID v4."""
-        try:
-            parsed = UUID(v)
-            if parsed.version != 4:
-                raise ValueError("event_id must be a valid UUID v4")
-        except (ValueError, TypeError, AttributeError) as exc:
-            raise ValueError(f"Invalid UUID v4 format: {v}") from exc
-        return str(v)
+        return validate_uuid_v4_format(v)
 
     @field_validator("timestamp")
     @classmethod
@@ -47,9 +46,7 @@ class NormalizedEvent(BaseModel):
     @classmethod
     def validate_non_empty_agent_id(cls, v: str) -> str:
         """Validate agent_id is not empty or whitespace only."""
-        if not v or not v.strip():
-            raise ValueError("agent_id must not be empty")
-        return v
+        return validate_non_empty_string(v, field_name="agent_id")
 
 
 class AttackNode(BaseModel):
@@ -83,15 +80,19 @@ class AttackPath(BaseModel):
     @classmethod
     def validate_min_nodes(cls, v: List[AttackNode]) -> List[AttackNode]:
         """Validate nodes contains at least 2 nodes."""
-        if len(v) < 2:
-            raise ValueError("AttackPath nodes must contain at least 2 events")
-        return v
+        return validate_min_items(
+            v, min_items=2, custom_msg="AttackPath nodes must contain at least 2 events"
+        )
 
     @model_validator(mode="after")
     def validate_temporal_ordering(self) -> "AttackPath":
         """Validate end_time >= start_time."""
-        if self.end_time < self.start_time:
-            raise ValueError("end_time must be greater than or equal to start_time")
+        validate_temporal_sequence(
+            self.start_time,
+            self.end_time,
+            start_name="start_time",
+            end_name="end_time",
+        )
         return self
 
 
@@ -116,15 +117,19 @@ class SwarmEvidence(BaseModel):
     @classmethod
     def validate_min_agents(cls, v: Set[str]) -> Set[str]:
         """Validate agent_ids contains at least 2 agents."""
-        if len(v) < 2:
-            raise ValueError("SwarmEvidence agent_ids must contain at least 2 agents")
-        return v
+        return validate_min_items(
+            v, min_items=2, custom_msg="SwarmEvidence agent_ids must contain at least 2 agents"
+        )
 
     @model_validator(mode="after")
     def validate_temporal_ordering(self) -> "SwarmEvidence":
         """Validate last_seen >= first_seen."""
-        if self.last_seen < self.first_seen:
-            raise ValueError("last_seen must be greater than or equal to first_seen")
+        validate_temporal_sequence(
+            self.first_seen,
+            self.last_seen,
+            start_name="first_seen",
+            end_name="last_seen",
+        )
         return self
 
 

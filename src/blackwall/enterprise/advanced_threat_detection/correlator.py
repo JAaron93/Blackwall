@@ -15,7 +15,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 
 
-from blackwall.validators import validate_utc_datetime
+from blackwall.validators import validate_temporal_sequence, validate_utc_datetime
 
 
 # MITRE ATT&CK technique mapping patterns
@@ -64,11 +64,10 @@ class PathCorrelator:
             raise ValueError("min_path_length must be at least 2")
 
         start_raw, end_raw = time_window
+        validate_temporal_sequence(start_raw, end_raw, start_name="start_time", end_name="end_time")
         start_win = validate_utc_datetime(start_raw)
         end_win = validate_utc_datetime(end_raw)
 
-        if end_win < start_win:
-            raise ValueError("end_time must be greater than or equal to start_time")
 
         # 1. Fetch candidate nodes from store within time window
         candidate_nodes: List[AttackNode] = []
