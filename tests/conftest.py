@@ -88,24 +88,63 @@ def safe_sla_limit():
 # Weave evaluation marker: collection-time skip + detector_suite fixture
 # ---------------------------------------------------------------------------
 
+def _has_wandb_credentials() -> bool:
+    """Check for W&B credentials in standard file locations.
+
+    Mirrors the 4th enablement path in should_enable_weave():
+    netrc (~/.netrc, host api.wandb.ai) or W&B config file (~/.config/wandb/settings).
+    Returns True if either source contains a usable API key.
+    """
+    import netrc
+    import pathlib
+
+    # netrc check
+    try:
+        creds = netrc.netrc()
+        if creds.authenticators("api.wandb.ai"):
+            return True
+    except (FileNotFoundError, netrc.NetrcParseError, OSError):
+        pass
+
+    # W&B config file check (wandb >= 0.12 stores api_key in settings)
+    settings_path = pathlib.Path.home() / ".config" / "wandb" / "settings"
+    try:
+        if settings_path.exists():
+            content = settings_path.read_text()
+            return "api_key" in content
+    except OSError:
+        pass
+
+    return False
+
+
 def _weave_available() -> bool:
-    """Return True if Weave is enabled and the weave package is importable."""
+    """Return True if Weave is enabled and the weave package is importable.
+
+    Priority order (mirrors should_enable_weave()):
+    1. WEAVE_DISABLED=true  → False (always wins)
+    2. WEAVE_OFFLINE=true   → True if weave importable (local traces, no credentials)
+    3. WANDB_API_KEY set    → True if weave importable
+    4. netrc / config creds → True if weave importable
+    5. (none of the above)  → False
+    """
     import os
     if os.getenv("WEAVE_DISABLED") == "true":
         return False
+
+    def _weave_importable() -> bool:
+        try:
+            import weave  # noqa: F401
+            return True
+        except ImportError:
+            return False
+
     if os.getenv("WEAVE_OFFLINE") == "true":
-        try:
-            import weave  # noqa: F401
-            return True
-        except ImportError:
-            return False
+        return _weave_importable()
     if os.getenv("WANDB_API_KEY"):
-        try:
-            import weave  # noqa: F401
-            return True
-        except ImportError:
-            return False
-    # No credentials and not offline — Weave not available
+        return _weave_importable()
+    if _has_wandb_credentials():
+        return _weave_importable()
     return False
 
 
