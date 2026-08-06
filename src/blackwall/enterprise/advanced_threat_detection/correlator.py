@@ -158,20 +158,30 @@ class PathCorrelator:
         sorted_nodes = sorted(nodes, key=lambda n: n.event.timestamp)
         adj: Dict[str, List[Tuple[AttackNode, float]]] = {n.node_id: [] for n in sorted_nodes}
 
+        # Precompute mapping of incoming edge IDs to target nodes for O(1) causal edge lookup
+        edge_to_target_nodes: Dict[uuid.UUID, List[AttackNode]] = {}
+        for n in sorted_nodes:
+            for inc_edge in n.incoming_edges:
+                edge_to_target_nodes.setdefault(inc_edge, []).append(n)
+
         for i, node_a in enumerate(sorted_nodes):
+            # 1. Temporal window scan (strictly <= 300s)
             for node_b in sorted_nodes[i + 1 :]:
                 delta_sec = (node_b.event.timestamp - node_a.event.timestamp).total_seconds()
-
-                # Causal edge check
-                is_causal = any(e in node_a.outgoing_edges for e in node_b.incoming_edges)
-
-                # Property 15 / Requirement 3.2: Edge exists iff within 5 minutes (300s) or causal
-                if (0 <= delta_sec <= 300) or is_causal:
-                    weight = self.compute_edge_weight(node_a, node_b)
-                    adj[node_a.node_id].append((node_b, weight))
-                elif not node_a.outgoing_edges:
-                    # Non-causal node beyond 300s window cannot link to any subsequent node
+                if delta_sec > 300:
                     break
+
+                weight = self.compute_edge_weight(node_a, node_b)
+                adj[node_a.node_id].append((node_b, weight))
+
+            # 2. Direct O(1) causal edge lookup for outgoing edges
+            added_target_ids = {b.node_id for b, _ in adj[node_a.node_id]}
+            for out_edge in node_a.outgoing_edges:
+                for target_node in edge_to_target_nodes.get(out_edge, []):
+                    if target_node.node_id != node_a.node_id and target_node.node_id not in added_target_ids:
+                        weight = self.compute_edge_weight(node_a, target_node)
+                        adj[node_a.node_id].append((target_node, weight))
+                        added_target_ids.add(target_node.node_id)
 
         return adj
 
