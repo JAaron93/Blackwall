@@ -37,5 +37,6 @@
 * **Rule:** Property test modules MUST NOT call `settings.load_profile()` or `settings.register_profile()` at module import scope. Decorate individual test functions with `@settings(max_examples=100)` to prevent cross-test settings mutation.
 
 ## 13. Security Contract BDD Feature Coverage
-* **Rule:** Whenever code under `src/` is added or modified to introduce or alter security-relevant validation, policy enforcement, or interception behavior, at least one corresponding `pytest-bdd` security contract `.feature` file under `tests/features/` and executable step definition file under `tests/step_defs/` MUST be added or updated. Every BDD scenario MUST contain explicit `Given`, `When`, and `Then` steps to exercise the behavior and assert expected outcomes/exceptions.
+* **Rule:** Whenever code under `src/` is added or modified to introduce or alter security-relevant validation, policy enforcement, or interception behavior, corresponding `pytest-bdd` security contract `.feature` files under `tests/features/` and executable step definition files under `tests/step_defs/` MUST be added or updated across both the component feature file (e.g. `tests/features/advanced_threat_detection.feature`) and the enterprise integration feature file (`tests/features/blackwall_enterprise_mesh.feature`). Every BDD scenario MUST contain explicit `Given`, `When`, and `Then` steps to exercise the behavior and assert expected outcomes/exceptions.
+
 
