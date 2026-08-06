@@ -50,3 +50,10 @@ Feature: Blackwall Enterprise Security Mesh End-to-End Integration
     Then the NormalizedEvent model accepts valid UUID v4 and UTC timestamp
     And invalid UUIDs, naive timestamps, and out-of-bound risk scores are rejected
     And AttackPaths enforce minimum 2 nodes and temporal ordering end_time >= start_time
+
+  Scenario: Pillar 6 EventStreamCollector multi-pillar ingestion and resilient normalization
+    Given an EventStreamCollector engine ingesting streams across all 5 Blackwall pillars
+    When heterogeneous events from kernel, tool, identity, pipeline, and forensic sources are collected
+    Then events are normalized into standard NormalizedEvents with UUID v4 IDs, UTC timestamps, and risk scores
+    And malformed payloads or invalid stream factories fail cleanly without corrupting telemetry
+

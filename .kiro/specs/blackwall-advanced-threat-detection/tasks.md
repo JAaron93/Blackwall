@@ -74,14 +74,14 @@ The implementation follows a test-driven development approach with property-base
   - Ensure all tests pass, ask the user if questions arise.
 
 
-- [ ] 4. Implement Event Stream Collector
-  - [ ] 4.1 Create EventStreamCollector class with pillar subscriptions
+- [x] 4. Implement Event Stream Collector
+  - [x] 4.1 Create EventStreamCollector class with pillar subscriptions
     - Implement async iterator interfaces for all five pillar event streams
     - Create event source enum mapping (KERNEL_SYSCALL, TOOL_CALL, IDENTITY_ACCESS, PIPELINE_EXECUTION, FORENSIC_ALERT)
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6_
     - _Verification: `pytest tests/unit/test_event_stream_collector.py::test_pillar_subscriptions -v`_
   
-  - [ ] 4.2 Implement event normalization logic
+  - [x] 4.2 Implement event normalization logic
     - Create normalization functions for each pillar event type
     - Enrich events with temporal context and agent metadata
     - Generate UUID v4 event_id and UTC timestamp for each event
@@ -89,19 +89,20 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 1.6, 1.7, 1.8, 1.9_
     - _Verification: `pytest tests/unit/test_event_stream_collector.py::test_normalization -v`_
   
-  - [ ] 4.3 Implement error handling for pillar connection failures
+  - [x] 4.3 Implement error handling for pillar connection failures
     - Add exponential backoff reconnection logic
     - Log malformed events without blocking stream
     - Validate schema for all incoming events
     - _Requirements: Error Handling - Event Collection Errors_
     - _Verification: `pytest tests/unit/test_event_stream_collector.py::test_error_handling -v`_
   
-  - [ ]* 4.4 Write property tests for event normalization
+  - [x]* 4.4 Write property tests for event normalization
     - **Property 1: Event Normalization Source Mapping**
     - **Property 2: Event Enrichment Completeness**
     - **Property 76: Agent ID Non-Empty Validation**
     - **Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 15.4**
     - _Verification: `pytest tests/property/test_event_collector_properties.py --hypothesis-iterations=100 -v`_
+
 
 
 - [ ] 5. Implement Multi-Stage Attack Path Correlation

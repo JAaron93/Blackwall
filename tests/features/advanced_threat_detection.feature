@@ -26,3 +26,10 @@ Feature: Blackwall Advanced Threat Detection Pillar Data Validation
     When security events are ingested and causally linked
     Then the AttackGraphStore persists node edges and returns correlated multi-hop attack paths
 
+  Scenario: Event Stream Collector cross-pillar normalization and stream recovery
+    Given an EventStreamCollector instance and heterogeneous raw events from 5 pillars
+    When the raw events are ingested through the EventStreamCollector
+    Then each event is normalized with UUID v4 ID, UTC timestamp, and pillar source enum
+    And malformed events or non-callable reconnect attempts are rejected cleanly
+
+

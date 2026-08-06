@@ -38,6 +38,11 @@ Feature Location: [`tests/features/security_contract_validators.feature`](../tes
 | `execute_utc_datetime_validation` | `When the UTC datetime validation helper is executed` | Executes `validate_utc_datetime` and captures exceptions into state. |
 | `set_naive_datetime` | `Given a naive datetime without timezone info` | Generates a naive datetime without timezone info (`tzinfo=None`). |
 | `set_non_utc_datetime` | `Given a non-UTC timezone-aware datetime` | Generates a non-UTC timezone-aware datetime object. |
+| `given_event_collector_and_raw_events` | `Given an EventStreamCollector instance and heterogeneous raw events from 5 pillars` | Initializes `EventStreamCollector` and populates raw event dictionary for all 5 pillars. |
+| `when_events_ingested` | `When the raw events are ingested through the EventStreamCollector` | Ingests and normalizes raw pillar events via `EventStreamCollector.normalize_event()`. |
+| `then_each_event_normalized` | `Then each event is normalized with UUID v4 ID, UTC timestamp, and pillar source enum` | Asserts all 5 pillar events are valid `NormalizedEvent` instances with UUID v4, UTC timestamps, and enum sources. |
+| `then_malformed_events_rejected` | `And malformed events or non-callable reconnect attempts are rejected cleanly` | Asserts malformed non-dict payloads and non-callable stream factories raise `ValueError`. |
+
 
 ---
 

@@ -1,12 +1,15 @@
 """BDD Step Definitions for Advanced Threat Detection (`tests/features/advanced_threat_detection.feature`)."""
 
-from datetime import datetime, timezone, timedelta
 import uuid
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
-from pytest_bdd import given, scenarios, then, when
 from pydantic import ValidationError
+from pytest_bdd import given, scenarios, then, when
 
+from blackwall.enterprise.advanced_threat_detection.collector import (
+    EventStreamCollector,
+)
 from blackwall.enterprise.advanced_threat_detection.enums import EventSource
 from blackwall.enterprise.advanced_threat_detection.models import (
     AttackNode,
@@ -14,6 +17,8 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     NormalizedEvent,
     SwarmEvidence,
 )
+from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
+from tests.step_defs.async_utils import run_async
 
 scenarios("../features/advanced_threat_detection.feature")
 
@@ -35,10 +40,12 @@ def atd_state():
 
 
 # Scenario 1 steps
-@given('a raw event payload with event ID "550e8400-e29b-41d4-a716-446655440000" and UTC timestamp')
+@given(
+    'a raw event payload with event ID "550e8400-e29b-41d4-a716-446655440000" and UTC timestamp'
+)
 def given_raw_event_payload(atd_state):
     atd_state.raw_event_id = "550e8400-e29b-41d4-a716-446655440000"
-    atd_state.raw_timestamp = datetime.now(timezone.utc)
+    atd_state.raw_timestamp = datetime.now(UTC)
 
 
 @when("the event is normalized into a NormalizedEvent model")
@@ -66,7 +73,7 @@ def then_invalid_uuid_or_ts_rejected(atd_state):
     with pytest.raises(ValidationError):
         NormalizedEvent(
             event_id=str(uuid.uuid1()),
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             source=EventSource.KERNEL_SYSCALL,
             agent_id="agent-bdd-01",
             action="execve",
@@ -101,7 +108,7 @@ def then_invalid_uuid_or_ts_rejected(atd_state):
 # Scenario 2 steps
 @given("a set of normalized attack nodes")
 def given_set_of_attack_nodes(atd_state):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     event1 = NormalizedEvent(
         event_id=str(uuid.uuid4()),
         timestamp=now,
@@ -128,7 +135,7 @@ def given_set_of_attack_nodes(atd_state):
 
 @when("an AttackPath is constructed with at least 2 nodes and valid temporal sequence")
 def when_attack_path_constructed(atd_state):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     atd_state.attack_path = AttackPath(
         path_id="path-bdd-1",
         agent_id="agent-bdd-01",
@@ -146,9 +153,11 @@ def then_attack_path_created(atd_state):
     assert atd_state.attack_path.end_time >= atd_state.attack_path.start_time
 
 
-@then("AttackPaths with fewer than 2 nodes or end_time earlier than start_time are rejected")
+@then(
+    "AttackPaths with fewer than 2 nodes or end_time earlier than start_time are rejected"
+)
 def then_invalid_attack_path_rejected(atd_state):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     # Fewer than 2 nodes
     with pytest.raises(ValidationError):
         AttackPath(
@@ -179,9 +188,11 @@ def given_correlated_agents(atd_state):
     atd_state.agent_ids = {"agent-alpha", "agent-beta"}
 
 
-@when("SwarmEvidence is constructed with 2 or more distinct agent IDs and valid time window")
+@when(
+    "SwarmEvidence is constructed with 2 or more distinct agent IDs and valid time window"
+)
 def when_swarm_evidence_constructed(atd_state):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     atd_state.swarm_evidence = SwarmEvidence(
         swarm_id="swarm-bdd-1",
         agent_ids=atd_state.agent_ids,
@@ -198,9 +209,11 @@ def then_swarm_evidence_created(atd_state):
     assert atd_state.swarm_evidence.last_seen >= atd_state.swarm_evidence.first_seen
 
 
-@then("SwarmEvidence with fewer than 2 agents or last_seen earlier than first_seen is rejected")
+@then(
+    "SwarmEvidence with fewer than 2 agents or last_seen earlier than first_seen is rejected"
+)
 def then_invalid_swarm_evidence_rejected(atd_state):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     # Fewer than 2 agents
     with pytest.raises(ValidationError):
         SwarmEvidence(
@@ -224,8 +237,6 @@ def then_invalid_swarm_evidence_rejected(atd_state):
 
 
 # Scenario 4 steps (AttackGraphStore)
-from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
-from tests.step_defs.async_utils import run_async
 
 
 @given("an initialized AttackGraphStore instance")
@@ -237,7 +248,7 @@ def given_initialized_attack_graph_store(atd_state):
 
 @when("security events are ingested and causally linked")
 def when_events_ingested_and_linked(atd_state):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     ev1 = NormalizedEvent(
         event_id=str(uuid.uuid4()),
         timestamp=now,
@@ -263,15 +274,81 @@ def when_events_ingested_and_linked(atd_state):
     atd_state.end_time = now + timedelta(seconds=2)
 
 
-@then("the AttackGraphStore persists node edges and returns correlated multi-hop attack paths")
+@then(
+    "the AttackGraphStore persists node edges and returns correlated multi-hop attack paths"
+)
 def then_store_persists_and_returns_paths(atd_state):
-    time_window = (atd_state.start_time - timedelta(minutes=1), atd_state.end_time + timedelta(minutes=1))
-    paths = run_async(atd_state.store.query_paths(agent_id="agent-bdd-store", time_window=time_window, min_path_length=2))
+    time_window = (
+        atd_state.start_time - timedelta(minutes=1),
+        atd_state.end_time + timedelta(minutes=1),
+    )
+    paths = run_async(
+        atd_state.store.query_paths(
+            agent_id="agent-bdd-store", time_window=time_window, min_path_length=2
+        )
+    )
     assert len(paths) >= 1
     assert len(paths[0].nodes) == 2
     assert len(paths[0].nodes[0].outgoing_edges) == 1
     run_async(atd_state.store.close())
 
 
+# Scenario 5 steps (EventStreamCollector)
 
 
+@given("an EventStreamCollector instance and heterogeneous raw events from 5 pillars")
+def given_event_collector_and_raw_events(atd_state):
+    atd_state.collector = EventStreamCollector()
+    atd_state.raw_pillar_events = {
+        EventSource.KERNEL_SYSCALL: [
+            {"action": "execve", "target": "/bin/ls", "agent_id": "agent-bdd-k"}
+        ],
+        EventSource.TOOL_CALL: [
+            {"action": "run_command", "target": "ls", "agent_id": "agent-bdd-t"}
+        ],
+        EventSource.IDENTITY_ACCESS: [
+            {"action": "get_token", "target": "vault", "agent_id": "agent-bdd-i"}
+        ],
+        EventSource.PIPELINE_EXECUTION: [
+            {"action": "pipeline", "target": "build", "agent_id": "agent-bdd-p"}
+        ],
+        EventSource.FORENSIC_ALERT: [
+            {"action": "alert", "target": "rule1", "agent_id": "agent-bdd-f"}
+        ],
+    }
+
+
+@when("the raw events are ingested through the EventStreamCollector")
+def when_events_ingested(atd_state):
+    normalized_list = []
+    for source, events in atd_state.raw_pillar_events.items():
+        norm = atd_state.collector.normalize_event(source, events[0])
+        normalized_list.append(norm)
+    atd_state.normalized_list = normalized_list
+
+
+@then("each event is normalized with UUID v4 ID, UTC timestamp, and pillar source enum")
+def then_each_event_normalized(atd_state):
+    assert len(atd_state.normalized_list) == 5
+    for norm in atd_state.normalized_list:
+        parsed_id = uuid.UUID(norm.event_id)
+        assert parsed_id.version == 4
+        assert norm.timestamp.tzinfo is not None
+        assert isinstance(norm.source, EventSource)
+
+
+@then("malformed events or non-callable reconnect attempts are rejected cleanly")
+def then_malformed_events_rejected(atd_state):
+    with pytest.raises(ValueError):
+        atd_state.collector.normalize_event(EventSource.KERNEL_SYSCALL, "not_a_dict")
+
+    with pytest.raises(ValueError, match="stream_factory must be a callable"):
+
+        async def dummy_iter():
+            yield {}
+
+        run_async(
+            atd_state.collector.collect_with_reconnect(
+                EventSource.TOOL_CALL, dummy_iter()
+            ).__anext__()
+        )
