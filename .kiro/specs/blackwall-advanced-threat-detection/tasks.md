@@ -847,10 +847,6 @@ The implementation follows a test-driven development approach with property-base
     - Implement scenarios for backward compatibility (zero overhead when disabled)
     - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 17.1, 17.2, 17.3, 17.4, 17.5, 18.1-18.10, 19.1-19.10, 20.1-20.10_
     - _Verification: `pytest tests/step_defs/test_weave_evaluation_bdd.py -v`_
-    - **Property 87: Weave Metric FPR Calculation**
-    - **Property 88: Weave Trace Parameter Logging**
-    - **Validates: Requirements 16.2, 16.4, 16.5, 16.13, 17.2, 17.3, 17.4, 17.5**
-    - _Verification: `pytest tests/property/test_weave_properties.py --hypothesis-iterations=100 -v`_
 
 - [ ] 23. Red Team Evaluation Scenarios with Weave Tracking
   - [ ] 23.1 Create red team scenario: Agent swarm attack with Weave metrics
