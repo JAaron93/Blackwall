@@ -39,4 +39,7 @@
 ## 13. Security Contract BDD Feature Coverage
 * **Rule:** Whenever code under `src/` is added or modified to introduce or alter security-relevant validation, policy enforcement, or interception behavior, corresponding `pytest-bdd` security contract `.feature` files under `tests/features/` and executable step definition files under `tests/step_defs/` MUST be added or updated across both the component feature file (e.g. `tests/features/advanced_threat_detection.feature`) and the enterprise integration feature file (`tests/features/blackwall_enterprise_mesh.feature`). Every BDD scenario MUST contain explicit `Given`, `When`, and `Then` steps to exercise the behavior and assert expected outcomes/exceptions.
 
+## 14. Dense Window Performance & Limit Bound Verification
+* **Rule:** Performance regression tests for correlation engines MUST test dense event windows (e.g. 150+ events in a 300s window) to verify sub-500ms execution SLA and assert parameter limit bounding (`max_nodes`, `max_paths`, `max_depth`, and non-positive limit parameter rejections).
+
 
