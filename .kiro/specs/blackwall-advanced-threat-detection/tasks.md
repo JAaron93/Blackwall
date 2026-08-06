@@ -726,10 +726,11 @@ The implementation follows a test-driven development approach with property-base
       3. `WANDB_API_KEY` set → return True (cloud sync with API key)
       4. netrc / config-file credentials found → return True (cloud sync via credential file)
       5. None of the above → return False
+    - Register the `weave` custom marker in `pyproject.toml` under `[tool.pytest.ini_options].markers` to prevent `PytestUnknownMarkWarning` (required by project testing rules in `.agents/rules/testing_and_hygiene.md` rule 9)
     - Implement graceful fallback when Weave credentials unavailable
     - Create weave_config.yaml parser for .kiro/evals/ directory
     - _Requirements: 16.1, 16.2, 16.13, 16.14, 18.1, 18.2, 18.3, 18.4, 18.6, 18.8_
-    - _Verification: `pytest tests/unit/test_weave_config.py -v`_
+    - _Verification: `pytest tests/unit/test_weave_config.py -v --strict-markers`_
   
   - [ ] 22.2 Implement WeaveEvaluationHarness class
     - Create initialization with WeaveConfig, handling offline mode and parallelism

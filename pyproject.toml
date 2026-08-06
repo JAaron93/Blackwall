@@ -51,6 +51,7 @@ markers = [
     "guardrails: Security guardrail test scenarios",
     "zero_ambient_authority: Zero ambient authority test scenarios",
     "asyncio: Mark async tests to run with pytest-asyncio",
+    "weave: Mark evaluation tests that require Weights & Biases Weave tracing (skipped when WEAVE_DISABLED=true or credentials unavailable)",
 ]
 
 [tool.ruff]
