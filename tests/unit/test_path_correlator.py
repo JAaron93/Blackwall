@@ -400,8 +400,57 @@ async def test_non_positive_limit_parameters_validation():
     with pytest.raises(ValueError, match="max_depth must be positive"):
         await correlator.correlate_attack_paths("agent-1", time_win, max_depth=-2)
 
+    with pytest.raises(ValueError, match="max_depth cannot be less than min_path_length"):
+        await correlator.correlate_attack_paths("agent-1", time_win, min_path_length=5, max_depth=3)
+
     with pytest.raises(ValueError, match="limit must be positive"):
         await store.query_nodes("agent-1", time_win, limit=0)
 
     with pytest.raises(ValueError, match="limit must be positive"):
         await store.query_nodes("agent-1", time_win, limit=-1)
+
+
+@pytest.mark.asyncio
+async def test_path_longer_than_default_depth():
+    """Verify PathCorrelator correctly emits paths longer than the default max_depth (10) when configured."""
+    store = AttackGraphStore(in_memory=True)
+    await store.initialize()
+
+    agent_id = "agent-long-chain"
+    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
+
+    # Insert 12 events linked in sequence (longer than default max_depth=10)
+    prev_node = None
+    for i in range(12):
+        ev = NormalizedEvent(
+            event_id=uuid.uuid4(),
+            timestamp=base_time + timedelta(seconds=i * 5),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id=agent_id,
+            action=f"action_{i}",
+            target=f"target_{i}",
+            risk_score=0.7,
+        )
+        node = await store.insert_event(ev)
+        if prev_node:
+            await store.link_events(from_node=prev_node.node_id, to_node=node.node_id, relationship="NEXT")
+        prev_node = node
+
+    correlator = PathCorrelator(store=store)
+    time_win = (base_time, base_time + timedelta(seconds=300))
+
+    # Should raise ValueError if max_depth (10) < min_path_length (12)
+    with pytest.raises(ValueError, match="max_depth cannot be less than min_path_length"):
+        await correlator.correlate_attack_paths(agent_id, time_win, min_path_length=12, max_depth=10)
+
+    # Should successfully return 12-node path when max_depth=12 is specified
+    paths = await correlator.correlate_attack_paths(
+        agent_id,
+        time_win,
+        min_path_length=12,
+        max_depth=12,
+        max_nodes=50,
+    )
+
+    assert len(paths) >= 1
+    assert any(len(p.nodes) == 12 for p in paths)

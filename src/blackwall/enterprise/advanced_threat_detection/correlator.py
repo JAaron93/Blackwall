@@ -73,6 +73,8 @@ class PathCorrelator:
             raise ValueError("max_paths must be positive")
         if max_depth <= 0:
             raise ValueError("max_depth must be positive")
+        if max_depth < min_path_length:
+            raise ValueError("max_depth cannot be less than min_path_length")
 
         start_raw, end_raw = time_window
         validate_temporal_sequence(start_raw, end_raw, start_name="start_time", end_name="end_time")
@@ -256,10 +258,11 @@ class PathCorrelator:
         if len(results) >= max_results:
             return
 
+        effective_max_depth = max(max_depth, min_path_length)
         if len(current_path) >= min_path_length:
             results.append(list(current_path))
 
-        if len(current_path) >= max_depth:
+        if len(current_path) >= effective_max_depth:
             return
 
         neighbors = adj_graph.get(current_node.node_id, [])
