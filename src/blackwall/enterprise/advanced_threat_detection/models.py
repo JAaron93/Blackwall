@@ -64,7 +64,7 @@ class AttackPath(BaseModel):
 
     path_id: UUID4
     agent_id: str
-    nodes: List[AttackNode]
+    nodes: List[AttackNode] = Field(..., min_length=2)
     start_time: datetime
     end_time: datetime
     risk_score: float = Field(..., ge=0.0, le=1.0)
@@ -101,7 +101,7 @@ class SwarmEvidence(BaseModel):
     """Evidence structure for coordinated multi-agent swarm behavior."""
 
     swarm_id: UUID4
-    agent_ids: Set[str]
+    agent_ids: Set[str] = Field(..., min_length=2)
     shared_patterns: List[str] = Field(default_factory=list)
     temporal_correlation: float = Field(..., ge=0.0, le=1.0)
     coordination_score: float = Field(..., ge=0.0, le=1.0)
