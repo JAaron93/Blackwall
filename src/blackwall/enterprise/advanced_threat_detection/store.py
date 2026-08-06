@@ -295,6 +295,9 @@ class AttackGraphStore:
         limit: Optional[int] = None,
     ) -> List[AttackNode]:
         """Fetch all AttackNodes for an agent within the specified time window."""
+        if limit is not None and limit <= 0:
+            raise ValueError("limit must be positive")
+
         start_time_win, end_time_win = time_window
 
         if self._pool:

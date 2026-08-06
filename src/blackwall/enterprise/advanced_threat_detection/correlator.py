@@ -67,6 +67,12 @@ class PathCorrelator:
         """
         if min_path_length < 2:
             raise ValueError("min_path_length must be at least 2")
+        if max_nodes <= 0:
+            raise ValueError("max_nodes must be positive")
+        if max_paths <= 0:
+            raise ValueError("max_paths must be positive")
+        if max_depth <= 0:
+            raise ValueError("max_depth must be positive")
 
         start_raw, end_raw = time_window
         validate_temporal_sequence(start_raw, end_raw, start_name="start_time", end_name="end_time")

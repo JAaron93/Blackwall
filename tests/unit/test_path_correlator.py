@@ -371,3 +371,37 @@ async def test_dense_event_window_bounded_performance():
     # Must sort by risk_score descending
     for i in range(len(paths) - 1):
         assert paths[i].risk_score >= paths[i + 1].risk_score
+
+
+@pytest.mark.asyncio
+async def test_non_positive_limit_parameters_validation():
+    """Verify ValueError is raised when non-positive integers are passed for max_nodes, max_paths, max_depth, or limit."""
+    store = AttackGraphStore(in_memory=True)
+    correlator = PathCorrelator(store=store)
+
+    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
+    time_win = (base_time, base_time + timedelta(seconds=300))
+
+    with pytest.raises(ValueError, match="max_nodes must be positive"):
+        await correlator.correlate_attack_paths("agent-1", time_win, max_nodes=0)
+
+    with pytest.raises(ValueError, match="max_nodes must be positive"):
+        await correlator.correlate_attack_paths("agent-1", time_win, max_nodes=-5)
+
+    with pytest.raises(ValueError, match="max_paths must be positive"):
+        await correlator.correlate_attack_paths("agent-1", time_win, max_paths=0)
+
+    with pytest.raises(ValueError, match="max_paths must be positive"):
+        await correlator.correlate_attack_paths("agent-1", time_win, max_paths=-10)
+
+    with pytest.raises(ValueError, match="max_depth must be positive"):
+        await correlator.correlate_attack_paths("agent-1", time_win, max_depth=0)
+
+    with pytest.raises(ValueError, match="max_depth must be positive"):
+        await correlator.correlate_attack_paths("agent-1", time_win, max_depth=-2)
+
+    with pytest.raises(ValueError, match="limit must be positive"):
+        await store.query_nodes("agent-1", time_win, limit=0)
+
+    with pytest.raises(ValueError, match="limit must be positive"):
+        await store.query_nodes("agent-1", time_win, limit=-1)
