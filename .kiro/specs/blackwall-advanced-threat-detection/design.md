@@ -1380,8 +1380,8 @@ class WeaveTracedAILMTracker:
 ```
 
 **Responsibilities**:
-- Wrap all detection methods with `@weave.op()` decorators
-- Capture input parameters, execution time, and output results
+- Wrap all detection methods with `@weave.op()` decorators, passing inputs and outputs through `WeaveTraceSerializer` before they reach Weave
+- Capture sanitized input parameters, execution time, and sanitized output results — never raw event payloads
 - Enable call graph visualization in Weave UI
 - Track multi-stage correlation flows
 
@@ -1488,6 +1488,117 @@ def detector_suite(
 - Gate tracing on both `should_enable_weave()` and the pytest `weave` marker (or explicit `force_traced`)
 - Guarantee zero Weave overhead for unmarked tests and disabled-Weave environments
 - Expose a `DetectorSuite` container so call-sites remain type-safe regardless of which variant is active
+
+#### Component 2b: WeaveTraceSerializer
+
+**Purpose**: Allowlist-based serializer that sanitizes all data before it is emitted to Weave. Prevents raw threat-event payloads, credentials, and sensitive metadata from reaching any external service — regardless of whether Weave is running in cloud, offline, or disabled mode.
+
+**Interface**:
+```python
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Set
+
+# Fields that are safe to export verbatim.
+# Any field not in this set is either masked or dropped.
+_SAFE_EVENT_FIELDS: Set[str] = {
+    "event_id",       # UUID — no payload content
+    "timestamp",      # UTC datetime string
+    "source",         # EventSource enum name
+    "risk_score",     # float scalar
+}
+
+_SAFE_PATH_FIELDS: Set[str] = {
+    "path_id", "agent_id", "start_time", "end_time",
+    "risk_score", "attack_stages", "correlation_score",
+}
+
+_SAFE_SWARM_FIELDS: Set[str] = {
+    "swarm_id", "agent_ids", "temporal_correlation",
+    "coordination_score", "first_seen", "last_seen",
+}
+
+# Patterns in metadata keys that trigger masking.
+_SENSITIVE_KEY_PATTERNS: tuple[str, ...] = (
+    "credential", "secret", "token", "password", "key",
+    "api_key", "auth", "private", "cert",
+)
+
+# Maximum serialized payload size (bytes) sent to Weave per operation call.
+_MAX_PAYLOAD_BYTES: int = 4096
+
+
+@dataclass
+class WeaveTraceSerializer:
+    """Sanitizes inputs/outputs before they are logged to Weave.
+
+    Rules:
+    - NormalizedEvent: export only _SAFE_EVENT_FIELDS; drop `action`,
+      `target`, and `metadata` entirely (may contain raw command lines,
+      file paths, or credential fragments).
+    - AttackPath / SwarmEvidence: export only the corresponding safe-field
+      set; node lists are replaced with a count scalar.
+    - dict metadata: recursively mask values whose keys match
+      _SENSITIVE_KEY_PATTERNS with the literal string "**REDACTED**".
+    - Any serialized payload exceeding _MAX_PAYLOAD_BYTES is truncated and
+      annotated with {"_truncated": true, "_original_bytes": N}.
+    - Offline and disabled modes use the same serializer path — the
+      sanitization contract is independent of the Weave transport.
+    """
+    max_payload_bytes: int = _MAX_PAYLOAD_BYTES
+
+    def serialize_event(self, event: "NormalizedEvent") -> Dict[str, Any]:
+        """Return a safe dict containing only _SAFE_EVENT_FIELDS."""
+        safe = {k: getattr(event, k, None) for k in _SAFE_EVENT_FIELDS}
+        return self._enforce_size(safe)
+
+    def serialize_path(self, path: "AttackPath") -> Dict[str, Any]:
+        """Return a safe dict; replace node list with a node_count scalar."""
+        safe = {k: getattr(path, k, None) for k in _SAFE_PATH_FIELDS}
+        safe["node_count"] = len(getattr(path, "nodes", []))
+        return self._enforce_size(safe)
+
+    def serialize_swarm(self, swarm: "SwarmEvidence") -> Dict[str, Any]:
+        """Return a safe dict for SwarmEvidence."""
+        safe = {k: getattr(swarm, k, None) for k in _SAFE_SWARM_FIELDS}
+        return self._enforce_size(safe)
+
+    def mask_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Recursively mask values whose keys match sensitive patterns."""
+        result: Dict[str, Any] = {}
+        for k, v in metadata.items():
+            if any(pat in k.lower() for pat in _SENSITIVE_KEY_PATTERNS):
+                result[k] = "**REDACTED**"
+            elif isinstance(v, dict):
+                result[k] = self.mask_metadata(v)
+            else:
+                result[k] = v
+        return result
+
+    def _enforce_size(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Truncate payload if serialized size exceeds max_payload_bytes."""
+        import json
+        try:
+            serialized = json.dumps(payload, default=str)
+        except (TypeError, ValueError):
+            return {"_serialization_error": True}
+        byte_size = len(serialized.encode("utf-8"))
+        if byte_size > self.max_payload_bytes:
+            return {"_truncated": True, "_original_bytes": byte_size}
+        return payload
+```
+
+**Guarantees**:
+- `action`, `target`, and `metadata` fields of `NormalizedEvent` are **never** exported — they may contain raw shell commands, file paths, network addresses, or credential fragments
+- All dict metadata keys matching `_SENSITIVE_KEY_PATTERNS` are replaced with `"**REDACTED**"` before serialization
+- Payloads exceeding `_MAX_PAYLOAD_BYTES` are truncated and annotated rather than silently sent oversized
+- Offline mode (`WEAVE_OFFLINE=true`) and cloud mode use the same serializer — sanitization is transport-independent
+- When `WEAVE_DISABLED=true`, no serialization occurs because no Weave calls are made at all
+
+**Testing requirements**:
+- Unit tests MUST assert that `event.action`, `event.target`, and `event.metadata` are absent from `serialize_event()` output
+- Unit tests MUST assert that keys matching `_SENSITIVE_KEY_PATTERNS` are replaced with `"**REDACTED**"`
+- Unit tests MUST assert that payloads exceeding `_MAX_PAYLOAD_BYTES` return `{"_truncated": True, ...}`
+- Integration tests MUST assert that no raw `NormalizedEvent` payload is present in any Weave trace captured during an evaluation run
 
 #### Component 3: WeaveMetricsCollector
 

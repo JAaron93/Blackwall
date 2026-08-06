@@ -747,15 +747,22 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 16.3, 16.8, 17.1, 17.2, 17.3, 17.4, 17.5, 19.5_
     - _Verification: `pytest tests/unit/test_weave_harness.py -v`_
   
-  - [ ] 22.3 Implement Weave traced wrappers for detection components
-    - Create WeaveTracedPathCorrelator wrapping PathCorrelator with @weave.op() decorators
-    - Create WeaveTracedSwarmDetector wrapping AgentSwarmDetector with tracing
-    - Create WeaveTracedAILMTracker wrapping AILMTracker with tracing
-    - Create WeaveTracedExploitChainAnalyzer wrapping ExploitChainAnalyzer with tracing
-    - Create WeaveTracedC2Detector wrapping C2InfrastructureDetector with tracing
-    - Log input parameters, execution time, and output results for each operation
+  - [ ] 22.3 Implement Weave traced wrappers and trace serializer
+    - Implement `WeaveTraceSerializer` in `src/blackwall/enterprise/advanced_threat_detection/weave_serializer.py`:
+      - `serialize_event()` exports only `_SAFE_EVENT_FIELDS` (`event_id`, `timestamp`, `source`, `risk_score`); drops `action`, `target`, and `metadata`
+      - `serialize_path()` exports `_SAFE_PATH_FIELDS` and replaces node list with a `node_count` scalar
+      - `serialize_swarm()` exports `_SAFE_SWARM_FIELDS`
+      - `mask_metadata()` recursively replaces values whose keys match `_SENSITIVE_KEY_PATTERNS` with `"**REDACTED**"`
+      - `_enforce_size()` truncates and annotates payloads exceeding `_MAX_PAYLOAD_BYTES` (4096 bytes)
+      - Offline (`WEAVE_OFFLINE=true`) and cloud modes use the same serializer; sanitization is transport-independent
+    - Create `WeaveTracedPathCorrelator`, `WeaveTracedSwarmDetector`, `WeaveTracedAILMTracker`, `WeaveTracedExploitChainAnalyzer`, `WeaveTracedC2Detector` — each must pass inputs and outputs through `WeaveTraceSerializer` before logging to Weave; raw event payloads must never be emitted
+    - Write unit tests asserting:
+      - `event.action`, `event.target`, and `event.metadata` are absent from `serialize_event()` output
+      - Keys matching sensitive patterns (`secret`, `token`, `password`, `key`, etc.) are replaced with `"**REDACTED**"`
+      - Payloads exceeding `_MAX_PAYLOAD_BYTES` return `{"_truncated": True, "_original_bytes": N}`
+    - Write integration test asserting no raw `NormalizedEvent` payload appears in any Weave trace captured during an evaluation run
     - _Requirements: 16.4, 16.5, 16.9, 16.10, 16.11_
-    - _Verification: `pytest tests/unit/test_weave_traced_detectors.py -v`_
+    - _Verification: `pytest tests/unit/test_weave_traced_detectors.py tests/unit/test_weave_serializer.py tests/integration/test_weave_trace_sanitization.py -v`_
   
   - [ ] 22.4 Implement WeaveMetricsCollector for aggregated metrics
     - Create ThreatDetectionMetrics dataclass with precision, recall, F1, FPR, latency, TP, FP, TN, FN
