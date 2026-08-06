@@ -1563,13 +1563,25 @@ class WeaveTraceSerializer:
         return self._enforce_size(safe)
 
     def mask_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Recursively mask values whose keys match sensitive patterns."""
+        """Recursively mask values whose keys match sensitive patterns.
+
+        Handles nested structures fully:
+        - dict values: recurse into them
+        - list/tuple values: recurse element-by-element, preserving type
+        - all other values: pass through unchanged
+        """
         result: Dict[str, Any] = {}
         for k, v in metadata.items():
             if any(pat in k.lower() for pat in _SENSITIVE_KEY_PATTERNS):
                 result[k] = "**REDACTED**"
             elif isinstance(v, dict):
                 result[k] = self.mask_metadata(v)
+            elif isinstance(v, (list, tuple)):
+                masked_seq = [
+                    self.mask_metadata(item) if isinstance(item, dict) else item
+                    for item in v
+                ]
+                result[k] = type(v)(masked_seq)  # preserve list vs tuple
             else:
                 result[k] = v
         return result
@@ -1596,7 +1608,11 @@ class WeaveTraceSerializer:
 
 **Testing requirements**:
 - Unit tests MUST assert that `event.action`, `event.target`, and `event.metadata` are absent from `serialize_event()` output
-- Unit tests MUST assert that keys matching `_SENSITIVE_KEY_PATTERNS` are replaced with `"**REDACTED**"`
+- Unit tests MUST assert that keys matching `_SENSITIVE_KEY_PATTERNS` are replaced with `"**REDACTED**"` in top-level dicts
+- Unit tests MUST assert that keys matching `_SENSITIVE_KEY_PATTERNS` are replaced with `"**REDACTED**"` in nested dicts (e.g. `{"outer": {"api_token": "x"}}`)
+- Unit tests MUST assert that sensitive keys inside dicts nested within lists are masked (e.g. `{"items": [{"api_token": "abc"}]}` → `{"items": [{"api_token": "**REDACTED**"}]}`)
+- Unit tests MUST assert that sensitive keys inside dicts nested within tuples are masked identically
+- Unit tests MUST assert that non-sensitive values inside lists/tuples pass through unchanged
 - Unit tests MUST assert that payloads exceeding `_MAX_PAYLOAD_BYTES` return `{"_truncated": True, ...}`
 - Integration tests MUST assert that no raw `NormalizedEvent` payload is present in any Weave trace captured during an evaluation run
 

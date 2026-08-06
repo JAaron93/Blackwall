@@ -752,7 +752,11 @@ The implementation follows a test-driven development approach with property-base
     - Create `WeaveTracedPathCorrelator`, `WeaveTracedSwarmDetector`, `WeaveTracedAILMTracker`, `WeaveTracedExploitChainAnalyzer`, `WeaveTracedC2Detector` — each must pass inputs and outputs through `WeaveTraceSerializer` before logging to Weave; raw event payloads must never be emitted
     - Write unit tests asserting:
       - `event.action`, `event.target`, and `event.metadata` are absent from `serialize_event()` output
-      - Keys matching sensitive patterns (`secret`, `token`, `password`, `key`, etc.) are replaced with `"**REDACTED**"`
+      - Top-level keys matching sensitive patterns (`secret`, `token`, `password`, `key`, etc.) are replaced with `"**REDACTED**"`
+      - Nested dict keys matching sensitive patterns are replaced (e.g. `{"outer": {"api_token": "x"}}`)
+      - Sensitive keys inside dicts nested within **lists** are masked (e.g. `{"items": [{"api_token": "abc"}]}` → `{"items": [{"api_token": "**REDACTED**"}]}`)
+      - Sensitive keys inside dicts nested within **tuples** are masked identically; tuple type is preserved
+      - Non-sensitive values inside lists/tuples pass through unchanged
       - Payloads exceeding `_MAX_PAYLOAD_BYTES` return `{"_truncated": True, "_original_bytes": N}`
     - Write integration test asserting no raw `NormalizedEvent` payload appears in any Weave trace captured during an evaluation run
     - _Requirements: 16.4, 16.5, 16.9, 16.10, 16.11_
