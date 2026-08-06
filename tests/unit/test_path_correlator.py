@@ -234,3 +234,94 @@ async def test_unsorted_nodes_temporal_adjacency():
     # No reverse-time edge from node_late to node_early either
     neighbors_late = [target.node_id for target, _ in adj_graph[node_late.node_id]]
     assert node_early.node_id not in neighbors_late
+
+
+@pytest.mark.asyncio
+async def test_db_mode_non_adjacent_causal_edge_node_retrieval():
+    """Verify DB-mode node retrieval via query_nodes finds non-adjacent causally linked nodes.
+
+    Scenario:
+    - Node 1 at T=0s
+    - Node 2 at T=1000s (> 600s after Node 1, no causal link to Node 1)
+    - Node 3 at T=2000s (> 600s after Node 2, BUT causally linked to Node 1 via explicit edge)
+
+    In query_paths(min_path_length=2), Node 1, 2, and 3 are in separate temporal groups (>600s apart with no adjacent causal links),
+    so query_paths() would return [] (no paths >= 2 nodes).
+    PathCorrelator calling query_nodes() retrieves all 3 nodes, builds the adjacency graph (linking Node 1 -> Node 3 via causal edge),
+    and correctly correlates path [Node 1, Node 3].
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    store = AttackGraphStore(in_memory=False)
+    # Mock connection pool
+    mock_pool = MagicMock()
+    mock_conn = AsyncMock()
+
+    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
+    agent_id = "agent-db-causal"
+    edge_causal = str(uuid.uuid4())
+
+    node1_id = uuid.uuid4()
+    node2_id = uuid.uuid4()
+    node3_id = uuid.uuid4()
+
+    rows = [
+        {
+            "node_id": node1_id,
+            "event_id": uuid.uuid4(),
+            "timestamp": base_time,
+            "source": EventSource.KERNEL_SYSCALL.value,
+            "agent_id": agent_id,
+            "action": "exec",
+            "target": "/bin/sh",
+            "metadata": {},
+            "risk_score": 0.8,
+            "incoming_edges": [],
+            "outgoing_edges": [edge_causal],
+        },
+        {
+            "node_id": node2_id,
+            "event_id": uuid.uuid4(),
+            "timestamp": base_time + timedelta(seconds=1000),
+            "source": EventSource.TOOL_CALL.value,
+            "agent_id": agent_id,
+            "action": "tool_call",
+            "target": "shell",
+            "metadata": {},
+            "risk_score": 0.3,
+            "incoming_edges": [],
+            "outgoing_edges": [],
+        },
+        {
+            "node_id": node3_id,
+            "event_id": uuid.uuid4(),
+            "timestamp": base_time + timedelta(seconds=2000),
+            "source": EventSource.IDENTITY_ACCESS.value,
+            "agent_id": agent_id,
+            "action": "access_token",
+            "target": "/var/run/secrets",
+            "metadata": {},
+            "risk_score": 0.9,
+            "incoming_edges": [edge_causal],
+            "outgoing_edges": [],
+        },
+    ]
+
+    mock_conn.fetch = AsyncMock(return_value=rows)
+    mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=None)
+    store._pool = mock_pool
+
+    correlator = PathCorrelator(store=store)
+
+    time_win = (base_time - timedelta(minutes=1), base_time + timedelta(seconds=3000))
+
+    # Verify query_paths directly on store returns empty list due to >600s gaps between adjacent nodes
+    store_paths = await store.query_paths(agent_id, time_win, min_path_length=2)
+    assert store_paths == []
+
+    # Verify PathCorrelator calls query_nodes and finds non-adjacent causally linked path [node1, node3]
+    paths = await correlator.correlate_attack_paths(agent_id, time_win, min_path_length=2)
+
+    assert len(paths) == 1
+    assert [n.node_id for n in paths[0].nodes] == [node1_id, node3_id]

@@ -69,26 +69,7 @@ class PathCorrelator:
 
 
         # 1. Fetch candidate nodes from store within time window
-        candidate_nodes: List[AttackNode] = []
-        if self.store.in_memory:
-            for node in self.store._nodes.values():
-                if (
-                    node.event.agent_id == agent_id
-                    and start_win <= node.event.timestamp <= end_win
-                ):
-                    candidate_nodes.append(node)
-        else:
-            # Query graph store
-            queried_paths = await self.store.query_paths(agent_id, (start_win, end_win), min_path_length)
-            # Reconstruct distinct nodes from returned paths
-            node_map: Dict[str, AttackNode] = {}
-            for path in queried_paths:
-                for node in path.nodes:
-                    node_map[node.node_id] = node
-            candidate_nodes = list(node_map.values())
-
-        # Sort candidate nodes by timestamp ASC
-        candidate_nodes.sort(key=lambda n: n.event.timestamp)
+        candidate_nodes = await self.store.query_nodes(agent_id, (start_win, end_win))
 
         # Requirement 3.6 & Property 19: Return empty list if events < min_path_length
         if len(candidate_nodes) < min_path_length:

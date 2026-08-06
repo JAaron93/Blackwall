@@ -263,26 +263,21 @@ class AttackGraphStore:
 
         return None
 
-    async def query_paths(
+    async def query_nodes(
         self,
         agent_id: str,
         time_window: Tuple[datetime, datetime],
-        min_path_length: int = 2,
-    ) -> List[AttackPath]:
-        """Query multi-hop attack paths for agent within specified time window."""
-        if min_path_length < 2:
-            raise ValueError("min_path_length must be at least 2")
-
+    ) -> List[AttackNode]:
+        """Fetch all AttackNodes for an agent within the specified time window."""
         start_time_win, end_time_win = time_window
 
-        # Fetch candidate nodes for agent in time window, ordered by timestamp ASC
-        candidate_nodes: List[AttackNode] = []
+        nodes_map: Dict[uuid.UUID, AttackNode] = {}
         for node in self._nodes.values():
             if (
                 node.event.agent_id == agent_id
                 and start_time_win <= node.event.timestamp <= end_time_win
             ):
-                candidate_nodes.append(node)
+                nodes_map[node.node_id] = node
 
         if self._pool:
             async with self._pool.acquire() as conn:
@@ -296,7 +291,6 @@ class AttackGraphStore:
                     start_time_win,
                     end_time_win,
                 )
-                db_nodes: List[AttackNode] = []
                 for row in rows:
                     ev = NormalizedEvent(
                         event_id=row["event_id"],
@@ -317,11 +311,23 @@ class AttackGraphStore:
                         outgoing_edges=out,
                     )
                     self._nodes[db_node.node_id] = db_node
-                    db_nodes.append(db_node)
-                if db_nodes:
-                    candidate_nodes = db_nodes
+                    nodes_map[db_node.node_id] = db_node
 
+        candidate_nodes = list(nodes_map.values())
         candidate_nodes.sort(key=lambda n: n.event.timestamp)
+        return candidate_nodes
+
+    async def query_paths(
+        self,
+        agent_id: str,
+        time_window: Tuple[datetime, datetime],
+        min_path_length: int = 2,
+    ) -> List[AttackPath]:
+        """Query multi-hop attack paths for agent within specified time window."""
+        if min_path_length < 2:
+            raise ValueError("min_path_length must be at least 2")
+
+        candidate_nodes = await self.query_nodes(agent_id, time_window)
 
         if len(candidate_nodes) < min_path_length:
             return []
