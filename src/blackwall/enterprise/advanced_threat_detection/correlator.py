@@ -48,6 +48,9 @@ class PathCorrelator:
         agent_id: str,
         time_window: Tuple[datetime, datetime],
         min_path_length: int = 2,
+        max_nodes: int = 500,
+        max_paths: int = 1000,
+        max_depth: int = 10,
     ) -> List[AttackPath]:
         """Correlate security events for an agent into multi-stage attack paths within a time window.
 
@@ -55,6 +58,9 @@ class PathCorrelator:
             agent_id: Identifier of agent to correlate paths for.
             time_window: Tuple of (start_time, end_time) UTC datetime filters.
             min_path_length: Minimum number of nodes required in an attack path (default 2).
+            max_nodes: Maximum candidate nodes to fetch and correlate (default 500).
+            max_paths: Maximum number of attack paths to materialize and return (default 1000).
+            max_depth: Maximum path depth during DFS traversal (default 10).
 
         Returns:
             List of AttackPath objects sorted by risk_score descending.
@@ -68,8 +74,8 @@ class PathCorrelator:
         end_win = validate_utc_datetime(end_raw)
 
 
-        # 1. Fetch candidate nodes from store within time window
-        candidate_nodes = await self.store.query_nodes(agent_id, (start_win, end_win))
+        # 1. Fetch candidate nodes from store within time window, up to max_nodes
+        candidate_nodes = await self.store.query_nodes(agent_id, (start_win, end_win), limit=max_nodes)
 
         # Requirement 3.6 & Property 19: Return empty list if events < min_path_length
         if len(candidate_nodes) < min_path_length:
@@ -82,6 +88,8 @@ class PathCorrelator:
         all_paths: List[List[AttackNode]] = []
 
         for start_node in candidate_nodes:
+            if len(all_paths) >= max_paths:
+                break
             self._dfs_path_search(
                 current_node=start_node,
                 current_path=[start_node],
@@ -89,6 +97,8 @@ class PathCorrelator:
                 min_path_length=min_path_length,
                 visited_in_path={start_node.node_id},
                 results=all_paths,
+                max_depth=max_depth,
+                max_results=max_paths,
             )
 
         # 4. Filter and construct AttackPath models with MITRE techniques & risk scores
@@ -131,7 +141,7 @@ class PathCorrelator:
 
         # 5. Order paths by risk_score descending (Requirement 3.5 & Property 18)
         attack_paths.sort(key=lambda p: p.risk_score, reverse=True)
-        return attack_paths
+        return attack_paths[:max_paths]
 
     def build_temporal_adjacency_graph(
         self, nodes: List[AttackNode]
@@ -151,6 +161,9 @@ class PathCorrelator:
                 if (0 <= delta_sec <= 300) or is_causal:
                     weight = self.compute_edge_weight(node_a, node_b)
                     adj[node_a.node_id].append((node_b, weight))
+                elif not node_a.outgoing_edges:
+                    # Non-causal node beyond 300s window cannot link to any subsequent node
+                    break
 
         return adj
 
@@ -230,13 +243,23 @@ class PathCorrelator:
         min_path_length: int,
         visited_in_path: Set[str],
         results: List[List[AttackNode]],
+        max_depth: int = 10,
+        max_results: int = 1000,
     ) -> None:
-        """Recursive DFS traversal to find all paths meeting min_path_length."""
+        """Recursive DFS traversal to find paths meeting min_path_length up to max_depth and max_results."""
+        if len(results) >= max_results:
+            return
+
         if len(current_path) >= min_path_length:
             results.append(list(current_path))
 
+        if len(current_path) >= max_depth:
+            return
+
         neighbors = adj_graph.get(current_node.node_id, [])
         for neighbor_node, _ in neighbors:
+            if len(results) >= max_results:
+                break
             if neighbor_node.node_id not in visited_in_path:
                 visited_in_path.add(neighbor_node.node_id)
                 current_path.append(neighbor_node)
@@ -248,6 +271,8 @@ class PathCorrelator:
                     min_path_length=min_path_length,
                     visited_in_path=visited_in_path,
                     results=results,
+                    max_depth=max_depth,
+                    max_results=max_results,
                 )
 
                 current_path.pop()

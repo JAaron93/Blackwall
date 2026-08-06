@@ -325,3 +325,49 @@ async def test_db_mode_non_adjacent_causal_edge_node_retrieval():
 
     assert len(paths) == 1
     assert [n.node_id for n in paths[0].nodes] == [node1_id, node3_id]
+
+
+@pytest.mark.asyncio
+async def test_dense_event_window_bounded_performance():
+    """Verify PathCorrelator completes quickly without CPU/memory exhaustion on a dense event window."""
+    import time
+    store = AttackGraphStore(in_memory=True)
+    await store.initialize()
+
+    agent_id = "dense-agent"
+    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
+
+    # Insert 150 events spaced 2 seconds apart within a 300-second window
+    for i in range(150):
+        ev = NormalizedEvent(
+            event_id=uuid.uuid4(),
+            timestamp=base_time + timedelta(seconds=i * 2),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id=agent_id,
+            action=f"action_{i % 5}",
+            target=f"target_{i % 3}",
+            risk_score=round(0.5 + (i % 50) * 0.01, 2),
+        )
+        await store.insert_event(ev)
+
+    correlator = PathCorrelator(store=store)
+
+    time_win = (base_time, base_time + timedelta(seconds=600))
+    t0 = time.perf_counter()
+    paths = await correlator.correlate_attack_paths(
+        agent_id,
+        time_win,
+        min_path_length=2,
+        max_nodes=100,
+        max_paths=200,
+        max_depth=5,
+    )
+    elapsed_ms = (time.perf_counter() - t0) * 1000.0
+
+    # Must complete cleanly in under 500ms
+    assert elapsed_ms < 500.0
+    # Must cap results to max_paths
+    assert len(paths) <= 200
+    # Must sort by risk_score descending
+    for i in range(len(paths) - 1):
+        assert paths[i].risk_score >= paths[i + 1].risk_score

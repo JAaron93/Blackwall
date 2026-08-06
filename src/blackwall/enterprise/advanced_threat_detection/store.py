@@ -278,6 +278,7 @@ class AttackGraphStore:
         self,
         agent_id: str,
         time_window: Tuple[datetime, datetime],
+        limit: Optional[int] = None,
     ) -> List[AttackNode]:
         """Fetch all AttackNodes for an agent within the specified time window."""
         start_time_win, end_time_win = time_window
@@ -292,12 +293,17 @@ class AttackGraphStore:
 
         if self._pool:
             async with self._pool.acquire() as conn:
-                rows = await conn.fetch(
-                    """
+                query = """
                     SELECT * FROM event_nodes
                     WHERE agent_id = $1 AND timestamp >= $2 AND timestamp <= $3
-                    ORDER BY timestamp ASC;
-                    """,
+                    ORDER BY timestamp ASC
+                """
+                if limit is not None:
+                    query += f" LIMIT {int(limit)}"
+                query += ";"
+
+                rows = await conn.fetch(
+                    query,
                     agent_id,
                     start_time_win,
                     end_time_win,
@@ -329,6 +335,8 @@ class AttackGraphStore:
 
         candidate_nodes = list(nodes_map.values())
         candidate_nodes.sort(key=lambda n: n.event.timestamp)
+        if limit is not None:
+            candidate_nodes = candidate_nodes[:limit]
         return candidate_nodes
 
     async def query_paths(
