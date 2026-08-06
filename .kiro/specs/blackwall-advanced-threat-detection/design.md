@@ -2017,9 +2017,12 @@ def weave_op_if_enabled(func):
 - **Hypothesis**: Property-based testing
 
 ### Weave Integration Dependencies
+
+These packages are declared as an optional extras group in `pyproject.toml` (`[project.optional-dependencies] weave`) because Weave is fully optional. Install with `pip install -e ".[weave]"` to enable evaluation tracking; omit the extra for environments where Weave is not needed.
+
 - **weave**: >= 0.50.0 - W&B Weave for evaluation tracking
 - **wandb**: >= 0.16.0 - Weights & Biases SDK for authentication
-- **pyyaml**: >= 6.0 - YAML scenario parsing
+- **pyyaml**: >= 6.0 - YAML scenario parsing (already in core dependencies)
 
 ### External Services
 - **Weights & Biases**: Cloud-based evaluation tracking (optional, supports offline mode)

@@ -719,6 +719,8 @@ The implementation follows a test-driven development approach with property-base
 
 - [ ] 22. Implement Weave Evaluation Tracking Integration
   - [ ] 22.1 Create Weave configuration and initialization infrastructure
+    - Add `weave>=0.50.0` and `wandb>=0.16.0` to the `[weave]` optional-dependencies group in `pyproject.toml` (install with `pip install -e ".[weave]"`; omit for non-Weave environments to avoid mandatory cloud-SDK dependencies)
+    - Register the `weave` custom marker in `pyproject.toml` under `[tool.pytest.ini_options].markers` to prevent `PytestUnknownMarkWarning` (required by project testing rules in `.agents/rules/testing_and_hygiene.md` rule 9)
     - Implement WeaveConfig dataclass with project_name, entity, offline_mode, parallelism, tags
     - Create `should_enable_weave()` with the following priority order:
       1. `WEAVE_DISABLED=true` → return False (highest priority, always wins)
@@ -726,7 +728,6 @@ The implementation follows a test-driven development approach with property-base
       3. `WANDB_API_KEY` set → return True (cloud sync with API key)
       4. netrc / config-file credentials found → return True (cloud sync via credential file)
       5. None of the above → return False
-    - Register the `weave` custom marker in `pyproject.toml` under `[tool.pytest.ini_options].markers` to prevent `PytestUnknownMarkWarning` (required by project testing rules in `.agents/rules/testing_and_hygiene.md` rule 9)
     - Implement graceful fallback when Weave credentials unavailable
     - Create weave_config.yaml parser for .kiro/evals/ directory
     - _Requirements: 16.1, 16.2, 16.13, 16.14, 18.1, 18.2, 18.3, 18.4, 18.6, 18.8_
