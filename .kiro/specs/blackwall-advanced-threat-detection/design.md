@@ -1314,9 +1314,14 @@ class WeaveEvaluationHarness:
         true_positives: int,
         false_positives: int,
         false_negatives: int,
+        true_negatives: int,
         detection_latency_ms: float
     ) -> Dict[str, float]:
-        """Compute and track precision, recall, F1, FPR"""
+        """Compute and track precision, recall, F1, FPR.
+        
+        FPR requires true_negatives: FPR = FP / (FP + TN).
+        All four confusion-matrix counts must be supplied by the caller.
+        """
         ...
 ```
 

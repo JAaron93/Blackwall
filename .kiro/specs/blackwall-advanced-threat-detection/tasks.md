@@ -738,8 +738,8 @@ The implementation follows a test-driven development approach with property-base
     - Create initialization with WeaveConfig, handling offline mode and parallelism
     - Implement `run_evaluation()` with @weave.op() decorator creating Weave runs
     - Add scenario name, timestamp, and tags to Weave run metadata
-    - Implement `track_detection_metrics()` computing precision, recall, F1, FPR
-    - _Requirements: 16.3, 16.8, 19.5_
+    - Implement `track_detection_metrics(detection_type, true_positives, false_positives, false_negatives, true_negatives, detection_latency_ms)` — all four confusion-matrix counts are required so that FPR = FP / (FP + TN) can be computed alongside precision, recall, and F1
+    - _Requirements: 16.3, 16.8, 17.1, 17.2, 17.3, 17.4, 17.5, 19.5_
     - _Verification: `pytest tests/unit/test_weave_harness.py -v`_
   
   - [ ] 22.3 Implement Weave traced wrappers for detection components
