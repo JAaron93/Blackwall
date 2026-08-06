@@ -1916,6 +1916,108 @@ expected_detections:
 
 ### Pytest Integration with Weave
 
+#### Collection-Time Skip Hook (`pytest_collection_modifyitems`)
+
+`tests/conftest.py` includes a `pytest_collection_modifyitems` hook and a `_weave_available()` helper that together handle the lifecycle of `@pytest.mark.weave` tests at collection time — before any test code runs. This replaces the previous approach of detecting availability inside each test.
+
+```python
+# tests/conftest.py  (collection-time skip hook)
+
+def _weave_available() -> bool:
+    """Return True if Weave is enabled and the weave package is importable.
+
+    Priority mirrors should_enable_weave() but also checks importability:
+    1. WEAVE_DISABLED=true → False (always wins)
+    2. WEAVE_OFFLINE=true  → True if weave package importable
+    3. WANDB_API_KEY set   → True if weave package importable
+    4. (none of the above) → False
+    """
+    import os
+    if os.getenv("WEAVE_DISABLED") == "true":
+        return False
+    if os.getenv("WEAVE_OFFLINE") == "true":
+        try:
+            import weave  # noqa: F401
+            return True
+        except ImportError:
+            return False
+    if os.getenv("WANDB_API_KEY"):
+        try:
+            import weave  # noqa: F401
+            return True
+        except ImportError:
+            return False
+    # No credentials and not offline — Weave not available
+    return False
+
+
+def pytest_collection_modifyitems(items: list) -> None:
+    """Auto-skip @pytest.mark.weave tests when Weave is unavailable.
+
+    Tests are collected but skipped with a clear reason rather than
+    failing with ImportError or producing misleading results. This
+    makes the marker description in pyproject.toml accurate: the
+    skip message instructs users to install the [weave] extra and
+    set the appropriate environment variable.
+    """
+    if _weave_available():
+        return  # Weave is active; nothing to skip
+
+    skip_reason = pytest.mark.skip(
+        reason=(
+            "Weave not available: set WANDB_API_KEY or WEAVE_OFFLINE=true "
+            "and ensure 'weave' is installed (pip install -e \".[weave]\"). "
+            "Set WEAVE_DISABLED=true to suppress this message entirely."
+        )
+    )
+    for item in items:
+        if item.get_closest_marker("weave"):
+            item.add_marker(skip_reason)
+```
+
+The `detector_suite` fixture reads `request.node.get_closest_marker("weave")` to determine whether to request traced wrappers:
+
+```python
+# tests/conftest.py  (detector_suite fixture)
+
+@pytest.fixture
+def detector_suite(request):
+    """Yield a DetectorSuite with traced or bare components based on the weave marker.
+
+    - @pytest.mark.weave tests: WeaveTraced* wrappers (when should_enable_weave() is True)
+    - All other tests: bare components, zero Weave overhead regardless of env vars
+
+    Marker state is read via request.node.get_closest_marker() — pytest's
+    stable public API. build_detector_suite() has no marker-detection logic.
+    """
+    try:
+        from blackwall.enterprise.advanced_threat_detection.weave_factory import (
+            build_detector_suite,
+        )
+        from blackwall.enterprise.advanced_threat_detection.correlator import PathCorrelator
+        from blackwall.enterprise.advanced_threat_detection.collector import EventStreamCollector
+        from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
+    except ImportError:
+        pytest.skip("Advanced threat detection components not yet implemented")
+        return
+
+    marked = request.node.get_closest_marker("weave") is not None
+    return build_detector_suite(
+        correlator=PathCorrelator(),
+        swarm_detector=None,   # placeholder until AgentSwarmDetector is implemented
+        ailm_tracker=None,
+        exploit_analyzer=None,
+        c2_detector=None,
+        force_traced=marked,
+    )
+```
+
+**Design invariants enforced by this pattern**:
+- `_weave_available()` and `should_enable_weave()` share the same priority logic (WEAVE_DISABLED → WEAVE_OFFLINE → WANDB_API_KEY → credentials); `_weave_available()` additionally checks package importability at the collection stage.
+- `@pytest.mark.weave` tests are **never silently executed without tracing** — they are either fully traced or cleanly skipped.
+- Tests without the marker receive bare components regardless of any environment variable; Weave has zero overhead for the rest of the test suite.
+- The `detector_suite` fixture uses `request.node.get_closest_marker()` — pytest's stable public API. There is no private-API marker detection anywhere in the production codebase.
+
 #### Evaluation Test Structure
 
 ```python
@@ -1977,6 +2079,7 @@ The Weave integration maintains full backward compatibility with the existing py
 3. **Fallback to Standard Pytest**: Tests without `@pytest.mark.weave` receive bare, undecorated components from `build_detector_suite()` regardless of env vars — zero Weave overhead guaranteed.
 4. **Existing Test Preservation**: All existing unit, integration, and property tests continue to work unchanged because they neither use the `detector_suite` fixture with the marker nor set `force_traced`.
 5. **Progressive Enhancement**: Weave features are additive and don't break existing workflows.
+6. **Collection-Time Skip via `pytest_collection_modifyitems`**: `@pytest.mark.weave` tests are auto-skipped at collection time (before any imports) when `_weave_available()` returns `False`. This prevents `ImportError` from surfacing as test failures and ensures the marker's pyproject.toml description remains accurate. The skip message instructs users to install `pip install -e ".[weave]"` and set `WANDB_API_KEY` or `WEAVE_OFFLINE=true`. Tests marked with `@pytest.mark.weave` are never silently run in a degraded state.
 
 #### Compatibility Implementation
 
