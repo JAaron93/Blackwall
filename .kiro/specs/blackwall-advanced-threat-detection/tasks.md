@@ -728,10 +728,15 @@ The implementation follows a test-driven development approach with property-base
 - [ ] 22. Implement Weave Evaluation Tracking Integration
   - [ ] 22.1 Create Weave configuration and initialization infrastructure
     - Implement WeaveConfig dataclass with project_name, entity, offline_mode, parallelism, tags
-    - Create `should_enable_weave()` function checking for WANDB_API_KEY and WEAVE_DISABLED env vars
+    - Create `should_enable_weave()` with the following priority order:
+      1. `WEAVE_DISABLED=true` → return False (highest priority, always wins)
+      2. `WEAVE_OFFLINE=true` → return True (offline mode; local trace storage, no credentials required)
+      3. `WANDB_API_KEY` set → return True (cloud sync with API key)
+      4. netrc / config-file credentials found → return True (cloud sync via credential file)
+      5. None of the above → return False
     - Implement graceful fallback when Weave credentials unavailable
     - Create weave_config.yaml parser for .kiro/evals/ directory
-    - _Requirements: 16.1, 16.2, 16.14, 18.1, 18.2, 18.3, 18.4, 18.8_
+    - _Requirements: 16.1, 16.2, 16.13, 16.14, 18.1, 18.2, 18.3, 18.4, 18.6, 18.8_
     - _Verification: `pytest tests/unit/test_weave_config.py -v`_
   
   - [ ] 22.2 Implement WeaveEvaluationHarness class
@@ -796,7 +801,9 @@ The implementation follows a test-driven development approach with property-base
     - Ensure tests without @pytest.mark.weave execute without Weave overhead
     - Verify existing unit, integration, property tests pass regardless of Weave config
     - Implement zero-overhead when Weave disabled
-    - _Requirements: 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 20.7, 20.8, 20.9, 20.10_
+    - Verify `WEAVE_OFFLINE=true` enables local tracing **without** requiring WANDB_API_KEY (credential-free offline path must not fall through to the disabled branch)
+    - Verify `WEAVE_DISABLED=true` takes precedence even when `WEAVE_OFFLINE=true` is also set
+    - _Requirements: 16.13, 18.4, 18.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 20.7, 20.8, 20.9, 20.10_
     - _Verification: `pytest tests/integration/test_weave_backward_compat.py -v`_
   
   - [ ] 22.9 Create Weave evaluation test suite

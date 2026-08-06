@@ -1734,9 +1734,20 @@ The Weave integration maintains full backward compatibility with the existing py
 ```python
 # Automatic Weave detection and graceful degradation
 def should_enable_weave() -> bool:
-    """Check if Weave should be enabled based on environment"""
+    """Check if Weave should be enabled based on environment.
+
+    Priority order (highest to lowest):
+    1. WEAVE_DISABLED=true  → always off, no tracing whatsoever
+    2. WEAVE_OFFLINE=true   → on, but stores traces locally; no cloud
+                              credentials required
+    3. WANDB_API_KEY set    → on with cloud sync
+    4. netrc / config creds → on with cloud sync
+    5. (none of the above)  → off
+    """
     if os.getenv("WEAVE_DISABLED") == "true":
         return False
+    if os.getenv("WEAVE_OFFLINE") == "true":
+        return True   # offline mode: local traces, no credentials needed
     if os.getenv("WANDB_API_KEY"):
         return True
     # Check for netrc or config file credentials
