@@ -1,0 +1,156 @@
+"""Unit tests for AgentSwarmDetector (Blackwall Pillar 6 Task 7)."""
+
+from datetime import datetime, timezone, timedelta
+import uuid
+import pytest
+
+from blackwall.enterprise.advanced_threat_detection import (
+    EventSource,
+    NormalizedEvent,
+    AttackGraphStore,
+    SwarmEvidence,
+)
+from blackwall.enterprise.advanced_threat_detection.swarm import AgentSwarmDetector
+
+
+def create_event(
+    agent_id: str = "agent-swarm-01",
+    action: str = "exec",
+    target: str = "/bin/bash",
+    offset_seconds: float = 0.0,
+    risk_score: float = 0.5,
+    source: EventSource = EventSource.KERNEL_SYSCALL,
+    metadata: dict = None,
+    base_time: datetime = None,
+) -> NormalizedEvent:
+    """Helper to create a UTC-aware NormalizedEvent."""
+    if base_time is None:
+        base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
+
+    return NormalizedEvent(
+        event_id=uuid.uuid4(),
+        timestamp=base_time + timedelta(seconds=offset_seconds),
+        source=source,
+        agent_id=agent_id,
+        action=action,
+        target=target,
+        metadata=metadata or {"ip": "192.168.1.100", "domain": "c2-domain.com"},
+        risk_score=risk_score,
+    )
+
+
+@pytest.mark.asyncio
+async def test_fingerprinting():
+    """Verify behavioral fingerprint generation using action sequence hashing (Subtask 7.1 / Req 4.1)."""
+    store = AttackGraphStore(in_memory=True)
+    await store.initialize()
+    detector = AgentSwarmDetector(store=store)
+
+    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
+
+    # Insert sequence of events for agent-1
+    e1 = create_event(agent_id="agent-1", action="read_config", target="/etc/app.conf", offset_seconds=10, base_time=base_time)
+    e2 = create_event(agent_id="agent-1", action="spawn_proc", target="/bin/sh", offset_seconds=20, base_time=base_time)
+    e3 = create_event(agent_id="agent-1", action="connect_net", target="10.0.0.1:8080", offset_seconds=30, base_time=base_time)
+
+    await store.insert_event(e1)
+    await store.insert_event(e2)
+    await store.insert_event(e3)
+
+    fp1 = await detector.fingerprint_agent("agent-1", window=3600, end_time=base_time + timedelta(seconds=60))
+    fp1_again = await detector.fingerprint_agent("agent-1", window=3600, end_time=base_time + timedelta(seconds=60))
+
+    assert isinstance(fp1, str)
+    assert len(fp1) == 64  # SHA-256 hex string
+    assert fp1 == fp1_again  # Deterministic / consistent
+
+    # Different agent with different action sequence must produce different hash
+    e4 = create_event(agent_id="agent-2", action="download", target="http://malicious.site", offset_seconds=15, base_time=base_time)
+    await store.insert_event(e4)
+    fp2 = await detector.fingerprint_agent("agent-2", window=3600, end_time=base_time + timedelta(seconds=60))
+
+    assert fp1 != fp2
+
+
+@pytest.mark.asyncio
+async def test_temporal_correlation():
+    """Verify temporal correlation analysis and swarm detection thresholds (Subtask 7.2 / Reqs 4.2, 4.3)."""
+    store = AttackGraphStore(in_memory=True)
+    await store.initialize()
+    detector = AgentSwarmDetector(store=store)
+
+    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
+
+    # Create 2 agents performing correlated actions closely in time
+    for offset in [0, 5, 10, 15]:
+        await store.insert_event(create_event(agent_id="agent-a", action="scan", target="192.168.1.1", offset_seconds=offset, base_time=base_time))
+        await store.insert_event(create_event(agent_id="agent-b", action="scan", target="192.168.1.1", offset_seconds=offset + 1, base_time=base_time))
+
+    time_win = (base_time, base_time + timedelta(seconds=60))
+    swarms = await detector.detect_swarms(time_win, min_agents=2, correlation_threshold=0.75)
+
+    assert len(swarms) >= 1
+    swarm = swarms[0]
+    assert isinstance(swarm, SwarmEvidence)
+    assert swarm.agent_ids == {"agent-a", "agent-b"}
+    assert swarm.temporal_correlation >= 0.75
+    assert len(swarm.agent_ids) >= 2
+
+
+@pytest.mark.asyncio
+async def test_shared_infrastructure():
+    """Verify shared IP, domain, and resource pattern detection across agents (Subtask 7.3 / Req 4.4)."""
+    store = AttackGraphStore(in_memory=True)
+    await store.initialize()
+    detector = AgentSwarmDetector(store=store)
+
+    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
+
+    # Both agents share IP 192.168.1.50 and domain evil.c2.org in metadata/target
+    e_a = create_event(
+        agent_id="agent-x",
+        action="exfil",
+        target="evil.c2.org",
+        metadata={"ip": "192.168.1.50", "domain": "evil.c2.org"},
+        offset_seconds=5,
+        base_time=base_time,
+    )
+    e_b = create_event(
+        agent_id="agent-y",
+        action="exfil",
+        target="evil.c2.org",
+        metadata={"ip": "192.168.1.50", "domain": "evil.c2.org"},
+        offset_seconds=6,
+        base_time=base_time,
+    )
+
+    await store.insert_event(e_a)
+    await store.insert_event(e_b)
+
+    time_win = (base_time, base_time + timedelta(seconds=60))
+    swarms = await detector.detect_swarms(time_win, min_agents=2, correlation_threshold=0.5)
+
+    assert len(swarms) >= 1
+    swarm = swarms[0]
+    assert len(swarm.shared_patterns) >= 1
+    assert any("192.168.1.50" in p or "evil.c2.org" in p for p in swarm.shared_patterns)
+
+
+@pytest.mark.asyncio
+async def test_coordination_score():
+    """Verify compute_coordination_score analysis and range [0.0, 1.0] (Subtask 7.4 / Reqs 4.5, 15.9)."""
+    store = AttackGraphStore(in_memory=True)
+    await store.initialize()
+    detector = AgentSwarmDetector(store=store)
+
+    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
+    time_win = (base_time, base_time + timedelta(seconds=60))
+
+    # Agents with identical actions at identical times -> high coordination score
+    for offset in [0, 5, 10]:
+        await store.insert_event(create_event(agent_id="agent-m", action="probe", target="target-srv", offset_seconds=offset, base_time=base_time))
+        await store.insert_event(create_event(agent_id="agent-n", action="probe", target="target-srv", offset_seconds=offset, base_time=base_time))
+
+    score = await detector.compute_coordination_score(["agent-m", "agent-n"], time_win)
+    assert 0.0 <= score <= 1.0
+    assert score >= 0.75

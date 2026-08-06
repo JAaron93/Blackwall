@@ -149,35 +149,35 @@ The implementation follows a test-driven development approach with property-base
   - Ensure all tests pass, ask the user if questions arise.
 
 
-- [ ] 7. Implement Agent Swarm Detector
-  - [ ] 7.1 Create AgentSwarmDetector class with behavioral fingerprinting
+- [x] 7. Implement Agent Swarm Detector
+  - [x] 7.1 Create AgentSwarmDetector class with behavioral fingerprinting
     - Implement `fingerprint_agent()` using action sequence hashing
     - Generate consistent fingerprints over configurable time windows (default 3600s)
     - _Requirements: 4.1_
     - _Verification: `pytest tests/unit/test_agent_swarm_detector.py::test_fingerprinting -v`_
   
-  - [ ] 7.2 Implement temporal correlation analysis
+  - [x] 7.2 Implement temporal correlation analysis
     - Create `detect_swarms()` with correlation threshold (default 0.75)
     - Compute temporal correlation between agent pairs
     - Identify groups with minimum agent count (default 2)
     - _Requirements: 4.2, 4.3_
     - _Verification: `pytest tests/unit/test_agent_swarm_detector.py::test_temporal_correlation -v`_
   
-  - [ ] 7.3 Implement shared infrastructure identification
+  - [x] 7.3 Implement shared infrastructure identification
     - Detect shared IP addresses across agents
     - Detect shared domains and resource patterns
     - Populate shared_patterns field in SwarmEvidence
     - _Requirements: 4.4_
     - _Verification: `pytest tests/unit/test_agent_swarm_detector.py::test_shared_infrastructure -v`_
   
-  - [ ] 7.4 Implement coordination score computation
+  - [x] 7.4 Implement coordination score computation
     - Create `compute_coordination_score()` analyzing temporal alignment
     - Analyze behavioral similarity between agents
     - Validate coordination_score range [0.0, 1.0]
     - _Requirements: 4.5, 15.9_
     - _Verification: `pytest tests/unit/test_agent_swarm_detector.py::test_coordination_score -v`_
   
-  - [ ]* 7.5 Write property tests for swarm detection
+  - [x]* 7.5 Write property tests for swarm detection
     - **Property 21: Behavioral Fingerprint Generation**
     - **Property 22: Swarm Correlation Threshold Enforcement**
     - **Property 23: Swarm Minimum Size Enforcement**
