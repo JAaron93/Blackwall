@@ -777,9 +777,13 @@ The implementation follows a test-driven development approach with property-base
   
   - [ ] 22.5 Implement Weave Dataset creation from YAML scenarios
     - Create `create_evaluation_dataset()` loading YAML files from scenarios directory
-    - Parse scenario fields: name, description, events, expected_detections
-    - Create Weave Dataset rows with scenario data
-    - Implement validation for malformed scenario files
+    - Parse and include all four required scenario fields: `name`, `description`, `events`, `expected_detections` — each Dataset row must contain all four
+    - Validate that `description` is a non-empty string; log a warning and skip the scenario if it is missing, empty, or not a string (do not raise — other valid scenarios must still load)
+    - Validate that `name`, `events`, and `expected_detections` are present and non-empty; log and skip on failure
+    - Write unit tests asserting:
+      - A fully-valid scenario produces a row containing `name`, `description`, `events`, and `expected_detections`
+      - A scenario missing `description` is skipped and logged; the remaining scenarios are loaded
+      - A scenario with a non-string or whitespace-only `description` is skipped and logged
     - Support attack_path, swarm, AILM, exploit_chain, C2, k8s, registry threat expectations
     - _Requirements: 19.1, 19.2, 19.3, 19.4, 19.7, 19.8, 19.9_
     - _Verification: `pytest tests/unit/test_weave_datasets.py -v`_

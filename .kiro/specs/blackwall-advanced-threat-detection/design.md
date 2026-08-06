@@ -1785,12 +1785,33 @@ def create_evaluation_dataset(scenario_dir: str) -> weave.Dataset:
     for scenario_file in Path(scenario_dir).glob("*.yaml"):
         with open(scenario_file) as f:
             scenario = yaml.safe_load(f)
+
+            # Validate required fields; log and skip on failure (Req 19.4).
+            missing = [f for f in ("name", "description", "events", "expected_detections")
+                       if not scenario.get(f)]
+            if missing:
+                logger.warning(
+                    "Skipping %s: missing or empty required fields: %s",
+                    scenario_file, missing,
+                )
+                continue
+
+            # description must be a non-empty string (Req 19.2).
+            description = scenario["description"]
+            if not isinstance(description, str) or not description.strip():
+                logger.warning(
+                    "Skipping %s: 'description' must be a non-empty string, got %r",
+                    scenario_file, description,
+                )
+                continue
+
             scenarios.append({
                 "name": scenario["name"],
+                "description": description,          # ← was missing
                 "events": scenario["events"],
-                "expected_detections": scenario["expected_detections"]
+                "expected_detections": scenario["expected_detections"],
             })
-    
+
     return weave.Dataset(
         name="atd-evaluation-scenarios",
         rows=scenarios
