@@ -1,6 +1,6 @@
 """Multi-Stage Attack Path Correlation component for Blackwall Advanced Threat Detection (Pillar 6 Task 5)."""
 
-from datetime import datetime, timezone
+from datetime import datetime
 import math
 import re
 from typing import Dict, List, Optional, Set, Tuple
@@ -10,7 +10,6 @@ from blackwall.enterprise.advanced_threat_detection.enums import EventSource
 from blackwall.enterprise.advanced_threat_detection.models import (
     AttackNode,
     AttackPath,
-    NormalizedEvent,
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 
@@ -100,7 +99,6 @@ class PathCorrelator:
 
         # 3. Depth-first search (DFS) for path enumeration
         all_paths: List[List[AttackNode]] = []
-        visited_nodes: Set[str] = set()
 
         for start_node in candidate_nodes:
             self._dfs_path_search(

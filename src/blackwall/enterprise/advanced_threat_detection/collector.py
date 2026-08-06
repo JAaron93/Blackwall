@@ -3,7 +3,6 @@
 import asyncio
 import inspect
 import logging
-import uuid
 from collections.abc import AsyncIterable, AsyncIterator, Callable
 from datetime import UTC, datetime
 from typing import Any

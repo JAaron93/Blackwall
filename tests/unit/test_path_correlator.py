@@ -8,7 +8,6 @@ from blackwall.enterprise.advanced_threat_detection import (
     EventSource,
     NormalizedEvent,
     AttackNode,
-    AttackPath,
     AttackGraphStore,
 )
 from blackwall.enterprise.advanced_threat_detection.correlator import PathCorrelator
