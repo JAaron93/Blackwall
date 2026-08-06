@@ -10,6 +10,7 @@ from pytest_bdd import given, scenarios, then, when
 from blackwall.enterprise.advanced_threat_detection.collector import (
     EventStreamCollector,
 )
+from blackwall.enterprise.advanced_threat_detection.correlator import PathCorrelator
 from blackwall.enterprise.advanced_threat_detection.enums import EventSource
 from blackwall.enterprise.advanced_threat_detection.models import (
     AttackNode,
@@ -32,6 +33,8 @@ class ATDBDDState:
         self.attack_path = None
         self.agent_ids = set()
         self.swarm_evidence = None
+        self.correlator_paths = None
+
 
 
 @pytest.fixture
@@ -352,3 +355,73 @@ def then_malformed_events_rejected(atd_state):
                 EventSource.TOOL_CALL, dummy_iter()
             ).__anext__()
         )
+
+
+# Scenario 6 steps (PathCorrelator)
+@given("an agent with a temporal sequence of security events")
+def given_agent_with_temporal_events(atd_state):
+    store = AttackGraphStore(in_memory=True)
+    run_async(store.initialize())
+    atd_state.store = store
+    atd_state.correlator = PathCorrelator(store=store)
+
+    agent_id = "agent-bdd-correlator"
+    now = datetime.now(UTC)
+
+    ev1 = NormalizedEvent(
+        event_id=str(uuid.uuid4()),
+        timestamp=now,
+        source=EventSource.KERNEL_SYSCALL,
+        agent_id=agent_id,
+        action="execve bash",
+        target="/bin/bash",
+        risk_score=0.4,
+    )
+    ev2 = NormalizedEvent(
+        event_id=str(uuid.uuid4()),
+        timestamp=now + timedelta(seconds=30),
+        source=EventSource.TOOL_CALL,
+        agent_id=agent_id,
+        action="sudo privilege elevate",
+        target="root",
+        risk_score=0.8,
+    )
+    ev3 = NormalizedEvent(
+        event_id=str(uuid.uuid4()),
+        timestamp=now + timedelta(seconds=60),
+        source=EventSource.IDENTITY_ACCESS,
+        agent_id=agent_id,
+        action="read token secret",
+        target="/var/run/secrets/kubernetes.io/serviceaccount/token",
+        risk_score=0.95,
+    )
+
+    run_async(store.insert_event(ev1))
+    run_async(store.insert_event(ev2))
+    run_async(store.insert_event(ev3))
+
+    atd_state.agent_id = agent_id
+    atd_state.time_window = (now - timedelta(seconds=10), now + timedelta(seconds=300))
+
+
+@when("the PathCorrelator correlates attack paths within the time window")
+def when_correlator_correlates_paths(atd_state):
+    atd_state.correlator_paths = run_async(
+        atd_state.correlator.correlate_attack_paths(
+            atd_state.agent_id, atd_state.time_window, min_path_length=2
+        )
+    )
+
+
+@then(
+    "correlated AttackPath instances are returned with valid risk scores, correlation scores, and mapped MITRE technique IDs"
+)
+def then_correlator_returns_valid_paths(atd_state):
+    assert len(atd_state.correlator_paths) >= 1
+    top_path = atd_state.correlator_paths[0]
+    assert 0.0 <= top_path.risk_score <= 1.0
+    assert 0.0 <= top_path.correlation_score <= 1.0
+    assert len(top_path.attack_stages) > 0
+    # MITRE technique IDs mapping check
+    assert any(tech in top_path.attack_stages for tech in ["T1059", "T1068", "T1552"])
+

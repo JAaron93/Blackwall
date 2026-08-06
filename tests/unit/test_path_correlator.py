@@ -191,3 +191,48 @@ async def test_risk_scoring():
     # Verify paths are sorted by risk_score descending
     risk_scores = [p.risk_score for p in paths]
     assert risk_scores == sorted(risk_scores, reverse=True)
+
+
+@pytest.mark.asyncio
+async def test_invalid_time_window_validation():
+    """Verify ValueError is raised when time_window has naive datetimes or end_time < start_time."""
+    correlator = PathCorrelator()
+    agent_id = "agent-time-win-val"
+    aware_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
+    naive_time = datetime(2026, 8, 5, 12, 0, 0)
+
+    # Test naive start_time
+    with pytest.raises(ValueError, match="timezone-aware"):
+        await correlator.correlate_attack_paths(agent_id, (naive_time, aware_time))
+
+    # Test naive end_time
+    with pytest.raises(ValueError, match="timezone-aware"):
+        await correlator.correlate_attack_paths(agent_id, (aware_time, naive_time))
+
+    # Test end_time < start_time
+    earlier_time = aware_time - timedelta(hours=1)
+    with pytest.raises(ValueError, match="end_time must be greater than or equal to start_time"):
+        await correlator.correlate_attack_paths(agent_id, (aware_time, earlier_time))
+
+
+@pytest.mark.asyncio
+async def test_unsorted_nodes_temporal_adjacency():
+    """Verify passing unsorted nodes to build_temporal_adjacency_graph does not create negative delta edges."""
+    correlator = PathCorrelator()
+    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
+
+    # Node 1 is at T+600s, Node 2 is at T+0s
+    node_late = create_node(create_event(offset_seconds=600.0, base_time=base_time), node_id="node-late")
+    node_early = create_node(create_event(offset_seconds=0.0, base_time=base_time), node_id="node-early")
+
+    # Pass unsorted nodes list [node_late, node_early]
+    adj_graph = correlator.build_temporal_adjacency_graph([node_late, node_early])
+
+    # node_late occurs 600s after node_early (> 300s). No edge from node_early to node_late.
+    neighbors_early = [target.node_id for target, _ in adj_graph["node-early"]]
+    assert "node-late" not in neighbors_early
+
+    # No reverse-time edge from node_late to node_early either
+    neighbors_late = [target.node_id for target, _ in adj_graph["node-late"]]
+    assert "node-early" not in neighbors_late
+

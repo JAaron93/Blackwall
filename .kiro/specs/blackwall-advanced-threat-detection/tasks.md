@@ -125,7 +125,7 @@ The implementation follows a test-driven development approach with property-base
     - Populate attack_stages field in AttackPath
     - Validate all technique IDs against MITRE database
     - _Requirements: 2.8, 3.7_
-    - _Verification: `pytest tests/unit/test_mitre_mapping -v`_
+    - _Verification: `pytest tests/unit/test_path_correlator.py::test_mitre_mapping -v`_
   
   - [x] 5.4 Implement risk scoring and path ranking
     - Compute aggregate risk_score for paths

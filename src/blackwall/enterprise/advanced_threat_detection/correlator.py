@@ -15,6 +15,9 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 
 
+from blackwall.validators import validate_utc_datetime
+
+
 # MITRE ATT&CK technique mapping patterns
 MITRE_PATTERNS: List[Tuple[re.Pattern, str]] = [
     (re.compile(r"command|exec|script|bash|sh|python|powershell|cmd", re.IGNORECASE), "T1059"),
@@ -60,7 +63,12 @@ class PathCorrelator:
         if min_path_length < 2:
             raise ValueError("min_path_length must be at least 2")
 
-        start_win, end_win = time_window
+        start_raw, end_raw = time_window
+        start_win = validate_utc_datetime(start_raw)
+        end_win = validate_utc_datetime(end_raw)
+
+        if end_win < start_win:
+            raise ValueError("end_time must be greater than or equal to start_time")
 
         # 1. Fetch candidate nodes from store within time window
         candidate_nodes: List[AttackNode] = []
@@ -73,7 +81,7 @@ class PathCorrelator:
                     candidate_nodes.append(node)
         else:
             # Query graph store
-            queried_paths = await self.store.query_paths(agent_id, time_window, min_path_length)
+            queried_paths = await self.store.query_paths(agent_id, (start_win, end_win), min_path_length)
             # Reconstruct distinct nodes from returned paths
             node_map: Dict[str, AttackNode] = {}
             for path in queried_paths:
@@ -151,19 +159,22 @@ class PathCorrelator:
         self, nodes: List[AttackNode]
     ) -> Dict[str, List[Tuple[AttackNode, float]]]:
         """Build temporal adjacency graph where edges exist iff nodes occur <= 5 minutes apart or have causal edge."""
-        adj: Dict[str, List[Tuple[AttackNode, float]]] = {n.node_id: [] for n in nodes}
+        sorted_nodes = sorted(nodes, key=lambda n: n.event.timestamp)
+        adj: Dict[str, List[Tuple[AttackNode, float]]] = {n.node_id: [] for n in sorted_nodes}
 
-        for i, node_a in enumerate(nodes):
-            for node_b in nodes[i + 1 :]:
+        for i, node_a in enumerate(sorted_nodes):
+            for node_b in sorted_nodes[i + 1 :]:
                 delta_sec = (node_b.event.timestamp - node_a.event.timestamp).total_seconds()
 
                 # Causal edge check
                 is_causal = any(e in node_a.outgoing_edges for e in node_b.incoming_edges)
 
                 # Property 15 / Requirement 3.2: Edge exists iff within 5 minutes (300s) or causal
-                if delta_sec <= 300 or is_causal:
+                if (0 <= delta_sec <= 300) or is_causal:
                     weight = self.compute_edge_weight(node_a, node_b)
                     adj[node_a.node_id].append((node_b, weight))
+
+        return adj
 
         return adj
 
