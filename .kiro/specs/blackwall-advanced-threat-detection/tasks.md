@@ -817,13 +817,13 @@ The implementation follows a test-driven development approach with property-base
   
   - [ ] 22.9 Create Weave evaluation test suite and detector factory
     - Implement `build_detector_suite()` factory in `src/blackwall/enterprise/advanced_threat_detection/weave_factory.py`:
-      - Accept bare component instances + optional `force_traced` flag
-      - Gate traced-wrapper construction on `should_enable_weave() and (_test_is_weave_marked() or force_traced)`
+      - Accept bare component instances + `force_traced: bool = False` flag
+      - Gate traced-wrapper construction on `should_enable_weave() and force_traced` — no internal marker detection; callers are responsible for passing the correct value
       - Return a `DetectorSuite` dataclass whose members are either bare components or `WeaveTraced*` wrappers
       - This is the **only** code path allowed to instantiate `WeaveTraced*` classes
-    - Implement `_test_is_weave_marked()` helper that reads the currently-running pytest item's markers (returns `False` outside pytest)
+    - Do **not** implement `_test_is_weave_marked()` — marker detection belongs exclusively in the `detector_suite` fixture via `request.node.get_closest_marker("weave")`
     - Add `detector_suite` fixture to `tests/conftest.py`:
-      - Uses `request.node.get_closest_marker("weave")` to detect the marker
+      - Reads `marked = request.node.get_closest_marker("weave") is not None` using pytest's public `request` API
       - Calls `build_detector_suite(..., force_traced=marked)`
       - Yields bare components for unmarked tests (zero Weave overhead regardless of env vars)
       - Yields traced wrappers for `@pytest.mark.weave` tests (when `should_enable_weave()` is also True)

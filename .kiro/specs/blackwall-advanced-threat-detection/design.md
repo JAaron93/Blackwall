@@ -1387,29 +1387,13 @@ class WeaveTracedAILMTracker:
 
 #### Component 2a: WeaveDetectorFactory
 
-**Purpose**: Centralized factory that reads both `should_enable_weave()` and the pytest `weave` marker to decide whether to return traced or undecorated detector instances. This is the single decision point that enforces marker-based opt-in — no other code path should construct `WeaveTraced*` wrappers directly.
+**Purpose**: Centralized factory that constructs either traced or undecorated detector instances based on an explicit `force_traced` flag supplied by the caller. This is the single decision point for `WeaveTraced*` wrapper construction — no other code path should instantiate them directly.
+
+Marker detection is **not** the factory's responsibility. The `detector_suite` pytest fixture (see below) reads `request.node.get_closest_marker("weave")` and passes the result as `force_traced=True/False`. Production callsites pass `force_traced=False`. This keeps the factory free of pytest internals and eliminates any risk of silent fallback due to marker-detection failure.
 
 **Interface**:
 ```python
-import pytest
 from typing import Union
-
-def _test_is_weave_marked() -> bool:
-    """Return True if the currently-running pytest item carries @pytest.mark.weave.
-    
-    Falls back to False outside of a pytest session (e.g., production runtime).
-    """
-    try:
-        # pytest stores the current item on the worker thread via a plugin;
-        # _pytest.config.get_plugin_manager() is stable across pytest >= 7.
-        import _pytest.config
-        manager = _pytest.config.get_plugin_manager()
-        current_item = manager.get_plugin("current_item")
-        if current_item is None:
-            return False
-        return current_item.get_closest_marker("weave") is not None
-    except Exception:
-        return False
 
 def build_detector_suite(
     correlator: PathCorrelator,
@@ -1420,14 +1404,18 @@ def build_detector_suite(
     *,
     force_traced: bool = False,
 ) -> "DetectorSuite":
-    """Return traced wrappers when Weave is active AND the test is marked,
-    or when force_traced=True (e.g. explicit programmatic opt-in).
-    Unmarked tests and disabled-Weave paths always receive bare components.
-    
-    Decision logic:
-      traced = should_enable_weave() and (_test_is_weave_marked() or force_traced)
+    """Return traced wrappers when Weave is active AND force_traced=True.
+    Return bare components in all other cases.
+
+    Decision logic (explicit, no hidden fallback):
+      traced = should_enable_weave() and force_traced
+
+    Callers are responsible for providing force_traced:
+    - pytest: detector_suite fixture sets force_traced=marked
+              where marked = request.node.get_closest_marker("weave") is not None
+    - production: always pass force_traced=False (default)
     """
-    traced = should_enable_weave() and (_test_is_weave_marked() or force_traced)
+    traced = should_enable_weave() and force_traced
     if traced:
         return DetectorSuite(
             path_correlator=WeaveTracedPathCorrelator(correlator),
@@ -1471,7 +1459,14 @@ def detector_suite(
 ):
     """Fixture that yields traced wrappers for @pytest.mark.weave tests,
     and bare components for all other tests. Zero Weave overhead for
-    unmarked tests regardless of environment variables."""
+    unmarked tests regardless of environment variables.
+
+    Marker state is read directly from pytest's request object —
+    the only reliable, public API for this. build_detector_suite()
+    receives the result as force_traced and has no marker-detection
+    logic of its own, so tracing can never silently disable due to
+    a marker-lookup failure.
+    """
     marked = request.node.get_closest_marker("weave") is not None
     return build_detector_suite(
         path_correlator,
@@ -1485,7 +1480,8 @@ def detector_suite(
 
 **Responsibilities**:
 - Be the **sole** construction path for `WeaveTraced*` wrappers — no test or component should instantiate them directly
-- Gate tracing on both `should_enable_weave()` and the pytest `weave` marker (or explicit `force_traced`)
+- Accept `force_traced` from the caller; never perform its own marker detection
+- Gate tracing on `should_enable_weave() and force_traced` — explicit, no hidden fallback
 - Guarantee zero Weave overhead for unmarked tests and disabled-Weave environments
 - Expose a `DetectorSuite` container so call-sites remain type-safe regardless of which variant is active
 
@@ -1976,8 +1972,8 @@ async def test_eval_agent_swarm_detection(weave_harness):
 
 The Weave integration maintains full backward compatibility with the existing pytest-based evaluation infrastructure:
 
-1. **Optional Weave Activation**: Weave tracing is activated only when `should_enable_weave()` returns `True` **and** the test carries `@pytest.mark.weave` (or `force_traced=True` is passed to the factory). Environment variables alone are insufficient — the marker is always required for pytest-driven tracing.
-2. **Single construction gate**: All `WeaveTraced*` wrapper instantiation flows through `build_detector_suite()` in `weave_factory.py`. Tests use the `detector_suite` fixture from `conftest.py`; production code calls the factory directly with `force_traced=False`.
+1. **Optional Weave Activation**: Weave tracing is activated only when `should_enable_weave()` returns `True` **and** `force_traced=True` is passed to the factory. The `detector_suite` fixture sets `force_traced` by reading `request.node.get_closest_marker("weave")` — the only public pytest API for this. There is no private-API marker detection inside the factory.
+2. **Single construction gate**: All `WeaveTraced*` wrapper instantiation flows through `build_detector_suite()` in `weave_factory.py`. The factory's decision is `traced = should_enable_weave() and force_traced` — explicit, with no hidden fallback path. Tests use the `detector_suite` fixture; production code calls the factory with `force_traced=False` (default).
 3. **Fallback to Standard Pytest**: Tests without `@pytest.mark.weave` receive bare, undecorated components from `build_detector_suite()` regardless of env vars — zero Weave overhead guaranteed.
 4. **Existing Test Preservation**: All existing unit, integration, and property tests continue to work unchanged because they neither use the `detector_suite` fixture with the marker nor set `force_traced`.
 5. **Progressive Enhancement**: Weave features are additive and don't break existing workflows.
