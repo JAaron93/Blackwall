@@ -93,25 +93,33 @@ def _has_wandb_credentials() -> bool:
 
     Mirrors the 4th enablement path in should_enable_weave():
     netrc (~/.netrc, host api.wandb.ai) or W&B config file (~/.config/wandb/settings).
-    Returns True if either source contains a usable API key.
+    Returns True only when a non-empty, non-placeholder API key value is found.
     """
     import netrc
     import pathlib
 
-    # netrc check
+    # netrc check — authenticators() returns (login, account, password); password is the key
     try:
         creds = netrc.netrc()
-        if creds.authenticators("api.wandb.ai"):
+        auth = creds.authenticators("api.wandb.ai")
+        if auth and auth[2] and auth[2].strip():
             return True
     except (FileNotFoundError, netrc.NetrcParseError, OSError):
         pass
 
-    # W&B config file check (wandb >= 0.12 stores api_key in settings)
+    # W&B config file check (wandb >= 0.12 stores api_key in INI-style settings)
+    # Parse with configparser to avoid false-positives from commented lines or
+    # empty values (e.g. "api_key =", "# api_key = ...", "api_key = None").
     settings_path = pathlib.Path.home() / ".config" / "wandb" / "settings"
     try:
         if settings_path.exists():
-            content = settings_path.read_text()
-            return "api_key" in content
+            import configparser
+            parser = configparser.ConfigParser()
+            parser.read(settings_path)
+            for section in parser.sections():
+                val = parser.get(section, "api_key", fallback="")
+                if val.strip() and val.strip().lower() not in ("none", "null", '""', "''"):
+                    return True
     except OSError:
         pass
 
