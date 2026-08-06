@@ -154,8 +154,6 @@ class PathCorrelator:
 
         return adj
 
-        return adj
-
     def compute_edge_weight(self, node_a: AttackNode, node_b: AttackNode) -> float:
         """Compute edge weight in [0.0, 1.0] based on temporal proximity and semantic relationship."""
         delta_sec = max(0.0, (node_b.event.timestamp - node_a.event.timestamp).total_seconds())
