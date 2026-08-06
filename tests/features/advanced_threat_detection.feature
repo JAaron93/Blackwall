@@ -32,4 +32,10 @@ Feature: Blackwall Advanced Threat Detection Pillar Data Validation
     Then each event is normalized with UUID v4 ID, UTC timestamp, and pillar source enum
     And malformed events or non-callable reconnect attempts are rejected cleanly
 
+  Scenario: Path Correlator multi-stage attack path correlation and MITRE mapping
+    Given an agent with a temporal sequence of security events
+    When the PathCorrelator correlates attack paths within the time window
+    Then correlated AttackPath instances are returned with valid risk scores, correlation scores, and mapped MITRE technique IDs
+
+
 

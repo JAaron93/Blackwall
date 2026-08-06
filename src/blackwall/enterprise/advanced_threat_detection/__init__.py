@@ -24,6 +24,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 from blackwall.enterprise.advanced_threat_detection.collector import (
     EventStreamCollector,
 )
+from blackwall.enterprise.advanced_threat_detection.correlator import PathCorrelator
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection")
@@ -42,5 +43,7 @@ __all__ = [
     "RegistryThreatEvidence",
     "AttackGraphStore",
     "EventStreamCollector",
+    "PathCorrelator",
     "logger",
 ]
+

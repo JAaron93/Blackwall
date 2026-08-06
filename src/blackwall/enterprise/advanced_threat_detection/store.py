@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 import json
 import logging
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import uuid
 
 import asyncpg
@@ -14,6 +14,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     AttackPath,
     NormalizedEvent,
 )
+from blackwall.validators import validate_uuid_v4_format
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.store")
 
@@ -37,7 +38,7 @@ class AttackGraphStore:
         self.max_pool_size = max_pool_size
 
         # In-memory backing structures (used when in_memory=True or as local cache/fallback)
-        self._nodes: Dict[str, AttackNode] = {}
+        self._nodes: Dict[uuid.UUID, AttackNode] = {}
         self._edges: List[Dict[str, Any]] = []  # edge_id, from_node, to_node, relationship, created_at
         self._initialized = False
 
@@ -151,8 +152,8 @@ class AttackGraphStore:
                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10::jsonb, $11::jsonb)
                     ON CONFLICT (node_id) DO NOTHING;
                     """,
-                    node_id,
-                    event.event_id,
+                    str(node_id),
+                    str(event.event_id),
                     event.timestamp,
                     event.source.value if hasattr(event.source, "value") else str(event.source),
                     event.agent_id,
@@ -169,21 +170,27 @@ class AttackGraphStore:
 
     async def link_events(
         self,
-        from_node: str,
-        to_node: str,
+        from_node: Union[uuid.UUID, str],
+        to_node: Union[uuid.UUID, str],
         relationship: str,
     ) -> None:
         """Create directed causal edge between from_node and to_node."""
-        if from_node not in self._nodes or to_node not in self._nodes:
+        from_uuid = validate_uuid_v4_format(from_node)
+        to_uuid = validate_uuid_v4_format(to_node)
+
+        if from_uuid not in self._nodes or to_uuid not in self._nodes:
             # If not in cache, try fetching from pool if available
             if self._pool:
-                await self.get_node(from_node)
-                await self.get_node(to_node)
+                await self.get_node(from_uuid)
+                await self.get_node(to_uuid)
 
-        if from_node not in self._nodes or to_node not in self._nodes:
+        if from_uuid not in self._nodes or to_uuid not in self._nodes:
             raise ValueError(f"Cannot link non-existent nodes: {from_node} -> {to_node}")
 
-        edge_id = str(uuid.uuid4())
+        edge_id = uuid.uuid4()
+        edge_id_str = str(edge_id)
+        from_node_str = str(from_uuid)
+        to_node_str = str(to_uuid)
         created_at = datetime.now(timezone.utc)
 
         # Database persistence inside atomic transaction first
@@ -195,26 +202,26 @@ class AttackGraphStore:
                         INSERT INTO causal_edges (edge_id, from_node, to_node, relationship, created_at)
                         VALUES ($1, $2, $3, $4, $5);
                         """,
-                        edge_id,
-                        from_node,
-                        to_node,
+                        edge_id_str,
+                        from_node_str,
+                        to_node_str,
                         relationship,
                         created_at,
                     )
                     await conn.execute(
                         "UPDATE event_nodes SET outgoing_edges = outgoing_edges || $1::jsonb WHERE node_id = $2;",
-                        json.dumps([edge_id]),
-                        from_node,
+                        json.dumps([edge_id_str]),
+                        from_node_str,
                     )
                     await conn.execute(
                         "UPDATE event_nodes SET incoming_edges = incoming_edges || $1::jsonb WHERE node_id = $2;",
-                        json.dumps([edge_id]),
-                        to_node,
+                        json.dumps([edge_id_str]),
+                        to_node_str,
                     )
 
         # Update in-memory node structures only after DB write succeeds (or in in-memory mode)
-        src_node = self._nodes[from_node]
-        tgt_node = self._nodes[to_node]
+        src_node = self._nodes[from_uuid]
+        tgt_node = self._nodes[to_uuid]
 
         if edge_id not in src_node.outgoing_edges:
             src_node.outgoing_edges.append(edge_id)
@@ -223,21 +230,39 @@ class AttackGraphStore:
 
         edge_record = {
             "edge_id": edge_id,
-            "from_node": from_node,
-            "to_node": to_node,
+            "from_node": from_uuid,
+            "to_node": to_uuid,
             "relationship": relationship,
             "created_at": created_at,
         }
         self._edges.append(edge_record)
 
-    async def get_node(self, node_id: str) -> Optional[AttackNode]:
+    def _parse_edge_uuids(self, raw_edges: Any) -> List[uuid.UUID]:
+        """Safely parse edge UUIDs from DB JSON/list, logging warnings for malformed entries."""
+        if not raw_edges:
+            return []
+        edge_list = json.loads(raw_edges) if isinstance(raw_edges, str) else raw_edges
+        if not isinstance(edge_list, list):
+            return []
+
+        valid_edges: List[uuid.UUID] = []
+        for item in edge_list:
+            try:
+                valid_edges.append(validate_uuid_v4_format(item))
+            except (ValueError, TypeError) as exc:
+                logger.warning("Skipping malformed edge UUID '%s' from DB record: %s", item, exc)
+        return valid_edges
+
+    async def get_node(self, node_id: Union[uuid.UUID, str]) -> Optional[AttackNode]:
         """Retrieve AttackNode by node_id."""
-        if node_id in self._nodes:
-            return self._nodes[node_id]
+        node_uuid = validate_uuid_v4_format(node_id)
+
+        if node_uuid in self._nodes:
+            return self._nodes[node_uuid]
 
         if self._pool:
             async with self._pool.acquire() as conn:
-                row = await conn.fetchrow("SELECT * FROM event_nodes WHERE node_id = $1;", node_id)
+                row = await conn.fetchrow("SELECT * FROM event_nodes WHERE node_id = $1;", str(node_uuid))
                 if row:
                     event = NormalizedEvent(
                         event_id=row["event_id"],
@@ -249,8 +274,8 @@ class AttackGraphStore:
                         metadata=json.loads(row["metadata"]) if isinstance(row["metadata"], str) else row["metadata"],
                         risk_score=row["risk_score"],
                     )
-                    inc = json.loads(row["incoming_edges"]) if isinstance(row["incoming_edges"], str) else row["incoming_edges"]
-                    out = json.loads(row["outgoing_edges"]) if isinstance(row["outgoing_edges"], str) else row["outgoing_edges"]
+                    inc = self._parse_edge_uuids(row["incoming_edges"])
+                    out = self._parse_edge_uuids(row["outgoing_edges"])
 
                     node = AttackNode(
                         node_id=row["node_id"],
@@ -258,40 +283,36 @@ class AttackGraphStore:
                         incoming_edges=inc,
                         outgoing_edges=out,
                     )
-                    self._nodes[node_id] = node
+                    self._nodes[node.node_id] = node
                     return node
 
         return None
 
-    async def query_paths(
+    async def query_nodes(
         self,
         agent_id: str,
         time_window: Tuple[datetime, datetime],
-        min_path_length: int = 2,
-    ) -> List[AttackPath]:
-        """Query multi-hop attack paths for agent within specified time window."""
-        if min_path_length < 2:
-            raise ValueError("min_path_length must be at least 2")
+        limit: Optional[int] = None,
+    ) -> List[AttackNode]:
+        """Fetch all AttackNodes for an agent within the specified time window."""
+        if limit is not None and limit <= 0:
+            raise ValueError("limit must be positive")
 
         start_time_win, end_time_win = time_window
 
-        # Fetch candidate nodes for agent in time window, ordered by timestamp ASC
-        candidate_nodes: List[AttackNode] = []
-        for node in self._nodes.values():
-            if (
-                node.event.agent_id == agent_id
-                and start_time_win <= node.event.timestamp <= end_time_win
-            ):
-                candidate_nodes.append(node)
-
         if self._pool:
             async with self._pool.acquire() as conn:
-                rows = await conn.fetch(
-                    """
+                query = """
                     SELECT * FROM event_nodes
                     WHERE agent_id = $1 AND timestamp >= $2 AND timestamp <= $3
-                    ORDER BY timestamp ASC;
-                    """,
+                    ORDER BY timestamp ASC
+                """
+                if limit is not None:
+                    query += f" LIMIT {int(limit)}"
+                query += ";"
+
+                rows = await conn.fetch(
+                    query,
                     agent_id,
                     start_time_win,
                     end_time_win,
@@ -308,20 +329,44 @@ class AttackGraphStore:
                         metadata=json.loads(row["metadata"]) if isinstance(row["metadata"], str) else row["metadata"],
                         risk_score=row["risk_score"],
                     )
-                    inc = json.loads(row["incoming_edges"]) if isinstance(row["incoming_edges"], str) else row["incoming_edges"]
-                    out = json.loads(row["outgoing_edges"]) if isinstance(row["outgoing_edges"], str) else row["outgoing_edges"]
+                    inc = self._parse_edge_uuids(row["incoming_edges"])
+                    out = self._parse_edge_uuids(row["outgoing_edges"])
+
                     db_node = AttackNode(
                         node_id=row["node_id"],
                         event=ev,
                         incoming_edges=inc,
                         outgoing_edges=out,
                     )
-                    self._nodes[db_node.node_id] = db_node
                     db_nodes.append(db_node)
-                if db_nodes:
-                    candidate_nodes = db_nodes
+                return db_nodes
 
+        # In-memory mode (self._pool is None)
+        nodes_map: Dict[uuid.UUID, AttackNode] = {}
+        for node in self._nodes.values():
+            if (
+                node.event.agent_id == agent_id
+                and start_time_win <= node.event.timestamp <= end_time_win
+            ):
+                nodes_map[node.node_id] = node
+
+        candidate_nodes = list(nodes_map.values())
         candidate_nodes.sort(key=lambda n: n.event.timestamp)
+        if limit is not None:
+            candidate_nodes = candidate_nodes[:limit]
+        return candidate_nodes
+
+    async def query_paths(
+        self,
+        agent_id: str,
+        time_window: Tuple[datetime, datetime],
+        min_path_length: int = 2,
+    ) -> List[AttackPath]:
+        """Query multi-hop attack paths for agent within specified time window."""
+        if min_path_length < 2:
+            raise ValueError("min_path_length must be at least 2")
+
+        candidate_nodes = await self.query_nodes(agent_id, time_window)
 
         if len(candidate_nodes) < min_path_length:
             return []
@@ -352,7 +397,7 @@ class AttackGraphStore:
 
     def _build_attack_path(self, agent_id: str, nodes: List[AttackNode]) -> AttackPath:
         """Helper to create valid AttackPath object from list of nodes."""
-        path_id = str(uuid.uuid4())
+        path_id = uuid.uuid4()
         start_time = nodes[0].event.timestamp
         end_time = nodes[-1].event.timestamp
 

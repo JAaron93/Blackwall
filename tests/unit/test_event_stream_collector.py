@@ -92,8 +92,8 @@ async def test_normalization():
     assert isinstance(norm, NormalizedEvent)
 
     # UUID v4 check
-    parsed_uuid = uuid.UUID(norm.event_id)
-    assert parsed_uuid.version == 4
+    assert isinstance(norm.event_id, uuid.UUID)
+    assert norm.event_id.version == 4
 
     # UTC timestamp check
     assert norm.timestamp.tzinfo is not None

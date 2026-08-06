@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone, timedelta
 import uuid
+from typing import Union
 
 import pytest
 from pydantic import ValidationError
@@ -24,14 +25,14 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 
 
 def create_valid_event(
-    event_id: str = None,
+    event_id: Union[str, uuid.UUID] = None,
     timestamp: datetime = None,
     agent_id: str = "agent-007",
     risk_score: float = 0.5,
 ) -> NormalizedEvent:
     """Helper function to create a valid NormalizedEvent."""
     return NormalizedEvent(
-        event_id=event_id or str(uuid.uuid4()),
+        event_id=event_id or uuid.uuid4(),
         timestamp=timestamp or datetime.now(timezone.utc),
         source=EventSource.KERNEL_SYSCALL,
         agent_id=agent_id,
@@ -94,8 +95,9 @@ def test_normalized_event_risk_score_bounds():
 def test_attack_node_valid():
     """Test AttackNode construction."""
     event = create_valid_event()
-    node = AttackNode(node_id="node-1", event=event)
-    assert node.node_id == "node-1"
+    node_id = uuid.uuid4()
+    node = AttackNode(node_id=node_id, event=event)
+    assert node.node_id == node_id
     assert node.incoming_edges == []
     assert node.outgoing_edges == []
 
@@ -105,11 +107,12 @@ def test_attack_path_valid():
     now = datetime.now(timezone.utc)
     event1 = create_valid_event(timestamp=now)
     event2 = create_valid_event(timestamp=now + timedelta(seconds=10))
-    node1 = AttackNode(node_id="n1", event=event1)
-    node2 = AttackNode(node_id="n2", event=event2)
+    node1 = AttackNode(node_id=uuid.uuid4(), event=event1)
+    node2 = AttackNode(node_id=uuid.uuid4(), event=event2)
+    path_id = uuid.uuid4()
 
     path = AttackPath(
-        path_id="path-1",
+        path_id=path_id,
         agent_id="agent-007",
         nodes=[node1, node2],
         start_time=now,
@@ -120,16 +123,17 @@ def test_attack_path_valid():
     )
     assert len(path.nodes) == 2
     assert path.end_time >= path.start_time
+    assert path.path_id == path_id
 
 
 def test_attack_path_min_nodes_validation():
     """Test AttackPath raises ValidationError when nodes count is less than 2."""
     now = datetime.now(timezone.utc)
-    node = AttackNode(node_id="n1", event=create_valid_event())
+    node = AttackNode(node_id=uuid.uuid4(), event=create_valid_event())
 
     with pytest.raises(ValidationError):
         AttackPath(
-            path_id="path-1",
+            path_id=uuid.uuid4(),
             agent_id="agent-007",
             nodes=[node],
             start_time=now,
@@ -142,12 +146,12 @@ def test_attack_path_min_nodes_validation():
 def test_attack_path_temporal_ordering_validation():
     """Test AttackPath raises ValidationError when end_time < start_time."""
     now = datetime.now(timezone.utc)
-    node1 = AttackNode(node_id="n1", event=create_valid_event())
-    node2 = AttackNode(node_id="n2", event=create_valid_event())
+    node1 = AttackNode(node_id=uuid.uuid4(), event=create_valid_event())
+    node2 = AttackNode(node_id=uuid.uuid4(), event=create_valid_event())
 
     with pytest.raises(ValidationError):
         AttackPath(
-            path_id="path-1",
+            path_id=uuid.uuid4(),
             agent_id="agent-007",
             nodes=[node1, node2],
             start_time=now,
@@ -163,13 +167,14 @@ def test_attack_path_naive_or_non_utc_timestamps_validation():
     now_naive = datetime.now()
     est = timezone(timedelta(hours=-5))
     now_est = datetime.now(est)
-    node1 = AttackNode(node_id="n1", event=create_valid_event())
-    node2 = AttackNode(node_id="n2", event=create_valid_event())
+    node1 = AttackNode(node_id=uuid.uuid4(), event=create_valid_event())
+    node2 = AttackNode(node_id=uuid.uuid4(), event=create_valid_event())
+    path_id = uuid.uuid4()
 
     # Naive start_time
     with pytest.raises(ValidationError):
         AttackPath(
-            path_id="p1",
+            path_id=path_id,
             agent_id="a1",
             nodes=[node1, node2],
             start_time=now_naive,
@@ -181,7 +186,7 @@ def test_attack_path_naive_or_non_utc_timestamps_validation():
     # Naive end_time
     with pytest.raises(ValidationError):
         AttackPath(
-            path_id="p1",
+            path_id=path_id,
             agent_id="a1",
             nodes=[node1, node2],
             start_time=now_utc,
@@ -193,7 +198,7 @@ def test_attack_path_naive_or_non_utc_timestamps_validation():
     # Non-UTC end_time
     with pytest.raises(ValidationError):
         AttackPath(
-            path_id="p1",
+            path_id=path_id,
             agent_id="a1",
             nodes=[node1, node2],
             start_time=now_utc,
@@ -206,8 +211,9 @@ def test_attack_path_naive_or_non_utc_timestamps_validation():
 def test_swarm_evidence_valid():
     """Test SwarmEvidence construction."""
     now = datetime.now(timezone.utc)
+    swarm_id = uuid.uuid4()
     swarm = SwarmEvidence(
-        swarm_id="swarm-1",
+        swarm_id=swarm_id,
         agent_ids={"agent-1", "agent-2"},
         shared_patterns=["pattern-a"],
         temporal_correlation=0.85,
@@ -216,6 +222,7 @@ def test_swarm_evidence_valid():
         last_seen=now + timedelta(minutes=5),
     )
     assert len(swarm.agent_ids) == 2
+    assert swarm.swarm_id == swarm_id
 
 
 def test_swarm_evidence_min_agents_validation():
@@ -223,7 +230,7 @@ def test_swarm_evidence_min_agents_validation():
     now = datetime.now(timezone.utc)
     with pytest.raises(ValidationError):
         SwarmEvidence(
-            swarm_id="swarm-1",
+            swarm_id=uuid.uuid4(),
             agent_ids={"agent-1"},
             temporal_correlation=0.85,
             coordination_score=0.9,
@@ -238,11 +245,12 @@ def test_swarm_evidence_time_window_validation():
     now_naive = datetime.now()
     est = timezone(timedelta(hours=-5))
     now_est = datetime.now(est)
+    swarm_id = uuid.uuid4()
 
     # last_seen < first_seen
     with pytest.raises(ValidationError):
         SwarmEvidence(
-            swarm_id="sw-1",
+            swarm_id=swarm_id,
             agent_ids={"a1", "a2"},
             temporal_correlation=0.8,
             coordination_score=0.8,
@@ -253,7 +261,7 @@ def test_swarm_evidence_time_window_validation():
     # Naive first_seen
     with pytest.raises(ValidationError):
         SwarmEvidence(
-            swarm_id="sw-1",
+            swarm_id=swarm_id,
             agent_ids={"a1", "a2"},
             temporal_correlation=0.8,
             coordination_score=0.8,
@@ -264,7 +272,7 @@ def test_swarm_evidence_time_window_validation():
     # Non-UTC last_seen
     with pytest.raises(ValidationError):
         SwarmEvidence(
-            swarm_id="sw-1",
+            swarm_id=swarm_id,
             agent_ids={"a1", "a2"},
             temporal_correlation=0.8,
             coordination_score=0.8,
@@ -275,13 +283,14 @@ def test_swarm_evidence_time_window_validation():
 
 def test_exploit_chain_evidence_valid():
     """Test ExploitChainEvidence construction."""
+    chain_id = uuid.uuid4()
     evidence = ExploitChainEvidence(
-        chain_id="chain-1",
+        chain_id=chain_id,
         exploits=[("CVE-2026-1234", ExploitCategory.RCE)],
         novelty_score=0.95,
         chaining_confidence=0.9,
     )
-    assert evidence.chain_id == "chain-1"
+    assert evidence.chain_id == chain_id
 
 
 def test_ailm_evidence_valid():
@@ -329,8 +338,10 @@ def test_registry_threat_evidence_valid():
     assert evidence.registry_type == "npm"
 
 
-def UUID_is_v4(val: str) -> bool:
+def UUID_is_v4(val: Union[str, uuid.UUID]) -> bool:
     try:
+        if isinstance(val, uuid.UUID):
+            return val.version == 4
         u = uuid.UUID(val)
         return u.version == 4
     except Exception:

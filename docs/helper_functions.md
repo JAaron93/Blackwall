@@ -13,6 +13,11 @@ Module Location: [`src/blackwall/validators.py`](../src/blackwall/validators.py)
 | `validate_semver_format` | `(v: str) -> str` | Validates that a version string strictly follows the `MAJOR.MINOR.PATCH` semantic versioning format via regex `^\d+\.\d+\.\d+$`. Raises `ValueError` on mismatch. | `PolicyServerState.validate_semver` ([models.py](../src/blackwall/models.py)), `PolicyConfig.validate_semver` ([policy/models.py](../src/blackwall/policy/models.py)). |
 | `validate_utc_datetime` | `(v: datetime) -> datetime` | Validates that a `datetime` object is timezone-aware and set to UTC (`v.tzinfo` is not None and UTC offset matches UTC). Raises `ValueError` if naive or non-UTC. | `NormalizedEvent`, `AttackPath`, `SwarmEvidence` field validators ([enterprise/advanced_threat_detection/models.py](../src/blackwall/enterprise/advanced_threat_detection/models.py)). |
 | `utc_now` | `() -> datetime` | Returns the current timezone-aware UTC `datetime` (`datetime.now(timezone.utc)`). | Default factories in Pydantic models, telemetry spans, audit timestamps. |
+| `validate_uuid_v4_format` | `(v: Any) -> UUID` | Validates that a string or UUID object is a valid UUID v4 format and returns a `uuid.UUID` instance. Raises `ValueError` if invalid format or version != 4. | `NormalizedEvent.validate_uuid_v4` ([enterprise/advanced_threat_detection/models.py](../src/blackwall/enterprise/advanced_threat_detection/models.py)). |
+| `ensure_uuid_v4` | `(v: Any = None) -> UUID` | Returns a valid `uuid.UUID` (version 4) instance if input is valid UUID v4; falls back to generating a new random `uuid.UUID` instance if invalid or `None`. | `EventStreamCollector.normalize_event` ([enterprise/advanced_threat_detection/collector.py](../src/blackwall/enterprise/advanced_threat_detection/collector.py)). |
+| `validate_non_empty_string` | `(v: str, field_name: str = "string") -> str` | Validates that a string is not empty or whitespace only. Raises `ValueError` if empty. | `NormalizedEvent.validate_non_empty_agent_id` ([enterprise/advanced_threat_detection/models.py](../src/blackwall/enterprise/advanced_threat_detection/models.py)). |
+| `validate_min_items` | `(v: T, min_items: int = 2, field_name: str = "collection", custom_msg: Optional[str] = None) -> T` | Validates that a collection contains at least `min_items` elements. Raises `ValueError` if below minimum size. | `AttackPath.validate_min_nodes`, `SwarmEvidence.validate_min_agents` ([enterprise/advanced_threat_detection/models.py](../src/blackwall/enterprise/advanced_threat_detection/models.py)). |
+| `validate_temporal_sequence` | `(start_time: datetime, end_time: datetime, start_name: str = "start_time", end_name: str = "end_time", custom_msg: Optional[str] = None) -> None` | Validates that `end_time >= start_time` for UTC-aware datetimes. Raises `ValueError` on reversed temporal ordering. | `AttackPath.validate_temporal_ordering`, `SwarmEvidence.validate_temporal_ordering` ([enterprise/advanced_threat_detection/models.py](../src/blackwall/enterprise/advanced_threat_detection/models.py)), `PathCorrelator.correlate_attack_paths` ([enterprise/advanced_threat_detection/correlator.py](../src/blackwall/enterprise/advanced_threat_detection/correlator.py)). |
 
 ---
 
@@ -38,11 +43,17 @@ Feature Location: [`tests/features/security_contract_validators.feature`](../tes
 | `execute_utc_datetime_validation` | `When the UTC datetime validation helper is executed` | Executes `validate_utc_datetime` and captures exceptions into state. |
 | `set_naive_datetime` | `Given a naive datetime without timezone info` | Generates a naive datetime without timezone info (`tzinfo=None`). |
 | `set_non_utc_datetime` | `Given a non-UTC timezone-aware datetime` | Generates a non-UTC timezone-aware datetime object. |
-| `given_event_collector_and_raw_events` | `Given an EventStreamCollector instance and heterogeneous raw events from 5 pillars` | Initializes `EventStreamCollector` and populates raw event dictionary for all 5 pillars. |
-| `when_events_ingested` | `When the raw events are ingested through the EventStreamCollector` | Ingests and normalizes raw pillar events via `EventStreamCollector.normalize_event()`. |
-| `then_each_event_normalized` | `Then each event is normalized with UUID v4 ID, UTC timestamp, and pillar source enum` | Asserts all 5 pillar events are valid `NormalizedEvent` instances with UUID v4, UTC timestamps, and enum sources. |
-| `then_malformed_events_rejected` | `And malformed events or non-callable reconnect attempts are rejected cleanly` | Asserts malformed non-dict payloads and non-callable stream factories raise `ValueError`. |
-
+| `set_valid_uuid_v4` | `Given a valid UUID v4 string` | Generates a valid UUID v4 string for validation state. |
+| `set_invalid_uuid` | `Given an invalid UUID string "{invalid_uuid}"` | Sets an invalid UUID string input on `ValidatorState`. |
+| `execute_uuid_v4_validation` | `When the UUID v4 validation helper is executed` | Executes `validate_uuid_v4_format` and captures exceptions into state. |
+| `set_non_empty_string` | `Given a non-empty string "{input_str}"` | Sets non-empty string input on `ValidatorState`. |
+| `set_empty_string` | `Given an empty string "{input_str}"` | Sets empty or whitespace string input on `ValidatorState`. |
+| `execute_non_empty_string_validation` | `When the non-empty string validation helper is executed` | Executes `validate_non_empty_string` and captures exceptions into state. |
+| `set_collection_count` | `Given a collection with {count:d} items` | Populates a list with `count` items on `ValidatorState`. |
+| `execute_min_items_validation` | `When the min items validation helper is executed with min size {min_size:d}` | Executes `validate_min_items` and captures exceptions into state. |
+| `set_valid_temporal_times` | `Given a valid UTC start time and a later UTC end time` | Generates valid UTC `start_time` and `end_time` pair. |
+| `set_invalid_temporal_times` | `Given a valid UTC start time and an earlier UTC end time` | Generates reversed `start_time` and `end_time` pair. |
+| `execute_temporal_sequence_validation` | `When the temporal sequence validation helper is executed` | Executes `validate_temporal_sequence` and captures exceptions into state. |
 
 ---
 

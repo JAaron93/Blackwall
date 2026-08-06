@@ -28,11 +28,10 @@ from blackwall.enterprise.advanced_threat_detection import (
     NormalizedEvent,
 )
 
+from tests.step_defs.async_utils import run_async
+
 # Link to Gherkin feature file
 scenarios("../features/blackwall_enterprise_mesh.feature")
-
-
-from tests.step_defs.async_utils import run_async
 
 
 class EnterpriseBDDState:
@@ -328,7 +327,7 @@ def ingest_atd_event(state):
 
 @then("the NormalizedEvent model accepts valid UUID v4 and UTC timestamp")
 def verify_atd_event_accepted(state):
-    assert state.atd_event.event_id == "550e8400-e29b-41d4-a716-446655440000"
+    assert state.atd_event.event_id == uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
     assert state.atd_event.timestamp.tzinfo is not None
 
 
@@ -384,12 +383,12 @@ def verify_atd_attack_path_rules(state):
         target="10.0.0.1:8080",
         risk_score=0.8,
     )
-    node1 = AttackNode(node_id="n1", event=ev1)
-    node2 = AttackNode(node_id="n2", event=ev2)
+    node1 = AttackNode(node_id=uuid.uuid4(), event=ev1)
+    node2 = AttackNode(node_id=uuid.uuid4(), event=ev2)
 
     # Valid AttackPath
     path = AttackPath(
-        path_id="p1",
+        path_id=uuid.uuid4(),
         agent_id="agent-mesh-01",
         nodes=[node1, node2],
         start_time=now,
@@ -402,7 +401,7 @@ def verify_atd_attack_path_rules(state):
     # Reject < 2 nodes
     with pytest.raises(ValidationError):
         AttackPath(
-            path_id="p-bad",
+            path_id=uuid.uuid4(),
             agent_id="agent-mesh-01",
             nodes=[node1],
             start_time=now,
@@ -414,7 +413,7 @@ def verify_atd_attack_path_rules(state):
     # Reject end_time < start_time
     with pytest.raises(ValidationError):
         AttackPath(
-            path_id="p-bad2",
+            path_id=uuid.uuid4(),
             agent_id="agent-mesh-01",
             nodes=[node1, node2],
             start_time=now,
@@ -485,8 +484,8 @@ def verify_normalized_mesh_events(state):
     assert len(state.normalized_mesh_events) == 5
     for norm in state.normalized_mesh_events:
         assert isinstance(norm, NormalizedEvent)
-        parsed_id = uuid.UUID(norm.event_id)
-        assert parsed_id.version == 4
+        assert isinstance(norm.event_id, uuid.UUID)
+        assert norm.event_id.version == 4
         assert norm.timestamp.tzinfo is not None
         assert 0.0 <= norm.risk_score <= 1.0
 

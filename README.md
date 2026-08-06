@@ -77,7 +77,7 @@ report = await manager.triage_log_event({"command": "reverse_shell /bin/bash -i"
 # Track 6: Advanced Threat Detection & Unified Ingestion (Pillar 6)
 from datetime import datetime, timezone, timedelta
 from blackwall.enterprise.advanced_threat_detection import (
-    EventStreamCollector, NormalizedEvent, EventSource, AttackGraphStore
+    EventStreamCollector, NormalizedEvent, EventSource, AttackGraphStore, PathCorrelator
 )
 
 collector = EventStreamCollector()
@@ -102,11 +102,13 @@ node1 = await store.insert_event(event1)
 node2 = await store.insert_event(event2)
 await store.link_events(node1.node_id, node2.node_id, "SPAWNED")
 
-paths = await store.query_paths(
+correlator = PathCorrelator(store=store)
+paths = await correlator.correlate_attack_paths(
     agent_id="agent-007",
     time_window=(now - timedelta(minutes=1), now + timedelta(minutes=10)),
     min_path_length=2,
 )
+# Returns AttackPath instances sorted by risk_score descending with MITRE ATT&CK technique mapping (e.g. T1059, T1071)
 
 ```
 
