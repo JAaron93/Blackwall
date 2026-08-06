@@ -630,14 +630,6 @@ The implementation follows a test-driven development approach with property-base
     - Implement scenarios for evaluation state reset (clean state restoration)
     - _Requirements: 14.1, 14.2, 14.3, 14.4_
     - _Verification: `pytest tests/step_defs/test_evaluation_environment_bdd.py -v`_
-  - [ ] 18.5 Write BDD feature tests for Evaluation Environment Support
-    - Create tests/features/evaluation_environment.feature with Gherkin scenarios
-    - Implement Given/When/Then steps for evaluation environment labeling
-    - Implement scenarios for alert isolation (preventing production workflow triggers)
-    - Implement scenarios for isolated attack graph instances per environment
-    - Implement scenarios for evaluation state reset
-    - _Requirements: 14.1, 14.2, 14.3, 14.4_
-    - _Verification: `pytest tests/step_defs/test_evaluation_environment_bdd.py -v`_
 
 - [ ] 19. Checkpoint - Verify auxiliary features
   - Ensure all tests pass, ask the user if questions arise.
