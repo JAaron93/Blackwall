@@ -105,36 +105,36 @@ The implementation follows a test-driven development approach with property-base
 
 
 
-- [ ] 5. Implement Multi-Stage Attack Path Correlation
-  - [ ] 5.1 Create PathCorrelator class with DFS path finding
+- [x] 5. Implement Multi-Stage Attack Path Correlation
+  - [x] 5.1 Create PathCorrelator class with DFS path finding
     - Implement `correlate_attack_paths()` with time window filtering
     - Build temporal adjacency graph with 5-minute window edges
     - Compute edge weights based on temporal proximity and semantic relationships
     - _Requirements: 3.1, 3.2, 3.3_
     - _Verification: `pytest tests/unit/test_path_correlator.py::test_temporal_adjacency -v`_
   
-  - [ ] 5.2 Implement depth-first search for path enumeration
+  - [x] 5.2 Implement depth-first search for path enumeration
     - Create recursive DFS with minimum path length constraint
     - Identify all valid paths meeting length requirements
     - Handle empty path list when agent has insufficient events
     - _Requirements: 3.4, 3.6_
     - _Verification: `pytest tests/unit/test_path_correlator.py::test_dfs_path_finding -v`_
   
-  - [ ] 5.3 Implement MITRE ATT&CK technique mapping
+  - [x] 5.3 Implement MITRE ATT&CK technique mapping
     - Map event sequences to MITRE ATT&CK technique IDs
     - Populate attack_stages field in AttackPath
     - Validate all technique IDs against MITRE database
     - _Requirements: 2.8, 3.7_
-    - _Verification: `pytest tests/unit/test_path_correlator.py::test_mitre_mapping -v`_
+    - _Verification: `pytest tests/unit/test_mitre_mapping -v`_
   
-  - [ ] 5.4 Implement risk scoring and path ranking
+  - [x] 5.4 Implement risk scoring and path ranking
     - Compute aggregate risk_score for paths
     - Compute correlation_score for path confidence
     - Sort results by risk_score descending
     - _Requirements: 2.9, 2.10, 3.5_
     - _Verification: `pytest tests/unit/test_path_correlator.py::test_risk_scoring -v`_
   
-  - [ ]* 5.5 Write property tests for path correlation
+  - [x]* 5.5 Write property tests for path correlation
     - **Property 14: Time Window Filtering**
     - **Property 15: Temporal Adjacency Rule**
     - **Property 16: Edge Weight Computation**
@@ -145,7 +145,7 @@ The implementation follows a test-driven development approach with property-base
     - **Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7**
     - _Verification: `pytest tests/property/test_path_correlator_properties.py --hypothesis-iterations=100 -v`_
 
-- [ ] 6. Checkpoint - Verify attack path correlation
+- [x] 6. Checkpoint - Verify attack path correlation
   - Ensure all tests pass, ask the user if questions arise.
 
 
