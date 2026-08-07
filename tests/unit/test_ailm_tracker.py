@@ -115,3 +115,36 @@ async def test_risk_level(tracker):
         ],
     )
     assert risk_crit == "CRITICAL"
+
+
+@pytest.mark.asyncio
+async def test_bounded_grant_retention_eviction():
+    tracker = AILMTracker(max_grants_per_agent=3)
+    now = datetime.now(UTC)
+
+    for i in range(5):
+        g = PermissionGrant(
+            permission=f"perm_{i}",
+            granted_by="admin",
+            granted_to="agent-bounded",
+            timestamp=now + timedelta(seconds=i),
+            scope="user_space",
+        )
+        await tracker.track_permission_grant(g)
+
+    grants = await tracker.get_permission_grants("agent-bounded")
+    assert len(grants) == 3
+    # Verify oldest grants (perm_0, perm_1) were evicted
+    perm_names = [g.permission for g in grants]
+    assert perm_names == ["perm_2", "perm_3", "perm_4"]
+
+
+@pytest.mark.asyncio
+async def test_boundary_crossing_unrecognized_scopes(tracker):
+    # Transition between unrecognized sub-scopes is not a trust boundary crossing
+    is_crossing = await tracker.identify_boundary_crossing("internal_module_a", "internal_module_b")
+    assert is_crossing is False
+
+    # Transition from recognized boundary to unrecognized scope is identified as boundary crossing
+    is_crossing_recognized = await tracker.identify_boundary_crossing("user_space", "internal_module_b")
+    assert is_crossing_recognized is True

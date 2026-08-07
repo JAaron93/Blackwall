@@ -1,5 +1,6 @@
 """AI-Induced Lateral Movement (AILM) Tracker for Blackwall Advanced Threat Detection (Pillar 6 Task 10)."""
 
+from collections import deque
 from datetime import datetime
 from typing import List, Set, Tuple
 
@@ -47,13 +48,17 @@ class AILMTracker:
         self,
         store: AttackGraphStore | None = None,
         policy: PolicyConfig | None = None,
+        max_grants_per_agent: int = 1000,
     ) -> None:
+        if max_grants_per_agent <= 0:
+            raise ValueError("max_grants_per_agent must be a positive integer")
         self.store = store or AttackGraphStore(in_memory=True)
         self.policy = policy
-        self._grants_by_agent: dict[str, list[PermissionGrant]] = {}
+        self.max_grants_per_agent = max_grants_per_agent
+        self._grants_by_agent: dict[str, deque[PermissionGrant]] = {}
 
     async def track_permission_grant(self, grant: PermissionGrant) -> None:
-        """Record a permission grant for an agent.
+        """Record a permission grant for an agent with bounded retention per agent.
 
         Args:
             grant: Validated PermissionGrant instance.
@@ -63,7 +68,7 @@ class AILMTracker:
 
         agent_id = grant.granted_to
         if agent_id not in self._grants_by_agent:
-            self._grants_by_agent[agent_id] = []
+            self._grants_by_agent[agent_id] = deque(maxlen=self.max_grants_per_agent)
 
         self._grants_by_agent[agent_id].append(grant)
 
@@ -81,7 +86,7 @@ class AILMTracker:
         Returns:
             List of PermissionGrant instances matching filters.
         """
-        grants = self._grants_by_agent.get(agent_id, [])
+        grants = self._grants_by_agent.get(agent_id, deque())
         if not time_window:
             return list(grants)
 
@@ -106,7 +111,7 @@ class AILMTracker:
             to_context: Target security context or scope.
 
         Returns:
-            True if transition crosses a boundary, False otherwise.
+            True if transition crosses a recognized boundary, False otherwise.
         """
         from_norm = from_context.strip().lower()
         to_norm = to_context.strip().lower()
@@ -114,8 +119,11 @@ class AILMTracker:
         if from_norm == to_norm:
             return False
 
-        # If either context is in TRUST_BOUNDARIES or contexts differ, it's a boundary crossing
-        return True
+        # Transition is a boundary crossing if at least one context is a recognized trust boundary
+        if from_norm in TRUST_BOUNDARIES or to_norm in TRUST_BOUNDARIES:
+            return True
+
+        return False
 
     def compute_risk_level(
         self, composed_permissions: Set[str], boundary_crossings: List[str]

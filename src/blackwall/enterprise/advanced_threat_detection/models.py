@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from typing import Any, Dict, List, Set, Tuple
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, UUID4, field_validator, model_validator
 
@@ -146,11 +146,18 @@ class ExploitChainEvidence(BaseModel):
 class PermissionGrant(BaseModel):
     """Permission grant schema for AI-Induced Lateral Movement tracking."""
 
+    grant_id: UUID4 = Field(default_factory=uuid4)
     permission: str
     granted_by: str
     granted_to: str
     timestamp: datetime
     scope: str
+
+    @field_validator("grant_id")
+    @classmethod
+    def validate_grant_id_uuid_v4(cls, v: Any) -> UUID:
+        """Validate grant_id is a valid UUID v4."""
+        return validate_uuid_v4_format(v)
 
     @field_validator("timestamp")
     @classmethod

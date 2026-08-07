@@ -1,9 +1,10 @@
 """Property-based tests for AILMTracker using Hypothesis (Pillar 6 Task 10 / Properties 35-40)."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from pydantic import ValidationError
 
 from blackwall.enterprise.advanced_threat_detection import (
     AILMEvidence,
@@ -11,6 +12,59 @@ from blackwall.enterprise.advanced_threat_detection import (
     AttackGraphStore,
     PermissionGrant,
 )
+
+
+# Property rejection tests for PermissionGrant model constraints
+@given(
+    empty_val=st.sampled_from(["", "   ", "\t\n"]),
+    target_field=st.sampled_from(["permission", "granted_by", "granted_to", "scope"]),
+)
+def test_property_permission_grant_empty_string_rejection(empty_val: str, target_field: str):
+    """Property rejection: Empty or whitespace-only string fields MUST raise ValidationError."""
+    kwargs = {
+        "permission": "s3:GetObject",
+        "granted_by": "admin",
+        "granted_to": "agent-1",
+        "timestamp": datetime.now(UTC),
+        "scope": "user_space",
+    }
+    kwargs[target_field] = empty_val
+
+    with pytest.raises(ValidationError):
+        PermissionGrant(**kwargs)
+
+
+@given(
+    use_naive=st.booleans(),
+)
+def test_property_permission_grant_invalid_timestamp_rejection(use_naive: bool):
+    """Property rejection: Naive or non-UTC datetimes MUST raise ValidationError."""
+    now = datetime.now() if use_naive else datetime.now(timezone.utc).astimezone()
+    if not use_naive and now.tzinfo == UTC:
+        now = datetime.now()  # Fallback to naive
+
+    with pytest.raises(ValidationError):
+        PermissionGrant(
+            permission="read",
+            granted_by="admin",
+            granted_to="agent-1",
+            timestamp=now,
+            scope="user_space",
+        )
+
+
+@given(invalid_id=st.sampled_from(["invalid-uuid-str", "12345", "not-a-uuid-v4"]))
+def test_property_permission_grant_invalid_grant_id_rejection(invalid_id: str):
+    """Property rejection: Malformed grant_id MUST raise ValidationError."""
+    with pytest.raises(ValidationError):
+        PermissionGrant(
+            grant_id=invalid_id,
+            permission="read",
+            granted_by="admin",
+            granted_to="agent-1",
+            timestamp=datetime.now(UTC),
+            scope="user_space",
+        )
 
 
 # Property 35: Permission Grant Recording
