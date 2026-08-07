@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import time
+import re
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -62,35 +63,44 @@ class ContextHygiene:
         ("email", r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "[[EMAIL]]"),
     ]
 
-    def __init__(self, patterns: Optional[List[tuple[str, str, str]]] = None):
-        import re
+    _COMPILED_DEFAULT_PATTERNS = [
+        (name, re.compile(pat), placeholder)
+        for name, pat, placeholder in DEFAULT_PATTERNS
+    ]
 
-        self.patterns = []
-        raw_patterns = patterns or self.DEFAULT_PATTERNS
-        for name, pat, placeholder in raw_patterns:
-            self.patterns.append((name, re.compile(pat), placeholder))
+    def __init__(self, patterns: Optional[List[tuple[str, str, str]]] = None):
+        if patterns is None:
+            self.patterns = self._COMPILED_DEFAULT_PATTERNS
+        else:
+            self.patterns = []
+            for name, pat, placeholder in patterns:
+                self.patterns.append((name, re.compile(pat), placeholder))
+
+    def _repl(self, match: Any, placeholder_str: str) -> str:
+        full: str = str(match.group(0))
+        prefix: str = str(match.group(1))
+        secret: str = str(match.group(2))
+        start_idx = full.find(secret, len(prefix))
+        if start_idx != -1:
+            return (
+                full[:start_idx]
+                + placeholder_str
+                + full[start_idx + len(secret) :]
+            )
+        return full
 
     def sanitize_string(self, text: str) -> str:
         for name, regex, placeholder in self.patterns:
-            placeholder_str: str = placeholder
             if name in ("password", "api_key"):
+                # Define a helper that captures the current placeholder without
+                # passing it as a default arg in lambda which is slightly faster
 
-                def repl(match: Any) -> str:
-                    full: str = str(match.group(0))
-                    prefix: str = str(match.group(1))
-                    secret: str = str(match.group(2))
-                    start_idx = full.find(secret, len(prefix))
-                    if start_idx != -1:
-                        return (
-                            full[:start_idx]
-                            + placeholder_str
-                            + full[start_idx + len(secret) :]
-                        )
-                    return full
-
-                text = regex.sub(repl, text)
+                # To avoid creating a function for every loop, we could use a bound method
+                # if we store the placeholder in the class, but since this can be called concurrently
+                # we'll just create a tiny lambda
+                text = regex.sub(lambda m, p=placeholder: self._repl(m, p), text)
             else:
-                text = regex.sub(placeholder_str, text)
+                text = regex.sub(placeholder, text)
         return text
 
     def sanitize_value(self, val: Any) -> Any:
