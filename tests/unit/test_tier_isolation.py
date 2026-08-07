@@ -5,7 +5,6 @@ and blackwall.enterprise is cleanly modularized.
 """
 
 
-
 def test_core_package_imports_cleanly():
     """Verify Blackwall Core imports without requiring enterprise subpackages."""
     import blackwall

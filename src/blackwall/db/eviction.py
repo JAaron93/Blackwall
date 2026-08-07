@@ -40,8 +40,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Configuration defaults (per TASK-PERF-01 acceptance criteria)
 # ---------------------------------------------------------------------------
-DEFAULT_TTL_SECONDS: int = 900          # 15 minutes
-DEFAULT_MAX_SIGNATURES: int = 10_000    # LFU trigger threshold
+DEFAULT_TTL_SECONDS: int = 900  # 15 minutes
+DEFAULT_MAX_SIGNATURES: int = 10_000  # LFU trigger threshold
 DEFAULT_HIGH_VALUE_THRESHOLD: int = 10  # match_count > this → never evict
 DEFAULT_INTERVAL_SECONDS: float = 60.0  # background loop cadence
 
@@ -162,7 +162,9 @@ class EvictionManager:
             try:
                 await self.run_eviction_pass()
             except Exception:
-                logger.exception("Unhandled error in eviction pass – will retry next cycle")
+                logger.exception(
+                    "Unhandled error in eviction pass – will retry next cycle"
+                )
 
             try:
                 await asyncio.wait_for(
@@ -258,7 +260,9 @@ class EvictionManager:
             deleted = cursor.rowcount if cursor.rowcount is not None else 0
 
         if deleted > 0:
-            logger.debug(f"TTL eviction removed signatures count={deleted} cutoff={cutoff}")
+            logger.debug(
+                f"TTL eviction removed signatures count={deleted} cutoff={cutoff}"
+            )
 
         return deleted
 

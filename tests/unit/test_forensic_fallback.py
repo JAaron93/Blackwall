@@ -73,7 +73,7 @@ def test_fallback_parser_benign_json_and_asyncio_calls():
     """Verify benign calls like json.loads() or asyncio.run() do not trigger false positive command_injection."""
     parser = LightweightForensicParser()
     log_data = {
-        "code": "import json\nimport asyncio\ndata = json.loads('{\"status\": \"ok\"}')\nasyncio.run(main())",
+        "code": 'import json\nimport asyncio\ndata = json.loads(\'{"status": "ok"}\')\nasyncio.run(main())',
         "pid": 1205,
     }
     report = parser.parse(log_data)

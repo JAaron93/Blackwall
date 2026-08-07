@@ -59,25 +59,55 @@ async def test_fingerprinting():
     base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
 
     # Insert sequence of events for agent-1
-    e1 = create_event(agent_id="agent-1", action="read_config", target="/etc/app.conf", offset_seconds=10, base_time=base_time)
-    e2 = create_event(agent_id="agent-1", action="spawn_proc", target="/bin/sh", offset_seconds=20, base_time=base_time)
-    e3 = create_event(agent_id="agent-1", action="connect_net", target="10.0.0.1:8080", offset_seconds=30, base_time=base_time)
+    e1 = create_event(
+        agent_id="agent-1",
+        action="read_config",
+        target="/etc/app.conf",
+        offset_seconds=10,
+        base_time=base_time,
+    )
+    e2 = create_event(
+        agent_id="agent-1",
+        action="spawn_proc",
+        target="/bin/sh",
+        offset_seconds=20,
+        base_time=base_time,
+    )
+    e3 = create_event(
+        agent_id="agent-1",
+        action="connect_net",
+        target="10.0.0.1:8080",
+        offset_seconds=30,
+        base_time=base_time,
+    )
 
     await store.insert_event(e1)
     await store.insert_event(e2)
     await store.insert_event(e3)
 
-    fp1 = await detector.fingerprint_agent("agent-1", window=3600, end_time=base_time + timedelta(seconds=60))
-    fp1_again = await detector.fingerprint_agent("agent-1", window=3600, end_time=base_time + timedelta(seconds=60))
+    fp1 = await detector.fingerprint_agent(
+        "agent-1", window=3600, end_time=base_time + timedelta(seconds=60)
+    )
+    fp1_again = await detector.fingerprint_agent(
+        "agent-1", window=3600, end_time=base_time + timedelta(seconds=60)
+    )
 
     assert isinstance(fp1, str)
     assert len(fp1) == 64  # SHA-256 hex string
     assert fp1 == fp1_again  # Deterministic / consistent
 
     # Different agent with different action sequence must produce different hash
-    e4 = create_event(agent_id="agent-2", action="download", target="http://malicious.site", offset_seconds=15, base_time=base_time)
+    e4 = create_event(
+        agent_id="agent-2",
+        action="download",
+        target="http://malicious.site",
+        offset_seconds=15,
+        base_time=base_time,
+    )
     await store.insert_event(e4)
-    fp2 = await detector.fingerprint_agent("agent-2", window=3600, end_time=base_time + timedelta(seconds=60))
+    fp2 = await detector.fingerprint_agent(
+        "agent-2", window=3600, end_time=base_time + timedelta(seconds=60)
+    )
 
     assert fp1 != fp2
 
@@ -93,11 +123,29 @@ async def test_temporal_correlation():
 
     # Create 2 agents performing correlated actions closely in time
     for offset in [0, 5, 10, 15]:
-        await store.insert_event(create_event(agent_id="agent-a", action="scan", target="192.168.1.1", offset_seconds=offset, base_time=base_time))
-        await store.insert_event(create_event(agent_id="agent-b", action="scan", target="192.168.1.1", offset_seconds=offset + 1, base_time=base_time))
+        await store.insert_event(
+            create_event(
+                agent_id="agent-a",
+                action="scan",
+                target="192.168.1.1",
+                offset_seconds=offset,
+                base_time=base_time,
+            )
+        )
+        await store.insert_event(
+            create_event(
+                agent_id="agent-b",
+                action="scan",
+                target="192.168.1.1",
+                offset_seconds=offset + 1,
+                base_time=base_time,
+            )
+        )
 
     time_win = (base_time, base_time + timedelta(seconds=60))
-    swarms = await detector.detect_swarms(time_win, min_agents=2, correlation_threshold=0.75)
+    swarms = await detector.detect_swarms(
+        time_win, min_agents=2, correlation_threshold=0.75
+    )
 
     assert len(swarms) >= 1
     swarm = swarms[0]
@@ -138,12 +186,17 @@ async def test_shared_infrastructure():
     await store.insert_event(e_b)
 
     time_win = (base_time, base_time + timedelta(seconds=60))
-    swarms = await detector.detect_swarms(time_win, min_agents=2, correlation_threshold=0.5)
+    swarms = await detector.detect_swarms(
+        time_win, min_agents=2, correlation_threshold=0.5
+    )
 
     assert len(swarms) >= 1
     swarm = swarms[0]
     assert len(swarm.shared_patterns) >= 1
-    assert "ip:192.168.1.50" in swarm.shared_patterns or "domain:evil.c2.org" in swarm.shared_patterns
+    assert (
+        "ip:192.168.1.50" in swarm.shared_patterns
+        or "domain:evil.c2.org" in swarm.shared_patterns
+    )
 
 
 @pytest.mark.asyncio
@@ -158,8 +211,24 @@ async def test_coordination_score():
 
     # Agents with identical actions at identical times -> high coordination score
     for offset in [0, 5, 10]:
-        await store.insert_event(create_event(agent_id="agent-m", action="probe", target="target-srv", offset_seconds=offset, base_time=base_time))
-        await store.insert_event(create_event(agent_id="agent-n", action="probe", target="target-srv", offset_seconds=offset, base_time=base_time))
+        await store.insert_event(
+            create_event(
+                agent_id="agent-m",
+                action="probe",
+                target="target-srv",
+                offset_seconds=offset,
+                base_time=base_time,
+            )
+        )
+        await store.insert_event(
+            create_event(
+                agent_id="agent-n",
+                action="probe",
+                target="target-srv",
+                offset_seconds=offset,
+                base_time=base_time,
+            )
+        )
 
     score = await detector.compute_coordination_score(["agent-m", "agent-n"], time_win)
     assert 0.0 <= score <= 1.0
@@ -178,17 +247,37 @@ async def test_policy_configuration_integration():
             enableSemanticGating=True,
         ),
         environmentRoles={
-            "sandbox": EnvironmentRoleConfig(allowedTools=[], blockedTools=[], requireSemanticReview=False, maxThreatScore=0.8),
-            "production": EnvironmentRoleConfig(allowedTools=[], blockedTools=[], requireSemanticReview=True, maxThreatScore=0.5),
+            "sandbox": EnvironmentRoleConfig(
+                allowedTools=[],
+                blockedTools=[],
+                requireSemanticReview=False,
+                maxThreatScore=0.8,
+            ),
+            "production": EnvironmentRoleConfig(
+                allowedTools=[],
+                blockedTools=[],
+                requireSemanticReview=True,
+                maxThreatScore=0.5,
+            ),
         },
         structuralRules=[],
         semanticGuidelines=[],
         mcpServers=MCPServersConfig(
-            gti=MCPServerConfig(enabled=True, cacheEnabled=True, cacheTTL=3600, timeout=1000),
-            codebaseMemory=MCPServerConfig(enabled=True, cacheEnabled=True, cacheTTL=3600, timeout=1000),
+            gti=MCPServerConfig(
+                enabled=True, cacheEnabled=True, cacheTTL=3600, timeout=1000
+            ),
+            codebaseMemory=MCPServerConfig(
+                enabled=True, cacheEnabled=True, cacheTTL=3600, timeout=1000
+            ),
         ),
         threatSignatureGraph=ThreatSignatureGraphConfig(
-            dbPath="./test.db", walMode=True, maxConnections=5, similarityThreshold=0.8, ttlSeconds=3600, maxSignatures=1000, embeddingDimension=768
+            dbPath="./test.db",
+            walMode=True,
+            maxConnections=5,
+            similarityThreshold=0.8,
+            ttlSeconds=3600,
+            maxSignatures=1000,
+            embeddingDimension=768,
         ),
         advancedThreatDetection=AdvancedThreatDetectionPolicyConfig(
             swarmDetector=SwarmDetectorPolicyConfig(
@@ -217,17 +306,37 @@ async def test_policy_configuration_default_omission():
             enableSemanticGating=True,
         ),
         environmentRoles={
-            "sandbox": EnvironmentRoleConfig(allowedTools=[], blockedTools=[], requireSemanticReview=False, maxThreatScore=0.8),
-            "production": EnvironmentRoleConfig(allowedTools=[], blockedTools=[], requireSemanticReview=True, maxThreatScore=0.5),
+            "sandbox": EnvironmentRoleConfig(
+                allowedTools=[],
+                blockedTools=[],
+                requireSemanticReview=False,
+                maxThreatScore=0.8,
+            ),
+            "production": EnvironmentRoleConfig(
+                allowedTools=[],
+                blockedTools=[],
+                requireSemanticReview=True,
+                maxThreatScore=0.5,
+            ),
         },
         structuralRules=[],
         semanticGuidelines=[],
         mcpServers=MCPServersConfig(
-            gti=MCPServerConfig(enabled=True, cacheEnabled=True, cacheTTL=3600, timeout=1000),
-            codebaseMemory=MCPServerConfig(enabled=True, cacheEnabled=True, cacheTTL=3600, timeout=1000),
+            gti=MCPServerConfig(
+                enabled=True, cacheEnabled=True, cacheTTL=3600, timeout=1000
+            ),
+            codebaseMemory=MCPServerConfig(
+                enabled=True, cacheEnabled=True, cacheTTL=3600, timeout=1000
+            ),
         ),
         threatSignatureGraph=ThreatSignatureGraphConfig(
-            dbPath="./test.db", walMode=True, maxConnections=5, similarityThreshold=0.8, ttlSeconds=3600, maxSignatures=1000, embeddingDimension=768
+            dbPath="./test.db",
+            walMode=True,
+            maxConnections=5,
+            similarityThreshold=0.8,
+            ttlSeconds=3600,
+            maxSignatures=1000,
+            embeddingDimension=768,
         ),
     )
 
@@ -240,4 +349,3 @@ async def test_policy_configuration_default_omission():
     assert detector.default_window == 3600
     assert detector.default_min_agents == 2
     assert detector.default_correlation_threshold == 0.75
-

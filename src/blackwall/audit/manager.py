@@ -80,7 +80,8 @@ class AuditHookManager:
             self._local.conn.execute("PRAGMA busy_timeout=5000;")
 
             # Ensure tables exist synchronously
-            self._local.conn.execute("""
+            self._local.conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS audit_incidents (
                     incident_id TEXT PRIMARY KEY,
                     incident_type TEXT NOT NULL,
@@ -88,20 +89,25 @@ class AuditHookManager:
                     details TEXT NOT NULL,
                     stack_trace TEXT
                 );
-            """)
-            self._local.conn.execute("""
+            """
+            )
+            self._local.conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS blocked_executables (
                     executable TEXT PRIMARY KEY,
                     created_at INTEGER NOT NULL
                 );
-            """)
-            self._local.conn.execute("""
+            """
+            )
+            self._local.conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS blocked_iocs (
                     ioc TEXT PRIMARY KEY,
                     type TEXT NOT NULL,
                     created_at INTEGER NOT NULL
                 );
-            """)
+            """
+            )
             self._local.conn.commit()
             self._local.pid = current_pid
 

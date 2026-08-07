@@ -8,7 +8,14 @@ from blackwall.models import ToolCallContext, VerdictDecision, GTIResponse
 from blackwall.policy.semantic import SemanticGatingEngine
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.mcp.gti_client import GTIMCPClient, GTIDegradedError
-from blackwall.mcp.codebase_memory import CodebaseMemoryClient, DependencyChain, BlastRadiusReport, BlastRadiusIsolation, CriticalSink, CriticalSinkType
+from blackwall.mcp.codebase_memory import (
+    CodebaseMemoryClient,
+    DependencyChain,
+    BlastRadiusReport,
+    BlastRadiusIsolation,
+    CriticalSink,
+    CriticalSinkType,
+)
 
 TEST_DB_PATH = "test_semantic_gating.db"
 
@@ -42,8 +49,7 @@ async def test_signature_matching_returns_block(temp_repo):
 
     engine = SemanticGatingEngine(repo=temp_repo)
     context = ToolCallContext(
-        tool_name="run_command",
-        arguments={"cmd": "eval(obfuscated)"}
+        tool_name="run_command", arguments={"cmd": "eval(obfuscated)"}
     )
 
     result = await engine.evaluate(context, "sandbox")
@@ -66,8 +72,7 @@ async def test_signature_match_count_increment(temp_repo):
 
     engine = SemanticGatingEngine(repo=temp_repo)
     context = ToolCallContext(
-        tool_name="run_command",
-        arguments={"cmd": "eval(obfuscated)"}
+        tool_name="run_command", arguments={"cmd": "eval(obfuscated)"}
     )
 
     # Evaluate multiple times
@@ -89,25 +94,22 @@ async def test_gti_malicious_ioc_increases_threat_score(temp_repo):
     # Setup mock GTI Client
     mock_gti = MagicMock(spec=GTIMCPClient)
     mock_gti.is_degraded.return_value = False
-    
+
     # Mock malicious response
     mock_response = GTIResponse(
         indicator="1.2.3.4",
         is_malicious=True,
         threat_categories=["botnet"],
         detection_rate=80.0,
-        confidence=0.9
+        confidence=0.9,
     )
     mock_gti.queryIOC = AsyncMock(return_value=mock_response)
 
     engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
-    context = ToolCallContext(
-        tool_name="safe_tool",
-        arguments={"ip": "1.2.3.4"}
-    )
+    context = ToolCallContext(tool_name="safe_tool", arguments={"ip": "1.2.3.4"})
 
     result = await engine.evaluate(context, "sandbox")
-    
+
     # We expect a high threat score since GTI is malicious (score should be >= 0.5 or high)
     # Context score: tool_risk = 0.2, argument_novelty = 0.0, env_risk = 0.2 => context = 0.4 * 0.2 + 0.3*0 + 0.3*0.2 = 0.14
     # GTI score: is_malicious (0.5) + detection_rate (0.3 * 0.8 = 0.24) + categories (0.1) = 0.84
@@ -123,41 +125,46 @@ async def test_cbm_critical_sink_detection_increases_threat_score(temp_repo):
     # Setup mock CBM Client
     mock_cbm = MagicMock(spec=CodebaseMemoryClient)
     mock_cbm.get_threat_score_penalty.return_value = 0.0
-    
+
     # Mock CBM response
-    mock_cbm.queryDependencyChain = AsyncMock(return_value=DependencyChain(
-        rootFunction="ProcessOrder",
-        callChain=["ProcessOrder", "ExecuteSQL"],
-        depth=2,
-        hasCriticalSink=True,
-        criticalSinks=["ExecuteSQL"]
-    ))
-    mock_cbm.getBlastRadius = AsyncMock(return_value=BlastRadiusReport(
-        targetNode="ProcessOrder",
-        affectedModules=["src/db"],
-        affectedFunctions=["ProcessOrder"],
-        riskScore=0.8,
-        isolation=BlastRadiusIsolation.MEDIUM
-    ))
-    mock_cbm.identifyCriticalSinks = AsyncMock(return_value=[
-        CriticalSink(
-            sinkType=CriticalSinkType.SQL_QUERY,
-            functionName="ExecuteSQL",
-            modulePath="src/db.py",
-            isUnsafe=True,
-            mitigationHint="use parameterized queries"
+    mock_cbm.queryDependencyChain = AsyncMock(
+        return_value=DependencyChain(
+            rootFunction="ProcessOrder",
+            callChain=["ProcessOrder", "ExecuteSQL"],
+            depth=2,
+            hasCriticalSink=True,
+            criticalSinks=["ExecuteSQL"],
         )
-    ])
+    )
+    mock_cbm.getBlastRadius = AsyncMock(
+        return_value=BlastRadiusReport(
+            targetNode="ProcessOrder",
+            affectedModules=["src/db"],
+            affectedFunctions=["ProcessOrder"],
+            riskScore=0.8,
+            isolation=BlastRadiusIsolation.MEDIUM,
+        )
+    )
+    mock_cbm.identifyCriticalSinks = AsyncMock(
+        return_value=[
+            CriticalSink(
+                sinkType=CriticalSinkType.SQL_QUERY,
+                functionName="ExecuteSQL",
+                modulePath="src/db.py",
+                isUnsafe=True,
+                mitigationHint="use parameterized queries",
+            )
+        ]
+    )
     mock_cbm.identifyUnsafeSinks = lambda sinks: [s for s in sinks if s.isUnsafe]
 
     engine = SemanticGatingEngine(repo=temp_repo, cbm_client=mock_cbm)
     context = ToolCallContext(
-        tool_name="safe_tool",
-        arguments={"targetFunction": "ProcessOrder"}
+        tool_name="safe_tool", arguments={"targetFunction": "ProcessOrder"}
     )
 
     result = await engine.evaluate(context, "sandbox")
-    
+
     # Context score: 0.14
     # CBM score: hasCriticalSink (0.4) + unsafe_sinks (0.3) + riskScore (0.3 * 0.8 = 0.24) = 0.94
     # GTI is unavailable (None), so CBM weight = 30 / 60 = 50%, Context weight = 30 / 60 = 50%.
@@ -171,49 +178,59 @@ async def test_weighted_threat_score_aggregation_and_redistribution(temp_repo):
     # Setup mocks
     mock_gti = MagicMock(spec=GTIMCPClient)
     mock_gti.is_degraded.return_value = False
-    mock_gti.queryIOC = AsyncMock(return_value=GTIResponse(
-        indicator="1.2.3.4",
-        is_malicious=True,
-        threat_categories=["botnet"],
-        detection_rate=80.0,
-        confidence=0.9
-    ))
+    mock_gti.queryIOC = AsyncMock(
+        return_value=GTIResponse(
+            indicator="1.2.3.4",
+            is_malicious=True,
+            threat_categories=["botnet"],
+            detection_rate=80.0,
+            confidence=0.9,
+        )
+    )
 
     mock_cbm = MagicMock(spec=CodebaseMemoryClient)
     mock_cbm.get_threat_score_penalty.return_value = 0.0
-    mock_cbm.queryDependencyChain = AsyncMock(return_value=DependencyChain(
-        rootFunction="ProcessOrder",
-        callChain=["ProcessOrder", "ExecuteSQL"],
-        depth=2,
-        hasCriticalSink=True,
-        criticalSinks=["ExecuteSQL"]
-    ))
-    mock_cbm.getBlastRadius = AsyncMock(return_value=BlastRadiusReport(
-        targetNode="ProcessOrder",
-        affectedModules=["src/db"],
-        affectedFunctions=["ProcessOrder"],
-        riskScore=0.8,
-        isolation=BlastRadiusIsolation.MEDIUM
-    ))
-    mock_cbm.identifyCriticalSinks = AsyncMock(return_value=[
-        CriticalSink(
-            sinkType=CriticalSinkType.SQL_QUERY,
-            functionName="ExecuteSQL",
-            modulePath="src/db.py",
-            isUnsafe=True,
-            mitigationHint="use parameterized queries"
+    mock_cbm.queryDependencyChain = AsyncMock(
+        return_value=DependencyChain(
+            rootFunction="ProcessOrder",
+            callChain=["ProcessOrder", "ExecuteSQL"],
+            depth=2,
+            hasCriticalSink=True,
+            criticalSinks=["ExecuteSQL"],
         )
-    ])
+    )
+    mock_cbm.getBlastRadius = AsyncMock(
+        return_value=BlastRadiusReport(
+            targetNode="ProcessOrder",
+            affectedModules=["src/db"],
+            affectedFunctions=["ProcessOrder"],
+            riskScore=0.8,
+            isolation=BlastRadiusIsolation.MEDIUM,
+        )
+    )
+    mock_cbm.identifyCriticalSinks = AsyncMock(
+        return_value=[
+            CriticalSink(
+                sinkType=CriticalSinkType.SQL_QUERY,
+                functionName="ExecuteSQL",
+                modulePath="src/db.py",
+                isUnsafe=True,
+                mitigationHint="use parameterized queries",
+            )
+        ]
+    )
     mock_cbm.identifyUnsafeSinks = lambda sinks: [s for s in sinks if s.isUnsafe]
 
     # Test Case 1: All three signals available (GTI, CBM, Context)
-    engine_all = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti, cbm_client=mock_cbm)
+    engine_all = SemanticGatingEngine(
+        repo=temp_repo, gti_client=mock_gti, cbm_client=mock_cbm
+    )
     context_all = ToolCallContext(
         tool_name="safe_tool",
-        arguments={"ip": "1.2.3.4", "targetFunction": "ProcessOrder"}
+        arguments={"ip": "1.2.3.4", "targetFunction": "ProcessOrder"},
     )
     result_all = await engine_all.evaluate(context_all, "sandbox")
-    
+
     # GTI: 0.84, CBM: 0.94, Context: 0.14
     # Weights: GTI (40%), CBM (30%), Context (30%)
     # Expected: 0.4 * 0.84 + 0.3 * 0.94 + 0.3 * 0.14 = 0.336 + 0.282 + 0.042 = 0.66
@@ -250,10 +267,7 @@ async def test_gti_degraded_penalty_applied(temp_repo):
     mock_gti.queryIOC = AsyncMock(side_effect=GTIDegradedError("Degraded"))
 
     engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
-    context = ToolCallContext(
-        tool_name="safe_tool",
-        arguments={"ip": "1.2.3.4"}
-    )
+    context = ToolCallContext(tool_name="safe_tool", arguments={"ip": "1.2.3.4"})
 
     result = await engine.evaluate(context, "sandbox")
     # GTI is degraded, so it's treated as unavailable (redistributed), but gti_penalty=0.2 is applied.
@@ -266,11 +280,8 @@ async def test_gti_degraded_penalty_applied(temp_repo):
 @pytest.mark.asyncio
 async def test_deterministic_scoring(temp_repo):
     engine = SemanticGatingEngine(repo=temp_repo)
-    context = ToolCallContext(
-        tool_name="run_command",
-        arguments={"cmd": "ls -l"}
-    )
-    
+    context = ToolCallContext(tool_name="run_command", arguments={"cmd": "ls -l"})
+
     res1 = await engine.evaluate(context, "sandbox")
     res2 = await engine.evaluate(context, "sandbox")
     assert res1.threat_score == res2.threat_score
@@ -280,12 +291,11 @@ async def test_deterministic_scoring(temp_repo):
 @pytest.mark.asyncio
 async def test_verdict_thresholds(temp_repo):
     engine = SemanticGatingEngine(repo=temp_repo)
-    
+
     # 1. ALLOW threshold (<0.5)
     # Context score: safe_tool (0.2) + no susp (0.0) + sandbox (0.2) => 0.14
     res_allow = await engine.evaluate(
-        ToolCallContext(tool_name="safe_tool", arguments={}),
-        "sandbox"
+        ToolCallContext(tool_name="safe_tool", arguments={}), "sandbox"
     )
     assert res_allow.threat_score < 0.5
     assert res_allow.verdict == VerdictDecision.ALLOW
@@ -295,19 +305,31 @@ async def test_verdict_thresholds(temp_repo):
     # Add a CBM mock to push score into QUARANTINE
     mock_cbm = MagicMock(spec=CodebaseMemoryClient)
     mock_cbm.get_threat_score_penalty.return_value = 0.0
-    mock_cbm.queryDependencyChain = AsyncMock(return_value=DependencyChain(
-        rootFunction="f", callChain=[], depth=1, hasCriticalSink=True, criticalSinks=[]
-    ))
-    mock_cbm.getBlastRadius = AsyncMock(return_value=BlastRadiusReport(
-        targetNode="f", affectedModules=[], affectedFunctions=[], riskScore=0.5, isolation=BlastRadiusIsolation.HIGH
-    ))
+    mock_cbm.queryDependencyChain = AsyncMock(
+        return_value=DependencyChain(
+            rootFunction="f",
+            callChain=[],
+            depth=1,
+            hasCriticalSink=True,
+            criticalSinks=[],
+        )
+    )
+    mock_cbm.getBlastRadius = AsyncMock(
+        return_value=BlastRadiusReport(
+            targetNode="f",
+            affectedModules=[],
+            affectedFunctions=[],
+            riskScore=0.5,
+            isolation=BlastRadiusIsolation.HIGH,
+        )
+    )
     mock_cbm.identifyCriticalSinks = AsyncMock(return_value=[])
     mock_cbm.identifyUnsafeSinks = lambda sinks: []
-    
+
     engine_q = SemanticGatingEngine(repo=temp_repo, cbm_client=mock_cbm)
     res_q = await engine_q.evaluate(
         ToolCallContext(tool_name="run_command", arguments={"targetFunction": "f"}),
-        "sandbox"
+        "sandbox",
     )
     # Context score: 0.4 * 1.0 + 0.3 * 0.0 + 0.3 * 0.2 = 0.46
     # CBM score: hasCriticalSink (0.4) + riskScore (0.3 * 0.5 = 0.15) = 0.55
@@ -319,7 +341,7 @@ async def test_verdict_thresholds(temp_repo):
     # Context score: run_command (1.0) + suspicious (1.0) + production (1.0) => 1.0
     res_block = await engine.evaluate(
         ToolCallContext(tool_name="run_command", arguments={"cmd": "sudo rm -rf"}),
-        "production"
+        "production",
     )
     assert res_block.threat_score >= 0.75
     assert res_block.verdict == VerdictDecision.BLOCK
@@ -338,13 +360,21 @@ async def test_verdict_thresholds(temp_repo):
     cbm_blast_radius_risk=st.floats(min_value=0.0, max_value=1.0),
     environment_role=st.sampled_from(["sandbox", "production"]),
     gti_degraded=st.booleans(),
-    cbm_stale=st.booleans()
+    cbm_stale=st.booleans(),
 )
 @pytest.mark.asyncio
 async def test_threat_score_bounded_property(
-    tool_name, arguments, gti_is_malicious, gti_detection_rate, gti_categories,
-    cbm_has_critical_sink, cbm_unsafe, cbm_blast_radius_risk, environment_role,
-    gti_degraded, cbm_stale
+    tool_name,
+    arguments,
+    gti_is_malicious,
+    gti_detection_rate,
+    gti_categories,
+    cbm_has_critical_sink,
+    cbm_unsafe,
+    cbm_blast_radius_risk,
+    environment_role,
+    gti_degraded,
+    cbm_stale,
 ):
     # Setup stubs manually to keep tests fast (no SQLite or real network)
     # We call evaluate with mock clients and verify bounds.
@@ -353,44 +383,55 @@ async def test_threat_score_bounded_property(
     if gti_degraded:
         mock_gti.queryIOC = AsyncMock(side_effect=GTIDegradedError("Degraded"))
     else:
-        mock_gti.queryIOC = AsyncMock(return_value=GTIResponse(
-            indicator="test",
-            is_malicious=gti_is_malicious,
-            threat_categories=gti_categories,
-            detection_rate=gti_detection_rate,
-            confidence=0.5
-        ))
+        mock_gti.queryIOC = AsyncMock(
+            return_value=GTIResponse(
+                indicator="test",
+                is_malicious=gti_is_malicious,
+                threat_categories=gti_categories,
+                detection_rate=gti_detection_rate,
+                confidence=0.5,
+            )
+        )
 
     mock_cbm = MagicMock(spec=CodebaseMemoryClient)
     mock_cbm.get_threat_score_penalty.return_value = 0.4 if cbm_stale else 0.0
-    mock_cbm.queryDependencyChain = AsyncMock(return_value=DependencyChain(
-        rootFunction="f", callChain=[], depth=1, hasCriticalSink=cbm_has_critical_sink, criticalSinks=[]
-    ))
-    mock_cbm.getBlastRadius = AsyncMock(return_value=BlastRadiusReport(
-        targetNode="f", affectedModules=[], affectedFunctions=[], riskScore=cbm_blast_radius_risk, isolation=BlastRadiusIsolation.HIGH
-    ))
+    mock_cbm.queryDependencyChain = AsyncMock(
+        return_value=DependencyChain(
+            rootFunction="f",
+            callChain=[],
+            depth=1,
+            hasCriticalSink=cbm_has_critical_sink,
+            criticalSinks=[],
+        )
+    )
+    mock_cbm.getBlastRadius = AsyncMock(
+        return_value=BlastRadiusReport(
+            targetNode="f",
+            affectedModules=[],
+            affectedFunctions=[],
+            riskScore=cbm_blast_radius_risk,
+            isolation=BlastRadiusIsolation.HIGH,
+        )
+    )
     mock_cbm.identifyCriticalSinks = AsyncMock(return_value=[])
     mock_cbm.identifyUnsafeSinks = lambda sinks: [MagicMock()] if cbm_unsafe else []
 
     engine = SemanticGatingEngine(repo=None, gti_client=mock_gti, cbm_client=mock_cbm)
-    
+
     # Always include targetFunction to trigger CBM evaluation
     args = dict(arguments)
     args["targetFunction"] = "f"
-    
+
     # Include an IP so we trigger GTI
     args["ip"] = "8.8.8.8"
 
-    context = ToolCallContext(
-        tool_name=tool_name,
-        arguments=args
-    )
+    context = ToolCallContext(tool_name=tool_name, arguments=args)
 
     result = await engine.evaluate(context, environment_role)
-    
+
     # Threat score must always be bounded [0.0, 1.0]
     assert 0.0 <= result.threat_score <= 1.0
-    
+
     # Verdict correctness checks
     if result.threat_score >= 0.75:
         assert result.verdict == VerdictDecision.BLOCK
@@ -404,33 +445,27 @@ async def test_threat_score_bounded_property(
 async def test_high_risk_event_classification(temp_repo):
     from blackwall.policy.engine import StructuralGatingResult, StructuralAction
     from blackwall.policy.semantic import extract_iocs
-    
+
     engine = SemanticGatingEngine(repo=temp_repo)
-    
+
     # Test case 1: Private IP -> Should NOT be high risk
     ctx_private_ip = ToolCallContext(
-        tool_name="test_tool",
-        arguments={"ip": "127.0.0.1"}
+        tool_name="test_tool", arguments={"ip": "127.0.0.1"}
     )
     iocs_private = extract_iocs(ctx_private_ip)
     assert not await engine.is_high_risk(ctx_private_ip, iocs_private)
-    
+
     # Test case 2: External IP (new) -> Should be high risk
     ctx_external_ip = ToolCallContext(
-        tool_name="test_tool",
-        arguments={"ip": "8.8.8.8"}
+        tool_name="test_tool", arguments={"ip": "8.8.8.8"}
     )
     iocs_external = extract_iocs(ctx_external_ip)
     assert await engine.is_high_risk(ctx_external_ip, iocs_external)
 
     # Test case 3: Structural gating escalated -> Should be high risk
-    ctx_escalated = ToolCallContext(
-        tool_name="test_tool",
-        arguments={}
-    )
+    ctx_escalated = ToolCallContext(tool_name="test_tool", arguments={})
     struct_res = StructuralGatingResult(
-        decision=StructuralAction.ESCALATE_TO_SEMANTIC,
-        requireSemanticReview=True
+        decision=StructuralAction.ESCALATE_TO_SEMANTIC, requireSemanticReview=True
     )
     assert await engine.is_high_risk(ctx_escalated, {}, structural_result=struct_res)
 
@@ -438,19 +473,17 @@ async def test_high_risk_event_classification(temp_repo):
 @pytest.mark.asyncio
 async def test_suspicion_score_calculation(temp_repo):
     from blackwall.policy.semantic import extract_iocs
-    
+
     engine = SemanticGatingEngine(repo=temp_repo)
-    
+
     # Base/empty context
     ctx_empty = ToolCallContext(tool_name="test_tool", arguments={})
     score_empty = await engine.calculate_suspicion_score(ctx_empty, {})
     assert score_empty == 0.0
-    
+
     # External IP from high-risk country
     ctx_hr_geo = ToolCallContext(
-        tool_name="test_tool",
-        arguments={"ip": "8.8.8.8"},
-        metadata={"country": "RU"}
+        tool_name="test_tool", arguments={"ip": "8.8.8.8"}, metadata={"country": "RU"}
     )
     iocs_hr = extract_iocs(ctx_hr_geo)
     score_hr = await engine.calculate_suspicion_score(ctx_hr_geo, iocs_hr)
@@ -459,8 +492,7 @@ async def test_suspicion_score_calculation(temp_repo):
 
     # Suspicious TLD (.xyz)
     ctx_xyz = ToolCallContext(
-        tool_name="test_tool",
-        arguments={"domain": "malicious.xyz"}
+        tool_name="test_tool", arguments={"domain": "malicious.xyz"}
     )
     iocs_xyz = extract_iocs(ctx_xyz)
     score_xyz = await engine.calculate_suspicion_score(ctx_xyz, iocs_xyz)
@@ -470,7 +502,7 @@ async def test_suspicion_score_calculation(temp_repo):
     # High entropy hash
     ctx_hash = ToolCallContext(
         tool_name="test_tool",
-        arguments={"file_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"}
+        arguments={"file_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"},
     )
     iocs_hash = extract_iocs(ctx_hash)
     score_hash = await engine.calculate_suspicion_score(ctx_hash, iocs_hash)
@@ -482,23 +514,23 @@ async def test_suspicion_score_calculation(temp_repo):
 async def test_gti_query_budget_tracker_integration():
     from blackwall.mcp.gti_client import GTIQueryBudgetTracker
     import asyncio
-    
+
     tracker = GTIQueryBudgetTracker(capacity=4, replenishment_interval=0.1)
     try:
         # 4 queries should succeed
         for _ in range(4):
             assert await tracker.tryAcquire() is True
-            
+
         # 5th query should fail (budget exhausted)
         assert await tracker.tryAcquire() is False
         assert await tracker.getAvailableTokens() == 0
-        
+
         metrics = await tracker.getMetrics()
         assert metrics["queriesAttempted"] == 5
         assert metrics["queriesExecuted"] == 4
         assert metrics["queriesDeferred"] == 1
         assert metrics["budgetExhaustionCount"] == 1
-        
+
         # Wait for replenishment (0.1s replenishment interval)
         await asyncio.sleep(0.15)
         assert await tracker.tryAcquire() is True
@@ -509,19 +541,31 @@ async def test_gti_query_budget_tracker_integration():
 @pytest.mark.asyncio
 async def test_gti_query_skipped_and_redistributed_on_budget_exhaustion(temp_repo):
     from blackwall.mcp.gti_client import GTIQueryBudgetTracker
-    
+
     # Mock GTI and CBM
     mock_gti = MagicMock(spec=GTIMCPClient)
     mock_gti.is_degraded.return_value = False
-    
+
     mock_cbm = MagicMock(spec=CodebaseMemoryClient)
     mock_cbm.get_threat_score_penalty.return_value = 0.0
-    mock_cbm.queryDependencyChain = AsyncMock(return_value=DependencyChain(
-        rootFunction="f", callChain=[], depth=1, hasCriticalSink=True, criticalSinks=[]
-    ))
-    mock_cbm.getBlastRadius = AsyncMock(return_value=BlastRadiusReport(
-        targetNode="f", affectedModules=[], affectedFunctions=[], riskScore=0.5, isolation=BlastRadiusIsolation.HIGH
-    ))
+    mock_cbm.queryDependencyChain = AsyncMock(
+        return_value=DependencyChain(
+            rootFunction="f",
+            callChain=[],
+            depth=1,
+            hasCriticalSink=True,
+            criticalSinks=[],
+        )
+    )
+    mock_cbm.getBlastRadius = AsyncMock(
+        return_value=BlastRadiusReport(
+            targetNode="f",
+            affectedModules=[],
+            affectedFunctions=[],
+            riskScore=0.5,
+            isolation=BlastRadiusIsolation.HIGH,
+        )
+    )
     mock_cbm.identifyCriticalSinks = AsyncMock(return_value=[])
     mock_cbm.identifyUnsafeSinks = lambda sinks: []
 
@@ -536,19 +580,18 @@ async def test_gti_query_skipped_and_redistributed_on_budget_exhaustion(temp_rep
             repo=temp_repo,
             gti_client=mock_gti,
             cbm_client=mock_cbm,
-            budget_tracker=tracker
+            budget_tracker=tracker,
         )
-        
+
         context = ToolCallContext(
-            tool_name="safe_tool",
-            arguments={"ip": "8.8.8.8", "targetFunction": "f"}
+            tool_name="safe_tool", arguments={"ip": "8.8.8.8", "targetFunction": "f"}
         )
-        
+
         result = await engine.evaluate(context, "sandbox")
-        
+
         # GTI should not be queried
         mock_gti.queryIOC.assert_not_called()
-        
+
         # GTI penalty (0.2) must be applied
         # Weights redistributed: CBM gets 50%, Context gets 50%
         # Context score: 0.14
@@ -563,18 +606,18 @@ async def test_gti_query_skipped_and_redistributed_on_budget_exhaustion(temp_rep
 
 from blackwall.mcp.gti_client import GTIBudgetExhaustedError
 
+
 @pytest.mark.asyncio
 async def test_gti_budget_exhausted_penalty_applied(temp_repo):
     # Setup mock GTI Client that raises GTIBudgetExhaustedError
     mock_gti = MagicMock(spec=GTIMCPClient)
     mock_gti.is_degraded.return_value = False
-    mock_gti.queryIOC = AsyncMock(side_effect=GTIBudgetExhaustedError("Budget exhausted"))
+    mock_gti.queryIOC = AsyncMock(
+        side_effect=GTIBudgetExhaustedError("Budget exhausted")
+    )
 
     engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
-    context = ToolCallContext(
-        tool_name="safe_tool",
-        arguments={"ip": "1.2.3.4"}
-    )
+    context = ToolCallContext(tool_name="safe_tool", arguments={"ip": "1.2.3.4"})
 
     result = await engine.evaluate(context, "sandbox")
     # GTI is budget exhausted, treated as unavailable (redistributed), gti_penalty=0.2 is applied.
@@ -589,24 +632,30 @@ async def test_weight_redistribution_on_budget_exhaustion(temp_repo):
     # Setup mock GTI Client that raises GTIBudgetExhaustedError
     mock_gti = MagicMock(spec=GTIMCPClient)
     mock_gti.is_degraded.return_value = False
-    mock_gti.queryIOC = AsyncMock(side_effect=GTIBudgetExhaustedError("Budget exhausted"))
+    mock_gti.queryIOC = AsyncMock(
+        side_effect=GTIBudgetExhaustedError("Budget exhausted")
+    )
 
     mock_cbm = MagicMock(spec=CodebaseMemoryClient)
     mock_cbm.get_threat_score_penalty.return_value = 0.0
-    mock_cbm.queryDependencyChain = AsyncMock(return_value=DependencyChain(
-        rootFunction="ProcessOrder",
-        callChain=["ProcessOrder", "ExecuteSQL"],
-        depth=2,
-        hasCriticalSink=True,
-        criticalSinks=["ExecuteSQL"]
-    ))
-    mock_cbm.getBlastRadius = AsyncMock(return_value=BlastRadiusReport(
-        targetNode="ProcessOrder",
-        affectedModules=["src/db"],
-        affectedFunctions=["ProcessOrder"],
-        riskScore=0.8,
-        isolation=BlastRadiusIsolation.MEDIUM
-    ))
+    mock_cbm.queryDependencyChain = AsyncMock(
+        return_value=DependencyChain(
+            rootFunction="ProcessOrder",
+            callChain=["ProcessOrder", "ExecuteSQL"],
+            depth=2,
+            hasCriticalSink=True,
+            criticalSinks=["ExecuteSQL"],
+        )
+    )
+    mock_cbm.getBlastRadius = AsyncMock(
+        return_value=BlastRadiusReport(
+            targetNode="ProcessOrder",
+            affectedModules=["src/db"],
+            affectedFunctions=["ProcessOrder"],
+            riskScore=0.8,
+            isolation=BlastRadiusIsolation.MEDIUM,
+        )
+    )
     mock_cbm.identifyCriticalSinks = AsyncMock(return_value=[])
     mock_cbm.identifyUnsafeSinks = lambda sinks: []
 
@@ -614,10 +663,12 @@ async def test_weight_redistribution_on_budget_exhaustion(temp_repo):
     # Context score: 0.14
     # Since GTI is budget exhausted: CBM (50%), Context (50%) + penalty (0.2)
     # Expected: 0.5 * 0.64 + 0.5 * 0.14 + 0.2 = 0.32 + 0.07 + 0.2 = 0.59
-    engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti, cbm_client=mock_cbm)
+    engine = SemanticGatingEngine(
+        repo=temp_repo, gti_client=mock_gti, cbm_client=mock_cbm
+    )
     context = ToolCallContext(
         tool_name="safe_tool",
-        arguments={"ip": "1.2.3.4", "targetFunction": "ProcessOrder"}
+        arguments={"ip": "1.2.3.4", "targetFunction": "ProcessOrder"},
     )
     result = await engine.evaluate(context, "sandbox")
     assert abs(result.threat_score - 0.59) < 0.01
@@ -639,21 +690,23 @@ async def test_gti_partial_results_preserved_on_budget_exhaustion(temp_repo):
         is_malicious=True,
         threat_categories=["botnet", "c2"],
         detection_rate=85.0,
-        confidence=0.9
+        confidence=0.9,
     )
 
     # First queryIOC call succeeds, second raises budget exhausted
-    mock_gti.queryIOC = AsyncMock(side_effect=[
-        malicious_response,  # First IP query succeeds
-        GTIBudgetExhaustedError("Budget exhausted")  # Second URL query fails
-    ])
+    mock_gti.queryIOC = AsyncMock(
+        side_effect=[
+            malicious_response,  # First IP query succeeds
+            GTIBudgetExhaustedError("Budget exhausted"),  # Second URL query fails
+        ]
+    )
 
     engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
 
     # Context with two IOCs: IP and URL
     context = ToolCallContext(
         tool_name="safe_tool",
-        arguments={"ip": "1.2.3.4", "url": "http://evil.example.com/malware"}
+        arguments={"ip": "1.2.3.4", "url": "http://evil.example.com/malware"},
     )
 
     result = await engine.evaluate(context, "sandbox")
@@ -667,7 +720,9 @@ async def test_gti_partial_results_preserved_on_budget_exhaustion(temp_repo):
     # With gti_penalty (0.2): 0.6057 + 0.2 = 0.8057
     # Expected threat score should be >= 0.75 (BLOCK threshold)
 
-    assert result.threat_score >= 0.75, f"Expected threat score >= 0.75, got {result.threat_score}"
+    assert (
+        result.threat_score >= 0.75
+    ), f"Expected threat score >= 0.75, got {result.threat_score}"
     assert result.verdict == VerdictDecision.BLOCK
 
     # Verify that queryIOC was called twice (once successfully, once with budget exhaustion)
@@ -690,12 +745,12 @@ async def test_gti_budget_exhaustion_does_not_skip_cached_iocs(temp_repo):
         "detection_rate": 90.0,
         "last_analysis_date": "2024-01-01T00:00:00Z",
         "related_campaigns": ["campaign-xyz"],
-        "confidence": 0.95
+        "confidence": 0.95,
     }
     await temp_repo.cache_gti_response(
         indicator="evil.example.com",
         indicator_type="domain",
-        response=malicious_domain_response
+        response=malicious_domain_response,
     )
 
     # Setup mock GTI Client: IP query raises budget exhaustion
@@ -705,14 +760,15 @@ async def test_gti_budget_exhaustion_does_not_skip_cached_iocs(temp_repo):
 
     # queryIOC should only be called for uncached IP (and fail with budget exhaustion)
     # Cached domain should NOT call queryIOC - it should use the cached payload directly
-    mock_gti.queryIOC = AsyncMock(side_effect=GTIBudgetExhaustedError("Budget exhausted"))
+    mock_gti.queryIOC = AsyncMock(
+        side_effect=GTIBudgetExhaustedError("Budget exhausted")
+    )
 
     engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
 
     # Context with IP (will fail) and domain (cached, should succeed)
     context = ToolCallContext(
-        tool_name="safe_tool",
-        arguments={"ip": "1.2.3.4", "domain": "evil.example.com"}
+        tool_name="safe_tool", arguments={"ip": "1.2.3.4", "domain": "evil.example.com"}
     )
 
     result = await engine.evaluate(context, "sandbox")
@@ -725,7 +781,9 @@ async def test_gti_budget_exhaustion_does_not_skip_cached_iocs(temp_repo):
     # With gti_penalty (0.2): 0.6142 + 0.2 = 0.8142
     # Expected threat score should be >= 0.75 (BLOCK threshold)
 
-    assert result.threat_score >= 0.75, f"Expected threat score >= 0.75 for cached malicious domain, got {result.threat_score}"
+    assert (
+        result.threat_score >= 0.75
+    ), f"Expected threat score >= 0.75 for cached malicious domain, got {result.threat_score}"
     assert result.verdict == VerdictDecision.BLOCK
 
     # Verify that queryIOC was only called once for the uncached IP (not for cached domain)
@@ -750,8 +808,7 @@ async def test_gti_not_applicable_does_not_dilute_threat_score(temp_repo):
     # Context score: run_command (1.0) + suspicious patterns (1.0) + production (1.0)
     # => 0.4 * 1.0 + 0.3 * 1.0 + 0.3 * 1.0 = 1.0
     context = ToolCallContext(
-        tool_name="run_command",
-        arguments={"cmd": "sudo rm -rf /important/data"}
+        tool_name="run_command", arguments={"cmd": "sudo rm -rf /important/data"}
     )
 
     result = await engine.evaluate(context, "production")
@@ -764,7 +821,9 @@ async def test_gti_not_applicable_does_not_dilute_threat_score(temp_repo):
     # Expected threat score = 1.0 (context score)
     # This should result in BLOCK verdict (>= 0.75)
 
-    assert result.threat_score >= 0.75, f"Expected threat score >= 0.75, got {result.threat_score}"
+    assert (
+        result.threat_score >= 0.75
+    ), f"Expected threat score >= 0.75, got {result.threat_score}"
     assert result.verdict == VerdictDecision.BLOCK
 
 
@@ -783,12 +842,10 @@ async def test_cached_ioc_uses_repo_payload_not_queryioc(temp_repo):
         "detection_rate": 75.0,
         "last_analysis_date": "2024-01-01T00:00:00Z",
         "related_campaigns": [],
-        "confidence": 0.75
+        "confidence": 0.75,
     }
     await temp_repo.cache_gti_response(
-        indicator="8.8.8.8",
-        indicator_type="ip_address",
-        response=cached_ip_response
+        indicator="8.8.8.8", indicator_type="ip_address", response=cached_ip_response
     )
 
     cached_url_response = {
@@ -798,12 +855,12 @@ async def test_cached_ioc_uses_repo_payload_not_queryioc(temp_repo):
         "detection_rate": 80.0,
         "last_analysis_date": "2024-01-01T00:00:00Z",
         "related_campaigns": [],
-        "confidence": 0.8
+        "confidence": 0.8,
     }
     await temp_repo.cache_gti_response(
         indicator="http://malicious.example.com/payload",
         indicator_type="url",
-        response=cached_url_response
+        response=cached_url_response,
     )
 
     cached_domain_response = {
@@ -813,12 +870,12 @@ async def test_cached_ioc_uses_repo_payload_not_queryioc(temp_repo):
         "detection_rate": 85.0,
         "last_analysis_date": "2024-01-01T00:00:00Z",
         "related_campaigns": [],
-        "confidence": 0.85
+        "confidence": 0.85,
     }
     await temp_repo.cache_gti_response(
         indicator="evil.example.com",
         indicator_type="domain",
-        response=cached_domain_response
+        response=cached_domain_response,
     )
 
     cached_hash_response = {
@@ -828,12 +885,12 @@ async def test_cached_ioc_uses_repo_payload_not_queryioc(temp_repo):
         "detection_rate": 90.0,
         "last_analysis_date": "2024-01-01T00:00:00Z",
         "related_campaigns": [],
-        "confidence": 0.9
+        "confidence": 0.9,
     }
     await temp_repo.cache_gti_response(
         indicator="a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
         indicator_type="file_hash",
-        response=cached_hash_response
+        response=cached_hash_response,
     )
 
     # Setup mock GTI Client
@@ -851,8 +908,8 @@ async def test_cached_ioc_uses_repo_payload_not_queryioc(temp_repo):
             "ip": "8.8.8.8",
             "url": "http://malicious.example.com/payload",
             "domain": "evil.example.com",
-            "file_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
-        }
+            "file_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+        },
     )
 
     result = await engine.evaluate(context, "sandbox")
@@ -864,5 +921,6 @@ async def test_cached_ioc_uses_repo_payload_not_queryioc(temp_repo):
     # The threat score should still be high because cached responses indicate malicious IOCs
     # Even though queryIOC wasn't called, the engine should detect the cached malicious responses
     # GTI score should be calculated from the cached responses
-    assert result.threat_score >= 0.5, f"Expected threat score >= 0.5 from cached malicious IOCs, got {result.threat_score}"
-
+    assert (
+        result.threat_score >= 0.5
+    ), f"Expected threat score >= 0.5 from cached malicious IOCs, got {result.threat_score}"

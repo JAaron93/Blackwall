@@ -54,11 +54,13 @@ def given_blackwall_process_running():
 @when("the privilege manager drops OS privileges")
 def when_privilege_manager_drops_privileges(state):
     # Patch os.getuid to return 0 (simulating root), and patch setuid/setgid/setgroups
-    with patch("os.getuid", return_value=0), \
-         patch("os.setuid") as mock_setuid, \
-         patch("os.setgid") as mock_setgid, \
-         patch("os.setgroups") as mock_setgroups, \
-         patch("pwd.getpwnam") as mock_getpwnam:
+    with (
+        patch("os.getuid", return_value=0),
+        patch("os.setuid") as mock_setuid,
+        patch("os.setgid") as mock_setgid,
+        patch("os.setgroups") as mock_setgroups,
+        patch("pwd.getpwnam") as mock_getpwnam,
+    ):
 
         # Mock pwd.getpwnam to return a valid pw record
         mock_pw = MagicMock()
@@ -140,13 +142,15 @@ def given_vault_contains_cbm_key(state):
     state.vault.set_secret("cbm-api-key", "cbm-real-key")
 
 
-@when('the system needs the credential for a secure vault reference "vault://secrets/cbm-api-key"')
+@when(
+    'the system needs the credential for a secure vault reference "vault://secrets/cbm-api-key"'
+)
 def when_system_needs_cbm_key(state):
     # Retrieve key from vault reference
     state.resolved_val = state.vault.get_secret("vault://secrets/cbm-api-key")
 
 
-@then('the system must fetch the secret from the vault on-demand')
+@then("the system must fetch the secret from the vault on-demand")
 def then_system_fetches_secret(state):
     assert state.resolved_val == "cbm-real-key"
 
@@ -161,7 +165,9 @@ def then_key_not_stored_in_memory(state):
             assert val != "cbm-real-key", "Secret value found cached in vault attribute"
         # Check nested dictionaries or lists that might contain the secret
         elif isinstance(val, dict):
-            assert "cbm-real-key" not in val.values(), "Secret value found in vault dict attribute"
+            assert (
+                "cbm-real-key" not in val.values()
+            ), "Secret value found in vault dict attribute"
 
 
 # --- Scenario: Audit hook blocks raw execution bypasses ---
@@ -275,6 +281,7 @@ def given_legacy_api_keys_present(monkeypatch):
 @when("the provider environment is configured for Vertex AI mode")
 def when_provider_env_configured_for_vertex():
     from blackwall.config import configure_provider_env
+
     configure_provider_env(force=True)
 
 
@@ -288,7 +295,9 @@ def then_gemini_tier_set_paid():
     assert os.getenv("GEMINI_TIER") == "paid"
 
 
-@then('legacy API key variables "GEMINI_API_KEY" and "LLM_API_KEY" must be purged from environment')
+@then(
+    'legacy API key variables "GEMINI_API_KEY" and "LLM_API_KEY" must be purged from environment'
+)
 def then_legacy_api_keys_purged():
     assert "GEMINI_API_KEY" not in os.environ
     assert "LLM_API_KEY" not in os.environ

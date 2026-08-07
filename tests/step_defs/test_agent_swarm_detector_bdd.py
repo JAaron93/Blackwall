@@ -67,7 +67,9 @@ def given_agent_events(swarm_state):
 def when_fingerprint_called(swarm_state):
     swarm_state.fingerprint = run_async(
         swarm_state.detector.fingerprint_agent(
-            "agent-bdd-fp", window=3600, end_time=swarm_state.base_time + timedelta(seconds=60)
+            "agent-bdd-fp",
+            window=3600,
+            end_time=swarm_state.base_time + timedelta(seconds=60),
         )
     )
 

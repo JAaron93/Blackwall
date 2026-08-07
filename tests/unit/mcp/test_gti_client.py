@@ -29,8 +29,10 @@ async def repo(temp_db_path):
 def client(repo):
     tracker = GTIQueryBudgetTracker(capacity=100)
     c = GTIMCPClient(repo=repo, api_key="test_api_key", budget_tracker=tracker)
+
     async def mock_high_risk(indicator, indicator_type, context=None):
         return True
+
     c.is_high_risk = mock_high_risk
     yield c
     tracker.close()
@@ -347,7 +349,12 @@ async def test_suspicion_score_calculation(repo):
     assert c.calculate_suspicion_score(long_domain, IndicatorType.DOMAIN) == 0.1
 
     # File hash check (high entropy)
-    assert c.calculate_suspicion_score("44d88612aa487c88b8d4f4f5f5f5f5f5", IndicatorType.FILE_HASH) == 0.2
+    assert (
+        c.calculate_suspicion_score(
+            "44d88612aa487c88b8d4f4f5f5f5f5f5", IndicatorType.FILE_HASH
+        )
+        == 0.2
+    )
 
     # Context checks
     context = ToolCallContext(
@@ -367,10 +374,19 @@ async def test_high_risk_classification(repo):
     assert await c.is_high_risk("8.8.8.8", IndicatorType.IP_ADDRESS) is True
 
     # In cache (no novelty) + external IP (+0.2) = 0.2 (not high risk)
-    await repo.cache_gti_response("8.8.8.8", IndicatorType.IP_ADDRESS.value, {
-        "indicator": "8.8.8.8", "is_malicious": False, "threat_categories": [],
-        "detection_rate": 0.0, "last_analysis_date": None, "related_campaigns": [], "confidence": 0.0
-    })
+    await repo.cache_gti_response(
+        "8.8.8.8",
+        IndicatorType.IP_ADDRESS.value,
+        {
+            "indicator": "8.8.8.8",
+            "is_malicious": False,
+            "threat_categories": [],
+            "detection_rate": 0.0,
+            "last_analysis_date": None,
+            "related_campaigns": [],
+            "confidence": 0.0,
+        },
+    )
     assert await c.is_high_risk("8.8.8.8", IndicatorType.IP_ADDRESS) is False
 
 
@@ -381,7 +397,7 @@ async def test_query_skipped_when_low_risk(repo):
         # Novelty (+0.3) + private IP (+0.0) = 0.3 (not high risk)
         # It should skip live query and return default false response without calling API
         response = await c.queryIOC("127.0.0.1", IndicatorType.IP_ADDRESS)
-        
+
         assert response.is_malicious is False
         mock_query.assert_not_called()
 
@@ -399,4 +415,3 @@ async def test_query_budget_exhaustion(repo):
             await c.queryIOC("8.8.8.8", IndicatorType.IP_ADDRESS)
     finally:
         c.budget_tracker.close()
-

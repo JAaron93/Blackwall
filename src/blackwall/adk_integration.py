@@ -216,9 +216,7 @@ class FreeTierADKIntegration:
             )
             verdict = future.result(timeout=30.0)
         else:
-            verdict = self.loop.run_until_complete(
-                self.sync_resolver.evaluate(context)
-            )
+            verdict = self.loop.run_until_complete(self.sync_resolver.evaluate(context))
 
         return self._apply_verdict(context, verdict)
 

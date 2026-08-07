@@ -24,6 +24,7 @@ from typing import Any, Callable
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _load(path: Path) -> list[dict]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(data, list):
@@ -116,6 +117,7 @@ def _build_cases(
 # Case builders
 # ---------------------------------------------------------------------------
 
+
 def build_benign_cases(cases: list[dict]) -> list[dict]:
     def _metadata(case: dict, expected_verdict: str) -> dict:
         return {
@@ -190,6 +192,7 @@ EVAL_CONFIG: dict = {
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def build(workspace: Path) -> None:
     test_data_dir = workspace / "tests" / "eval" / "test_data"

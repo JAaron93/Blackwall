@@ -36,7 +36,6 @@ class ATDBDDState:
         self.correlator_paths = None
 
 
-
 @pytest.fixture
 def atd_state():
     return ATDBDDState()
@@ -66,7 +65,9 @@ def when_event_normalized(atd_state):
 
 @then("the NormalizedEvent model accepts the valid UUID v4 and UTC timestamp")
 def then_normalized_event_accepts(atd_state):
-    assert atd_state.normalized_event.event_id == uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
+    assert atd_state.normalized_event.event_id == uuid.UUID(
+        "550e8400-e29b-41d4-a716-446655440000"
+    )
     assert atd_state.normalized_event.timestamp.tzinfo is not None
 
 
@@ -462,16 +463,25 @@ def given_initialized_swarm_detector(atd_state):
         run_async(store.insert_event(ev2))
 
     atd_state.swarm_base_time = now
-    atd_state.swarm_time_window = (now - timedelta(seconds=10), now + timedelta(seconds=60))
+    atd_state.swarm_time_window = (
+        now - timedelta(seconds=10),
+        now + timedelta(seconds=60),
+    )
 
 
 @when("agent action sequences are fingerprinted and swarms are detected")
 def when_fingerprinted_and_swarms_detected(atd_state):
     atd_state.swarm_fingerprint = run_async(
-        atd_state.swarm_detector.fingerprint_agent("swarm-agent-1", window=3600, end_time=atd_state.swarm_base_time + timedelta(seconds=30))
+        atd_state.swarm_detector.fingerprint_agent(
+            "swarm-agent-1",
+            window=3600,
+            end_time=atd_state.swarm_base_time + timedelta(seconds=30),
+        )
     )
     atd_state.detected_swarms = run_async(
-        atd_state.swarm_detector.detect_swarms(atd_state.swarm_time_window, min_agents=2, correlation_threshold=0.75)
+        atd_state.swarm_detector.detect_swarms(
+            atd_state.swarm_time_window, min_agents=2, correlation_threshold=0.75
+        )
     )
 
 
@@ -492,5 +502,3 @@ def then_swarm_evidence_produced(atd_state):
     assert 0.0 <= swarm.temporal_correlation <= 1.0
     assert 0.0 <= swarm.coordination_score <= 1.0
     assert len(swarm.shared_patterns) >= 1
-
-

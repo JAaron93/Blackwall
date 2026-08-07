@@ -69,6 +69,7 @@ def safe_sla_limit():
     def _helper(env_var: str, default: float) -> float:
         import os
         import math
+
         if not math.isfinite(default) or default <= 0.0:
             raise ValueError(f"Invalid default SLA limit: {default}")
         val_str = os.getenv(env_var)
@@ -81,12 +82,14 @@ def safe_sla_limit():
         except ValueError:
             pass
         return default
+
     return _helper
 
 
 # ---------------------------------------------------------------------------
 # Weave evaluation marker: collection-time skip + detector_suite fixture
 # ---------------------------------------------------------------------------
+
 
 def _has_wandb_credentials() -> bool:
     """Check for W&B credentials in standard file locations.
@@ -114,11 +117,17 @@ def _has_wandb_credentials() -> bool:
     try:
         if settings_path.exists():
             import configparser
+
             parser = configparser.ConfigParser()
             parser.read(settings_path)
             for section in parser.sections():
                 val = parser.get(section, "api_key", fallback="")
-                if val.strip() and val.strip().lower() not in ("none", "null", '""', "''"):
+                if val.strip() and val.strip().lower() not in (
+                    "none",
+                    "null",
+                    '""',
+                    "''",
+                ):
                     return True
     except OSError:
         pass
@@ -137,12 +146,14 @@ def _weave_available() -> bool:
     5. (none of the above)  → False
     """
     import os
+
     if os.getenv("WEAVE_DISABLED") == "true":
         return False
 
     def _weave_importable() -> bool:
         try:
             import weave  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -192,9 +203,15 @@ def detector_suite(request):
         from blackwall.enterprise.advanced_threat_detection.weave_factory import (
             build_detector_suite,
         )
-        from blackwall.enterprise.advanced_threat_detection.correlator import PathCorrelator
-        from blackwall.enterprise.advanced_threat_detection.collector import EventStreamCollector
-        from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
+        from blackwall.enterprise.advanced_threat_detection.correlator import (
+            PathCorrelator,
+        )
+        from blackwall.enterprise.advanced_threat_detection.collector import (
+            EventStreamCollector,
+        )
+        from blackwall.enterprise.advanced_threat_detection.store import (
+            AttackGraphStore,
+        )
     except ImportError:
         pytest.skip("Advanced threat detection components not yet implemented")
         return
@@ -202,7 +219,7 @@ def detector_suite(request):
     marked = request.node.get_closest_marker("weave") is not None
     return build_detector_suite(
         correlator=PathCorrelator(),
-        swarm_detector=None,   # placeholder until AgentSwarmDetector is implemented
+        swarm_detector=None,  # placeholder until AgentSwarmDetector is implemented
         ailm_tracker=None,
         exploit_analyzer=None,
         c2_detector=None,

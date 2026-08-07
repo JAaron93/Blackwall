@@ -215,7 +215,9 @@ def test_property_11_attack_path_temporal_invalidity(nodes, start, offset_sec, p
 
 # Property 26: Swarm Evidence Agent Count Validation
 @settings(max_examples=100)
-@given(agents=st.sets(non_empty_str_st, min_size=2, max_size=10), swarm_id=valid_uuid4_st)
+@given(
+    agents=st.sets(non_empty_str_st, min_size=2, max_size=10), swarm_id=valid_uuid4_st
+)
 def test_property_26_swarm_evidence_agent_count_valid(agents, swarm_id):
     """Property 26: Swarm_Evidence agent_ids set SHALL contain at least 2 distinct agent identifiers."""
     now = datetime.now(timezone.utc)

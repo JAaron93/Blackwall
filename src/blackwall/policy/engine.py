@@ -82,7 +82,7 @@ class StructuralGatingEngine:
             try:
                 normalized = normalize_operators(rule.condition)
                 self._validate_condition_ast(normalized)
-                compiled_code = compile(normalized, "<string>", "eval")
+                compiled_code = ast.parse(normalized, mode="eval")
                 compiled_rules.append((rule, compiled_code))
             except Exception as e:
                 raise ValueError(f"Invalid condition in rule '{rule.ruleId}': {e}")
@@ -113,6 +113,13 @@ class StructuralGatingEngine:
             ast.Or,
             ast.Compare,
             ast.Eq,
+            ast.NotEq,
+            ast.Lt,
+            ast.LtE,
+            ast.Gt,
+            ast.GtE,
+            ast.In,
+            ast.NotIn,
             ast.Name,
             ast.Constant,
             ast.Load,
@@ -134,6 +141,62 @@ class StructuralGatingEngine:
                     raise ValueError(
                         f"Unauthorized variable context: {type(n.ctx).__name__}"
                     )
+
+    def _eval_ast(self, node: ast.AST, variables: dict[str, Any]) -> Any:
+        """Safely evaluates a pre-validated AST node."""
+        if isinstance(node, ast.Expression):
+            return self._eval_ast(node.body, variables)
+        elif isinstance(node, ast.Constant):
+            return node.value
+        elif isinstance(node, ast.Name):
+            return variables[node.id]
+        elif isinstance(node, ast.Compare):
+            left = self._eval_ast(node.left, variables)
+            for op, comparator in zip(node.ops, node.comparators):
+                right = self._eval_ast(comparator, variables)
+                if isinstance(op, ast.Eq):
+                    if left != right:
+                        return False
+                elif isinstance(op, ast.NotEq):
+                    if left == right:
+                        return False
+                elif isinstance(op, ast.Lt):
+                    if not left < right:
+                        return False
+                elif isinstance(op, ast.LtE):
+                    if not left <= right:
+                        return False
+                elif isinstance(op, ast.Gt):
+                    if not left > right:
+                        return False
+                elif isinstance(op, ast.GtE):
+                    if not left >= right:
+                        return False
+                elif isinstance(op, ast.In):
+                    if left not in right:
+                        return False
+                elif isinstance(op, ast.NotIn):
+                    if left in right:
+                        return False
+                else:
+                    raise ValueError(f"Unsupported op {type(op)}")
+                left = right
+            return True
+        elif isinstance(node, ast.BoolOp):
+            if isinstance(node.op, ast.And):
+                for value in node.values:
+                    if not self._eval_ast(value, variables):
+                        return False
+                return True
+            elif isinstance(node.op, ast.Or):
+                for value in node.values:
+                    if self._eval_ast(value, variables):
+                        return True
+                return False
+            else:
+                raise ValueError(f"Unsupported bool op {type(node.op)}")
+        else:
+            raise ValueError(f"Unsupported node type {type(node)}")
 
     def evaluate(
         self, context: ToolCallContext, environment_role: str
@@ -176,7 +239,7 @@ class StructuralGatingEngine:
         for rule, compiled_code in rules_to_eval:
             try:
                 # Safe eval of the pre-compiled AST code object
-                result = eval(compiled_code, {"__builtins__": {}}, variables)
+                result = self._eval_ast(compiled_code.body, variables)
                 if result:
                     matched_rule = rule
                     break

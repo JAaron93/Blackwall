@@ -56,4 +56,3 @@ Feature: Blackwall Enterprise Security Mesh End-to-End Integration
     When heterogeneous events from kernel, tool, identity, pipeline, and forensic sources are collected
     Then events are normalized into standard NormalizedEvents with UUID v4 IDs, UTC timestamps, and risk scores
     And malformed payloads or invalid stream factories fail cleanly without corrupting telemetry
-

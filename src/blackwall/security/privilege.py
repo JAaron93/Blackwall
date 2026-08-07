@@ -14,11 +14,14 @@ def drop_privileges(user_or_uid: Union[str, int] = "nobody") -> None:
         return
 
     if os.getuid() != 0:
-        logger.info("Process is already running as an unprivileged user", uid=os.getuid())
+        logger.info(
+            "Process is already running as an unprivileged user", uid=os.getuid()
+        )
         return
 
     try:
         import pwd
+
         if isinstance(user_or_uid, str):
             pw_record = pwd.getpwnam(user_or_uid)
             uid = pw_record.pw_uid

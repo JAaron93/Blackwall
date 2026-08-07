@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This dataset (`malicious_cases.json`) contains **59 structured test cases** representing real-world attack patterns used for defensive security evaluation of the Blackwall Agentic Firewall. 
+This dataset (`malicious_cases.json`) contains **59 structured test cases** representing real-world attack patterns used for defensive security evaluation of the Blackwall Agentic Firewall.
 
 The dataset is designed to validate that Blackwall correctly:
 1. **Detects known attack patterns** via Threat Signature Graph (TSG) matching
@@ -244,8 +244,8 @@ For questions about this dataset:
 
 ---
 
-**Version:** 1.0  
-**Last Updated:** 2025  
-**Total Test Cases:** 59  
-**Coverage:** 11 attack categories  
+**Version:** 1.0
+**Last Updated:** 2025
+**Total Test Cases:** 59
+**Coverage:** 11 attack categories
 **Status:** Reference dataset for Kaggle "AI Agents: Intensive Vibe Coding" hackathon

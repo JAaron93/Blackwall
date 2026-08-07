@@ -24,17 +24,13 @@ def setup_logging(log_level: int = logging.INFO, log_dir: str = "logs") -> None:
 
     # Create log directory if it doesn't exist
     os.makedirs(log_dir, exist_ok=True)
-    
+
     log_file = os.path.join(log_dir, "blackwall.log")
 
     # Setup TimedRotatingFileHandler
     # midnight rotation, 90 days retention, append mode
     file_handler = logging.handlers.TimedRotatingFileHandler(
-        filename=log_file,
-        when="midnight",
-        interval=1,
-        backupCount=90,
-        encoding="utf-8"
+        filename=log_file, when="midnight", interval=1, backupCount=90, encoding="utf-8"
     )
     # Add .gz extension to rotated files
     file_handler.rotator = _gzip_rotator

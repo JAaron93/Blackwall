@@ -28,7 +28,9 @@ class EventStreamCollector:
     ) -> None:
         self.reconnect_max_attempts = reconnect_max_attempts
         self.reconnect_backoff_base = reconnect_backoff_base
-        self.stream_subscriptions: dict[EventSource, Callable[[], AsyncIterator[dict[str, Any]]]] = {}
+        self.stream_subscriptions: dict[
+            EventSource, Callable[[], AsyncIterator[dict[str, Any]]]
+        ] = {}
 
     def normalize_event(
         self, source: EventSource, raw_event: dict[str, Any]

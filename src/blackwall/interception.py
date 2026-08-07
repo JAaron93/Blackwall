@@ -45,6 +45,7 @@ class InterceptionQueue:
         # Best-effort telemetry: don't abort enqueue if telemetry fails
         try:
             from blackwall.telemetry import get_metric
+
             interceptions_metric = get_metric("interceptions_total")
             if interceptions_metric:
                 interceptions_metric.add(1)
@@ -221,8 +222,9 @@ class InterceptionQueue:
         """Resolves enqueued callbacks by mapping the verdict array to the batch by index."""
         callbacks_to_invoke = []
         error_to_raise = None
-        
+
         from blackwall.telemetry import get_metric
+
         verdicts_metric = get_metric("verdicts_total")
 
         async with self._lock:
@@ -259,7 +261,9 @@ class InterceptionQueue:
                 if verdicts_metric:
                     verdicts_metric.add(1, {"decision": verdict.decision.value})
             except Exception:
-                logger.debug("Telemetry update failed in resolveCallbacks", exc_info=True)
+                logger.debug(
+                    "Telemetry update failed in resolveCallbacks", exc_info=True
+                )
 
             try:
                 callback(verdict)

@@ -33,13 +33,17 @@ class AttackGraphStore:
         self.dsn = dsn
         self._external_pool = pool
         self._pool: Optional[asyncpg.Pool] = None
-        self.in_memory = in_memory or (dsn is not None and (dsn.startswith("sqlite") or dsn == ":memory:"))
+        self.in_memory = in_memory or (
+            dsn is not None and (dsn.startswith("sqlite") or dsn == ":memory:")
+        )
         self.min_pool_size = min_pool_size
         self.max_pool_size = max_pool_size
 
         # In-memory backing structures (used when in_memory=True or as local cache/fallback)
         self._nodes: Dict[uuid.UUID, AttackNode] = {}
-        self._edges: List[Dict[str, Any]] = []  # edge_id, from_node, to_node, relationship, created_at
+        self._edges: List[Dict[str, Any]] = (
+            []
+        )  # edge_id, from_node, to_node, relationship, created_at
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -115,9 +119,13 @@ class AttackGraphStore:
                 # Attempt TimescaleDB hypertable creation for time-series optimization
                 try:
                     await conn.execute("CREATE EXTENSION IF NOT EXISTS timescaledb;")
-                    await conn.execute("SELECT create_hypertable('event_nodes', 'timestamp', if_not_exists => TRUE);")
+                    await conn.execute(
+                        "SELECT create_hypertable('event_nodes', 'timestamp', if_not_exists => TRUE);"
+                    )
                 except Exception as ts_exc:
-                    logger.debug("TimescaleDB extension setup skipped/unavailable: %s", ts_exc)
+                    logger.debug(
+                        "TimescaleDB extension setup skipped/unavailable: %s", ts_exc
+                    )
 
         self._initialized = True
 
@@ -155,7 +163,11 @@ class AttackGraphStore:
                     str(node_id),
                     str(event.event_id),
                     event.timestamp,
-                    event.source.value if hasattr(event.source, "value") else str(event.source),
+                    (
+                        event.source.value
+                        if hasattr(event.source, "value")
+                        else str(event.source)
+                    ),
                     event.agent_id,
                     event.action,
                     event.target,
@@ -185,7 +197,9 @@ class AttackGraphStore:
                 await self.get_node(to_uuid)
 
         if from_uuid not in self._nodes or to_uuid not in self._nodes:
-            raise ValueError(f"Cannot link non-existent nodes: {from_node} -> {to_node}")
+            raise ValueError(
+                f"Cannot link non-existent nodes: {from_node} -> {to_node}"
+            )
 
         edge_id = uuid.uuid4()
         edge_id_str = str(edge_id)
@@ -250,7 +264,9 @@ class AttackGraphStore:
             try:
                 valid_edges.append(validate_uuid_v4_format(item))
             except (ValueError, TypeError) as exc:
-                logger.warning("Skipping malformed edge UUID '%s' from DB record: %s", item, exc)
+                logger.warning(
+                    "Skipping malformed edge UUID '%s' from DB record: %s", item, exc
+                )
         return valid_edges
 
     async def get_node(self, node_id: Union[uuid.UUID, str]) -> Optional[AttackNode]:
@@ -262,7 +278,9 @@ class AttackGraphStore:
 
         if self._pool:
             async with self._pool.acquire() as conn:
-                row = await conn.fetchrow("SELECT * FROM event_nodes WHERE node_id = $1;", str(node_uuid))
+                row = await conn.fetchrow(
+                    "SELECT * FROM event_nodes WHERE node_id = $1;", str(node_uuid)
+                )
                 if row:
                     event = NormalizedEvent(
                         event_id=row["event_id"],
@@ -271,7 +289,11 @@ class AttackGraphStore:
                         agent_id=row["agent_id"],
                         action=row["action"],
                         target=row["target"],
-                        metadata=json.loads(row["metadata"]) if isinstance(row["metadata"], str) else row["metadata"],
+                        metadata=(
+                            json.loads(row["metadata"])
+                            if isinstance(row["metadata"], str)
+                            else row["metadata"]
+                        ),
                         risk_score=row["risk_score"],
                     )
                     inc = self._parse_edge_uuids(row["incoming_edges"])
@@ -334,7 +356,11 @@ class AttackGraphStore:
                         agent_id=row["agent_id"],
                         action=row["action"],
                         target=row["target"],
-                        metadata=json.loads(row["metadata"]) if isinstance(row["metadata"], str) else row["metadata"],
+                        metadata=(
+                            json.loads(row["metadata"])
+                            if isinstance(row["metadata"], str)
+                            else row["metadata"]
+                        ),
                         risk_score=row["risk_score"],
                     )
                     inc = self._parse_edge_uuids(row["incoming_edges"])
@@ -353,9 +379,8 @@ class AttackGraphStore:
         nodes_map: Dict[uuid.UUID, AttackNode] = {}
         for node in self._nodes.values():
             if (
-                (agent_id is None or node.event.agent_id == agent_id)
-                and start_time_win <= node.event.timestamp <= end_time_win
-            ):
+                agent_id is None or node.event.agent_id == agent_id
+            ) and start_time_win <= node.event.timestamp <= end_time_win:
                 nodes_map[node.node_id] = node
 
         candidate_nodes = list(nodes_map.values())
@@ -386,8 +411,12 @@ class AttackGraphStore:
         for next_node in candidate_nodes[1:]:
             prev_node = current_path_nodes[-1]
             # Link if within 10 minutes or causally linked
-            delta = (next_node.event.timestamp - prev_node.event.timestamp).total_seconds()
-            is_causal = any(e in prev_node.outgoing_edges for e in next_node.incoming_edges)
+            delta = (
+                next_node.event.timestamp - prev_node.event.timestamp
+            ).total_seconds()
+            is_causal = any(
+                e in prev_node.outgoing_edges for e in next_node.incoming_edges
+            )
 
             if delta <= 600 or is_causal:
                 current_path_nodes.append(next_node)
@@ -412,7 +441,9 @@ class AttackGraphStore:
         # Compute aggregate risk_score (max risk in path) and correlation_score
         max_risk = max(n.event.risk_score for n in nodes)
         risk_score = min(1.0, max(0.0, max_risk))
-        correlation_score = 0.95  # Default high correlation for temporally grouped nodes
+        correlation_score = (
+            0.95  # Default high correlation for temporally grouped nodes
+        )
 
         # Simple ATT&CK stage mapping based on actions
         stages = []

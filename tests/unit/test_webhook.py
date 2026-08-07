@@ -94,22 +94,20 @@ class MockGeminiClient:
     def __init__(self):
         self.interactions = MockInteractions()
 
+
 # Session-scoped test keys to avoid generating RSA keys for every test (slow)
 @pytest.fixture(scope="session")
 def test_keys():
-    private_key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=2048
-    )
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     numbers = private_key.public_key().public_numbers()
-    
+
     def int_to_b64url(val: int) -> str:
-        b = val.to_bytes((val.bit_length() + 7) // 8, byteorder='big')
-        return base64.urlsafe_b64encode(b).decode('utf-8').rstrip('=')
-        
+        b = val.to_bytes((val.bit_length() + 7) // 8, byteorder="big")
+        return base64.urlsafe_b64encode(b).decode("utf-8").rstrip("=")
+
     n_b64 = int_to_b64url(numbers.n)
     e_b64 = int_to_b64url(numbers.e)
-    
+
     jwks = {
         "keys": [
             {
@@ -118,37 +116,41 @@ def test_keys():
                 "use": "sig",
                 "alg": "RS256",
                 "n": n_b64,
-                "e": e_b64
+                "e": e_b64,
             }
         ]
     }
     return private_key, jwks
 
+
 @pytest.fixture
 def generate_jwt(test_keys):
     private_key, _ = test_keys
+
     def _generate(claims, kid="test-kid", audience="test_audience"):
         headers = {"kid": kid, "alg": "RS256"}
         if "aud" not in claims and audience:
             claims = {**claims, "aud": audience}
         return jwt.encode(claims, private_key, algorithm="RS256", headers=headers)
+
     return _generate
+
 
 @pytest.fixture(autouse=True)
 def mock_jwks_fetch(test_keys):
     _, jwks = test_keys
-    
+
     class MockResponse:
         def __init__(self, status, json_data):
             self.status = status
             self.json_data = json_data
-            
+
         async def json(self):
             return self.json_data
-            
+
         async def __aenter__(self):
             return self
-            
+
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             pass
 
@@ -169,25 +171,27 @@ class TestWebhookListener(AioHTTPTestCase):
         db_path = os.path.join(self.temp_dir.name, "test_webhook.db")
         self.db = SQLiteThreatRepository(db_path)
         await self.db.initialize()
-        
+
         self.mock_gemini = MockGeminiClient()
         # Set default mock return value
         self.mock_gemini.interactions.return_value = {
             "task_id": "test_task_id",
             "threat_signature_candidates": [
                 {"payloadPattern": "test_pattern", "attackerIntent": "test_intent"}
-            ]
+            ],
         }
-        
+
         # Initialize listener with test audience
-        self.listener = WebhookListener(self.db, gemini_client=self.mock_gemini, audience="test_audience")
+        self.listener = WebhookListener(
+            self.db, gemini_client=self.mock_gemini, audience="test_audience"
+        )
         return self.listener.app
 
     async def setUpAsync(self):
         await super().setUpAsync()
         self.task_id = "test_task_id"
         await self.db.add_in_flight_task(self.task_id)
-        
+
         self.interaction_id = str(uuid.uuid4())
         self.webhook_id = str(uuid.uuid4())
         self.timestamp = str(time.time())
@@ -196,7 +200,7 @@ class TestWebhookListener(AioHTTPTestCase):
         self.claims = {
             "iss": "google",
             "exp": int(time.time()) + 3600,
-            "sub": self.interaction_id  # Bind JWT to the interaction_id
+            "sub": self.interaction_id,  # Bind JWT to the interaction_id
         }
         self.valid_token = self.generate_jwt(self.claims)
 
@@ -210,15 +214,14 @@ class TestWebhookListener(AioHTTPTestCase):
             "type": "interaction.completed",
             "version": "1",
             "timestamp": "2026-07-06T00:00:00Z",
-            "data": {"id": self.interaction_id}
+            "data": {"id": self.interaction_id},
         }
         payload_bytes = json.dumps(payload).encode("utf-8")
-        headers = {
-            "webhook-timestamp": self.timestamp,
-            "webhook-id": self.webhook_id
-        }
+        headers = {"webhook-timestamp": self.timestamp, "webhook-id": self.webhook_id}
         # Missing Webhook-Signature header -> 400
-        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+        resp = await self.client.post(
+            "/webhook/analysis_complete", data=payload_bytes, headers=headers
+        )
         self.assertEqual(resp.status, 400)
 
     async def test_jwt_validation_invalid_signature(self):
@@ -226,15 +229,17 @@ class TestWebhookListener(AioHTTPTestCase):
             "type": "interaction.completed",
             "version": "1",
             "timestamp": "2026-07-06T00:00:00Z",
-            "data": {"id": self.interaction_id}
+            "data": {"id": self.interaction_id},
         }
         payload_bytes = json.dumps(payload).encode("utf-8")
         headers = {
             "Webhook-Signature": "invalid_jwt_signature",
             "webhook-timestamp": self.timestamp,
-            "webhook-id": self.webhook_id
+            "webhook-id": self.webhook_id,
         }
-        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+        resp = await self.client.post(
+            "/webhook/analysis_complete", data=payload_bytes, headers=headers
+        )
         self.assertEqual(resp.status, 400)
 
     async def test_jwt_wrong_audience(self):
@@ -242,18 +247,20 @@ class TestWebhookListener(AioHTTPTestCase):
             "type": "interaction.completed",
             "version": "1",
             "timestamp": "2026-07-06T00:00:00Z",
-            "data": {"id": self.interaction_id}
+            "data": {"id": self.interaction_id},
         }
         payload_bytes = json.dumps(payload).encode("utf-8")
-        
+
         # Generate token with wrong audience
         bad_token = self.generate_jwt(self.claims, audience="wrong_audience")
         headers = {
             "Webhook-Signature": bad_token,
             "webhook-timestamp": self.timestamp,
-            "webhook-id": self.webhook_id
+            "webhook-id": self.webhook_id,
         }
-        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+        resp = await self.client.post(
+            "/webhook/analysis_complete", data=payload_bytes, headers=headers
+        )
         self.assertEqual(resp.status, 400)
 
     async def test_validation_success_and_response_time(self):
@@ -272,26 +279,32 @@ class TestWebhookListener(AioHTTPTestCase):
             "type": "interaction.completed",
             "version": "1",
             "timestamp": "2026-07-06T00:00:00Z",
-            "data": {"id": self.interaction_id}
+            "data": {"id": self.interaction_id},
         }
         payload_bytes = json.dumps(payload).encode("utf-8")
         headers = {
             "Webhook-Signature": self.valid_token,
             "webhook-timestamp": self.timestamp,
-            "webhook-id": self.webhook_id
+            "webhook-id": self.webhook_id,
         }
-        
+
         start_time = time.time()
-        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+        resp = await self.client.post(
+            "/webhook/analysis_complete", data=payload_bytes, headers=headers
+        )
         end_time = time.time()
-        
+
         self.assertEqual(resp.status, 200)
         response_time_ms = (end_time - start_time) * 1000
-        self.assertLess(response_time_ms, 500, f"Response time was too slow: {response_time_ms}ms")
+        self.assertLess(
+            response_time_ms, 500, f"Response time was too slow: {response_time_ms}ms"
+        )
 
         # Verify the signature is not in the database yet, proving it was non-blocking
         async with self.db.pool.connection() as conn:
-            cursor = await conn.execute("SELECT COUNT(*) FROM signatures WHERE payload_pattern = 'test_pattern'")
+            cursor = await conn.execute(
+                "SELECT COUNT(*) FROM signatures WHERE payload_pattern = 'test_pattern'"
+            )
             row = await cursor.fetchone()
             self.assertEqual(row[0], 0)
 
@@ -301,15 +314,19 @@ class TestWebhookListener(AioHTTPTestCase):
             await asyncio.wait(self.listener.background_tasks, timeout=2.0)
 
         # Verify interactions.get was called with correct id
-        self.assertEqual(self.mock_gemini.interactions.get_called_with, self.interaction_id)
-        
+        self.assertEqual(
+            self.mock_gemini.interactions.get_called_with, self.interaction_id
+        )
+
         # Verify task is no longer in-flight
         is_valid = await self.db.is_task_valid(self.task_id)
         self.assertFalse(is_valid)
-        
+
         # Verify the signature is now written
         async with self.db.pool.connection() as conn:
-            cursor = await conn.execute("SELECT COUNT(*) FROM signatures WHERE payload_pattern = 'test_pattern'")
+            cursor = await conn.execute(
+                "SELECT COUNT(*) FROM signatures WHERE payload_pattern = 'test_pattern'"
+            )
             row = await cursor.fetchone()
             self.assertEqual(row[0], 1)
 
@@ -318,23 +335,25 @@ class TestWebhookListener(AioHTTPTestCase):
         unknown_task_id = str(uuid.uuid4())
         self.mock_gemini.interactions.return_value = {
             "task_id": unknown_task_id,
-            "threat_signature_candidates": [{"payloadPattern": "test"}]
+            "threat_signature_candidates": [{"payloadPattern": "test"}],
         }
-        
+
         payload = {
             "type": "interaction.completed",
             "version": "1",
             "timestamp": "2026-07-06T00:00:00Z",
-            "data": {"id": self.interaction_id}
+            "data": {"id": self.interaction_id},
         }
         payload_bytes = json.dumps(payload).encode("utf-8")
         headers = {
             "Webhook-Signature": self.valid_token,
             "webhook-timestamp": self.timestamp,
-            "webhook-id": self.webhook_id
+            "webhook-id": self.webhook_id,
         }
-        
-        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+
+        resp = await self.client.post(
+            "/webhook/analysis_complete", data=payload_bytes, headers=headers
+        )
         self.assertEqual(resp.status, 200)
 
         # Wait for background tasks to complete
@@ -351,25 +370,35 @@ class TestWebhookListener(AioHTTPTestCase):
         self.mock_gemini.interactions.return_value = {
             "task_id": self.task_id,
             "threat_signature_candidates": [
-                {"payloadPattern": "pattern1", "attackerIntent": "intent1", "targetTool": "tool1"},
-                {"payloadPattern": "pattern2", "attackerIntent": "intent2", "targetTool": "tool1"}
-            ]
+                {
+                    "payloadPattern": "pattern1",
+                    "attackerIntent": "intent1",
+                    "targetTool": "tool1",
+                },
+                {
+                    "payloadPattern": "pattern2",
+                    "attackerIntent": "intent2",
+                    "targetTool": "tool1",
+                },
+            ],
         }
-        
+
         payload = {
             "type": "interaction.completed",
             "version": "1",
             "timestamp": "2026-07-06T00:00:00Z",
-            "data": {"id": self.interaction_id}
+            "data": {"id": self.interaction_id},
         }
         payload_bytes = json.dumps(payload).encode("utf-8")
         headers = {
             "Webhook-Signature": self.valid_token,
             "webhook-timestamp": self.timestamp,
-            "webhook-id": self.webhook_id
+            "webhook-id": self.webhook_id,
         }
-        
-        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+
+        resp = await self.client.post(
+            "/webhook/analysis_complete", data=payload_bytes, headers=headers
+        )
         self.assertEqual(resp.status, 200)
 
         # Wait for background tasks to complete
@@ -378,7 +407,9 @@ class TestWebhookListener(AioHTTPTestCase):
 
         # Check that both signatures are written
         async with self.db.pool.connection() as conn:
-            cursor = await conn.execute("SELECT payload_pattern FROM signatures ORDER BY payload_pattern")
+            cursor = await conn.execute(
+                "SELECT payload_pattern FROM signatures ORDER BY payload_pattern"
+            )
             rows = await cursor.fetchall()
             self.assertEqual(len(rows), 2)
             self.assertEqual(rows[0][0], "pattern1")
@@ -387,35 +418,37 @@ class TestWebhookListener(AioHTTPTestCase):
     async def test_graceful_shutdown(self):
         # Mock the db to sleep during write
         original_write = self.db.write_signatures_batch
-        
+
         async def slow_write(signatures):
             await asyncio.sleep(0.5)
             await original_write(signatures)
-            
+
         self.db.write_signatures_batch = slow_write
-        
+
         payload = {
             "type": "interaction.completed",
             "version": "1",
             "timestamp": "2026-07-06T00:00:00Z",
-            "data": {"id": self.interaction_id}
+            "data": {"id": self.interaction_id},
         }
         payload_bytes = json.dumps(payload).encode("utf-8")
         headers = {
             "Webhook-Signature": self.valid_token,
             "webhook-timestamp": self.timestamp,
-            "webhook-id": self.webhook_id
+            "webhook-id": self.webhook_id,
         }
-        
-        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+
+        resp = await self.client.post(
+            "/webhook/analysis_complete", data=payload_bytes, headers=headers
+        )
         self.assertEqual(resp.status, 200)
-        
+
         start_stop_time = time.time()
         await self.listener.stop()
         end_stop_time = time.time()
-        
+
         self.assertGreaterEqual((end_stop_time - start_stop_time), 0.5)
-        
+
         # Verify the signature was written
         async with self.db.pool.connection() as conn:
             cursor = await conn.execute("SELECT payload_pattern FROM signatures")
@@ -427,17 +460,19 @@ class TestWebhookListener(AioHTTPTestCase):
             "type": "interaction.completed",
             "version": "1",
             "timestamp": "2026-07-06T00:00:00Z",
-            "data": {"id": self.interaction_id}
+            "data": {"id": self.interaction_id},
         }
         payload_bytes = json.dumps(payload).encode("utf-8")
         headers = {
             "Webhook-Signature": self.valid_token,
             "webhook-timestamp": self.timestamp,
-            "webhook-id": self.webhook_id
+            "webhook-id": self.webhook_id,
         }
-        
+
         # First submission
-        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+        resp = await self.client.post(
+            "/webhook/analysis_complete", data=payload_bytes, headers=headers
+        )
         self.assertEqual(resp.status, 200)
 
         # Wait for background tasks to complete
@@ -448,7 +483,9 @@ class TestWebhookListener(AioHTTPTestCase):
         await self.db.add_in_flight_task(self.task_id)
 
         # Second submission of same payload
-        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+        resp = await self.client.post(
+            "/webhook/analysis_complete", data=payload_bytes, headers=headers
+        )
         self.assertEqual(resp.status, 200)
 
         # Wait for any potential background tasks (though it should be deduplicated)
@@ -457,7 +494,9 @@ class TestWebhookListener(AioHTTPTestCase):
 
         # Verify only 1 row exists in DB
         async with self.db.pool.connection() as conn:
-            cursor = await conn.execute("SELECT COUNT(*) FROM signatures WHERE payload_pattern = 'test_pattern'")
+            cursor = await conn.execute(
+                "SELECT COUNT(*) FROM signatures WHERE payload_pattern = 'test_pattern'"
+            )
             row = await cursor.fetchone()
             self.assertEqual(row[0], 1)
 
@@ -466,19 +505,21 @@ class TestWebhookListener(AioHTTPTestCase):
             "type": "interaction.completed",
             "version": "1",
             "timestamp": "2026-07-06T00:00:00Z",
-            "data": {"id": self.interaction_id}
+            "data": {"id": self.interaction_id},
         }
         payload_bytes = json.dumps(payload).encode("utf-8")
-        
+
         # Timestamp more than 5 minutes in the past
         stale_timestamp = str(time.time() - 301)
         headers = {
             "Webhook-Signature": self.valid_token,
             "webhook-timestamp": stale_timestamp,
-            "webhook-id": self.webhook_id
+            "webhook-id": self.webhook_id,
         }
-        
-        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+
+        resp = await self.client.post(
+            "/webhook/analysis_complete", data=payload_bytes, headers=headers
+        )
         self.assertEqual(resp.status, 400)
 
     async def test_jwt_replay_with_different_payload(self):
@@ -488,7 +529,7 @@ class TestWebhookListener(AioHTTPTestCase):
             "type": "interaction.completed",
             "version": "1",
             "timestamp": "2026-07-06T00:00:00Z",
-            "data": {"id": different_interaction_id}  # Different ID than what's in JWT
+            "data": {"id": different_interaction_id},  # Different ID than what's in JWT
         }
         payload_bytes = json.dumps(payload).encode("utf-8")
 
@@ -496,10 +537,12 @@ class TestWebhookListener(AioHTTPTestCase):
         headers = {
             "Webhook-Signature": self.valid_token,
             "webhook-timestamp": self.timestamp,
-            "webhook-id": self.webhook_id
+            "webhook-id": self.webhook_id,
         }
 
-        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+        resp = await self.client.post(
+            "/webhook/analysis_complete", data=payload_bytes, headers=headers
+        )
         self.assertEqual(resp.status, 400)
 
     async def test_future_timestamp_rejected(self):
@@ -508,7 +551,7 @@ class TestWebhookListener(AioHTTPTestCase):
             "type": "interaction.completed",
             "version": "1",
             "timestamp": "2026-07-06T00:00:00Z",
-            "data": {"id": self.interaction_id}
+            "data": {"id": self.interaction_id},
         }
         payload_bytes = json.dumps(payload).encode("utf-8")
 
@@ -517,10 +560,12 @@ class TestWebhookListener(AioHTTPTestCase):
         headers = {
             "Webhook-Signature": self.valid_token,
             "webhook-timestamp": future_timestamp,
-            "webhook-id": self.webhook_id
+            "webhook-id": self.webhook_id,
         }
 
-        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+        resp = await self.client.post(
+            "/webhook/analysis_complete", data=payload_bytes, headers=headers
+        )
         self.assertEqual(resp.status, 400)
 
     async def test_jwt_missing_exp_claim_rejected(self):
@@ -529,7 +574,7 @@ class TestWebhookListener(AioHTTPTestCase):
             "type": "interaction.completed",
             "version": "1",
             "timestamp": "2026-07-06T00:00:00Z",
-            "data": {"id": self.interaction_id}
+            "data": {"id": self.interaction_id},
         }
         payload_bytes = json.dumps(payload).encode("utf-8")
 
@@ -541,15 +586,19 @@ class TestWebhookListener(AioHTTPTestCase):
             # Missing 'exp' claim
         }
         headers_jwt = {"kid": "test-kid", "alg": "RS256"}
-        token_without_exp = jwt.encode(claims_without_exp, self.private_key, algorithm="RS256", headers=headers_jwt)
+        token_without_exp = jwt.encode(
+            claims_without_exp, self.private_key, algorithm="RS256", headers=headers_jwt
+        )
 
         headers = {
             "Webhook-Signature": token_without_exp,
             "webhook-timestamp": self.timestamp,
-            "webhook-id": self.webhook_id
+            "webhook-id": self.webhook_id,
         }
 
-        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+        resp = await self.client.post(
+            "/webhook/analysis_complete", data=payload_bytes, headers=headers
+        )
         self.assertEqual(resp.status, 400)
 
     async def test_jwt_missing_aud_claim_rejected(self):
@@ -558,7 +607,7 @@ class TestWebhookListener(AioHTTPTestCase):
             "type": "interaction.completed",
             "version": "1",
             "timestamp": "2026-07-06T00:00:00Z",
-            "data": {"id": self.interaction_id}
+            "data": {"id": self.interaction_id},
         }
         payload_bytes = json.dumps(payload).encode("utf-8")
 
@@ -570,15 +619,19 @@ class TestWebhookListener(AioHTTPTestCase):
             # Missing 'aud' claim
         }
         headers_jwt = {"kid": "test-kid", "alg": "RS256"}
-        token_without_aud = jwt.encode(claims_without_aud, self.private_key, algorithm="RS256", headers=headers_jwt)
+        token_without_aud = jwt.encode(
+            claims_without_aud, self.private_key, algorithm="RS256", headers=headers_jwt
+        )
 
         headers = {
             "Webhook-Signature": token_without_aud,
             "webhook-timestamp": self.timestamp,
-            "webhook-id": self.webhook_id
+            "webhook-id": self.webhook_id,
         }
 
-        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+        resp = await self.client.post(
+            "/webhook/analysis_complete", data=payload_bytes, headers=headers
+        )
         self.assertEqual(resp.status, 400)
 
     async def test_deduplication_rollback_on_jwt_failure(self):
@@ -588,7 +641,7 @@ class TestWebhookListener(AioHTTPTestCase):
             "type": "interaction.completed",
             "version": "1",
             "timestamp": "2026-07-06T00:00:00Z",
-            "data": {"id": self.interaction_id}
+            "data": {"id": self.interaction_id},
         }
         payload_bytes = json.dumps(payload).encode("utf-8")
 
@@ -600,25 +653,33 @@ class TestWebhookListener(AioHTTPTestCase):
             # Missing 'exp' claim
         }
         headers_jwt = {"kid": "test-kid", "alg": "RS256"}
-        bad_token = jwt.encode(claims_without_exp, self.private_key, algorithm="RS256", headers=headers_jwt)
+        bad_token = jwt.encode(
+            claims_without_exp, self.private_key, algorithm="RS256", headers=headers_jwt
+        )
 
         headers = {
             "Webhook-Signature": bad_token,
             "webhook-timestamp": self.timestamp,
-            "webhook-id": self.webhook_id
+            "webhook-id": self.webhook_id,
         }
 
-        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+        resp = await self.client.post(
+            "/webhook/analysis_complete", data=payload_bytes, headers=headers
+        )
         self.assertEqual(resp.status, 400)
 
         # Verify webhook_id is NOT in processed_webhooks after rollback
         async with self.listener._dedupe_lock:
             self.assertNotIn(self.webhook_id, self.listener.processed_webhooks)
-            self.assertNotIn(self.webhook_id, list(self.listener.processed_webhooks_queue))
+            self.assertNotIn(
+                self.webhook_id, list(self.listener.processed_webhooks_queue)
+            )
 
         # Second attempt with valid JWT should succeed
         headers["Webhook-Signature"] = self.valid_token
-        resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+        resp = await self.client.post(
+            "/webhook/analysis_complete", data=payload_bytes, headers=headers
+        )
         self.assertEqual(resp.status, 200)
 
         # Wait for background tasks
@@ -627,7 +688,9 @@ class TestWebhookListener(AioHTTPTestCase):
 
         # Verify signature was written
         async with self.db.pool.connection() as conn:
-            cursor = await conn.execute("SELECT COUNT(*) FROM signatures WHERE payload_pattern = 'test_pattern'")
+            cursor = await conn.execute(
+                "SELECT COUNT(*) FROM signatures WHERE payload_pattern = 'test_pattern'"
+            )
             row = await cursor.fetchone()
             self.assertEqual(row[0], 1)
 
@@ -640,7 +703,7 @@ class TestWebhookListener(AioHTTPTestCase):
                 "type": "interaction.completed",
                 "version": "1",
                 "timestamp": "2026-07-06T00:00:00Z",
-                "data": {"id": str(uuid.uuid4())}  # Each needs unique interaction_id
+                "data": {"id": str(uuid.uuid4())},  # Each needs unique interaction_id
             }
             payload_bytes = json.dumps(payload).encode("utf-8")
 
@@ -648,28 +711,31 @@ class TestWebhookListener(AioHTTPTestCase):
             claims = {
                 "iss": "google",
                 "exp": int(time.time()) + 3600,
-                "sub": payload["data"]["id"]
+                "sub": payload["data"]["id"],
             }
             token = self.generate_jwt(claims)
 
             headers = {
                 "Webhook-Signature": token,
                 "webhook-timestamp": str(time.time()),
-                "webhook-id": wid
+                "webhook-id": wid,
             }
 
-            resp = await self.client.post("/webhook/analysis_complete", data=payload_bytes, headers=headers)
+            resp = await self.client.post(
+                "/webhook/analysis_complete", data=payload_bytes, headers=headers
+            )
             self.assertEqual(resp.status, 200)
 
         # Verify set and queue contain the same elements
         async with self.listener._dedupe_lock:
             queue_set = set(self.listener.processed_webhooks_queue)
-            self.assertEqual(self.listener.processed_webhooks, queue_set,
-                           "Deduplication set and queue must stay synchronized")
+            self.assertEqual(
+                self.listener.processed_webhooks,
+                queue_set,
+                "Deduplication set and queue must stay synchronized",
+            )
 
             # Verify all webhook_ids are present
             for wid in webhook_ids:
                 self.assertIn(wid, self.listener.processed_webhooks)
                 self.assertIn(wid, queue_set)
-
-

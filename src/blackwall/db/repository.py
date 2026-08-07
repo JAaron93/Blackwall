@@ -30,7 +30,8 @@ class SQLiteThreatRepository:
 
             async with self.pool.connection() as conn:
                 # Nodes Table
-                await conn.execute("""
+                await conn.execute(
+                    """
                 CREATE TABLE IF NOT EXISTS signatures (
                     signature_id TEXT PRIMARY KEY,
                     created_at INTEGER NOT NULL,
@@ -46,7 +47,8 @@ class SQLiteThreatRepository:
                     similarity_vector BLOB,
                     metadata TEXT
                 );
-                """)
+                """
+                )
 
                 # Indexes for signatures table
                 await conn.execute(
@@ -57,7 +59,8 @@ class SQLiteThreatRepository:
                 )
 
                 # Edges Table
-                await conn.execute("""
+                await conn.execute(
+                    """
                 CREATE TABLE IF NOT EXISTS signature_relationships (
                     edge_id TEXT PRIMARY KEY,
                     source_signature_id TEXT NOT NULL,
@@ -68,7 +71,8 @@ class SQLiteThreatRepository:
                     FOREIGN KEY (source_signature_id) REFERENCES signatures(signature_id) ON DELETE CASCADE,
                     FOREIGN KEY (target_signature_id) REFERENCES signatures(signature_id) ON DELETE CASCADE
                 );
-                """)
+                """
+                )
 
                 # Indexes for signature_relationships table
                 await conn.execute(
@@ -90,7 +94,8 @@ class SQLiteThreatRepository:
                     fts_migration_occurred = True
 
                 # FTS5 virtual table
-                await conn.execute("""
+                await conn.execute(
+                    """
                 CREATE VIRTUAL TABLE IF NOT EXISTS signature_fts USING fts5(
                     signature_id UNINDEXED,
                     target_tool,
@@ -99,37 +104,47 @@ class SQLiteThreatRepository:
                     content=signatures,
                     content_rowid=rowid
                 );
-                """)
+                """
+                )
 
                 # Triggers to keep FTS in sync with the signatures table
-                await conn.execute("""
+                await conn.execute(
+                    """
                 CREATE TRIGGER IF NOT EXISTS signatures_ai AFTER INSERT ON signatures BEGIN
                     INSERT INTO signature_fts(rowid, signature_id, target_tool, payload_pattern, attacker_intent)
                     VALUES (new.rowid, new.signature_id, new.target_tool, new.payload_pattern, new.attacker_intent);
                 END;
-                """)
+                """
+                )
 
-                await conn.execute("""
+                await conn.execute(
+                    """
                 CREATE TRIGGER IF NOT EXISTS signatures_ad AFTER DELETE ON signatures BEGIN
                     INSERT INTO signature_fts(signature_fts, rowid, signature_id, target_tool, payload_pattern, attacker_intent)
                     VALUES('delete', old.rowid, old.signature_id, old.target_tool, old.payload_pattern, old.attacker_intent);
                 END;
-                """)
+                """
+                )
 
-                await conn.execute("""
+                await conn.execute(
+                    """
                 CREATE TRIGGER IF NOT EXISTS signatures_au AFTER UPDATE ON signatures BEGIN
                     INSERT INTO signature_fts(signature_fts, rowid, signature_id, target_tool, payload_pattern, attacker_intent)
                     VALUES('delete', old.rowid, old.signature_id, old.target_tool, old.payload_pattern, old.attacker_intent);
                     INSERT INTO signature_fts(rowid, signature_id, target_tool, payload_pattern, attacker_intent)
                     VALUES (new.rowid, new.signature_id, new.target_tool, new.payload_pattern, new.attacker_intent);
                 END;
-                """)
+                """
+                )
 
                 # Rebuild FTS index only if the migration flag is set
                 if fts_migration_occurred:
-                    await conn.execute("INSERT INTO signature_fts(signature_fts) VALUES('rebuild');")
+                    await conn.execute(
+                        "INSERT INTO signature_fts(signature_fts) VALUES('rebuild');"
+                    )
                 # Audit Incidents table
-                await conn.execute("""
+                await conn.execute(
+                    """
                 CREATE TABLE IF NOT EXISTS audit_incidents (
                     incident_id TEXT PRIMARY KEY,
                     incident_type TEXT NOT NULL,
@@ -137,27 +152,33 @@ class SQLiteThreatRepository:
                     details TEXT NOT NULL,
                     stack_trace TEXT
                 );
-                """)
+                """
+                )
 
                 # Blocked Executables table
-                await conn.execute("""
+                await conn.execute(
+                    """
                 CREATE TABLE IF NOT EXISTS blocked_executables (
                     executable TEXT PRIMARY KEY,
                     created_at INTEGER NOT NULL
                 );
-                """)
+                """
+                )
 
                 # Blocked IOCs table
-                await conn.execute("""
+                await conn.execute(
+                    """
                 CREATE TABLE IF NOT EXISTS blocked_iocs (
                     ioc TEXT PRIMARY KEY,
                     type TEXT NOT NULL,
                     created_at INTEGER NOT NULL
                 );
-                """)
+                """
+                )
 
                 # GTI Cache table
-                await conn.execute("""
+                await conn.execute(
+                    """
                 CREATE TABLE IF NOT EXISTS gti_cache (
                     indicator TEXT NOT NULL,
                     indicator_type TEXT NOT NULL,
@@ -165,24 +186,29 @@ class SQLiteThreatRepository:
                     cached_at INTEGER NOT NULL,
                     PRIMARY KEY (indicator, indicator_type)
                 );
-                """)
+                """
+                )
 
                 # Background Tasks table
-                await conn.execute("""
+                await conn.execute(
+                    """
                 CREATE TABLE IF NOT EXISTS background_tasks (
                     task_id TEXT PRIMARY KEY,
                     status TEXT NOT NULL,
                     created_at INTEGER NOT NULL
                 );
-                """)
+                """
+                )
 
                 # In-Flight Background Tasks table
-                await conn.execute("""
+                await conn.execute(
+                    """
                 CREATE TABLE IF NOT EXISTS in_flight_tasks (
                     task_id TEXT PRIMARY KEY,
                     created_at INTEGER NOT NULL
                 );
-                """)
+                """
+                )
 
             self._schema_initialized = True
 
@@ -395,7 +421,7 @@ class SQLiteThreatRepository:
         threshold: float = 0.85,
         fts_fallback_score: float = 0.75,
         fts_threshold_cap: float = 0.70,
-        target_tool: Optional[str] = None
+        target_tool: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Computes cosine similarity between query_vector and stored signatures.
@@ -408,9 +434,19 @@ class SQLiteThreatRepository:
         # Helper to parse sqlite rows into dict matches
         def _parse_row(row, score):
             (
-                sig_id, created_at, last_matched_at, attacker_intent, payload_pattern,
-                target_tool, target_sink, dependency_chain, mitigation_action, match_count,
-                false_positive_count, _, metadata
+                sig_id,
+                created_at,
+                last_matched_at,
+                attacker_intent,
+                payload_pattern,
+                target_tool,
+                target_sink,
+                dependency_chain,
+                mitigation_action,
+                match_count,
+                false_positive_count,
+                _,
+                metadata,
             ) = row
             return {
                 "signature_id": sig_id,
@@ -420,21 +456,28 @@ class SQLiteThreatRepository:
                 "payload_pattern": payload_pattern,
                 "target_tool": target_tool,
                 "target_sink": target_sink,
-                "dependency_chain": json.loads(dependency_chain) if dependency_chain else None,
+                "dependency_chain": (
+                    json.loads(dependency_chain) if dependency_chain else None
+                ),
                 "mitigation_action": mitigation_action,
                 "match_count": match_count,
                 "false_positive_count": false_positive_count,
                 "similarity_score": score,
-                "metadata": json.loads(metadata) if metadata else None
+                "metadata": json.loads(metadata) if metadata else None,
             }
 
         import re
+
         # Extract payload/intent search terms only (exclude tool_name to prevent tokenization into MATCH)
         # Build MATCH query from payload/intent terms without requiring all argument tokens
         words = re.findall(r"\w+", query_text)
         # Use OR semantics to allow partial matches (evasion variants that omit tokens)
         # Quote each token in double quotes to prevent FTS5 parsing errors on bare operators (AND/OR/NOT)
-        fts_query = " OR ".join('"' + w.replace('"', '""') + '"' for w in words) if words else ""
+        fts_query = (
+            " OR ".join('"' + w.replace('"', '""') + '"' for w in words)
+            if words
+            else ""
+        )
 
         async with self.pool.connection() as conn:
             if query_vector is not None:
@@ -461,6 +504,7 @@ class SQLiteThreatRepository:
                     vector_floats = None
                     try:
                         import array
+
                         arr = array.array("f")
                         arr.frombytes(similarity_vector)
                         vector_floats = arr.tolist()
@@ -471,13 +515,13 @@ class SQLiteThreatRepository:
                             logger.warning(
                                 f"Excluding signature {sig_id} from vector similarity query due to incorrect vector dimension {len(vector_floats)}",
                                 signature_id=sig_id,
-                                dimension=len(vector_floats)
+                                dimension=len(vector_floats),
                             )
                     except Exception as e:
                         logger.warning(
                             f"Excluding signature {sig_id} from vector similarity query due to error decoding vector: {e}",
                             signature_id=sig_id,
-                            error=str(e)
+                            error=str(e),
                         )
 
                     if not is_valid_vector:
@@ -485,10 +529,17 @@ class SQLiteThreatRepository:
 
                     # Calculate cosine similarity
                     import math
-                    dot_product = sum(x * y for x, y in zip(query_vector, vector_floats, strict=True))
+
+                    dot_product = sum(
+                        x * y for x, y in zip(query_vector, vector_floats, strict=True)
+                    )
                     norm_q = math.sqrt(sum(x * x for x in query_vector))
                     norm_s = math.sqrt(sum(x * x for x in vector_floats))
-                    similarity_score = dot_product / (norm_q * norm_s) if norm_q > 0.0 and norm_s > 0.0 else 0.0
+                    similarity_score = (
+                        dot_product / (norm_q * norm_s)
+                        if norm_q > 0.0 and norm_s > 0.0
+                        else 0.0
+                    )
 
                     if similarity_score >= threshold:
                         matches.append(_parse_row(row, similarity_score))
@@ -508,7 +559,7 @@ class SQLiteThreatRepository:
                             "AND s.target_tool = ? "
                             "AND fts.signature_fts MATCH ? "
                             "ORDER BY fts.rank",
-                            (target_tool, fts_query)
+                            (target_tool, fts_query),
                         )
                     else:
                         cursor = await conn.execute(
@@ -520,15 +571,19 @@ class SQLiteThreatRepository:
                             "WHERE s.similarity_vector IS NULL "
                             "AND fts.signature_fts MATCH ? "
                             "ORDER BY fts.rank",
-                            (fts_query,)
+                            (fts_query,),
                         )
                     fts_rows = await cursor.fetchall()
                     for row in fts_rows:
                         sig_id = row[0]
-                        bm25_rank = row[13]  # FTS5 rank is negative, higher absolute value = better match
+                        bm25_rank = row[
+                            13
+                        ]  # FTS5 rank is negative, higher absolute value = better match
                         # Normalize BM25 rank to 0-1 range capped by fts_threshold_cap
                         # BM25 rank typically ranges from -15 (excellent) to 0 (weak)
-                        normalized_score = min(abs(bm25_rank) / 15.0, 1.0) * fts_threshold_cap
+                        normalized_score = (
+                            min(abs(bm25_rank) / 15.0, 1.0) * fts_threshold_cap
+                        )
 
                         logger.warning(
                             "FTS5 fallback triggered for signature similarity match",
@@ -536,7 +591,7 @@ class SQLiteThreatRepository:
                             reason="missing or invalid vector",
                             bm25_rank=bm25_rank,
                             normalized_score=normalized_score,
-                            timestamp=int(time.time())
+                            timestamp=int(time.time()),
                         )
                         current_threshold = min(threshold, fts_threshold_cap)
                         if normalized_score >= current_threshold:
@@ -556,7 +611,7 @@ class SQLiteThreatRepository:
                             "WHERE s.target_tool = ? "
                             "AND fts.signature_fts MATCH ? "
                             "ORDER BY fts.rank",
-                            (target_tool, fts_query)
+                            (target_tool, fts_query),
                         )
                     else:
                         cursor = await conn.execute(
@@ -567,15 +622,19 @@ class SQLiteThreatRepository:
                             "JOIN signature_fts fts ON s.signature_id = fts.signature_id "
                             "WHERE fts.signature_fts MATCH ? "
                             "ORDER BY fts.rank",
-                            (fts_query,)
+                            (fts_query,),
                         )
                     fts_rows = await cursor.fetchall()
                     for row in fts_rows:
                         sig_id = row[0]
-                        bm25_rank = row[13]  # FTS5 rank is negative, higher absolute value = better match
+                        bm25_rank = row[
+                            13
+                        ]  # FTS5 rank is negative, higher absolute value = better match
                         # Normalize BM25 rank to 0-1 range capped by fts_threshold_cap
                         # BM25 rank typically ranges from -15 (excellent) to 0 (weak)
-                        normalized_score = min(abs(bm25_rank) / 15.0, 1.0) * fts_threshold_cap
+                        normalized_score = (
+                            min(abs(bm25_rank) / 15.0, 1.0) * fts_threshold_cap
+                        )
 
                         logger.warning(
                             "FTS5 fallback triggered for signature similarity match",
@@ -583,7 +642,7 @@ class SQLiteThreatRepository:
                             reason="missing query vector",
                             bm25_rank=bm25_rank,
                             normalized_score=normalized_score,
-                            timestamp=int(time.time())
+                            timestamp=int(time.time()),
                         )
                         current_threshold = min(threshold, fts_threshold_cap)
                         if normalized_score >= current_threshold:
@@ -599,7 +658,7 @@ class SQLiteThreatRepository:
         query_vector: Optional[List[float]] = None,
         threshold: float = 0.85,
         fts_fallback_score: float = 0.75,
-        fts_threshold_cap: float = 0.70
+        fts_threshold_cap: float = 0.70,
     ) -> Optional[Dict[str, Any]]:
         await self.initialize()
 
@@ -615,7 +674,7 @@ class SQLiteThreatRepository:
             threshold=threshold,
             fts_fallback_score=fts_fallback_score,
             fts_threshold_cap=fts_threshold_cap,
-            target_tool=tool_name  # Pass tool_name as separate predicate
+            target_tool=tool_name,  # Pass tool_name as separate predicate
         )
 
         if matches:
@@ -645,7 +704,9 @@ class SQLiteThreatRepository:
                     }
         return None
 
-    async def add_background_task(self, task_id: str, status: str = "PENDING_WEBHOOK_CALLBACK") -> None:
+    async def add_background_task(
+        self, task_id: str, status: str = "PENDING_WEBHOOK_CALLBACK"
+    ) -> None:
         await self.initialize()
         async with self.pool.connection() as conn:
             await conn.execute(
@@ -667,22 +728,23 @@ class SQLiteThreatRepository:
         async with self.pool.connection() as conn:
             await conn.execute(
                 "INSERT OR REPLACE INTO in_flight_tasks (task_id, created_at) VALUES (?, ?)",
-                (task_id, int(time.time()))
+                (task_id, int(time.time())),
             )
 
     async def remove_in_flight_task(self, task_id: str) -> None:
         """Removes a task ID from the in-flight list."""
         await self.initialize()
         async with self.pool.connection() as conn:
-            await conn.execute("DELETE FROM in_flight_tasks WHERE task_id = ?", (task_id,))
+            await conn.execute(
+                "DELETE FROM in_flight_tasks WHERE task_id = ?", (task_id,)
+            )
 
     async def is_task_valid(self, task_id: str) -> bool:
         """Checks if a task ID is valid and not stale (> 12 hours old)."""
         await self.initialize()
         async with self.pool.connection() as conn:
             cursor = await conn.execute(
-                "SELECT created_at FROM in_flight_tasks WHERE task_id = ?",
-                (task_id,)
+                "SELECT created_at FROM in_flight_tasks WHERE task_id = ?", (task_id,)
             )
             row = await cursor.fetchone()
             if not row:
@@ -690,7 +752,9 @@ class SQLiteThreatRepository:
             created_at = row[0]
             # 12 hours = 43200 seconds
             if time.time() - created_at > 43200:
-                await conn.execute("DELETE FROM in_flight_tasks WHERE task_id = ?", (task_id,))
+                await conn.execute(
+                    "DELETE FROM in_flight_tasks WHERE task_id = ?", (task_id,)
+                )
                 return False
             return True
 
@@ -707,7 +771,9 @@ class SQLiteThreatRepository:
                     attacker_intent = str(raw_intent) if raw_intent is not None else ""
 
                     raw_pattern = signature_data.get("payloadPattern")
-                    payload_pattern = str(raw_pattern) if raw_pattern is not None else ""
+                    payload_pattern = (
+                        str(raw_pattern) if raw_pattern is not None else ""
+                    )
 
                     raw_tool = signature_data.get("targetTool")
                     target_tool = str(raw_tool) if raw_tool is not None else ""
@@ -717,36 +783,64 @@ class SQLiteThreatRepository:
                         sig_id = str(raw_sig_id)
                     else:
                         # Derive stable deduplication key for recurring signature content
-                        sig_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{target_tool}:{payload_pattern}:{attacker_intent}"))
+                        sig_id = str(
+                            uuid.uuid5(
+                                uuid.NAMESPACE_DNS,
+                                f"{target_tool}:{payload_pattern}:{attacker_intent}",
+                            )
+                        )
 
                     raw_created_at = signature_data.get("createdAt")
-                    created_at = int(raw_created_at) if raw_created_at is not None else int(time.time())
+                    created_at = (
+                        int(raw_created_at)
+                        if raw_created_at is not None
+                        else int(time.time())
+                    )
 
                     _raw_last_matched_at = signature_data.get("lastMatchedAt")
-                    last_matched_at = int(_raw_last_matched_at) if _raw_last_matched_at is not None else None
+                    last_matched_at = (
+                        int(_raw_last_matched_at)
+                        if _raw_last_matched_at is not None
+                        else None
+                    )
 
-                    target_sink = str(signature_data.get("targetSink")) if signature_data.get("targetSink") is not None else None
+                    target_sink = (
+                        str(signature_data.get("targetSink"))
+                        if signature_data.get("targetSink") is not None
+                        else None
+                    )
 
                     raw_chain = signature_data.get("dependencyChain")
-                    dependency_chain = json.dumps(raw_chain) if raw_chain is not None else None
+                    dependency_chain = (
+                        json.dumps(raw_chain) if raw_chain is not None else None
+                    )
 
                     raw_mitigation = signature_data.get("mitigationAction")
-                    mitigation_action = str(raw_mitigation) if raw_mitigation is not None else ""
+                    mitigation_action = (
+                        str(raw_mitigation) if raw_mitigation is not None else ""
+                    )
 
                     raw_match_count = signature_data.get("matchCount")
-                    match_count = int(raw_match_count) if raw_match_count is not None else 0
+                    match_count = (
+                        int(raw_match_count) if raw_match_count is not None else 0
+                    )
 
                     raw_fp_count = signature_data.get("falsePositiveCount")
-                    false_positive_count = int(raw_fp_count) if raw_fp_count is not None else 0
+                    false_positive_count = (
+                        int(raw_fp_count) if raw_fp_count is not None else 0
+                    )
 
                     similarity_vector = signature_data.get("similarityVector")
                     if similarity_vector is not None:
                         if isinstance(similarity_vector, (bytes, bytearray)):
                             vector_blob = similarity_vector
-                        elif hasattr(similarity_vector, "tobytes") and callable(similarity_vector.tobytes):
+                        elif hasattr(similarity_vector, "tobytes") and callable(
+                            similarity_vector.tobytes
+                        ):
                             vector_blob = similarity_vector.tobytes()
                         elif isinstance(similarity_vector, (list, tuple)):
                             import array
+
                             vector_blob = array.array("f", similarity_vector).tobytes()
                         else:
                             vector_blob = None
@@ -754,7 +848,9 @@ class SQLiteThreatRepository:
                         vector_blob = None
 
                     raw_metadata = signature_data.get("metadata")
-                    metadata_str = json.dumps(raw_metadata) if raw_metadata is not None else None
+                    metadata_str = (
+                        json.dumps(raw_metadata) if raw_metadata is not None else None
+                    )
 
                     await conn.execute(
                         """
@@ -766,9 +862,19 @@ class SQLiteThreatRepository:
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
-                            sig_id, created_at, last_matched_at, attacker_intent, payload_pattern,
-                            target_tool, target_sink, dependency_chain, mitigation_action,
-                            match_count, false_positive_count, vector_blob, metadata_str,
+                            sig_id,
+                            created_at,
+                            last_matched_at,
+                            attacker_intent,
+                            payload_pattern,
+                            target_tool,
+                            target_sink,
+                            dependency_chain,
+                            mitigation_action,
+                            match_count,
+                            false_positive_count,
+                            vector_blob,
+                            metadata_str,
                         ),
                     )
                 await conn.commit()

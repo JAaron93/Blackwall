@@ -10,8 +10,8 @@ Tasks are divided into execution tracks. **Tracks that share the same phase can 
 
 ## 🛤️ Parallel Execution: Phase 1 (Foundation)
 
-> [!TIP]  
-> **PARALLEL EXECUTION**  
+> [!TIP]
+> **PARALLEL EXECUTION**
 > `Track A` (Server Infrastructure) and `Track B` (Data Serialization) have no dependencies on each other and should be executed concurrently to accelerate delivery.
 
 ### Track A: Protocol Gateway Infrastructure
@@ -74,8 +74,8 @@ Build the synthesizer that translates Blackwall `BLOCK` verdicts into valid MCP/
 
 ## 🛤️ Linear Execution: Phase 2 (Integration & E2E)
 
-> [!IMPORTANT]  
-> **LINEAR EXECUTION**  
+> [!IMPORTANT]
+> **LINEAR EXECUTION**
 > Phase 2 tasks require the completion of *both* Track A and Track B from Phase 1. They must be executed sequentially.
 
 ### Track C: The Proxy Engine

