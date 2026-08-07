@@ -555,10 +555,10 @@ class SQLiteThreatRepository:
                             "s.target_tool, s.target_sink, s.dependency_chain, s.mitigation_action, s.match_count, "
                             "s.false_positive_count, s.similarity_vector, s.metadata, fts.rank "
                             "FROM signatures s "
-                            "JOIN signature_fts fts ON s.rowid = fts.rowid "
+                            "JOIN signature_fts fts ON s.signature_id = fts.signature_id "
                             "WHERE s.similarity_vector IS NULL "
                             "AND s.target_tool = ? "
-                            "AND signature_fts MATCH ? "
+                            "AND fts.signature_fts MATCH ? "
                             "ORDER BY fts.rank",
                             (target_tool, fts_query),
                         )
@@ -568,38 +568,22 @@ class SQLiteThreatRepository:
                             "s.target_tool, s.target_sink, s.dependency_chain, s.mitigation_action, s.match_count, "
                             "s.false_positive_count, s.similarity_vector, s.metadata, fts.rank "
                             "FROM signatures s "
-                            "JOIN signature_fts fts ON s.rowid = fts.rowid "
+                            "JOIN signature_fts fts ON s.signature_id = fts.signature_id "
                             "WHERE s.similarity_vector IS NULL "
-                            "AND signature_fts MATCH ? "
+                            "AND fts.signature_fts MATCH ? "
                             "ORDER BY fts.rank",
                             (fts_query,),
                         )
                     fts_rows = await cursor.fetchall()
-                    query_words = set(re.findall(r"\w+", query_text.lower()))
                     for row in fts_rows:
                         sig_id = row[0]
-                        bm25_rank = row[13]
-                        attacker_intent = row[3] or ""
-                        payload_pattern = row[4] or ""
-                        target_tool_val = row[5] or ""
-                        candidate_text = f"{attacker_intent} {payload_pattern} {target_tool_val}"
-                        candidate_words = set(re.findall(r"\w+", candidate_text.lower()))
-
-                        if query_words and candidate_words:
-                            intersection = query_words & candidate_words
-                            min_len = min(len(query_words), len(candidate_words))
-                            match_quality = len(intersection) / max(min_len, 1)
-                        else:
-                            match_quality = 0.0
-
-                        abs_bm25 = abs(bm25_rank) if bm25_rank is not None else 0.0
-                        fts_score = (
-                            min(abs_bm25 / 15.0, 1.0)
-                            if abs_bm25 > 1.0
-                            else (min(abs_bm25, 1.0) if abs_bm25 >= 0.1 else fts_fallback_score)
-                        )
-                        normalized_score = min(
-                            match_quality * fts_score, fts_threshold_cap
+                        bm25_rank = row[
+                            13
+                        ]  # FTS5 rank is negative, higher absolute value = better match
+                        # Normalize BM25 rank to 0-1 range capped by fts_threshold_cap
+                        # BM25 rank typically ranges from -15 (excellent) to 0 (weak)
+                        normalized_score = (
+                            min(abs(bm25_rank) / 15.0, 1.0) * fts_threshold_cap
                         )
 
                         logger.warning(
@@ -607,12 +591,11 @@ class SQLiteThreatRepository:
                             signature_id=sig_id,
                             reason="missing or invalid vector",
                             bm25_rank=bm25_rank,
-                            match_quality=match_quality,
                             normalized_score=normalized_score,
                             timestamp=int(time.time()),
                         )
                         current_threshold = min(threshold, fts_threshold_cap)
-                        if normalized_score >= current_threshold and match_quality > 0:
+                        if normalized_score >= current_threshold:
                             matches.append(_parse_row(row[:13], normalized_score))
             else:
                 # No query vector provided: all signatures fallback to FTS5
@@ -625,9 +608,9 @@ class SQLiteThreatRepository:
                             "s.target_tool, s.target_sink, s.dependency_chain, s.mitigation_action, s.match_count, "
                             "s.false_positive_count, s.similarity_vector, s.metadata, fts.rank "
                             "FROM signatures s "
-                            "JOIN signature_fts fts ON s.rowid = fts.rowid "
+                            "JOIN signature_fts fts ON s.signature_id = fts.signature_id "
                             "WHERE s.target_tool = ? "
-                            "AND signature_fts MATCH ? "
+                            "AND fts.signature_fts MATCH ? "
                             "ORDER BY fts.rank",
                             (target_tool, fts_query),
                         )
@@ -637,37 +620,21 @@ class SQLiteThreatRepository:
                             "s.target_tool, s.target_sink, s.dependency_chain, s.mitigation_action, s.match_count, "
                             "s.false_positive_count, s.similarity_vector, s.metadata, fts.rank "
                             "FROM signatures s "
-                            "JOIN signature_fts fts ON s.rowid = fts.rowid "
-                            "WHERE signature_fts MATCH ? "
+                            "JOIN signature_fts fts ON s.signature_id = fts.signature_id "
+                            "WHERE fts.signature_fts MATCH ? "
                             "ORDER BY fts.rank",
                             (fts_query,),
                         )
                     fts_rows = await cursor.fetchall()
-                    query_words = set(re.findall(r"\w+", query_text.lower()))
                     for row in fts_rows:
                         sig_id = row[0]
-                        bm25_rank = row[13]
-                        attacker_intent = row[3] or ""
-                        payload_pattern = row[4] or ""
-                        target_tool_val = row[5] or ""
-                        candidate_text = f"{attacker_intent} {payload_pattern} {target_tool_val}"
-                        candidate_words = set(re.findall(r"\w+", candidate_text.lower()))
-
-                        if query_words and candidate_words:
-                            intersection = query_words & candidate_words
-                            min_len = min(len(query_words), len(candidate_words))
-                            match_quality = len(intersection) / max(min_len, 1)
-                        else:
-                            match_quality = 0.0
-
-                        abs_bm25 = abs(bm25_rank) if bm25_rank is not None else 0.0
-                        fts_score = (
-                            min(abs_bm25 / 15.0, 1.0)
-                            if abs_bm25 > 1.0
-                            else (min(abs_bm25, 1.0) if abs_bm25 >= 0.1 else fts_fallback_score)
-                        )
-                        normalized_score = min(
-                            match_quality * fts_score, fts_threshold_cap
+                        bm25_rank = row[
+                            13
+                        ]  # FTS5 rank is negative, higher absolute value = better match
+                        # Normalize BM25 rank to 0-1 range capped by fts_threshold_cap
+                        # BM25 rank typically ranges from -15 (excellent) to 0 (weak)
+                        normalized_score = (
+                            min(abs(bm25_rank) / 15.0, 1.0) * fts_threshold_cap
                         )
 
                         logger.warning(
@@ -675,12 +642,11 @@ class SQLiteThreatRepository:
                             signature_id=sig_id,
                             reason="missing query vector",
                             bm25_rank=bm25_rank,
-                            match_quality=match_quality,
                             normalized_score=normalized_score,
                             timestamp=int(time.time()),
                         )
                         current_threshold = min(threshold, fts_threshold_cap)
-                        if normalized_score >= current_threshold and match_quality > 0:
+                        if normalized_score >= current_threshold:
                             matches.append(_parse_row(row[:13], normalized_score))
 
             matches.sort(key=lambda x: x.get("similarity_score", 0.0), reverse=True)
