@@ -75,10 +75,10 @@ manager = ForensicTriageManager(otel_adapter=otel_adapter)
 report = await manager.triage_log_event({"command": "reverse_shell /bin/bash -i"})
 # Dual-mode execution: primary local Ollama (Qwen3) with failover to AST/regex parser
 
-# Track 6: Advanced Threat Detection & Swarm Analysis (Pillar 6)
+# Track 6: Advanced Threat Detection & Zero-Day Exploit Chains (Pillar 6)
 from datetime import datetime, timezone, timedelta
 from blackwall.enterprise.advanced_threat_detection import (
-    EventStreamCollector, NormalizedEvent, EventSource, AttackGraphStore, PathCorrelator, AgentSwarmDetector
+    EventStreamCollector, NormalizedEvent, EventSource, AttackGraphStore, PathCorrelator, AgentSwarmDetector, ExploitChainAnalyzer
 )
 
 collector = EventStreamCollector()
@@ -116,7 +116,13 @@ swarms = await swarm_detector.detect_swarms(
     min_agents=2,
     correlation_threshold=0.75,
 )
-# Identifies coordinated agent swarms, behavioral fingerprints, and shared infrastructure (e.g. C2 IPs/domains)
+
+exploit_analyzer = ExploitChainAnalyzer(store=store)
+exploit_chains = await exploit_analyzer.detect_chains(
+    agent_id="agent-007",
+    time_window=(now - timedelta(minutes=1), now + timedelta(minutes=10)),
+)
+# Detects multi-step zero-day exploit sequences, computes novelty scores against baseline, and assesses chaining confidence
 
 ```
 
