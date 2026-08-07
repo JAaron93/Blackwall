@@ -1,15 +1,16 @@
 from enum import Enum
-from typing import Dict, List, Optional
+
 from pydantic import BaseModel, Field, field_validator, model_validator
-from blackwall.validators import validate_semver_format
+
 from blackwall.models import VerdictDecision
+from blackwall.validators import validate_semver_format
 
 
 class GateResult(BaseModel):
     verdict: VerdictDecision
     reason: str
     threat_score: float = Field(..., ge=0.0, le=1.0)
-    signature_id: Optional[str] = None
+    signature_id: str | None = None
 
 
 
@@ -27,8 +28,8 @@ class GlobalConfig(BaseModel):
 
 
 class EnvironmentRoleConfig(BaseModel):
-    allowedTools: List[str]
-    blockedTools: List[str]
+    allowedTools: list[str]
+    blockedTools: list[str]
     requireSemanticReview: bool
     maxThreatScore: float = Field(..., ge=0.0, le=1.0)
 
@@ -39,12 +40,12 @@ class StructuralRule(BaseModel):
     action: StructuralAction
     priority: int
     enabled: bool
-    requireSemanticReview: Optional[bool] = None
+    requireSemanticReview: bool | None = None
 
 
 class MCPServerConfig(BaseModel):
     enabled: bool
-    apiKey: Optional[str] = None
+    apiKey: str | None = None
     cacheEnabled: bool
     cacheTTL: int = Field(..., ge=0)
     timeout: int = Field(..., ge=0)  # in ms
@@ -78,18 +79,25 @@ class SwarmDetectorPolicyConfig(BaseModel):
     correlationThreshold: float = Field(0.75, ge=0.0, le=1.0)
 
 
+class ExploitChainAnalyzerPolicyConfig(BaseModel):
+    maxTimeGapSeconds: float = Field(300.0, gt=0.0)
+
+
 class AdvancedThreatDetectionPolicyConfig(BaseModel):
     swarmDetector: SwarmDetectorPolicyConfig = Field(
         default_factory=SwarmDetectorPolicyConfig
+    )
+    exploitChainAnalyzer: ExploitChainAnalyzerPolicyConfig = Field(
+        default_factory=ExploitChainAnalyzerPolicyConfig
     )
 
 
 class PolicyConfig(BaseModel):
     version: str
     global_config: GlobalConfig = Field(..., alias="global")
-    environmentRoles: Dict[str, EnvironmentRoleConfig]
-    structuralRules: List[StructuralRule]
-    semanticGuidelines: List[str]
+    environmentRoles: dict[str, EnvironmentRoleConfig]
+    structuralRules: list[StructuralRule]
+    semanticGuidelines: list[str]
     mcpServers: MCPServersConfig
     threatSignatureGraph: ThreatSignatureGraphConfig
     advancedThreatDetection: AdvancedThreatDetectionPolicyConfig = Field(
