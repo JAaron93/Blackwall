@@ -8,3 +8,4 @@ Feature: LFU Eviction Security and Batch Deletion Validation
     When LFU eviction is executed with a max signature limit of 100
     Then 30 low-value signatures are evicted in batch
     And all 10 high-value signatures remain intact in the database
+    And single-query parameterized batch deletion is executed without per-row executemany calls

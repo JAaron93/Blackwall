@@ -1,4 +1,5 @@
 import time
+from contextlib import asynccontextmanager
 import pytest
 from blackwall.db.eviction import EvictionManager
 from blackwall.db.repository import SQLiteThreatRepository
@@ -40,11 +41,50 @@ async def test_lfu_batch_eviction_single_query_chunking(tmp_path):
     stats_before = await repo.getStatistics()
     assert stats_before["totalSignatures"] == 130
 
+    # Spy on SQL query execution during evict_lfu
+    delete_execute_queries = []
+    executemany_calls = []
+    orig_connection = repo.pool.connection
+
+    @asynccontextmanager
+    async def _spy_connection():
+        async with orig_connection() as conn:
+            orig_execute = conn.execute
+            orig_executemany = conn.executemany
+
+            async def _spied_execute(query, parameters=()):
+                query_str = str(query).strip()
+                if "DELETE FROM signatures" in query_str:
+                    delete_execute_queries.append((query_str, list(parameters)))
+                return await orig_execute(query, parameters)
+
+            async def _spied_executemany(query, seq_of_parameters=()):
+                query_str = str(query).strip()
+                if "DELETE FROM signatures" in query_str:
+                    executemany_calls.append((query_str, list(seq_of_parameters)))
+                return await orig_executemany(query, seq_of_parameters)
+
+            conn.execute = _spied_execute
+            conn.executemany = _spied_executemany
+            yield conn
+
+    repo.pool.connection = _spy_connection
+
     # Run LFU eviction down to max_signatures=100
     deleted_count = await eviction_mgr.evict_lfu(max_signatures=100)
 
+    # Restore connection pool
+    repo.pool.connection = orig_connection
+
     # 130 total - 100 max_signatures = 30 signatures to delete
     assert deleted_count == 30
+
+    # Assert single-query batch execution behavior
+    assert len(executemany_calls) == 0, "executemany should not be used for LFU batch deletion"
+    assert len(delete_execute_queries) == 1, "Expected exactly 1 batch execute call for candidate chunk"
+    query_str, params = delete_execute_queries[0]
+    assert "WHERE signature_id IN (" in query_str
+    assert len(params) == 31  # 30 candidates + 1 high_value_threshold
 
     stats_after = await repo.getStatistics()
     assert stats_after["totalSignatures"] == 100  # 130 - 30
