@@ -425,3 +425,72 @@ def then_correlator_returns_valid_paths(atd_state):
     # MITRE technique IDs mapping check
     assert any(tech in top_path.attack_stages for tech in ["T1059", "T1068", "T1552"])
 
+
+@given(
+    "an initialized AgentSwarmDetector instance and correlated security events for multiple agents"
+)
+def given_initialized_swarm_detector(atd_state):
+    from blackwall.enterprise.advanced_threat_detection.swarm import AgentSwarmDetector
+
+    store = AttackGraphStore(in_memory=True)
+    run_async(store.initialize())
+    atd_state.swarm_detector = AgentSwarmDetector(store=store)
+
+    now = datetime.now(UTC)
+    for offset in [0, 5, 10]:
+        ev1 = NormalizedEvent(
+            event_id=str(uuid.uuid4()),
+            timestamp=now + timedelta(seconds=offset),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id="swarm-agent-1",
+            action="exfil_db",
+            target="evil.c2.domain",
+            metadata={"ip": "192.168.1.99"},
+            risk_score=0.8,
+        )
+        ev2 = NormalizedEvent(
+            event_id=str(uuid.uuid4()),
+            timestamp=now + timedelta(seconds=offset + 1),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id="swarm-agent-2",
+            action="exfil_db",
+            target="evil.c2.domain",
+            metadata={"ip": "192.168.1.99"},
+            risk_score=0.8,
+        )
+        run_async(store.insert_event(ev1))
+        run_async(store.insert_event(ev2))
+
+    atd_state.swarm_base_time = now
+    atd_state.swarm_time_window = (now - timedelta(seconds=10), now + timedelta(seconds=60))
+
+
+@when("agent action sequences are fingerprinted and swarms are detected")
+def when_fingerprinted_and_swarms_detected(atd_state):
+    atd_state.swarm_fingerprint = run_async(
+        atd_state.swarm_detector.fingerprint_agent("swarm-agent-1", window=3600, end_time=atd_state.swarm_base_time + timedelta(seconds=30))
+    )
+    atd_state.detected_swarms = run_async(
+        atd_state.swarm_detector.detect_swarms(atd_state.swarm_time_window, min_agents=2, correlation_threshold=0.75)
+    )
+
+
+@then("deterministic SHA-256 behavioral fingerprints are generated")
+def then_deterministic_fingerprints_generated(atd_state):
+    assert isinstance(atd_state.swarm_fingerprint, str)
+    assert len(atd_state.swarm_fingerprint) == 64
+
+
+@then(
+    "SwarmEvidence is produced with temporal correlation, coordination score, and shared infrastructure patterns"
+)
+def then_swarm_evidence_produced(atd_state):
+    assert len(atd_state.detected_swarms) >= 1
+    swarm = atd_state.detected_swarms[0]
+    assert isinstance(swarm, SwarmEvidence)
+    assert swarm.agent_ids == {"swarm-agent-1", "swarm-agent-2"}
+    assert 0.0 <= swarm.temporal_correlation <= 1.0
+    assert 0.0 <= swarm.coordination_score <= 1.0
+    assert len(swarm.shared_patterns) >= 1
+
+

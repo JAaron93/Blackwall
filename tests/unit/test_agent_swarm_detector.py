@@ -11,6 +11,16 @@ from blackwall.enterprise.advanced_threat_detection import (
     SwarmEvidence,
 )
 from blackwall.enterprise.advanced_threat_detection.swarm import AgentSwarmDetector
+from blackwall.policy.models import (
+    PolicyConfig,
+    GlobalConfig,
+    EnvironmentRoleConfig,
+    MCPServersConfig,
+    MCPServerConfig,
+    ThreatSignatureGraphConfig,
+    AdvancedThreatDetectionPolicyConfig,
+    SwarmDetectorPolicyConfig,
+)
 
 
 def create_event(
@@ -133,7 +143,7 @@ async def test_shared_infrastructure():
     assert len(swarms) >= 1
     swarm = swarms[0]
     assert len(swarm.shared_patterns) >= 1
-    assert any("192.168.1.50" in p or "evil.c2.org" in p for p in swarm.shared_patterns)
+    assert "ip:192.168.1.50" in swarm.shared_patterns or "domain:evil.c2.org" in swarm.shared_patterns
 
 
 @pytest.mark.asyncio
@@ -154,3 +164,42 @@ async def test_coordination_score():
     score = await detector.compute_coordination_score(["agent-m", "agent-n"], time_win)
     assert 0.0 <= score <= 1.0
     assert score >= 0.75
+
+
+@pytest.mark.asyncio
+async def test_policy_configuration_integration():
+    """Verify AgentSwarmDetector inherits thresholds from PolicyConfig."""
+    policy = PolicyConfig(
+        version="1.0.0",
+        global_config=GlobalConfig(
+            threatThreshold=0.75,
+            quarantineThreshold=0.5,
+            enableStructuralGating=True,
+            enableSemanticGating=True,
+        ),
+        environmentRoles={
+            "sandbox": EnvironmentRoleConfig(allowedTools=[], blockedTools=[], requireSemanticReview=False, maxThreatScore=0.8),
+            "production": EnvironmentRoleConfig(allowedTools=[], blockedTools=[], requireSemanticReview=True, maxThreatScore=0.5),
+        },
+        structuralRules=[],
+        semanticGuidelines=[],
+        mcpServers=MCPServersConfig(
+            gti=MCPServerConfig(enabled=True, cacheEnabled=True, cacheTTL=3600, timeout=1000),
+            codebaseMemory=MCPServerConfig(enabled=True, cacheEnabled=True, cacheTTL=3600, timeout=1000),
+        ),
+        threatSignatureGraph=ThreatSignatureGraphConfig(
+            dbPath="./test.db", walMode=True, maxConnections=5, similarityThreshold=0.8, ttlSeconds=3600, maxSignatures=1000, embeddingDimension=768
+        ),
+        advancedThreatDetection=AdvancedThreatDetectionPolicyConfig(
+            swarmDetector=SwarmDetectorPolicyConfig(
+                windowSeconds=1800,
+                minAgents=3,
+                correlationThreshold=0.6,
+            )
+        ),
+    )
+
+    detector = AgentSwarmDetector(policy=policy)
+    assert detector.default_window == 1800
+    assert detector.default_min_agents == 3
+    assert detector.default_correlation_threshold == 0.6

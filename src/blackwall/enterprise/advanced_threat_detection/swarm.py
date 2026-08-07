@@ -1,5 +1,6 @@
 """Agent Swarm Detector component for Blackwall Advanced Threat Detection (Pillar 6 Task 7)."""
 
+from collections import deque
 from datetime import datetime, timezone, timedelta
 import hashlib
 import json
@@ -14,6 +15,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     SwarmEvidence,
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
+from blackwall.policy.models import PolicyConfig
 from blackwall.validators import validate_temporal_sequence, validate_utc_datetime
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.swarm")
@@ -22,22 +24,75 @@ IP_REGEX = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 DOMAIN_REGEX = re.compile(r"\b[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b")
 
 
+def _avg_min_time_diff(ts1: List[datetime], ts2: List[datetime]) -> float:
+    """Compute average minimal time difference (in seconds) between two sorted timestamp lists in O(N+M) time."""
+    if not ts1 or not ts2:
+        return 0.0
+
+    total_diff = 0.0
+    idx2 = 0
+    len2 = len(ts2)
+
+    for t1 in ts1:
+        while (
+            idx2 + 1 < len2
+            and abs((ts2[idx2 + 1] - t1).total_seconds())
+            < abs((ts2[idx2] - t1).total_seconds())
+        ):
+            idx2 += 1
+        total_diff += abs((ts2[idx2] - t1).total_seconds())
+
+    return total_diff / len(ts1)
+
+
 class AgentSwarmDetector:
     """Detects coordinated multi-agent swarms using behavioral fingerprinting and temporal correlation."""
 
-    def __init__(self, store: Optional[AttackGraphStore] = None) -> None:
+    def __init__(
+        self,
+        store: Optional[AttackGraphStore] = None,
+        policy: Optional[PolicyConfig] = None,
+        default_window: Optional[int] = None,
+        default_min_agents: Optional[int] = None,
+        default_correlation_threshold: Optional[float] = None,
+    ) -> None:
         self.store = store or AttackGraphStore(in_memory=True)
+        self.policy = policy
+
+        # Pull default thresholds from policy if provided, otherwise fallback to defaults
+        p_cfg = (
+            policy.advancedThreatDetection.swarmDetector
+            if policy and policy.advancedThreatDetection
+            else None
+        )
+
+        self.default_window = (
+            default_window
+            if default_window is not None
+            else (p_cfg.windowSeconds if p_cfg else 3600)
+        )
+        self.default_min_agents = (
+            default_min_agents
+            if default_min_agents is not None
+            else (p_cfg.minAgents if p_cfg else 2)
+        )
+        self.default_correlation_threshold = (
+            default_correlation_threshold
+            if default_correlation_threshold is not None
+            else (p_cfg.correlationThreshold if p_cfg else 0.75)
+        )
 
     async def fingerprint_agent(
         self,
         agent_id: str,
-        window: int = 3600,
+        window: Optional[int] = None,
         end_time: Optional[datetime] = None,
     ) -> str:
         """Generate behavioral fingerprint for agent over time window (seconds) using action sequence hashing."""
+        win = window if window is not None else self.default_window
         if not agent_id or not agent_id.strip():
             raise ValueError("agent_id must be non-empty")
-        if window <= 0:
+        if win <= 0:
             raise ValueError("window must be positive")
 
         if end_time is None:
@@ -45,7 +100,7 @@ class AgentSwarmDetector:
         else:
             end_win = validate_utc_datetime(end_time)
 
-        start_win = end_win - timedelta(seconds=window)
+        start_win = end_win - timedelta(seconds=win)
 
         # Query events for agent in window
         nodes = await self.store.query_nodes(agent_id, (start_win, end_win), limit=1000)
@@ -62,13 +117,20 @@ class AgentSwarmDetector:
     async def detect_swarms(
         self,
         time_window: Tuple[datetime, datetime],
-        min_agents: int = 2,
-        correlation_threshold: float = 0.75,
+        min_agents: Optional[int] = None,
+        correlation_threshold: Optional[float] = None,
     ) -> List[SwarmEvidence]:
         """Detect coordinated agent swarms meeting correlation and minimum agent count thresholds."""
-        if min_agents < 2:
+        m_agents = min_agents if min_agents is not None else self.default_min_agents
+        c_thresh = (
+            correlation_threshold
+            if correlation_threshold is not None
+            else self.default_correlation_threshold
+        )
+
+        if m_agents < 2:
             raise ValueError("min_agents must be at least 2")
-        if not (0.0 <= correlation_threshold <= 1.0):
+        if not (0.0 <= c_thresh <= 1.0):
             raise ValueError("correlation_threshold must be between 0.0 and 1.0")
 
         start_raw, end_raw = time_window
@@ -88,18 +150,21 @@ class AgentSwarmDetector:
             events_by_agent[aid].append(node.event)
 
         agent_ids = list(events_by_agent.keys())
-        if len(agent_ids) < min_agents:
+        if len(agent_ids) < m_agents:
             return []
 
         # Find pairwise correlations and build agent adjacency graph
+        all_pairwise_corrs: Dict[Tuple[str, str], float] = {}
         correlated_pairs: Dict[Tuple[str, str], float] = {}
+
         for i in range(len(agent_ids)):
             for j in range(i + 1, len(agent_ids)):
                 a1, a2 = agent_ids[i], agent_ids[j]
                 corr = self._compute_pairwise_correlation(
                     events_by_agent[a1], events_by_agent[a2], (start_win, end_win)
                 )
-                if corr >= correlation_threshold:
+                all_pairwise_corrs[(a1, a2)] = corr
+                if corr >= c_thresh:
                     correlated_pairs[(a1, a2)] = corr
 
         # Build connected components (swarms) of agents
@@ -115,11 +180,11 @@ class AgentSwarmDetector:
             if aid in visited or not adjacency[aid]:
                 continue
 
-            # BFS component search
+            # BFS component search using deque
             component: Set[str] = set()
-            queue = [aid]
+            queue = deque([aid])
             while queue:
-                curr = queue.pop(0)
+                curr = queue.popleft()
                 if curr in component:
                     continue
                 component.add(curr)
@@ -128,7 +193,7 @@ class AgentSwarmDetector:
                     if nxt not in component:
                         queue.append(nxt)
 
-            if len(component) < min_agents:
+            if len(component) < m_agents:
                 continue
 
             # Compute swarm evidence properties
@@ -137,19 +202,19 @@ class AgentSwarmDetector:
                 {a: events_by_agent[a] for a in comp_list}
             )
 
-            # Average pairwise correlation across connected pairs in component
+            # Average pairwise correlation across ALL pairs in component
             pair_corrs = []
             for i in range(len(comp_list)):
                 for j in range(i + 1, len(comp_list)):
                     pair = (comp_list[i], comp_list[j])
                     rev_pair = (comp_list[j], comp_list[i])
-                    if pair in correlated_pairs:
-                        pair_corrs.append(correlated_pairs[pair])
-                    elif rev_pair in correlated_pairs:
-                        pair_corrs.append(correlated_pairs[rev_pair])
+                    if pair in all_pairwise_corrs:
+                        pair_corrs.append(all_pairwise_corrs[pair])
+                    elif rev_pair in all_pairwise_corrs:
+                        pair_corrs.append(all_pairwise_corrs[rev_pair])
 
-            avg_corr = sum(pair_corrs) / len(pair_corrs) if pair_corrs else correlation_threshold
-            temporal_correlation = max(0.5, min(1.0, float(avg_corr)))
+            avg_corr = sum(pair_corrs) / len(pair_corrs) if pair_corrs else c_thresh
+            temporal_correlation = max(0.0, min(1.0, float(avg_corr)))
 
             coord_score = await self.compute_coordination_score(comp_list, (start_win, end_win))
 
@@ -194,7 +259,7 @@ class AgentSwarmDetector:
         if len(active_agents) < 2:
             return 0.0
 
-        # Sub-score 1: Temporal alignment (closeness of event timestamps across agents)
+        # Sub-score 1: Temporal alignment (closeness of event timestamps across agents in O(N+M))
         timestamps_by_agent = {a: sorted([e.timestamp for e in events_by_agent[a]]) for a in active_agents}
         alignment_scores = []
         for i in range(len(active_agents)):
@@ -203,11 +268,7 @@ class AgentSwarmDetector:
                 ts2 = timestamps_by_agent[active_agents[j]]
                 if not ts1 or not ts2:
                     continue
-                min_diffs = []
-                for t1 in ts1:
-                    diff = min(abs((t1 - t2).total_seconds()) for t2 in ts2)
-                    min_diffs.append(diff)
-                avg_diff = sum(min_diffs) / len(min_diffs)
+                avg_diff = (_avg_min_time_diff(ts1, ts2) + _avg_min_time_diff(ts2, ts1)) / 2.0
                 score_pair = float(math.exp(-avg_diff / 30.0))
                 alignment_scores.append(score_pair)
 
@@ -239,19 +300,17 @@ class AgentSwarmDetector:
         events2: List[NormalizedEvent],
         time_window: Tuple[datetime, datetime],
     ) -> float:
-        """Compute pairwise correlation between two agents' events."""
+        """Compute pairwise correlation between two agents' events in O(N+M) time."""
         if not events1 or not events2:
             return 0.0
 
-        # 1. Temporal closeness score
+        # 1. Temporal closeness score using two-pointer O(N+M) pass
         ts1 = sorted([e.timestamp for e in events1])
         ts2 = sorted([e.timestamp for e in events2])
 
-        min_diffs = []
-        for t1 in ts1:
-            diff = min(abs((t1 - t2).total_seconds()) for t2 in ts2)
-            min_diffs.append(diff)
-        avg_diff = sum(min_diffs) / len(min_diffs)
+        avg_diff1 = _avg_min_time_diff(ts1, ts2)
+        avg_diff2 = _avg_min_time_diff(ts2, ts1)
+        avg_diff = (avg_diff1 + avg_diff2) / 2.0
         temporal_score = float(math.exp(-avg_diff / 60.0))
 
         # 2. Action similarity score
