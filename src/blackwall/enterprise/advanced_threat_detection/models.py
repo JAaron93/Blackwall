@@ -143,6 +143,28 @@ class ExploitChainEvidence(BaseModel):
     chaining_confidence: float = Field(..., ge=0.0, le=1.0)
 
 
+class PermissionGrant(BaseModel):
+    """Permission grant schema for AI-Induced Lateral Movement tracking."""
+
+    permission: str
+    granted_by: str
+    granted_to: str
+    timestamp: datetime
+    scope: str
+
+    @field_validator("timestamp")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        """Validate timestamp is timezone-aware and set to UTC."""
+        return validate_utc_datetime(v)
+
+    @field_validator("permission", "granted_by", "granted_to", "scope")
+    @classmethod
+    def validate_non_empty_fields(cls, v: str, info: Any) -> str:
+        """Validate string fields are not empty or whitespace only."""
+        return validate_non_empty_string(v, field_name=info.field_name)
+
+
 class AILMEvidence(BaseModel):
     """Evidence structure for AI-Induced Lateral Movement (AILM)."""
 

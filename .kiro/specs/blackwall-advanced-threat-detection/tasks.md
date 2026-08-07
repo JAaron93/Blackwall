@@ -297,33 +297,33 @@ The implementation follows a test-driven development approach with property-base
 - [x] 9. Checkpoint - Verify detection engines
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 10. Implement AI-Induced Lateral Movement (AILM) Tracker
-  - [ ] 10.1 Create AILMTracker class with permission tracking
+- [x] 10. Implement AI-Induced Lateral Movement (AILM) Tracker
+  - [x] 10.1 Create AILMTracker class with permission tracking
     - Implement `track_permission_grant()` recording PermissionGrant objects
     - Store grants with permission, granted_by, granted_to, timestamp, and scope
     - _Requirements: 6.1_
     - _Verification: `pytest tests/unit/test_ailm_tracker.py::test_track_permission -v`_
 
-  - [ ] 10.2 Implement permission composition detection
+  - [x] 10.2 Implement permission composition detection
     - Create `detect_permission_composition()` identifying accumulation patterns
     - Detect agents accumulating multiple permissions over time
     - Detect permissions spanning multiple trust boundaries
     - _Requirements: 6.2, 6.3_
     - _Verification: `pytest tests/unit/test_ailm_tracker.py::test_composition_detection -v`_
 
-  - [ ] 10.3 Implement security boundary crossing identification
+  - [x] 10.3 Implement security boundary crossing identification
     - Create `identify_boundary_crossing()` determining if context transitions cross boundaries
     - Define trust boundary mappings
     - _Requirements: 6.4_
     - _Verification: `pytest tests/unit/test_ailm_tracker.py::test_boundary_crossing -v`_
 
-  - [ ] 10.4 Implement AILM risk level computation
+  - [x] 10.4 Implement AILM risk level computation
     - Compute risk_level classification (LOW, MEDIUM, HIGH, CRITICAL)
     - Populate composed_permissions and boundary_crossings in AILMEvidence
     - _Requirements: 6.5, 6.6_
     - _Verification: `pytest tests/unit/test_ailm_tracker.py::test_risk_level -v`_
 
-  - [ ] 10.5 Write property tests for AILM tracking
+  - [x] 10.5 Write property tests for AILM tracking
     - **Property 35: Permission Grant Recording**
     - **Property 36: Permission Accumulation Detection**
     - **Property 37: Cross-Boundary Permission Detection**
@@ -333,7 +333,7 @@ The implementation follows a test-driven development approach with property-base
     - **Validates: Requirements 6.1, 6.2, 6.3, 6.4, 6.5, 6.6**
     - _Verification: `pytest tests/property/test_ailm_tracker_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 10.6 Write BDD feature tests for AILM Tracker
+  - [x] 10.6 Write BDD feature tests for AILM Tracker
     - Create `tests/features/ailm_tracker.feature` with Gherkin scenarios
     - Implement `Given/When/Then` steps in `tests/step_defs/test_ailm_tracker_bdd.py` using `run_async`
     - Scenario: a permission grant is recorded with all required fields (permission, granted_by, granted_to, timestamp, scope)

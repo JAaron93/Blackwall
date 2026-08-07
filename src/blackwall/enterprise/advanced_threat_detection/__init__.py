@@ -18,9 +18,11 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     ExploitChainEvidence,
     K8sThreatEvidence,
     NormalizedEvent,
+    PermissionGrant,
     RegistryThreatEvidence,
     SwarmEvidence,
 )
+from blackwall.enterprise.advanced_threat_detection.ailm import AILMTracker
 from blackwall.enterprise.advanced_threat_detection.collector import (
     EventStreamCollector,
 )
@@ -39,6 +41,7 @@ __all__ = [
     "AttackPath",
     "SwarmEvidence",
     "ExploitChainEvidence",
+    "PermissionGrant",
     "AILMEvidence",
     "C2Evidence",
     "K8sThreatEvidence",
@@ -48,6 +51,7 @@ __all__ = [
     "PathCorrelator",
     "AgentSwarmDetector",
     "ExploitChainAnalyzer",
+    "AILMTracker",
     "logger",
 ]
 
