@@ -92,7 +92,7 @@ class PolicyConfig(BaseModel):
     semanticGuidelines: List[str]
     mcpServers: MCPServersConfig
     threatSignatureGraph: ThreatSignatureGraphConfig
-    advancedThreatDetection: Optional[AdvancedThreatDetectionPolicyConfig] = Field(
+    advancedThreatDetection: AdvancedThreatDetectionPolicyConfig = Field(
         default_factory=AdvancedThreatDetectionPolicyConfig
     )
 

@@ -203,3 +203,41 @@ async def test_policy_configuration_integration():
     assert detector.default_window == 1800
     assert detector.default_min_agents == 3
     assert detector.default_correlation_threshold == 0.6
+
+
+@pytest.mark.asyncio
+async def test_policy_configuration_default_omission():
+    """Verify PolicyConfig provides default AdvancedThreatDetectionPolicyConfig when omitted."""
+    policy = PolicyConfig(
+        version="1.0.0",
+        global_config=GlobalConfig(
+            threatThreshold=0.75,
+            quarantineThreshold=0.5,
+            enableStructuralGating=True,
+            enableSemanticGating=True,
+        ),
+        environmentRoles={
+            "sandbox": EnvironmentRoleConfig(allowedTools=[], blockedTools=[], requireSemanticReview=False, maxThreatScore=0.8),
+            "production": EnvironmentRoleConfig(allowedTools=[], blockedTools=[], requireSemanticReview=True, maxThreatScore=0.5),
+        },
+        structuralRules=[],
+        semanticGuidelines=[],
+        mcpServers=MCPServersConfig(
+            gti=MCPServerConfig(enabled=True, cacheEnabled=True, cacheTTL=3600, timeout=1000),
+            codebaseMemory=MCPServerConfig(enabled=True, cacheEnabled=True, cacheTTL=3600, timeout=1000),
+        ),
+        threatSignatureGraph=ThreatSignatureGraphConfig(
+            dbPath="./test.db", walMode=True, maxConnections=5, similarityThreshold=0.8, ttlSeconds=3600, maxSignatures=1000, embeddingDimension=768
+        ),
+    )
+
+    assert policy.advancedThreatDetection is not None
+    assert policy.advancedThreatDetection.swarmDetector.windowSeconds == 3600
+    assert policy.advancedThreatDetection.swarmDetector.minAgents == 2
+    assert policy.advancedThreatDetection.swarmDetector.correlationThreshold == 0.75
+
+    detector = AgentSwarmDetector(policy=policy)
+    assert detector.default_window == 3600
+    assert detector.default_min_agents == 2
+    assert detector.default_correlation_threshold == 0.75
+

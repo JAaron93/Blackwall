@@ -59,12 +59,7 @@ class AgentSwarmDetector:
         self.store = store or AttackGraphStore(in_memory=True)
         self.policy = policy
 
-        # Pull default thresholds from policy if provided, otherwise fallback to defaults
-        p_cfg = (
-            policy.advancedThreatDetection.swarmDetector
-            if policy and policy.advancedThreatDetection
-            else None
-        )
+        p_cfg = policy.advancedThreatDetection.swarmDetector if policy else None
 
         self.default_window = (
             default_window
