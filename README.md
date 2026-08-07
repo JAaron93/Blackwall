@@ -44,7 +44,8 @@ Blackwall is structured into **two distinct product tiers** to serve both develo
 | **Developer Test Cost** | **$0.00 (100% Free)** | **$0.00 (100% Free local open-source MCP adapters)** |
 
 > [!NOTE]
-> For complete technical specifications of the Enterprise Security Mesh and Advanced Threat Detection, see [.kiro/specs/blackwall-enterprise-security-mesh/](.kiro/specs/blackwall-enterprise-security-mesh/) and [.kiro/specs/blackwall-advanced-threat-detection/](.kiro/specs/blackwall-advanced-threat-detection/).
+> For complete technical specifications of the Enterprise Security Mesh, Advanced Threat Detection, and Attacker Attribution, see [.kiro/specs/blackwall-enterprise-security-mesh/](.kiro/specs/blackwall-enterprise-security-mesh/), [.kiro/specs/blackwall-advanced-threat-detection/](.kiro/specs/blackwall-advanced-threat-detection/), and [.kiro/specs/blackwall-attacker-attribution/](.kiro/specs/blackwall-attacker-attribution/).
+
 
 ### ⚡ Enterprise Security Mesh Quick Start
 
