@@ -73,3 +73,11 @@ pr_compliances:
     success_criteria: "sys.addaudithook registrations in tests are scoped inside isolated test functions and background processes use os.killpg process group cleanup."
     failure_criteria: "Global sys.addaudithook calls in test modules or missing os.killpg cleanup for child processes."
     severity: "MEDIUM"
+
+  - title: "Attacker Identification & Reporting (Blackwall Attacker Attribution) Integrity"
+    compliance_label: true
+    objective: "Verify Attacker Identification & Reporting components (AttackerIdentityExtractor, AttackerProfile, IncidentReportGenerator) enforce Pydantic v2 validation (SHA-256 fingerprint, UTC timestamps, [0.0, 1.0] risk scores), run after ContextResolver sanitization, and fail-closed cleanly."
+    success_criteria: "Attacker identity extraction processes sanitized context, enforces deterministic SHA-256 fingerprinting, updates SQLite profile threat scores, and generates structured incident reports without crashing on missing metadata."
+    failure_criteria: "Attacker identity extraction processes unsanitized inputs, produces non-deterministic fingerprints, lacks UTC timestamps or Pydantic v2 validation, or causes unhandled exceptions on missing metadata."
+    severity: "HIGH"
+
