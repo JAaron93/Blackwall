@@ -157,7 +157,7 @@ class PermissionGrant(BaseModel):
     @classmethod
     def validate_grant_id_uuid_v4(cls, v: Any) -> UUID:
         """Validate grant_id is a valid UUID v4."""
-        return validate_uuid_v4_format(v)
+        return validate_uuid_v4_format(v, field_name="grant_id")
 
     @field_validator("timestamp")
     @classmethod

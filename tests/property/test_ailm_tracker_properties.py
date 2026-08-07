@@ -39,9 +39,10 @@ def test_property_permission_grant_empty_string_rejection(empty_val: str, target
 )
 def test_property_permission_grant_invalid_timestamp_rejection(use_naive: bool):
     """Property rejection: Naive or non-UTC datetimes MUST raise ValidationError."""
-    now = datetime.now() if use_naive else datetime.now(timezone.utc).astimezone()
-    if not use_naive and now.tzinfo == UTC:
-        now = datetime.now()  # Fallback to naive
+    if use_naive:
+        now = datetime.now()  # Naive datetime
+    else:
+        now = datetime.now(timezone(timedelta(hours=1)))  # Explicit non-UTC timezone (+01:00)
 
     with pytest.raises(ValidationError):
         PermissionGrant(

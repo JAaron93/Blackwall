@@ -50,7 +50,7 @@ class AILMTracker:
         policy: PolicyConfig | None = None,
         max_grants_per_agent: int = 1000,
     ) -> None:
-        if max_grants_per_agent <= 0:
+        if isinstance(max_grants_per_agent, bool) or not isinstance(max_grants_per_agent, int) or max_grants_per_agent <= 0:
             raise ValueError("max_grants_per_agent must be a positive integer")
         self.store = store or AttackGraphStore(in_memory=True)
         self.policy = policy

@@ -148,3 +148,14 @@ async def test_boundary_crossing_unrecognized_scopes(tracker):
     # Transition from recognized boundary to unrecognized scope is identified as boundary crossing
     is_crossing_recognized = await tracker.identify_boundary_crossing("user_space", "internal_module_b")
     assert is_crossing_recognized is True
+
+
+def test_max_grants_per_agent_type_validation():
+    with pytest.raises(ValueError, match="max_grants_per_agent must be a positive integer"):
+        AILMTracker(max_grants_per_agent=1.5)
+
+    with pytest.raises(ValueError, match="max_grants_per_agent must be a positive integer"):
+        AILMTracker(max_grants_per_agent=True)
+
+    with pytest.raises(ValueError, match="max_grants_per_agent must be a positive integer"):
+        AILMTracker(max_grants_per_agent=0)
