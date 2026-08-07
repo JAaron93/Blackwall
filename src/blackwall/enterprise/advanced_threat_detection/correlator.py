@@ -19,12 +19,33 @@ from blackwall.validators import validate_temporal_sequence, validate_utc_dateti
 
 # MITRE ATT&CK technique mapping patterns
 MITRE_PATTERNS: List[Tuple[re.Pattern, str]] = [
-    (re.compile(r"command|exec|script|bash|sh|python|powershell|cmd", re.IGNORECASE), "T1059"),
+    (
+        re.compile(r"command|exec|script|bash|sh|python|powershell|cmd", re.IGNORECASE),
+        "T1059",
+    ),
     (re.compile(r"sudo|privilege|root|su|chmod|elevate", re.IGNORECASE), "T1068"),
-    (re.compile(r"token|credential|secret|password|key|auth|var/run/secrets", re.IGNORECASE), "T1552"),
-    (re.compile(r"http|socket|connect|c2|beacon|webhook|requestbin|pastebin", re.IGNORECASE), "T1071"),
-    (re.compile(r"cron|timer|service|persistence|daemon|respawn", re.IGNORECASE), "T1053"),
-    (re.compile(r"k8s|pod|kube|container|docker|artifactory|npm|pypi", re.IGNORECASE), "T1613"),
+    (
+        re.compile(
+            r"token|credential|secret|password|key|auth|var/run/secrets", re.IGNORECASE
+        ),
+        "T1552",
+    ),
+    (
+        re.compile(
+            r"http|socket|connect|c2|beacon|webhook|requestbin|pastebin", re.IGNORECASE
+        ),
+        "T1071",
+    ),
+    (
+        re.compile(r"cron|timer|service|persistence|daemon|respawn", re.IGNORECASE),
+        "T1053",
+    ),
+    (
+        re.compile(
+            r"k8s|pod|kube|container|docker|artifactory|npm|pypi", re.IGNORECASE
+        ),
+        "T1613",
+    ),
 ]
 
 # Action progression hierarchy for semantic edge scoring
@@ -77,13 +98,16 @@ class PathCorrelator:
             raise ValueError("max_depth cannot be less than min_path_length")
 
         start_raw, end_raw = time_window
-        validate_temporal_sequence(start_raw, end_raw, start_name="start_time", end_name="end_time")
+        validate_temporal_sequence(
+            start_raw, end_raw, start_name="start_time", end_name="end_time"
+        )
         start_win = validate_utc_datetime(start_raw)
         end_win = validate_utc_datetime(end_raw)
 
-
         # 1. Fetch candidate nodes from store within time window, up to max_nodes
-        candidate_nodes = await self.store.query_nodes(agent_id, (start_win, end_win), limit=max_nodes)
+        candidate_nodes = await self.store.query_nodes(
+            agent_id, (start_win, end_win), limit=max_nodes
+        )
 
         # Requirement 3.6 & Property 19: Return empty list if events < min_path_length
         if len(candidate_nodes) < min_path_length:
@@ -134,7 +158,9 @@ class PathCorrelator:
                 w = self.compute_edge_weight(path_nodes[i], path_nodes[i + 1])
                 edge_weights.append(w)
 
-            risk_score, correlation_score = self.compute_path_scores(path_nodes, edge_weights)
+            risk_score, correlation_score = self.compute_path_scores(
+                path_nodes, edge_weights
+            )
             attack_stages = self.map_mitre_techniques(path_nodes)
 
             try:
@@ -161,7 +187,9 @@ class PathCorrelator:
     ) -> Dict[str, List[Tuple[AttackNode, float]]]:
         """Build temporal adjacency graph where edges exist iff nodes occur <= 5 minutes apart or have causal edge."""
         sorted_nodes = sorted(nodes, key=lambda n: n.event.timestamp)
-        adj: Dict[str, List[Tuple[AttackNode, float]]] = {n.node_id: [] for n in sorted_nodes}
+        adj: Dict[str, List[Tuple[AttackNode, float]]] = {
+            n.node_id: [] for n in sorted_nodes
+        }
 
         # Precompute mapping of incoming edge IDs to target nodes for O(1) causal edge lookup
         edge_to_target_nodes: Dict[uuid.UUID, List[AttackNode]] = {}
@@ -172,7 +200,9 @@ class PathCorrelator:
         for i, node_a in enumerate(sorted_nodes):
             # 1. Temporal window scan (strictly <= 300s)
             for node_b in sorted_nodes[i + 1 :]:
-                delta_sec = (node_b.event.timestamp - node_a.event.timestamp).total_seconds()
+                delta_sec = (
+                    node_b.event.timestamp - node_a.event.timestamp
+                ).total_seconds()
                 if delta_sec > 300:
                     break
 
@@ -196,7 +226,9 @@ class PathCorrelator:
 
     def compute_edge_weight(self, node_a: AttackNode, node_b: AttackNode) -> float:
         """Compute edge weight in [0.0, 1.0] based on temporal proximity and semantic relationship."""
-        delta_sec = max(0.0, (node_b.event.timestamp - node_a.event.timestamp).total_seconds())
+        delta_sec = max(
+            0.0, (node_b.event.timestamp - node_a.event.timestamp).total_seconds()
+        )
 
         # Temporal proximity score (exponential decay over 300s window)
         temporal_prox = math.exp(-delta_sec / 300.0)
@@ -254,7 +286,12 @@ class PathCorrelator:
 
         # Compound risk score blending max risk, average risk, and path length weight
         length_bonus = min(0.2, 0.05 * len(nodes))
-        raw_risk = 0.6 * max_node_risk + 0.3 * avg_node_risk + 0.1 * avg_edge_weight + length_bonus
+        raw_risk = (
+            0.6 * max_node_risk
+            + 0.3 * avg_node_risk
+            + 0.1 * avg_edge_weight
+            + length_bonus
+        )
         risk_score = round(max(0.0, min(1.0, raw_risk)), 4)
 
         # Correlation score derived from average edge weight

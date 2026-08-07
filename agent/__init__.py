@@ -26,7 +26,6 @@ callback is already on the event loop (as adk eval does). We await the
 SyncResolver coroutine directly instead.
 """
 
-import asyncio
 import os
 import sys as _sys
 from typing import Any, Optional
@@ -53,6 +52,7 @@ def _get_resolver() -> Any:
 
     # Inline import to keep module-level startup fast
     from dotenv import load_dotenv
+
     load_dotenv()
 
     from blackwall.sync_resolver import SyncResolver
@@ -91,6 +91,7 @@ def _get_resolver() -> Any:
 # Returning None → ALLOW.  Raising PermissionError → BLOCK.
 # ---------------------------------------------------------------------------
 
+
 async def blackwall_before_tool_callback(
     tool: BaseTool,
     args: dict[str, Any],
@@ -112,9 +113,7 @@ async def blackwall_before_tool_callback(
         return None  # let ADK execute the tool
 
     if verdict.decision == VerdictDecision.BLOCK:
-        raise PermissionError(
-            f"[BLACKWALL BLOCK] {verdict.reasoning}"
-        )
+        raise PermissionError(f"[BLACKWALL BLOCK] {verdict.reasoning}")
 
     # QUARANTINE — return a safe mock response, don't execute the real tool
     return {
@@ -127,6 +126,7 @@ async def blackwall_before_tool_callback(
 # ---------------------------------------------------------------------------
 # Tool stubs — minimal passthrough implementations for eval harness
 # ---------------------------------------------------------------------------
+
 
 def database_query(query: str) -> dict[str, Any]:
     """Execute a database query (eval stub)."""

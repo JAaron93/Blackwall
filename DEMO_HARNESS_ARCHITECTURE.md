@@ -1,7 +1,7 @@
 # Blackwall Agent: Demo Harness & Dual-Agent Showdown Architecture
 
 ## 1. Introduction
-To effectively demonstrate the capabilities of the Blackwall Agentic Firewall for the Kaggle "AI Agents: Intensive Vibe Coding" hackathon, we implemented a sophisticated, self-contained dual-agent testing harness. 
+To effectively demonstrate the capabilities of the Blackwall Agentic Firewall for the Kaggle "AI Agents: Intensive Vibe Coding" hackathon, we implemented a sophisticated, self-contained dual-agent testing harness.
 
 This harness provides a safe, contained environment—a "sandbox arena"—where a hostile "Rogue Agent" can attempt to exploit a vulnerable application while the Blackwall Agent monitors, intercepts, and mitigates those threats in real-time.
 

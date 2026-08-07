@@ -398,7 +398,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Mock AST graph responses for deterministic testing
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 12.9, 21.5, 21.6_
 
-### 
+###
 
 **Priority:** MEDIUM
 **Dependencies:** Tasks 7, 8 (MCP clients)

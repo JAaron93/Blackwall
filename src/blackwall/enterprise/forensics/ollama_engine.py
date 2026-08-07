@@ -105,10 +105,14 @@ class OllamaForensicEngine:
         except Exception as err:
             logger.debug("Failed to parse Ollama JSON response: %s", err)
             # Check for explicit key pattern or return neutral fallback instead of prose substring search
-            is_threat = bool(re.search(r'"is_threat"\s*:\s*true', raw_text, re.IGNORECASE))
+            is_threat = bool(
+                re.search(r'"is_threat"\s*:\s*true', raw_text, re.IGNORECASE)
+            )
             threat_level = "LOW"
             if is_threat:
-                if re.search(r'"threat_level"\s*:\s*"CRITICAL"', raw_text, re.IGNORECASE):
+                if re.search(
+                    r'"threat_level"\s*:\s*"CRITICAL"', raw_text, re.IGNORECASE
+                ):
                     threat_level = "CRITICAL"
                 elif re.search(r'"threat_level"\s*:\s*"HIGH"', raw_text, re.IGNORECASE):
                     threat_level = "HIGH"

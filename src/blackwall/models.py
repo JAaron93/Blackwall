@@ -139,7 +139,6 @@ class SecurityMetrics(BaseModel):
     quarantine_count: int = 0
 
 
-
 class GraphStatistics(BaseModel):
     node_count: int
     edge_count: int

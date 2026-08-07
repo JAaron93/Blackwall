@@ -26,13 +26,17 @@ class ContainerSandboxMCPAdapter:
     async def connect(self) -> bool:
         """Establish connection to local Docker API / gVisor daemon."""
         self._is_connected = True
-        logger.info("ContainerSandboxMCPAdapter connected to local endpoint: %s", self.endpoint)
+        logger.info(
+            "ContainerSandboxMCPAdapter connected to local endpoint: %s", self.endpoint
+        )
         return True
 
     async def disconnect(self) -> None:
         """Disconnect from local container daemon."""
         self._is_connected = False
-        logger.info("ContainerSandboxMCPAdapter disconnected from endpoint: %s", self.endpoint)
+        logger.info(
+            "ContainerSandboxMCPAdapter disconnected from endpoint: %s", self.endpoint
+        )
 
     async def run_in_sandbox(
         self,
@@ -73,9 +77,15 @@ class ContainerSandboxMCPAdapter:
 
     async def destroy_sandbox(self, sandbox_id: str) -> bool:
         """Destroy container sandbox and free ephemeral resources."""
-        if sandbox_id in self._active_sandboxes and self._active_sandboxes[sandbox_id]["status"] != "DESTROYED":
+        if (
+            sandbox_id in self._active_sandboxes
+            and self._active_sandboxes[sandbox_id]["status"] != "DESTROYED"
+        ):
             del self._active_sandboxes[sandbox_id]
             logger.info("ContainerSandboxMCPAdapter destroyed sandbox: %s", sandbox_id)
             return True
-        logger.warning("ContainerSandboxMCPAdapter destroy requested for invalid sandbox: %s", sandbox_id)
+        logger.warning(
+            "ContainerSandboxMCPAdapter destroy requested for invalid sandbox: %s",
+            sandbox_id,
+        )
         return False

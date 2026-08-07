@@ -22,13 +22,13 @@ graph TD
     Track0 --> Track3
     Track0 --> Track4
     Track0 --> Track5
-    
+
     Track1 --> Track6
     Track2 --> Track6
     Track3 --> Track6
     Track4 --> Track6
     Track5 --> Track6
-    
+
     Track6 --> Track7
 ```
 

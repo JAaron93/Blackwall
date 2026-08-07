@@ -12,7 +12,6 @@ class GateResult(BaseModel):
     signature_id: Optional[str] = None
 
 
-
 class StructuralAction(str, Enum):
     ALLOW = "ALLOW"
     BLOCK = "BLOCK"

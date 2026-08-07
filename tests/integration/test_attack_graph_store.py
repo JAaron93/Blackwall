@@ -52,7 +52,9 @@ async def test_insert_event():
     store = AttackGraphStore(in_memory=True)
     await store.initialize()
 
-    event = create_test_event(agent_id="agent-002", action="socket_connect", risk_score=0.8)
+    event = create_test_event(
+        agent_id="agent-002", action="socket_connect", risk_score=0.8
+    )
     node = await store.insert_event(event)
 
     assert isinstance(node, AttackNode)
@@ -68,7 +70,9 @@ async def test_insert_event():
     # Re-inserting duplicate event preserves existing node and edges
     event2 = create_test_event(agent_id="agent-002", action="connect")
     node2 = await store.insert_event(event2)
-    await store.link_events(from_node=node.node_id, to_node=node2.node_id, relationship="FOLLOWED_BY")
+    await store.link_events(
+        from_node=node.node_id, to_node=node2.node_id, relationship="FOLLOWED_BY"
+    )
 
     # Re-insert first event to verify cached edge lists are preserved
     reinserted = await store.insert_event(event)
@@ -85,12 +89,16 @@ async def test_link_events():
 
     now = datetime.now(timezone.utc)
     event1 = create_test_event(agent_id="agent-003", action="execve", timestamp=now)
-    event2 = create_test_event(agent_id="agent-003", action="connect", timestamp=now + timedelta(seconds=2))
+    event2 = create_test_event(
+        agent_id="agent-003", action="connect", timestamp=now + timedelta(seconds=2)
+    )
 
     node1 = await store.insert_event(event1)
     node2 = await store.insert_event(event2)
 
-    await store.link_events(from_node=node1.node_id, to_node=node2.node_id, relationship="SPAWNED")
+    await store.link_events(
+        from_node=node1.node_id, to_node=node2.node_id, relationship="SPAWNED"
+    )
 
     updated_node1 = await store.get_node(node1.node_id)
     updated_node2 = await store.get_node(node2.node_id)
@@ -128,20 +136,30 @@ async def test_query_paths_performance():
         )
         node = await store.insert_event(event)
         if prev_node:
-            await store.link_events(from_node=prev_node.node_id, to_node=node.node_id, relationship="FOLLOWED_BY")
+            await store.link_events(
+                from_node=prev_node.node_id,
+                to_node=node.node_id,
+                relationship="FOLLOWED_BY",
+            )
         prev_node = node
 
     time_window = (first_time - timedelta(minutes=1), last_time + timedelta(minutes=1))
 
     # Untimed warmup call to bypass cold-start overhead
-    await store.query_paths(agent_id=agent_id, time_window=time_window, min_path_length=2)
+    await store.query_paths(
+        agent_id=agent_id, time_window=time_window, min_path_length=2
+    )
 
     # Benchmark path query execution time
     start_bench = time.perf_counter()
-    paths = await store.query_paths(agent_id=agent_id, time_window=time_window, min_path_length=2)
+    paths = await store.query_paths(
+        agent_id=agent_id, time_window=time_window, min_path_length=2
+    )
     elapsed_ms = (time.perf_counter() - start_bench) * 1000
 
-    assert elapsed_ms < 500.0, f"Query path execution took {elapsed_ms:.2f}ms, exceeding 500ms SLA"
+    assert (
+        elapsed_ms < 500.0
+    ), f"Query path execution took {elapsed_ms:.2f}ms, exceeding 500ms SLA"
     assert len(paths) >= 1
     assert all(isinstance(p, AttackPath) for p in paths)
     assert all(len(p.nodes) >= 2 for p in paths)
@@ -154,12 +172,16 @@ async def test_query_paths_performance():
     short_agent = "agent-short"
     event_short = create_test_event(agent_id=short_agent)
     await store.insert_event(event_short)
-    empty_paths = await store.query_paths(agent_id=short_agent, time_window=time_window, min_path_length=2)
+    empty_paths = await store.query_paths(
+        agent_id=short_agent, time_window=time_window, min_path_length=2
+    )
     assert empty_paths == []
 
     # Test min_path_length < 2 raises ValueError
     with pytest.raises(ValueError, match="min_path_length must be at least 2"):
-        await store.query_paths(agent_id=agent_id, time_window=time_window, min_path_length=1)
+        await store.query_paths(
+            agent_id=agent_id, time_window=time_window, min_path_length=1
+        )
 
     await store.close()
 

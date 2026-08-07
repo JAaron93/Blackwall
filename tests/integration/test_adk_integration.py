@@ -95,7 +95,7 @@ async def test_before_tool_callback_block() -> None:
         await asyncio.sleep(0.01)
 
     token = await queue.dequeue(timeout_ms=10)
-    
+
     block_verdict = Verdict(
         decision=VerdictDecision.BLOCK,
         reasoning="Blocked by policy",
@@ -141,7 +141,7 @@ async def test_before_tool_callback_quarantine() -> None:
         await asyncio.sleep(0.01)
 
     token = await queue.dequeue(timeout_ms=10)
-    
+
     quarantine_verdict = Verdict(
         decision=VerdictDecision.QUARANTINE,
         reasoning="Suspicious activity, sandboxing",
@@ -156,6 +156,7 @@ async def test_before_tool_callback_quarantine() -> None:
     assert "stdout" in result_container["result"]
     assert "quarantined/mocked" in result_container["result"]["stdout"]
 
+
 def test_audit_hook_logs_critical_bypass() -> None:
     code = """
 import sys
@@ -168,6 +169,7 @@ except PermissionError:
     pass
 """
     import os
+
     env = os.environ.copy()
     env["PYTHONPATH"] = "."
     result = subprocess.run(
@@ -179,5 +181,10 @@ except PermissionError:
     )
     output = result.stdout
     err = result.stderr
-    assert "Raw execution bypass attempt detected via audit hook" in output or "Raw execution bypass attempt detected via audit hook" in err, f"Bypass log not found. stdout: {output}, stderr: {err}"
-    assert "CRITICAL" in output or "error" in output or "CRITICAL" in err or "error" in err
+    assert (
+        "Raw execution bypass attempt detected via audit hook" in output
+        or "Raw execution bypass attempt detected via audit hook" in err
+    ), f"Bypass log not found. stdout: {output}, stderr: {err}"
+    assert (
+        "CRITICAL" in output or "error" in output or "CRITICAL" in err or "error" in err
+    )

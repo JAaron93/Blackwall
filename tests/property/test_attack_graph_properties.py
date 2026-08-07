@@ -17,12 +17,26 @@ def normalized_events(draw, agent_id: str = "agent-prop-01"):
     event_id = str(uuid.uuid4())
     # Generate offset in seconds to ensure valid UTC datetimes
     offset_sec = draw(st.integers(min_value=0, max_value=86400 * 30))
-    ts = datetime(2026, 8, 1, 0, 0, 0, tzinfo=timezone.utc) + timedelta(seconds=offset_sec)
+    ts = datetime(2026, 8, 1, 0, 0, 0, tzinfo=timezone.utc) + timedelta(
+        seconds=offset_sec
+    )
     source = draw(st.sampled_from(list(EventSource)))
-    action = draw(st.text(min_size=1, max_size=20, alphabet=st.characters(whitelist_categories=('Lu', 'Ll', 'Nd'))))
-    target = draw(st.text(min_size=1, max_size=30, alphabet=st.characters(whitelist_categories=('Lu', 'Ll', 'Nd'))))
+    action = draw(
+        st.text(
+            min_size=1,
+            max_size=20,
+            alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd")),
+        )
+    )
+    target = draw(
+        st.text(
+            min_size=1,
+            max_size=30,
+            alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd")),
+        )
+    )
     risk_score = draw(st.floats(min_value=0.0, max_value=1.0))
-    
+
     return NormalizedEvent(
         event_id=event_id,
         timestamp=ts,
@@ -37,7 +51,9 @@ def normalized_events(draw, agent_id: str = "agent-prop-01"):
 
 @pytest.mark.asyncio
 @settings(max_examples=100)
-@given(st.lists(normalized_events(agent_id="agent-prop-temporal"), min_size=2, max_size=10))
+@given(
+    st.lists(normalized_events(agent_id="agent-prop-temporal"), min_size=2, max_size=10)
+)
 async def test_property_6_temporal_ordering_preservation(events):
     """Property 6: Temporal Ordering Preservation.
 
@@ -54,8 +70,10 @@ async def test_property_6_temporal_ordering_preservation(events):
     max_ts = max(ev.timestamp for ev in events)
     time_window = (min_ts - timedelta(seconds=1), max_ts + timedelta(seconds=1))
 
-    paths = await store.query_paths(agent_id="agent-prop-temporal", time_window=time_window, min_path_length=2)
-    
+    paths = await store.query_paths(
+        agent_id="agent-prop-temporal", time_window=time_window, min_path_length=2
+    )
+
     for path in paths:
         path_timestamps = [n.event.timestamp for n in path.nodes]
         # Assert timestamps in returned path nodes are sorted in non-decreasing order
@@ -69,7 +87,7 @@ async def test_property_6_temporal_ordering_preservation(events):
 @given(
     normalized_events(agent_id="agent-causal-1"),
     normalized_events(agent_id="agent-causal-1"),
-    st.sampled_from(["SPAWNED", "READ", "WRITTEN", "EXECUTED", "TRIGGERED"])
+    st.sampled_from(["SPAWNED", "READ", "WRITTEN", "EXECUTED", "TRIGGERED"]),
 )
 async def test_property_7_causal_edge_creation(event1, event2, relationship):
     """Property 7: Causal Edge Creation.
@@ -83,7 +101,9 @@ async def test_property_7_causal_edge_creation(event1, event2, relationship):
     node1 = await store.insert_event(event1)
     node2 = await store.insert_event(event2)
 
-    await store.link_events(from_node=node1.node_id, to_node=node2.node_id, relationship=relationship)
+    await store.link_events(
+        from_node=node1.node_id, to_node=node2.node_id, relationship=relationship
+    )
 
     fetched1 = await store.get_node(node1.node_id)
     fetched2 = await store.get_node(node2.node_id)
@@ -94,7 +114,8 @@ async def test_property_7_causal_edge_creation(event1, event2, relationship):
     assert len(fetched2.incoming_edges) > 0
 
     matching_edges = [
-        e for e in store._edges
+        e
+        for e in store._edges
         if e["from_node"] == node1.node_id
         and e["to_node"] == node2.node_id
         and e["relationship"] == relationship
@@ -108,7 +129,7 @@ async def test_property_7_causal_edge_creation(event1, event2, relationship):
 @settings(max_examples=100)
 @given(
     st.integers(min_value=2, max_value=5),
-    st.lists(normalized_events(agent_id="agent-min-len"), min_size=2, max_size=8)
+    st.lists(normalized_events(agent_id="agent-min-len"), min_size=2, max_size=8),
 )
 async def test_property_8_path_query_min_length(min_len, events):
     """Property 8: Path Query Minimum Length Enforcement.
@@ -126,10 +147,14 @@ async def test_property_8_path_query_min_length(min_len, events):
     max_ts = max(ev.timestamp for ev in events)
     time_window = (min_ts - timedelta(seconds=1), max_ts + timedelta(seconds=1))
 
-    paths = await store.query_paths(agent_id="agent-min-len", time_window=time_window, min_path_length=min_len)
+    paths = await store.query_paths(
+        agent_id="agent-min-len", time_window=time_window, min_path_length=min_len
+    )
 
     for path in paths:
-        assert len(path.nodes) >= min_len, f"Returned path has {len(path.nodes)} nodes, expected at least {min_len}"
+        assert (
+            len(path.nodes) >= min_len
+        ), f"Returned path has {len(path.nodes)} nodes, expected at least {min_len}"
 
     await store.close()
 
@@ -139,7 +164,7 @@ async def test_property_8_path_query_min_length(min_len, events):
 @given(
     normalized_events(agent_id="agent-edge-integrity"),
     normalized_events(agent_id="agent-edge-integrity"),
-    st.sampled_from(["CALLS", "TRANSFERS_TO", "ACCESSES"])
+    st.sampled_from(["CALLS", "TRANSFERS_TO", "ACCESSES"]),
 )
 async def test_property_9_node_edge_list_integrity(event1, event2, relationship):
     """Property 9: Node Edge List Integrity.
@@ -153,7 +178,9 @@ async def test_property_9_node_edge_list_integrity(event1, event2, relationship)
     node1 = await store.insert_event(event1)
     node2 = await store.insert_event(event2)
 
-    await store.link_events(from_node=node1.node_id, to_node=node2.node_id, relationship=relationship)
+    await store.link_events(
+        from_node=node1.node_id, to_node=node2.node_id, relationship=relationship
+    )
 
     fetched1 = await store.get_node(node1.node_id)
     fetched2 = await store.get_node(node2.node_id)
@@ -162,7 +189,9 @@ async def test_property_9_node_edge_list_integrity(event1, event2, relationship)
     assert fetched2 is not None
 
     # Outgoing edge of source node and incoming edge of target node match
-    common_edges = set(fetched1.outgoing_edges).intersection(set(fetched2.incoming_edges))
+    common_edges = set(fetched1.outgoing_edges).intersection(
+        set(fetched2.incoming_edges)
+    )
     assert len(common_edges) >= 1
 
     edge_id = list(common_edges)[0]

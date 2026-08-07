@@ -42,18 +42,18 @@ class GTIQueryBudgetTracker:
         self.replenishment_interval = replenishment_interval
         self.tokens = float(capacity)
         self.lock = asyncio.Lock()
-        
+
         self.queries_attempted = 0
         self.queries_executed = 0
         self.queries_deferred = 0
         self.cache_hits = 0
-        
+
         self.queriesAttempted = 0
         self.queriesExecuted = 0
         self.queriesDeferred = 0
         self.cacheHits = 0
         self.budgetExhaustionCount = 0
-        
+
         self._replenish_task = None
         self._ensure_task_started()
 
@@ -342,10 +342,12 @@ class GTIMCPClient:
             api_key = self.api_key or ""
             if api_key.startswith("tmp_"):
                 from blackwall.security import get_global_credential_manager
+
                 manager = get_global_credential_manager()
                 api_key = manager.resolve_token(api_key)
             elif api_key.startswith("vault://"):
                 from blackwall.security import get_global_vault
+
                 vault = get_global_vault()
                 api_key = vault.get_secret(api_key)
 
@@ -385,7 +387,9 @@ class GTIMCPClient:
         # Create SSL context with certifi CA bundle for macOS compatibility
         ssl_context = ssl.create_default_context(cafile=certifi.where())
 
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_context)) as session:
+        async with aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(ssl=ssl_context)
+        ) as session:
             while True:
                 try:
                     async with session.get(url, headers=headers) as resp:
@@ -485,38 +489,65 @@ class GTIMCPClient:
     ) -> float:
         """Calculates a suspicion score (0.0-1.0) for the indicator."""
         score = 0.0
-        
+
         # 1. Geolocation Risk (for IPs)
         if indicator_type == IndicatorType.IP_ADDRESS:
             if not self._is_private_ip(indicator):
                 score += 0.2
-                
+
         # 2. Domain Reputation (for domains)
         elif indicator_type == IndicatorType.DOMAIN:
-            suspicious_tlds = (".xyz", ".top", ".cc", ".ru", ".click", ".link", ".info", ".loan", ".win", ".bid")
+            suspicious_tlds = (
+                ".xyz",
+                ".top",
+                ".cc",
+                ".ru",
+                ".click",
+                ".link",
+                ".info",
+                ".loan",
+                ".win",
+                ".bid",
+            )
             if any(indicator.endswith(tld) for tld in suspicious_tlds):
                 score += 0.2
             if len(indicator) > 30:
                 score += 0.1
-                
+
         # 3. Entropy Analysis (for file hashes)
         elif indicator_type == IndicatorType.FILE_HASH:
             entropy = self._calculate_entropy(indicator)
             if entropy > 3.0:
                 score += 0.2
-                
+
         # 4. Structural Signals (from ToolCallContext arguments/tool_name)
         if context:
             if context.tool_name == "run_command":
                 score += 0.2
-            elif context.tool_name in ("write_to_file", "multi_replace_file_content", "replace_file_content"):
+            elif context.tool_name in (
+                "write_to_file",
+                "multi_replace_file_content",
+                "replace_file_content",
+            ):
                 score += 0.1
-                
+
             args_str = str(context.arguments).lower()
-            suspicious_patterns = ("curl", "wget", "nc ", "bash", "sh ", "/bin/sh", "sh -c", "python", "chmod", "chown", "rm -rf")
+            suspicious_patterns = (
+                "curl",
+                "wget",
+                "nc ",
+                "bash",
+                "sh ",
+                "/bin/sh",
+                "sh -c",
+                "python",
+                "chmod",
+                "chown",
+                "rm -rf",
+            )
             if any(p in args_str for p in suspicious_patterns):
                 score += 0.1
-                
+
         return min(score, 1.0)
 
     def _is_private_ip(self, ip: str) -> bool:
@@ -537,12 +568,13 @@ class GTIMCPClient:
 
     def _calculate_entropy(self, s: str) -> float:
         import math
+
         if not s:
             return 0.0
         entropy = 0.0
         for x in set(s):
             p_x = s.count(x) / len(s)
-            entropy += - p_x * math.log2(p_x)
+            entropy += -p_x * math.log2(p_x)
         return entropy
 
     async def query(self, indicator: str) -> "GTIResponse":
@@ -551,6 +583,7 @@ class GTIMCPClient:
         type from the string and delegates to queryIOC.
         """
         import re as _re
+
         if _re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", indicator):
             ind_type = IndicatorType.IP_ADDRESS
         elif indicator.startswith("http://") or indicator.startswith("https://"):
@@ -569,9 +602,11 @@ class GTIMCPClient:
     ) -> bool:
         """Determines if the indicator is high-risk based on suspicion score and cache status."""
         score = self.calculate_suspicion_score(indicator, indicator_type, context)
-        
-        cached = await self.repo.get_cached_gti_response(indicator, indicator_type.value)
+
+        cached = await self.repo.get_cached_gti_response(
+            indicator, indicator_type.value
+        )
         if cached is None:
             score += 0.3
-            
+
         return score >= 0.5

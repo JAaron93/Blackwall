@@ -119,7 +119,9 @@ class SwarmEvidence(BaseModel):
     def validate_min_agents(cls, v: Set[str]) -> Set[str]:
         """Validate agent_ids contains at least 2 agents."""
         return validate_min_items(
-            v, min_items=2, custom_msg="SwarmEvidence agent_ids must contain at least 2 agents"
+            v,
+            min_items=2,
+            custom_msg="SwarmEvidence agent_ids must contain at least 2 agents",
         )
 
     @model_validator(mode="after")

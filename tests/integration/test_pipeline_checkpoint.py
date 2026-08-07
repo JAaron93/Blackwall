@@ -68,7 +68,13 @@ def policy_yaml_path(tmp_path: Path) -> str:
 
 
 class _MockInteraction:
-    def __init__(self, interaction_id: str = "mock-interaction-id", output: Any = None, total: int = 100, cached: int = 0):
+    def __init__(
+        self,
+        interaction_id: str = "mock-interaction-id",
+        output: Any = None,
+        total: int = 100,
+        cached: int = 0,
+    ):
         self.id = interaction_id
         self.output_text = json.dumps(output) if output is not None else json.dumps([])
         self.usage = _MockUsage(total, cached)
@@ -118,7 +124,9 @@ async def test_pipeline_end_to_end_smoke(policy_yaml_path: str) -> None:
 
     # Enqueue 3 benign tool calls
     for i in range(3):
-        ctx = ToolCallContext(tool_name="read_file", arguments={"path": f"/data/file_{i}.txt"})
+        ctx = ToolCallContext(
+            tool_name="read_file", arguments={"path": f"/data/file_{i}.txt"}
+        )
         token = CallbackToken(thread_id=f"thread-{i}", tool_context=ctx)
 
         verdict_bucket: List[Verdict] = []
@@ -204,7 +212,9 @@ async def test_structural_fast_path_latency(policy_yaml_path: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_synchronous_path_latency_no_external_calls(policy_yaml_path: str) -> None:
+async def test_synchronous_path_latency_no_external_calls(
+    policy_yaml_path: str,
+) -> None:
     """
     Ensures that the synchronous interception path (structural fast-path only,
     no Gemini/GTI/CBM calls) completes in < 10 ms on average over 100 samples.
@@ -227,9 +237,9 @@ async def test_synchronous_path_latency_no_external_calls(policy_yaml_path: str)
         latencies_ms.append((t1 - t0) * 1000.0)
 
     avg_ms = sum(latencies_ms) / len(latencies_ms)
-    assert avg_ms < 10.0, (
-        f"Synchronous path average latency {avg_ms:.3f} ms exceeds 10 ms budget."
-    )
+    assert (
+        avg_ms < 10.0
+    ), f"Synchronous path average latency {avg_ms:.3f} ms exceeds 10 ms budget."
 
 
 # ===========================================================================
@@ -366,9 +376,11 @@ async def test_batch_resolver_api_call_batch_sizes() -> None:
         assert len(response.verdicts) == batch_size
 
     # All three API calls should carry exactly the requested batch sizes
-    assert batch_size_log == [3, 5, 4], (
-        f"Unexpected batch sizes delivered to Gemini API: {batch_size_log}"
-    )
+    assert batch_size_log == [
+        3,
+        5,
+        4,
+    ], f"Unexpected batch sizes delivered to Gemini API: {batch_size_log}"
 
     # All batch sizes ≥ 3 → 100 % efficiency
     large = sum(1 for s in batch_size_log if s >= 3)
@@ -403,9 +415,9 @@ def test_verify_no_polling_script_exits_zero() -> None:
         f"stdout:\n{result.stdout}\n"
         f"stderr:\n{result.stderr}"
     )
-    assert "No polling patterns found" in result.stdout or result.stdout.strip() != "", (
-        f"Unexpected output from verify_no_polling.py:\n{result.stdout}"
-    )
+    assert (
+        "No polling patterns found" in result.stdout or result.stdout.strip() != ""
+    ), f"Unexpected output from verify_no_polling.py:\n{result.stdout}"
 
 
 # ===========================================================================

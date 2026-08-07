@@ -62,7 +62,9 @@ def test_evaluate_access_benign_allowed(sidecar):
 
 @pytest.mark.asyncio
 async def test_get_jit_credential_integration(sidecar):
-    jit_cred = await sidecar.get_jit_credential(role="read-only-worker", ttl_seconds=900)
+    jit_cred = await sidecar.get_jit_credential(
+        role="read-only-worker", ttl_seconds=900
+    )
     assert "token_id" in jit_cred
     assert jit_cred["ttl_seconds"] == 900
     assert jit_cred["role"] == "read-only-worker"

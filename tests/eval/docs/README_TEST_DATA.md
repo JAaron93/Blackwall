@@ -6,8 +6,8 @@ This directory contains the reference datasets for evaluating Blackwall's securi
 
 ### Benign Cases
 
-**File**: `benign_cases.json`  
-**Cases**: 68 benign operations  
+**File**: `benign_cases.json`
+**Cases**: 68 benign operations
 **Purpose**: Testing false positive rate and proper handling of legitimate agent operations
 
 - **Database Operations** (15): SELECT, INSERT, UPDATE, JOIN, aggregations with proper parameterization
@@ -20,8 +20,8 @@ This directory contains the reference datasets for evaluating Blackwall's securi
 
 ### Malicious Cases
 
-**File**: `malicious_cases.json`  
-**Cases**: 59 malicious injection/attack patterns  
+**File**: `malicious_cases.json`
+**Cases**: 59 malicious injection/attack patterns
 **Purpose**: Testing true positive rate and threat detection accuracy
 
 - **SQL Injection** (10): Boolean-based, time-based blind, UNION, stacked queries, etc.
@@ -54,7 +54,7 @@ All test cases follow this standard JSON schema:
   "reason": "Explanation",
   "categories": ["category_name"],
   "notes": "Additional context",
-  
+
   // Malicious-only fields:
   "attack_type": "ATTACK_TYPE",
   "cwe_id": "CWE-###",
@@ -103,7 +103,7 @@ import json
 
 with open('benign_cases.json') as f:
     benign = json.load(f)
-    
+
 with open('malicious_cases.json') as f:
     malicious = json.load(f)
 ```
@@ -219,8 +219,8 @@ To add new test cases:
 
 ## Last Updated
 
-Generated: 2025-01-06  
-Benign Cases: 68 cases  
-Malicious Cases: 59 cases  
-Evasion Cases: 30 cases  
+Generated: 2025-01-06
+Benign Cases: 68 cases
+Malicious Cases: 59 cases
+Evasion Cases: 30 cases
 Total Dataset Size: ~98 KB JSON

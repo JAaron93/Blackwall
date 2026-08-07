@@ -139,7 +139,9 @@ def set_empty_string(state: ValidatorState, input_str: str):
 @when("the non-empty string validation helper is executed")
 def execute_non_empty_string_validation(state: ValidatorState):
     try:
-        state.output_str = validate_non_empty_string(state.input_str, field_name="field")
+        state.output_str = validate_non_empty_string(
+            state.input_str, field_name="field"
+        )
     except Exception as exc:
         state.error = exc
 
@@ -156,10 +158,16 @@ def set_collection_count(state: ValidatorState, count: int):
     state.input_collection = list(range(count))
 
 
-@when(parsers.parse("the min items validation helper is executed with min size {min_size:d}"))
+@when(
+    parsers.parse(
+        "the min items validation helper is executed with min size {min_size:d}"
+    )
+)
 def execute_min_items_validation(state: ValidatorState, min_size: int):
     try:
-        state.output_collection = validate_min_items(state.input_collection, min_items=min_size, field_name="collection")
+        state.output_collection = validate_min_items(
+            state.input_collection, min_items=min_size, field_name="collection"
+        )
     except Exception as exc:
         state.error = exc
 
@@ -188,7 +196,9 @@ def set_invalid_temporal_times(state: ValidatorState):
 @when("the temporal sequence validation helper is executed")
 def execute_temporal_sequence_validation(state: ValidatorState):
     try:
-        validate_temporal_sequence(state.start_dt, state.end_dt, start_name="start_time", end_name="end_time")
+        validate_temporal_sequence(
+            state.start_dt, state.end_dt, start_name="start_time", end_name="end_time"
+        )
     except Exception as exc:
         state.error = exc
 

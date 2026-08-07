@@ -26,7 +26,9 @@ async def test_vault_adapter_connection_lifecycle(vault_adapter):
 @pytest.mark.asyncio
 async def test_issue_jit_token(vault_adapter):
     await vault_adapter.connect()
-    token_info = await vault_adapter.issue_jit_token(role="analytics-reader", ttl_seconds=900)
+    token_info = await vault_adapter.issue_jit_token(
+        role="analytics-reader", ttl_seconds=900
+    )
 
     assert "token_id" in token_info
     assert token_info["token_id"].startswith("bw_jit_")
@@ -39,7 +41,9 @@ async def test_issue_jit_token(vault_adapter):
 @pytest.mark.asyncio
 async def test_revoke_token(vault_adapter):
     await vault_adapter.connect()
-    token_info = await vault_adapter.issue_jit_token(role="ephemeral-worker", ttl_seconds=600)
+    token_info = await vault_adapter.issue_jit_token(
+        role="ephemeral-worker", ttl_seconds=600
+    )
     token_id = token_info["token_id"]
 
     revoked = await vault_adapter.revoke_token(token_id)
