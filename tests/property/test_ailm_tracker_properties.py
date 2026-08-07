@@ -1,6 +1,7 @@
 """Property-based tests for AILMTracker using Hypothesis (Pillar 6 Task 10 / Properties 35-40)."""
 
 from datetime import UTC, datetime, timedelta, timezone
+import uuid
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -17,14 +18,14 @@ from blackwall.enterprise.advanced_threat_detection import (
 # Property rejection tests for PermissionGrant model constraints
 @given(
     empty_val=st.text().filter(lambda s: not s.strip()),
-    target_field=st.sampled_from(["permission", "granted_by", "granted_to", "scope"]),
+    target_field=st.sampled_from(["permission", "scope"]),
 )
 def test_property_permission_grant_empty_string_rejection(empty_val: str, target_field: str):
     """Property rejection: Any empty or whitespace-only string field MUST raise ValidationError."""
     kwargs = {
         "permission": "s3:GetObject",
-        "granted_by": "admin",
-        "granted_to": "agent-1",
+        "granted_by": uuid.uuid4(),
+        "granted_to": uuid.uuid4(),
         "timestamp": datetime.now(UTC),
         "scope": "user_space",
     }
@@ -49,36 +50,42 @@ def test_property_permission_grant_invalid_timestamp_rejection(non_utc_tz: timez
     with pytest.raises(ValidationError):
         PermissionGrant(
             permission="read",
-            granted_by="admin",
-            granted_to="agent-1",
+            granted_by=uuid.uuid4(),
+            granted_to=uuid.uuid4(),
             timestamp=dt,
             scope="user_space",
         )
 
 
-@given(invalid_id=st.sampled_from(["invalid-uuid-str", "12345", "not-a-uuid-v4", "g" * 36]))
-def test_property_permission_grant_invalid_grant_id_rejection(invalid_id: str):
-    """Property rejection: Malformed grant_id MUST raise ValidationError."""
+@given(
+    invalid_id=st.sampled_from(["invalid-uuid-str", "12345", "not-a-uuid-v4", "g" * 36]),
+    target_field=st.sampled_from(["grant_id", "granted_by", "granted_to"]),
+)
+def test_property_permission_grant_invalid_uuid_fields_rejection(invalid_id: str, target_field: str):
+    """Property rejection: Malformed grant_id, granted_by, or granted_to MUST raise ValidationError."""
+    kwargs = {
+        "grant_id": uuid.uuid4(),
+        "permission": "read",
+        "granted_by": uuid.uuid4(),
+        "granted_to": uuid.uuid4(),
+        "timestamp": datetime.now(UTC),
+        "scope": "user_space",
+    }
+    kwargs[target_field] = invalid_id
+
     with pytest.raises(ValidationError):
-        PermissionGrant(
-            grant_id=invalid_id,
-            permission="read",
-            granted_by="admin",
-            granted_to="agent-1",
-            timestamp=datetime.now(UTC),
-            scope="user_space",
-        )
+        PermissionGrant(**kwargs)
 
 
 @given(
     perm=st.text(min_size=1).filter(lambda s: bool(s.strip())),
-    grantor=st.text(min_size=1).filter(lambda s: bool(s.strip())),
-    grantee=st.text(min_size=1).filter(lambda s: bool(s.strip())),
+    grantor=st.uuids(version=4),
+    grantee=st.uuids(version=4),
     scope=st.text(min_size=1).filter(lambda s: bool(s.strip())),
 )
 @settings(max_examples=30)
-def test_property_permission_grant_valid_acceptance(perm: str, grantor: str, grantee: str, scope: str):
-    """Property acceptance: Valid non-empty strings and UTC datetime MUST pass PermissionGrant validation."""
+def test_property_permission_grant_valid_acceptance(perm: str, grantor: uuid.UUID, grantee: uuid.UUID, scope: str):
+    """Property acceptance: Valid non-empty strings, UUID v4 fields, and UTC datetime MUST pass PermissionGrant validation."""
     grant = PermissionGrant(
         permission=perm,
         granted_by=grantor,
@@ -97,12 +104,12 @@ def test_property_permission_grant_valid_acceptance(perm: str, grantor: str, gra
 @pytest.mark.asyncio
 @given(
     perm=st.sampled_from(["s3:GetObject", "db:Read", "sys:Execute", "k8s:GetSecrets"]),
-    grantor=st.sampled_from(["admin", "auth_svc", "iam_role", "system"]),
-    grantee=st.sampled_from(["agent-p35-1", "agent-p35-2", "agent-p35-3"]),
+    grantor=st.uuids(version=4),
+    grantee=st.uuids(version=4),
     scope=st.sampled_from(["user_space", "kernel_space", "internal_net", "sandbox"]),
 )
 @settings(max_examples=30)
-async def test_property_35_permission_grant_recording(perm: str, grantor: str, grantee: str, scope: str):
+async def test_property_35_permission_grant_recording(perm: str, grantor: uuid.UUID, grantee: uuid.UUID, scope: str):
     """Property 35: Permission grant SHALL be recorded with all required fields."""
     store = AttackGraphStore(in_memory=True)
     tracker = AILMTracker(store=store)
@@ -117,7 +124,7 @@ async def test_property_35_permission_grant_recording(perm: str, grantor: str, g
     )
     await tracker.track_permission_grant(grant)
 
-    grants = await tracker.get_permission_grants(grantee)
+    grants = await tracker.get_permission_grants(str(grantee))
     assert len(grants) >= 1
     recorded = grants[-1]
     assert recorded.permission == perm
@@ -130,21 +137,23 @@ async def test_property_35_permission_grant_recording(perm: str, grantor: str, g
 @pytest.mark.asyncio
 @given(
     num_grants=st.integers(min_value=1, max_value=5),
+    grantee=st.uuids(version=4),
+    grantor=st.uuids(version=4),
 )
 @settings(max_examples=30)
-async def test_property_36_permission_accumulation_detection(num_grants: int):
+async def test_property_36_permission_accumulation_detection(num_grants: int, grantee: uuid.UUID, grantor: uuid.UUID):
     """Property 36: Accumulated permissions over time SHALL be detected in composed_permissions."""
     store = AttackGraphStore(in_memory=True)
     tracker = AILMTracker(store=store)
     base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=UTC)
-    agent_id = "agent-p36"
+    agent_id = str(grantee)
 
     permissions = [f"perm_{i}" for i in range(num_grants)]
     for i, p in enumerate(permissions):
         g = PermissionGrant(
             permission=p,
-            granted_by="service_role",
-            granted_to=agent_id,
+            granted_by=grantor,
+            granted_to=grantee,
             timestamp=base_time + timedelta(seconds=i * 20),
             scope="user_space",
         )
@@ -164,26 +173,29 @@ async def test_property_36_permission_accumulation_detection(num_grants: int):
 @given(
     scope1=st.sampled_from(["user_space", "sandbox"]),
     scope2=st.sampled_from(["kernel_space", "external_net"]),
+    grantee=st.uuids(version=4),
+    grantor1=st.uuids(version=4),
+    grantor2=st.uuids(version=4),
 )
 @settings(max_examples=30)
-async def test_property_37_cross_boundary_permission_detection(scope1: str, scope2: str):
+async def test_property_37_cross_boundary_permission_detection(scope1: str, scope2: str, grantee: uuid.UUID, grantor1: uuid.UUID, grantor2: uuid.UUID):
     """Property 37: Permissions spanning multiple trust boundaries SHALL be identified in boundary_crossings."""
     store = AttackGraphStore(in_memory=True)
     tracker = AILMTracker(store=store)
     base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=UTC)
-    agent_id = "agent-p37"
+    agent_id = str(grantee)
 
     g1 = PermissionGrant(
         permission="read_data",
-        granted_by="auth",
-        granted_to=agent_id,
+        granted_by=grantor1,
+        granted_to=grantee,
         timestamp=base_time,
         scope=scope1,
     )
     g2 = PermissionGrant(
         permission="write_data",
-        granted_by="root",
-        granted_to=agent_id,
+        granted_by=grantor2,
+        granted_to=grantee,
         timestamp=base_time + timedelta(seconds=10),
         scope=scope2,
     )
@@ -233,21 +245,23 @@ def test_property_39_ailm_risk_level_computation(composed_perms: set[str], cross
 # Property 40: AILM Evidence Completeness
 @pytest.mark.asyncio
 @given(
-    agent_id=st.sampled_from(["agent-1", "agent-2"]),
+    grantee=st.uuids(version=4),
+    grantor=st.uuids(version=4),
     num_grants=st.integers(min_value=1, max_value=3),
 )
 @settings(max_examples=30)
-async def test_property_40_ailm_evidence_completeness(agent_id: str, num_grants: int):
+async def test_property_40_ailm_evidence_completeness(grantee: uuid.UUID, grantor: uuid.UUID, num_grants: int):
     """Property 40: AILMEvidence SHALL include non-null agent_id, composed_permissions, boundary_crossings, and risk_level."""
     tracker = AILMTracker()
     base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=UTC)
+    agent_id = str(grantee)
 
     scopes = ["user_space", "kernel_space", "sandbox"]
     for i in range(num_grants):
         g = PermissionGrant(
             permission=f"perm_{i}",
-            granted_by="admin",
-            granted_to=agent_id,
+            granted_by=grantor,
+            granted_to=grantee,
             timestamp=base_time + timedelta(seconds=i * 10),
             scope=scopes[i % len(scopes)],
         )

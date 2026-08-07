@@ -148,16 +148,16 @@ class PermissionGrant(BaseModel):
 
     grant_id: UUID4 = Field(default_factory=uuid4)
     permission: str
-    granted_by: str
-    granted_to: str
+    granted_by: UUID4
+    granted_to: UUID4
     timestamp: datetime
     scope: str
 
-    @field_validator("grant_id")
+    @field_validator("grant_id", "granted_by", "granted_to")
     @classmethod
-    def validate_grant_id_uuid_v4(cls, v: Any) -> UUID:
-        """Validate grant_id is a valid UUID v4."""
-        return validate_uuid_v4_format(v, field_name="grant_id")
+    def validate_uuid_v4_fields(cls, v: Any, info: Any) -> UUID:
+        """Validate grant_id, granted_by, and granted_to are valid UUID v4."""
+        return validate_uuid_v4_format(v, field_name=info.field_name)
 
     @field_validator("timestamp")
     @classmethod
@@ -165,7 +165,7 @@ class PermissionGrant(BaseModel):
         """Validate timestamp is timezone-aware and set to UTC."""
         return validate_utc_datetime(v)
 
-    @field_validator("permission", "granted_by", "granted_to", "scope")
+    @field_validator("permission", "scope")
     @classmethod
     def validate_non_empty_fields(cls, v: str, info: Any) -> str:
         """Validate string fields are not empty or whitespace only."""

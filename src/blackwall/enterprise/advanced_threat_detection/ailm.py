@@ -66,7 +66,7 @@ class AILMTracker:
         # Ensure timestamp is UTC validated
         grant.timestamp = validate_utc_datetime(grant.timestamp)
 
-        agent_id = grant.granted_to
+        agent_id = str(grant.granted_to)
         if agent_id not in self._grants_by_agent:
             self._grants_by_agent[agent_id] = deque(maxlen=self.max_grants_per_agent)
 
@@ -86,7 +86,8 @@ class AILMTracker:
         Returns:
             List of PermissionGrant instances matching filters.
         """
-        grants = self._grants_by_agent.get(agent_id, deque())
+        key = str(agent_id)
+        grants = self._grants_by_agent.get(key, deque())
         if not time_window:
             return list(grants)
 

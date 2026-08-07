@@ -1,6 +1,7 @@
 """BDD Step Definitions for AILM Tracker (`tests/features/ailm_tracker.feature`)."""
 
 from datetime import UTC, datetime, timedelta
+import uuid
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
@@ -12,6 +13,24 @@ from blackwall.enterprise.advanced_threat_detection import (
 from tests.step_defs.async_utils import run_async
 
 scenarios("../features/ailm_tracker.feature")
+
+# Deterministic UUID v4 mapping for BDD entity strings
+AGENT_UUIDS = {
+    "agent-bdd-1": str(uuid.UUID("11111111-1111-4111-8111-111111111111")),
+    "agent-bdd-2": str(uuid.UUID("22222222-2222-4222-8222-222222222222")),
+    "agent-bdd-3": str(uuid.UUID("33333333-3333-4333-8333-333333333333")),
+    "agent-bdd-4": str(uuid.UUID("44444444-4444-4444-8444-444444444444")),
+    "admin-user": str(uuid.UUID("99999999-9999-4999-8999-999999999999")),
+    "auth_svc": str(uuid.UUID("88888888-8888-4888-8888-888888888888")),
+    "admin_svc": str(uuid.UUID("77777777-7777-4777-8777-777777777777")),
+    "auth": str(uuid.UUID("66666666-6666-4666-8666-666666666666")),
+    "root": str(uuid.UUID("55555555-5555-4555-8555-555555555555")),
+    "admin": str(uuid.UUID("44444444-4444-4444-8444-444444444444")),
+}
+
+
+def get_uuid_str(name: str) -> str:
+    return AGENT_UUIDS.get(name, str(uuid.uuid4()))
 
 
 class AILMBDDState:
@@ -31,8 +50,8 @@ def ailm_state():
 def given_grant(ailm_state):
     ailm_state.grant = PermissionGrant(
         permission="s3:GetObject",
-        granted_by="admin-user",
-        granted_to="agent-bdd-1",
+        granted_by=get_uuid_str("admin-user"),
+        granted_to=get_uuid_str("agent-bdd-1"),
         timestamp=ailm_state.base_time,
         scope="user_space",
     )
@@ -45,12 +64,13 @@ def when_record_grant(ailm_state):
 
 @then('the recorded grant should contain permission "s3:GetObject", granted_by "admin-user", granted_to "agent-bdd-1", and scope "user_space"')
 def then_verify_recorded_grant(ailm_state):
-    grants = run_async(ailm_state.tracker.get_permission_grants("agent-bdd-1"))
+    agent_id = get_uuid_str("agent-bdd-1")
+    grants = run_async(ailm_state.tracker.get_permission_grants(agent_id))
     assert len(grants) == 1
     g = grants[0]
     assert g.permission == "s3:GetObject"
-    assert g.granted_by == "admin-user"
-    assert g.granted_to == "agent-bdd-1"
+    assert str(g.granted_by) == get_uuid_str("admin-user")
+    assert str(g.granted_to) == agent_id
     assert g.scope == "user_space"
 
 
@@ -58,8 +78,8 @@ def then_verify_recorded_grant(ailm_state):
 def given_grant_1(ailm_state):
     g1 = PermissionGrant(
         permission="read_db",
-        granted_by="auth_svc",
-        granted_to="agent-bdd-2",
+        granted_by=get_uuid_str("auth_svc"),
+        granted_to=get_uuid_str("agent-bdd-2"),
         timestamp=ailm_state.base_time - timedelta(seconds=200),
         scope="user_space",
     )
@@ -70,8 +90,8 @@ def given_grant_1(ailm_state):
 def given_grant_2(ailm_state):
     g2 = PermissionGrant(
         permission="write_db",
-        granted_by="admin_svc",
-        granted_to="agent-bdd-2",
+        granted_by=get_uuid_str("admin_svc"),
+        granted_to=get_uuid_str("agent-bdd-2"),
         timestamp=ailm_state.base_time - timedelta(seconds=50),
         scope="user_space",
     )
@@ -85,7 +105,7 @@ def when_detect_composition_agent2(ailm_state):
         ailm_state.base_time + timedelta(seconds=10),
     )
     ailm_state.evidences = run_async(
-        ailm_state.tracker.detect_permission_composition("agent-bdd-2", time_win)
+        ailm_state.tracker.detect_permission_composition(get_uuid_str("agent-bdd-2"), time_win)
     )
 
 
@@ -101,8 +121,8 @@ def then_verify_composed_perms(ailm_state):
 def given_grant_scope_1(ailm_state):
     g1 = PermissionGrant(
         permission="read_user_data",
-        granted_by="auth",
-        granted_to="agent-bdd-3",
+        granted_by=get_uuid_str("auth"),
+        granted_to=get_uuid_str("agent-bdd-3"),
         timestamp=ailm_state.base_time - timedelta(seconds=100),
         scope="user_space",
     )
@@ -113,8 +133,8 @@ def given_grant_scope_1(ailm_state):
 def given_grant_scope_2(ailm_state):
     g2 = PermissionGrant(
         permission="kernel_exec",
-        granted_by="root",
-        granted_to="agent-bdd-3",
+        granted_by=get_uuid_str("root"),
+        granted_to=get_uuid_str("agent-bdd-3"),
         timestamp=ailm_state.base_time - timedelta(seconds=50),
         scope="kernel_space",
     )
@@ -128,7 +148,7 @@ def when_detect_composition_agent3(ailm_state):
         ailm_state.base_time + timedelta(seconds=10),
     )
     ailm_state.evidences = run_async(
-        ailm_state.tracker.detect_permission_composition("agent-bdd-3", time_win)
+        ailm_state.tracker.detect_permission_composition(get_uuid_str("agent-bdd-3"), time_win)
     )
 
 
@@ -143,11 +163,13 @@ def then_verify_boundary_crossings(ailm_state):
 @given('an agent "agent-bdd-4" with grants crossing 3 security boundaries')
 def given_grants_3_crossings(ailm_state):
     scopes = ["user_space", "internal_api", "kernel_space", "external_net"]
+    agent_id = get_uuid_str("agent-bdd-4")
+    admin_id = get_uuid_str("admin")
     for i, sc in enumerate(scopes):
         g = PermissionGrant(
             permission=f"perm_{i}",
-            granted_by="admin",
-            granted_to="agent-bdd-4",
+            granted_by=admin_id,
+            granted_to=agent_id,
             timestamp=ailm_state.base_time - timedelta(seconds=200 - i * 50),
             scope=sc,
         )
@@ -161,7 +183,7 @@ def when_detect_composition_agent4(ailm_state):
         ailm_state.base_time + timedelta(seconds=10),
     )
     ailm_state.evidences = run_async(
-        ailm_state.tracker.detect_permission_composition("agent-bdd-4", time_win)
+        ailm_state.tracker.detect_permission_composition(get_uuid_str("agent-bdd-4"), time_win)
     )
 
 
