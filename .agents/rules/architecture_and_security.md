@@ -54,5 +54,11 @@
 * **Rule:** Unit test assertions checking pattern containment or string matches MUST NOT use arbitrary substring `in` checks on un-sanitized URL/string targets (e.g. `any("192.168.1.50" in p for p in patterns)`). Assertions MUST use explicit string equality (`pattern == "ip:192.168.1.50"`) or exact set containment (`"ip:192.168.1.50" in patterns`) to prevent CodeQL security alerts regarding un-sanitized substring matching.
 * **Rationale:** Direct set or list membership assertions eliminate false positives and ensure strict, deterministic verification of security evidence outputs.
 
+## 13. Pydantic Model Finiteness Validation & Defensive Runtime Guards
+* **Rule (Finiteness Validation):** Numerical Pydantic fields in configuration or evidence models (`src/blackwall/policy/models.py`, `src/blackwall/enterprise/advanced_threat_detection/models.py`) with range or positivity constraints (e.g. `gt=0.0`) MUST enforce finiteness via `@field_validator` (asserting `math.isfinite(v)`). Non-finite float values (`float('inf')`, `float('-inf')`, `float('nan')`) MUST raise a `ValueError` during schema parsing rather than failing late in runtime execution engines.
+* **Rule (Defensive Unpacking & Non-Finite Guards):** Public threat detection methods processing runtime union parameters or sequence tuples (e.g. `compute_novelty_score`) MUST defensively check tuple bounds and element types before indexing (e.g. `isinstance(item, tuple)` and `len(item) >= 2`). Methods aggregating risk/threat scores MUST filter non-finite values (`math.isnan` / `math.isinf`) and guard raw confidence outputs to prevent `NaN` values from skewing threat thresholds.
+* **Rationale:** Pydantic's native `gt=0.0` constraint permits `float('inf')`. Validating finiteness at the schema boundary and defensive runtime guards prevent silent component failures and threshold exploitation.
+
+
 
 
