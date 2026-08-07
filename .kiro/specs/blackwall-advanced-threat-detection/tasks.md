@@ -224,7 +224,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 4.5, 15.9_
     - _Verification: `pytest tests/unit/test_agent_swarm_detector.py::test_coordination_score -v`_
 
-  - [ ]* 7.5 Write property tests for swarm detection
+  - [ ] 7.5 Write property tests for swarm detection
     - **Property 21: Behavioral Fingerprint Generation**
     - **Property 22: Swarm Correlation Threshold Enforcement**
     - **Property 23: Swarm Minimum Size Enforcement**
@@ -273,7 +273,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 5.6_
     - _Verification: `pytest tests/unit/test_exploit_chain_analyzer.py::test_chaining_confidence -v`_
 
-  - [ ]* 8.5 Write property tests for exploit chain analysis
+  - [ ] 8.5 Write property tests for exploit chain analysis
     - **Property 29: Exploit Event Classification**
     - **Property 30: Exploit Chain Pattern Detection**
     - **Property 31: Novelty Score Baseline Comparison**
@@ -323,7 +323,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 6.5, 6.6_
     - _Verification: `pytest tests/unit/test_ailm_tracker.py::test_risk_level -v`_
 
-  - [ ]* 10.5 Write property tests for AILM tracking
+  - [ ] 10.5 Write property tests for AILM tracking
     - **Property 35: Permission Grant Recording**
     - **Property 36: Permission Accumulation Detection**
     - **Property 37: Cross-Boundary Permission Detection**
@@ -371,7 +371,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 7.5, 7.6_
     - _Verification: `pytest tests/unit/test_c2_detector.py::test_persistence_indicators -v`_
 
-  - [ ]* 11.5 Write property tests for C2 detection
+  - [ ] 11.5 Write property tests for C2 detection
     - **Property 41: C2 Endpoint Detection**
     - **Property 42: Beaconing Pattern Detection**
     - **Property 43: C2 Communication Pattern Classification**
@@ -417,7 +417,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 8.6_
     - _Verification: `pytest tests/unit/test_k8s_defense.py::test_self_respawn -v`_
 
-  - [ ]* 12.5 Write property tests for Kubernetes defense
+  - [ ] 12.5 Write property tests for Kubernetes defense
     - **Property 46: Pod Token Theft Detection**
     - **Property 47: Fleet Spawning Detection**
     - **Property 48: Secrets Exfiltration Detection**
@@ -459,7 +459,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 9.6_
     - _Verification: `pytest tests/unit/test_registry_monitor.py::test_cve_correlation -v`_
 
-  - [ ]* 13.4 Write property tests for registry monitoring
+  - [ ] 13.4 Write property tests for registry monitoring
     - **Property 52: Malformed Registry Request Detection**
     - **Property 53: Unusual Registry Pattern Detection**
     - **Property 54: Registry Threat Evidence Type**
@@ -510,7 +510,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 10.3, 10.4, 10.5, 10.6, 10.7_
     - _Verification: `pytest tests/unit/test_alert_generation.py::test_all_alert_types -v`_
 
-  - [ ]* 15.5 Write property tests for alert generation
+  - [ ] 15.5 Write property tests for alert generation
     - **Property 57: Swarm Detection Alert Generation**
     - **Property 58: AILM Alert Severity Mapping**
     - **Property 59: Exploit Chain Alert Severity Mapping**
@@ -593,7 +593,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 13.5_
     - _Verification: `pytest tests/unit/test_graph_export.py::test_export_formats -v`_
 
-  - [ ]* 17.5 Write property tests for retrospective analysis
+  - [ ] 17.5 Write property tests for retrospective analysis
     - **Property 65: Historical Time Window Support**
     - **Property 66: Retrospective Path Detection**
     - **Property 67: Multi-Agent Historical Correlation**
@@ -630,7 +630,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 14.4_
     - _Verification: `pytest tests/unit/test_evaluation_mode.py::test_state_reset -v`_
 
-  - [ ]* 18.4 Write property tests for evaluation mode
+  - [ ] 18.4 Write property tests for evaluation mode
     - **Property 69: Evaluation Mode Event Labeling**
     - **Property 70: Evaluation Mode Alert Isolation**
     - **Property 71: Evaluation Environment Graph Isolation**
@@ -837,7 +837,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 16.3, 16.6, 16.7, 16.16, 17.6, 17.7, 17.8, 20.2, 20.8, 20.10, 20.11_
     - _Verification: `pytest tests/evals/test_atd_weave_evaluations.py -v -m weave`_
 
-  - [ ]* 22.10 Write property tests for Weave integration
+  - [ ] 22.10 Write property tests for Weave integration
     - **Property 82: Weave Initialization Fallback**
     - **Property 83: Weave Offline Mode Compliance**
     - **Property 84: Weave Metric Precision Calculation**
