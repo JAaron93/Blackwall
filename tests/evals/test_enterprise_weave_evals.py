@@ -43,7 +43,9 @@ if not is_paid_tier:
 else:
     os.environ["WEAVE_PARALLELISM"] = "10"
 
-import weave
+import pytest
+
+weave = pytest.importorskip("weave")
 
 
 # ============================================================================
