@@ -6,35 +6,36 @@ This task document breaks down the implementation of attacker attribution into m
 
 ## Task Matrix & Traceability
 
-| Task ID | Component | Requirements Covered | Dependencies | Execution Mode |
-| :--- | :--- | :--- | :--- | :--- |
-| **TASK-1.1** | Pydantic Models & Fingerprinting | FR-1, FR-2, FR-4 | None | Sequential |
-| **TASK-1.2** | Pydantic Models BDD Scenarios | FR-1, FR-2, FR-4 | TASK-1.1 | Sequential |
-| **TASK-2A.1**| Identity Extractor | FR-1, FR-2, NFR-2 | TASK-1.2 | Parallel Track A |
-| **TASK-2A.2**| Identity Extractor BDD Scenarios | FR-1, FR-2, NFR-2 | TASK-2A.1 | Parallel Track A |
-| **TASK-2B.1**| Incident Report Builder | FR-4, FR-6 | TASK-1.2 | Parallel Track B |
-| **TASK-2B.2**| Incident Report Builder BDD Scenarios | FR-4, FR-6 | TASK-2B.1 | Parallel Track B |
-| **TASK-3.1** | SQLite Attacker Profile DB | FR-3, NFR-1 | TASK-1.2 | Sequential |
-| **TASK-3.2** | Attacker Profile DB BDD Scenarios | FR-3, NFR-1 | TASK-3.1 | Sequential |
-| **TASK-4.1** | Resolver & ADK Integration | FR-5, NFR-1, US-1 | TASK-2A.2, TASK-2B.2, TASK-3.2 | Sequential |
-| **TASK-4.2** | End-to-End Interception BDD Scenarios| FR-5, US-1, US-2 | TASK-4.1 | Sequential |
-| **TASK-5**   | Full System Verification | US-1, US-2, BDD Scenarios | TASK-4.2 | Sequential |
+| Task ID | Component | Requirements Covered | Dependencies | Execution Mode | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **TASK-1.1** | Pydantic Models & Fingerprinting | FR-1, FR-2, FR-4 | None | Sequential | **[x] COMPLETE** |
+| **TASK-1.2** | Pydantic Models BDD Scenarios | FR-1, FR-2, FR-4 | TASK-1.1 | Sequential | **[x] COMPLETE** |
+| **TASK-2A.1**| Identity Extractor | FR-1, FR-2, NFR-2 | TASK-1.2 | Parallel Track A | Pending |
+| **TASK-2A.2**| Identity Extractor BDD Scenarios | FR-1, FR-2, NFR-2 | TASK-2A.1 | Parallel Track A | Pending |
+| **TASK-2B.1**| Incident Report Builder | FR-4, FR-6 | TASK-1.2 | Parallel Track B | Pending |
+| **TASK-2B.2**| Incident Report Builder BDD Scenarios | FR-4, FR-6 | TASK-2B.1 | Parallel Track B | Pending |
+| **TASK-3.1** | SQLite Attacker Profile DB | FR-3, NFR-1 | TASK-1.2 | Sequential | Pending |
+| **TASK-3.2** | Attacker Profile DB BDD Scenarios | FR-3, NFR-1 | TASK-3.1 | Sequential | Pending |
+| **TASK-4.1** | Resolver & ADK Integration | FR-5, NFR-1, US-1 | TASK-2A.2, TASK-2B.2, TASK-3.2 | Sequential | Pending |
+| **TASK-4.2** | End-to-End Interception BDD Scenarios| FR-5, US-1, US-2 | TASK-4.1 | Sequential | Pending |
+| **TASK-5**   | Full System Verification | US-1, US-2, BDD Scenarios | TASK-4.2 | Sequential | Pending |
 
 ---
 
 ## Track 1: Foundation Data Models & Validation
 
-### TASK-1.1: Implement Attribution Pydantic Models & Fingerprinting (TDD)
+### - [x] TASK-1.1: Implement Attribution Pydantic Models & Fingerprinting (TDD)
 - **Description**: Add `AttackerIdentity`, `AttackerProfile`, and `IncidentReport` models to `src/blackwall/models.py`. Implement identity SHA-256 fingerprinting logic.
 - **Dependencies**: None.
 - **Traceability**: FR-1, FR-2, FR-4.
 - **TDD Requirement**: Write unit tests in `tests/test_attribution_models.py` verifying fingerprint determinism and model validation before writing model code.
 
-### TASK-1.2: Implement Data Model BDD Gherkin Scenarios
+### - [x] TASK-1.2: Implement Data Model BDD Gherkin Scenarios
 - **Description**: Add Gherkin BDD feature scenarios to `tests/features/attacker_attribution.feature` and step definitions in `tests/step_defs/test_attacker_attribution_steps.py` for model validation, UTC timestamp enforcement, score bounds, and format serialization.
 - **Dependencies**: TASK-1.1.
 - **Traceability**: FR-1, FR-2, FR-4, BDD Scenarios.
 - **BDD Requirement**: Verify scenarios pass with `pytest tests/step_defs/test_attacker_attribution_steps.py`.
+
 
 ---
 
