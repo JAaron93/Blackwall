@@ -317,10 +317,10 @@ class EvictionManager:
 
         candidate_ids = [r[0] for r in rows]
 
-        # Batch-delete using atomic DELETE with subquery to re-check
-        # match_count threshold at deletion time, protecting against
-        # concurrent updates that may have promoted candidates to high-value.
-        # SQLite supports up to 999 host parameters; chunk to be safe.
+        # Batch-delete re-checking match_count threshold at deletion time,
+        # protecting against concurrent updates that may have promoted
+        # candidates to high-value. Chunk to limit batch size and
+        # transaction duration during executemany deletion.
         deleted_total = 0
         chunk_size = 900
         for i in range(0, len(candidate_ids), chunk_size):
