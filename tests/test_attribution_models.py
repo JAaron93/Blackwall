@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 import pytest
@@ -54,6 +54,30 @@ def test_attacker_identity_diff_attributes_diff_fingerprint():
     assert identity1.identity_fingerprint != identity2.identity_fingerprint
 
 
+def test_attacker_identity_mismatched_fingerprint_raises_error():
+    with pytest.raises(ValidationError):
+        AttackerIdentity(
+            agent_id="agent-001",
+            thread_id="th-1234",
+            primary_source=IdentitySource.ADK_METADATA,
+            identity_fingerprint="b" * 64,  # Mismatched caller-supplied fingerprint
+        )
+
+
+def test_attacker_identity_process_uid_zero_vs_none():
+    identity_uid0 = AttackerIdentity(
+        agent_id="agent-root",
+        process_uid=0,
+        primary_source=IdentitySource.SYSTEM_PROCESS,
+    )
+    identity_uid_none = AttackerIdentity(
+        agent_id="agent-root",
+        process_uid=None,
+        primary_source=IdentitySource.SYSTEM_PROCESS,
+    )
+    assert identity_uid0.identity_fingerprint != identity_uid_none.identity_fingerprint
+
+
 def test_attacker_profile_validation():
     now = datetime.now(timezone.utc)
     profile = AttackerProfile(
@@ -82,6 +106,23 @@ def test_attacker_profile_validation():
             fingerprint="a" * 64,
             first_seen=datetime.now(),  # naive
         )
+
+    # Non-UTC timezone offset validation
+    est = timezone(timedelta(hours=-5))
+    with pytest.raises(ValidationError):
+        AttackerProfile(
+            fingerprint="a" * 64,
+            first_seen=datetime.now(est),
+        )
+
+    # Temporal sequence ordering (last_seen < first_seen)
+    with pytest.raises(ValidationError):
+        AttackerProfile(
+            fingerprint="a" * 64,
+            first_seen=now,
+            last_seen=now - timedelta(seconds=10),
+        )
+
 
 
 def test_incident_report_generation_and_serialization():

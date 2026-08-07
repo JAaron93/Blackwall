@@ -169,7 +169,11 @@ class SyncResolverMetrics(BaseModel):
     allow_count: int = 0
 
 
-from blackwall.validators import validate_semver_format
+from blackwall.validators import (
+    validate_semver_format,
+    validate_temporal_sequence,
+    validate_utc_datetime,
+)
 
 
 class PolicyServerState(BaseModel):
@@ -199,15 +203,7 @@ class SecurityEvent(BaseModel):
     @field_validator("timestamp")
     @classmethod
     def validate_timestamp(cls, v: datetime) -> datetime:
-        if v.tzinfo is None:
-            raise ValueError("Timestamp must be timezone-aware")
-        now = datetime.now(timezone.utc)
-        diff = abs((now - v).total_seconds())
-        if diff > 5.0:
-            raise ValueError(
-                f"Timestamp must be within 5 seconds of current time, got diff {diff}s"
-            )
-        return v
+        return validate_utc_datetime(v)
 
     @model_validator(mode="after")
     def validate_verdict_presence(self) -> "SecurityEvent":
@@ -250,9 +246,14 @@ class AttackerIdentity(BaseModel):
 
     @model_validator(mode="after")
     def compute_fingerprint(self) -> "AttackerIdentity":
-        if not self.identity_fingerprint:
-            raw = f"{self.agent_id or ''}:{self.agent_name or ''}:{self.thread_id or ''}:{self.process_uid or ''}:{self.source_ip or ''}:{self.primary_source.value}"
-            self.identity_fingerprint = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        uid_str = "" if self.process_uid is None else str(self.process_uid)
+        raw = f"{self.agent_id or ''}:{self.agent_name or ''}:{self.thread_id or ''}:{uid_str}:{self.source_ip or ''}:{self.primary_source.value}"
+        computed = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+        if self.identity_fingerprint and self.identity_fingerprint != computed:
+            raise ValueError("Provided identity_fingerprint does not match computed identity fingerprint")
+
+        self.identity_fingerprint = computed
         return self
 
 
@@ -269,9 +270,17 @@ class AttackerProfile(BaseModel):
     @field_validator("first_seen", "last_seen")
     @classmethod
     def validate_utc_timestamp(cls, v: datetime) -> datetime:
-        if v.tzinfo is None:
-            raise ValueError("Timestamp must be timezone-aware")
-        return v
+        return validate_utc_datetime(v)
+
+    @model_validator(mode="after")
+    def validate_temporal_ordering(self) -> "AttackerProfile":
+        validate_temporal_sequence(
+            self.first_seen,
+            self.last_seen,
+            start_name="first_seen",
+            end_name="last_seen",
+        )
+        return self
 
 
 class IncidentReport(BaseModel):
@@ -291,9 +300,7 @@ class IncidentReport(BaseModel):
     @field_validator("timestamp")
     @classmethod
     def validate_utc_timestamp(cls, v: datetime) -> datetime:
-        if v.tzinfo is None:
-            raise ValueError("Timestamp must be timezone-aware")
-        return v
+        return validate_utc_datetime(v)
 
     def to_json(self) -> str:
         return self.model_dump_json(indent=2)
@@ -311,4 +318,5 @@ class IncidentReport(BaseModel):
 - **Recommended Action**: {self.recommended_user_action}
 - **Attribution Confidence**: {self.attribution_confidence * 100:.1f}%
 """
+
 
