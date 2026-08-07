@@ -317,22 +317,22 @@ class EvictionManager:
 
         candidate_ids = [r[0] for r in rows]
 
-        # Batch-delete using atomic DELETE with subquery to re-check
-        # match_count threshold at deletion time, protecting against
-        # concurrent updates that may have promoted candidates to high-value.
-        # SQLite supports up to 999 host parameters; chunk to be safe.
+        # Batch-delete re-checking match_count threshold at deletion time,
+        # protecting against concurrent updates that may have promoted
+        # candidates to high-value. Chunk to stay within SQLite's 999 host parameter limit.
         deleted_total = 0
         chunk_size = 900
         for i in range(0, len(candidate_ids), chunk_size):
             chunk = candidate_ids[i : i + chunk_size]
-            placeholders = ",".join("?" * len(chunk))
+            placeholders = ",".join(["?"] * len(chunk))
+            query = (
+                "DELETE FROM signatures "
+                "WHERE signature_id IN (" + placeholders + ") "  # nosec B608 - static '?' markers only
+                "AND match_count <= ?"
+            )
             async with self.pool.connection() as conn:
                 cursor = await conn.execute(
-                    f"""
-                    DELETE FROM signatures
-                    WHERE signature_id IN ({placeholders})
-                      AND match_count <= ?
-                    """,
+                    query,
                     chunk + [self.high_value_threshold],
                 )
                 deleted_total += cursor.rowcount if cursor.rowcount is not None else 0
