@@ -77,8 +77,9 @@ report = await manager.triage_log_event({"command": "reverse_shell /bin/bash -i"
 
 # Track 6: Advanced Threat Detection & Zero-Day Exploit Chains (Pillar 6)
 from datetime import datetime, timezone, timedelta
+from uuid import uuid4
 from blackwall.enterprise.advanced_threat_detection import (
-    EventStreamCollector, NormalizedEvent, EventSource, AttackGraphStore, PathCorrelator, AgentSwarmDetector, ExploitChainAnalyzer
+    EventStreamCollector, NormalizedEvent, EventSource, AttackGraphStore, PathCorrelator, AgentSwarmDetector, ExploitChainAnalyzer, AILMTracker, PermissionGrant
 )
 
 collector = EventStreamCollector()
@@ -122,7 +123,21 @@ exploit_chains = await exploit_analyzer.detect_chains(
     agent_id="agent-007",
     time_window=(now - timedelta(minutes=1), now + timedelta(minutes=10)),
 )
-# Detects multi-step zero-day exploit sequences, computes novelty scores against baseline, and assesses chaining confidence
+
+ailm_tracker = AILMTracker(store=store)
+grant = PermissionGrant(
+    permission="kernel_exec",
+    granted_by=uuid4(),
+    granted_to=uuid4(),
+    timestamp=now,
+    scope="kernel_space",
+)
+await ailm_tracker.track_permission_grant(grant)
+ailm_evidences = await ailm_tracker.detect_permission_composition(
+    agent_id=str(grant.granted_to),
+    time_window=(now - timedelta(minutes=1), now + timedelta(minutes=10)),
+)
+# Detects multi-step zero-day exploit sequences, AI-Induced Lateral Movement across trust boundaries, and computes risk levels
 
 ```
 
