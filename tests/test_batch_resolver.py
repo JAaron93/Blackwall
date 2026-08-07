@@ -122,6 +122,25 @@ async def test_context_hygiene_sanitization():
     assert sanitized3.arguments["nested"]["emails"] == ["[[EMAIL]]", "[[EMAIL]]"]
 
 
+def test_context_hygiene_compiled_patterns_python311_safety():
+    """Verify ContextHygiene precompiled pattern initialization and class-scope safety."""
+    assert hasattr(ContextHygiene, "_COMPILED_DEFAULT_PATTERNS")
+    compiled = ContextHygiene._COMPILED_DEFAULT_PATTERNS
+    assert len(compiled) == len(ContextHygiene.DEFAULT_PATTERNS)
+    
+    for (name, pat, placeholder), (c_name, c_regex, c_placeholder) in zip(
+        ContextHygiene.DEFAULT_PATTERNS, compiled
+    ):
+        assert name == c_name
+        assert placeholder == c_placeholder
+        assert c_regex.pattern == pat
+
+    hygiene = ContextHygiene()
+    assert hygiene.patterns is ContextHygiene._COMPILED_DEFAULT_PATTERNS
+    assert hygiene.sanitize_string("api_key=12345678901234567890") == "api_key=[[API_KEY]]"
+    assert hygiene.sanitize_string("pwd: mysecretpassword") == "pwd: [[PASSWORD]]"
+
+
 def test_token_bucket_limiter():
     # Capacity 5, refill rate 1 per second
     limiter = TokenBucketRateLimiter(capacity=5.0, refill_rate=1.0)
