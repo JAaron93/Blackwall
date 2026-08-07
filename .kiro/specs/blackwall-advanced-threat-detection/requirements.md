@@ -21,6 +21,8 @@ The system operates as a cross-cutting analysis plane above the existing five Bl
 - **Zero_Day_Pattern**: Previously unseen exploit chain pattern indicating potential zero-day vulnerability chaining
 - **Kubernetes_Defense**: Kubernetes-specific threat detection for pod token theft, fleet spawning, and secrets exfiltration
 - **Registry_Monitor**: Package registry proxy monitor for detecting zero-day exploitation patterns
+- **Weave_Trace_Serializer**: Component responsible for sanitizing all data before export to Weave, enforcing field exclusions, metadata masking, and payload size limits
+- **Weave_Traced_Detectors**: Weave-instrumented wrappers around detection components constructed only when @pytest.mark.weave is present and should_enable_weave() returns True
 
 ## Requirements
 
@@ -230,3 +232,112 @@ The system operates as a cross-cutting analysis plane above the existing five Bl
 7. WHEN creating Swarm_Evidence, THE Advanced_Threat_Detection SHALL validate that agent_ids contains at least 2 agents
 8. WHEN creating Swarm_Evidence, THE Advanced_Threat_Detection SHALL validate that temporal_correlation is in range [0.0, 1.0]
 9. WHEN creating Swarm_Evidence, THE Advanced_Threat_Detection SHALL validate that coordination_score is in range [0.0, 1.0]
+
+
+### Requirement 16: Weave Evaluation Tracking Integration
+
+**User Story:** As a security researcher, I want to track evaluation runs with Weights & Biases Weave, so that I can analyze detection performance metrics, compare evaluation runs, and visualize multi-stage attack correlation flows.
+
+#### Acceptance Criteria
+
+1. WHEN Weave credentials are available, THE Advanced_Threat_Detection SHALL initialize Weave with the configured project name and entity
+2. WHEN Weave initialization fails or credentials are unavailable, THE Advanced_Threat_Detection SHALL continue operation in fallback mode without Weave tracking
+3. WHEN an evaluation scenario executes, THE Weave_Evaluation_Harness SHALL create a Weave run with scenario name, timestamp, and tags
+4. WHEN evaluation events are processed AND @pytest.mark.weave is present AND should_enable_weave() returns True, THE Weave_Traced_Detectors SHALL construct traced wrappers and log operation traces with @weave.op() decorators
+5. WHEN detection operations complete, THE Weave_Traced_Detectors SHALL log input parameters, execution time, and output results to Weave
+6. WHEN threat detections are made, THE Weave_Metrics_Collector SHALL compute precision, recall, F1 score, and false positive rate
+7. WHEN detection latency is measured, THE Weave_Metrics_Collector SHALL log latency in milliseconds per detection type
+8. WHEN evaluation scenarios complete, THE Weave_Evaluation_Harness SHALL export aggregated metrics to Weave for visualization
+9. WHEN attack paths are correlated, THE Weave_Traced_Path_Correlator SHALL trace the complete correlation flow including temporal adjacency graph construction and DFS path finding
+10. WHEN agent swarms are detected, THE Weave_Traced_Swarm_Detector SHALL trace fingerprinting, temporal correlation analysis, and coordination score computation
+11. WHEN AILM events are detected, THE Weave_Traced_AILM_Tracker SHALL trace permission tracking, composition detection, and boundary crossing identification
+12. WHEN evaluation scenarios are loaded, THE Weave_Evaluation_Harness SHALL create Weave Datasets from YAML scenario files
+13. WHEN offline mode is configured, THE Weave_Evaluation_Harness SHALL operate without cloud synchronization and store traces locally
+14. WHEN WEAVE_DISABLED environment variable is set to "true", THE Advanced_Threat_Detection SHALL skip all Weave initialization and tracing
+15. WHEN existing pytest tests run without Weave markers, THE Advanced_Threat_Detection SHALL execute tests normally without Weave overhead
+16. WHEN @pytest.mark.weave is absent, THE Advanced_Threat_Detection SHALL not construct any Weave traced wrappers for that test regardless of should_enable_weave() state
+17. WHEN exporting data to Weave, THE Weave_Trace_Serializer SHALL strip NormalizedEvent.action, NormalizedEvent.target, and NormalizedEvent.metadata from all exported payloads
+18. WHEN exporting data to Weave, THE Weave_Trace_Serializer SHALL mask all sensitive metadata keys (e.g. credentials, tokens, secrets) by replacing their values with "**REDACTED**"
+19. WHEN a Weave export payload exceeds 4096 bytes, THE Weave_Trace_Serializer SHALL truncate the payload to 4096 bytes before export
+20. WHEN any data is transmitted to Weave, THE Advanced_Threat_Detection SHALL route it through Weave_Trace_Serializer before transmission
+
+### Requirement 17: Weave Metrics and Observability
+
+**User Story:** As a detection engineer, I want to monitor detection performance metrics in real-time through Weave, so that I can identify performance regressions and optimize detection algorithms.
+
+#### Acceptance Criteria
+
+1. WHEN computing detection metrics, THE Weave_Metrics_Collector SHALL accept all four confusion-matrix counts (TP, FP, FN, TN) as explicit inputs to track_detection_metrics()
+2. WHEN computing precision, THE Weave_Metrics_Collector SHALL compute TP / (TP + FP) and log the result to Weave
+3. WHEN computing recall, THE Weave_Metrics_Collector SHALL compute TP / (TP + FN) and log the result to Weave
+4. WHEN computing F1 score, THE Weave_Metrics_Collector SHALL compute 2 * (precision * recall) / (precision + recall) and log the result to Weave
+5. WHEN computing false positive rate, THE Weave_Metrics_Collector SHALL compute FPR = FP / (FP + TN) using the caller-supplied TN count and log the result to Weave
+6. WHEN path correlation completes, THE Weave_Metrics_Collector SHALL compute path_correlation_accuracy and log to Weave
+7. WHEN swarm detection completes, THE Weave_Metrics_Collector SHALL compute swarm_detection_accuracy and log to Weave
+8. WHEN AILM detection completes, THE Weave_Metrics_Collector SHALL compute ailm_detection_accuracy and boundary_crossing_accuracy and log to Weave
+9. WHEN exploit chains are detected, THE Weave_Metrics_Collector SHALL compute exploit_chain_accuracy and novelty_score_accuracy and log to Weave
+10. WHEN metrics are aggregated, THE Weave_Metrics_Collector SHALL include timestamp, detection_type, and all computed metrics in the export
+
+### Requirement 18: Weave Configuration and Environment Management
+
+**User Story:** As a DevOps engineer, I want to configure Weave integration through environment variables and configuration files, so that I can adapt the evaluation infrastructure to different deployment environments.
+
+#### Acceptance Criteria
+
+1. WHEN WANDB_API_KEY environment variable is set, THE Weave_Evaluation_Harness SHALL use it for cloud authentication
+2. WHEN WEAVE_PROJECT_NAME environment variable is set, THE Weave_Evaluation_Harness SHALL use it as the project name
+3. WHEN WEAVE_ENTITY environment variable is set, THE Weave_Evaluation_Harness SHALL use it as the entity name
+4. WHEN WEAVE_OFFLINE environment variable is "true", THE Weave_Evaluation_Harness SHALL activate local trace storage without requiring cloud credentials, and this activation SHALL take precedence over WANDB_API_KEY in the Weave enablement check
+5. WHEN WEAVE_PARALLELISM environment variable is set, THE Weave_Evaluation_Harness SHALL use it as the parallel worker count
+6. WHEN WEAVE_DISABLED environment variable is "true", THE Weave_Evaluation_Harness SHALL skip all Weave operations
+7. WHEN weave_config.yaml exists in .kiro/evals/, THE Weave_Evaluation_Harness SHALL load configuration from the file
+8. WHEN configuration loading fails, THE Weave_Evaluation_Harness SHALL use default values and log a warning
+9. WHEN trace_enabled is false for a detection engine in config, THE Weave_Evaluation_Harness SHALL skip tracing for that engine
+10. WHEN metrics_enabled is false for a detection engine in config, THE Weave_Evaluation_Harness SHALL skip metrics collection for that engine
+
+### Requirement 19: Weave Evaluation Scenarios and Datasets
+
+**User Story:** As a security tester, I want to define evaluation scenarios in YAML files and load them as Weave Datasets, so that I can version control test cases and track evaluation results over time.
+
+#### Acceptance Criteria
+
+1. WHEN loading evaluation scenarios, THE Weave_Evaluation_Harness SHALL read YAML files from the configured scenarios directory
+2. WHEN parsing scenario files, THE Weave_Evaluation_Harness SHALL extract name, description, events, and expected_detections fields
+3. WHEN creating Weave Datasets, THE Weave_Evaluation_Harness SHALL include all valid scenarios as dataset rows, where each row SHALL contain a non-empty description string
+4. WHEN a scenario is missing a description field or the description is an empty string, THE Weave_Evaluation_Harness SHALL skip that scenario and log a warning identifying the offending file
+5. WHEN scenario events are malformed, THE Weave_Evaluation_Harness SHALL log validation errors and skip the scenario
+6. WHEN evaluation scenarios execute, THE Weave_Evaluation_Harness SHALL match detected threats against expected_detections
+7. WHEN expected detections are not met, THE Weave_Evaluation_Harness SHALL log detection failures to Weave
+8. WHEN scenarios include attack_path expectations, THE Weave_Evaluation_Harness SHALL validate min_nodes, attack_stages, and min_risk_score
+9. WHEN scenarios include swarm expectations, THE Weave_Evaluation_Harness SHALL validate agent_ids, temporal_correlation, and coordination_score
+10. WHEN scenarios include AILM expectations, THE Weave_Evaluation_Harness SHALL validate boundary_crossings and min_risk_level
+11. WHEN evaluation completes, THE Weave_Evaluation_Harness SHALL export pass/fail status for each scenario to Weave
+
+### Requirement 20: Weave Backward Compatibility
+
+**User Story:** As a CI/CD maintainer, I want Weave integration to be fully optional and backward compatible, so that existing test infrastructure continues to work without modifications.
+
+#### Acceptance Criteria
+
+1. WHEN Weave credentials are unavailable, THE Advanced_Threat_Detection SHALL run all tests without Weave tracking
+2. WHEN @pytest.mark.weave decorator is absent, THE test SHALL execute without Weave overhead
+3. WHEN existing unit tests run, THE tests SHALL pass regardless of Weave configuration
+4. WHEN existing integration tests run, THE tests SHALL pass regardless of Weave configuration
+5. WHEN existing property tests run, THE tests SHALL pass regardless of Weave configuration
+6. WHEN Weave initialization fails, THE Advanced_Threat_Detection SHALL log a warning and continue without Weave
+7. WHEN Weave tracing fails during a test, THE test SHALL complete successfully and log the Weave error
+8. WHEN should_enable_weave() returns False, THE @weave.op() decorators SHALL not be applied
+9. WHEN weave_op_if_enabled() is used, THE function SHALL execute normally regardless of Weave state
+10. WHEN Weave is disabled, THE system SHALL have zero performance overhead from Weave integration
+11. WHEN pytest_collection_modifyitems runs and Weave is unavailable, THE Advanced_Threat_Detection SHALL automatically skip all tests marked with @pytest.mark.weave at collection time to prevent ImportError
+
+### Requirement 21: Weave Optional Dependency and Marker Declaration
+
+**User Story:** As a project maintainer, I want Weave dependencies and pytest markers to be formally declared in project configuration, so that the optional weave extras can be installed explicitly and CI tooling never encounters undeclared markers.
+
+#### Acceptance Criteria
+
+1. THE Advanced_Threat_Detection project configuration SHALL declare weave>=0.50.0 and wandb>=0.16.0 as optional dependencies under the [weave] extras group in pyproject.toml, installable via pip install -e ".[weave]"
+2. THE Advanced_Threat_Detection project configuration SHALL register the @pytest.mark.weave marker under [tool.pytest.ini_options].markers in pyproject.toml with a human-readable description
+3. WHEN a developer installs the project without the [weave] extra, THE Advanced_Threat_Detection SHALL import successfully and all non-Weave functionality SHALL operate normally
+4. WHEN pytest collects tests on a project without the [weave] extra installed, THE pytest run SHALL not emit "PytestUnknownMarkWarning" for the weave marker
