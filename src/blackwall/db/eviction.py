@@ -325,15 +325,15 @@ class EvictionManager:
         chunk_size = 900
         for i in range(0, len(candidate_ids), chunk_size):
             chunk = candidate_ids[i : i + chunk_size]
-            placeholders = ",".join("?" * len(chunk))
+            params = [(c_id, self.high_value_threshold) for c_id in chunk]
             async with self.pool.connection() as conn:
-                cursor = await conn.execute(
-                    f"""
+                cursor = await conn.executemany(
+                    """
                     DELETE FROM signatures
-                    WHERE signature_id IN ({placeholders})
+                    WHERE signature_id = ?
                       AND match_count <= ?
                     """,
-                    chunk + [self.high_value_threshold],
+                    params,
                 )
                 deleted_total += cursor.rowcount if cursor.rowcount is not None else 0
 
