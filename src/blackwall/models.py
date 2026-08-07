@@ -203,7 +203,17 @@ class SecurityEvent(BaseModel):
     @field_validator("timestamp")
     @classmethod
     def validate_timestamp(cls, v: datetime) -> datetime:
-        return validate_utc_datetime(v)
+        if v.tzinfo is None or v.utcoffset() != timezone.utc.utcoffset(v):
+            raise ValueError("Timestamp must be timezone-aware")
+        now = datetime.now(timezone.utc)
+        diff = abs((now - v).total_seconds())
+        if diff > 5.0:
+            raise ValueError(
+                f"Timestamp must be within 5 seconds of current time, got diff {diff}s"
+            )
+        return v
+
+
 
     @model_validator(mode="after")
     def validate_verdict_presence(self) -> "SecurityEvent":
