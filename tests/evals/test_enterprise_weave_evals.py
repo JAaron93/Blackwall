@@ -43,7 +43,16 @@ if not is_paid_tier:
 else:
     os.environ["WEAVE_PARALLELISM"] = "10"
 
-import weave
+import pytest
+# Weave imports should be protected if the weave package isn't installed.
+# Weave is an optional dependency but this test file is being collected
+# by pytest unconditionally because it doesn't gracefully skip on import error
+# unless we protect it here, or test collection fails when weave isn't installed.
+try:
+    import weave
+except ImportError:
+    pytest.skip("weave package not installed", allow_module_level=True)
+
 
 
 # ============================================================================

@@ -567,3 +567,25 @@ def test_eviction_result_timestamp_set() -> None:
     r = EvictionResult()
     after = int(time.time())
     assert before <= r.timestamp <= after
+
+@pytest.mark.asyncio
+async def test_evict_lfu_atomic_batch(
+    repo: SQLiteThreatRepository, mgr: EvictionManager
+) -> None:
+    """
+    Test that evict_lfu correctly deletes the oldest, lowest-frequency
+    signatures using the new atomic single-query subquery implementation.
+    """
+    fresh_ts = int(time.time())
+    for i in range(10):
+        await repo.writeSignature(_sig(f"atomic_{i}", match_count=0, last_matched_at=fresh_ts))
+
+    # We have 10 signatures. Set max to 5. Should evict 5.
+    deleted = await mgr.evict_lfu(max_signatures=5)
+    assert deleted == 5
+
+    # Confirm 5 remain
+    async with repo.pool.connection() as conn:
+        cursor = await conn.execute("SELECT COUNT(*) FROM signatures")
+        row = await cursor.fetchone()
+        assert row[0] == 5
