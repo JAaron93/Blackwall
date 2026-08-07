@@ -54,10 +54,11 @@
 * **Rule:** Unit test assertions checking pattern containment or string matches MUST NOT use arbitrary substring `in` checks on un-sanitized URL/string targets (e.g. `any("192.168.1.50" in p for p in patterns)`). Assertions MUST use explicit string equality (`pattern == "ip:192.168.1.50"`) or exact set containment (`"ip:192.168.1.50" in patterns`) to prevent CodeQL security alerts regarding un-sanitized substring matching.
 * **Rationale:** Direct set or list membership assertions eliminate false positives and ensure strict, deterministic verification of security evidence outputs.
 
-## 13. Pydantic Model Finiteness Validation & Defensive Runtime Guards
-* **Rule (Finiteness Validation):** Numerical Pydantic fields in configuration or evidence models (`src/blackwall/policy/models.py`, `src/blackwall/enterprise/advanced_threat_detection/models.py`) with range or positivity constraints (e.g. `gt=0.0`) MUST enforce finiteness via `@field_validator` (asserting `math.isfinite(v)`). Non-finite float values (`float('inf')`, `float('-inf')`, `float('nan')`) MUST raise a `ValueError` during schema parsing rather than failing late in runtime execution engines.
-* **Rule (Defensive Unpacking & Non-Finite Guards):** Public threat detection methods processing runtime union parameters or sequence tuples (e.g. `compute_novelty_score`) MUST defensively check tuple bounds and element types before indexing (e.g. `isinstance(item, tuple)` and `len(item) >= 2`). Methods aggregating risk/threat scores MUST filter non-finite values (`math.isnan` / `math.isinf`) and guard raw confidence outputs to prevent `NaN` values from skewing threat thresholds.
-* **Rationale:** Pydantic's native `gt=0.0` constraint permits `float('inf')`. Validating finiteness at the schema boundary and defensive runtime guards prevent silent component failures and threshold exploitation.
+## 14. Advanced Threat Detection Identifier Semantics & Contextual Field Error Messaging
+* **Rule (UUID v4 Enforcement):** All identifier fields in Advanced Threat Detection Pydantic models (e.g. `event_id`, `node_id`, `path_id`, `swarm_id`, `chain_id`, `grant_id`, `granted_by`, `granted_to`) MUST be typed as `UUID4` (or validate UUID v4 format via `validate_uuid_v4_format`). Field validators delegating to `validate_uuid_v4_format` MUST pass `field_name=info.field_name` to provide field-specific error messages in `ValidationError` exceptions instead of hard-coding `event_id`.
+* **Rule (Bounded State & Strict Capacity Validation):** In-memory state trackers storing per-entity sequences MUST use bounded collections (e.g. `collections.deque(maxlen=max_capacity)`). Constructor capacity parameters MUST validate that values are strictly non-boolean integers (`not isinstance(v, bool) and isinstance(v, int) and v > 0`), raising `ValueError` on invalid types or non-positive values.
+* **Rule (Trust Boundary Classification):** Security context transition classifiers (e.g. `identify_boundary_crossing()`) MUST evaluate context changes against predefined `TRUST_BOUNDARIES` sets, rather than returning `True` for any arbitrary string inequality.
+
 
 
 

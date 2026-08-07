@@ -51,7 +51,7 @@
 * **Rule:** All technical specification task matrices (`tasks.md`) MUST include explicit Gherkin BDD subtasks (`tests/features/*.feature` and `tests/step_defs/test_*_steps.py`) alongside unit test subtasks for every execution track. Submitting PRs with unit test coverage alone is insufficient to satisfy Qodo PR compliance guardrails.
 
 ## 17. Hypothesis Property Constraint & Rejection Testing
-* **Rule:** Hypothesis property test suites (`tests/property/test_*_properties.py`) targeting components with Pydantic models or public threshold parameters MUST include explicit rejection property tests (`@given`) for out-of-bounds, non-positive, or non-finite inputs. Rejection tests MUST assert that invalid inputs raise `pydantic.ValidationError` or `ValueError`.
+* **Rule:** Hypothesis property test suites (`tests/property/test_*_properties.py`) targeting components with Pydantic models or public threshold parameters MUST assert **both** valid acceptance (`test_property_*_valid_acceptance`) using valid input strategies (`st.uuids(version=4)`, UTC datetimes, non-empty text) AND invalid rejection (`test_property_*_rejection`) using invalid strategies (`st.text().filter(lambda s: not s.strip())`, naive/non-UTC datetimes, malformed UUIDs). Rejection tests MUST assert that invalid inputs raise `pydantic.ValidationError` or `ValueError`.
 * **Rationale:** Property tests validating happy-path behavior alone miss contract violations and fail compliance review guardrails for model boundary enforcement.
 
 
