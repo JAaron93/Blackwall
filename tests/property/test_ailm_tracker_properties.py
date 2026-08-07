@@ -16,11 +16,11 @@ from blackwall.enterprise.advanced_threat_detection import (
 
 # Property rejection tests for PermissionGrant model constraints
 @given(
-    empty_val=st.sampled_from(["", "   ", "\t\n"]),
+    empty_val=st.text().filter(lambda s: not s.strip()),
     target_field=st.sampled_from(["permission", "granted_by", "granted_to", "scope"]),
 )
 def test_property_permission_grant_empty_string_rejection(empty_val: str, target_field: str):
-    """Property rejection: Empty or whitespace-only string fields MUST raise ValidationError."""
+    """Property rejection: Any empty or whitespace-only string field MUST raise ValidationError."""
     kwargs = {
         "permission": "s3:GetObject",
         "granted_by": "admin",
@@ -35,26 +35,28 @@ def test_property_permission_grant_empty_string_rejection(empty_val: str, target
 
 
 @given(
-    use_naive=st.booleans(),
+    non_utc_tz=st.sampled_from([
+        None,  # Naive datetime
+        timezone(timedelta(hours=1)),
+        timezone(timedelta(hours=-5)),
+        timezone(timedelta(minutes=30)),
+    ]),
 )
-def test_property_permission_grant_invalid_timestamp_rejection(use_naive: bool):
+def test_property_permission_grant_invalid_timestamp_rejection(non_utc_tz: timezone | None):
     """Property rejection: Naive or non-UTC datetimes MUST raise ValidationError."""
-    if use_naive:
-        now = datetime.now()  # Naive datetime
-    else:
-        now = datetime.now(timezone(timedelta(hours=1)))  # Explicit non-UTC timezone (+01:00)
+    dt = datetime(2026, 8, 7, 14, 0, 0, tzinfo=non_utc_tz)
 
     with pytest.raises(ValidationError):
         PermissionGrant(
             permission="read",
             granted_by="admin",
             granted_to="agent-1",
-            timestamp=now,
+            timestamp=dt,
             scope="user_space",
         )
 
 
-@given(invalid_id=st.sampled_from(["invalid-uuid-str", "12345", "not-a-uuid-v4"]))
+@given(invalid_id=st.sampled_from(["invalid-uuid-str", "12345", "not-a-uuid-v4", "g" * 36]))
 def test_property_permission_grant_invalid_grant_id_rejection(invalid_id: str):
     """Property rejection: Malformed grant_id MUST raise ValidationError."""
     with pytest.raises(ValidationError):
@@ -66,6 +68,29 @@ def test_property_permission_grant_invalid_grant_id_rejection(invalid_id: str):
             timestamp=datetime.now(UTC),
             scope="user_space",
         )
+
+
+@given(
+    perm=st.text(min_size=1).filter(lambda s: bool(s.strip())),
+    grantor=st.text(min_size=1).filter(lambda s: bool(s.strip())),
+    grantee=st.text(min_size=1).filter(lambda s: bool(s.strip())),
+    scope=st.text(min_size=1).filter(lambda s: bool(s.strip())),
+)
+@settings(max_examples=30)
+def test_property_permission_grant_valid_acceptance(perm: str, grantor: str, grantee: str, scope: str):
+    """Property acceptance: Valid non-empty strings and UTC datetime MUST pass PermissionGrant validation."""
+    grant = PermissionGrant(
+        permission=perm,
+        granted_by=grantor,
+        granted_to=grantee,
+        timestamp=datetime.now(UTC),
+        scope=scope,
+    )
+    assert grant.permission == perm
+    assert grant.granted_by == grantor
+    assert grant.granted_to == grantee
+    assert grant.scope == scope
+    assert grant.timestamp.tzinfo == UTC
 
 
 # Property 35: Permission Grant Recording
