@@ -72,6 +72,18 @@ class ThreatSignatureGraphConfig(BaseModel):
         return v
 
 
+class SwarmDetectorPolicyConfig(BaseModel):
+    windowSeconds: int = Field(3600, ge=1)
+    minAgents: int = Field(2, ge=2)
+    correlationThreshold: float = Field(0.75, ge=0.0, le=1.0)
+
+
+class AdvancedThreatDetectionPolicyConfig(BaseModel):
+    swarmDetector: SwarmDetectorPolicyConfig = Field(
+        default_factory=SwarmDetectorPolicyConfig
+    )
+
+
 class PolicyConfig(BaseModel):
     version: str
     global_config: GlobalConfig = Field(..., alias="global")
@@ -80,6 +92,9 @@ class PolicyConfig(BaseModel):
     semanticGuidelines: List[str]
     mcpServers: MCPServersConfig
     threatSignatureGraph: ThreatSignatureGraphConfig
+    advancedThreatDetection: AdvancedThreatDetectionPolicyConfig = Field(
+        default_factory=AdvancedThreatDetectionPolicyConfig
+    )
 
     model_config = {
         "populate_by_name": True,

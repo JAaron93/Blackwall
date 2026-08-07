@@ -41,4 +41,16 @@
 * **Rule (Chronological Causal Edges):** Causal edges in temporal adjacency graph construction MUST enforce `target_node.event.timestamp >= node_a.event.timestamp`. Path materialization loops MUST skip reverse-ordered sequences (`end_time < start_time`) and catch `ValueError` during `AttackPath` model instantiation to prevent invalid edge data from failing correlation calls.
 * **Rule (O(1) Causal Edge Resolution):** Temporal window iteration MUST break unconditionally when temporal distance exceeds the 300-second window (`delta_sec > 300`). Explicit causal edges MUST be resolved via a precomputed incoming edge index (`Dict[uuid.UUID, List[AttackNode]]`) for $O(1)$ directed edge lookup regardless of time separation.
 
+## 11. Pydantic Configuration Model Declarations & Field Optionality Invariants
+* **Rule:** In Pydantic configuration models (`src/blackwall/policy/models.py`, `src/blackwall/models.py`), nested configuration sections MUST NOT combine `Optional[T]` type annotations with `default_factory=T`.
+  - If a nested configuration section should always exist with default values when omitted from YAML/JSON inputs, declare it as `section: SectionConfig = Field(default_factory=SectionConfig)` (non-optional).
+  - If a nested configuration section's omission represents an unconfigured/disabled state, declare it as `section: Optional[SectionConfig] = None` (without `default_factory`).
+  - Accessing callers MUST align with the chosen contract: use direct attribute access (`policy.section.sub_field`) for always-present sections, or explicit `is not None` checks (`if policy.section is not None:`) for truly optional sections.
+* **Rationale:** Combining `Optional[T]` with `default_factory=T` creates ambiguous model definitions where the field is never `None` on parsed instances, invalidating `if policy.section:` checks and obscuring whether a section was explicitly configured or omitted.
+
+## 12. CodeQL Test Assertion Invariants
+* **Rule:** Unit test assertions checking pattern containment or string matches MUST NOT use arbitrary substring `in` checks on un-sanitized URL/string targets (e.g. `any("192.168.1.50" in p for p in patterns)`). Assertions MUST use explicit string equality (`pattern == "ip:192.168.1.50"`) or exact set containment (`"ip:192.168.1.50" in patterns`) to prevent CodeQL security alerts regarding un-sanitized substring matching.
+* **Rationale:** Direct set or list membership assertions eliminate false positives and ensure strict, deterministic verification of security evidence outputs.
+
+
 

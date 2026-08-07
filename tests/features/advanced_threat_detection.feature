@@ -37,5 +37,12 @@ Feature: Blackwall Advanced Threat Detection Pillar Data Validation
     When the PathCorrelator correlates attack paths within the time window
     Then correlated AttackPath instances are returned with valid risk scores, correlation scores, and mapped MITRE technique IDs
 
+  Scenario: Agent Swarm Detector fingerprinting and temporal swarm detection
+    Given an initialized AgentSwarmDetector instance and correlated security events for multiple agents
+    When agent action sequences are fingerprinted and swarms are detected
+    Then deterministic SHA-256 behavioral fingerprints are generated
+    And SwarmEvidence is produced with temporal correlation, coordination score, and shared infrastructure patterns
+
+
 
 

@@ -290,11 +290,11 @@ class AttackGraphStore:
 
     async def query_nodes(
         self,
-        agent_id: str,
+        agent_id: Optional[str],
         time_window: Tuple[datetime, datetime],
         limit: Optional[int] = None,
     ) -> List[AttackNode]:
-        """Fetch all AttackNodes for an agent within the specified time window."""
+        """Fetch all AttackNodes for an agent (or all agents if agent_id is None) within the specified time window."""
         if limit is not None and limit <= 0:
             raise ValueError("limit must be positive")
 
@@ -302,20 +302,28 @@ class AttackGraphStore:
 
         if self._pool:
             async with self._pool.acquire() as conn:
-                query = """
-                    SELECT * FROM event_nodes
-                    WHERE agent_id = $1 AND timestamp >= $2 AND timestamp <= $3
-                    ORDER BY timestamp ASC
-                """
+                if agent_id is not None:
+                    query = """
+                        SELECT * FROM event_nodes
+                        WHERE agent_id = $1 AND timestamp >= $2 AND timestamp <= $3
+                        ORDER BY timestamp ASC
+                    """
+                    params = [agent_id, start_time_win, end_time_win]
+                else:
+                    query = """
+                        SELECT * FROM event_nodes
+                        WHERE timestamp >= $1 AND timestamp <= $2
+                        ORDER BY timestamp ASC
+                    """
+                    params = [start_time_win, end_time_win]
+
                 if limit is not None:
                     query += f" LIMIT {int(limit)}"
                 query += ";"
 
                 rows = await conn.fetch(
                     query,
-                    agent_id,
-                    start_time_win,
-                    end_time_win,
+                    *params,
                 )
                 db_nodes: List[AttackNode] = []
                 for row in rows:
@@ -345,7 +353,7 @@ class AttackGraphStore:
         nodes_map: Dict[uuid.UUID, AttackNode] = {}
         for node in self._nodes.values():
             if (
-                node.event.agent_id == agent_id
+                (agent_id is None or node.event.agent_id == agent_id)
                 and start_time_win <= node.event.timestamp <= end_time_win
             ):
                 nodes_map[node.node_id] = node

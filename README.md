@@ -74,10 +74,10 @@ manager = ForensicTriageManager(otel_adapter=otel_adapter)
 report = await manager.triage_log_event({"command": "reverse_shell /bin/bash -i"})
 # Dual-mode execution: primary local Ollama (Qwen3) with failover to AST/regex parser
 
-# Track 6: Advanced Threat Detection & Unified Ingestion (Pillar 6)
+# Track 6: Advanced Threat Detection & Swarm Analysis (Pillar 6)
 from datetime import datetime, timezone, timedelta
 from blackwall.enterprise.advanced_threat_detection import (
-    EventStreamCollector, NormalizedEvent, EventSource, AttackGraphStore, PathCorrelator
+    EventStreamCollector, NormalizedEvent, EventSource, AttackGraphStore, PathCorrelator, AgentSwarmDetector
 )
 
 collector = EventStreamCollector()
@@ -108,7 +108,14 @@ paths = await correlator.correlate_attack_paths(
     time_window=(now - timedelta(minutes=1), now + timedelta(minutes=10)),
     min_path_length=2,
 )
-# Returns AttackPath instances sorted by risk_score descending with MITRE ATT&CK technique mapping (e.g. T1059, T1071)
+
+swarm_detector = AgentSwarmDetector(store=store)
+swarms = await swarm_detector.detect_swarms(
+    time_window=(now - timedelta(minutes=1), now + timedelta(minutes=10)),
+    min_agents=2,
+    correlation_threshold=0.75,
+)
+# Identifies coordinated agent swarms, behavioral fingerprints, and shared infrastructure (e.g. C2 IPs/domains)
 
 ```
 
