@@ -216,7 +216,7 @@ class SemanticGatingEngine:
                 geo = ""
                 if context.metadata:
                     geo = context.metadata.get("country", "") or context.metadata.get("geolocation", "")
-                if geo in ["RU", "CN", "KP", "IR", "BY"]:
+                if geo in {"RU", "CN", "KP", "IR", "BY"}:
                     geo_points = 0.2
                 else:
                     geo_points = 0.1
