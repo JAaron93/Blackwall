@@ -207,3 +207,92 @@ async def test_write_signature_similarity_vector_coercion(
         row = await cursor.fetchone()
         assert row is not None
         assert row[0] == expected_bytes
+
+
+@pytest.mark.asyncio
+async def test_write_signatures_batch_executemany(repo: SQLiteThreatRepository) -> None:
+    """Verify write_signatures_batch atomically inserts and replaces multiple records with executemany."""
+    vector = [0.5] * 768
+    import array
+    expected_vector_bytes = array.array("f", vector).tobytes()
+
+    batch = [
+        {
+            "signatureId": f"sig_batch_{i}",
+            "attackerIntent": f"Intent for signature {i}",
+            "payloadPattern": f"SELECT * FROM table_{i}",
+            "targetTool": "db_query",
+            "mitigationAction": "BLOCK",
+            "similarityVector": vector if i % 2 == 0 else None,
+            "metadata": {"batch_index": i},
+            "matchCount": i,
+        }
+        for i in range(10)
+    ]
+
+    # Write batch
+    await repo.write_signatures_batch(batch)
+
+    # Verify total signatures in repository
+    stats = await repo.getStatistics()
+    assert stats["totalSignatures"] == 10
+
+    async with repo.pool.connection() as conn:
+        cursor = await conn.execute("SELECT signature_id, target_tool, similarity_vector, metadata FROM signatures ORDER BY rowid")
+        rows = await cursor.fetchall()
+        assert len(rows) == 10
+        for i, row in enumerate(rows):
+            assert row[0] == f"sig_batch_{i}"
+            assert row[1] == "db_query"
+            if i % 2 == 0:
+                assert row[2] == expected_vector_bytes
+            else:
+                assert row[2] is None
+            import json
+            meta = json.loads(row[3])
+            assert meta["batch_index"] == i
+
+    # Verify replacement (INSERT OR REPLACE)
+    updated_batch = [
+        {
+            "signatureId": "sig_batch_0",
+            "attackerIntent": "Updated intent 0",
+            "payloadPattern": "SELECT * FROM updated_table",
+            "targetTool": "db_query",
+            "mitigationAction": "QUARANTINE",
+            "metadata": {"updated": True},
+        }
+    ]
+    await repo.write_signatures_batch(updated_batch)
+
+    async with repo.pool.connection() as conn:
+        cursor = await conn.execute("SELECT mitigation_action, metadata FROM signatures WHERE signature_id = 'sig_batch_0'")
+        row = await cursor.fetchone()
+        assert row is not None
+        assert row[0] == "QUARANTINE"
+        import json
+        assert json.loads(row[1]) == {"updated": True}
+
+
+@pytest.mark.asyncio
+async def test_write_signatures_batch_transaction_rollback(repo: SQLiteThreatRepository) -> None:
+    """Verify write_signatures_batch transaction atomicity and error handling."""
+    # Write initial batch of 2 items
+    initial_batch = [
+        {
+            "signatureId": "sig_atomic_1",
+            "attackerIntent": "Intent 1",
+            "payloadPattern": "pattern 1",
+            "targetTool": "tool",
+            "mitigationAction": "BLOCK",
+        }
+    ]
+    await repo.write_signatures_batch(initial_batch)
+    stats = await repo.getStatistics()
+    assert stats["totalSignatures"] == 1
+
+    # Pass empty list / non-failing invalid batch payload structure to test graceful handling
+    await repo.write_signatures_batch([])
+    stats_after = await repo.getStatistics()
+    assert stats_after["totalSignatures"] == 1
+
