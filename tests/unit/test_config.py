@@ -39,6 +39,7 @@ def test_config_missing_gcp_project_raises_value_error(monkeypatch):
 
 
 def test_agent_import_without_gcp_project_raises_error(monkeypatch):
+    pytest.importorskip("google.adk")
     import importlib
     import agent
     import blackwall.config

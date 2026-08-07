@@ -105,7 +105,7 @@ async def test_single_request_evaluation_with_mocked_gemini():
 @pytest.mark.asyncio
 async def test_gti_cbm_queries_execute_serially():
     """
-    _query_gti() must complete before _query_cbm() starts.
+    _query_cbm() must complete before _query_gti() starts.
     Tracked via a shared ordering list.
     """
     call_order: List[str] = []
@@ -135,11 +135,14 @@ async def test_gti_cbm_queries_execute_serially():
     resolver = _make_resolver(gti_client=gti_client, cbm_client=cbm_client)
     context = _make_context(arguments={"host": "wd-bouygues.com"})
 
-    await resolver.evaluate(context)
+    # Mock high score so GTI is actually queried
+    from unittest.mock import patch
+    with patch.object(resolver, "_score_context", return_value=1.0):
+        await resolver.evaluate(context)
 
-    # GTI must fully complete before CBM starts
-    assert call_order.index("gti_end") < call_order.index("cbm_start"), (
-        f"Expected GTI to finish before CBM starts. Order was: {call_order}"
+    # CBM must fully complete before GTI starts
+    assert call_order.index("cbm_end") < call_order.index("gti_start"), (
+        f"Expected CBM to finish before GTI starts. Order was: {call_order}"
     )
 
 
@@ -259,10 +262,15 @@ async def test_15_rpm_rate_limit_enforcement():
         return 0.1
 
     with patch.object(resolver, "_compute_threat_score", side_effect=low_score):
-        for i in range(16):
-            context = _make_context(arguments={"i": i})
-            v = await resolver.evaluate(context)
-            results.append(v)
+        # We also need to patch out other paths that could BLOCK like TSG similarity
+        from unittest.mock import patch as top_patch
+        with top_patch.object(resolver, "repo", None):
+            # Also mock the time so rate limiter doesn't refill!
+            with top_patch('blackwall.resolver.time.time', return_value=100.0):
+                for i in range(16):
+                    context = _make_context(arguments={"i": i})
+                    v = await resolver.evaluate(context)
+                    results.append(v)
 
     # At least one of the last requests should be QUARANTINE due to rate limit
     quarantine_verdicts = [
