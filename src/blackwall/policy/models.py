@@ -1,3 +1,4 @@
+import math
 from enum import Enum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -81,6 +82,13 @@ class SwarmDetectorPolicyConfig(BaseModel):
 
 class ExploitChainAnalyzerPolicyConfig(BaseModel):
     maxTimeGapSeconds: float = Field(300.0, gt=0.0)
+
+    @field_validator("maxTimeGapSeconds")
+    @classmethod
+    def validate_finite_gap(cls, v: float) -> float:
+        if not math.isfinite(v):
+            raise ValueError("maxTimeGapSeconds must be a finite positive float")
+        return v
 
 
 class AdvancedThreatDetectionPolicyConfig(BaseModel):
