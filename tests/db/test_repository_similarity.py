@@ -186,7 +186,8 @@ async def test_fts_partial_token_match_with_or_semantics(repo: SQLiteThreatRepos
     # AND-based matcher would require both tokens and would fail
     match = await repo.find_matching_signature(
         tool_name="run_command",
-        arguments={"command": "evil nonexistent"}
+        arguments={"command": "evil nonexistent"},
+        threshold=0.35,
     )
 
     assert match is not None

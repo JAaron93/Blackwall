@@ -595,7 +595,7 @@ class SQLiteThreatRepository:
                             timestamp=int(time.time()),
                         )
                         current_threshold = min(threshold, fts_threshold_cap)
-                        if normalized_score >= current_threshold:
+                        if normalized_score >= current_threshold and match_quality > 0:
                             matches.append(_parse_row(row[:13], normalized_score))
             else:
                 # No query vector provided: all signatures fallback to FTS5
@@ -646,7 +646,7 @@ class SQLiteThreatRepository:
                             timestamp=int(time.time()),
                         )
                         current_threshold = min(threshold, fts_threshold_cap)
-                        if normalized_score >= current_threshold:
+                        if normalized_score >= current_threshold and match_quality > 0:
                             matches.append(_parse_row(row[:13], normalized_score))
 
             matches.sort(key=lambda x: x.get("similarity_score", 0.0), reverse=True)
