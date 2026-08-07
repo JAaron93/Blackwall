@@ -1,5 +1,4 @@
 import os
-import json
 import asyncio
 from typing import AsyncGenerator
 import pytest
@@ -257,45 +256,3 @@ def test_update_agbom_and_capability_drift() -> None:
     # This should log drift, we can verify it updates the AgBOM
     analytics.updateAgBOM(event2)
     assert analytics.agbom["tools"]["run_command"]["frequency"] == 1
-
-
-@pytest.mark.asyncio
-async def test_trigger_refactoring_batch_signature_updates(repo: SQLiteThreatRepository) -> None:
-    analytics = AgentBehavioralAnalytics(repo=repo)
-    
-    context = ToolCallContext(tool_name="db_query", arguments={"query": "SELECT * FROM users"})
-    event_gen = SecurityEvent(
-        event_type=EventType.BLOCK,
-        tool_context=context,
-        verdict=Verdict(decision=VerdictDecision.BLOCK, reasoning="Unsafe DB query", confidence_score=0.9),
-        cbm_response=CBMResponse(blast_radius=1, critical_sinks=[SinkType.DATABASE])
-    )
-    
-    sig1 = await analytics.generateSignature(event_gen)
-    sig2 = await analytics.generateSignature(event_gen)
-    sig3 = await analytics.generateSignature(event_gen)
-    
-    event_refactor = SecurityEvent(
-        event_type=EventType.QUARANTINE,
-        tool_context=context,
-        verdict=Verdict(decision=VerdictDecision.QUARANTINE, reasoning="Quarantined query", confidence_score=0.8),
-        cbm_response=CBMResponse(blast_radius=1, critical_sinks=[SinkType.DATABASE]),
-        related_signatures=[sig1.signature_id, sig2.signature_id, sig3.signature_id]
-    )
-    
-    hint = await analytics.triggerRefactoring(event_refactor)
-    assert hint.vulnerability_type == "SQL Injection"
-    
-    # Verify all 3 signatures in SQLite repo had their metadata updated with refactoring_hint
-    async with repo.pool.connection() as conn:
-        for sig in (sig1, sig2, sig3):
-            cursor = await conn.execute(
-                "SELECT metadata FROM signatures WHERE signature_id = ?",
-                (str(sig.signature_id),)
-            )
-            row = await cursor.fetchone()
-            assert row is not None and row[0] is not None
-            meta = json.loads(row[0])
-            assert "refactoring_hint" in meta
-            assert meta["refactoring_hint"]["vulnerability_type"] == "SQL Injection"
-

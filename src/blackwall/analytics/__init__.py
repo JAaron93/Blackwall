@@ -422,30 +422,26 @@ class AgentBehavioralAnalytics:
 
         # Write refactoring hint in threat signature metadata if signature is present in SQLite
         if self.repo and event.related_signatures:
-            sig_ids = [str(sid) for sid in event.related_signatures]
-            placeholders = ",".join("?" for _ in sig_ids)
-            async with self.repo.pool.connection() as conn:
-                cursor = await conn.execute(
-                    f"SELECT signature_id, metadata FROM signatures WHERE signature_id IN ({placeholders})",
-                    sig_ids,
-                )
-                rows = await cursor.fetchall()
-                hint_dict = hint.model_dump(mode="json")
-                update_params = []
-                for sig_id, raw_meta in rows:
+            # Update the metadata of the related signatures
+            for sig_id in event.related_signatures:
+                # For demo purposes, we can update the database row
+                async with self.repo.pool.connection() as conn:
+                    # Retrieve existing metadata
+                    cursor = await conn.execute(
+                        "SELECT metadata FROM signatures WHERE signature_id = ?",
+                        (str(sig_id),),
+                    )
+                    row = await cursor.fetchone()
                     meta_dict = {}
-                    if raw_meta:
+                    if row and row[0]:
                         try:
-                            meta_dict = json.loads(raw_meta)
+                            meta_dict = json.loads(row[0])
                         except Exception:
                             pass
-                    meta_dict["refactoring_hint"] = hint_dict
-                    update_params.append((json.dumps(meta_dict), sig_id))
-
-                if update_params:
-                    await conn.executemany(
+                    meta_dict["refactoring_hint"] = hint.model_dump(mode="json")
+                    await conn.execute(
                         "UPDATE signatures SET metadata = ? WHERE signature_id = ?",
-                        update_params,
+                        (json.dumps(meta_dict), str(sig_id)),
                     )
 
         return hint
