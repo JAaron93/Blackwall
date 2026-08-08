@@ -592,8 +592,9 @@ class SQLiteThreatRepository:
                         else:
                             match_quality = 0.0
 
+                        fts_rank_scale = min(max(1.0 + abs(bm25_rank) / 10.0, 1.0), 1.5)
                         normalized_score = min(
-                            match_quality * fts_fallback_score, fts_threshold_cap
+                            match_quality * fts_fallback_score * fts_rank_scale, fts_threshold_cap
                         )
 
                         logger.warning(
@@ -656,8 +657,9 @@ class SQLiteThreatRepository:
                         else:
                             match_quality = 0.0
 
+                        fts_rank_scale = min(max(1.0 + abs(bm25_rank) / 10.0, 1.0), 1.5)
                         normalized_score = min(
-                            match_quality * fts_fallback_score, fts_threshold_cap
+                            match_quality * fts_fallback_score * fts_rank_scale, fts_threshold_cap
                         )
 
                         logger.warning(

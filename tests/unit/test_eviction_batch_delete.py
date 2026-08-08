@@ -84,7 +84,7 @@ async def test_lfu_batch_eviction_single_query_chunking(tmp_path):
     assert len(delete_execute_queries) == 1, "Expected exactly 1 batch execute call for candidate chunk"
     query_str, params = delete_execute_queries[0]
     assert "WHERE signature_id IN (" in query_str
-    assert len(params) == 31  # 30 candidates + 1 high_value_threshold
+    assert len(params) == 2  # high_value_threshold + excess_count subquery parameters
 
     stats_after = await repo.getStatistics()
     assert stats_after["totalSignatures"] == 100  # 130 - 30

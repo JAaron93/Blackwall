@@ -330,7 +330,7 @@ def test_bdd_structural_engine_safe_ast_eval() -> None:
     "a StructuralGatingEngine loaded with a rules policy",
     target_fixture="structural_engine_ctx",
 )
-def given_structural_engine_loaded() -> Dict[str, Any]:
+def given_structural_engine_loaded(request) -> Dict[str, Any]:
     import os
     from blackwall.policy.engine import StructuralGatingEngine
     from tests.unit.policy_yaml_helpers import make_yaml, write_temp_yaml
@@ -344,6 +344,9 @@ def given_structural_engine_loaded() -> Dict[str, Any]:
   enabled: true
 """
     yaml_path = write_temp_yaml(make_yaml(rules))
+    request.addfinalizer(
+        lambda: os.remove(yaml_path) if os.path.exists(yaml_path) else None
+    )
     engine.load_policy(yaml_path)
     return {"engine": engine, "yaml_path": yaml_path}
 
