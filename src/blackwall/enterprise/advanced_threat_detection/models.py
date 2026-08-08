@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from typing import Any, Dict, List, Set, Tuple
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, UUID4, field_validator, model_validator
 
@@ -141,6 +141,35 @@ class ExploitChainEvidence(BaseModel):
     exploits: List[Tuple[str, ExploitCategory]] = Field(default_factory=list)
     novelty_score: float = Field(..., ge=0.0, le=1.0)
     chaining_confidence: float = Field(..., ge=0.0, le=1.0)
+
+
+class PermissionGrant(BaseModel):
+    """Permission grant schema for AI-Induced Lateral Movement tracking."""
+
+    grant_id: UUID4 = Field(default_factory=uuid4)
+    permission: str
+    granted_by: UUID4
+    granted_to: UUID4
+    timestamp: datetime
+    scope: str
+
+    @field_validator("grant_id", "granted_by", "granted_to")
+    @classmethod
+    def validate_uuid_v4_fields(cls, v: Any, info: Any) -> UUID:
+        """Validate grant_id, granted_by, and granted_to are valid UUID v4."""
+        return validate_uuid_v4_format(v, field_name=info.field_name)
+
+    @field_validator("timestamp")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        """Validate timestamp is timezone-aware and set to UTC."""
+        return validate_utc_datetime(v)
+
+    @field_validator("permission", "scope")
+    @classmethod
+    def validate_non_empty_fields(cls, v: str, info: Any) -> str:
+        """Validate string fields are not empty or whitespace only."""
+        return validate_non_empty_string(v, field_name=info.field_name)
 
 
 class AILMEvidence(BaseModel):

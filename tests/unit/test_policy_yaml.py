@@ -44,6 +44,9 @@ def test_concrete_policy_yaml_loading() -> None:
     assert production_role.requireSemanticReview is True
     assert production_role.maxThreatScore == 0.5
 
+    # Verify threat signature graph config
+    assert policy.threatSignatureGraph.batchSize == 900
+
 
 def test_concrete_policy_priority_ordering() -> None:
     """Verifies that rules are sorted and evaluated in ascending order of priority."""

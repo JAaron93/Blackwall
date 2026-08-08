@@ -120,7 +120,8 @@ def _has_wandb_credentials() -> bool:
                 val = parser.get(section, "api_key", fallback="")
                 if val.strip() and val.strip().lower() not in ("none", "null", '""', "''"):
                     return True
-    except OSError:
+    except (OSError, configparser.Error):
+        # Malformed or unreadable settings file — treat as no credentials
         pass
 
     return False
