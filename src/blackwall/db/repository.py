@@ -1,11 +1,12 @@
 import asyncio
 import json
-from typing import Dict, Any, List, Optional
-import uuid
 import time
-from .pool import AsyncConnectionPool
+import uuid
+from typing import Any
 
 import structlog
+
+from .pool import AsyncConnectionPool
 
 logger = structlog.get_logger("blackwall.db.repository")
 
@@ -216,7 +217,7 @@ class SQLiteThreatRepository:
         """Closes the connection pool."""
         await self.pool.close()
 
-    async def writeSignature(self, signature_data: Dict[str, Any]) -> str:
+    async def writeSignature(self, signature_data: dict[str, Any]) -> str:
         """Writes a threat signature using INSERT OR IGNORE to enforce uniqueness."""
         await self.initialize()
 
@@ -302,7 +303,7 @@ class SQLiteThreatRepository:
 
         return sig_id
 
-    async def getStatistics(self) -> Dict[str, Any]:
+    async def getStatistics(self) -> dict[str, Any]:
         """Returns statistics about the graph, including cumulative eviction count."""
         await self.initialize()
         async with self.pool.connection() as conn:
@@ -346,7 +347,7 @@ class SQLiteThreatRepository:
                 (ioc, ioc_type, int(time.time())),
             )
 
-    async def getAuditIncidents(self) -> List[Dict[str, Any]]:
+    async def getAuditIncidents(self) -> list[dict[str, Any]]:
         await self.initialize()
         async with self.pool.connection() as conn:
             cursor = await conn.execute(
@@ -365,7 +366,7 @@ class SQLiteThreatRepository:
             ]
 
     async def cache_gti_response(
-        self, indicator: str, indicator_type: str, response: Dict[str, Any]
+        self, indicator: str, indicator_type: str, response: dict[str, Any]
     ) -> None:
         await self.initialize()
         async with self.pool.connection() as conn:
@@ -379,7 +380,7 @@ class SQLiteThreatRepository:
 
     async def get_cached_gti_response(
         self, indicator: str, indicator_type: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         await self.initialize()
         async with self.pool.connection() as conn:
             cursor = await conn.execute(
@@ -401,7 +402,7 @@ class SQLiteThreatRepository:
                 return None
 
             try:
-                result: Dict[str, Any] = json.loads(response_data_str)
+                result: dict[str, Any] = json.loads(response_data_str)
                 return result
             except json.JSONDecodeError:
                 return None
@@ -417,12 +418,17 @@ class SQLiteThreatRepository:
     async def querySimilarSignatures(
         self,
         query_text: str,
-        query_vector: Optional[List[float]] = None,
+        query_vector: list[float] | None = None,
         threshold: float = 0.85,
         fts_fallback_score: float = 0.75,
         fts_threshold_cap: float = 0.70,
+<<<<<<< HEAD
         target_tool: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
+=======
+        target_tool: str | None = None,
+    ) -> list[dict[str, Any]]:
+>>>>>>> origin/main
         """
         Computes cosine similarity between query_vector and stored signatures.
         Falls back to FTS5 full-text search if the signature lacks a vector or if
@@ -654,8 +660,8 @@ class SQLiteThreatRepository:
     async def find_matching_signature(
         self,
         tool_name: str,
-        arguments: Dict[str, Any],
-        query_vector: Optional[List[float]] = None,
+        arguments: dict[str, Any],
+        query_vector: list[float] | None = None,
         threshold: float = 0.85,
         fts_fallback_score: float = 0.75,
         fts_threshold_cap: float = 0.70,
@@ -758,7 +764,7 @@ class SQLiteThreatRepository:
                 return False
             return True
 
-    async def write_signatures_batch(self, signatures: List[Dict[str, Any]]) -> None:
+    async def write_signatures_batch(self, signatures: list[dict[str, Any]]) -> None:
         """Writes multiple threat signatures in a single atomic transaction."""
         await self.initialize()
 
@@ -766,6 +772,7 @@ class SQLiteThreatRepository:
             # aiosqlite connection executes in auto-commit mode by default unless transaction is started
             await conn.execute("BEGIN TRANSACTION")
             try:
+                values_to_insert = []
                 for signature_data in signatures:
                     raw_intent = signature_data.get("attackerIntent")
                     attacker_intent = str(raw_intent) if raw_intent is not None else ""
@@ -852,15 +859,7 @@ class SQLiteThreatRepository:
                         json.dumps(raw_metadata) if raw_metadata is not None else None
                     )
 
-                    await conn.execute(
-                        """
-                        INSERT OR REPLACE INTO signatures (
-                            signature_id, created_at, last_matched_at, attacker_intent, payload_pattern,
-                            target_tool, target_sink, dependency_chain, mitigation_action,
-                            match_count, false_positive_count, similarity_vector, metadata
-                        )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
+                    values_to_insert.append(
                         (
                             sig_id,
                             created_at,
@@ -875,8 +874,20 @@ class SQLiteThreatRepository:
                             false_positive_count,
                             vector_blob,
                             metadata_str,
-                        ),
+                        )
                     )
+
+                await conn.executemany(
+                    """
+                    INSERT OR REPLACE INTO signatures (
+                        signature_id, created_at, last_matched_at, attacker_intent, payload_pattern,
+                        target_tool, target_sink, dependency_chain, mitigation_action,
+                        match_count, false_positive_count, similarity_vector, metadata
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    values_to_insert,
+                )
                 await conn.commit()
             except Exception as e:
                 await conn.rollback()

@@ -52,12 +52,16 @@ class AgentBehavioralAnalytics:
         baseline_score: float = 1.0,  # default baseline on 0-5 scale
         allowed_tools: Optional[Set[str]] = None,
         model_name: str = "all-MiniLM-L6-v2",
+        batch_size: int = 900,
     ) -> None:
         self.repo = repo
         self.client = client
         self.baseline_score = baseline_score
         self.allowed_tools = allowed_tools
         self.model_name = model_name
+        if batch_size <= 0:
+            raise ValueError(f"batch_size must be a positive integer (> 0), got {batch_size}")
+        self.batch_size = batch_size
         self.agbom: Dict[str, Any] = {"tools": {}}
         self._embedding_model = None
         self.embedding_client = (
@@ -455,27 +459,40 @@ class AgentBehavioralAnalytics:
 
         # Write refactoring hint in threat signature metadata if signature is present in SQLite
         if self.repo and event.related_signatures:
-            # Update the metadata of the related signatures
-            for sig_id in event.related_signatures:
-                # For demo purposes, we can update the database row
+            # Batch update the metadata of the related signatures to prevent N+1 queries
+            sig_ids = [str(sig_id) for sig_id in event.related_signatures]
+            batch_size = self.batch_size
+            hint_dump = hint.model_dump(mode="json")
+
+            for i in range(0, len(sig_ids), batch_size):
+                batch_ids = sig_ids[i:i + batch_size]
+                placeholders = ', '.join('?' * len(batch_ids))
+
                 async with self.repo.pool.connection() as conn:
                     # Retrieve existing metadata
                     cursor = await conn.execute(
-                        "SELECT metadata FROM signatures WHERE signature_id = ?",
-                        (str(sig_id),),
+                        f"SELECT signature_id, metadata FROM signatures WHERE signature_id IN ({placeholders})",
+                        batch_ids,
                     )
-                    row = await cursor.fetchone()
-                    meta_dict = {}
-                    if row and row[0]:
-                        try:
-                            meta_dict = json.loads(row[0])
-                        except Exception:
-                            pass
-                    meta_dict["refactoring_hint"] = hint.model_dump(mode="json")
-                    await conn.execute(
-                        "UPDATE signatures SET metadata = ? WHERE signature_id = ?",
-                        (json.dumps(meta_dict), str(sig_id)),
-                    )
+                    rows = await cursor.fetchall()
+
+                    updates = []
+                    for row in rows:
+                        sig_id = row[0]
+                        meta_dict = {}
+                        if row and len(row) > 1 and row[1]:
+                            try:
+                                meta_dict = json.loads(row[1])
+                            except Exception:
+                                pass
+                        meta_dict["refactoring_hint"] = hint_dump
+                        updates.append((json.dumps(meta_dict), sig_id))
+
+                    if updates:
+                        await conn.executemany(
+                            "UPDATE signatures SET metadata = ? WHERE signature_id = ?",
+                            updates
+                        )
 
         return hint
 

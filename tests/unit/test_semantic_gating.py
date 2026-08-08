@@ -511,6 +511,39 @@ async def test_suspicion_score_calculation(temp_repo):
 
 
 @pytest.mark.asyncio
+async def test_geolocation_membership_set_optimization(temp_repo):
+    """Verify geolocation risk scoring for high-risk vs non-high-risk countries and frozenset constant."""
+    from blackwall.policy.semantic import extract_iocs, HIGH_RISK_GEOLOCATIONS
+    
+    assert isinstance(HIGH_RISK_GEOLOCATIONS, frozenset)
+    assert HIGH_RISK_GEOLOCATIONS == {"RU", "CN", "KP", "IR", "BY"}
+
+    engine = SemanticGatingEngine(repo=temp_repo)
+
+    # 1. High-risk country IP (RU) -> geo_points = 0.2
+    ctx_ru = ToolCallContext(tool_name="test_tool", arguments={"ip": "8.8.8.8"}, metadata={"country": "RU"})
+    score_ru = await engine.calculate_suspicion_score(ctx_ru, extract_iocs(ctx_ru))
+    # Novelty (0.3) + Geo High-Risk (0.2) = 0.50
+    assert abs(score_ru - 0.50) < 0.01
+
+    # 2. High-risk country IP using 'geolocation' metadata key (CN) -> geo_points = 0.2
+    ctx_cn = ToolCallContext(tool_name="test_tool", arguments={"ip": "8.8.8.8"}, metadata={"geolocation": "CN"})
+    score_cn = await engine.calculate_suspicion_score(ctx_cn, extract_iocs(ctx_cn))
+    assert abs(score_cn - 0.50) < 0.01
+
+    # 3. Non-high-risk external country IP (FR) -> geo_points = 0.1
+    ctx_fr = ToolCallContext(tool_name="test_tool", arguments={"ip": "8.8.8.8"}, metadata={"country": "FR"})
+    score_fr = await engine.calculate_suspicion_score(ctx_fr, extract_iocs(ctx_fr))
+    # Novelty (0.3) + Geo Standard (0.1) = 0.40
+    assert abs(score_fr - 0.40) < 0.01
+
+    # 4. Internal / loopback IP -> geo_points = 0.0, score = 0.0
+    ctx_local = ToolCallContext(tool_name="test_tool", arguments={"ip": "127.0.0.1"}, metadata={"country": "RU"})
+    score_local = await engine.calculate_suspicion_score(ctx_local, extract_iocs(ctx_local))
+    assert score_local == 0.0
+
+
+@pytest.mark.asyncio
 async def test_gti_query_budget_tracker_integration():
     from blackwall.mcp.gti_client import GTIQueryBudgetTracker
     import asyncio

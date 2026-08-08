@@ -38,16 +38,23 @@
 
 ## 10. Attack Path Correlation & Temporal Adjacency Invariants
 * **Rule (Limit Validation & Integrity):** Public correlator and store parameters (`max_nodes`, `max_paths`, `max_depth`, `limit`) MUST validate that input integers are strictly positive (`> 0`) and that `max_depth >= min_path_length`, raising a clear `ValueError` on invalid values. Internal traversal helper functions MUST respect explicit parameters directly without silent internal parameter overrides.
-* **Rule (Chronological Causal Edges):** Causal edges in temporal adjacency graph construction MUST enforce `target_node.event.timestamp >= node_a.event.timestamp`. Path materialization loops MUST skip reverse-ordered sequences (`end_time < start_time`) and catch `ValueError` during `AttackPath` model instantiation to prevent invalid edge data from failing correlation calls.
-* **Rule (O(1) Causal Edge Resolution):** Temporal window iteration MUST break unconditionally when temporal distance exceeds the 300-second window (`delta_sec > 300`). Explicit causal edges MUST be resolved via a precomputed incoming edge index (`Dict[uuid.UUID, List[AttackNode]]`) for $O(1)$ directed edge lookup regardless of time separation.
+## 11. Security Model Fingerprinting & UTC Temporal Invariants
+* **Rule (Fingerprint Integrity & Tampering Prevention):** Identity fingerprinting methods (e.g. `compute_fingerprint()`) MUST recompute expected SHA-256 hashes unconditionally from canonical identity fields. If a caller supplies an explicit fingerprint parameter, it MUST be validated against the recomputed hash and raise a `ValueError` on mismatch. Numerical identity attributes (e.g. `process_uid`, `agent_id`) MUST use explicit `val is None` checks rather than `or` truthiness fallbacks to prevent collapsing valid falsy identifiers (e.g., `process_uid=0` for root).
+* **Rule (Freshness & Temporal Sequence Invariants):** Model timestamp validators MUST NOT drop freshness window bounds (e.g. ±5.0 second delta limit on `SecurityEvent`) when applying UTC timezone validation (`validate_utc_datetime`). Models containing multi-timestamp lifecycles (e.g. `AttackerProfile` with `first_seen` and `last_seen`) MUST enforce `last_seen >= first_seen` via `@model_validator` and `validate_temporal_sequence()`.
 
-## 11. Pydantic Configuration Model Declarations & Field Optionality Invariants
+
+## 13. Pydantic Configuration Model Declarations & Field Optionality Invariants
 * **Rule:** In Pydantic configuration models (`src/blackwall/policy/models.py`, `src/blackwall/models.py`), nested configuration sections MUST NOT combine `Optional[T]` type annotations with `default_factory=T`.
   - If a nested configuration section should always exist with default values when omitted from YAML/JSON inputs, declare it as `section: SectionConfig = Field(default_factory=SectionConfig)` (non-optional).
   - If a nested configuration section's omission represents an unconfigured/disabled state, declare it as `section: Optional[SectionConfig] = None` (without `default_factory`).
   - Accessing callers MUST align with the chosen contract: use direct attribute access (`policy.section.sub_field`) for always-present sections, or explicit `is not None` checks (`if policy.section is not None:`) for truly optional sections.
 * **Rationale:** Combining `Optional[T]` with `default_factory=T` creates ambiguous model definitions where the field is never `None` on parsed instances, invalidating `if policy.section:` checks and obscuring whether a section was explicitly configured or omitted.
 
-## 12. CodeQL Test Assertion Invariants
+## 14. CodeQL Test Assertion Invariants
 * **Rule:** Unit test assertions checking pattern containment or string matches MUST NOT use arbitrary substring `in` checks on un-sanitized URL/string targets (e.g. `any("192.168.1.50" in p for p in patterns)`). Assertions MUST use explicit string equality (`pattern == "ip:192.168.1.50"`) or exact set containment (`"ip:192.168.1.50" in patterns`) to prevent CodeQL security alerts regarding un-sanitized substring matching.
 * **Rationale:** Direct set or list membership assertions eliminate false positives and ensure strict, deterministic verification of security evidence outputs.
+
+## 15. Advanced Threat Detection Identifier Semantics & Contextual Field Error Messaging
+* **Rule (UUID v4 Enforcement):** All identifier fields in Advanced Threat Detection Pydantic models (e.g. `event_id`, `node_id`, `path_id`, `swarm_id`, `chain_id`, `grant_id`, `granted_by`, `granted_to`) MUST be typed as `UUID4` (or validate UUID v4 format via `validate_uuid_v4_format`). Field validators delegating to `validate_uuid_v4_format` MUST pass `field_name=info.field_name` to provide field-specific error messages in `ValidationError` exceptions instead of hard-coding `event_id`.
+* **Rule (Bounded State & Strict Capacity Validation):** In-memory state trackers storing per-entity sequences MUST use bounded collections (e.g. `collections.deque(maxlen=max_capacity)`). Constructor capacity parameters MUST validate that values are strictly non-boolean integers (`not isinstance(v, bool) and isinstance(v, int) and v > 0`), raising `ValueError` on invalid types or non-positive values.
+* **Rule (Trust Boundary Classification):** Security context transition classifiers (e.g. `identify_boundary_crossing()`) MUST evaluate context changes against predefined `TRUST_BOUNDARIES` sets, rather than returning `True` for any arbitrary string inequality.

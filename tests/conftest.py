@@ -129,7 +129,8 @@ def _has_wandb_credentials() -> bool:
                     "''",
                 ):
                     return True
-    except OSError:
+    except (OSError, configparser.Error):
+        # Malformed or unreadable settings file — treat as no credentials
         pass
 
     return False

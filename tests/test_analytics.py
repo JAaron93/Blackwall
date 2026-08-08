@@ -289,3 +289,53 @@ def test_update_agbom_and_capability_drift() -> None:
     # This should log drift, we can verify it updates the AgBOM
     analytics.updateAgBOM(event2)
     assert analytics.agbom["tools"]["run_command"]["frequency"] == 1
+
+
+@pytest.mark.asyncio
+async def test_trigger_refactoring_custom_batch_size(repo: SQLiteThreatRepository) -> None:
+    import json
+    from uuid import uuid4
+
+    sig1_id, sig2_id, sig3_id = uuid4(), uuid4(), uuid4()
+    for s_id in [sig1_id, sig2_id, sig3_id]:
+        await repo.writeSignature({
+            "signatureId": str(s_id),
+            "attackerIntent": "Test Intent",
+            "payloadPattern": "rm -rf /",
+            "targetTool": "run_command",
+            "mitigationAction": "BLOCK",
+        })
+
+    analytics = AgentBehavioralAnalytics(repo=repo, batch_size=2)
+    assert analytics.batch_size == 2
+
+    context = ToolCallContext(tool_name="run_command", arguments={"CommandLine": "rm -rf /"})
+    event = SecurityEvent(
+        event_type=EventType.QUARANTINE,
+        tool_context=context,
+        verdict=Verdict(decision=VerdictDecision.QUARANTINE, reasoning="Quarantined", confidence_score=0.9),
+        cbm_response=CBMResponse(blast_radius=1, critical_sinks=[SinkType.PROCESS]),
+        related_signatures=[sig1_id, sig2_id, sig3_id],
+    )
+
+    hint = await analytics.triggerRefactoring(event)
+    assert hint is not None
+
+    async with repo.pool.connection() as conn:
+        for s_id in [sig1_id, sig2_id, sig3_id]:
+            cursor = await conn.execute(
+                "SELECT metadata FROM signatures WHERE signature_id = ?", (str(s_id),)
+            )
+            row = await cursor.fetchone()
+            assert row is not None and row[0] is not None
+            meta = json.loads(row[0])
+            assert "refactoring_hint" in meta
+
+
+def test_agent_behavioral_analytics_invalid_batch_size() -> None:
+    with pytest.raises(ValueError, match="batch_size must be a positive integer"):
+        AgentBehavioralAnalytics(batch_size=0)
+
+    with pytest.raises(ValueError, match="batch_size must be a positive integer"):
+        AgentBehavioralAnalytics(batch_size=-10)
+

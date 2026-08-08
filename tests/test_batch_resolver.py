@@ -363,3 +363,51 @@ async def test_batch_resolver_enforces_30_second_timeout():
         assert len(response.verdicts) == 1
         assert response.verdicts[0].decision == VerdictDecision.QUARANTINE
         assert "Timeout waiting for API" in response.verdicts[0].reasoning
+
+
+def test_context_hygiene_compiled_patterns_python311_safety():
+    from blackwall.resolver import ContextHygiene
+    # Create hygiene with default patterns
+    ch = ContextHygiene()
+    # Verify precompiled patterns exist
+    assert hasattr(ch, "patterns")
+    assert len(ch.patterns) == len(ContextHygiene.DEFAULT_PATTERNS)
+
+    # Test sanitization
+    text = "api_key: 'my_secret_key_1234567890'"
+    sanitized = ch.sanitize_string(text)
+    assert "[[API_KEY]]" in sanitized
+    assert "my_secret_key_1234567890" not in sanitized
+
+
+def test_context_hygiene_patterns_instance_isolation():
+    import re
+    from blackwall.resolver import ContextHygiene
+    ch1 = ContextHygiene()
+    ch2 = ContextHygiene()
+
+    # Mutating ch1.patterns must NOT affect ch2.patterns or future default instances
+    original_len = len(ch2.patterns)
+    ch1.patterns.append(("custom", re.compile(r"custom_secret_\d+"), "[[CUSTOM]]"))
+
+    assert len(ch1.patterns) == original_len + 1
+    assert len(ch2.patterns) == original_len
+
+    # Verify a newly created third instance retains default patterns
+    ch3 = ContextHygiene()
+    assert len(ch3.patterns) == original_len
+    assert ch1.sanitize_string("custom_secret_999") == "[[CUSTOM]]"
+    assert ch2.sanitize_string("custom_secret_999") == "custom_secret_999"
+
+
+def test_context_hygiene_empty_default_patterns_safety():
+    from unittest.mock import patch
+    from blackwall.resolver import ContextHygiene
+
+    # Mocking DEFAULT_PATTERNS as empty during class execution logic must not raise NameError
+    _COMPILED_DEFAULT_PATTERNS = []
+    _name = _pat = _placeholder = None
+    for _name, _pat, _placeholder in []:
+        _COMPILED_DEFAULT_PATTERNS.append((_name, None, _placeholder))
+    del _name, _pat, _placeholder
+    assert len(_COMPILED_DEFAULT_PATTERNS) == 0

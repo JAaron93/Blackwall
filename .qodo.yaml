@@ -49,6 +49,7 @@ qodo:
       - Confirm all end-to-end security behavior contracts pass via `pytest-bdd` scenarios in `tests/features/`.
       - Verify `sys.addaudithook` registrations in tests are scoped inside isolated test functions, and background processes clean up process groups via `os.killpg(os.getpgid(pid), signal.SIGTERM)`.
       - Flag any synthetic test credentials matching live cloud provider key formats (e.g. `AWS_KEY_<digits>`) to prevent secret scanner false positives.
+      - Ensure Attacker Identification & Reporting components (`AttackerIdentityExtractor`, `AttackerProfile`, `IncidentReportGenerator`, `AttributionEngine`) strictly enforce Pydantic v2 validation (SHA-256 fingerprinting, UTC timezone awareness, score bounds [0.0, 1.0]), run after `ContextResolver` sanitization, and fail-closed without throwing unhandled exceptions.
 
   # PR Description Tool Configuration (/describe)
   pr_description:

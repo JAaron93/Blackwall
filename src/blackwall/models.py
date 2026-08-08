@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 from enum import Enum
+import hashlib
+import json
 from typing import Any, Callable, Dict, List, Optional
 from uuid import UUID, uuid4
 
@@ -166,7 +168,11 @@ class SyncResolverMetrics(BaseModel):
     allow_count: int = 0
 
 
-from blackwall.validators import validate_semver_format
+from blackwall.validators import (
+    validate_semver_format,
+    validate_temporal_sequence,
+    validate_utc_datetime,
+)
 
 
 class PolicyServerState(BaseModel):
@@ -196,7 +202,7 @@ class SecurityEvent(BaseModel):
     @field_validator("timestamp")
     @classmethod
     def validate_timestamp(cls, v: datetime) -> datetime:
-        if v.tzinfo is None:
+        if v.tzinfo is None or v.utcoffset() != timezone.utc.utcoffset(v):
             raise ValueError("Timestamp must be timezone-aware")
         now = datetime.now(timezone.utc)
         diff = abs((now - v).total_seconds())
@@ -205,6 +211,8 @@ class SecurityEvent(BaseModel):
                 f"Timestamp must be within 5 seconds of current time, got diff {diff}s"
             )
         return v
+
+
 
     @model_validator(mode="after")
     def validate_verdict_presence(self) -> "SecurityEvent":
@@ -218,3 +226,106 @@ class SecurityEvent(BaseModel):
                 f"Verdict is required for event_type {self.event_type.value}"
             )
         return self
+
+
+class IdentitySource(str, Enum):
+    ADK_METADATA = "ADK_METADATA"
+    SYSTEM_PROCESS = "SYSTEM_PROCESS"
+    EBPF_KERNEL = "EBPF_KERNEL"
+    CONTAINER = "CONTAINER"
+    NETWORK_IP = "NETWORK_IP"
+    VAULT_TOKEN = "VAULT_TOKEN"
+
+
+class AttackerIdentity(BaseModel):
+    identity_id: UUID = Field(default_factory=uuid4)
+    agent_id: Optional[str] = None
+    agent_name: Optional[str] = None
+    agent_model: Optional[str] = None
+    thread_id: Optional[str] = None
+    process_pid: Optional[int] = None
+    process_uid: Optional[int] = None
+    process_name: Optional[str] = None
+    process_cmdline: Optional[str] = None
+    container_id: Optional[str] = None
+    source_ip: Optional[str] = None
+    vault_token_accessor: Optional[str] = None
+    primary_source: IdentitySource = IdentitySource.ADK_METADATA
+    identity_fingerprint: str = ""
+
+    @model_validator(mode="after")
+    def compute_fingerprint(self) -> "AttackerIdentity":
+        uid_str = "" if self.process_uid is None else str(self.process_uid)
+        raw = f"{self.agent_id or ''}:{self.agent_name or ''}:{self.thread_id or ''}:{uid_str}:{self.source_ip or ''}:{self.primary_source.value}"
+        computed = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+        if self.identity_fingerprint and self.identity_fingerprint != computed:
+            raise ValueError("Provided identity_fingerprint does not match computed identity fingerprint")
+
+        self.identity_fingerprint = computed
+        return self
+
+
+class AttackerProfile(BaseModel):
+    fingerprint: str
+    first_seen: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_seen: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    total_attacks: int = Field(default=1, ge=1)
+    threat_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    associated_signatures: List[str] = Field(default_factory=list)
+    targeted_tools: List[str] = Field(default_factory=list)
+    risk_category: str = "HIGH"
+
+    @field_validator("first_seen", "last_seen")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        return validate_utc_datetime(v)
+
+    @model_validator(mode="after")
+    def validate_temporal_ordering(self) -> "AttackerProfile":
+        validate_temporal_sequence(
+            self.first_seen,
+            self.last_seen,
+            start_name="first_seen",
+            end_name="last_seen",
+        )
+        return self
+
+
+class IncidentReport(BaseModel):
+    report_id: UUID = Field(default_factory=uuid4)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    event_id: UUID
+    verdict: VerdictDecision
+    attacker_identity: AttackerIdentity
+    attacker_profile: AttackerProfile
+    exploited_tool: str
+    sanitized_arguments: Dict[str, Any] = Field(default_factory=dict)
+    attack_technique: str
+    mitigation_action: str
+    recommended_user_action: str
+    attribution_confidence: float = Field(..., ge=0.0, le=1.0)
+
+    @field_validator("timestamp")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        return validate_utc_datetime(v)
+
+    def to_json(self) -> str:
+        return self.model_dump_json(indent=2)
+
+    def to_markdown(self) -> str:
+        return f"""# Blackwall Incident Attribution Report
+- **Report ID**: `{self.report_id}`
+- **Timestamp**: {self.timestamp.isoformat()}
+- **Verdict**: `{self.verdict.value}`
+- **Exploited Tool**: `{self.exploited_tool}`
+- **Attacker Agent**: `{self.attacker_identity.agent_name or self.attacker_identity.agent_id or 'Unknown'}`
+- **Attacker Fingerprint**: `{self.attacker_identity.identity_fingerprint}`
+- **Attack Technique**: {self.attack_technique}
+- **Mitigation Action**: {self.mitigation_action}
+- **Recommended Action**: {self.recommended_user_action}
+- **Attribution Confidence**: {self.attribution_confidence * 100:.1f}%
+"""
+
+
