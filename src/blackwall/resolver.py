@@ -66,6 +66,7 @@ class ContextHygiene:
     _COMPILED_DEFAULT_PATTERNS = []
     for _name, _pat, _placeholder in DEFAULT_PATTERNS:
         _COMPILED_DEFAULT_PATTERNS.append((_name, re.compile(_pat), _placeholder))
+    del _name, _pat, _placeholder
 
     def __init__(self, patterns: Optional[List[tuple[str, str, str]]] = None):
         if patterns is None:

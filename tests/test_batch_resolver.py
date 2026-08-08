@@ -372,6 +372,12 @@ def test_context_hygiene_compiled_patterns_python311_safety():
     # Verify precompiled patterns exist
     assert hasattr(ch, "patterns")
     assert len(ch.patterns) == len(ContextHygiene.DEFAULT_PATTERNS)
+
+    # Verify loop temporaries are deleted from class scope
+    assert not hasattr(ContextHygiene, "_name")
+    assert not hasattr(ContextHygiene, "_pat")
+    assert not hasattr(ContextHygiene, "_placeholder")
+
     # Test sanitization
     text = "api_key: 'my_secret_key_1234567890'"
     sanitized = ch.sanitize_string(text)
