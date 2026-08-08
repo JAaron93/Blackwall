@@ -27,15 +27,10 @@ logger = logging.getLogger("blackwall.policy.semantic")
 IP_PATTERN = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 URL_PATTERN = re.compile(r"https?://[^\s/$.?#].[^\s]*", re.IGNORECASE)
 DOMAIN_PATTERN = re.compile(r"\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b")
-<<<<<<< HEAD
 HASH_PATTERN = re.compile(
     r"\b[a-fA-F0-9]{32}\b|\b[a-fA-F0-9]{40}\b|\b[a-fA-F0-9]{64}\b"
 )
-=======
-HASH_PATTERN = re.compile(r"\b[a-fA-F0-9]{32}\b|\b[a-fA-F0-9]{40}\b|\b[a-fA-F0-9]{64}\b")
 HIGH_RISK_GEOLOCATIONS = frozenset({"RU", "CN", "KP", "IR", "BY"})
-
->>>>>>> origin/main
 
 
 def extract_strings(val: Any) -> List[str]:

@@ -422,13 +422,8 @@ class SQLiteThreatRepository:
         threshold: float = 0.85,
         fts_fallback_score: float = 0.75,
         fts_threshold_cap: float = 0.70,
-<<<<<<< HEAD
         target_tool: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-=======
-        target_tool: str | None = None,
-    ) -> list[dict[str, Any]]:
->>>>>>> origin/main
         """
         Computes cosine similarity between query_vector and stored signatures.
         Falls back to FTS5 full-text search if the signature lacks a vector or if
