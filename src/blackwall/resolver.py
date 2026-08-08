@@ -92,12 +92,8 @@ class ContextHygiene:
     def sanitize_string(self, text: str) -> str:
         for name, regex, placeholder in self.patterns:
             if name in ("password", "api_key"):
-                # Define a helper that captures the current placeholder without
-                # passing it as a default arg in lambda which is slightly faster
-
-                # To avoid creating a function for every loop, we could use a bound method
-                # if we store the placeholder in the class, but since this can be called concurrently
-                # we'll just create a tiny lambda
+                # Capture current placeholder via default-argument to avoid late-binding
+                # of the loop variable during regex substitution callbacks.
                 text = regex.sub(lambda m, p=placeholder: self._repl(m, p), text)
             else:
                 text = regex.sub(placeholder, text)
