@@ -63,14 +63,13 @@ class ContextHygiene:
         ("email", r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "[[EMAIL]]"),
     ]
 
-    _COMPILED_DEFAULT_PATTERNS = [
-        (name, re.compile(pat), placeholder)
-        for name, pat, placeholder in DEFAULT_PATTERNS
-    ]
+    _COMPILED_DEFAULT_PATTERNS = []
+    for _name, _pat, _placeholder in DEFAULT_PATTERNS:
+        _COMPILED_DEFAULT_PATTERNS.append((_name, re.compile(_pat), _placeholder))
 
     def __init__(self, patterns: Optional[List[tuple[str, str, str]]] = None):
         if patterns is None:
-            self.patterns = self._COMPILED_DEFAULT_PATTERNS
+            self.patterns = list(self._COMPILED_DEFAULT_PATTERNS)
         else:
             self.patterns = []
             for name, pat, placeholder in patterns:

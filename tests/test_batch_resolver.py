@@ -377,3 +377,18 @@ def test_context_hygiene_compiled_patterns_python311_safety():
     sanitized = ch.sanitize_string(text)
     assert "[[API_KEY]]" in sanitized
     assert "my_secret_key_1234567890" not in sanitized
+
+
+def test_context_hygiene_patterns_instance_isolation():
+    from blackwall.resolver import ContextHygiene
+    ch1 = ContextHygiene()
+    ch2 = ContextHygiene()
+
+    # Mutating ch1.patterns must NOT affect ch2.patterns or _COMPILED_DEFAULT_PATTERNS
+    original_len = len(ch2.patterns)
+    ch1.patterns.append(("custom", None, "[[CUSTOM]]"))
+
+    assert len(ch1.patterns) == original_len + 1
+    assert len(ch2.patterns) == original_len
+    assert len(ContextHygiene._COMPILED_DEFAULT_PATTERNS) == original_len
+
