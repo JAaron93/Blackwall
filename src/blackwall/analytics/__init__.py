@@ -57,6 +57,8 @@ class AgentBehavioralAnalytics:
         self.baseline_score = baseline_score
         self.allowed_tools = allowed_tools
         self.model_name = model_name
+        if batch_size <= 0:
+            raise ValueError(f"batch_size must be a positive integer (> 0), got {batch_size}")
         self.batch_size = batch_size
         self.agbom: Dict[str, Any] = {"tools": {}}
         self._embedding_model = None

@@ -298,3 +298,11 @@ async def test_trigger_refactoring_custom_batch_size(repo: SQLiteThreatRepositor
             meta = json.loads(row[0])
             assert "refactoring_hint" in meta
 
+
+def test_agent_behavioral_analytics_invalid_batch_size() -> None:
+    with pytest.raises(ValueError, match="batch_size must be a positive integer"):
+        AgentBehavioralAnalytics(batch_size=0)
+
+    with pytest.raises(ValueError, match="batch_size must be a positive integer"):
+        AgentBehavioralAnalytics(batch_size=-10)
+
