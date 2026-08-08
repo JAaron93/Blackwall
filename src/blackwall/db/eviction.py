@@ -281,6 +281,9 @@ class EvictionManager:
         int
             Number of signatures deleted during this LFU pass.
         """
+        if max_signatures <= 0:
+            raise ValueError(f"max_signatures must be a positive integer (> 0), got {max_signatures}")
+
         async with self.pool.connection() as conn:
             cursor = await conn.execute("SELECT COUNT(*) FROM signatures")
             row = await cursor.fetchone()

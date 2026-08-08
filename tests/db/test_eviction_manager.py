@@ -589,3 +589,13 @@ async def test_evict_lfu_atomic_batch(
         cursor = await conn.execute("SELECT COUNT(*) FROM signatures")
         row = await cursor.fetchone()
         assert row[0] == 5
+
+
+@pytest.mark.asyncio
+async def test_evict_lfu_invalid_max_signatures(mgr: EvictionManager) -> None:
+    """Verify evict_lfu raises ValueError when max_signatures <= 0."""
+    with pytest.raises(ValueError, match="max_signatures must be a positive integer"):
+        await mgr.evict_lfu(max_signatures=0)
+
+    with pytest.raises(ValueError, match="max_signatures must be a positive integer"):
+        await mgr.evict_lfu(max_signatures=-5)
