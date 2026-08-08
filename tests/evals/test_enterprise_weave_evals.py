@@ -39,10 +39,16 @@ if not has_wandb_credentials():
     os.environ["WEAVE_OFFLINE"] = "1"
     os.environ["WANDB_MODE"] = "offline"
 
+if not is_paid_tier:
+    os.environ["WEAVE_PARALLELISM"] = "1"
+else:
+    os.environ["WEAVE_PARALLELISM"] = "10"
+
+import pytest
+
 try:
     import weave
 except ImportError:
-    import pytest
     pytest.skip("weave package not installed", allow_module_level=True)
 
 
