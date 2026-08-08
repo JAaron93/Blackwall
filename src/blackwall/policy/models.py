@@ -63,6 +63,7 @@ class ThreatSignatureGraphConfig(BaseModel):
     ttlSeconds: int
     maxSignatures: int
     embeddingDimension: int
+    batchSize: int = Field(900, ge=1)
 
     @field_validator("walMode")
     @classmethod

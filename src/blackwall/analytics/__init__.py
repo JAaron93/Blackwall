@@ -50,12 +50,14 @@ class AgentBehavioralAnalytics:
         baseline_score: float = 1.0,  # default baseline on 0-5 scale
         allowed_tools: Optional[Set[str]] = None,
         model_name: str = "all-MiniLM-L6-v2",
+        batch_size: int = 900,
     ) -> None:
         self.repo = repo
         self.client = client
         self.baseline_score = baseline_score
         self.allowed_tools = allowed_tools
         self.model_name = model_name
+        self.batch_size = batch_size
         self.agbom: Dict[str, Any] = {"tools": {}}
         self._embedding_model = None
         self.embedding_client = GeminiEmbeddingClient(client) if client is not None else None
@@ -424,7 +426,7 @@ class AgentBehavioralAnalytics:
         if self.repo and event.related_signatures:
             # Batch update the metadata of the related signatures to prevent N+1 queries
             sig_ids = [str(sig_id) for sig_id in event.related_signatures]
-            batch_size = 900 # Safe limit for SQLite placeholders
+            batch_size = self.batch_size
             hint_dump = hint.model_dump(mode="json")
 
             for i in range(0, len(sig_ids), batch_size):
