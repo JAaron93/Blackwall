@@ -64,6 +64,7 @@ class ContextHygiene:
     ]
 
     _COMPILED_DEFAULT_PATTERNS = []
+    _name = _pat = _placeholder = None
     for _name, _pat, _placeholder in DEFAULT_PATTERNS:
         _COMPILED_DEFAULT_PATTERNS.append((_name, re.compile(_pat), _placeholder))
     del _name, _pat, _placeholder

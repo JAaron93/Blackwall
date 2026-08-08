@@ -102,7 +102,11 @@ def init_independent_context_hygiene_instances(state):
 
 @when("one instance modifies its pattern set")
 def modify_one_instance_patterns(state):
-    state.hygiene1.patterns.append(("custom", None, "[[CUSTOM]]"))
+    import re
+
+    state.hygiene1.patterns.append(
+        ("custom", re.compile(r"custom_secret_\d+"), "[[CUSTOM]]")
+    )
 
 
 @then(
@@ -113,7 +117,14 @@ def verify_pattern_isolation(state):
 
     assert len(state.hygiene1.patterns) == state.original_len + 1
     assert len(state.hygiene2.patterns) == state.original_len
-    assert len(ContextHygiene._COMPILED_DEFAULT_PATTERNS) == state.original_len
+
+    # Verify a newly created third instance is also isolated and unaffected
+    ch3 = ContextHygiene()
+    assert len(ch3.patterns) == state.original_len
+
+    # Verify hygiene1 sanitization functions with its valid appended pattern
+    assert state.hygiene1.sanitize_string("custom_secret_12345") == "[[CUSTOM]]"
+    assert state.hygiene2.sanitize_string("custom_secret_12345") == "custom_secret_12345"
 
 
 # --- Scenario: Context caching decreases token usage on subsequent calls ---
