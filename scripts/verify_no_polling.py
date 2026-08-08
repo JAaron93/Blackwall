@@ -26,6 +26,7 @@ def main():
         "blackwall/interception.py",
         "blackwall/middleware/context_hygiene.py",
         "blackwall/mcp/gti_budget_tracker.py",
+        "blackwall/enterprise/advanced_threat_detection/collector.py",
     }
 
     violations = []

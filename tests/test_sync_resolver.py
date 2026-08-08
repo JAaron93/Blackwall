@@ -133,14 +133,16 @@ async def test_gti_cbm_queries_execute_serially():
     cbm_client.query = AsyncMock(side_effect=mock_cbm_query)
 
     resolver = _make_resolver(gti_client=gti_client, cbm_client=cbm_client)
-    context = _make_context(arguments={"host": "wd-bouygues.com"})
+    context = ToolCallContext(
+        tool_name="execute_bash", arguments={"host": "wd-bouygues.com", "cmd": "curl"}
+    )
 
     await resolver.evaluate(context)
 
-    # GTI must fully complete before CBM starts
-    assert call_order.index("gti_end") < call_order.index(
-        "cbm_start"
-    ), f"Expected GTI to finish before CBM starts. Order was: {call_order}"
+    # CBM must fully complete before GTI starts (gating before external query)
+    assert call_order.index("cbm_end") < call_order.index(
+        "gti_start"
+    ), f"Expected CBM to finish before GTI starts. Order was: {call_order}"
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +236,7 @@ async def test_inline_signature_generation_after_block():
 
 
 # ---------------------------------------------------------------------------
-# Test 5: 15 RPM rate limit enforcement
+# Test 5: 15 RPM Rate Limit Enforcement
 # ---------------------------------------------------------------------------
 
 
@@ -246,9 +248,8 @@ async def test_15_rpm_rate_limit_enforcement():
     """
     resolver = _make_resolver()
 
-    # Drain the bucket manually so the 16th immediately exhausts it.
-    # Capacity is 15; after 15 consume() calls, the 16th returns False.
-    # We forcibly set tokens to 0 to simulate bucket exhaustion after 15 calls.
+    # Drain the bucket manually so subsequent calls immediately exhaust it.
+    resolver._rate_limiter.tokens = 0.0
 
     verdicts = []
     results = []

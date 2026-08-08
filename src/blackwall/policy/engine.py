@@ -102,33 +102,38 @@ class StructuralGatingEngine:
             active_rules_count=len(compiled_rules),
         )
 
+    ALLOWED_AST_NODES = (
+        ast.Expression,
+        ast.BoolOp,
+        ast.And,
+        ast.Or,
+        ast.UnaryOp,
+        ast.Not,
+        ast.Compare,
+        ast.Eq,
+        ast.NotEq,
+        ast.Lt,
+        ast.LtE,
+        ast.Gt,
+        ast.GtE,
+        ast.In,
+        ast.NotIn,
+        ast.List,
+        ast.Tuple,
+        ast.Set,
+        ast.Name,
+        ast.Constant,
+        ast.Load,
+    )
+
     def _validate_condition_ast(self, normalized_condition: str) -> None:
         """Validates that condition contains only safe AST nodes and allowed variables."""
         node = ast.parse(normalized_condition, mode="eval")
 
-        allowed_nodes = (
-            ast.Expression,
-            ast.BoolOp,
-            ast.And,
-            ast.Or,
-            ast.Compare,
-            ast.Eq,
-            ast.NotEq,
-            ast.Lt,
-            ast.LtE,
-            ast.Gt,
-            ast.GtE,
-            ast.In,
-            ast.NotIn,
-            ast.Name,
-            ast.Constant,
-            ast.Load,
-        )
-
         allowed_variables = {"toolName", "environmentRole"}
 
         for n in ast.walk(node):
-            if not isinstance(n, allowed_nodes):
+            if not isinstance(n, self.ALLOWED_AST_NODES):
                 raise ValueError(
                     f"Unauthorized expression component: {type(n).__name__}"
                 )
@@ -150,6 +155,18 @@ class StructuralGatingEngine:
             return node.value
         elif isinstance(node, ast.Name):
             return variables[node.id]
+        elif isinstance(node, ast.List):
+            return [self._eval_ast(elt, variables) for elt in node.elts]
+        elif isinstance(node, ast.Tuple):
+            return tuple(self._eval_ast(elt, variables) for elt in node.elts)
+        elif isinstance(node, ast.Set):
+            return {self._eval_ast(elt, variables) for elt in node.elts}
+        elif isinstance(node, ast.UnaryOp):
+            operand = self._eval_ast(node.operand, variables)
+            if isinstance(node.op, ast.Not):
+                return not operand
+            else:
+                raise ValueError(f"Unsupported unary op {type(node.op)}")
         elif isinstance(node, ast.Compare):
             left = self._eval_ast(node.left, variables)
             for op, comparator in zip(node.ops, node.comparators):
@@ -184,15 +201,19 @@ class StructuralGatingEngine:
             return True
         elif isinstance(node, ast.BoolOp):
             if isinstance(node.op, ast.And):
+                res: Any = True
                 for value in node.values:
-                    if not self._eval_ast(value, variables):
-                        return False
-                return True
+                    res = self._eval_ast(value, variables)
+                    if not res:
+                        return res
+                return res
             elif isinstance(node.op, ast.Or):
+                res: Any = False
                 for value in node.values:
-                    if self._eval_ast(value, variables):
-                        return True
-                return False
+                    res = self._eval_ast(value, variables)
+                    if res:
+                        return res
+                return res
             else:
                 raise ValueError(f"Unsupported bool op {type(node.op)}")
         else:

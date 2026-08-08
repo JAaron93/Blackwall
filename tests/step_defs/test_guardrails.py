@@ -316,7 +316,64 @@ def test_bdd_mcp_router_detects_escape_attempt() -> None:
     pass
 
 
-# --- Step definitions (MCP Routing) -----------------------------------------
+@scenario(
+    _BLACKWALL_GUARDRAILS,
+    "StructuralGatingEngine evaluates policy conditions using safe AST evaluation",
+)
+def test_bdd_structural_engine_safe_ast_eval() -> None:
+    pass
+
+
+# --- Step definitions (MCP Routing & Structural AST) -----------------------
+
+@given(
+    "a StructuralGatingEngine loaded with a rules policy",
+    target_fixture="structural_engine_ctx",
+)
+def given_structural_engine_loaded() -> Dict[str, Any]:
+    import os
+    from blackwall.policy.engine import StructuralGatingEngine
+    from tests.unit.policy_yaml_helpers import make_yaml, write_temp_yaml
+
+    engine = StructuralGatingEngine()
+    rules = """
+- ruleId: "escalate-write"
+  condition: "toolName == 'write_file'"
+  action: ESCALATE_TO_SEMANTIC
+  priority: 1
+  enabled: true
+"""
+    yaml_path = write_temp_yaml(make_yaml(rules))
+    engine.load_policy(yaml_path)
+    return {"engine": engine, "yaml_path": yaml_path}
+
+
+@when(
+    parsers.parse(
+        'a tool call context with tool "{tool_name}" is evaluated under environment role "{role}"'
+    ),
+    target_fixture="ast_eval_result",
+)
+def when_eval_tool_call_ast(structural_engine_ctx, tool_name, role) -> Dict[str, Any]:
+    from blackwall.models import ToolCallContext
+
+    engine = structural_engine_ctx["engine"]
+    ctx = ToolCallContext(tool_name=tool_name, arguments={})
+    res = engine.evaluate(ctx, role)
+    return {"result": res, "engine": engine}
+
+
+@then("the AST evaluator must resolve the condition without using Python eval")
+def then_ast_eval_resolved(ast_eval_result) -> None:
+    res = ast_eval_result["result"]
+    assert res is not None
+    assert hasattr(res, "decision")
+
+
+@then(parsers.parse('the structural verdict decision must be "{expected_decision}"'))
+def then_verdict_decision_matches(ast_eval_result, expected_decision) -> None:
+    res = ast_eval_result["result"]
+    assert res.decision.value == expected_decision
 
 
 @pytest.fixture

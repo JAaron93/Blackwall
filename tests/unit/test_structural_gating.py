@@ -343,3 +343,41 @@ def test_deterministic_evaluation() -> None:
         assert res1.ruleId == res2.ruleId
     finally:
         os.remove(yaml_path)
+
+
+def test_eval_ast_in_operator_with_list_literal() -> None:
+    engine = StructuralGatingEngine()
+    rules = """
+- ruleId: "in-list-rule"
+  condition: "toolName in ['read_file', 'write_file']"
+  action: ALLOW
+  priority: 1
+  enabled: true
+"""
+    yaml_path = write_temp_yaml(make_yaml(rules))
+    try:
+        engine.load_policy(yaml_path)
+        ctx = ToolCallContext(tool_name="read_file", arguments={})
+        res = engine.evaluate(ctx, "sandbox")
+        assert res.decision == StructuralAction.ALLOW
+    finally:
+        os.remove(yaml_path)
+
+
+def test_eval_ast_bool_op_preserves_values() -> None:
+    engine = StructuralGatingEngine()
+    rules = """
+- ruleId: "nested-bool-rule"
+  condition: "(toolName == 'read_file' and environmentRole) == 'production'"
+  action: BLOCK
+  priority: 1
+  enabled: true
+"""
+    yaml_path = write_temp_yaml(make_yaml(rules))
+    try:
+        engine.load_policy(yaml_path)
+        ctx = ToolCallContext(tool_name="read_file", arguments={})
+        res = engine.evaluate(ctx, "production")
+        assert res.decision == StructuralAction.BLOCK
+    finally:
+        os.remove(yaml_path)

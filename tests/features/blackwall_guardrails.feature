@@ -35,3 +35,11 @@ Feature: Blackwall Agentic Firewall Guardrails
     When an operation named "query_dependency_chain;exec('malicious')" is routed
     Then the operation should raise MCPRoutingViolation
     And the error should contain "ESCAPE_ATTEMPT"
+
+  # --- Structural AST Evaluation Scenarios ---
+
+  Scenario: StructuralGatingEngine evaluates policy conditions using safe AST evaluation
+    Given a StructuralGatingEngine loaded with a rules policy
+    When a tool call context with tool "write_file" is evaluated under environment role "production"
+    Then the AST evaluator must resolve the condition without using Python eval
+    And the structural verdict decision must be "ESCALATE_TO_SEMANTIC"
