@@ -9,6 +9,11 @@ Feature: Batch Resolver Security and Rate Limiting
     When the batch is processed by the resolver
     Then the submitted payload must be redacted to "api_key=[[API_KEY]]" and "password:[[PASSWORD]]"
 
+  Scenario: ContextHygiene maintains isolated pattern lists across independent instances
+    Given independent ContextHygiene instances created with precompiled default patterns
+    When one instance modifies its pattern set
+    Then other instances retain their original precompiled pattern sets without cross-contamination
+
   Scenario: Context caching decreases token usage on subsequent calls
     Given a Batch Resolver is initialized with a mock Gemini client
     When a batch is processed for the first time
