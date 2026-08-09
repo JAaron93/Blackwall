@@ -1,4 +1,4 @@
-# Qodo & Antigravity Agent Constitution: Blackwall Core & Architecture
+# Greptile & Antigravity Agent Constitution: Blackwall Core & Architecture
 
 ## 1. Dual-Tier Project Context & Requirements
 
@@ -15,11 +15,11 @@ Blackwall is structured into **two distinct product tiers**:
 
 ---
 
-## 2. Qodo Review Agent Directives & SDD Rules
+## 2. Greptile Review Agent Directives & SDD Rules
 
-All code submitted via pull requests or feature branches must be reviewed against these Qodo agent guardrails:
+All code submitted via pull requests or feature branches must be reviewed against these Greptile agent guardrails:
 
-* **Qodo Review Directives**: Enforce Qodo agent review standards configured in `.qodo.yaml` and `pr_compliance_checklist.yaml`. Qodo reviews must verify both Core and Enterprise architecture invariants.
+* **Greptile Review Directives**: Enforce Greptile agent review standards configured in `.greptile/config.json`, `.greptile/rules.md`, and `.greptile/files.json`. Greptile reviews must verify both Core and Enterprise architecture invariants.
 * **Spec-Driven Consistency**: All edits must align with `.kiro/specs/blackwall-enterprise-security-mesh/`, `.kiro/specs/blackwall-advanced-threat-detection/`, and `.kiro/specs/blackwall-attacker-attribution/` (`design.md`, `requirements.md`, `tasks.md`).
 
 * **Behavior-Driven Specifications**: Verify all security behavior contracts using Gherkin syntax via `pytest-bdd` scenarios in `tests/features/`.
@@ -29,7 +29,7 @@ All code submitted via pull requests or feature branches must be reviewed agains
 
 ## 3. Core Architecture & Interception Flow (Base Branch Invariants)
 
-Qodo reviews must enforce the existing base branch architectural patterns:
+Greptile reviews must enforce the existing base branch architectural patterns:
 
 1. **Async Interception Resolver (`SyncResolver`) Sequence**:
    - Execution flow MUST follow: `Rate Check` -> `ContextHygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Conditional GTI Validation (High-Risk Only)` -> `Score Aggregation` -> `Threshold Verdict` -> `Optional Inline Signature Generation`.
@@ -72,7 +72,7 @@ Detailed architectural, security, database persistence, and testing hygiene rule
 Agents updating or expanding project rules (e.g. via `/learn` or code review resolutions) MUST adhere to the following governance:
 
 1. **Root `AGENTS.md` Scope**:
-   - Reserved exclusively for core product identity, dual-tier architecture invariants, Qodo review directives, high-level interception sequences, and pointers to `.agents/rules/`.
+   - Reserved exclusively for core product identity, dual-tier architecture invariants, Greptile review directives, high-level interception sequences, and pointers to `.agents/rules/`.
    - Do NOT add granular function-level or test-specific rules directly to `AGENTS.md`.
 
 2. **`.agents/rules/` Scope**:
