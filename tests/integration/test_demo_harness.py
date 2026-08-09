@@ -23,11 +23,30 @@ from blackwall.models import ToolCallContext, VerdictDecision, CBMResponse
 # 2. Test that the Blackwall agent daemon can be imported and runs (starts successfully)
 @pytest.mark.asyncio
 async def test_blackwall_daemon_starts() -> None:
-    from agent import root_agent
+    from agent import ADK_AVAILABLE, root_agent
 
     assert root_agent is not None
     assert root_agent.name == "blackwall_target_agent"
     assert len(root_agent.tools) == 4
+    assert root_agent.before_tool_callback is not None, (
+        "root_agent must retain before_tool_callback wiring"
+    )
+
+
+def test_adk_missing_outside_test_mode_raises_importerror(monkeypatch) -> None:
+    """Verify that importing agent module outside test/dev mode without ADK raises ImportError."""
+    import importlib
+
+    from agent import ADK_AVAILABLE
+
+    if not ADK_AVAILABLE:
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+        monkeypatch.delenv("BLACKWALL_TEST_MODE", raising=False)
+        monkeypatch.delenv("BLACKWALL_DEV_MODE", raising=False)
+
+        with pytest.raises(ImportError, match="Google ADK package is not installed"):
+            sys.modules.pop("agent", None)
+            importlib.import_module("agent")
 
 
 # 4. Test attack sequences with real signature persistence

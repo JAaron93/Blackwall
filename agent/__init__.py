@@ -36,23 +36,37 @@ try:
     from google.adk.tools import FunctionTool
     from google.adk.tools.base_tool import BaseTool
     from google.adk.tools.tool_context import ToolContext
+
+    ADK_AVAILABLE = True
 except ImportError:
     try:
         from google.genai.adk.agents import LlmAgent
         from google.genai.adk.tools import FunctionTool
         from google.genai.adk.tools.base_tool import BaseTool
         from google.genai.adk.tools.tool_context import ToolContext
+
+        ADK_AVAILABLE = True
     except ImportError:
-        # Graceful fallback mock classes for testing environment without google-adk installed
+        ADK_AVAILABLE = False
+
         class LlmAgent:  # type: ignore
             def __init__(self, *args: Any, **kwargs: Any) -> None:
                 self.name = kwargs.get("name", "blackwall_target_agent")
                 self.tools = kwargs.get("tools", [])
+                self.before_tool_callback = kwargs.get("before_tool_callback")
+                self.model = kwargs.get("model")
+                self.instruction = kwargs.get("instruction")
+                for k, v in kwargs.items():
+                    setattr(self, k, v)
+
         class FunctionTool:  # type: ignore
             def __init__(self, *args: Any, **kwargs: Any) -> None:
-                pass
+                for k, v in kwargs.items():
+                    setattr(self, k, v)
+
         class BaseTool:  # type: ignore
             pass
+
         class ToolContext:  # type: ignore
             pass
 
@@ -184,6 +198,17 @@ except ValueError as exc:
         logger.warning("GCP_PROJECT omitted during test module import: %s", exc)
     else:
         raise
+
+if not ADK_AVAILABLE and not (
+    "PYTEST_CURRENT_TEST" in os.environ
+    or "BLACKWALL_TEST_MODE" in os.environ
+    or "BLACKWALL_DEV_MODE" in os.environ
+    or "BLACKWALL_ALLOW_MOCK_ADK" in os.environ
+):
+    raise ImportError(
+        "Google ADK package is not installed (neither google.adk nor google.genai.adk found). "
+        "Please install google-adk to run the Blackwall ADK Agent module."
+    )
 
 _model = os.getenv("BLACKWALL_MODEL", "gemini-3.1-flash-lite")
 
