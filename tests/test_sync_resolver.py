@@ -241,17 +241,16 @@ async def test_inline_signature_generation_after_block():
 
 
 @pytest.mark.asyncio
-async def test_15_rpm_rate_limit_enforcement():
+async def test_15_rpm_rate_limit_enforcement(monkeypatch):
     """
-    Sending 16 requests rapidly — the 16th must receive QUARANTINE
-    (rate limit exhausted → fail-closed).
+    Sending 16 rapid requests on the free tier (15 RPM) — the first 15
+    pass, and the 16th receives QUARANTINE due to bucket exhaustion.
     """
+    monkeypatch.setenv("BLACKWALL_TIER", "free")
+    monkeypatch.setenv("GEMINI_TIER", "free")
+
     resolver = _make_resolver()
 
-    # Drain the bucket manually so subsequent calls immediately exhaust it.
-    resolver._rate_limiter.tokens = 0.0
-
-    verdicts = []
     results = []
 
     # Patch _compute_threat_score to return a low score (ALLOW) so any
@@ -265,16 +264,36 @@ async def test_15_rpm_rate_limit_enforcement():
             v = await resolver.evaluate(context)
             results.append(v)
 
-    # At least one of the last requests should be QUARANTINE due to rate limit
-    quarantine_verdicts = [
-        v for v in results if v.decision == VerdictDecision.QUARANTINE
-    ]
+    # First 15 decisions are ALLOW (not rate limited)
+    for i in range(15):
+        assert (
+            results[i].decision == VerdictDecision.ALLOW
+        ), f"Request {i+1} should be ALLOW but got {results[i].decision}"
+
+    # 16th decision is QUARANTINE due to rate limit exhaustion
     assert (
-        len(quarantine_verdicts) >= 1
-    ), "Expected at least one QUARANTINE verdict when 16 requests exhaust the 15 RPM bucket"
+        results[15].decision == VerdictDecision.QUARANTINE
+    ), f"Expected 16th request to be QUARANTINE, got {results[15].decision}"
+    assert "Rate limit exhausted" in results[15].reasoning
 
     # Verify rate_limit_hits counter was incremented
-    assert resolver._rate_limit_hits >= 1
+    assert resolver._rate_limit_hits == 1
+
+
+@pytest.mark.asyncio
+async def test_empty_bucket_quarantines():
+    """
+    Directly setting tokens to 0.0 returns QUARANTINE immediately (fail-closed edge case).
+    """
+    resolver = _make_resolver()
+    resolver._rate_limiter.tokens = 0.0
+
+    context = _make_context(arguments={"test": "empty"})
+    v = await resolver.evaluate(context)
+
+    assert v.decision == VerdictDecision.QUARANTINE
+    assert "Rate limit exhausted" in v.reasoning
+    assert resolver._rate_limit_hits == 1
 
 
 # ---------------------------------------------------------------------------
