@@ -24,7 +24,12 @@ from pathlib import Path
 from typing import Any
 
 from blackwall.eval.metrics import calculateMetrics
-from blackwall.models import GroundTruthLabel, SecurityMetrics, TestResult, VerdictDecision
+from blackwall.models import (
+    GroundTruthLabel,
+    SecurityMetrics,
+    TestResult,
+    VerdictDecision,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +165,11 @@ def _parse_verdict(raw: Any) -> VerdictDecision:
 
 
 def _parse_ground_truth(label: str) -> GroundTruthLabel:
-    return GroundTruthLabel.MALICIOUS if label.upper() == "MALICIOUS" else GroundTruthLabel.BENIGN
+    return (
+        GroundTruthLabel.MALICIOUS
+        if label.upper() == "MALICIOUS"
+        else GroundTruthLabel.BENIGN
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -256,9 +265,13 @@ class ReportGenerator:
 
     def _load_evalset(self) -> None:
         data = json.loads(self.evalset_path.read_text(encoding="utf-8"))
-        cases: list[dict[str, Any]] = data.get("eval_cases", data) if isinstance(data, dict) else data
+        cases: list[dict[str, Any]] = (
+            data.get("eval_cases", data) if isinstance(data, dict) else data
+        )
         self._ground_truth = {c["eval_case_id"]: c for c in cases}
-        logger.debug("Loaded %d ground-truth cases from evalset", len(self._ground_truth))
+        logger.debug(
+            "Loaded %d ground-truth cases from evalset", len(self._ground_truth)
+        )
 
     def _load_results(self) -> list[dict[str, Any]]:
         data = json.loads(self.results_path.read_text(encoding="utf-8"))
@@ -278,13 +291,13 @@ class ReportGenerator:
             gt_case = self._ground_truth.get(case_id)
 
             if gt_case is None:
-                logger.warning("No ground-truth found for case_id=%r — skipping", case_id)
+                logger.warning(
+                    "No ground-truth found for case_id=%r — skipping", case_id
+                )
                 continue
 
             meta = gt_case.get("metadata", {})
-            ground_truth = _parse_ground_truth(
-                meta.get("ground_truth", "BENIGN")
-            )
+            ground_truth = _parse_ground_truth(meta.get("ground_truth", "BENIGN"))
             scenario_type = meta.get("scenario_type", "benign")
             tool_name = meta.get("tool_name", "")
             expected_verdict = gt_case.get("reference", "ALLOW")
@@ -335,7 +348,9 @@ class ReportGenerator:
 
     @staticmethod
     def _compute_metrics(case_results: list[CaseResult]) -> SecurityMetrics:
-        test_results = [TestResult(verdict_decision=cr.actual_verdict) for cr in case_results]
+        test_results = [
+            TestResult(verdict_decision=cr.actual_verdict) for cr in case_results
+        ]
         labels = [cr.ground_truth for cr in case_results]
         return calculateMetrics(test_results, labels)
 
@@ -370,8 +385,10 @@ class ReportGenerator:
                 "quarantine_count": m.quarantine_count,
             },
             "threshold_checks": {
-                f"frr_below_{int(SECURITY_THRESHOLD_PCT)}pct": m.false_refusal_rate < SECURITY_THRESHOLD_PCT,
-                f"evasion_below_{int(SECURITY_THRESHOLD_PCT)}pct": m.evasion_rate < SECURITY_THRESHOLD_PCT,
+                f"frr_below_{int(SECURITY_THRESHOLD_PCT)}pct": m.false_refusal_rate
+                < SECURITY_THRESHOLD_PCT,
+                f"evasion_below_{int(SECURITY_THRESHOLD_PCT)}pct": m.evasion_rate
+                < SECURITY_THRESHOLD_PCT,
             },
             "case_results": [
                 {

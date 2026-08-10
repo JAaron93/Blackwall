@@ -86,10 +86,10 @@ threatSignatureGraph:
   ttlSeconds: 86400
   maxSignatures: 10000
   embeddingDimension: 768
+  batchSize: 900
 
 advancedThreatDetection:
   swarmDetector:
     windowSeconds: 3600
     minAgents: 2
     correlationThreshold: 0.75
-

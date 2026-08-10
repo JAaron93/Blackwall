@@ -141,9 +141,7 @@ def make_mock_semantic_engine(
         :class:`~unittest.mock.AsyncMock` matching the ``SemanticGatingEngine.evaluate`` signature.
     """
 
-    async def _evaluate(
-        ctx: ToolCallContext, role: str, *args, **kwargs
-    ) -> GateResult:
+    async def _evaluate(ctx: ToolCallContext, role: str, *args, **kwargs) -> GateResult:
         if cpu_spin_ms > 0.0:
             deadline = time.perf_counter() + cpu_spin_ms / 1000.0
             while time.perf_counter() < deadline:

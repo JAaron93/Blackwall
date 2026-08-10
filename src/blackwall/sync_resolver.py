@@ -33,62 +33,68 @@ logger = logging.getLogger(__name__)
 # High-risk tool names and keywords used in context signal scoring
 # ---------------------------------------------------------------------------
 
-_HIGH_RISK_TOOLS = frozenset({
-    "execute_shell",
-    "execute_bash",
-    "execute_terminal",
-    "run_command",
-    "subprocess",
-    "eval",
-    "exec",
-    "os_exec",
-})
+_HIGH_RISK_TOOLS = frozenset(
+    {
+        "execute_shell",
+        "execute_bash",
+        "execute_terminal",
+        "run_command",
+        "subprocess",
+        "eval",
+        "exec",
+        "os_exec",
+    }
+)
 
-_MEDIUM_RISK_TOOLS = frozenset({
-    "read_file",
-    "write_file",
-    "file_write",
-    "save_file",
-    "query_db",
-    "database_query",
-    "http_request",
-    "socket_connect",
-})
+_MEDIUM_RISK_TOOLS = frozenset(
+    {
+        "read_file",
+        "write_file",
+        "file_write",
+        "save_file",
+        "query_db",
+        "database_query",
+        "http_request",
+        "socket_connect",
+    }
+)
 
-_SUSPICIOUS_KEYWORDS = frozenset({
-    "passwd",
-    "shadow",
-    "etc",
-    "reverse",
-    "shell",
-    "payload",
-    "inject",
-    "exploit",
-    "backdoor",
-    "exfil",
-    "beacon",
-    "c2",
-    "wget",
-    "curl",
-    "bash",
-    "nc",
-    "netcat",
-    "chmod",
-    "chown",
-    "sudo",
-    "base64",
-    "obfuscat",
-    "eval(",
-    "exec(",
-    "union",
-    "select",
-    "drop",
-    "truncate",
-    "insert",
-    "delete",
-    "xp_cmd",
-    "cmdshell",
-})
+_SUSPICIOUS_KEYWORDS = frozenset(
+    {
+        "passwd",
+        "shadow",
+        "etc",
+        "reverse",
+        "shell",
+        "payload",
+        "inject",
+        "exploit",
+        "backdoor",
+        "exfil",
+        "beacon",
+        "c2",
+        "wget",
+        "curl",
+        "bash",
+        "nc",
+        "netcat",
+        "chmod",
+        "chown",
+        "sudo",
+        "base64",
+        "obfuscat",
+        "eval(",
+        "exec(",
+        "union",
+        "select",
+        "drop",
+        "truncate",
+        "insert",
+        "delete",
+        "xp_cmd",
+        "cmdshell",
+    }
+)
 
 
 class SyncResolver:
@@ -119,7 +125,9 @@ class SyncResolver:
         self.demo_mode = demo_mode
 
         # Rate limiter: Paid tier (300 RPM → capacity=300, refill_rate=5.0 t/s) vs Free tier (15 RPM)
-        tier = (os.getenv("GEMINI_TIER") or os.getenv("BLACKWALL_TIER") or "paid").lower()
+        tier = (
+            os.getenv("GEMINI_TIER") or os.getenv("BLACKWALL_TIER") or "paid"
+        ).lower()
         capacity = 300.0 if tier == "paid" else 15.0
         refill = 5.0 if tier == "paid" else 0.25
         self._rate_limiter = TokenBucketRateLimiter(
@@ -202,7 +210,7 @@ class SyncResolver:
         # 3b. Classify event as high-risk based on structural/CBM signals
         ctx_score = self._score_context(sanitized)
         cbm_score = self._score_cbm(cbm_resp)
-        preliminary_score = (cbm_score * 0.50 + ctx_score * 0.50)
+        preliminary_score = cbm_score * 0.50 + ctx_score * 0.50
         is_high_risk = preliminary_score >= 0.30  # High-risk threshold for GTI gating
 
         # 4. Query GTI only for high-risk events
@@ -256,9 +264,7 @@ class SyncResolver:
     # GTI query
     # ------------------------------------------------------------------
 
-    async def _query_gti(
-        self, context: ToolCallContext
-    ) -> Optional[GTIResponse]:
+    async def _query_gti(self, context: ToolCallContext) -> Optional[GTIResponse]:
         """
         Query GTI MCP serially (not parallel). Respects GTI budget tracker.
         Returns None if no gti_client, budget exhausted, or query fails.
@@ -291,7 +297,8 @@ class SyncResolver:
 
         except Exception as exc:
             logger.warning(
-                "GTI query failed — continuing without GTI signal: %s", exc,
+                "GTI query failed — continuing without GTI signal: %s",
+                exc,
             )
             self._gti_queries_deferred += 1
             return None
@@ -300,9 +307,7 @@ class SyncResolver:
     # CBM query
     # ------------------------------------------------------------------
 
-    async def _query_cbm(
-        self, context: ToolCallContext
-    ) -> Optional[CBMResponse]:
+    async def _query_cbm(self, context: ToolCallContext) -> Optional[CBMResponse]:
         """
         Query CBM MCP serially (not parallel).
         Returns None if no cbm_client or query fails.
@@ -316,7 +321,8 @@ class SyncResolver:
 
         except Exception as exc:
             logger.warning(
-                "CBM query failed — continuing without CBM signal: %s", exc,
+                "CBM query failed — continuing without CBM signal: %s",
+                exc,
             )
             return None
 
@@ -347,20 +353,12 @@ class SyncResolver:
         if self._gti_budget_exhausted:
             # Budget depletion: apply spec-mandated weight redistribution
             # and −0.2 penalty to reflect reduced detection confidence.
-            score = (
-                cbm_score * 0.50
-                + ctx_score * 0.50
-                - 0.20
-            )
+            score = cbm_score * 0.50 + ctx_score * 0.50 - 0.20
         else:
             # Normal path: GTI 40% + CBM 30% + Context 30%.
             # When gti_resp is None for any other reason, gti_score is 0.0,
             # which naturally reduces the GTI contribution without a penalty.
-            score = (
-                gti_score * 0.40
-                + cbm_score * 0.30
-                + ctx_score * 0.30
-            )
+            score = gti_score * 0.40 + cbm_score * 0.30 + ctx_score * 0.30
 
         return score
 
@@ -394,18 +392,12 @@ class SyncResolver:
                 ),
                 timeout=30.0,
             )
-            sig_text = (
-                response.text
-                if hasattr(response, "text")
-                else str(response)
-            )
+            sig_text = response.text if hasattr(response, "text") else str(response)
 
             if self.repo is not None:
                 await self.repo.writeSignature(
                     {
-                        "attackerIntent": (
-                            f"Blocked tool call: {context.tool_name}"
-                        ),
+                        "attackerIntent": (f"Blocked tool call: {context.tool_name}"),
                         "payloadPattern": sig_text[:512],
                         "targetTool": context.tool_name,
                         "mitigationAction": "BLOCK",
@@ -419,7 +411,8 @@ class SyncResolver:
 
         except Exception as exc:
             logger.warning(
-                "Inline signature generation failed — skipping: %s", exc,
+                "Inline signature generation failed — skipping: %s",
+                exc,
             )
 
     # ------------------------------------------------------------------
@@ -524,9 +517,7 @@ class SyncResolver:
                     return 0.45
             return 0.1
 
-    def _score_argument_novelty(
-        self, arguments: Dict[str, Any]
-    ) -> float:
+    def _score_argument_novelty(self, arguments: Dict[str, Any]) -> float:
         """Counts suspicious keywords found in stringified argument values."""
         combined = " ".join(str(v) for v in arguments.values()).lower()
         count = sum(1 for kw in _SUSPICIOUS_KEYWORDS if kw in combined)
@@ -550,11 +541,15 @@ class SyncResolver:
         if url_match:
             domain = url_match.group(1)
             # Skip localhost and private domains
-            if domain not in ("localhost", "127.0.0.1") and not domain.startswith("192.168."):
+            if domain not in ("localhost", "127.0.0.1") and not domain.startswith(
+                "192.168."
+            ):
                 return domain
 
         # Look for standalone domain patterns
-        domain_match = re.search(r"\b([a-z0-9-]+\.)+[a-z]{2,}\b", args_str, re.IGNORECASE)
+        domain_match = re.search(
+            r"\b([a-z0-9-]+\.)+[a-z]{2,}\b", args_str, re.IGNORECASE
+        )
         if domain_match:
             return domain_match.group(0)
 

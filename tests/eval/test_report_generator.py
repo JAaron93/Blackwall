@@ -47,7 +47,10 @@ def _evalset_case(
         ],
         "expected_tool_use": [
             {
-                "tool_use": {"tool_name": "before_tool_callback", "tool_input": {"tool_name": tool_name}},
+                "tool_use": {
+                    "tool_name": "before_tool_callback",
+                    "tool_input": {"tool_name": tool_name},
+                },
                 "tool_use_result": {"verdict": expected_verdict},
             }
         ],
@@ -72,7 +75,13 @@ def minimal_evalset() -> dict:
             _evalset_case(BENIGN_CASE_ID, "BENIGN", "benign", "ALLOW"),
             _evalset_case(MALICIOUS_CASE_ID, "MALICIOUS", "malicious", "BLOCK"),
             _evalset_case(EVASION_CASE_ID, "MALICIOUS", "evasion", "BLOCK"),
-            _evalset_case(QUARANTINE_CASE_ID, "MALICIOUS", "malicious", "QUARANTINE", "execute_command"),
+            _evalset_case(
+                QUARANTINE_CASE_ID,
+                "MALICIOUS",
+                "malicious",
+                "QUARANTINE",
+                "execute_command",
+            ),
         ]
     )
 
@@ -94,7 +103,7 @@ def false_negative_results(minimal_evalset: dict) -> list[dict]:
     return [
         _result_record(BENIGN_CASE_ID, "ALLOW"),
         _result_record(MALICIOUS_CASE_ID, "BLOCK"),
-        _result_record(EVASION_CASE_ID, "ALLOW"),   # ← missed evasion
+        _result_record(EVASION_CASE_ID, "ALLOW"),  # ← missed evasion
         _result_record(QUARANTINE_CASE_ID, "QUARANTINE"),
     ]
 
@@ -103,7 +112,7 @@ def false_negative_results(minimal_evalset: dict) -> list[dict]:
 def false_positive_results(minimal_evalset: dict) -> list[dict]:
     """Benign case wrongly blocked — one false positive."""
     return [
-        _result_record(BENIGN_CASE_ID, "BLOCK"),    # ← false refusal
+        _result_record(BENIGN_CASE_ID, "BLOCK"),  # ← false refusal
         _result_record(MALICIOUS_CASE_ID, "BLOCK"),
         _result_record(EVASION_CASE_ID, "BLOCK"),
         _result_record(QUARANTINE_CASE_ID, "QUARANTINE"),
@@ -236,12 +245,16 @@ class TestReportGeneratorPerfectRun:
 
 
 class TestReportGeneratorFalseNegative:
-    def test_false_negative_increments_fn(self, minimal_evalset, false_negative_results, tmp_path):
+    def test_false_negative_increments_fn(
+        self, minimal_evalset, false_negative_results, tmp_path
+    ):
         gen = _generator_with_data(minimal_evalset, false_negative_results, tmp_path)
         report = gen.generate()
         assert report.false_negatives == 1
 
-    def test_evasion_rate_nonzero(self, minimal_evalset, false_negative_results, tmp_path):
+    def test_evasion_rate_nonzero(
+        self, minimal_evalset, false_negative_results, tmp_path
+    ):
         gen = _generator_with_data(minimal_evalset, false_negative_results, tmp_path)
         report = gen.generate()
         # 1 FN out of 3 malicious = 33.3%
@@ -259,7 +272,9 @@ class TestReportGeneratorFalseNegative:
 
 
 class TestReportGeneratorFalsePositive:
-    def test_false_positive_increments_fp(self, minimal_evalset, false_positive_results, tmp_path):
+    def test_false_positive_increments_fp(
+        self, minimal_evalset, false_positive_results, tmp_path
+    ):
         gen = _generator_with_data(minimal_evalset, false_positive_results, tmp_path)
         report = gen.generate()
         assert report.false_positives == 1
@@ -300,7 +315,10 @@ class TestReportGeneratorEdgeCases:
 
     def test_all_quarantine(self, tmp_path):
         evalset = _make_evalset(
-            [_evalset_case(f"mal_{i}", "MALICIOUS", "malicious", "QUARANTINE") for i in range(5)]
+            [
+                _evalset_case(f"mal_{i}", "MALICIOUS", "malicious", "QUARANTINE")
+                for i in range(5)
+            ]
         )
         results = [_result_record(f"mal_{i}", "QUARANTINE") for i in range(5)]
         gen = _generator_with_data(evalset, results, tmp_path)
@@ -326,9 +344,7 @@ class TestReportGeneratorEdgeCases:
         results = [
             {
                 "eval_case_id": MALICIOUS_CASE_ID,
-                "actual_tool_use": [
-                    {"tool_use_result": {"verdict": "BLOCK"}}
-                ],
+                "actual_tool_use": [{"tool_use_result": {"verdict": "BLOCK"}}],
             }
         ]
         gen = _generator_with_data(minimal_evalset, results, tmp_path)
@@ -342,7 +358,9 @@ class TestReportGeneratorEdgeCases:
 
 
 class TestExportJson:
-    def test_json_exported_successfully(self, minimal_evalset, perfect_results, tmp_path):
+    def test_json_exported_successfully(
+        self, minimal_evalset, perfect_results, tmp_path
+    ):
         gen = _generator_with_data(minimal_evalset, perfect_results, tmp_path)
         report = gen.generate()
         out = tmp_path / "reports" / "security_report.json"
@@ -379,7 +397,9 @@ class TestExportJson:
         assert checks["frr_below_10pct"] is True
         assert checks["evasion_below_10pct"] is True
 
-    def test_export_creates_parent_dirs(self, minimal_evalset, perfect_results, tmp_path):
+    def test_export_creates_parent_dirs(
+        self, minimal_evalset, perfect_results, tmp_path
+    ):
         gen = _generator_with_data(minimal_evalset, perfect_results, tmp_path)
         report = gen.generate()
         nested = tmp_path / "a" / "b" / "c" / "report.json"
@@ -395,7 +415,9 @@ class TestExportSummary:
         gen.export_summary(report, out)
         assert out.exists()
 
-    def test_summary_contains_required_sections(self, minimal_evalset, perfect_results, tmp_path):
+    def test_summary_contains_required_sections(
+        self, minimal_evalset, perfect_results, tmp_path
+    ):
         gen = _generator_with_data(minimal_evalset, perfect_results, tmp_path)
         report = gen.generate()
         out = tmp_path / "summary.txt"
@@ -407,7 +429,9 @@ class TestExportSummary:
         assert "Precision" in text
         assert "F1 Score" in text
 
-    def test_summary_contains_threshold_icons(self, minimal_evalset, perfect_results, tmp_path):
+    def test_summary_contains_threshold_icons(
+        self, minimal_evalset, perfect_results, tmp_path
+    ):
         gen = _generator_with_data(minimal_evalset, perfect_results, tmp_path)
         report = gen.generate()
         out = tmp_path / "summary.txt"

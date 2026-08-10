@@ -83,6 +83,7 @@ async def test_pipeline_sandbox_manager_execute_guarded(sandbox_manager):
 async def test_pipeline_sandbox_manager_blocks_unsafe_routine(sandbox_manager):
     def unsafe_loader():
         import os
+
         os.system("echo unsafe")
 
     result = await sandbox_manager.execute_guarded(unsafe_loader)

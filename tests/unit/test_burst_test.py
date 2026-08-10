@@ -9,7 +9,9 @@ import asyncio
 from unittest.mock import AsyncMock, patch
 
 # Ensure scripts directory is in path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "scripts")))
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
+)
 
 from burst_test import run_burst_test, burst_worker
 
@@ -29,6 +31,7 @@ async def test_run_burst_test_invalid_concurrency_negative():
 @pytest.mark.asyncio
 async def test_run_burst_test_missing_gcp_project(monkeypatch):
     import blackwall.config
+
     blackwall.config._env_configured = False
     monkeypatch.delenv("GCP_PROJECT", raising=False)
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
@@ -70,7 +73,9 @@ async def test_burst_worker_live_model_call():
 async def test_run_burst_test_worker_failure(monkeypatch):
     monkeypatch.setenv("GCP_PROJECT", "real-gcp-project")
     mock_client = AsyncMock()
-    mock_client.aio.models.generate_content = AsyncMock(side_effect=asyncio.TimeoutError("Request timed out"))
+    mock_client.aio.models.generate_content = AsyncMock(
+        side_effect=asyncio.TimeoutError("Request timed out")
+    )
 
     with patch("burst_test.get_genai_client", return_value=mock_client):
         result = await run_burst_test(5)

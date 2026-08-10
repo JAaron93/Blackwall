@@ -10,7 +10,6 @@ from blackwall.enterprise.advanced_threat_detection import (
     EventSource,
     NormalizedEvent,
     AttackGraphStore,
-    SwarmEvidence,
 )
 from blackwall.enterprise.advanced_threat_detection.swarm import AgentSwarmDetector
 
@@ -25,8 +24,12 @@ def event_sequences(draw, agent_id: str, base_time: datetime = None):
     events = []
     for i in range(num_events):
         offset = draw(st.integers(min_value=0, max_value=3000))
-        action = draw(st.sampled_from(["exec", "read", "write", "connect", "scan", "exfil"]))
-        target = draw(st.sampled_from(["/bin/bash", "/etc/passwd", "10.0.0.1", "c2-domain.com"]))
+        action = draw(
+            st.sampled_from(["exec", "read", "write", "connect", "scan", "exfil"])
+        )
+        target = draw(
+            st.sampled_from(["/bin/bash", "/etc/passwd", "10.0.0.1", "c2-domain.com"])
+        )
         ip = draw(st.sampled_from(["192.168.1.10", "192.168.1.20", "10.0.0.5"]))
         domain = draw(st.sampled_from(["c2.evil.com", "api.service.org"]))
         source = draw(st.sampled_from(list(EventSource)))
@@ -70,8 +73,12 @@ async def test_property_21_behavioral_fingerprint_generation(agent_id: str):
     )
     await store.insert_event(e1)
 
-    fp_a = await detector.fingerprint_agent(agent_id, window=3600, end_time=base_time + timedelta(seconds=60))
-    fp_b = await detector.fingerprint_agent(agent_id, window=3600, end_time=base_time + timedelta(seconds=60))
+    fp_a = await detector.fingerprint_agent(
+        agent_id, window=3600, end_time=base_time + timedelta(seconds=60)
+    )
+    fp_b = await detector.fingerprint_agent(
+        agent_id, window=3600, end_time=base_time + timedelta(seconds=60)
+    )
 
     assert isinstance(fp_a, str)
     assert len(fp_a) > 0
@@ -85,7 +92,9 @@ async def test_property_21_behavioral_fingerprint_generation(agent_id: str):
     min_agents=st.integers(min_value=2, max_value=5),
 )
 @settings(max_examples=30)
-async def test_property_22_23_swarm_threshold_and_min_size(threshold: float, min_agents: int):
+async def test_property_22_23_swarm_threshold_and_min_size(
+    threshold: float, min_agents: int
+):
     """Property 22 & 23: Swarm evidence MUST satisfy temporal_correlation >= threshold and len(agent_ids) >= min_agents."""
     base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
     store = AttackGraphStore(in_memory=True)
@@ -109,7 +118,9 @@ async def test_property_22_23_swarm_threshold_and_min_size(threshold: float, min
             await store.insert_event(e)
 
     time_win = (base_time, base_time + timedelta(seconds=60))
-    swarms = await detector.detect_swarms(time_win, min_agents=min_agents, correlation_threshold=threshold)
+    swarms = await detector.detect_swarms(
+        time_win, min_agents=min_agents, correlation_threshold=threshold
+    )
 
     for swarm in swarms:
         assert len(swarm.agent_ids) >= min_agents
@@ -152,7 +163,9 @@ async def test_property_24_shared_infrastructure_identification(shared_ip: str):
     await store.insert_event(e2)
 
     time_win = (base_time, base_time + timedelta(seconds=60))
-    swarms = await detector.detect_swarms(time_win, min_agents=2, correlation_threshold=0.5)
+    swarms = await detector.detect_swarms(
+        time_win, min_agents=2, correlation_threshold=0.5
+    )
 
     assert len(swarms) >= 1
     swarm = swarms[0]

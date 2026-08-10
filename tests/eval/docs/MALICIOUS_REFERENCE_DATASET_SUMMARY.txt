@@ -48,7 +48,7 @@ DOCUMENTATION FILES (Task 20.1):
    ├── MALICIOUS_REFERENCE_DATASET_SUMMARY.txt (This file - Quick reference)
    ├── MALICIOUS_REFERENCE_DATASET_CHECKLIST.md (Tracking checklist)
    └── MALICIOUS_QUICK_START_REFERENCE.txt (Quick start guide)
-   
+
    tests/eval/test_data/
    ├── malicious_cases.json (59 test cases with CWE/CVE references)
    └── README_MALICIOUS.md (Dataset documentation)
@@ -59,18 +59,18 @@ When judges run the evaluation:
 
    Wave 1 (20 novel attacks): 20/20 blocked via semantic evaluation (~1,400ms each)
    Wave 2 (20 evasion variants): 20/20 blocked via signature match (~12ms each)
-   
+
    FRR: 6.2% (target: <10%) ✓
    Evasion Rate: 3.8% (target: <10%) ✓
-   
+
    Dataset transparency: Every test case can be traced to CWE/CVE sources
    Reproducibility: Judges can verify by consulting NIST, OWASP, threat intel
 
 JUDGES' LIKELY QUESTIONS & ANSWERS:
 
 Q: "Why not use real exploits?"
-A: Because (1) security best practice, (2) real exploits become outdated, 
-   (3) reference-based approach is more reproducible, (4) attack semantics 
+A: Because (1) security best practice, (2) real exploits become outdated,
+   (3) reference-based approach is more reproducible, (4) attack semantics
    preserved in abstract form, (5) industry standard for security research.
 
 Q: "Isn't this just pattern matching?"

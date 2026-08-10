@@ -1,27 +1,85 @@
 {
   "version": "1",
-  "strictness": "high",
-  "include": [
-    "src/blackwall/**",
-    "tests/**"
-  ],
-  "exclude": [
-    "**/__pycache__/**",
-    "**/*.pyc",
-    ".venv/**",
-    "*.sqlite*",
-    "*.db"
-  ],
-  "customInstructions": [
-    "This is Blackwall Core — an agentic security firewall. Apply security-first review standards.",
-    "Flag any SQL query that interpolates variables directly into an f-string without parameterized bindings.",
-    "Flag any code that bypasses the SyncResolver interception sequence: Rate Check → ContextHygiene → TSG Check → Codebase Memory MCP → GTI Validation → Score Aggregation → Threshold Verdict.",
-    "Flag any FTS5 similarity query that does not use word-level intersection match quality (len(intersection) / min_len).",
-    "Flag any ContextResolver middleware that does not sanitize environment variable patterns with [[VARIABLE_NAME]] placeholders.",
-    "Flag hardcoded credentials, API keys, or secrets in source files.",
-    "Flag any import of enterprise-tier modules (blackwall.enterprise.*) from Core modules under src/blackwall/ (excluding enterprise/).",
-    "For code under src/blackwall/enterprise/: review only for Core/Enterprise boundary violations and shared interface compatibility. Do not flag Enterprise-internal pillar implementations (eBPF drivers, ZeroMQ mesh, Vault sidecar, pipeline wrappers, forensics engine) as violations — these are intentional Enterprise-only features.",
-    "Flag test code that does not isolate sys.addaudithook calls — audit hooks are process-global and cannot be unregistered.",
-    "Flag any async function that uses blocking I/O (e.g. time.sleep, open() on large files) inside an event loop without asyncio.to_thread."
+  "strictness": 2,
+  "commentTypes": ["logic", "syntax", "style", "info"],
+  "triggerOnUpdates": true,
+  "statusCheck": true,
+  "instructions": "Blackwall is an autonomous Agentic Security Firewall designed to intercept execution flows at machine speed before rogue AI agents can perform unauthorized OS/network actions. Verify architecture invariants across Blackwall Core (single-host daemon) and Blackwall Enterprise Mesh (multi-host security mesh under src/blackwall/enterprise/). Ensure strict Pydantic v2 validation, 100% GCP Vertex AI mode compliance, and TDD/BDD test coverage.",
+  "rules": [
+    {
+      "id": "vertex-ai-mode",
+      "rule": "100% GCP Vertex AI Mode (Paid Tier) Vendor Compliance: Ensure google-genai clients instantiate with vertexai=True, require GCP_PROJECT, and run in paid tier mode. Flag any PR reintroducing Google AI Studio API key configurations (GEMINI_API_KEY, LLM_API_KEY) or free-tier rate limit fallbacks.",
+      "severity": "high"
+    },
+    {
+      "id": "core-tier-architecture",
+      "rule": "Core Tier Architecture & Zero-eBPF Integrity: Verify Blackwall Core (src/blackwall/ outside enterprise/) remains a lightweight single-host daemon containing zero imports or dependencies on ZeroMQ, NATS, or eBPF C headers.",
+      "severity": "high"
+    },
+    {
+      "id": "enterprise-subsystem-modularization",
+      "rule": "Enterprise Subsystem Modularization: Verify all enterprise capabilities (eBPF kernel probes, ZeroMQ threat mesh, Vault sidecars, sandboxes, forensic engine, advanced threat detection) are cleanly isolated under src/blackwall/enterprise/.",
+      "severity": "high"
+    },
+    {
+      "id": "enterprise-boundary-review-scope",
+      "rule": "Enterprise Boundary Review Scope: For code under src/blackwall/enterprise/, review only for Core/Enterprise boundary violations and shared interface compatibility. Do not flag Enterprise-internal pillar implementations (eBPF drivers, ZeroMQ mesh, Vault sidecar, pipeline wrappers, forensics engine) as violations — these are intentional Enterprise-only features.",
+      "severity": "high"
+    },
+    {
+      "id": "advanced-threat-detection-isolation",
+      "rule": "Advanced Threat Detection (Pillar 6) Isolation & Model Validation: Verify Pillar 6 components reside under src/blackwall/enterprise/advanced_threat_detection/ and Pydantic v2 data models enforce UUID v4 event_id, UTC timezone awareness for timestamps, score bounds [0.0, 1.0], min sequence sizes, and temporal ordering (end_time >= start_time).",
+      "severity": "high"
+    },
+    {
+      "id": "async-resolver-interception-order",
+      "rule": "Async Interception Pipeline Resolver Order: Verify SyncResolver execution flow strictly maintains: Rate Check -> ContextHygiene Sanitization -> Threat Signature Graph (TSG) Check -> Codebase Memory MCP AST Query -> Conditional GTI Validation -> Score Aggregation -> Threshold Verdict.",
+      "severity": "high"
+    },
+    {
+      "id": "sql-parameterization",
+      "rule": "SQL Parameterization Hygiene: Flag any SQL query that interpolates variables directly into an f-string without parameterized bindings. All dynamic values must be passed as bound parameters.",
+      "severity": "high"
+    },
+    {
+      "id": "synthetic-honey-token-compliance",
+      "rule": "Synthetic Honey-Token & Secret Masking Compliance: Environment variable readers in src/blackwall/enterprise/identity/ must replace sensitive credentials (AWS_SECRET_ACCESS_KEY, KUBECONFIG) with synthetic honey-tokens (BW_SYNTHETIC_*) and route JIT swaps via hashicorp-vault-mcp.",
+      "severity": "high"
+    },
+    {
+      "id": "forensic-engine-dual-mode",
+      "rule": "Forensic Engine Dual-Mode & AST Resolution Integrity: Verify ForensicTriageEngine supports primary Ollama open-weight LLM triage with automatic failover to LightweightForensicParser when GPU/Ollama is offline. Ensure LightweightForensicParser AST inspection resolves fully qualified callee names (e.g. os.system, subprocess.Popen) rather than bare attribute names.",
+      "severity": "high"
+    },
+    {
+      "id": "tdd-and-bdd-coverage",
+      "rule": "Test-Driven Development (TDD) & BDD Coverage: Flag any PR modifying src/ without corresponding unit or integration tests under tests/, property-based tests under tests/property/, and BDD feature scenarios in tests/features/.",
+      "severity": "high"
+    },
+    {
+      "id": "secret-scanner-hygiene",
+      "rule": "Secret Scanner Hygiene in Test Artifacts: Ensure test files contain no live cloud credential patterns or high-entropy secret prefixes (e.g. AWS_KEY_<digits>).",
+      "severity": "high"
+    },
+    {
+      "id": "process-group-and-audit-hook-scoping",
+      "rule": "Process Group Cleanup & Audit Hook Scoping: Verify sys.addaudithook registrations in tests are deferred to function scope and background test processes clean up process groups via os.killpg.",
+      "severity": "medium"
+    },
+    {
+      "id": "attacker-attribution-reporting",
+      "rule": "Attacker Identification & Reporting Integrity: Verify Attacker Identification & Reporting components (AttackerIdentityExtractor, AttackerProfile, IncidentReportGenerator) enforce Pydantic v2 validation (SHA-256 fingerprint, UTC timestamps, [0.0, 1.0] risk scores), process sanitized context, and fail-closed cleanly.",
+      "severity": "high"
+    },
+    {
+      "id": "pr-description-grouping",
+      "rule": "PR Description Grouping: Group changes by Blackwall Product Tier (Blackwall Core vs. Blackwall Enterprise Mesh) and highlight changes affecting security resolvers, eBPF probes, or MCP adapters.",
+      "severity": "low"
+    },
+    {
+      "id": "performance-async-safety",
+      "rule": "Performance & Async Safety: Focus code suggestions strictly on performance bottlenecks, thread safety, async coroutine safety, and security vulnerabilities. Ensure suggestions conform to Python 3.11+ async patterns and avoid deprecated decorators like @unittest_run_loop.",
+      "severity": "medium"
+    }
   ]
 }

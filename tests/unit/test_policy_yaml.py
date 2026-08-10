@@ -3,6 +3,7 @@ from blackwall.models import ToolCallContext
 from blackwall.policy.engine import StructuralGatingEngine
 from blackwall.policy.models import StructuralAction
 
+
 def test_concrete_policy_yaml_loading() -> None:
     """Verifies that the production config/policy.yaml can be successfully loaded and parses properly."""
     policy_path = os.path.join(
@@ -44,6 +45,9 @@ def test_concrete_policy_yaml_loading() -> None:
     assert production_role.requireSemanticReview is True
     assert production_role.maxThreatScore == 0.5
 
+    # Verify threat signature graph config
+    assert policy.threatSignatureGraph.batchSize == 900
+
 
 def test_concrete_policy_priority_ordering() -> None:
     """Verifies that rules are sorted and evaluated in ascending order of priority."""
@@ -70,35 +74,45 @@ def test_concrete_policy_rules_evaluation() -> None:
     engine.load_policy(policy_path)
 
     # 1. BLOCK rule: execute_bash in production
-    ctx_block1 = ToolCallContext(tool_name="execute_bash", arguments={"command": "whoami"})
+    ctx_block1 = ToolCallContext(
+        tool_name="execute_bash", arguments={"command": "whoami"}
+    )
     res_block1 = engine.evaluate(ctx_block1, "production")
     assert res_block1.decision == StructuralAction.BLOCK
     assert res_block1.requireSemanticReview is False
     assert res_block1.ruleId == "rule-block-dangerous-tools-prod-staging"
 
     # 2. BLOCK rule: install_package in staging
-    ctx_block2 = ToolCallContext(tool_name="install_package", arguments={"package": "curl"})
+    ctx_block2 = ToolCallContext(
+        tool_name="install_package", arguments={"package": "curl"}
+    )
     res_block2 = engine.evaluate(ctx_block2, "staging")
     assert res_block2.decision == StructuralAction.BLOCK
     assert res_block2.requireSemanticReview is False
     assert res_block2.ruleId == "rule-block-dangerous-tools-prod-staging"
 
     # 3. ESCALATE rule: write_file
-    ctx_escalate1 = ToolCallContext(tool_name="write_file", arguments={"path": "test.txt", "content": "hello"})
+    ctx_escalate1 = ToolCallContext(
+        tool_name="write_file", arguments={"path": "test.txt", "content": "hello"}
+    )
     res_escalate1 = engine.evaluate(ctx_escalate1, "production")
     assert res_escalate1.decision == StructuralAction.ESCALATE_TO_SEMANTIC
     assert res_escalate1.requireSemanticReview is True
     assert res_escalate1.ruleId == "rule-escalate-write-operations"
 
     # 4. ESCALATE rule: web_search in staging/production/sandbox
-    ctx_escalate2 = ToolCallContext(tool_name="web_search", arguments={"query": "exploit"})
+    ctx_escalate2 = ToolCallContext(
+        tool_name="web_search", arguments={"query": "exploit"}
+    )
     res_escalate2 = engine.evaluate(ctx_escalate2, "production")
     assert res_escalate2.decision == StructuralAction.ESCALATE_TO_SEMANTIC
     assert res_escalate2.requireSemanticReview is True
     assert res_escalate2.ruleId == "rule-escalate-network-operations"
 
     # 4b. ESCALATE rule: web_search in sandbox now routes through semantic review
-    ctx_escalate2_sandbox = ToolCallContext(tool_name="web_search", arguments={"query": "API_KEY=secret"})
+    ctx_escalate2_sandbox = ToolCallContext(
+        tool_name="web_search", arguments={"query": "API_KEY=secret"}
+    )
     res_escalate2_sandbox = engine.evaluate(ctx_escalate2_sandbox, "sandbox")
     assert res_escalate2_sandbox.decision == StructuralAction.ESCALATE_TO_SEMANTIC
     assert res_escalate2_sandbox.requireSemanticReview is True

@@ -141,12 +141,12 @@ Cases are tagged with realistic ADK environment roles:
 
 All cases have been validated for:
 
-✓ Valid JSON structure  
-✓ Required fields present in all cases  
-✓ All ground_truth values set to "BENIGN"  
-✓ Proper schema compliance  
-✓ Realistic tool call contexts  
-✓ Appropriate marker usage  
+✓ Valid JSON structure
+✓ Required fields present in all cases
+✓ All ground_truth values set to "BENIGN"
+✓ Proper schema compliance
+✓ Realistic tool call contexts
+✓ Appropriate marker usage
 
 ## Related Files
 

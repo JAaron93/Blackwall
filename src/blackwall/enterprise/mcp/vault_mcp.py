@@ -27,7 +27,9 @@ class VaultMCPAdapter:
     async def connect(self) -> bool:
         """Establish connection to local Vault Dev Mode or LocalStack endpoint."""
         self._is_connected = True
-        logger.info("VaultMCPAdapter connected to local Vault endpoint: %s", self.endpoint)
+        logger.info(
+            "VaultMCPAdapter connected to local Vault endpoint: %s", self.endpoint
+        )
         return True
 
     async def disconnect(self) -> None:
@@ -35,7 +37,9 @@ class VaultMCPAdapter:
         self._is_connected = False
         logger.info("VaultMCPAdapter disconnected from endpoint: %s", self.endpoint)
 
-    async def issue_jit_token(self, role: str = "default", ttl_seconds: int = 900) -> Dict[str, Any]:
+    async def issue_jit_token(
+        self, role: str = "default", ttl_seconds: int = 900
+    ) -> Dict[str, Any]:
         """
         Issue Just-In-Time (JIT) ephemeral STS token for an authorized role.
         Default TTL: 900 seconds (15 minutes).
@@ -60,22 +64,34 @@ class VaultMCPAdapter:
         }
 
         self._issued_tokens[token_id] = token_info
-        logger.debug("VaultMCPAdapter issued JIT token %s for role %s (TTL: %ds)", token_id, role, ttl_seconds)
+        logger.debug(
+            "VaultMCPAdapter issued JIT token %s for role %s (TTL: %ds)",
+            token_id,
+            role,
+            ttl_seconds,
+        )
         return dict(token_info)
 
     async def revoke_token(self, token_id: str) -> bool:
         """Revoke an active JIT token immediately."""
-        if token_id in self._issued_tokens and self._issued_tokens[token_id]["status"] == "ACTIVE":
+        if (
+            token_id in self._issued_tokens
+            and self._issued_tokens[token_id]["status"] == "ACTIVE"
+        ):
             self._issued_tokens[token_id]["status"] = "REVOKED"
             logger.info("VaultMCPAdapter revoked JIT token: %s", token_id)
             return True
-        logger.warning("VaultMCPAdapter revoke requested for non-active token: %s", token_id)
+        logger.warning(
+            "VaultMCPAdapter revoke requested for non-active token: %s", token_id
+        )
         return False
 
     async def rotate_honeytokens(self) -> Dict[str, Any]:
         """Trigger dynamic rotation of synthetic honey-tokens across host environment."""
         rotation_id = uuid.uuid4().hex[:8]
-        logger.info("VaultMCPAdapter rotated honey-tokens with rotation ID: %s", rotation_id)
+        logger.info(
+            "VaultMCPAdapter rotated honey-tokens with rotation ID: %s", rotation_id
+        )
         return {
             "rotation_id": rotation_id,
             "rotation_timestamp": time.time(),

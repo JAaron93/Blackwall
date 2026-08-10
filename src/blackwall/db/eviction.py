@@ -40,8 +40,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Configuration defaults (per TASK-PERF-01 acceptance criteria)
 # ---------------------------------------------------------------------------
-DEFAULT_TTL_SECONDS: int = 900          # 15 minutes
-DEFAULT_MAX_SIGNATURES: int = 10_000    # LFU trigger threshold
+DEFAULT_TTL_SECONDS: int = 900  # 15 minutes
+DEFAULT_MAX_SIGNATURES: int = 10_000  # LFU trigger threshold
 DEFAULT_HIGH_VALUE_THRESHOLD: int = 10  # match_count > this → never evict
 DEFAULT_INTERVAL_SECONDS: float = 60.0  # background loop cadence
 
@@ -162,7 +162,9 @@ class EvictionManager:
             try:
                 await self.run_eviction_pass()
             except Exception:
-                logger.exception("Unhandled error in eviction pass – will retry next cycle")
+                logger.exception(
+                    "Unhandled error in eviction pass – will retry next cycle"
+                )
 
             try:
                 await asyncio.wait_for(
@@ -258,7 +260,9 @@ class EvictionManager:
             deleted = cursor.rowcount if cursor.rowcount is not None else 0
 
         if deleted > 0:
-            logger.debug(f"TTL eviction removed signatures count={deleted} cutoff={cutoff}")
+            logger.debug(
+                f"TTL eviction removed signatures count={deleted} cutoff={cutoff}"
+            )
 
         return deleted
 
@@ -281,6 +285,9 @@ class EvictionManager:
         int
             Number of signatures deleted during this LFU pass.
         """
+        if max_signatures <= 0:
+            raise ValueError(f"max_signatures must be a positive integer (> 0), got {max_signatures}")
+
         async with self.pool.connection() as conn:
             cursor = await conn.execute("SELECT COUNT(*) FROM signatures")
             row = await cursor.fetchone()
@@ -291,61 +298,32 @@ class EvictionManager:
 
         to_delete = total - max_signatures
 
-        # Select the ``to_delete`` lowest-frequency candidates, excluding
-        # high-value signatures.  Sort by match_count ASC, then by
-        # last_matched_at ASC (oldest first) to break ties deterministically.
+        # Batch-delete using a single atomic DELETE with subquery to re-check
+        # match_count threshold at deletion time, protecting against
+        # concurrent updates that may have promoted candidates to high-value.
         async with self.pool.connection() as conn:
             cursor = await conn.execute(
                 """
-                SELECT signature_id
-                FROM signatures
-                WHERE match_count <= ?
-                ORDER BY match_count ASC, last_matched_at ASC
-                LIMIT ?
+                DELETE FROM signatures
+                WHERE signature_id IN (
+                    SELECT signature_id
+                    FROM signatures
+                    WHERE match_count <= ?
+                    ORDER BY match_count ASC, last_matched_at ASC
+                    LIMIT ?
+                )
                 """,
                 (self.high_value_threshold, to_delete),
             )
-            rows = await cursor.fetchall()
+            deleted_total = cursor.rowcount if cursor.rowcount is not None else 0
 
-        if not rows:
+        if deleted_total == 0:
             logger.warning(
                 f"LFU eviction needed but no evictable candidates found "
                 f"(all remaining signatures are high-value) "
                 f"total={total} max_signatures={max_signatures}"
             )
             return 0
-
-        candidate_ids = [r[0] for r in rows]
-
-        # Batch-delete using atomic DELETE with subquery to re-check
-        # match_count threshold at deletion time, protecting against
-        # concurrent updates that may have promoted candidates to high-value.
-        # SQLite supports up to 999 host parameters; chunk to be safe.
-        deleted_total = 0
-        chunk_size = 900
-        for i in range(0, len(candidate_ids), chunk_size):
-            chunk = candidate_ids[i : i + chunk_size]
-            # SAFETY: placeholders is constructed exclusively from literal '?'
-            # characters — no user-controlled or external data is ever
-            # interpolated into this f-string. The assertion below enforces
-            # this invariant at runtime to prevent future regressions where
-            # a developer might accidentally substitute real data here,
-            # which would introduce a SQL injection vector.
-            placeholders = ",".join("?" * len(chunk))
-            assert set(placeholders) <= {",", "?"}, (
-                f"Invariant violation: placeholders must contain only '?' and ',' "
-                f"characters, got: {placeholders!r}"
-            )
-            async with self.pool.connection() as conn:
-                cursor = await conn.execute(
-                    f"""
-                    DELETE FROM signatures
-                    WHERE signature_id IN ({placeholders})
-                      AND match_count <= ?
-                    """,
-                    chunk + [self.high_value_threshold],
-                )
-                deleted_total += cursor.rowcount if cursor.rowcount is not None else 0
 
         if deleted_total > 0:
             logger.debug(f"LFU eviction removed signatures count={deleted_total}")

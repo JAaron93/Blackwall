@@ -34,7 +34,9 @@ def test_config_missing_gcp_project_raises_value_error(monkeypatch):
     monkeypatch.delenv("GCP_PROJECT", raising=False)
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
 
-    with pytest.raises(ValueError, match="GCP_PROJECT or GOOGLE_CLOUD_PROJECT is not configured"):
+    with pytest.raises(
+        ValueError, match="GCP_PROJECT or GOOGLE_CLOUD_PROJECT is not configured"
+    ):
         configure_provider_env(force=True)
 
 
@@ -50,7 +52,9 @@ def test_agent_import_without_gcp_project_raises_error(monkeypatch):
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     monkeypatch.delenv("BLACKWALL_TEST_MODE", raising=False)
 
-    with pytest.raises(ValueError, match="GCP_PROJECT or GOOGLE_CLOUD_PROJECT is not configured"):
+    with pytest.raises(
+        ValueError, match="GCP_PROJECT or GOOGLE_CLOUD_PROJECT is not configured"
+    ):
         importlib.reload(agent)
 
 

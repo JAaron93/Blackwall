@@ -57,12 +57,12 @@ flowchart TD
     ContextResolver --> FastPath
     FastPath --> PolicyEval
     PolicyEval --> VerdictGen
-    
+
     VerdictGen -->|"If BLOCK or QUARANTINE"| Extractor
     Extractor -->|"Extract Identity Tokens"| AttributionEngine
     ProfileStore <-->|"Read / Update Profile"| AttributionEngine
     AttributionEngine -->|"Attribution Event"| ReportGen
-    
+
     ReportGen --> CLIReporter
     ReportGen --> JSONExporter
     ReportGen --> OTelExporter

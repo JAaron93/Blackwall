@@ -72,7 +72,9 @@ class ASTPipelineFilter:
                     module = node.module or ""
                     for alias_item in node.names:
                         asname = alias_item.asname or alias_item.name
-                        full_qual = f"{module}.{alias_item.name}" if module else alias_item.name
+                        full_qual = (
+                            f"{module}.{alias_item.name}" if module else alias_item.name
+                        )
                         alias_map[asname] = full_qual
                 elif isinstance(node, ast.Assign):
                     value_name = self._get_func_name(node.value)
@@ -89,9 +91,15 @@ class ASTPipelineFilter:
                     raw_func_name = self._get_func_name(node.func)
                     resolved_name = self._resolve_alias(raw_func_name, alias_map)
 
-                    if resolved_name in UNSAFE_AST_NODES or raw_func_name in UNSAFE_AST_NODES:
+                    if (
+                        resolved_name in UNSAFE_AST_NODES
+                        or raw_func_name in UNSAFE_AST_NODES
+                    ):
                         violations.append(resolved_name)
-                    elif raw_func_name in UNSAFE_BARE_FUNCTIONS and raw_func_name not in alias_map:
+                    elif (
+                        raw_func_name in UNSAFE_BARE_FUNCTIONS
+                        and raw_func_name not in alias_map
+                    ):
                         violations.append(raw_func_name)
         except SyntaxError:
             # Fallback pattern search for raw strings/templates
@@ -101,7 +109,9 @@ class ASTPipelineFilter:
 
         is_safe = len(violations) == 0
         if not is_safe:
-            logger.warning("ASTPipelineFilter detected unsafe violations: %s", violations)
+            logger.warning(
+                "ASTPipelineFilter detected unsafe violations: %s", violations
+            )
 
         return {
             "is_safe": is_safe,
@@ -136,7 +146,9 @@ class PipelineSandboxManager:
         sandbox_adapter: Optional[ContainerSandboxMCPAdapter] = None,
         ast_filter: Optional[ASTPipelineFilter] = None,
     ) -> None:
-        self.sandbox_adapter: ContainerSandboxMCPAdapter = sandbox_adapter or ContainerSandboxMCPAdapter()
+        self.sandbox_adapter: ContainerSandboxMCPAdapter = (
+            sandbox_adapter or ContainerSandboxMCPAdapter()
+        )
         self.ast_filter: ASTPipelineFilter = ast_filter or ASTPipelineFilter()
 
     async def execute_guarded(
@@ -159,7 +171,9 @@ class PipelineSandboxManager:
         # Pre-execution AST security gate
         inspection = self.ast_filter.inspect_code(fn_source)
         if not inspection["is_safe"]:
-            logger.error("Pipeline execution BLOCKED by AST filter: %s", inspection["violations"])
+            logger.error(
+                "Pipeline execution BLOCKED by AST filter: %s", inspection["violations"]
+            )
             return {
                 "status": "BLOCKED",
                 "contained": False,
@@ -173,6 +187,7 @@ class PipelineSandboxManager:
 
         # Construct actual invocation payload with source code and call expression
         fn_name = getattr(routine_fn, "__name__", "routine")
+
         def _safe_repr(val: Any) -> str:
             if isinstance(val, (int, float, bool, str, bytes, type(None))):
                 return repr(val)
@@ -211,7 +226,9 @@ def guard_pipeline(sandbox_type: str = "gvisor") -> Callable[..., Any]:
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(fn)
         async def wrapper(*args: Any, **kwargs: Any) -> Dict[str, Any]:
-            return await manager.execute_guarded(fn, *args, sandbox_type=sandbox_type, **kwargs)
+            return await manager.execute_guarded(
+                fn, *args, sandbox_type=sandbox_type, **kwargs
+            )
 
         return wrapper
 

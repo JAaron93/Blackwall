@@ -2,7 +2,7 @@
 
 ## Introduction
 
-As part of Blackwall's long-term maintenance and portability strategy, the firewall must decouple from framework-specific execution hooks (such as `sys.addaudithook` and ADK 2.0 callbacks) and operate as an independent middleware proxy. This document outlines the requirements for implementing a Model Context Protocol (MCP) and Agent Context Protocol (ACP) server/client layer. 
+As part of Blackwall's long-term maintenance and portability strategy, the firewall must decouple from framework-specific execution hooks (such as `sys.addaudithook` and ADK 2.0 callbacks) and operate as an independent middleware proxy. This document outlines the requirements for implementing a Model Context Protocol (MCP) and Agent Context Protocol (ACP) server/client layer.
 
 The goal is to allow Python-based OS-level agents, specifically **Hermes Agent**, to route their tool executions through Blackwall securely and transparently. Blackwall will intercept JSON-RPC protocol payloads, evaluate them using the existing Hybrid Policy Server (structural and semantic gating), and return synthesized errors for blocked actions—all while remaining entirely Python-exclusive.
 

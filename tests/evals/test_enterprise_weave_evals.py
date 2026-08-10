@@ -14,6 +14,7 @@ def has_wandb_credentials() -> bool:
         return True
     try:
         import netrc
+
         netrc_file = netrc.netrc()
         if "api.wandb.ai" in netrc_file.hosts or "wandb.ai" in netrc_file.hosts:
             return True
@@ -43,33 +44,38 @@ if not is_paid_tier:
 else:
     os.environ["WEAVE_PARALLELISM"] = "10"
 
-import weave
+import pytest
+
+try:
+    import weave
+except ImportError:
+    pytest.skip("weave package not installed", allow_module_level=True)
 
 
 # ============================================================================
 # Track 1 Evaluation: Kernel Interception Accuracy
 # ============================================================================
 @weave.op()
-def eval_kernel_interception_score(action: str, is_intercepted: bool, platform: str) -> Dict[str, Any]:
+def eval_kernel_interception_score(
+    action: str, is_intercepted: bool, platform: str
+) -> Dict[str, Any]:
     expected_block = action in ["raw_execve", "socket_connect", "unmonitored_subshell"]
     accurate = is_intercepted == expected_block
-    return {
-        "action": action,
-        "platform": platform,
-        "interception_accurate": accurate
-    }
+    return {"action": action, "platform": platform, "interception_accurate": accurate}
 
 
 # ============================================================================
 # Track 2 Evaluation: Threat Mesh Sync Latency
 # ============================================================================
 @weave.op()
-def eval_mesh_sync_latency_score(broadcast_ms: float, target_sla_ms: float = 15.0) -> Dict[str, Any]:
+def eval_mesh_sync_latency_score(
+    broadcast_ms: float, target_sla_ms: float = 15.0
+) -> Dict[str, Any]:
     within_sla = broadcast_ms <= target_sla_ms
     return {
         "broadcast_ms": broadcast_ms,
         "target_sla_ms": target_sla_ms,
-        "sla_passed": within_sla
+        "sla_passed": within_sla,
     }
 
 
@@ -79,11 +85,13 @@ def eval_mesh_sync_latency_score(broadcast_ms: float, target_sla_ms: float = 15.
 @weave.op()
 def eval_identity_honeytoken_score(accessed_var: str, verdict: str) -> Dict[str, Any]:
     is_synthetic = accessed_var.startswith("BW_SYNTHETIC_")
-    correct_detection = (verdict == "CRITICAL") if is_synthetic else (verdict == "ALLOWED")
+    correct_detection = (
+        (verdict == "CRITICAL") if is_synthetic else (verdict == "ALLOWED")
+    )
     return {
         "accessed_variable": accessed_var,
         "verdict": verdict,
-        "detection_passed": correct_detection
+        "detection_passed": correct_detection,
     }
 
 
@@ -91,25 +99,26 @@ def eval_identity_honeytoken_score(accessed_var: str, verdict: str) -> Dict[str,
 # Track 4 Evaluation: Pipeline Micro-Sandbox Containment
 # ============================================================================
 @weave.op()
-def eval_pipeline_containment_score(payload_type: str, contained: bool) -> Dict[str, Any]:
-    return {
-        "payload_type": payload_type,
-        "sandbox_contained": contained
-    }
+def eval_pipeline_containment_score(
+    payload_type: str, contained: bool
+) -> Dict[str, Any]:
+    return {"payload_type": payload_type, "sandbox_contained": contained}
 
 
 # ============================================================================
 # Track 5 Evaluation: Forensic Triage Dual-Mode Accuracy
 # ============================================================================
 @weave.op()
-def eval_forensics_dual_mode_score(mode: str, refusal_rate: float, extracted_signatures: int) -> Dict[str, Any]:
+def eval_forensics_dual_mode_score(
+    mode: str, refusal_rate: float, extracted_signatures: int
+) -> Dict[str, Any]:
     zero_refusal = refusal_rate == 0.0
     signatures_generated = extracted_signatures > 0
     return {
         "triage_mode": mode,
         "refusal_rate": refusal_rate,
         "zero_refusal_passed": zero_refusal,
-        "signature_generated": signatures_generated
+        "signature_generated": signatures_generated,
     }
 
 

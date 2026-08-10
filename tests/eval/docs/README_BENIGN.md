@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This dataset (`benign_cases.json`) contains **69 structured test cases** representing legitimate agent tool calls and operations for defensive security evaluation of the Blackwall Agentic Firewall. 
+This dataset (`benign_cases.json`) contains **69 structured test cases** representing legitimate agent tool calls and operations for defensive security evaluation of the Blackwall Agentic Firewall.
 
 The dataset is designed to validate that Blackwall correctly:
 1. **Allows benign operations** to complete without false positive blocks
@@ -377,9 +377,9 @@ For questions about this dataset:
 
 ---
 
-**Version:** 1.0  
-**Last Updated:** January 2025  
-**Total Test Cases:** 69  
-**Coverage:** 5 major categories  
-**Status:** Reference dataset for Kaggle "AI Agents: Intensive Vibe Coding" hackathon  
+**Version:** 1.0
+**Last Updated:** January 2025
+**Total Test Cases:** 69
+**Coverage:** 5 major categories
+**Status:** Reference dataset for Kaggle "AI Agents: Intensive Vibe Coding" hackathon
 **Integration Status:** Ready for evaluation pipeline

@@ -98,11 +98,16 @@ class LinuxeBPFDriver(KernelProbeDriver):
     def start_tracing(self) -> None:
         """Attaches eBPF tracepoint probes to Linux kernel execve/connect syscalls."""
         if not self._ebpf_available:
-            logger.info("eBPF not available on %s; falling back to UserSpaceAuditDriver", sys.platform)
+            logger.info(
+                "eBPF not available on %s; falling back to UserSpaceAuditDriver",
+                sys.platform,
+            )
             return
 
         self._is_active = True
-        logger.info("LinuxeBPFDriver successfully attached tracepoints to sys_enter_execve")
+        logger.info(
+            "LinuxeBPFDriver successfully attached tracepoints to sys_enter_execve"
+        )
 
     def stop_tracing(self) -> None:
         """Detaches eBPF kernel probes."""

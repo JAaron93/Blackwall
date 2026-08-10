@@ -33,24 +33,24 @@ load_dotenv()
 async def test():
     repo = SQLiteThreatRepository('./test_blackwall.db')
     await repo.initialize()
-    
+
     gti = GTIMCPClient(repo=repo, api_key=os.getenv('GTI_MCP_API_KEY',''))
     cbm = CodebaseMemoryClient(command=[os.path.expanduser('~/.local/bin/codebase-memory-mcp')])
     client = genai.Client(vertexai=True, project=os.getenv('GCP_PROJECT','dummy-gcp-project'), location='global')
     r = SyncResolver(client=client, repo=repo, gti_client=gti, cbm_client=cbm)
-    
+
     # Test a SQL injection attack
     ctx = ToolCallContext(
         tool_name='database_query',
         arguments={'query': 'SELECT * FROM users WHERE id=1 UNION SELECT password FROM admin'}
     )
-    
+
     print('Evaluating SQL injection attack...')
     verdict = await r.evaluate(ctx)
     print(f'✓ Decision: {verdict.decision.value}')
     print(f'✓ Score:    {verdict.confidence_score:.3f}')
     print(f'✓ Reason:   {verdict.reasoning[:150]}')
-    
+
     # Verify database tables created
     tables = await repo._execute('SELECT name FROM sqlite_master WHERE type=\"table\"')
     print(f'✓ Database tables: {len([t for t in tables])} tables created')

@@ -3,6 +3,7 @@ import gc
 import pytest
 from blackwall.mcp.gti_client import GTIQueryBudgetTracker
 
+
 @pytest.mark.asyncio
 async def test_budget_tracker_initialization():
     tracker = GTIQueryBudgetTracker(capacity=4)
@@ -17,6 +18,7 @@ async def test_budget_tracker_initialization():
     finally:
         tracker.close()
 
+
 @pytest.mark.asyncio
 async def test_budget_tracker_try_acquire():
     tracker = GTIQueryBudgetTracker(capacity=4)
@@ -24,10 +26,10 @@ async def test_budget_tracker_try_acquire():
         # Acquire 4 tokens
         for _ in range(4):
             assert await tracker.try_acquire() is True
-        
+
         # 5th attempt should fail
         assert await tracker.try_acquire() is False
-        
+
         assert await tracker.get_available_tokens() == 0
         metrics = await tracker.get_metrics()
         assert metrics.queries_attempted == 5
@@ -35,6 +37,7 @@ async def test_budget_tracker_try_acquire():
         assert metrics.queries_deferred == 1
     finally:
         tracker.close()
+
 
 @pytest.mark.asyncio
 async def test_budget_tracker_replenishment():
@@ -44,16 +47,17 @@ async def test_budget_tracker_replenishment():
         # Drain all tokens
         for _ in range(4):
             await tracker.try_acquire()
-        
+
         assert await tracker.get_available_tokens() == 0
-        
+
         # Wait for replenishment (1 token every 0.01s, wait 0.025s for 2 tokens)
         await asyncio.sleep(0.025)
-        
+
         tokens = await tracker.get_available_tokens()
         assert tokens >= 1
     finally:
         tracker.close()
+
 
 @pytest.mark.asyncio
 async def test_budget_tracker_hard_cap():
@@ -66,6 +70,7 @@ async def test_budget_tracker_hard_cap():
     finally:
         tracker.close()
 
+
 @pytest.mark.asyncio
 async def test_budget_tracker_cache_hits():
     tracker = GTIQueryBudgetTracker(capacity=4)
@@ -73,7 +78,7 @@ async def test_budget_tracker_cache_hits():
         await tracker.record_cache_hit()
         await tracker.record_cache_hit()
         assert await tracker.try_acquire() is True
-        
+
         metrics = await tracker.get_metrics()
         assert metrics.queries_attempted == 3
         assert metrics.queries_executed == 1
@@ -81,6 +86,7 @@ async def test_budget_tracker_cache_hits():
         assert metrics.cache_hit_rate == 2.0 / 3.0
     finally:
         tracker.close()
+
 
 @pytest.mark.asyncio
 async def test_budget_tracker_concurrent_access():
@@ -92,10 +98,10 @@ async def test_budget_tracker_concurrent_access():
 
         tasks = [acquire_task() for _ in range(10)]
         results = await asyncio.gather(*tasks)
-        
+
         assert results.count(True) == 4
         assert results.count(False) == 6
-        
+
         metrics = await tracker.get_metrics()
         assert metrics.queries_attempted == 10
         assert metrics.queries_executed == 4
@@ -116,7 +122,11 @@ def test_budget_tracker_sync_instantiation_no_running_loop(recwarn):
         assert tracker._replenish_task is None
         # Force garbage collection to trigger warning if unawaited coroutine was instantiated
         gc.collect()
-        runtime_warnings = [w for w in recwarn.list if issubclass(w.category, RuntimeWarning)]
-        assert len(runtime_warnings) == 0, f"Expected 0 RuntimeWarnings, got: {runtime_warnings}"
+        runtime_warnings = [
+            w for w in recwarn.list if issubclass(w.category, RuntimeWarning)
+        ]
+        assert (
+            len(runtime_warnings) == 0
+        ), f"Expected 0 RuntimeWarnings, got: {runtime_warnings}"
     finally:
         tracker.close()

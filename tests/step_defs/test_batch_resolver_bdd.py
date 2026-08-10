@@ -28,6 +28,9 @@ class BDDState:
         self.allowed_calls = 0
         self.blocked_calls = 0
         self.sleep_mock = None
+        self.hygiene1 = None
+        self.hygiene2 = None
+        self.original_len = 0
 
 
 @pytest.fixture
@@ -82,6 +85,46 @@ def verify_redacted(state):
 
     assert sanitized["arguments"]["key"] == "api_key=[[API_KEY]]"
     assert sanitized["arguments"]["nested"]["secret"] == "password:[[PASSWORD]]"
+
+
+# --- Scenario: ContextHygiene maintains isolated pattern lists across independent instances ---
+
+
+@given("independent ContextHygiene instances created with precompiled default patterns")
+def init_independent_context_hygiene_instances(state):
+    from blackwall.resolver import ContextHygiene
+
+    state.hygiene1 = ContextHygiene()
+    state.hygiene2 = ContextHygiene()
+    state.original_len = len(state.hygiene2.patterns)
+    assert len(state.hygiene1.patterns) == len(ContextHygiene.DEFAULT_PATTERNS)
+
+
+@when("one instance modifies its pattern set")
+def modify_one_instance_patterns(state):
+    import re
+
+    state.hygiene1.patterns.append(
+        ("custom", re.compile(r"custom_secret_\d+"), "[[CUSTOM]]")
+    )
+
+
+@then(
+    "other instances retain their original precompiled pattern sets without cross-contamination"
+)
+def verify_pattern_isolation(state):
+    from blackwall.resolver import ContextHygiene
+
+    assert len(state.hygiene1.patterns) == state.original_len + 1
+    assert len(state.hygiene2.patterns) == state.original_len
+
+    # Verify a newly created third instance is also isolated and unaffected
+    ch3 = ContextHygiene()
+    assert len(ch3.patterns) == state.original_len
+
+    # Verify hygiene1 sanitization functions with its valid appended pattern
+    assert state.hygiene1.sanitize_string("custom_secret_12345") == "[[CUSTOM]]"
+    assert state.hygiene2.sanitize_string("custom_secret_12345") == "custom_secret_12345"
 
 
 # --- Scenario: Context caching decreases token usage on subsequent calls ---
