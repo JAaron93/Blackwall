@@ -6,7 +6,6 @@
     "tests/**"
   ],
   "exclude": [
-    "src/blackwall/enterprise/**",
     "**/__pycache__/**",
     "**/*.pyc",
     ".venv/**",
@@ -21,6 +20,7 @@
     "Flag any ContextResolver middleware that does not sanitize environment variable patterns with [[VARIABLE_NAME]] placeholders.",
     "Flag hardcoded credentials, API keys, or secrets in source files.",
     "Flag any import of enterprise-tier modules (blackwall.enterprise.*) from Core modules under src/blackwall/ (excluding enterprise/).",
+    "For code under src/blackwall/enterprise/: review only for Core/Enterprise boundary violations and shared interface compatibility. Do not flag Enterprise-internal pillar implementations (eBPF drivers, ZeroMQ mesh, Vault sidecar, pipeline wrappers, forensics engine) as violations — these are intentional Enterprise-only features.",
     "Flag test code that does not isolate sys.addaudithook calls — audit hooks are process-global and cannot be unregistered.",
     "Flag any async function that uses blocking I/O (e.g. time.sleep, open() on large files) inside an event loop without asyncio.to_thread."
   ]
