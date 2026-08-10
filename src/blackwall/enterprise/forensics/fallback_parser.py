@@ -82,10 +82,19 @@ class LightweightForensicParser:
 
         # Dangerous callee target definitions (qualified or built-in)
         DANGEROUS_CALLEES = {
-            "eval", "exec",
-            "os.system", "os.popen", "os.spawn", "os.spawnve",
-            "subprocess.popen", "subprocess.call", "subprocess.run", "subprocess.check_output",
-            "pickle.loads", "yaml.unsafe_load", "pty.spawn",
+            "eval",
+            "exec",
+            "os.system",
+            "os.popen",
+            "os.spawn",
+            "os.spawnve",
+            "subprocess.popen",
+            "subprocess.call",
+            "subprocess.run",
+            "subprocess.check_output",
+            "pickle.loads",
+            "yaml.unsafe_load",
+            "pty.spawn",
         }
 
         # AST inspection on string content if command / python code provided
@@ -98,14 +107,22 @@ class LightweightForensicParser:
                         if isinstance(node, ast.Call):
                             call_name = self._get_call_name(node.func).lower()
                             if call_name in DANGEROUS_CALLEES or any(
-                                call_name.endswith(f".{target}") and not call_name.startswith(("json.", "logging.", "asyncio.", "math."))
+                                call_name.endswith(f".{target}")
+                                and not call_name.startswith(
+                                    ("json.", "logging.", "asyncio.", "math.")
+                                )
                                 for target in ("system", "popen", "spawnve")
                             ):
                                 if "command_injection" not in matched_categories:
                                     matched_categories.append("command_injection")
                                     matched_patterns.append(f"ast:{call_name}")
-                                    descriptions.append(f"AST heuristic identified unsafe call to '{call_name}'")
-                                    if severity_rank["HIGH"] > severity_rank[max_severity]:
+                                    descriptions.append(
+                                        f"AST heuristic identified unsafe call to '{call_name}'"
+                                    )
+                                    if (
+                                        severity_rank["HIGH"]
+                                        > severity_rank[max_severity]
+                                    ):
                                         max_severity = "HIGH"
                 except Exception:
                     pass  # Not valid Python code, skip AST check
@@ -118,5 +135,9 @@ class LightweightForensicParser:
             "mode": "standalone_fallback",
             "categories": matched_categories,
             "extracted_pattern": ", ".join(matched_patterns),
-            "description": "; ".join(descriptions) if is_threat else "No known threat patterns detected",
+            "description": (
+                "; ".join(descriptions)
+                if is_threat
+                else "No known threat patterns detected"
+            ),
         }

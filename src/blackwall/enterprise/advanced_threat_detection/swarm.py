@@ -3,7 +3,6 @@
 from collections import deque
 from datetime import datetime, timezone, timedelta
 import hashlib
-import json
 import logging
 import math
 import re
@@ -34,10 +33,8 @@ def _avg_min_time_diff(ts1: List[datetime], ts2: List[datetime]) -> float:
     len2 = len(ts2)
 
     for t1 in ts1:
-        while (
-            idx2 + 1 < len2
-            and abs((ts2[idx2 + 1] - t1).total_seconds())
-            < abs((ts2[idx2] - t1).total_seconds())
+        while idx2 + 1 < len2 and abs((ts2[idx2 + 1] - t1).total_seconds()) < abs(
+            (ts2[idx2] - t1).total_seconds()
         ):
             idx2 += 1
         total_diff += abs((ts2[idx2] - t1).total_seconds())
@@ -102,10 +99,7 @@ class AgentSwarmDetector:
         events = [node.event for node in nodes]
         events.sort(key=lambda e: e.timestamp)
 
-        action_sequence = [
-            f"{e.source.value}:{e.action}:{e.target}"
-            for e in events
-        ]
+        action_sequence = [f"{e.source.value}:{e.action}:{e.target}" for e in events]
         sequence_str = "|".join(action_sequence)
         return hashlib.sha256(sequence_str.encode("utf-8")).hexdigest()
 
@@ -129,12 +123,16 @@ class AgentSwarmDetector:
             raise ValueError("correlation_threshold must be between 0.0 and 1.0")
 
         start_raw, end_raw = time_window
-        validate_temporal_sequence(start_raw, end_raw, start_name="start_time", end_name="end_time")
+        validate_temporal_sequence(
+            start_raw, end_raw, start_name="start_time", end_name="end_time"
+        )
         start_win = validate_utc_datetime(start_raw)
         end_win = validate_utc_datetime(end_raw)
 
         # Fetch nodes across all agents within time window
-        all_nodes = await self.store.query_nodes(agent_id=None, time_window=(start_win, end_win), limit=5000)
+        all_nodes = await self.store.query_nodes(
+            agent_id=None, time_window=(start_win, end_win), limit=5000
+        )
 
         # Group nodes/events by agent_id
         events_by_agent: Dict[str, List[NormalizedEvent]] = {}
@@ -211,7 +209,9 @@ class AgentSwarmDetector:
             avg_corr = sum(pair_corrs) / len(pair_corrs) if pair_corrs else c_thresh
             temporal_correlation = max(0.0, min(1.0, float(avg_corr)))
 
-            coord_score = await self.compute_coordination_score(comp_list, (start_win, end_win))
+            coord_score = await self.compute_coordination_score(
+                comp_list, (start_win, end_win)
+            )
 
             comp_events = [e for a in comp_list for e in events_by_agent[a]]
             first_seen = min(e.timestamp for e in comp_events)
@@ -240,11 +240,15 @@ class AgentSwarmDetector:
             return 0.0
 
         start_raw, end_raw = time_window
-        validate_temporal_sequence(start_raw, end_raw, start_name="start_time", end_name="end_time")
+        validate_temporal_sequence(
+            start_raw, end_raw, start_name="start_time", end_name="end_time"
+        )
         start_win = validate_utc_datetime(start_raw)
         end_win = validate_utc_datetime(end_raw)
 
-        all_nodes = await self.store.query_nodes(agent_id=None, time_window=(start_win, end_win), limit=5000)
+        all_nodes = await self.store.query_nodes(
+            agent_id=None, time_window=(start_win, end_win), limit=5000
+        )
         events_by_agent: Dict[str, List[NormalizedEvent]] = {a: [] for a in agents}
         for node in all_nodes:
             if node.event.agent_id in events_by_agent:
@@ -255,7 +259,9 @@ class AgentSwarmDetector:
             return 0.0
 
         # Sub-score 1: Temporal alignment (closeness of event timestamps across agents in O(N+M))
-        timestamps_by_agent = {a: sorted([e.timestamp for e in events_by_agent[a]]) for a in active_agents}
+        timestamps_by_agent = {
+            a: sorted([e.timestamp for e in events_by_agent[a]]) for a in active_agents
+        }
         alignment_scores = []
         for i in range(len(active_agents)):
             for j in range(i + 1, len(active_agents)):
@@ -263,14 +269,21 @@ class AgentSwarmDetector:
                 ts2 = timestamps_by_agent[active_agents[j]]
                 if not ts1 or not ts2:
                     continue
-                avg_diff = (_avg_min_time_diff(ts1, ts2) + _avg_min_time_diff(ts2, ts1)) / 2.0
+                avg_diff = (
+                    _avg_min_time_diff(ts1, ts2) + _avg_min_time_diff(ts2, ts1)
+                ) / 2.0
                 score_pair = float(math.exp(-avg_diff / 30.0))
                 alignment_scores.append(score_pair)
 
-        temporal_alignment = sum(alignment_scores) / len(alignment_scores) if alignment_scores else 0.0
+        temporal_alignment = (
+            sum(alignment_scores) / len(alignment_scores) if alignment_scores else 0.0
+        )
 
         # Sub-score 2: Behavioral similarity (action and target overlap)
-        action_sets = {a: {f"{e.action}:{e.target}" for e in events_by_agent[a]} for a in active_agents}
+        action_sets = {
+            a: {f"{e.action}:{e.target}" for e in events_by_agent[a]}
+            for a in active_agents
+        }
         jaccards = []
         for i in range(len(active_agents)):
             for j in range(i + 1, len(active_agents)):
@@ -282,11 +295,15 @@ class AgentSwarmDetector:
         behavioral_sim = sum(jaccards) / len(jaccards) if jaccards else 0.0
 
         # Sub-score 3: Shared infrastructure score
-        shared_patterns = self._extract_shared_infrastructure({a: events_by_agent[a] for a in active_agents})
+        shared_patterns = self._extract_shared_infrastructure(
+            {a: events_by_agent[a] for a in active_agents}
+        )
         infra_score = min(1.0, len(shared_patterns) * 0.25)
 
         # Weighted aggregate: 40% temporal alignment, 40% behavioral similarity, 20% shared infra
-        raw_score = (0.4 * temporal_alignment) + (0.4 * behavioral_sim) + (0.2 * infra_score)
+        raw_score = (
+            (0.4 * temporal_alignment) + (0.4 * behavioral_sim) + (0.2 * infra_score)
+        )
         return max(0.0, min(1.0, float(raw_score)))
 
     def _compute_pairwise_correlation(
@@ -311,12 +328,20 @@ class AgentSwarmDetector:
         # 2. Action similarity score
         actions1 = {e.action for e in events1}
         actions2 = {e.action for e in events2}
-        action_sim = len(actions1.intersection(actions2)) / len(actions1.union(actions2)) if (actions1 or actions2) else 0.0
+        action_sim = (
+            len(actions1.intersection(actions2)) / len(actions1.union(actions2))
+            if (actions1 or actions2)
+            else 0.0
+        )
 
         # 3. Target similarity score
         targets1 = {e.target for e in events1}
         targets2 = {e.target for e in events2}
-        target_sim = len(targets1.intersection(targets2)) / len(targets1.union(targets2)) if (targets1 or targets2) else 0.0
+        target_sim = (
+            len(targets1.intersection(targets2)) / len(targets1.union(targets2))
+            if (targets1 or targets2)
+            else 0.0
+        )
 
         correlation = (0.5 * temporal_score) + (0.25 * action_sim) + (0.25 * target_sim)
         return max(0.0, min(1.0, float(correlation)))
@@ -368,9 +393,13 @@ class AgentSwarmDetector:
             if len(sharing_agents) >= 2:
                 shared_patterns.append(f"domain:{dom}")
 
-        all_resources = set.union(*agent_resources.values()) if agent_resources else set()
+        all_resources = (
+            set.union(*agent_resources.values()) if agent_resources else set()
+        )
         for res in all_resources:
-            sharing_agents = [aid for aid, res_set in agent_resources.items() if res in res_set]
+            sharing_agents = [
+                aid for aid, res_set in agent_resources.items() if res in res_set
+            ]
             if len(sharing_agents) >= 2:
                 shared_patterns.append(f"resource:{res}")
 

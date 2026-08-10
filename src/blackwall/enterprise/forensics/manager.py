@@ -26,8 +26,12 @@ class ForensicTriageManager:
         fallback_parser: Optional[LightweightForensicParser] = None,
         otel_adapter: Optional[OpenTelemetryMCPAdapter] = None,
     ) -> None:
-        self.ollama_engine: OllamaForensicEngine = ollama_engine or OllamaForensicEngine()
-        self.fallback_parser: LightweightForensicParser = fallback_parser or LightweightForensicParser()
+        self.ollama_engine: OllamaForensicEngine = (
+            ollama_engine or OllamaForensicEngine()
+        )
+        self.fallback_parser: LightweightForensicParser = (
+            fallback_parser or LightweightForensicParser()
+        )
         self.otel_adapter: Optional[OpenTelemetryMCPAdapter] = otel_adapter
 
     async def triage_log_event(self, log_payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -44,7 +48,9 @@ class ForensicTriageManager:
             logger.info("Ollama LLM online. Executing Primary Ollama Forensic Triage.")
             report = await self.ollama_engine.analyze_log_stream(log_payload)
         else:
-            logger.info("Ollama LLM offline. Executing Standalone Lightweight Fallback Parser.")
+            logger.info(
+                "Ollama LLM offline. Executing Standalone Lightweight Fallback Parser."
+            )
             report = self.fallback_parser.parse(log_payload)
 
         report["trace_id"] = trace_id

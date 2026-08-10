@@ -163,9 +163,7 @@ class GTIQueryBudgetTracker:
             # Increment exhaustion counter only on transition from non-zero to zero
             if self._tokens == 0:
                 self._budget_exhaustion_count += 1
-            logger.debug(
-                "GTI token acquired. remaining_tokens=%d", self._tokens
-            )
+            logger.debug("GTI token acquired. remaining_tokens=%d", self._tokens)
             return True
         else:
             self._queries_deferred += 1
@@ -269,7 +267,9 @@ class GTIQueryBudgetTracker:
                     self._replenishment_timestamps.append(now)
                     # Keep only the last 60 timestamps to bound memory
                     if len(self._replenishment_timestamps) > 60:
-                        self._replenishment_timestamps = self._replenishment_timestamps[-60:]
+                        self._replenishment_timestamps = self._replenishment_timestamps[
+                            -60:
+                        ]
                     logger.debug(
                         "GTI token replenished. current_tokens=%d", self._tokens
                     )

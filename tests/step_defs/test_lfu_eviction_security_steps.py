@@ -162,5 +162,5 @@ def then_check_batch_deletion_behavior(lfu_state):
     assert "WHERE signature_id IN (" in query_str, (
         f"Query '{query_str}' does not use 'WHERE signature_id IN (...)' batch deletion"
     )
-    # 30 candidate IDs + 1 high_value_threshold parameter = 31 parameters
-    assert len(params) == 31, f"Expected 31 bound parameters in batch query, got {len(params)}"
+    # 1 high_value_threshold + 1 excess_count parameter = 2 parameters
+    assert len(params) == 2, f"Expected 2 bound parameters in batch subquery, got {len(params)}"

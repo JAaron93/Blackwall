@@ -1,6 +1,11 @@
 from typing import List
 
-from blackwall.models import GroundTruthLabel, SecurityMetrics, TestResult, VerdictDecision
+from blackwall.models import (
+    GroundTruthLabel,
+    SecurityMetrics,
+    TestResult,
+    VerdictDecision,
+)
 
 
 def calculateMetrics(

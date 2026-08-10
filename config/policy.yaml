@@ -93,4 +93,3 @@ advancedThreatDetection:
     windowSeconds: 3600
     minAgents: 2
     correlationThreshold: 0.75
-

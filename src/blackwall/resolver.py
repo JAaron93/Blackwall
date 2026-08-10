@@ -217,12 +217,19 @@ class BatchResolver:
                 span.set_attribute("blackwall.cache_hit_count", 0)
                 span.set_status(Status(StatusCode.OK))
                 return BatchResponse(
-                    verdicts=[], processing_time=0.0, tokens_consumed=0, cache_hit_count=0
+                    verdicts=[],
+                    processing_time=0.0,
+                    tokens_consumed=0,
+                    cache_hit_count=0,
                 )
 
             # Apply Context Hygiene to all contexts
             sanitized_contexts = [
-                self.hygiene.sanitize_context(token.tool_context) if token.tool_context else ToolCallContext(tool_name="", arguments={})
+                (
+                    self.hygiene.sanitize_context(token.tool_context)
+                    if token.tool_context
+                    else ToolCallContext(tool_name="", arguments={})
+                )
                 for token in callback_tokens
             ]
 
@@ -239,8 +246,7 @@ class BatchResolver:
                     # Execute submitToGeminiSync (API call only) with a hardcoded 30-second timeout for local MVP.
                     # asyncio.wait_for() raises TimeoutError to the caller and cancels the wrapped coroutine.
                     response = await asyncio.wait_for(
-                        self.submit_to_gemini_sync(sanitized_contexts),
-                        timeout=30.0
+                        self.submit_to_gemini_sync(sanitized_contexts), timeout=30.0
                     )
 
                     # Post-response telemetry (best-effort, guarded)
@@ -257,8 +263,12 @@ class BatchResolver:
                     self.total_latency_ms += latency_ms
 
                     try:
-                        span.set_attribute("blackwall.cache_hit_count", response.cache_hit_count)
-                        span.set_attribute("blackwall.tokens_consumed", response.tokens_consumed)
+                        span.set_attribute(
+                            "blackwall.cache_hit_count", response.cache_hit_count
+                        )
+                        span.set_attribute(
+                            "blackwall.tokens_consumed", response.tokens_consumed
+                        )
                         span.set_attribute("blackwall.processing_time_ms", latency_ms)
                     except Exception:
                         logger.debug("Failed to set span attributes", exc_info=True)
@@ -269,13 +279,17 @@ class BatchResolver:
                             if cache_hits_metric:
                                 cache_hits_metric.add(response.cache_hit_count)
                         except Exception:
-                            logger.debug("Failed to record cache hits metric", exc_info=True)
+                            logger.debug(
+                                "Failed to record cache hits metric", exc_info=True
+                            )
 
                     # Periodically log metrics for monitoring dashboards
                     try:
                         if self.total_batches % 10 == 0:
                             metrics = self.get_metrics()
-                            logger.info(f"BatchResolver Metrics: {metrics.model_dump_json()}")
+                            logger.info(
+                                f"BatchResolver Metrics: {metrics.model_dump_json()}"
+                            )
                     except Exception:
                         logger.debug("Failed to log periodic metrics", exc_info=True)
 
@@ -290,7 +304,9 @@ class BatchResolver:
                         for token in callback_tokens:
                             token.telemetry_span_id = span_id_hex
                     except Exception:
-                        logger.debug("Failed to attach span ID to callback tokens", exc_info=True)
+                        logger.debug(
+                            "Failed to attach span ID to callback tokens", exc_info=True
+                        )
 
                     return response
 
@@ -332,7 +348,9 @@ class BatchResolver:
                         span.record_exception(e)
                         span.set_status(Status(StatusCode.ERROR, str(e)))
                     except Exception:
-                        logger.debug("Failed to record exception in span", exc_info=True)
+                        logger.debug(
+                            "Failed to record exception in span", exc_info=True
+                        )
 
                     # If we've exhausted retries or encountered a non-rate limit exception, fail-closed
                     logger.error(
@@ -356,7 +374,10 @@ class BatchResolver:
                         if latency_metric:
                             latency_metric.record(latency_ms / 1000.0)
                     except Exception:
-                        logger.debug("Failed to record latency metric in fail-closed path", exc_info=True)
+                        logger.debug(
+                            "Failed to record latency metric in fail-closed path",
+                            exc_info=True,
+                        )
 
                     self.total_batches += 1
                     self.total_callbacks += len(callback_tokens)
@@ -368,7 +389,10 @@ class BatchResolver:
                         for token in callback_tokens:
                             token.telemetry_span_id = span_id_hex
                     except Exception:
-                        logger.debug("Failed to attach span ID to callback tokens in fail-closed path", exc_info=True)
+                        logger.debug(
+                            "Failed to attach span ID to callback tokens in fail-closed path",
+                            exc_info=True,
+                        )
 
                     return BatchResponse(
                         verdicts=verdicts,
@@ -421,7 +445,7 @@ class BatchResolver:
                         input=payload_json,
                         previous_interaction_id=payload.previous_interaction_id,
                         timeout=API_CALL_TIMEOUT,
-                    )
+                    ),
                 )
 
             # Update last interaction ID for server-side context caching
@@ -521,7 +545,7 @@ class BatchResolver:
                         background=True,
                         webhook_config=webhook_config,
                         timeout=API_CALL_TIMEOUT,
-                    )
+                    ),
                 )
 
             self.track_background_submission()

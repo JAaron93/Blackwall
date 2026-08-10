@@ -5,6 +5,7 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
+
 class GeminiEmbeddingClient:
     """
     Client for interacting with the Gemini Embedding API to generate
@@ -21,8 +22,7 @@ class GeminiEmbeddingClient:
         """
         model_name = "gemini-embedding-001"
         config = types.EmbedContentConfig(
-            task_type="SEMANTIC_SIMILARITY",
-            output_dimensionality=768
+            task_type="SEMANTIC_SIMILARITY", output_dimensionality=768
         )
 
         try:
@@ -35,14 +35,15 @@ class GeminiEmbeddingClient:
                     if embed_fn is not None:
                         from unittest.mock import AsyncMock
                         import inspect
-                        if isinstance(embed_fn, AsyncMock) or inspect.iscoroutinefunction(embed_fn):
+
+                        if isinstance(
+                            embed_fn, AsyncMock
+                        ) or inspect.iscoroutinefunction(embed_fn):
                             use_async = True
 
             if use_async:
                 response = await self.client.aio.models.embed_content(
-                    model=model_name,
-                    contents=text,
-                    config=config
+                    model=model_name, contents=text, config=config
                 )
             else:
                 # Fallback to run in executor for synchronous client method
@@ -50,10 +51,8 @@ class GeminiEmbeddingClient:
                 response = await loop.run_in_executor(
                     None,
                     lambda: self.client.models.embed_content(
-                        model=model_name,
-                        contents=text,
-                        config=config
-                    )
+                        model=model_name, contents=text, config=config
+                    ),
                 )
 
             if not response or not response.embeddings:

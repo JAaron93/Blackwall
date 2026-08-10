@@ -6,6 +6,7 @@ from blackwall.logging import setup_logging
 from opentelemetry import trace
 import logging
 
+
 def test_telemetry_initialization():
     # Calling setup_telemetry multiple times should not crash and should return True
     success = setup_telemetry()
@@ -15,18 +16,20 @@ def test_telemetry_initialization():
     success2 = setup_telemetry()
     assert success2 is True
 
+
 def test_get_tracer_and_metric():
     setup_telemetry()
     tracer = get_tracer("test_tracer")
     assert isinstance(tracer, trace.Tracer)
-    
+
     metric = get_metric("interceptions_total")
     assert metric is not None
-    
+
     # Check that a span can be created
     with tracer.start_as_current_span("test_span") as span:
         span.set_attribute("test_attr", "value")
         assert span.is_recording()
+
 
 def test_logging_rotation_and_compression():
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -35,6 +38,7 @@ def test_logging_rotation_and_compression():
             setup_logging(log_level=logging.DEBUG, log_dir=tmpdir)
 
             import structlog
+
             log = structlog.get_logger("blackwall")
             log.info("Test message")
 
@@ -54,6 +58,7 @@ def test_logging_rotation_and_compression():
                 f.write("Rotated content")
 
             from blackwall.logging import _gzip_rotator
+
             _gzip_rotator(dummy_source, dummy_dest)
 
             assert os.path.exists(dummy_dest)

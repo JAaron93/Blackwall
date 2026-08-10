@@ -12,16 +12,18 @@ Validates:
 import sys
 import os
 import asyncio
-from typing import Optional
 
 # Ensure src/ is in python path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+)
 
 from dotenv import load_dotenv
 
+
 async def verify_environment() -> bool:
     print("🔍 Starting GCP Vertex AI Mode Environment Verification...")
-    
+
     # Load .env asynchronously via to_thread
     env_file = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
     if os.path.exists(env_file):
@@ -43,14 +45,19 @@ async def verify_environment() -> bool:
     # 2. Check for legacy API keys
     for key in ("GEMINI_API_KEY", "LLM_API_KEY"):
         if os.getenv(key):
-            print(f"  ❌ Security Warning: Stale {key} still found in environment!", file=sys.stderr)
+            print(
+                f"  ❌ Security Warning: Stale {key} still found in environment!",
+                file=sys.stderr,
+            )
             return False
     print("  ✓ Confirmed zero legacy AI Studio API keys in runtime environment")
 
     # 3. Instantiate Vertex AI GenAI Client & Test Authenticated Connectivity
     try:
         client = get_genai_client()
-        print("  ✓ google-genai Client initialized strictly in Vertex AI Mode (vertexai=True)")
+        print(
+            "  ✓ google-genai Client initialized strictly in Vertex AI Mode (vertexai=True)"
+        )
 
         # Verify authenticated endpoint connectivity if not running with dummy project in tests
         if settings.effective_gcp_project != "dummy-gcp-project":
@@ -65,7 +72,10 @@ async def verify_environment() -> bool:
                 if res and res.text:
                     print("  ✓ Authenticated Vertex AI model inference call succeeded")
             except Exception as conn_err:
-                print(f"  ❌ Authenticated Vertex AI Connectivity Failed: {conn_err}", file=sys.stderr)
+                print(
+                    f"  ❌ Authenticated Vertex AI Connectivity Failed: {conn_err}",
+                    file=sys.stderr,
+                )
                 return False
         else:
             print("  ✓ Authenticated connectivity check skipped for dummy test project")
@@ -73,8 +83,11 @@ async def verify_environment() -> bool:
         print(f"  ❌ Client Initialization Failed: {e}", file=sys.stderr)
         return False
 
-    print("🎉 Environment verification PASSED! 100% GCP Vertex AI Mode (Paid Tier) is active.")
+    print(
+        "🎉 Environment verification PASSED! 100% GCP Vertex AI Mode (Paid Tier) is active."
+    )
     return True
+
 
 if __name__ == "__main__":
     success = asyncio.run(verify_environment())

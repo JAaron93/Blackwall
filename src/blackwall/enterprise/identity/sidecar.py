@@ -42,7 +42,9 @@ class SecretVaultSidecar:
         upper_name = var_name.upper()
         return any(keyword in upper_name for keyword in SENSITIVE_KEYWORDS)
 
-    def sterilize_environment(self, env_dict: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    def sterilize_environment(
+        self, env_dict: Optional[Dict[str, str]] = None
+    ) -> Dict[str, str]:
         """
         Scan environment dictionary (defaulting to os.environ) and substitute
         sensitive credentials with synthetic honey-tokens (BW_SYNTHETIC_*).
@@ -74,13 +76,17 @@ class SecretVaultSidecar:
         )
         return sterilized
 
-    def evaluate_access(self, var_name: str, value: Optional[str] = None) -> Dict[str, Any]:
+    def evaluate_access(
+        self, var_name: str, value: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Evaluate variable access or value inspection attempt.
         If var_name or value matches synthetic honey-token pattern (BW_SYNTHETIC_*),
         return CRITICAL threat verdict for immediate containment.
         """
-        is_honeytoken_var = var_name.startswith("BW_SYNTHETIC_") or var_name in self._honeytoken_map
+        is_honeytoken_var = (
+            var_name.startswith("BW_SYNTHETIC_") or var_name in self._honeytoken_map
+        )
         is_honeytoken_val = value is not None and (
             value.startswith("BW_SYNTHETIC_") or value in self._honeytoken_map
         )
@@ -106,9 +112,13 @@ class SecretVaultSidecar:
             "value": value,
         }
 
-    async def get_jit_credential(self, role: str = "default", ttl_seconds: int = 900) -> Dict[str, Any]:
+    async def get_jit_credential(
+        self, role: str = "default", ttl_seconds: int = 900
+    ) -> Dict[str, Any]:
         """Obtain short-lived (15 min TTL) real STS/Vault credential via hashicorp-vault-mcp."""
         if not self.vault_adapter.is_connected:
             await self.vault_adapter.connect()
 
-        return await self.vault_adapter.issue_jit_token(role=role, ttl_seconds=ttl_seconds)
+        return await self.vault_adapter.issue_jit_token(
+            role=role, ttl_seconds=ttl_seconds
+        )

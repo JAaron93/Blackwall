@@ -20,6 +20,7 @@ class EncryptedLocalStore:
         key_bytes = master_key.encode("utf-8")
         # Use a simple but deterministic derivation: SHA256 hash gives 32 bytes
         import hashlib
+
         derived_key = base64.urlsafe_b64encode(hashlib.sha256(key_bytes).digest())
         self.cipher = Fernet(derived_key)
 
@@ -37,7 +38,10 @@ class EncryptedLocalStore:
         except Exception as e:
             # Fail closed: decryption/authentication failures must not return empty vault
             # This prevents silent secret loss when vault is accessed with wrong key
-            logger.error("Failed to decrypt or parse vault - possible key mismatch or corruption", error=str(e))
+            logger.error(
+                "Failed to decrypt or parse vault - possible key mismatch or corruption",
+                error=str(e),
+            )
             raise ValueError(f"Vault decryption failed: {str(e)}") from e
 
     def save(self, data: Dict[str, str]) -> None:
@@ -57,10 +61,14 @@ class EncryptedLocalStore:
 class LocalVault:
     """Credential vault integrating a local encrypted store."""
 
-    def __init__(self, filepath: str = "./vault/secrets.enc", master_key: Optional[str] = None):
+    def __init__(
+        self, filepath: str = "./vault/secrets.enc", master_key: Optional[str] = None
+    ):
         key = master_key or os.environ.get("BLACKWALL_VAULT_KEY")
         if key is None:
-            raise ValueError("Vault key must be provided via master_key parameter or BLACKWALL_VAULT_KEY environment variable")
+            raise ValueError(
+                "Vault key must be provided via master_key parameter or BLACKWALL_VAULT_KEY environment variable"
+            )
         self.store = EncryptedLocalStore(filepath, key)
 
     def set_secret(self, key: str, value: str) -> None:
@@ -74,11 +82,11 @@ class LocalVault:
         # Strip scheme if it is a vault URI
         ref_key = key
         if key.startswith("vault://"):
-            ref_key = key[len("vault://"):]
+            ref_key = key[len("vault://") :]
             # Support both vault://secrets/name and vault://name
             if ref_key.startswith("secrets/"):
-                ref_key = ref_key[len("secrets/"):]
-        
+                ref_key = ref_key[len("secrets/") :]
+
         data = self.store.load()
         if ref_key not in data:
             raise KeyError(f"Secret not found in vault: {key}")

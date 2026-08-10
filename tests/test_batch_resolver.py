@@ -350,16 +350,16 @@ async def test_batch_resolver_enforces_30_second_timeout():
             tool_context=ToolCallContext(tool_name="tool1", arguments={}),
         )
     ]
-    
+
     with patch("blackwall.resolver.asyncio.wait_for") as mock_wait_for:
         mock_wait_for.side_effect = asyncio.TimeoutError("Timeout waiting for API")
-        
+
         response = await resolver.process_batch(tokens)
-        
+
         mock_wait_for.assert_called_once()
         _, kwargs = mock_wait_for.call_args
         assert kwargs.get("timeout") == 30.0
-        
+
         assert len(response.verdicts) == 1
         assert response.verdicts[0].decision == VerdictDecision.QUARANTINE
         assert "Timeout waiting for API" in response.verdicts[0].reasoning
@@ -411,4 +411,3 @@ def test_context_hygiene_empty_default_patterns_safety():
         _COMPILED_DEFAULT_PATTERNS.append((_name, None, _placeholder))
     del _name, _pat, _placeholder
     assert len(_COMPILED_DEFAULT_PATTERNS) == 0
-

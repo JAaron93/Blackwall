@@ -42,7 +42,3 @@ Feature: Blackwall Advanced Threat Detection Pillar Data Validation
     When agent action sequences are fingerprinted and swarms are detected
     Then deterministic SHA-256 behavioral fingerprints are generated
     And SwarmEvidence is produced with temporal correlation, coordination score, and shared infrastructure patterns
-
-
-
-

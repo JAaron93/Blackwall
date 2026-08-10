@@ -3,7 +3,12 @@ from datetime import datetime, timezone
 import structlog
 from typing import List
 
-from blackwall.models import ToolCallContext, Verdict, VerdictDecision, PolicyServerState
+from blackwall.models import (
+    ToolCallContext,
+    Verdict,
+    VerdictDecision,
+    PolicyServerState,
+)
 from blackwall.policy.engine import StructuralGatingEngine, StructuralAction
 from blackwall.policy.semantic import SemanticGatingEngine
 from blackwall.exceptions import APIRateLimitException
@@ -25,7 +30,9 @@ class HybridPolicyServer:
         self.semantic_engine = semantic_engine
         self.last_updated = datetime.now(timezone.utc)
 
-    async def evaluate(self, context: ToolCallContext, environment_role: str) -> Verdict:
+    async def evaluate(
+        self, context: ToolCallContext, environment_role: str
+    ) -> Verdict:
         """
         Evaluates a tool call context.
         First executes Structural Gating. If it is ALLOW (without review) or BLOCK, returns immediately.

@@ -26,16 +26,49 @@ callback is already on the event loop (as adk eval does). We await the
 SyncResolver coroutine directly instead.
 """
 
-import asyncio
 import os
 import sys as _sys
 from typing import Any, Optional
 
 import structlog
-from google.adk.agents import LlmAgent
-from google.adk.tools import FunctionTool
-from google.adk.tools.base_tool import BaseTool
-from google.adk.tools.tool_context import ToolContext
+try:
+    from google.adk.agents import LlmAgent
+    from google.adk.tools import FunctionTool
+    from google.adk.tools.base_tool import BaseTool
+    from google.adk.tools.tool_context import ToolContext
+
+    ADK_AVAILABLE = True
+except ImportError:
+    try:
+        from google.genai.adk.agents import LlmAgent
+        from google.genai.adk.tools import FunctionTool
+        from google.genai.adk.tools.base_tool import BaseTool
+        from google.genai.adk.tools.tool_context import ToolContext
+
+        ADK_AVAILABLE = True
+    except ImportError:
+        ADK_AVAILABLE = False
+
+        class LlmAgent:  # type: ignore
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                self.name = kwargs.get("name", "blackwall_target_agent")
+                self.tools = kwargs.get("tools", [])
+                self.before_tool_callback = kwargs.get("before_tool_callback")
+                self.model = kwargs.get("model")
+                self.instruction = kwargs.get("instruction")
+                for k, v in kwargs.items():
+                    setattr(self, k, v)
+
+        class FunctionTool:  # type: ignore
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                for k, v in kwargs.items():
+                    setattr(self, k, v)
+
+        class BaseTool:  # type: ignore
+            pass
+
+        class ToolContext:  # type: ignore
+            pass
 
 logger = structlog.get_logger("blackwall.agent")
 
@@ -53,6 +86,7 @@ def _get_resolver() -> Any:
 
     # Inline import to keep module-level startup fast
     from dotenv import load_dotenv
+
     load_dotenv()
 
     from blackwall.sync_resolver import SyncResolver
@@ -91,6 +125,7 @@ def _get_resolver() -> Any:
 # Returning None → ALLOW.  Raising PermissionError → BLOCK.
 # ---------------------------------------------------------------------------
 
+
 async def blackwall_before_tool_callback(
     tool: BaseTool,
     args: dict[str, Any],
@@ -112,9 +147,7 @@ async def blackwall_before_tool_callback(
         return None  # let ADK execute the tool
 
     if verdict.decision == VerdictDecision.BLOCK:
-        raise PermissionError(
-            f"[BLACKWALL BLOCK] {verdict.reasoning}"
-        )
+        raise PermissionError(f"[BLACKWALL BLOCK] {verdict.reasoning}")
 
     # QUARANTINE — return a safe mock response, don't execute the real tool
     return {
@@ -127,6 +160,7 @@ async def blackwall_before_tool_callback(
 # ---------------------------------------------------------------------------
 # Tool stubs — minimal passthrough implementations for eval harness
 # ---------------------------------------------------------------------------
+
 
 def database_query(query: str) -> dict[str, Any]:
     """Execute a database query (eval stub)."""
@@ -164,6 +198,17 @@ except ValueError as exc:
         logger.warning("GCP_PROJECT omitted during test module import: %s", exc)
     else:
         raise
+
+if not ADK_AVAILABLE and not (
+    "PYTEST_CURRENT_TEST" in os.environ
+    or "BLACKWALL_TEST_MODE" in os.environ
+    or "BLACKWALL_DEV_MODE" in os.environ
+    or "BLACKWALL_ALLOW_MOCK_ADK" in os.environ
+):
+    raise ImportError(
+        "Google ADK package is not installed (neither google.adk nor google.genai.adk found). "
+        "Please install google-adk to run the Blackwall ADK Agent module."
+    )
 
 _model = os.getenv("BLACKWALL_MODEL", "gemini-3.1-flash-lite")
 

@@ -17,8 +17,12 @@ class Settings:
     """Blackwall Provider Settings enforcing 100% GCP Vertex AI Mode."""
 
     def __init__(self, _env_file: Optional[str] = None):
-        self.gcp_project: str = (os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or "").strip()
-        self.gcp_location: str = (os.getenv("GCP_LOCATION") or "global").strip() or "global"
+        self.gcp_project: str = (
+            os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or ""
+        ).strip()
+        self.gcp_location: str = (
+            os.getenv("GCP_LOCATION") or "global"
+        ).strip() or "global"
         self.gemini_tier: str = "paid"  # Locked to paid high-throughput tier
 
     @property

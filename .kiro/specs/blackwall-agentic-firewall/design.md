@@ -105,7 +105,7 @@ graph TB
     SG -->|YAML Rules| HPS
     TSG_QUERY -->|Local Lookup| DB
     TSG_QUERY -->|Verdict| HPS
-    
+
     HPS -->|Check Budget| GTI_BUDGET
     GTI_BUDGET -->|IF Budget Allows AND High-Risk| GTI
 

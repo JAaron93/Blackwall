@@ -45,7 +45,7 @@ Blackwall Enterprise Mesh extends Blackwall Core across five enterprise defensiv
 flowchart TD
     subgraph Host / Cluster Node #1
         AgentProcess["Autonomous AI Agent / Application Worker"]
-        
+
         subgraph Kernel / OS Boundary
             eBPFProbe["C/Python eBPF Probe / Audit Hook"]
             FalcoMCP["Falco / eBPF Telemetry MCP (Free OSS)"]
@@ -78,7 +78,7 @@ flowchart TD
     InterceptionGateway -->|"3. Honey-Token & JIT Swap"| VaultMCP
     InterceptionGateway -->|"4. Fast-Path Signature Check"| SQLiteGraph
     InterceptionGateway -->|"5. Micro-Sandbox Execution"| SandboxMCP
-    
+
     SQLiteGraph -->|"6. Broadcast Signature"| ZeroMQMesh
     ZeroMQMesh -->|"7. Sync Signatures (< 15ms)"| PeerNodes["Peer Enterprise Nodes #2..N"]
 

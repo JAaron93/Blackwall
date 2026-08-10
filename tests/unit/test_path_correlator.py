@@ -26,7 +26,7 @@ def create_event(
     """Helper to create a UTC-aware NormalizedEvent."""
     if base_time is None:
         base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
-    
+
     return NormalizedEvent(
         event_id=uuid.uuid4(),
         timestamp=base_time + timedelta(seconds=offset_seconds),
@@ -39,7 +39,9 @@ def create_event(
     )
 
 
-def create_node(event: NormalizedEvent, node_id: Union[str, uuid.UUID] = None) -> AttackNode:
+def create_node(
+    event: NormalizedEvent, node_id: Union[str, uuid.UUID] = None
+) -> AttackNode:
     """Helper to create an AttackNode."""
     return AttackNode(
         node_id=node_id or uuid.uuid4(),
@@ -62,8 +64,12 @@ async def test_temporal_adjacency():
 
     event_a = create_event(offset_seconds=0.0, base_time=base_time)
     event_b = create_event(offset_seconds=200.0, base_time=base_time)  # <= 300s
-    event_c = create_event(offset_seconds=400.0, base_time=base_time)  # > 300s, no causal edge
-    event_d = create_event(offset_seconds=500.0, base_time=base_time)  # > 300s, with causal edge
+    event_c = create_event(
+        offset_seconds=400.0, base_time=base_time
+    )  # > 300s, no causal edge
+    event_d = create_event(
+        offset_seconds=500.0, base_time=base_time
+    )  # > 300s, with causal edge
 
     edge_id = uuid.uuid4()
     node_a = create_node(event_a)
@@ -102,21 +108,39 @@ async def test_dfs_path_finding():
     base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
 
     # 1. Test empty list when event count < min_path_length
-    single_event = create_event(agent_id=agent_id, base_time=base_time, offset_seconds=0.0)
+    single_event = create_event(
+        agent_id=agent_id, base_time=base_time, offset_seconds=0.0
+    )
     await store.insert_event(single_event)
 
     time_win = (base_time - timedelta(seconds=10), base_time + timedelta(seconds=1000))
-    paths_insufficient = await correlator.correlate_attack_paths(agent_id, time_win, min_path_length=2)
+    paths_insufficient = await correlator.correlate_attack_paths(
+        agent_id, time_win, min_path_length=2
+    )
     assert paths_insufficient == []
 
     # 2. Add more events to form a multi-node chain
-    event_2 = create_event(agent_id=agent_id, action="sudo elevate", base_time=base_time, offset_seconds=100.0, risk_score=0.8)
-    event_3 = create_event(agent_id=agent_id, action="token exfiltrate", base_time=base_time, offset_seconds=200.0, risk_score=0.9)
+    event_2 = create_event(
+        agent_id=agent_id,
+        action="sudo elevate",
+        base_time=base_time,
+        offset_seconds=100.0,
+        risk_score=0.8,
+    )
+    event_3 = create_event(
+        agent_id=agent_id,
+        action="token exfiltrate",
+        base_time=base_time,
+        offset_seconds=200.0,
+        risk_score=0.9,
+    )
 
     await store.insert_event(event_2)
     await store.insert_event(event_3)
 
-    paths = await correlator.correlate_attack_paths(agent_id, time_win, min_path_length=2)
+    paths = await correlator.correlate_attack_paths(
+        agent_id, time_win, min_path_length=2
+    )
 
     # Must find paths meeting min_path_length >= 2
     assert len(paths) > 0
@@ -137,8 +161,14 @@ async def test_mitre_mapping():
     events_and_expected = [
         (create_event(action="exec bash script", target="/bin/sh"), "T1059"),
         (create_event(action="sudo privilege elevate", target="root"), "T1068"),
-        (create_event(action="read credential token", target="/var/run/secrets"), "T1552"),
-        (create_event(action="socket connect beacon", target="requestbin.com"), "T1071"),
+        (
+            create_event(action="read credential token", target="/var/run/secrets"),
+            "T1552",
+        ),
+        (
+            create_event(action="socket connect beacon", target="requestbin.com"),
+            "T1071",
+        ),
         (create_event(action="setup cron timer", target="/etc/cron.d"), "T1053"),
         (create_event(action="k8s pod container spawn", target="pypi-repo"), "T1613"),
         (create_event(action="custom_unknown_action", target="/dev/null"), "T1005"),
@@ -165,12 +195,36 @@ async def test_risk_scoring():
     base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
 
     # Path 1: Low risk events
-    ev1 = create_event(agent_id=agent_id, action="read file", risk_score=0.1, offset_seconds=0.0, base_time=base_time)
-    ev2 = create_event(agent_id=agent_id, action="ls directory", risk_score=0.2, offset_seconds=10.0, base_time=base_time)
+    ev1 = create_event(
+        agent_id=agent_id,
+        action="read file",
+        risk_score=0.1,
+        offset_seconds=0.0,
+        base_time=base_time,
+    )
+    ev2 = create_event(
+        agent_id=agent_id,
+        action="ls directory",
+        risk_score=0.2,
+        offset_seconds=10.0,
+        base_time=base_time,
+    )
 
     # Path 2: High risk events
-    ev3 = create_event(agent_id=agent_id, action="sudo elevate", risk_score=0.9, offset_seconds=50.0, base_time=base_time)
-    ev4 = create_event(agent_id=agent_id, action="credential exfiltrate", risk_score=0.95, offset_seconds=60.0, base_time=base_time)
+    ev3 = create_event(
+        agent_id=agent_id,
+        action="sudo elevate",
+        risk_score=0.9,
+        offset_seconds=50.0,
+        base_time=base_time,
+    )
+    ev4 = create_event(
+        agent_id=agent_id,
+        action="credential exfiltrate",
+        risk_score=0.95,
+        offset_seconds=60.0,
+        base_time=base_time,
+    )
 
     await store.insert_event(ev1)
     await store.insert_event(ev2)
@@ -178,7 +232,9 @@ async def test_risk_scoring():
     await store.insert_event(ev4)
 
     time_win = (base_time - timedelta(seconds=10), base_time + timedelta(seconds=500))
-    paths = await correlator.correlate_attack_paths(agent_id, time_win, min_path_length=2)
+    paths = await correlator.correlate_attack_paths(
+        agent_id, time_win, min_path_length=2
+    )
 
     assert len(paths) >= 2
 
@@ -210,7 +266,9 @@ async def test_invalid_time_window_validation():
 
     # Test end_time < start_time
     earlier_time = aware_time - timedelta(hours=1)
-    with pytest.raises(ValueError, match="end_time must be greater than or equal to start_time"):
+    with pytest.raises(
+        ValueError, match="end_time must be greater than or equal to start_time"
+    ):
         await correlator.correlate_attack_paths(agent_id, (aware_time, earlier_time))
 
 
@@ -321,7 +379,9 @@ async def test_db_mode_non_adjacent_causal_edge_node_retrieval():
     assert store_paths == []
 
     # Verify PathCorrelator calls query_nodes and finds non-adjacent causally linked path [node1, node3]
-    paths = await correlator.correlate_attack_paths(agent_id, time_win, min_path_length=2)
+    paths = await correlator.correlate_attack_paths(
+        agent_id, time_win, min_path_length=2
+    )
 
     assert len(paths) == 1
     assert [n.node_id for n in paths[0].nodes] == [node1_id, node3_id]
@@ -331,6 +391,7 @@ async def test_db_mode_non_adjacent_causal_edge_node_retrieval():
 async def test_dense_event_window_bounded_performance():
     """Verify PathCorrelator completes quickly without CPU/memory exhaustion on a dense event window."""
     import time
+
     store = AttackGraphStore(in_memory=True)
     await store.initialize()
 
@@ -400,8 +461,12 @@ async def test_non_positive_limit_parameters_validation():
     with pytest.raises(ValueError, match="max_depth must be positive"):
         await correlator.correlate_attack_paths("agent-1", time_win, max_depth=-2)
 
-    with pytest.raises(ValueError, match="max_depth cannot be less than min_path_length"):
-        await correlator.correlate_attack_paths("agent-1", time_win, min_path_length=5, max_depth=3)
+    with pytest.raises(
+        ValueError, match="max_depth cannot be less than min_path_length"
+    ):
+        await correlator.correlate_attack_paths(
+            "agent-1", time_win, min_path_length=5, max_depth=3
+        )
 
     with pytest.raises(ValueError, match="limit must be positive"):
         await store.query_nodes("agent-1", time_win, limit=0)
@@ -433,15 +498,21 @@ async def test_path_longer_than_default_depth():
         )
         node = await store.insert_event(ev)
         if prev_node:
-            await store.link_events(from_node=prev_node.node_id, to_node=node.node_id, relationship="NEXT")
+            await store.link_events(
+                from_node=prev_node.node_id, to_node=node.node_id, relationship="NEXT"
+            )
         prev_node = node
 
     correlator = PathCorrelator(store=store)
     time_win = (base_time, base_time + timedelta(seconds=300))
 
     # Should raise ValueError if max_depth (10) < min_path_length (12)
-    with pytest.raises(ValueError, match="max_depth cannot be less than min_path_length"):
-        await correlator.correlate_attack_paths(agent_id, time_win, min_path_length=12, max_depth=10)
+    with pytest.raises(
+        ValueError, match="max_depth cannot be less than min_path_length"
+    ):
+        await correlator.correlate_attack_paths(
+            agent_id, time_win, min_path_length=12, max_depth=10
+        )
 
     # Should successfully return 12-node path when max_depth=12 is specified
     paths = await correlator.correlate_attack_paths(
@@ -490,13 +561,17 @@ async def test_causal_link_to_older_event_ignored_gracefully():
     node2 = await store.insert_event(ev2)
 
     # Manually link Node 1 (T=100s) -> Node 2 (T=10s)
-    await store.link_events(from_node=node1.node_id, to_node=node2.node_id, relationship="REVERSE_CAUSAL")
+    await store.link_events(
+        from_node=node1.node_id, to_node=node2.node_id, relationship="REVERSE_CAUSAL"
+    )
 
     correlator = PathCorrelator(store=store)
     time_win = (base_time, base_time + timedelta(seconds=300))
 
     # Should run without crashing and not return reverse-ordered paths (end_time < start_time)
-    paths = await correlator.correlate_attack_paths(agent_id, time_win, min_path_length=2)
+    paths = await correlator.correlate_attack_paths(
+        agent_id, time_win, min_path_length=2
+    )
 
     for path in paths:
         assert path.end_time >= path.start_time

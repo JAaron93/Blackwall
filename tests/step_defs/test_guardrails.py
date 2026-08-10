@@ -316,7 +316,67 @@ def test_bdd_mcp_router_detects_escape_attempt() -> None:
     pass
 
 
-# --- Step definitions (MCP Routing) -----------------------------------------
+@scenario(
+    _BLACKWALL_GUARDRAILS,
+    "StructuralGatingEngine evaluates policy conditions using safe AST evaluation",
+)
+def test_bdd_structural_engine_safe_ast_eval() -> None:
+    pass
+
+
+# --- Step definitions (MCP Routing & Structural AST) -----------------------
+
+@given(
+    "a StructuralGatingEngine loaded with a rules policy",
+    target_fixture="structural_engine_ctx",
+)
+def given_structural_engine_loaded(request) -> Dict[str, Any]:
+    import os
+    from blackwall.policy.engine import StructuralGatingEngine
+    from tests.unit.policy_yaml_helpers import make_yaml, write_temp_yaml
+
+    engine = StructuralGatingEngine()
+    rules = """
+- ruleId: "escalate-write"
+  condition: "toolName == 'write_file'"
+  action: ESCALATE_TO_SEMANTIC
+  priority: 1
+  enabled: true
+"""
+    yaml_path = write_temp_yaml(make_yaml(rules))
+    request.addfinalizer(
+        lambda: os.remove(yaml_path) if os.path.exists(yaml_path) else None
+    )
+    engine.load_policy(yaml_path)
+    return {"engine": engine, "yaml_path": yaml_path}
+
+
+@when(
+    parsers.parse(
+        'a tool call context with tool "{tool_name}" is evaluated under environment role "{role}"'
+    ),
+    target_fixture="ast_eval_result",
+)
+def when_eval_tool_call_ast(structural_engine_ctx, tool_name, role) -> Dict[str, Any]:
+    from blackwall.models import ToolCallContext
+
+    engine = structural_engine_ctx["engine"]
+    ctx = ToolCallContext(tool_name=tool_name, arguments={})
+    res = engine.evaluate(ctx, role)
+    return {"result": res, "engine": engine}
+
+
+@then("the AST evaluator must resolve the condition without using Python eval")
+def then_ast_eval_resolved(ast_eval_result) -> None:
+    res = ast_eval_result["result"]
+    assert res is not None
+    assert hasattr(res, "decision")
+
+
+@then(parsers.parse('the structural verdict decision must be "{expected_decision}"'))
+def then_verdict_decision_matches(ast_eval_result, expected_decision) -> None:
+    res = ast_eval_result["result"]
+    assert res.decision.value == expected_decision
 
 
 @pytest.fixture
@@ -422,7 +482,11 @@ def then_error_contains_step(mcp_bdd_context, expected_str) -> None:
 
 from blackwall.adk_integration import ADKIntegration
 from blackwall.interception import InterceptionQueue
-from blackwall.policy import HybridPolicyServer, StructuralGatingEngine, SemanticGatingEngine
+from blackwall.policy import (
+    HybridPolicyServer,
+    StructuralGatingEngine,
+    SemanticGatingEngine,
+)
 from blackwall.policy.engine import StructuralGatingResult, StructuralAction
 from unittest.mock import AsyncMock, MagicMock
 import threading
@@ -458,13 +522,18 @@ def adk_interception_ctx() -> dict:
     }
 
 
-@given("the Blackwall ambient daemon is running in local Kali Linux VM", target_fixture="adk_interception_ctx")
+@given(
+    "the Blackwall ambient daemon is running in local Kali Linux VM",
+    target_fixture="adk_interception_ctx",
+)
 def step_daemon_running(adk_interception_ctx, request) -> dict:
     # Set up background event loop on a dedicated thread
     loop = asyncio.new_event_loop()
+
     def start_loop(event_loop):
         asyncio.set_event_loop(event_loop)
         event_loop.run_forever()
+
     t = threading.Thread(target=start_loop, args=(loop,), daemon=True)
     t.start()
 
@@ -493,10 +562,12 @@ def step_daemon_running(adk_interception_ctx, request) -> dict:
     struct_engine = StructuralGatingEngine()
     # Structural gating returns escalate to semantic gating by default
     struct_engine._policy = MagicMock()
-    struct_engine.evaluate = MagicMock(return_value=StructuralGatingResult(
-        decision=StructuralAction.ESCALATE_TO_SEMANTIC,
-        requireSemanticReview=True,
-    ))
+    struct_engine.evaluate = MagicMock(
+        return_value=StructuralGatingResult(
+            decision=StructuralAction.ESCALATE_TO_SEMANTIC,
+            requireSemanticReview=True,
+        )
+    )
 
     semantic_engine = SemanticGatingEngine(
         repo=repo,
@@ -521,16 +592,14 @@ def step_daemon_running(adk_interception_ctx, request) -> dict:
             pass
 
     # Start the daemon loop task in the background loop
-    fut = asyncio.run_coroutine_threadsafe(
-        daemon_loop(),
-        loop
-    )
+    fut = asyncio.run_coroutine_threadsafe(daemon_loop(), loop)
     adk_interception_ctx["daemon_task"] = fut
 
     def cleanup():
         fut.cancel()
         loop.call_soon_threadsafe(loop.stop)
         t.join(timeout=2)
+
     request.addfinalizer(cleanup)
 
     return adk_interception_ctx
@@ -553,24 +622,34 @@ def step_db_wal_mode(adk_interception_ctx) -> None:
     assert wal_mode == "wal"
 
 
-@given(parsers.parse('an active Threat Signature exists with pattern "{pattern}" and verdict "{verdict}"'))
+@given(
+    parsers.parse(
+        'an active Threat Signature exists with pattern "{pattern}" and verdict "{verdict}"'
+    )
+)
 def step_add_active_signature(adk_interception_ctx, pattern, verdict) -> None:
     repo = adk_interception_ctx["repo"]
     loop = adk_interception_ctx["loop"]
 
     async def add_sig():
-        await repo.writeSignature({
-            "payloadPattern": pattern,
-            "targetTool": "execute_terminal",
-            "mitigationAction": verdict,
-            "attackerIntent": "known malicious pattern",
-        })
+        await repo.writeSignature(
+            {
+                "payloadPattern": pattern,
+                "targetTool": "execute_terminal",
+                "mitigationAction": verdict,
+                "attackerIntent": "known malicious pattern",
+            }
+        )
 
     fut = asyncio.run_coroutine_threadsafe(add_sig(), loop)
     fut.result()
 
 
-@when(parsers.parse('the untrusted Qwen3 execution agent attempts to call tool "{tool_name}"'))
+@when(
+    parsers.parse(
+        'the untrusted Qwen3 execution agent attempts to call tool "{tool_name}"'
+    )
+)
 def step_untrusted_agent_call_tool(adk_interception_ctx, tool_name) -> None:
     adk_interception_ctx["tool_name"] = tool_name
 
@@ -628,7 +707,9 @@ def step_before_tool_callback_intercept(adk_interception_ctx) -> None:
     t.join(timeout=3.0)
 
     if not result_container["done"]:
-        raise TimeoutError("before_tool_callback execution timed out or hung after 3 seconds")
+        raise TimeoutError(
+            "before_tool_callback execution timed out or hung after 3 seconds"
+        )
 
     adk_interception_ctx["duration_ms"] = hook_duration_ms
     adk_interception_ctx["result"] = result_container["result"]
@@ -641,10 +722,16 @@ def step_evaluation_query_db(adk_interception_ctx) -> None:
     repo_spy = adk_interception_ctx["repo_spy"]
     repo_spy.assert_called()
     # Verify it was called with the expected tool name and arguments
-    assert repo_spy.call_count >= 1, "Repository find_matching_signature was not called during evaluation"
+    assert (
+        repo_spy.call_count >= 1
+    ), "Repository find_matching_signature was not called during evaluation"
 
 
-@then(parsers.parse('the tool execution must be aborted with verdict "{verdict}" within 10ms'))
+@then(
+    parsers.parse(
+        'the tool execution must be aborted with verdict "{verdict}" within 10ms'
+    )
+)
 def step_tool_aborted_verdict(adk_interception_ctx, verdict, safe_sla_limit) -> None:
     assert adk_interception_ctx["exception"] is not None
     assert isinstance(adk_interception_ctx["exception"], PermissionError)
@@ -652,17 +739,21 @@ def step_tool_aborted_verdict(adk_interception_ctx, verdict, safe_sla_limit) -> 
     # 10ms timing SLA check
     SLA_THRESHOLD_MS = safe_sla_limit("BLACKWALL_SLA_LIMIT_MS", 10.0)
     duration_ms = adk_interception_ctx["duration_ms"]
-    print(f"ADK Interception BDD timing: {duration_ms:.2f}ms (SLA: {SLA_THRESHOLD_MS}ms)")
+    print(
+        f"ADK Interception BDD timing: {duration_ms:.2f}ms (SLA: {SLA_THRESHOLD_MS}ms)"
+    )
     # Enforce the actual SLA as configured
     if duration_ms >= SLA_THRESHOLD_MS:
         # Log a warning for diagnostics if VM/CI jitter causes issues
-        print(f"WARNING: Exceeded {SLA_THRESHOLD_MS}ms SLA (measured: {duration_ms:.2f}ms)")
-    assert duration_ms < SLA_THRESHOLD_MS, \
-        f"Tool interception exceeded {SLA_THRESHOLD_MS}ms SLA: {duration_ms:.2f}ms"
+        print(
+            f"WARNING: Exceeded {SLA_THRESHOLD_MS}ms SLA (measured: {duration_ms:.2f}ms)"
+        )
+    assert (
+        duration_ms < SLA_THRESHOLD_MS
+    ), f"Tool interception exceeded {SLA_THRESHOLD_MS}ms SLA: {duration_ms:.2f}ms"
 
 
 @then("zero external Gemini API calls must be initiated")
 def step_zero_external_api_calls(adk_interception_ctx) -> None:
     mock_gti = adk_interception_ctx["mock_gti"]
     mock_gti.lookup_ip.assert_not_called()
-

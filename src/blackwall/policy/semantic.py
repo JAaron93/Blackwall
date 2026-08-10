@@ -6,10 +6,19 @@ import math
 from collections import Counter
 from typing import Any, Dict, List, Optional
 
-from blackwall.models import ToolCallContext, VerdictDecision, IndicatorType, GTIResponse
+from blackwall.models import (
+    ToolCallContext,
+    VerdictDecision,
+    IndicatorType,
+    GTIResponse,
+)
 from blackwall.policy.models import GateResult, StructuralAction
 from blackwall.db.repository import SQLiteThreatRepository
-from blackwall.mcp.gti_client import GTIMCPClient, GTIDegradedError, GTIBudgetExhaustedError
+from blackwall.mcp.gti_client import (
+    GTIMCPClient,
+    GTIDegradedError,
+    GTIBudgetExhaustedError,
+)
 from blackwall.mcp.gti_client import GTIQueryBudgetTracker as AsyncGTIQueryBudgetTracker
 from blackwall.mcp.codebase_memory import CodebaseMemoryClient
 
@@ -18,9 +27,10 @@ logger = logging.getLogger("blackwall.policy.semantic")
 IP_PATTERN = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 URL_PATTERN = re.compile(r"https?://[^\s/$.?#].[^\s]*", re.IGNORECASE)
 DOMAIN_PATTERN = re.compile(r"\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b")
-HASH_PATTERN = re.compile(r"\b[a-fA-F0-9]{32}\b|\b[a-fA-F0-9]{40}\b|\b[a-fA-F0-9]{64}\b")
+HASH_PATTERN = re.compile(
+    r"\b[a-fA-F0-9]{32}\b|\b[a-fA-F0-9]{40}\b|\b[a-fA-F0-9]{64}\b"
+)
 HIGH_RISK_GEOLOCATIONS = frozenset({"RU", "CN", "KP", "IR", "BY"})
-
 
 
 def extract_strings(val: Any) -> List[str]:
@@ -37,12 +47,7 @@ def extract_strings(val: Any) -> List[str]:
 
 
 def extract_iocs(context: ToolCallContext) -> Dict[str, List[str]]:
-    iocs: Dict[str, List[str]] = {
-        "ips": [],
-        "domains": [],
-        "urls": [],
-        "hashes": []
-    }
+    iocs: Dict[str, List[str]] = {"ips": [], "domains": [], "urls": [], "hashes": []}
     all_strings = extract_strings(context.arguments)
     all_strings.append(context.tool_name)
 
@@ -129,7 +134,9 @@ class SemanticGatingEngine:
         for ip in iocs.get("ips", []):
             if is_external_ip(ip):
                 if self.repo:
-                    cached = await self.repo.get_cached_gti_response(ip, IndicatorType.IP_ADDRESS.value)
+                    cached = await self.repo.get_cached_gti_response(
+                        ip, IndicatorType.IP_ADDRESS.value
+                    )
                     if not cached:
                         return True
                 else:
@@ -138,7 +145,9 @@ class SemanticGatingEngine:
         # Check suspicious file hashes
         for h in iocs.get("hashes", []):
             if self.repo:
-                cached = await self.repo.get_cached_gti_response(h, IndicatorType.FILE_HASH.value)
+                cached = await self.repo.get_cached_gti_response(
+                    h, IndicatorType.FILE_HASH.value
+                )
                 if not cached:
                     return True
             else:
@@ -147,7 +156,9 @@ class SemanticGatingEngine:
         # Check unknown domains
         for domain in iocs.get("domains", []):
             if self.repo:
-                cached = await self.repo.get_cached_gti_response(domain, IndicatorType.DOMAIN.value)
+                cached = await self.repo.get_cached_gti_response(
+                    domain, IndicatorType.DOMAIN.value
+                )
                 if not cached:
                     return True
             else:
@@ -168,7 +179,9 @@ class SemanticGatingEngine:
         for ip in iocs.get("ips", []):
             if is_external_ip(ip):
                 if self.repo:
-                    cached = await self.repo.get_cached_gti_response(ip, IndicatorType.IP_ADDRESS.value)
+                    cached = await self.repo.get_cached_gti_response(
+                        ip, IndicatorType.IP_ADDRESS.value
+                    )
                     if not cached:
                         novelty_points = 0.3
                         break
@@ -177,7 +190,9 @@ class SemanticGatingEngine:
                     break
         for h in iocs.get("hashes", []):
             if self.repo:
-                cached = await self.repo.get_cached_gti_response(h, IndicatorType.FILE_HASH.value)
+                cached = await self.repo.get_cached_gti_response(
+                    h, IndicatorType.FILE_HASH.value
+                )
                 if not cached:
                     novelty_points = 0.3
                     break
@@ -186,7 +201,9 @@ class SemanticGatingEngine:
                 break
         for domain in iocs.get("domains", []):
             if self.repo:
-                cached = await self.repo.get_cached_gti_response(domain, IndicatorType.DOMAIN.value)
+                cached = await self.repo.get_cached_gti_response(
+                    domain, IndicatorType.DOMAIN.value
+                )
                 if not cached:
                     novelty_points = 0.3
                     break
@@ -197,14 +214,27 @@ class SemanticGatingEngine:
 
         # 2. Domain Reputation Signals - max 0.2
         domain_points = 0.0
-        suspicious_tlds = {".xyz", ".top", ".zip", ".win", ".info", ".biz", ".cc", ".icu", ".gdn", ".cn"}
+        suspicious_tlds = {
+            ".xyz",
+            ".top",
+            ".zip",
+            ".win",
+            ".info",
+            ".biz",
+            ".cc",
+            ".icu",
+            ".gdn",
+            ".cn",
+        }
         for domain in iocs.get("domains", []):
             if any(domain.endswith(tld) for tld in suspicious_tlds):
                 domain_points = 0.2
                 break
             # Or if it's unknown/not in cache, reputation is suspicious
             if self.repo:
-                cached = await self.repo.get_cached_gti_response(domain, IndicatorType.DOMAIN.value)
+                cached = await self.repo.get_cached_gti_response(
+                    domain, IndicatorType.DOMAIN.value
+                )
                 if not cached:
                     domain_points = 0.15
             else:
@@ -284,9 +314,10 @@ class SemanticGatingEngine:
                 for ip in iocs["ips"]:
                     cached = None
                     if self.repo:
-                        cached = (
-                            await self.repo.get_cached_gti_response(ip, IndicatorType.IP_ADDRESS.value) or
-                            await self.repo.get_cached_gti_response(ip, IndicatorType.IP_ADDRESS.value.lower())
+                        cached = await self.repo.get_cached_gti_response(
+                            ip, IndicatorType.IP_ADDRESS.value
+                        ) or await self.repo.get_cached_gti_response(
+                            ip, IndicatorType.IP_ADDRESS.value.lower()
                         )
                     if cached:
                         try:
@@ -298,7 +329,7 @@ class SemanticGatingEngine:
                                 detection_rate=cached.get("detection_rate", 0.0),
                                 confidence=cached.get("confidence", 0.0),
                                 last_analysis_date=cached.get("last_analysis_date"),
-                                related_campaigns=cached.get("related_campaigns", [])
+                                related_campaigns=cached.get("related_campaigns", []),
                             )
                             gti_responses.append(resp)
                         except Exception as e:
@@ -313,7 +344,11 @@ class SemanticGatingEngine:
                             gti_budget_exhausted = True
                             continue
                     try:
-                        resp = await self.gti_client.queryIOC(ip, IndicatorType.IP_ADDRESS, skip_budget_check=(self.budget_tracker is not None))
+                        resp = await self.gti_client.queryIOC(
+                            ip,
+                            IndicatorType.IP_ADDRESS,
+                            skip_budget_check=(self.budget_tracker is not None),
+                        )
                         gti_responses.append(resp)
                     except GTIDegradedError:
                         gti_degraded = True
@@ -322,13 +357,14 @@ class SemanticGatingEngine:
                     except Exception as e:
                         logger.error("Error querying IP: %s", e)
                         gti_error = True
-                
+
                 for url in iocs["urls"]:
                     cached = None
                     if self.repo:
-                        cached = (
-                            await self.repo.get_cached_gti_response(url, IndicatorType.URL.value) or
-                            await self.repo.get_cached_gti_response(url, IndicatorType.URL.value.lower())
+                        cached = await self.repo.get_cached_gti_response(
+                            url, IndicatorType.URL.value
+                        ) or await self.repo.get_cached_gti_response(
+                            url, IndicatorType.URL.value.lower()
                         )
                     if cached:
                         try:
@@ -340,7 +376,7 @@ class SemanticGatingEngine:
                                 detection_rate=cached.get("detection_rate", 0.0),
                                 confidence=cached.get("confidence", 0.0),
                                 last_analysis_date=cached.get("last_analysis_date"),
-                                related_campaigns=cached.get("related_campaigns", [])
+                                related_campaigns=cached.get("related_campaigns", []),
                             )
                             gti_responses.append(resp)
                         except Exception as e:
@@ -355,7 +391,11 @@ class SemanticGatingEngine:
                             gti_budget_exhausted = True
                             continue
                     try:
-                        resp = await self.gti_client.queryIOC(url, IndicatorType.URL, skip_budget_check=(self.budget_tracker is not None))
+                        resp = await self.gti_client.queryIOC(
+                            url,
+                            IndicatorType.URL,
+                            skip_budget_check=(self.budget_tracker is not None),
+                        )
                         gti_responses.append(resp)
                     except GTIDegradedError:
                         gti_degraded = True
@@ -369,9 +409,10 @@ class SemanticGatingEngine:
                     if not any(domain in u for u in iocs["urls"]):
                         cached = None
                         if self.repo:
-                            cached = (
-                                await self.repo.get_cached_gti_response(domain, IndicatorType.DOMAIN.value) or
-                                await self.repo.get_cached_gti_response(domain, IndicatorType.DOMAIN.value.lower())
+                            cached = await self.repo.get_cached_gti_response(
+                                domain, IndicatorType.DOMAIN.value
+                            ) or await self.repo.get_cached_gti_response(
+                                domain, IndicatorType.DOMAIN.value.lower()
                             )
                         if cached:
                             try:
@@ -379,15 +420,21 @@ class SemanticGatingEngine:
                                 resp = GTIResponse(
                                     indicator=cached.get("indicator", domain),
                                     is_malicious=cached.get("is_malicious", False),
-                                    threat_categories=cached.get("threat_categories", []),
+                                    threat_categories=cached.get(
+                                        "threat_categories", []
+                                    ),
                                     detection_rate=cached.get("detection_rate", 0.0),
                                     confidence=cached.get("confidence", 0.0),
                                     last_analysis_date=cached.get("last_analysis_date"),
-                                    related_campaigns=cached.get("related_campaigns", [])
+                                    related_campaigns=cached.get(
+                                        "related_campaigns", []
+                                    ),
                                 )
                                 gti_responses.append(resp)
                             except Exception as e:
-                                logger.error("Error parsing cached domain response: %s", e)
+                                logger.error(
+                                    "Error parsing cached domain response: %s", e
+                                )
                             continue
 
                         if gti_budget_exhausted:
@@ -398,7 +445,11 @@ class SemanticGatingEngine:
                                 gti_budget_exhausted = True
                                 continue
                         try:
-                            resp = await self.gti_client.queryIOC(domain, IndicatorType.DOMAIN, skip_budget_check=(self.budget_tracker is not None))
+                            resp = await self.gti_client.queryIOC(
+                                domain,
+                                IndicatorType.DOMAIN,
+                                skip_budget_check=(self.budget_tracker is not None),
+                            )
                             gti_responses.append(resp)
                         except GTIDegradedError:
                             gti_degraded = True
@@ -411,9 +462,10 @@ class SemanticGatingEngine:
                 for h in iocs["hashes"]:
                     cached = None
                     if self.repo:
-                        cached = (
-                                await self.repo.get_cached_gti_response(h, IndicatorType.FILE_HASH.value) or
-                                await self.repo.get_cached_gti_response(h, IndicatorType.FILE_HASH.value.lower())
+                        cached = await self.repo.get_cached_gti_response(
+                            h, IndicatorType.FILE_HASH.value
+                        ) or await self.repo.get_cached_gti_response(
+                            h, IndicatorType.FILE_HASH.value.lower()
                         )
                     if cached:
                         try:
@@ -425,7 +477,7 @@ class SemanticGatingEngine:
                                 detection_rate=cached.get("detection_rate", 0.0),
                                 confidence=cached.get("confidence", 0.0),
                                 last_analysis_date=cached.get("last_analysis_date"),
-                                related_campaigns=cached.get("related_campaigns", [])
+                                related_campaigns=cached.get("related_campaigns", []),
                             )
                             gti_responses.append(resp)
                         except Exception as e:
@@ -440,7 +492,11 @@ class SemanticGatingEngine:
                             gti_budget_exhausted = True
                             continue
                     try:
-                        resp = await self.gti_client.queryIOC(h, IndicatorType.FILE_HASH, skip_budget_check=(self.budget_tracker is not None))
+                        resp = await self.gti_client.queryIOC(
+                            h,
+                            IndicatorType.FILE_HASH,
+                            skip_budget_check=(self.budget_tracker is not None),
+                        )
                         gti_responses.append(resp)
                     except GTIDegradedError:
                         gti_degraded = True
@@ -506,13 +562,30 @@ class SemanticGatingEngine:
         tool_risk = 0.2
         if context.tool_name == "run_command":
             tool_risk = 1.0
-        elif context.tool_name in ("write_to_file", "multi_replace_file_content", "replace_file_content", "git"):
+        elif context.tool_name in (
+            "write_to_file",
+            "multi_replace_file_content",
+            "replace_file_content",
+            "git",
+        ):
             tool_risk = 0.7
 
         # Argument novelty / suspicious patterns
         args_str = json.dumps(context.arguments)
         suspicious_patterns = (
-            "rm -rf", "sudo", "curl", "wget", "/etc/passwd", "chmod", "chown", "nc ", "/root", ".ssh", "|", ">", "<"
+            "rm -rf",
+            "sudo",
+            "curl",
+            "wget",
+            "/etc/passwd",
+            "chmod",
+            "chown",
+            "nc ",
+            "/root",
+            ".ssh",
+            "|",
+            ">",
+            "<",
         )
         argument_novelty = 0.0
         if any(p in args_str for p in suspicious_patterns):
@@ -529,7 +602,9 @@ class SemanticGatingEngine:
 
         # 5. Signal Aggregation & Normalization
         # GTI is only considered unavailable if we have no responses at all due to errors/degradation
-        gti_unavailable = (gti_score is None) and (gti_degraded or gti_budget_exhausted or gti_error)
+        gti_unavailable = (gti_score is None) and (
+            gti_degraded or gti_budget_exhausted or gti_error
+        )
         threat_score = self.computeThreatScore(
             gti_score=gti_score,
             cbm_score=cbm_score,
@@ -588,7 +663,9 @@ class SemanticGatingEngine:
             base_weights["context"] = 0.5
 
         # Filter signals that are not None and have non-zero weight
-        available_signals = {k: v for k, v in signals.items() if v is not None and base_weights[k] > 0.0}
+        available_signals = {
+            k: v for k, v in signals.items() if v is not None and base_weights[k] > 0.0
+        }
         total_weight = sum(base_weights[k] for k in available_signals.keys())
 
         if total_weight == 0.0:

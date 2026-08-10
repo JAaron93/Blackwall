@@ -25,6 +25,7 @@ logger = logging.getLogger("blackwall.analytics")
 # Optional OpenTelemetry import
 try:
     from opentelemetry import trace
+
     _has_otel = True
 except ImportError:
     _has_otel = False
@@ -32,6 +33,7 @@ except ImportError:
 # Optional SentenceTransformers import
 try:
     from sentence_transformers import SentenceTransformer
+
     _has_sentence_transformers = True
 except ImportError:
     _has_sentence_transformers = False
@@ -62,7 +64,9 @@ class AgentBehavioralAnalytics:
         self.batch_size = batch_size
         self.agbom: Dict[str, Any] = {"tools": {}}
         self._embedding_model = None
-        self.embedding_client = GeminiEmbeddingClient(client) if client is not None else None
+        self.embedding_client = (
+            GeminiEmbeddingClient(client) if client is not None else None
+        )
 
         if _has_otel:
             self.tracer = trace.get_tracer("blackwall.analytics")
@@ -107,12 +111,14 @@ class AgentBehavioralAnalytics:
             "[[SCRIPT_NAME]]",
             text,
         )
+
         # 4. URLs (only if they don't already contain placeholders)
         def url_repl(match: re.Match[str]) -> str:
             url = match.group(0)
             if "[[" in url:
                 return url
             return "[[URL]]"
+
         text = re.sub(r"https?://[^\s\"']+", url_repl, text)
 
         # 5. Passwords
@@ -245,7 +251,11 @@ class AgentBehavioralAnalytics:
             attacker_intent = event.verdict.reasoning
 
         # 2. Generalize payload pattern (handle CommandLine in run_command specifically)
-        cmd = raw_args.get("CommandLine") or raw_args.get("command") or raw_args.get("cmd")
+        cmd = (
+            raw_args.get("CommandLine")
+            or raw_args.get("command")
+            or raw_args.get("cmd")
+        )
         if tool_name == "run_command" and isinstance(cmd, str):
             payload_pattern = self._generalize_string(cmd)
         else:
@@ -259,11 +269,17 @@ class AgentBehavioralAnalytics:
             # Check hasCriticalSink directly if present, or infer from list of critical sinks
             if hasattr(event.cbm_response, "hasCriticalSink"):
                 has_critical_sink = getattr(event.cbm_response, "hasCriticalSink")
-            elif hasattr(event.cbm_response, "critical_sinks") and event.cbm_response.critical_sinks:
+            elif (
+                hasattr(event.cbm_response, "critical_sinks")
+                and event.cbm_response.critical_sinks
+            ):
                 has_critical_sink = len(event.cbm_response.critical_sinks) > 0
 
             # Map the primary critical sink type to SinkType
-            if hasattr(event.cbm_response, "critical_sinks") and event.cbm_response.critical_sinks:
+            if (
+                hasattr(event.cbm_response, "critical_sinks")
+                and event.cbm_response.critical_sinks
+            ):
                 sink_type = event.cbm_response.critical_sinks[0]
 
             # Map dependency chain
@@ -289,8 +305,7 @@ class AgentBehavioralAnalytics:
         if self.embedding_client:
             try:
                 vector = await asyncio.wait_for(
-                    self.embedding_client.embed(combined_text),
-                    timeout=5.0
+                    self.embedding_client.embed(combined_text), timeout=5.0
                 )
             except Exception as e:
                 logger.warning(
@@ -321,7 +336,9 @@ class AgentBehavioralAnalytics:
                 "attackerIntent": attacker_intent,
                 "payloadPattern": payload_pattern,
                 "targetTool": tool_name,
-                "targetSink": sink_type.value if hasattr(sink_type, "value") else str(sink_type),
+                "targetSink": (
+                    sink_type.value if hasattr(sink_type, "value") else str(sink_type)
+                ),
                 "dependencyChain": dep_chain,
                 "mitigationAction": mitigation_action,
                 "similarityVector": vector,
@@ -353,15 +370,23 @@ class AgentBehavioralAnalytics:
         target_code = None
 
         # Extract target code and sinks from CBM if available
-        if event.cbm_response and hasattr(event.cbm_response, "critical_sinks") and event.cbm_response.critical_sinks:
+        if (
+            event.cbm_response
+            and hasattr(event.cbm_response, "critical_sinks")
+            and event.cbm_response.critical_sinks
+        ):
             sink = event.cbm_response.critical_sinks[0]
             if sink == SinkType.DATABASE:
                 vulnerability_type = "SQL Injection"
-                suggested_fix = "Use parameterized queries instead of string concatenation."
+                suggested_fix = (
+                    "Use parameterized queries instead of string concatenation."
+                )
                 confidence = 0.9
             elif sink == SinkType.PROCESS:
                 vulnerability_type = "Command Injection"
-                suggested_fix = "Avoid shell execution. Use subprocess with argument lists."
+                suggested_fix = (
+                    "Avoid shell execution. Use subprocess with argument lists."
+                )
                 confidence = 0.95
             elif sink == SinkType.FILE_SYSTEM:
                 vulnerability_type = "Path Traversal"
@@ -372,7 +397,11 @@ class AgentBehavioralAnalytics:
                 suggested_fix = "Validate and whitelist target URLs. Do not request arbitrary client-controlled IPs."
                 confidence = 0.8
 
-        target_code = event.tool_context.arguments.get("CommandLine") or event.tool_context.arguments.get("path") or event.tool_context.arguments.get("url")
+        target_code = (
+            event.tool_context.arguments.get("CommandLine")
+            or event.tool_context.arguments.get("path")
+            or event.tool_context.arguments.get("url")
+        )
         target_code_str = str(target_code) if target_code else None
 
         # If LLM client is available, run a quick refactoring analysis (max 5s timeout)
@@ -412,9 +441,13 @@ class AgentBehavioralAnalytics:
                 vulnerability_type = str(data["vulnerability_type"])
                 suggested_fix = str(data["suggested_fix"])
             except Exception as e:
-                logger.warning(f"LLM refactoring generation timed out or failed: {e}. Using heuristics.")
+                logger.warning(
+                    f"LLM refactoring generation timed out or failed: {e}. Using heuristics."
+                )
 
-        suggestion_str = f"Vulnerability: {vulnerability_type}. Suggested Fix: {suggested_fix}"
+        suggestion_str = (
+            f"Vulnerability: {vulnerability_type}. Suggested Fix: {suggested_fix}"
+        )
         hint = RefactoringHint(
             hint_id=uuid4(),
             suggestion=suggestion_str,
@@ -495,7 +528,9 @@ class AgentBehavioralAnalytics:
                 behavior_score=BehaviorScore(score=1.0, risk_level="CRITICAL"),
                 agent_id=event.agent_id,
             )
-            logger.info("ANOMALY_EVENT_LOGGED", event=anomaly_event.model_dump(mode="json"))
+            logger.info(
+                "ANOMALY_EVENT_LOGGED", event=anomaly_event.model_dump(mode="json")
+            )
 
     def exportAgBOM(self) -> str:
         """

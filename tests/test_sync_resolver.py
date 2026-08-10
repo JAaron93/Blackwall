@@ -133,14 +133,16 @@ async def test_gti_cbm_queries_execute_serially():
     cbm_client.query = AsyncMock(side_effect=mock_cbm_query)
 
     resolver = _make_resolver(gti_client=gti_client, cbm_client=cbm_client)
-    context = _make_context(arguments={"host": "wd-bouygues.com"})
+    context = ToolCallContext(
+        tool_name="execute_bash", arguments={"host": "wd-bouygues.com", "cmd": "curl"}
+    )
 
     await resolver.evaluate(context)
 
-    # GTI must fully complete before CBM starts
-    assert call_order.index("gti_end") < call_order.index("cbm_start"), (
-        f"Expected GTI to finish before CBM starts. Order was: {call_order}"
-    )
+    # CBM must fully complete before GTI starts (gating before external query)
+    assert call_order.index("cbm_end") < call_order.index(
+        "gti_start"
+    ), f"Expected CBM to finish before GTI starts. Order was: {call_order}"
 
 
 # ---------------------------------------------------------------------------
@@ -183,9 +185,9 @@ async def test_threat_score_calculation_matches_formula():
     expected_ctx = (0.45 * 0.50 + 0.0 * 0.50) * 0.30  # 0.0675
     expected_total = expected_gti + expected_cbm + expected_ctx
 
-    assert abs(score - expected_total) < 0.01, (
-        f"Score {score:.4f} differs from expected {expected_total:.4f}"
-    )
+    assert (
+        abs(score - expected_total) < 0.01
+    ), f"Score {score:.4f} differs from expected {expected_total:.4f}"
 
 
 # ---------------------------------------------------------------------------
@@ -234,23 +236,21 @@ async def test_inline_signature_generation_after_block():
 
 
 # ---------------------------------------------------------------------------
-# Test 5: 15 RPM rate limit enforcement
+# Test 5: 15 RPM Rate Limit Enforcement
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_15_rpm_rate_limit_enforcement():
+async def test_15_rpm_rate_limit_enforcement(monkeypatch):
     """
-    Sending 16 requests rapidly — the 16th must receive QUARANTINE
-    (rate limit exhausted → fail-closed).
+    Sending 16 rapid requests on the free tier (15 RPM) — the first 15
+    pass, and the 16th receives QUARANTINE due to bucket exhaustion.
     """
+    monkeypatch.setenv("BLACKWALL_TIER", "free")
+    monkeypatch.setenv("GEMINI_TIER", "free")
+
     resolver = _make_resolver()
 
-    # Drain the bucket manually so the 16th immediately exhausts it.
-    # Capacity is 15; after 15 consume() calls, the 16th returns False.
-    # We forcibly set tokens to 0 to simulate bucket exhaustion after 15 calls.
-
-    verdicts = []
     results = []
 
     # Patch _compute_threat_score to return a low score (ALLOW) so any
@@ -264,16 +264,36 @@ async def test_15_rpm_rate_limit_enforcement():
             v = await resolver.evaluate(context)
             results.append(v)
 
-    # At least one of the last requests should be QUARANTINE due to rate limit
-    quarantine_verdicts = [
-        v for v in results if v.decision == VerdictDecision.QUARANTINE
-    ]
-    assert len(quarantine_verdicts) >= 1, (
-        "Expected at least one QUARANTINE verdict when 16 requests exhaust the 15 RPM bucket"
-    )
+    # First 15 decisions are ALLOW (not rate limited)
+    for i in range(15):
+        assert (
+            results[i].decision == VerdictDecision.ALLOW
+        ), f"Request {i+1} should be ALLOW but got {results[i].decision}"
+
+    # 16th decision is QUARANTINE due to rate limit exhaustion
+    assert (
+        results[15].decision == VerdictDecision.QUARANTINE
+    ), f"Expected 16th request to be QUARANTINE, got {results[15].decision}"
+    assert "Rate limit exhausted" in results[15].reasoning
 
     # Verify rate_limit_hits counter was incremented
-    assert resolver._rate_limit_hits >= 1
+    assert resolver._rate_limit_hits == 1
+
+
+@pytest.mark.asyncio
+async def test_empty_bucket_quarantines():
+    """
+    Directly setting tokens to 0.0 returns QUARANTINE immediately (fail-closed edge case).
+    """
+    resolver = _make_resolver()
+    resolver._rate_limiter.tokens = 0.0
+
+    context = _make_context(arguments={"test": "empty"})
+    v = await resolver.evaluate(context)
+
+    assert v.decision == VerdictDecision.QUARANTINE
+    assert "Rate limit exhausted" in v.reasoning
+    assert resolver._rate_limit_hits == 1
 
 
 # ---------------------------------------------------------------------------
@@ -330,9 +350,9 @@ async def test_gti_weight_redistribution_when_budget_exhausted():
     #   ctx = (0.45*0.5 + 0.4*0.5) = 0.425
     # Score = 0.25*0.5 + 0.425*0.5 - 0.2 = 0.125 + 0.2125 - 0.2 = 0.1375
     expected_degraded = 0.25 * 0.50 + 0.425 * 0.50 - 0.20
-    assert abs(score - expected_degraded) < 0.01, (
-        f"Score {score:.4f} differs from expected {expected_degraded:.4f}"
-    )
+    assert (
+        abs(score - expected_degraded) < 0.01
+    ), f"Score {score:.4f} differs from expected {expected_degraded:.4f}"
 
 
 # ---------------------------------------------------------------------------
@@ -341,10 +361,13 @@ async def test_gti_weight_redistribution_when_budget_exhausted():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("label,gti_client,budget_tracker", [
-    ("gti_unconfigured", None, None),
-    ("gti_configured_no_budget_tracker", MagicMock(), None),
-])
+@pytest.mark.parametrize(
+    "label,gti_client,budget_tracker",
+    [
+        ("gti_unconfigured", None, None),
+        ("gti_configured_no_budget_tracker", MagicMock(), None),
+    ],
+)
 async def test_no_penalty_when_gti_not_budget_exhausted(
     label, gti_client, budget_tracker
 ):
@@ -370,9 +393,9 @@ async def test_no_penalty_when_gti_not_budget_exhausted(
     # ctx_score = 0.45*0.5 + 0.0*0.5 = 0.225
     # normal: 0.0*0.4 + 0.0*0.3 + 0.225*0.3 = 0.0675
     expected_normal = 0.225 * 0.30
-    assert abs(score - expected_normal) < 0.01, (
-        f"[{label}] Expected normal-path score ~{expected_normal:.4f}, got {score:.4f}"
-    )
+    assert (
+        abs(score - expected_normal) < 0.01
+    ), f"[{label}] Expected normal-path score ~{expected_normal:.4f}, got {score:.4f}"
 
 
 # ---------------------------------------------------------------------------
@@ -392,9 +415,7 @@ async def test_no_penalty_when_gti_not_budget_exhausted(
         (0.0, VerdictDecision.ALLOW),
     ],
 )
-async def test_verdict_thresholds(
-    score: float, expected_decision: VerdictDecision
-):
+async def test_verdict_thresholds(score: float, expected_decision: VerdictDecision):
     """
     Verify verdict thresholds:
       >= 0.75 → BLOCK
@@ -410,6 +431,6 @@ async def test_verdict_thresholds(
         context = _make_context()
         verdict = await resolver.evaluate(context)
 
-    assert verdict.decision == expected_decision, (
-        f"Score {score} should give {expected_decision}, got {verdict.decision}"
-    )
+    assert (
+        verdict.decision == expected_decision
+    ), f"Score {score} should give {expected_decision}, got {verdict.decision}"

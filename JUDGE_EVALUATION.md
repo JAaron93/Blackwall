@@ -45,7 +45,7 @@ The demo completes in **~7 seconds** and shows:
 
 ```
 ============================================================
-               🔥 BLACKWALL AGENTIC FIREWALL 🔥               
+               🔥 BLACKWALL AGENTIC FIREWALL 🔥
 ============================================================
 
 [HH:MM:SS] 🎯 Initializing Blackwall components...
@@ -61,7 +61,7 @@ The demo completes in **~7 seconds** and shows:
 [HH:MM:SS] ✓ Resolver ready - all systems operational!
 
 ============================================================
-                  🎯 LIVE THREAT EVALUATION                  
+                  🎯 LIVE THREAT EVALUATION
 ============================================================
 
 Testing 5 attack scenarios...
@@ -89,7 +89,7 @@ Testing 5 attack scenarios...
 [... 3 more attacks ...]
 
 ============================================================
-                    📊 EVALUATION SUMMARY                    
+                    📊 EVALUATION SUMMARY
 ============================================================
 
 Results:

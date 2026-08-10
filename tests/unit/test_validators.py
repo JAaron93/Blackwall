@@ -137,5 +137,7 @@ def test_validate_temporal_sequence():
     validate_temporal_sequence(now_utc, now_utc)
 
     earlier_utc = now_utc - timedelta(seconds=5)
-    with pytest.raises(ValueError, match="end_time must be greater than or equal to start_time"):
+    with pytest.raises(
+        ValueError, match="end_time must be greater than or equal to start_time"
+    ):
         validate_temporal_sequence(now_utc, earlier_utc)

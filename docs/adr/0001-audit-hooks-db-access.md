@@ -4,7 +4,7 @@
 Approved
 
 ## Context
-Python's native `sys.addaudithook` triggers callback events synchronously before the OS kernel processes the low-level calls (e.g. `subprocess.Popen`, `socket.connect`, `open`). 
+Python's native `sys.addaudithook` triggers callback events synchronously before the OS kernel processes the low-level calls (e.g. `subprocess.Popen`, `socket.connect`, `open`).
 
 The `SQLiteThreatRepository` in Blackwall uses `aiosqlite` for asynchronous connection pooling. However, synchronous audit hook callbacks cannot run or await asynchronous coroutines safely, especially since the event loop might be blocked or absent on the invoking thread.
 

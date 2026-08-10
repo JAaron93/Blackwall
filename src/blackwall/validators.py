@@ -63,7 +63,10 @@ def validate_non_empty_string(v: str, field_name: str = "string") -> str:
 
 
 def validate_min_items(
-    v: T, min_items: int = 2, field_name: str = "collection", custom_msg: Optional[str] = None
+    v: T,
+    min_items: int = 2,
+    field_name: str = "collection",
+    custom_msg: Optional[str] = None,
 ) -> T:
     """Validate that a collection contains at least min_items elements."""
     if len(v) < min_items:

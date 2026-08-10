@@ -177,7 +177,9 @@ async def test_ttl_preserves_high_value_old_signatures(
     # match_count=11 > HV=10 → high-value
     await repo.writeSignature(_sig("hv_old", match_count=11, last_matched_at=old_ts))
     # match_count=10 = HV → on boundary, NOT high-value → should be evicted
-    await repo.writeSignature(_sig("boundary_old", match_count=10, last_matched_at=old_ts))
+    await repo.writeSignature(
+        _sig("boundary_old", match_count=10, last_matched_at=old_ts)
+    )
 
     deleted = await mgr.prune_stale(DEFAULT_TTL_SECONDS)
 
@@ -222,7 +224,9 @@ async def test_lfu_deletes_lowest_match_count_first(
     """
     # Insert 15 signatures with varying match counts 0-14
     for i in range(15):
-        await repo.writeSignature(_sig(f"sig_{i}", match_count=i, last_matched_at=_old_ts(1000)))
+        await repo.writeSignature(
+            _sig(f"sig_{i}", match_count=i, last_matched_at=_old_ts(1000))
+        )
 
     # Evict down to 10; should delete the 5 with match_count 0..4
     deleted = await mgr.evict_lfu(max_signatures=10)
@@ -253,7 +257,9 @@ async def test_lfu_preserves_high_value_signatures(
     for i in range(5):
         await repo.writeSignature(_sig(f"hv_{i}", match_count=HV + 1 + i))
     for i in range(15):
-        await repo.writeSignature(_sig(f"lv_{i}", match_count=i, last_matched_at=_old_ts(1000)))
+        await repo.writeSignature(
+            _sig(f"lv_{i}", match_count=i, last_matched_at=_old_ts(1000))
+        )
 
     # Evict down to 15; should only delete from lv_* (5 deletions)
     deleted = await mgr.evict_lfu(max_signatures=15)
@@ -301,11 +307,15 @@ async def test_combined_eviction_pass(
 
     # 3 stale low-freq → TTL candidates
     for i in range(3):
-        await repo.writeSignature(_sig(f"stale_{i}", match_count=1, last_matched_at=old_ts))
+        await repo.writeSignature(
+            _sig(f"stale_{i}", match_count=1, last_matched_at=old_ts)
+        )
 
     # 10 fresh low-freq
     for i in range(10):
-        await repo.writeSignature(_sig(f"fresh_{i}", match_count=1, last_matched_at=fresh_ts))
+        await repo.writeSignature(
+            _sig(f"fresh_{i}", match_count=1, last_matched_at=fresh_ts)
+        )
 
     # Configure tight LFU threshold to force LFU pass after TTL
     mgr.max_signatures = 8  # 10 remain after TTL; LFU should delete 2 more
@@ -382,9 +392,7 @@ async def test_fts5_index_updated_on_delete(
     for deleted signatures.
     """
     old_ts = _old_ts(2000)
-    await repo.writeSignature(
-        _sig("fts_target", match_count=0, last_matched_at=old_ts)
-    )
+    await repo.writeSignature(_sig("fts_target", match_count=0, last_matched_at=old_ts))
 
     # Confirm FTS entry exists before eviction
     async with repo.pool.connection() as conn:
@@ -419,7 +427,9 @@ async def test_graph_statistics_reflect_eviction_count(
     """
     old_ts = _old_ts(2000)
     for i in range(3):
-        await repo.writeSignature(_sig(f"ev_{i}", match_count=0, last_matched_at=old_ts))
+        await repo.writeSignature(
+            _sig(f"ev_{i}", match_count=0, last_matched_at=old_ts)
+        )
 
     stats_before = await repo.getStatistics()
     assert stats_before["evictionCount"] == 0
@@ -484,7 +494,7 @@ async def test_query_latency_under_10ms_after_large_eviction(
     """
     AC-12: After evicting a large batch of signatures, a pattern-match query
     must complete in < 10ms at p99 over 100 iterations.
-    
+
     The default 10ms threshold may be overridden using the BLACKWALL_SLA_LIMIT_MS
     environment variable.
 
@@ -509,14 +519,14 @@ async def test_query_latency_under_10ms_after_large_eviction(
     # Warmup queries to thoroughly compile FTS5 structures and warm up database cache
     for _ in range(20):
         await repo.find_matching_signature("tool", {"arg": "some_payload"})
- 
+
     # Benchmark: 100 find_matching_signature calls
     latencies_ms: List[float] = []
     for _ in range(100):
         t0 = time.monotonic()
         await repo.find_matching_signature("tool", {"arg": "some_payload"})
         latencies_ms.append((time.monotonic() - t0) * 1000.0)
- 
+
     limit = safe_sla_limit("BLACKWALL_SLA_LIMIT_MS", 10.0)
     # In a sorted list of 100 latencies, index 98 is the 99th element (the 99th percentile)
     p99 = sorted(latencies_ms)[98]
@@ -536,7 +546,9 @@ async def test_eviction_pass_completes_within_budget(
     """
     old_ts = _old_ts(2000)
     for i in range(200):
-        await repo.writeSignature(_sig(f"bulk_{i}", match_count=0, last_matched_at=old_ts))
+        await repo.writeSignature(
+            _sig(f"bulk_{i}", match_count=0, last_matched_at=old_ts)
+        )
 
     t0 = time.monotonic()
     result = await mgr.run_eviction_pass()
