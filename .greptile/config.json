@@ -1,4 +1,5 @@
 {
+  "version": "1",
   "strictness": 2,
   "commentTypes": ["logic", "syntax", "style", "info"],
   "triggerOnUpdates": true,
@@ -21,6 +22,11 @@
       "severity": "high"
     },
     {
+      "id": "enterprise-boundary-review-scope",
+      "rule": "Enterprise Boundary Review Scope: For code under src/blackwall/enterprise/, review only for Core/Enterprise boundary violations and shared interface compatibility. Do not flag Enterprise-internal pillar implementations (eBPF drivers, ZeroMQ mesh, Vault sidecar, pipeline wrappers, forensics engine) as violations — these are intentional Enterprise-only features.",
+      "severity": "high"
+    },
+    {
       "id": "advanced-threat-detection-isolation",
       "rule": "Advanced Threat Detection (Pillar 6) Isolation & Model Validation: Verify Pillar 6 components reside under src/blackwall/enterprise/advanced_threat_detection/ and Pydantic v2 data models enforce UUID v4 event_id, UTC timezone awareness for timestamps, score bounds [0.0, 1.0], min sequence sizes, and temporal ordering (end_time >= start_time).",
       "severity": "high"
@@ -28,6 +34,11 @@
     {
       "id": "async-resolver-interception-order",
       "rule": "Async Interception Pipeline Resolver Order: Verify SyncResolver execution flow strictly maintains: Rate Check -> ContextHygiene Sanitization -> Threat Signature Graph (TSG) Check -> Codebase Memory MCP AST Query -> Conditional GTI Validation -> Score Aggregation -> Threshold Verdict.",
+      "severity": "high"
+    },
+    {
+      "id": "sql-parameterization",
+      "rule": "SQL Parameterization Hygiene: Flag any SQL query that interpolates variables directly into an f-string without parameterized bindings. All dynamic values must be passed as bound parameters.",
       "severity": "high"
     },
     {
