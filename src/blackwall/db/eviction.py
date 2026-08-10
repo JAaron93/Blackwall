@@ -325,7 +325,17 @@ class EvictionManager:
         chunk_size = 900
         for i in range(0, len(candidate_ids), chunk_size):
             chunk = candidate_ids[i : i + chunk_size]
+            # SAFETY: placeholders is constructed exclusively from literal '?'
+            # characters — no user-controlled or external data is ever
+            # interpolated into this f-string. The assertion below enforces
+            # this invariant at runtime to prevent future regressions where
+            # a developer might accidentally substitute real data here,
+            # which would introduce a SQL injection vector.
             placeholders = ",".join("?" * len(chunk))
+            assert set(placeholders) <= {",", "?"}, (
+                f"Invariant violation: placeholders must contain only '?' and ',' "
+                f"characters, got: {placeholders!r}"
+            )
             async with self.pool.connection() as conn:
                 cursor = await conn.execute(
                     f"""

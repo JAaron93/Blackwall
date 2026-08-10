@@ -1,0 +1,27 @@
+{
+  "version": "1",
+  "strictness": "high",
+  "include": [
+    "src/blackwall/**",
+    "tests/**"
+  ],
+  "exclude": [
+    "src/blackwall/enterprise/**",
+    "**/__pycache__/**",
+    "**/*.pyc",
+    ".venv/**",
+    "*.sqlite*",
+    "*.db"
+  ],
+  "customInstructions": [
+    "This is Blackwall Core — an agentic security firewall. Apply security-first review standards.",
+    "Flag any SQL query that interpolates variables directly into an f-string without parameterized bindings.",
+    "Flag any code that bypasses the SyncResolver interception sequence: Rate Check → ContextHygiene → TSG Check → Codebase Memory MCP → GTI Validation → Score Aggregation → Threshold Verdict.",
+    "Flag any FTS5 similarity query that does not use word-level intersection match quality (len(intersection) / min_len).",
+    "Flag any ContextResolver middleware that does not sanitize environment variable patterns with [[VARIABLE_NAME]] placeholders.",
+    "Flag hardcoded credentials, API keys, or secrets in source files.",
+    "Flag any import of enterprise-tier modules (blackwall.enterprise.*) from Core modules under src/blackwall/ (excluding enterprise/).",
+    "Flag test code that does not isolate sys.addaudithook calls — audit hooks are process-global and cannot be unregistered.",
+    "Flag any async function that uses blocking I/O (e.g. time.sleep, open() on large files) inside an event loop without asyncio.to_thread."
+  ]
+}
