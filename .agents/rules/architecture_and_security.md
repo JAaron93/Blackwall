@@ -58,3 +58,19 @@
 * **Rule (UUID v4 Enforcement):** All identifier fields in Advanced Threat Detection Pydantic models (e.g. `event_id`, `node_id`, `path_id`, `swarm_id`, `chain_id`, `grant_id`, `granted_by`, `granted_to`) MUST be typed as `UUID4` (or validate UUID v4 format via `validate_uuid_v4_format`). Field validators delegating to `validate_uuid_v4_format` MUST pass `field_name=info.field_name` to provide field-specific error messages in `ValidationError` exceptions instead of hard-coding `event_id`.
 * **Rule (Bounded State & Strict Capacity Validation):** In-memory state trackers storing per-entity sequences MUST use bounded collections (e.g. `collections.deque(maxlen=max_capacity)`). Constructor capacity parameters MUST validate that values are strictly non-boolean integers (`not isinstance(v, bool) and isinstance(v, int) and v > 0`), raising `ValueError` on invalid types or non-positive values.
 * **Rule (Trust Boundary Classification):** Security context transition classifiers (e.g. `identify_boundary_crossing()`) MUST evaluate context changes against predefined `TRUST_BOUNDARIES` sets, rather than returning `True` for any arbitrary string inequality.
+
+## 16. GitHub Mergeability Re-Evaluation After Merge Commits
+* **Rule:** After resolving merge conflicts locally (`git merge origin/main`) and pushing the merge commit, GitHub may still report `CONFLICTING / DIRTY` on the PR. This is not always lag — GitHub runs its own three-way merge check independently. If `git diff origin/main HEAD` shows no conflict markers but the PR still reports `CONFLICTING`, force re-evaluation with an empty commit:
+  ```bash
+  git commit --allow-empty -m "chore: trigger GitHub mergeability re-evaluation"
+  git push
+  ```
+  Then verify resolution with: `gh pr view <N> --json mergeable,mergeStateStatus`
+* **Rationale:** GitHub's mergeability computation is asynchronous and keyed to push events. A merge commit alone may not trigger a fresh evaluation; an empty commit guarantees a new push event that re-queues the check.
+
+## 17. `add/add` Conflict Resolution Strategy
+* **Rule:** When `git merge` reports `CONFLICT (add/add)`, never use `git checkout --ours` or `--theirs` — both unconditionally discard one branch's contribution. Instead:
+  1. Read both versions: `git show HEAD:<file>` (ours) and `git show MERGE_HEAD:<file>` (theirs).
+  2. Produce a manually merged file that preserves intent from both sides.
+  3. Write the merged result, `git add <file>`, and commit with a clear rationale explaining what was kept from each side.
+* **Rationale:** `add/add` conflicts arise when two branches independently create the same file (e.g. configuration, spec files). The content from both branches is meaningful — discarding either side silently drops intentional work.
