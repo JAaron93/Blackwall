@@ -53,6 +53,8 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
     "attribution: Attacker attribution BDD test scenarios",
+    "extractor: Identity extractor BDD scenarios (Track 2A)",
+    "reporter: Incident report generator BDD scenarios (Track 2B)",
     "guardrails: Security guardrail test scenarios",
     "zero_ambient_authority: Zero ambient authority test scenarios",
     "asyncio: Mark async tests to run with pytest-asyncio",
