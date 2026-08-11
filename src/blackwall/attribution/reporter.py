@@ -93,19 +93,85 @@ _REDACTION_PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
 ]
 
 
+# Key-name patterns that identify sensitive argument keys regardless of value format.
+# Checked against dict keys BEFORE JSON serialization to avoid quoted-key regex issues.
+_SENSITIVE_KEY_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"(?i)password"),
+    re.compile(r"(?i)passwd"),
+    re.compile(r"(?i)\bpwd\b"),
+    re.compile(r"(?i)secret"),
+    re.compile(r"(?i)token"),
+    re.compile(r"(?i)api[_-]?key"),
+    re.compile(r"(?i)access[_-]?key"),
+    re.compile(r"(?i)private[_-]?key"),
+    re.compile(r"(?i)auth"),
+    re.compile(r"(?i)credential"),
+    re.compile(r"(?i)bearer"),
+]
+
+
+def _is_sensitive_key(key: str) -> bool:
+    """Return True if the argument key name matches any known sensitive key pattern."""
+    return any(pat.search(key) for pat in _SENSITIVE_KEY_PATTERNS)
+
+
+def _sanitize_value(value: Any) -> Any:
+    """
+    Recursively sanitize a single argument value.
+    - Dicts: check key names first (pre-serialization), then recurse into values.
+    - Strings: apply all regex patterns.
+    - Other scalars: return as-is.
+    """
+    if isinstance(value, dict):
+        result: Dict[str, Any] = {}
+        for k, v in value.items():
+            if _is_sensitive_key(k):
+                result[k] = f"[[{k.upper()}_REDACTED]]"
+            else:
+                result[k] = _sanitize_value(v)
+        return result
+    if isinstance(value, str):
+        redacted = value
+        for _name, pattern, placeholder in _REDACTION_PATTERNS:
+            try:
+                redacted = pattern.sub(placeholder, redacted)
+            except re.error as exc:
+                logger.warning("Sanitization pattern failed: %s", exc)
+        return redacted
+    if isinstance(value, list):
+        return [_sanitize_value(item) for item in value]
+    return value
+
+
 def _sanitize_arguments(arguments: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Sanitize tool call arguments by redacting secrets in both keys and values.
+    Sanitize tool call arguments by redacting secrets via a two-pass strategy:
 
-    Applies the same redaction patterns as ``ContextHygiene`` but synchronously,
-    using a value-by-value pass over the arguments dict (FR-6, NFR-1).
+    **Pass 1 — Key-name inspection (pre-serialization)**:
+    Iterate the argument dict and replace values whose *key names* match known
+    sensitive patterns (password, passwd, pwd, secret, token, api_key, …).
+    This avoids the JSON-quoted-key regex bypass where patterns like
+    ``(?i)password[\\s:=]+`` fail against ``"password": "value"``.
+
+    **Pass 2 — Regex scan of serialized string**:
+    After key-based replacement, serialize the cleaned dict to JSON and run
+    all ``_REDACTION_PATTERNS`` to catch any inline secret values (sk-, AIza,
+    bare API keys) that are embedded inside string values.
 
     Returns:
         A new dict with secrets replaced by ``[[PLACEHOLDER]]`` tokens.
     """
     try:
-        # Serialize to JSON string to handle nested structures uniformly
-        serialized = json.dumps(arguments)
+        # Pass 1: key-name-based redaction (handles quoted JSON key bypass)
+        pass1: Dict[str, Any] = {}
+        for k, v in arguments.items():
+            if _is_sensitive_key(k):
+                pass1[k] = f"[[{k.upper()}_REDACTED]]"
+            else:
+                pass1[k] = _sanitize_value(v)
+
+        # Pass 2: regex scan over JSON-serialized string for value-embedded secrets
+        serialized = json.dumps(pass1)
         redacted = serialized
         for _name, pattern, placeholder in _REDACTION_PATTERNS:
             try:

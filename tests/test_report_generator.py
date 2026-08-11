@@ -584,5 +584,85 @@ try:
             result = _sanitize_arguments({"GOOGLE_API_KEY": key})
             assert key not in str(result), f"Google key not redacted: {key!r}"
 
+        @given(
+            password=st.text(
+                alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+                min_size=6,
+                max_size=40,
+            )
+        )
+        @settings(max_examples=30, deadline=2000)
+        def test_password_key_always_redacted(self, password: str):
+            """Any value stored under password/passwd/pwd key must be redacted.
+
+            Covers the Greptile iteration-2 JSON-quoted-key bypass finding:
+            key-name inspection must remove the value BEFORE JSON serialization.
+            """
+            from blackwall.attribution.reporter import _sanitize_arguments
+
+            for key_name in ("password", "passwd", "pwd", "PASSWORD", "Passwd"):
+                result = _sanitize_arguments({key_name: password})
+                assert password not in str(result), (
+                    f"Password not redacted under key {key_name!r}: {password!r}"
+                )
+
 except ImportError:
     pass  # hypothesis not installed — property tests skipped gracefully
+
+
+class TestPasswordKeyBypass:
+    """Regression tests for the Greptile iteration-2 password-quoted-key bypass."""
+
+    def test_password_key_value_is_redacted(self):
+        """{'password': 'hunter2'} must not appear in sanitized output (Greptile finding)."""
+        from blackwall.attribution.reporter import _sanitize_arguments
+
+        result = _sanitize_arguments({"password": "hunter2"})
+        assert "hunter2" not in str(result)
+
+    def test_passwd_key_value_is_redacted(self):
+        """{'passwd': 'secret123'} must be redacted by key-name inspection."""
+        from blackwall.attribution.reporter import _sanitize_arguments
+
+        result = _sanitize_arguments({"passwd": "secret123"})
+        assert "secret123" not in str(result)
+
+    def test_pwd_key_value_is_redacted(self):
+        """{'pwd': 'myP@ss!'} must be redacted by key-name inspection."""
+        from blackwall.attribution.reporter import _sanitize_arguments
+
+        result = _sanitize_arguments({"pwd": "myP@ss!"})
+        assert "myP@ss!" not in str(result)
+
+    def test_nested_password_is_redacted(self):
+        """Nested dict password keys must also be caught by _sanitize_value."""
+        from blackwall.attribution.reporter import _sanitize_arguments
+
+        result = _sanitize_arguments({"config": {"password": "nestedSecret"}})
+        assert "nestedSecret" not in str(result)
+
+    def test_password_not_in_full_report_json(
+        self,
+        generator: "IncidentReportGenerator",
+        sample_identity: "AttackerIdentity",
+        sample_profile: "AttackerProfile",
+    ):
+        """Password must not appear in the full to_json() output of the report."""
+        ctx = ToolCallContext(
+            tool_name="execute_bash",
+            arguments={"password": "hunter2", "cmd": "whoami"},
+            metadata=None,
+        )
+        report = generator.build(
+            event_id=uuid4(),
+            verdict=VerdictDecision.BLOCK,
+            identity=sample_identity,
+            profile=sample_profile,
+            tool_context=ctx,
+            technique="Credential Theft",
+            mitigation="Blocked",
+            recommended_action="Reset credentials",
+            confidence=0.99,
+        )
+        assert "hunter2" not in report.to_json()
+        assert "hunter2" not in report.to_markdown()
