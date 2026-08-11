@@ -10,10 +10,10 @@ This task document breaks down the implementation of attacker attribution into m
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **TASK-1.1** | Pydantic Models & Fingerprinting | FR-1, FR-2, FR-4 | None | Sequential | **[x] COMPLETE** |
 | **TASK-1.2** | Pydantic Models BDD Scenarios | FR-1, FR-2, FR-4 | TASK-1.1 | Sequential | **[x] COMPLETE** |
-| **TASK-2A.1**| Identity Extractor | FR-1, FR-2, NFR-2 | TASK-1.2 | Parallel Track A | Pending |
-| **TASK-2A.2**| Identity Extractor BDD Scenarios | FR-1, FR-2, NFR-2 | TASK-2A.1 | Parallel Track A | Pending |
-| **TASK-2B.1**| Incident Report Builder | FR-4, FR-6 | TASK-1.2 | Parallel Track B | Pending |
-| **TASK-2B.2**| Incident Report Builder BDD Scenarios | FR-4, FR-6 | TASK-2B.1 | Parallel Track B | Pending |
+| **TASK-2A.1**| Identity Extractor | FR-1, FR-2, NFR-2 | TASK-1.2 | Parallel Track A | **[x] COMPLETE** |
+| **TASK-2A.2**| Identity Extractor BDD Scenarios | FR-1, FR-2, NFR-2 | TASK-2A.1 | Parallel Track A | **[x] COMPLETE** |
+| **TASK-2B.1**| Incident Report Builder | FR-4, FR-6 | TASK-1.2 | Parallel Track B | **[x] COMPLETE** |
+| **TASK-2B.2**| Incident Report Builder BDD Scenarios | FR-4, FR-6 | TASK-2B.1 | Parallel Track B | **[x] COMPLETE** |
 | **TASK-3.1** | SQLite Attacker Profile DB | FR-3, NFR-1 | TASK-1.2 | Sequential | Pending |
 | **TASK-3.2** | Attacker Profile DB BDD Scenarios | FR-3, NFR-1 | TASK-3.1 | Sequential | Pending |
 | **TASK-4.1** | Resolver & ADK Integration | FR-5, NFR-1, US-1 | TASK-2A.2, TASK-2B.2, TASK-3.2 | Sequential | Pending |
@@ -44,29 +44,30 @@ This task document breaks down the implementation of attacker attribution into m
 > [!TIP] PARALLEL EXECUTION
 > Track 2A (TASK-2A.1 & TASK-2A.2) and Track 2B (TASK-2B.1 & TASK-2B.2) can be developed concurrently once Track 1 is complete.
 
-### TASK-2A.1: Implement `AttackerIdentityExtractor` (TDD)
+### - [x] TASK-2A.1: Implement `AttackerIdentityExtractor` (TDD)
 - **Description**: Create `src/blackwall/attribution/extractor.py` to parse identity attributes from ADK metadata, process IDs, and environment variables.
 - **Dependencies**: TASK-1.2.
 - **Traceability**: FR-1, FR-2, NFR-2.
 - **TDD Requirement**: Write failing tests in `tests/test_identity_extractor.py` covering ADK metadata parsing, process fallback, and fail-closed error handling.
 
-### TASK-2A.2: Implement Identity Extractor BDD Gherkin Scenarios
+### - [x] TASK-2A.2: Implement Identity Extractor BDD Gherkin Scenarios
 - **Description**: Add Gherkin BDD feature scenarios to `tests/features/attacker_attribution.feature` and step definitions in `tests/step_defs/test_attacker_attribution_steps.py` testing identity extraction from ADK context metadata and fallback process inspection.
 - **Dependencies**: TASK-2A.1.
 - **Traceability**: FR-1, FR-2, NFR-2, BDD Scenarios.
 - **BDD Requirement**: Execute `pytest -k "extractor"` to verify BDD scenarios pass.
 
-### TASK-2B.1: Implement `IncidentReportGenerator` & Formatter (TDD)
+### - [x] TASK-2B.1: Implement `IncidentReportGenerator` & Formatter (TDD)
 - **Description**: Create `src/blackwall/attribution/reporter.py` to build `IncidentReport` instances and provide `to_markdown()` and `to_json()` formatting functions.
 - **Dependencies**: TASK-1.2.
 - **Traceability**: FR-4, FR-6, US-1.
 - **TDD Requirement**: Write failing tests in `tests/test_report_generator.py` testing secret redaction and Markdown formatting.
 
-### TASK-2B.2: Implement Incident Report Builder BDD Gherkin Scenarios
+### - [x] TASK-2B.2: Implement Incident Report Builder BDD Gherkin Scenarios
 - **Description**: Add Gherkin BDD feature scenarios to `tests/features/attacker_attribution.feature` and step definitions in `tests/step_defs/test_attacker_attribution_steps.py` testing report builder formatting and secret sanitization.
 - **Dependencies**: TASK-2B.1.
 - **Traceability**: FR-4, FR-6, US-1, BDD Scenarios.
 - **BDD Requirement**: Execute `pytest -k "reporter"` to verify BDD scenarios pass.
+
 
 ---
 
