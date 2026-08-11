@@ -74,3 +74,10 @@
   2. Produce a manually merged file that preserves intent from both sides.
   3. Write the merged result, `git add <file>`, and commit with a clear rationale explaining what was kept from each side.
 * **Rationale:** `add/add` conflicts arise when two branches independently create the same file (e.g. configuration, spec files). The content from both branches is meaningful — discarding either side silently drops intentional work.
+
+## 18. Two-Pass Secret Redaction Strategy for Tool Arguments & Telemetry
+* **Rule:** Sanitization components handling dictionary arguments or event contexts (e.g. `_sanitize_arguments()`, `ContextHygiene`) MUST use a two-pass sanitization strategy:
+  1. **Pass 1 — Key-name pre-serialization inspection**: Inspect dict key names directly against compiled sensitive patterns (`password`, `passwd`, `pwd`, `secret`, `token`, `api_key`, `access_key`, `private_key`, `auth`, `credential`, `bearer`) and redact values *before* stringifying to JSON.
+  2. **Pass 2 — Regex scan over serialized string**: Apply regex pattern matching over the stringified JSON payload to redact embedded credential patterns (e.g. multi-segment project keys `sk-(?:[a-zA-Z0-9]+-)*[a-zA-Z0-9]{8,}`, Google `AIza`, URLs, emails, IP addresses).
+* **Rationale:** Performing regex substitution exclusively on JSON-serialized strings fails to match quoted property names (e.g., `(?i)password[\s:=]+` misses `"password": "value"` due to double quotes around key names), allowing plaintext credentials to survive in sanitized payloads and leak into serialized incident reports or telemetry streams.
+

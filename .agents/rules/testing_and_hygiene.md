@@ -54,5 +54,12 @@
 * **Rule:** Hypothesis property test suites (`tests/property/test_*_properties.py`) targeting components with Pydantic models or public threshold parameters MUST assert **both** valid acceptance (`test_property_*_valid_acceptance`) using valid input strategies (`st.uuids(version=4)`, UTC datetimes, non-empty text) AND invalid rejection (`test_property_*_rejection`) using invalid strategies (`st.text().filter(lambda s: not s.strip())`, naive/non-UTC datetimes, malformed UUIDs). Rejection tests MUST assert that invalid inputs raise `pydantic.ValidationError` or `ValueError`.
 * **Rationale:** Property tests validating happy-path behavior alone miss contract violations and fail compliance review guardrails for model boundary enforcement.
 
+## 18. Property-Based Redaction Coverage for Secret Sanitizers
+* **Rule:** All secret redaction and argument sanitization modules MUST include Hypothesis property-based tests using `@given(st.text(...))` and `@settings(...)` asserting that:
+  1. Arbitrary generated vendor credential formats (e.g., `sk-<segment>-<string>`, `AIza<string>`) are completely stripped from sanitized outputs and full serialized reports (`to_json()`, `to_markdown()`).
+  2. Arbitrary text values stored under sensitive key names (`password`, `passwd`, `pwd`, `secret`, `api_key`) are stripped regardless of casing or nesting.
+* **Rationale:** Fixed example-based tests (e.g., testing `sk-1234567890`) miss multi-segment API key formats (like OpenAI `sk-proj-...` or Anthropic `sk-ant-...`) and JSON key-quoting edge cases, leading to security regression findings during automated code reviews.
+
+
 
 
