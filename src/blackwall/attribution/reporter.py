@@ -43,7 +43,9 @@ _REDACTION_PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
     ),
     (
         "OPENAI_KEY",
-        re.compile(r"sk-[a-zA-Z0-9]{10,}"),
+        # Matches: sk-abc123, sk-proj-abc-def123, sk-or-v1-abc, sk-ant-abc etc.
+        # The pattern allows hyphens within segments to catch project-scoped keys.
+        re.compile(r"sk-(?:[a-zA-Z0-9]+-)*[a-zA-Z0-9]{8,}"),
         "[[OPENAI_API_KEY]]",
     ),
     (
@@ -55,6 +57,13 @@ _REDACTION_PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
         "SECRET_VALUE",
         re.compile(r"(?i)(secret|api_key|apikey)[\s:\"']*:[\s\"']*[a-zA-Z0-9_\-]{8,}"),
         "[[SECRET_VALUE]]",
+    ),
+    (
+        "KEY_VALUE_PAIR",
+        # Catches dict key names that look like API key env vars followed by their values.
+        # e.g. "OPENAI_API_KEY": "sk-...", "ANTHROPIC_API_KEY": "sk-ant-..."
+        re.compile(r'(?i)(["\']?(?:openai|anthropic|google|huggingface|cohere|azure|aws)[_-]?(?:api[_-]?)?key[_-]?(?:id|secret)?["\']?\s*:\s*["\']?)([a-zA-Z0-9_\-]{10,})'),
+        "[[API_KEY_VALUE]]",
     ),
     (
         "PASSWORD",
