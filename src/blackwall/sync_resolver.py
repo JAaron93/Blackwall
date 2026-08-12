@@ -202,7 +202,7 @@ class SyncResolver:
                 confidence_score=1.0,
             )
             sanitized = self._hygiene.sanitize_context(context)
-            await self._process_attribution(sanitized, verdict)
+            await self._process_attribution(context, verdict, sanitized_context=sanitized)
             return verdict
 
         # 2. Sanitize context
@@ -223,7 +223,7 @@ class SyncResolver:
                     reasoning=f"Blocked via signature match: {dict(matched_sig).get('attacker_intent', 'Unknown')}",
                     confidence_score=1.0,
                 )
-                await self._process_attribution(sanitized, verdict)
+                await self._process_attribution(context, verdict, sanitized_context=sanitized)
                 return verdict
 
         # 3. Query structural policy and Codebase Memory first (gating before external query)
@@ -268,7 +268,7 @@ class SyncResolver:
 
         # 6. Inline signature generation & Attacker Attribution post-verdict
         if decision in (VerdictDecision.BLOCK, VerdictDecision.QUARANTINE):
-            await self._process_attribution(sanitized, verdict)
+            await self._process_attribution(context, verdict, sanitized_context=sanitized)
 
         if decision == VerdictDecision.BLOCK:
             self._block_count += 1
@@ -290,16 +290,20 @@ class SyncResolver:
     # ------------------------------------------------------------------
 
     async def _process_attribution(
-        self, context: ToolCallContext, verdict: Verdict
+        self,
+        raw_context: ToolCallContext,
+        verdict: Verdict,
+        sanitized_context: Optional[ToolCallContext] = None,
     ) -> None:
         """
-        Extract identity, update profile DB, generate incident report,
-        and emit to sinks (CLI, user callback, OpenTelemetry).
+        Extract identity using exact raw metadata, update profile DB,
+        generate report with sanitized context arguments, and dispatch notification sinks.
         Enforces fail-safe exception isolation (<5ms budget, NFR-2).
         """
         try:
+            sanitized = sanitized_context or self._hygiene.sanitize_context(raw_context)
             extractor = AttackerIdentityExtractor()
-            identity = extractor.extract(context=context, metadata=context.metadata)
+            identity = extractor.extract(context=raw_context, metadata=raw_context.metadata)
 
             now_utc = datetime.now(timezone.utc)
             initial_profile = AttackerProfile(
@@ -308,7 +312,7 @@ class SyncResolver:
                 last_seen=now_utc,
                 total_attacks=1,
                 threat_score=verdict.confidence_score,
-                targeted_tools=[context.tool_name],
+                targeted_tools=[raw_context.tool_name],
             )
 
             if self.repo and hasattr(self.repo, "upsert_attacker_profile"):
@@ -322,50 +326,62 @@ class SyncResolver:
                 verdict=verdict.decision,
                 identity=identity,
                 profile=profile,
-                tool_context=context,
+                tool_context=sanitized,
                 technique="Intercepted Unsafe Tool Execution",
                 mitigation=verdict.reasoning,
                 recommended_action="Revoke agent credentials and inspect execution trace",
                 confidence=verdict.confidence_score,
             )
 
-            # 1. Output to CLI sink (stderr)
+            # Fire notification sinks (CLI, user callback, telemetry) asynchronously in background
             try:
-                sys.stderr.write(report.to_markdown() + "\n")
-                sys.stderr.flush()
-            except Exception as err:
-                logger.warning("CLI alert sink output failed: %s", err)
-
-            # 2. Execute user callback if registered (non-blocking timeout, isolated)
-            if self.on_attacker_identified is not None:
-                try:
-                    if asyncio.iscoroutinefunction(self.on_attacker_identified):
-                        await asyncio.wait_for(self.on_attacker_identified(report), timeout=2.0)
-                    else:
-                        await asyncio.wait_for(
-                            asyncio.to_thread(self.on_attacker_identified, report),
-                            timeout=2.0,
-                        )
-                except Exception as err:
-                    logger.warning("Attacker identified callback failed: %s", err)
-
-            # 3. Emit OpenTelemetry security event span if telemetry enabled (isolated)
-            if self.telemetry and hasattr(self.telemetry, "create_span"):
-                try:
-                    span_name = "blackwall.attacker_identified"
-                    attrs = {
-                        "attacker.agent_id": identity.agent_id or "UNKNOWN",
-                        "attacker.agent_name": identity.agent_name or "UNKNOWN",
-                        "attacker.fingerprint": identity.identity_fingerprint,
-                        "attacker.score": profile.threat_score,
-                        "attacker.total_attacks": profile.total_attacks,
-                    }
-                    self.telemetry.create_span(span_name, attributes=attrs)
-                except Exception as err:
-                    logger.warning("OpenTelemetry span emission failed: %s", err)
+                loop = asyncio.get_running_loop()
+                loop.create_task(self._emit_sinks(report, identity, profile))
+            except RuntimeError:
+                # If no running loop, execute sinks synchronously
+                await self._emit_sinks(report, identity, profile)
 
         except Exception as exc:
             logger.warning("Attacker attribution failed gracefully (fail-safe mode): %s", exc)
+
+    async def _emit_sinks(
+        self, report: IncidentReport, identity: Any, profile: AttackerProfile
+    ) -> None:
+        """Emits notification sinks (CLI stderr, user callback, telemetry) with isolated error handling."""
+        # 1. Output to CLI sink (stderr)
+        try:
+            sys.stderr.write(report.to_markdown() + "\n")
+            sys.stderr.flush()
+        except Exception as err:
+            logger.warning("CLI alert sink output failed: %s", err)
+
+        # 2. Execute user callback if registered (non-blocking timeout, isolated)
+        if self.on_attacker_identified is not None:
+            try:
+                if asyncio.iscoroutinefunction(self.on_attacker_identified):
+                    await asyncio.wait_for(self.on_attacker_identified(report), timeout=2.0)
+                else:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(self.on_attacker_identified, report),
+                        timeout=2.0,
+                    )
+            except Exception as err:
+                logger.warning("Attacker identified callback failed: %s", err)
+
+        # 3. Emit OpenTelemetry security event span if telemetry enabled (isolated)
+        if self.telemetry and hasattr(self.telemetry, "create_span"):
+            try:
+                span_name = "blackwall.attacker_identified"
+                attrs = {
+                    "attacker.agent_id": identity.agent_id or "UNKNOWN",
+                    "attacker.agent_name": identity.agent_name or "UNKNOWN",
+                    "attacker.fingerprint": identity.identity_fingerprint,
+                    "attacker.score": profile.threat_score,
+                    "attacker.total_attacks": profile.total_attacks,
+                }
+                self.telemetry.create_span(span_name, attributes=attrs)
+            except Exception as err:
+                logger.warning("OpenTelemetry span emission failed: %s", err)
 
     # ------------------------------------------------------------------
     # GTI query
