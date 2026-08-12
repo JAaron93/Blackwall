@@ -97,5 +97,14 @@
 * **Rule:** Pydantic schemas and specification model declarations for security payloads, network targets, RPC streams, and sanitized text MUST use explicit Pydantic v2 `Field` constraints (`IPvAnyAddress`, `min_length=1`, `pattern=r"..."`, `Dict[str, Any] = Field(..., min_length=1)`) rather than bare unconstrained types (`Optional[str] = None`, `dict`, `str`).
 * **Rationale:** Bare primitive types accept malformed IP strings (`"not_an_ip"`), empty environment identifiers (`""`), unconstrained empty dicts (`{}`), or empty sanitized strings, allowing malformed data to bypass validation and reach persistence or mitigation engines.
 
+## 23. Atomic SQLite Upsert & Read-Modify-Write Contention Prevention
+* **Rule:** SQLite database persistence methods tracking entity metrics or updating aggregated state (e.g. `upsert_attacker_profile`, `upsert_threat_signature`) MUST use a single atomic SQL statement (`INSERT INTO ... ON CONFLICT(key) DO UPDATE SET ... RETURNING ...`) utilizing SQLite 3.35+ `RETURNING` clauses and SQLite JSON functions (`json_each`, `json_group_array`). Executing sequential `SELECT` followed by `UPDATE`/`INSERT` or acquiring explicit database-wide write locks (`BEGIN IMMEDIATE TRANSACTION`) is strictly prohibited.
+* **Rationale:** Sequential read-modify-write loops introduce race conditions and lost updates under concurrent async calls. Explicit transaction lock blocks (`BEGIN IMMEDIATE TRANSACTION`) cause database lock contention and busy timeouts under SQLite connection pools. Single-statement atomic SQL upserts execute in <1ms, guarantee zero lost updates, and prevent connection pool starvation.
+
+## 24. Non-Blocking Synchronous User Callbacks in Interception Resolvers
+* **Rule:** Async security resolvers and interception engines (`SyncResolver`, callback handlers) executing user-registered synchronous hooks (e.g. `on_attacker_identified`, security event handlers) MUST run synchronous functions off the main event loop thread via `loop.run_in_executor(None, fn, arg)` wrapped in `await asyncio.wait_for(..., timeout=0.05)`. Resolver execution paths MUST NOT invoke synchronous user functions directly on the main event loop thread or leave timed-out threadpool tasks un-isolated.
+* **Rationale:** Direct synchronous execution on the event loop thread halts all concurrent security evaluations for the duration of the callback. Calling `asyncio.to_thread` inside `wait_for` without executor management can leak threadpool workers when callbacks time out. Using `loop.run_in_executor` with explicit `asyncio.wait_for` isolation guarantees the resolver SLA (<5ms budget) while safely timing out slow callbacks after 50ms without stalling the event loop thread or accumulating executor workers.
+
+
 
 
