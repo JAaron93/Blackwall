@@ -63,41 +63,51 @@ def test_property_identity_fingerprint_uniqueness(id1_agent, id2_agent):
 # Property 2: Monotonic Attack Counter and Tool Union Invariants
 # ---------------------------------------------------------------------------
 
-@pytest.mark.asyncio
-async def test_property_profile_upsert_monotonicity_and_tool_union():
+@settings(max_examples=15)
+@given(
+    fp_char=st.text(alphabet="0123456789abcdef", min_size=1, max_size=1),
+    tool_sequence=st.lists(
+        st.text(alphabet="abcdefghijklmnopqrstuvwxyz_", min_size=1, max_size=20),
+        min_size=1,
+        max_size=10,
+    ),
+)
+def test_property_profile_upsert_monotonicity_and_tool_union(fp_char, tool_sequence):
     """Property: Repeated upserts increment total_attacks monotonically and merge tools as a set union."""
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
-        db_path = tmp.name
+    async def _run():
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            db_path = tmp.name
 
-    try:
-        repo = SQLiteThreatRepository(db_path=db_path)
-        await repo.initialize()
+        try:
+            repo = SQLiteThreatRepository(db_path=db_path)
+            await repo.initialize()
 
-        fp = "c" * 64
-        now = datetime.now(timezone.utc)
-        tools = ["read_file", "execute_bash", "write_file", "query_db"]
+            fp = fp_char * 64
+            now = datetime.now(timezone.utc)
 
-        accumulated_tools = set()
-        for i, tool in enumerate(tools, start=1):
-            accumulated_tools.add(tool)
-            prof = AttackerProfile(
-                fingerprint=fp,
-                first_seen=now,
-                last_seen=now,
-                total_attacks=1,
-                threat_score=0.80,
-                targeted_tools=[tool],
-            )
-            updated = await repo.upsert_attacker_profile(prof)
-            assert updated.total_attacks == i
-            assert set(updated.targeted_tools) == accumulated_tools
+            accumulated_tools = set()
+            for i, tool in enumerate(tool_sequence, start=1):
+                accumulated_tools.add(tool)
+                prof = AttackerProfile(
+                    fingerprint=fp,
+                    first_seen=now,
+                    last_seen=now,
+                    total_attacks=1,
+                    threat_score=0.80,
+                    targeted_tools=[tool],
+                )
+                updated = await repo.upsert_attacker_profile(prof)
+                assert updated.total_attacks == i
+                assert set(updated.targeted_tools) == accumulated_tools
 
-        fetched = await repo.get_attacker_profile(fp)
-        assert fetched is not None
-        assert fetched.total_attacks == len(tools)
-        assert set(fetched.targeted_tools) == set(tools)
+            fetched = await repo.get_attacker_profile(fp)
+            assert fetched is not None
+            assert fetched.total_attacks == len(tool_sequence)
+            assert set(fetched.targeted_tools) == set(tool_sequence)
 
-        await repo.close()
-    finally:
-        if os.path.exists(db_path):
-            os.unlink(db_path)
+            await repo.close()
+        finally:
+            if os.path.exists(db_path):
+                os.unlink(db_path)
+
+    asyncio.run(_run())

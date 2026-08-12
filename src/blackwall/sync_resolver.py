@@ -293,14 +293,14 @@ class SyncResolver:
         verdict: Verdict,
     ) -> None:
         """
-        Extract identity from sanitized context, update profile DB,
-        generate incident report, and emit notification sinks (CLI, callback, telemetry).
+        Extract identity from raw metadata, update profile DB,
+        generate incident report with sanitized context arguments, and emit notification sinks.
         Enforces fail-safe exception isolation (<5ms budget, NFR-2).
         """
         try:
             sanitized = self._hygiene.sanitize_context(context)
             extractor = AttackerIdentityExtractor()
-            identity = extractor.extract(context=sanitized, metadata=sanitized.metadata)
+            identity = extractor.extract(context=context, metadata=context.metadata)
 
             now_utc = datetime.now(timezone.utc)
             initial_profile = AttackerProfile(
@@ -309,7 +309,7 @@ class SyncResolver:
                 last_seen=now_utc,
                 total_attacks=1,
                 threat_score=verdict.confidence_score,
-                targeted_tools=[sanitized.tool_name],
+                targeted_tools=[context.tool_name],
             )
 
             if self.repo and hasattr(self.repo, "upsert_attacker_profile"):
@@ -330,15 +330,8 @@ class SyncResolver:
                 confidence=verdict.confidence_score,
             )
 
-            # Schedule notification sinks in background task retained in self._background_tasks
-            # to prevent task cancellation while returning verdict immediately.
-            try:
-                loop = asyncio.get_running_loop()
-                task = loop.create_task(self._emit_sinks(report, identity, profile))
-                self._background_tasks.add(task)
-                task.add_done_callback(self._background_tasks.discard)
-            except RuntimeError:
-                await self._emit_sinks(report, identity, profile)
+            # Emit notification sinks inline with non-blocking error isolation
+            await self._emit_sinks(report, identity, profile)
 
         except Exception as exc:
             logger.warning("Attacker attribution failed gracefully (fail-safe mode): %s", exc)
@@ -354,13 +347,16 @@ class SyncResolver:
         except Exception as err:
             logger.warning("CLI alert sink output failed: %s", err)
 
-        # 2. Execute user callback if registered (non-blocking, isolated)
+        # 2. Execute user callback if registered (non-blocking timeout, isolated)
         if self.on_attacker_identified is not None:
             try:
                 if asyncio.iscoroutinefunction(self.on_attacker_identified):
                     await asyncio.wait_for(self.on_attacker_identified(report), timeout=0.05)
                 else:
-                    self.on_attacker_identified(report)
+                    await asyncio.wait_for(
+                        asyncio.to_thread(self.on_attacker_identified, report),
+                        timeout=0.05,
+                    )
             except Exception as err:
                 logger.warning("Attacker identified callback failed: %s", err)
 
