@@ -557,10 +557,10 @@ class ActiveReactionPayload(BaseModel):
     trigger_evidence_id: UUID4
     target_agent_id: str = Field(..., min_length=1)
     target_pid: Optional[int] = Field(None, gt=0)
-    target_ip: Optional[str] = None
+    target_ip: Optional[IPvAnyAddress] = None
     action_type: ReactionActionType
     timestamp: AwareDatetime
-    evaluation_env_id: Optional[str] = None
+    evaluation_env_id: Optional[str] = Field(None, min_length=1, pattern=r"^[a-zA-Z0-9_-]+$")
 
     @field_validator("timestamp")
     @classmethod
@@ -628,7 +628,7 @@ class InboundProtocolMessage(BaseModel):
     recipient_agent_id: str = Field(..., min_length=1)
     protocol: InboundProtocolType
     method: InboundMethodType
-    payload: dict
+    payload: Dict[str, Any] = Field(..., min_length=1)
     timestamp: AwareDatetime
 
     @field_validator("timestamp")
@@ -686,7 +686,7 @@ class PromptInjectionEvidence(BaseModel):
     source_context: InjectionSourceType
     detected_patterns: List[str] = Field(..., min_length=1)
     injection_confidence: float = Field(..., ge=0.0, le=1.0)
-    sanitized_content: str
+    sanitized_content: str = Field(..., min_length=1)
 
 class PromptInjectionScanner:
     async def scan_payload(
@@ -830,10 +830,10 @@ class ActiveReactionPayload(BaseModel):
     trigger_evidence_id: UUID4
     target_agent_id: str = Field(..., min_length=1)
     target_pid: Optional[int] = Field(None, gt=0)
-    target_ip: Optional[str] = None
+    target_ip: Optional[IPvAnyAddress] = None
     action_type: ReactionActionType
     timestamp: AwareDatetime
-    evaluation_env_id: Optional[str] = None
+    evaluation_env_id: Optional[str] = Field(None, min_length=1, pattern=r"^[a-zA-Z0-9_-]+$")
 
     @field_validator("timestamp")
     @classmethod
@@ -846,6 +846,8 @@ class ActiveReactionPayload(BaseModel):
 **Validation Rules**:
 - `reaction_id` and `trigger_evidence_id` must be valid UUID v4 objects
 - `target_agent_id` must be a non-empty string (`min_length=1`)
+- `target_ip` (if provided) must be a valid IPv4 or IPv6 address (`IPvAnyAddress`)
+- `evaluation_env_id` (if provided) must be a non-empty alphanumeric string (`min_length=1`)
 - `timestamp` must be UTC timezone-aware (`AwareDatetime`)
 - `action_type` must be a valid `ReactionActionType` enum
 - `target_pid` (if provided) must be > 0 (`gt=0`)
@@ -859,7 +861,7 @@ class InboundProtocolMessage(BaseModel):
     recipient_agent_id: str = Field(..., min_length=1)
     protocol: InboundProtocolType
     method: InboundMethodType
-    payload: dict
+    payload: Dict[str, Any] = Field(..., min_length=1)
     timestamp: AwareDatetime
 
     @field_validator("timestamp")
@@ -874,6 +876,7 @@ class InboundProtocolMessage(BaseModel):
 - `message_id` must be valid UUID v4 object
 - `sender_id` and `recipient_agent_id` must be non-empty strings (`min_length=1`)
 - `protocol` and `method` must be valid Enum values
+- `payload` must be a non-empty dictionary (`min_length=1`)
 - `timestamp` must be UTC timezone-aware (`AwareDatetime`)
 
 ### Model 6: PromptInjectionEvidence
@@ -884,13 +887,14 @@ class PromptInjectionEvidence(BaseModel):
     source_context: InjectionSourceType
     detected_patterns: List[str] = Field(..., min_length=1)
     injection_confidence: float = Field(..., ge=0.0, le=1.0)
-    sanitized_content: str
+    sanitized_content: str = Field(..., min_length=1)
 ```
 
 **Validation Rules**:
 - `scan_id` must be valid UUID v4 object
 - `injection_confidence` must be constrained to range `[0.0, 1.0]` (`ge=0.0, le=1.0`)
 - `detected_patterns` must contain at least 1 identified pattern string (`min_length=1`)
+- `sanitized_content` must be a non-empty string (`min_length=1`)
 
 ### Model 7: AgentQuotaUsage
 
