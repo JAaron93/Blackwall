@@ -201,8 +201,7 @@ class SyncResolver:
                 ),
                 confidence_score=1.0,
             )
-            sanitized = self._hygiene.sanitize_context(context)
-            await self._process_attribution(context, verdict, sanitized_context=sanitized)
+            await self._process_attribution(context, verdict)
             return verdict
 
         # 2. Sanitize context
@@ -223,7 +222,7 @@ class SyncResolver:
                     reasoning=f"Blocked via signature match: {dict(matched_sig).get('attacker_intent', 'Unknown')}",
                     confidence_score=1.0,
                 )
-                await self._process_attribution(context, verdict, sanitized_context=sanitized)
+                await self._process_attribution(context, verdict)
                 return verdict
 
         # 3. Query structural policy and Codebase Memory first (gating before external query)
@@ -268,7 +267,7 @@ class SyncResolver:
 
         # 6. Inline signature generation & Attacker Attribution post-verdict
         if decision in (VerdictDecision.BLOCK, VerdictDecision.QUARANTINE):
-            await self._process_attribution(context, verdict, sanitized_context=sanitized)
+            await self._process_attribution(context, verdict)
 
         if decision == VerdictDecision.BLOCK:
             self._block_count += 1
@@ -291,19 +290,18 @@ class SyncResolver:
 
     async def _process_attribution(
         self,
-        raw_context: ToolCallContext,
+        context: ToolCallContext,
         verdict: Verdict,
-        sanitized_context: Optional[ToolCallContext] = None,
     ) -> None:
         """
-        Extract identity using exact raw metadata, update profile DB,
-        generate report with sanitized context arguments, and dispatch notification sinks.
+        Extract identity from sanitized context, update profile DB,
+        generate incident report, and emit notification sinks (CLI, callback, telemetry).
         Enforces fail-safe exception isolation (<5ms budget, NFR-2).
         """
         try:
-            sanitized = sanitized_context or self._hygiene.sanitize_context(raw_context)
+            sanitized = self._hygiene.sanitize_context(context)
             extractor = AttackerIdentityExtractor()
-            identity = extractor.extract(context=raw_context, metadata=raw_context.metadata)
+            identity = extractor.extract(context=sanitized, metadata=sanitized.metadata)
 
             now_utc = datetime.now(timezone.utc)
             initial_profile = AttackerProfile(
@@ -312,7 +310,7 @@ class SyncResolver:
                 last_seen=now_utc,
                 total_attacks=1,
                 threat_score=verdict.confidence_score,
-                targeted_tools=[raw_context.tool_name],
+                targeted_tools=[sanitized.tool_name],
             )
 
             if self.repo and hasattr(self.repo, "upsert_attacker_profile"):
@@ -333,13 +331,9 @@ class SyncResolver:
                 confidence=verdict.confidence_score,
             )
 
-            # Fire notification sinks (CLI, user callback, telemetry) asynchronously in background
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(self._emit_sinks(report, identity, profile))
-            except RuntimeError:
-                # If no running loop, execute sinks synchronously
-                await self._emit_sinks(report, identity, profile)
+            # Emit notification sinks (CLI, callback, telemetry) inline with strict 0.05s timeout
+            # guaranteeing completion before evaluate returns without stalling verdict delivery.
+            await self._emit_sinks(report, identity, profile)
 
         except Exception as exc:
             logger.warning("Attacker attribution failed gracefully (fail-safe mode): %s", exc)
@@ -355,15 +349,15 @@ class SyncResolver:
         except Exception as err:
             logger.warning("CLI alert sink output failed: %s", err)
 
-        # 2. Execute user callback if registered (non-blocking timeout, isolated)
+        # 2. Execute user callback if registered (0.05s max budget for non-blocking execution)
         if self.on_attacker_identified is not None:
             try:
                 if asyncio.iscoroutinefunction(self.on_attacker_identified):
-                    await asyncio.wait_for(self.on_attacker_identified(report), timeout=2.0)
+                    await asyncio.wait_for(self.on_attacker_identified(report), timeout=0.05)
                 else:
                     await asyncio.wait_for(
                         asyncio.to_thread(self.on_attacker_identified, report),
-                        timeout=2.0,
+                        timeout=0.05,
                     )
             except Exception as err:
                 logger.warning("Attacker identified callback failed: %s", err)
