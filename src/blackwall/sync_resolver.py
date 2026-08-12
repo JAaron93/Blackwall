@@ -200,7 +200,7 @@ class SyncResolver:
                 ),
                 confidence_score=1.0,
             )
-            self._schedule_attribution(context, verdict)
+            await self._process_attribution(context, verdict)
             return verdict
 
         # 2. Sanitize context
@@ -221,7 +221,7 @@ class SyncResolver:
                     reasoning=f"Blocked via signature match: {dict(matched_sig).get('attacker_intent', 'Unknown')}",
                     confidence_score=1.0,
                 )
-                self._schedule_attribution(context, verdict)
+                await self._process_attribution(context, verdict)
                 return verdict
 
         # 3. Query structural policy and Codebase Memory first (gating before external query)
@@ -266,7 +266,7 @@ class SyncResolver:
 
         # 6. Inline signature generation & Attacker Attribution post-verdict
         if decision in (VerdictDecision.BLOCK, VerdictDecision.QUARANTINE):
-            self._schedule_attribution(context, verdict)
+            await self._process_attribution(context, verdict)
 
         if decision == VerdictDecision.BLOCK:
             self._block_count += 1
@@ -282,23 +282,6 @@ class SyncResolver:
         self._total_latency_ms += elapsed
 
         return verdict
-
-    def _schedule_attribution(
-        self, context: ToolCallContext, verdict: Verdict
-    ) -> None:
-        """Schedules attacker attribution non-blockingly in a background task."""
-        try:
-            loop = asyncio.get_running_loop()
-            task = loop.create_task(self._process_attribution(context, verdict))
-            self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
-        except RuntimeError:
-            pass
-
-    async def flush_background_tasks(self) -> None:
-        """Awaits all pending background attribution tasks to complete."""
-        if self._background_tasks:
-            await asyncio.gather(*list(self._background_tasks), return_exceptions=True)
 
     # ------------------------------------------------------------------
     # Attacker Attribution processing
@@ -364,13 +347,17 @@ class SyncResolver:
         except Exception as err:
             logger.warning("CLI alert sink output failed: %s", err)
 
-        # 2. Execute user callback if registered (isolated exception handling)
+        # 2. Execute user callback if registered (non-blocking executor with timeout, isolated)
         if self.on_attacker_identified is not None:
             try:
                 if asyncio.iscoroutinefunction(self.on_attacker_identified):
                     await asyncio.wait_for(self.on_attacker_identified(report), timeout=0.05)
                 else:
-                    self.on_attacker_identified(report)
+                    loop = asyncio.get_running_loop()
+                    await asyncio.wait_for(
+                        loop.run_in_executor(None, self.on_attacker_identified, report),
+                        timeout=0.05,
+                    )
             except Exception as err:
                 logger.warning("Attacker identified callback failed: %s", err)
 
