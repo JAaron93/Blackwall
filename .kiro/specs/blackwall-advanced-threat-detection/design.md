@@ -547,15 +547,19 @@ class PackageRegistryMonitor:
 
 **Interface**:
 ```python
-@dataclass
-class ActiveReactionPayload:
-    reaction_id: str
-    trigger_evidence_id: str
-    target_agent_id: str
-    target_pid: Optional[int]
-    target_ip: Optional[str]
-    action_type: str                   # "EBPF_DROP", "MESH_SIGNATURE_BROADCAST", "REVOKE_IDENTITY_TOKENS"
-    timestamp: datetime
+class ReactionActionType(str, Enum):
+    EBPF_DROP = "EBPF_DROP"
+    MESH_SIGNATURE_BROADCAST = "MESH_SIGNATURE_BROADCAST"
+    REVOKE_IDENTITY_TOKENS = "REVOKE_IDENTITY_TOKENS"
+
+class ActiveReactionPayload(BaseModel):
+    reaction_id: str                          # UUID v4
+    trigger_evidence_id: str                  # UUID v4
+    target_agent_id: str                      # Non-empty string
+    target_pid: Optional[int] = None           # Positive integer (> 0)
+    target_ip: Optional[str] = None            # Valid IP address
+    action_type: ReactionActionType            # ReactionActionType enum
+    timestamp: datetime                        # UTC timezone-aware
     evaluation_env_id: Optional[str] = None   # Isolated evaluation environment identifier if in eval mode
 
 class ActiveReactionEngine:
@@ -599,6 +603,7 @@ class ActiveReactionEngine:
 - Inject dynamic eBPF socket/process drop rules into Pillar 1 (production mode only)
 - Broadcast block signatures across enterprise nodes via Pillar 2 Threat Mesh in <15ms (production mode only)
 - Revoke active JIT credentials and honey-tokens via Pillar 3 Vault Sidecar (production mode only)
+- Enforce strict Pydantic v2 validation on all `ActiveReactionPayload` instances before execution
 
 ### Component 10: InboundProtocolFilter
 
@@ -606,15 +611,23 @@ class ActiveReactionEngine:
 
 **Interface**:
 ```python
-@dataclass
-class InboundProtocolMessage:
-    message_id: str
-    sender_id: str
-    recipient_agent_id: str
-    protocol: str                      # "MCP_SSE", "MCP_STDIO", "A2A_REST"
-    method: str                        # "tools/call", "prompt/submit"
-    payload: dict
-    timestamp: datetime
+class InboundProtocolType(str, Enum):
+    MCP_SSE = "MCP_SSE"
+    MCP_STDIO = "MCP_STDIO"
+    A2A_REST = "A2A_REST"
+
+class InboundMethodType(str, Enum):
+    TOOLS_CALL = "tools/call"
+    PROMPT_SUBMIT = "prompt/submit"
+
+class InboundProtocolMessage(BaseModel):
+    message_id: str                           # UUID v4
+    sender_id: str                            # Non-empty string
+    recipient_agent_id: str                   # Non-empty string
+    protocol: InboundProtocolType             # InboundProtocolType enum
+    method: InboundMethodType                 # InboundMethodType enum
+    payload: dict                             # Intercepted RPC payload
+    timestamp: datetime                        # UTC timezone-aware
 
 class InboundProtocolFilter:
     async def validate_headers_and_origin(
@@ -646,6 +659,7 @@ class InboundProtocolFilter:
 - Enforce Origin/Host header validation and loopback binding rules
 - Rate-limit unauthenticated incoming cross-agent request streams
 - Sanitize incoming tool call parameters before execution by host agents
+- Enforce Pydantic v2 validation on all `InboundProtocolMessage` instances
 
 ### Component 11: PromptInjectionScanner
 
@@ -653,19 +667,23 @@ class InboundProtocolFilter:
 
 **Interface**:
 ```python
-@dataclass
-class PromptInjectionEvidence:
-    scan_id: str
-    source_context: str                # "git_diff", "web_scrape", "incoming_a2a_msg"
-    detected_patterns: List[str]       # "jailbreak_override", "hidden_instruction"
-    injection_confidence: float
-    sanitized_content: str
+class InjectionSourceType(str, Enum):
+    GIT_DIFF = "git_diff"
+    WEB_SCRAPE = "web_scrape"
+    INCOMING_A2A_MSG = "incoming_a2a_msg"
+
+class PromptInjectionEvidence(BaseModel):
+    scan_id: str                              # UUID v4
+    source_context: InjectionSourceType       # InjectionSourceType enum
+    detected_patterns: List[str]              # Non-empty list of injection signatures
+    injection_confidence: float               # Range [0.0, 1.0]
+    sanitized_content: str                    # Neutralized payload string
 
 class PromptInjectionScanner:
     async def scan_payload(
         self,
         content: str,
-        source_type: str
+        source_type: InjectionSourceType
     ) -> PromptInjectionEvidence:
         """Scan input content for indirect prompt injection indicators"""
         ...
@@ -683,6 +701,7 @@ class PromptInjectionScanner:
 - Detect structural jailbreaks and system prompt override attempts
 - Neutralize malicious prompt injection vectors in real time
 - Emit high-confidence alerts when data poisoning is detected
+- Enforce Pydantic v2 validation on all `PromptInjectionEvidence` instances
 
 ### Component 12: AgentQuotaEnforcer
 
@@ -690,13 +709,12 @@ class PromptInjectionScanner:
 
 **Interface**:
 ```python
-@dataclass
-class AgentQuotaUsage:
-    agent_id: str
-    time_window_start: datetime
-    tokens_consumed: int
-    api_call_count: int
-    token_burn_rate_per_sec: float
+class AgentQuotaUsage(BaseModel):
+    agent_id: str                             # Non-empty string
+    time_window_start: datetime               # UTC timezone-aware
+    tokens_consumed: int                      # Non-negative integer (>= 0)
+    api_call_count: int                       # Non-negative integer (>= 0)
+    token_burn_rate_per_sec: float            # Non-negative float (>= 0.0)
     quota_exceeded: bool
 
 class AgentQuotaEnforcer:
