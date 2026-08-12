@@ -48,6 +48,7 @@ async def test_sync_resolver_attribution_on_block_verdict(capsys):
 
         verdict = await resolver.evaluate(context)
         assert verdict.decision == VerdictDecision.BLOCK
+        await resolver.flush_background_tasks()
 
         # Verify callback invoked
         assert len(callback_reports) == 1
