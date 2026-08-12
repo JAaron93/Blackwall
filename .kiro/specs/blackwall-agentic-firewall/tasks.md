@@ -351,7 +351,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
 
 - [ ] 7.3 Implement GTI Query Budget Tracker with token bucket rate limiter
   - [ ] 7.3.1 Create GTIQueryBudgetTracker class with token bucket algorithm
-    - Initialize token bucket with 4 tokens (matching VirusTotal free tier: 4 queries/minute)
+    - Initialize token bucket with configurable capacity (default 4 tokens per 60-second sliding window)
     - Implement tryAcquire() method: returns true if token available, consumes 1 token, returns false if budget exhausted
     - Implement token replenishment: add 1 token every 15 seconds (4 tokens per 60-second sliding window)
     - Enforce hard cap: maximum 4 tokens (no accumulation beyond capacity)

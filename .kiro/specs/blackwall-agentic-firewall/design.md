@@ -17,24 +17,17 @@ Blackwall operates exclusively in **100% GCP Vertex AI Mode (Paid Tier via Gemin
 - Target throughput: 300+ RPM sustained (matches Gemini paid tier ceiling)
 
 - Uses `client.models.generate_content()` for synchronous single-request evaluation
-- Bypasses `InterceptionQueue`, `BatchResolver`, and webhook infrastructure entirely
-- Implements `SyncResolver` for direct blocking evaluation
-- Inline signature generation (adds ~200-500ms latency per BLOCK verdict)
-- Performance: ~1-2s per interception (semantic path), ~10ms per signature match (TSG fast path)
-- Target throughput: 15 RPM (matches Gemini free tier ceiling)
-- **Requires no billing setup** — judges can reproduce evaluations with only an API key
-
-**Tier-Agnostic Core Security Mechanisms:**
+**Core Security Mechanisms:**
 - Hybrid Policy Server (structural + semantic gating)
 - Self-learning Threat Signature Graph (SQLite with WAL mode, cosine similarity search)
 - Context Hygiene (regex-based PII redaction)
 - Python Runtime Audit Hooks (`sys.addaudithook` blocking OS-level bypasses)
-- GTI MCP (VirusTotal IOC validation - rate-limited secondary validation for high-risk events, 4 queries/minute free tier) and codebase-memory MCP (AST analysis)
-- GTI Query Budget Tracker (token bucket enforcing 4/min cap with intelligent prioritization)
+- GTI MCP (VirusTotal IOC validation - rate-limited secondary validation for high-risk events) and codebase-memory MCP (AST analysis)
+- GTI Query Budget Tracker (token bucket enforcing query caps with intelligent prioritization)
 - Zero Ambient Authority (dropped privileges + JIT credential downscoping)
 - All 12 correctness properties and FRR/Evasion Rate evaluation formulas
 
-The architecture addresses critical API rate constraints (300 RPM Gemini vs 600 RPM attacker in paid tier) through asynchronous batched evaluation with callback queue management, maintaining sub-10% false positive/negative rates while demonstrating Zero Ambient Authority, Agent Behavioral Analytics, and runtime AgBOM tracing. **All enterprise patterns, horizontal scaling, multi-tenant isolation, and distributed caching abstractions are explicitly out of scope—this is a local demo system.**
+The architecture addresses critical API rate constraints through asynchronous batched evaluation with callback queue management (300+ RPM quota via Gemini Enterprise Agent Platform), maintaining sub-10% false positive/negative rates while demonstrating Zero Ambient Authority, Agent Behavioral Analytics, and runtime AgBOM tracing.
 
 ## Architecture
 
@@ -275,7 +268,7 @@ Execution agents are strictly restricted from arbitrary tool usage via hardcoded
 - Structural gating signals indicating elevated threat level
 
 **The Rate Limit Constraint:**
-- Free tier VirusTotal API: 4 requests per minute (hard cap)
+- Standard VirusTotal API: 4 requests per minute (default rate limit cap)
 - Token bucket rate limiter enforcing 4 queries per 60-second sliding window
 - Budget exhaustion triggers graceful degradation (no GTI validation for affected requests)
 - Suspicion scoring prioritizes high-risk events within budget
@@ -812,7 +805,7 @@ CREATE VIRTUAL TABLE signature_fts USING fts5(
 
 ### Component 6.5: GTI Query Budget Tracker
 
-**Purpose**: Token bucket rate limiter managing 4 GTI queries per 60-second sliding window to enforce VirusTotal free tier constraints with graceful degradation.
+**Purpose**: Token bucket rate limiter managing 4 GTI queries per 60-second sliding window to enforce VirusTotal API rate limit constraints with graceful degradation.
 
 **Interface**:
 ```pascal
@@ -834,7 +827,7 @@ END STRUCTURE
 ```
 
 **Responsibilities**:
-- Initialize token bucket with 4 tokens (matching VirusTotal free tier: 4 queries/minute)
+- Initialize token bucket with 4 tokens (matching VirusTotal standard rate limit: 4 queries/minute)
 - Replenish 1 token every 15 seconds (4 tokens per 60-second sliding window)
 - Enforce hard cap of 4 tokens maximum (no token accumulation beyond capacity)
 - Track query deferrals when budget exhausted (queriesAttempted - queriesExecuted)
@@ -2335,7 +2328,7 @@ result ← ADK.executeToolCall(toolName: "read_file", arguments: {...})
   - `recall = (47 / 50) * 100 = 94.0%`
   - `f1Score = 2 * ((92.16 * 94.0) / (92.16 + 94.0)) = 93.07%`
 
-**And** the metrics meet the Kaggle submission requirements
+**And** the metrics meet the security evaluation requirements
 **And** a metrics report is generated for judges
 
 ---
@@ -2710,7 +2703,7 @@ result ← ADK.executeToolCall(toolName: "read_file", arguments: {...})
 
 ### AI/ML Models
 - **Gemini 3.5 Flash**: Primary LLM for semantic gating and intent analysis (300 RPM paid tier)
-- **Gemini 3.1 Flash-Lite**: Lightweight model for rapid triage evaluation (free tier: 15 RPM, paid tier: 300 RPM)
+- **Gemini 3.5 Flash**: Default production model (paid tier: 300+ RPM quota)
 - **Gemini Embedding API** (`gemini-embedding-001`): Similarity vector generation (768-dim) via paid API — no local model required
 
 ### MCP Servers

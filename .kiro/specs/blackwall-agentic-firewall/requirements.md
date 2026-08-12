@@ -9,16 +9,15 @@ Blackwall is an autonomous **Agentic Security Firewall** designed to intercept e
 - **Blackwall**: The autonomous Agentic Firewall system that intercepts and evaluates AI agent tool calls
 - **ADK**: Agent Development Kit 2.0, the runtime environment providing the `before_tool_callback` hook
 - **Interception_Queue**: Thread-safe FIFO queue holding suspended ADK tool callbacks during batch accumulation (paid tier only)
-- **Batch_Resolver**: Component orchestrating asynchronous batched API calls to Gemini while managing 300 RPM rate limits (paid tier only)
-- **Sync_Resolver**: Component performing synchronous single-request evaluation for free tier (15 RPM), bypassing batching and webhooks
-- **Hybrid_Policy_Server**: Dual-layer threat evaluation engine combining structural and semantic gating (tier-agnostic)
+- **Batch_Resolver**: Component orchestrating asynchronous batched API calls to Gemini while managing rate limits (300+ RPM quota via Gemini Enterprise Agent Platform)
+- **Hybrid_Policy_Server**: Dual-layer threat evaluation engine combining structural and semantic gating
 - **Structural_Gating**: Fast deterministic YAML-based policy evaluation (<5ms target latency)
 - **Semantic_Gating**: Deep LLM-based intent analysis using GTI and codebase analysis
 - **Context_Hygiene**: Regex-based sanitization middleware that strips sensitive data before policy evaluation
 - **Agent_Behavioral_Analytics**: Runtime monitoring engine tracking behavioral drift and generating threat signatures
 - **Threat_Signature_Graph**: SQLite-backed semantic graph database storing learned threat patterns with node/edge schema
-- **GTI_MCP**: Google Threat Intelligence Model Context Protocol server providing VirusTotal IOC validation (rate-limited to 4 queries/minute on free tier; used as secondary validation layer for high-risk events only)
-- **GTI_Query_Budget_Tracker**: Token bucket rate limiter enforcing 4 GTI queries per 60-second sliding window with graceful degradation
+- **GTI_MCP**: Google Threat Intelligence Model Context Protocol server providing VirusTotal IOC validation (used as secondary validation layer for high-risk events only)
+- **GTI_Query_Budget_Tracker**: Token bucket rate limiter managing GTI queries with graceful degradation
 - **High_Risk_Event**: Tool call classified as suspicious based on structural gating signals, unknown external IPs, suspicious file hashes, or unknown domains requiring GTI validation
 - **Codebase_Memory_MCP**: AST-based code analysis server identifying critical sinks and dependency chains
 - **Callback_Token**: Data structure holding suspended thread ID, timestamp, tool name, arguments, and resume function
@@ -69,25 +68,19 @@ Blackwall executes as an unprivileged OS user (non-root) within the Kali Linux V
 All agent execution flows route through ADK 2.0's tool-calling abstraction. No direct shell access, no raw subprocess execution for the rogue agent, and no OS-level privilege model beyond the audit hook. Blackwall's `before_tool_callback` is the sole interception point.
 
 ### LS-05: Demo Sandbox Scope
-The system demonstrates a **dual-agent showdown** with **dual-tier operation modes** to enable both performance benchmarking (paid tier) and judge reproducibility (free tier):
+The system demonstrates a **dual-agent showdown** running on **100% GCP Vertex AI Mode (Paid Tier via Gemini Enterprise Agent Platform)**:
 
-**Paid Tier (300 RPM):**
-1. **Blackwall Agent:** Gemini 3.1 Flash-Lite via paid Gemini Interactions API (300 RPM limit)
+**Paid Tier (300+ RPM Quota):**
+1. **Blackwall Agent:** Gemini 3.5 Flash via GCP Vertex AI Mode (300+ RPM quota)
 2. **Architecture:** Asynchronous batched evaluation via `client.interactions.create()`, server-side context caching, webhook-driven background signature generation
 3. **Performance:** <100ms @ 99th percentile for batched semantic evaluation, zero added latency for signature generation
-4. **Use Case:** Full-scale demo showcasing throughput capabilities and optimization engineering
+4. **Use Case:** Full-scale demonstration showcasing throughput capabilities and security interception
 
-**Free Tier (15 RPM):**
-1. **Blackwall Agent:** Gemini 3.1 Flash-Lite via free Gemini API (15 RPM limit, no billing required)
-2. **Architecture:** Synchronous single-request evaluation via `client.models.generate_content()`, no batching, inline signature generation
-3. **Performance:** ~1-2s per interception (semantic path), ~10ms per signature match (TSG fast path)
-4. **Use Case:** Zero-friction judge reproduction requiring only an API key with no payment setup
-
-**Common Elements (Both Tiers):**
+**Common Elements:**
 - **Rogue Agent:** Qwen3-Coder 480B via Hyperbolic API (600 RPM max attack rate)
-- **Target Application:** Simple vulnerable mock application (e.g., Metasploitable) running inside the sandbox
-- **Execution Environment:** Single Kali Linux VM with dropped privileges for rogue agent
-- **Core Security Mechanisms:** Hybrid gating, self-learning signatures, audit hooks, Zero Ambient Authority (identical across tiers)
+- **Target Application:** Simple vulnerable mock application (`scripts/mock_app.py`) running inside the sandbox
+- **Execution Environment:** Sandbox environment with dropped privileges for rogue agent
+- **Core Security Mechanisms:** Hybrid gating, self-learning signatures, audit hooks, Zero Ambient Authority
 - **Evaluation Metrics:** FRR and Evasion Rate calculation (identical formulas, different execution speed)
 
 **Tier Selection:**
@@ -303,13 +296,13 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 
 ### Requirement 9: Google Threat Intelligence Integration
 
-**User Story:** As a security operations analyst, I want intelligent budget-constrained threat intelligence from VirusTotal for high-risk IOC validation, so that known malicious indicators are blocked within strict API rate limits (4 queries/minute free tier).
+**User Story:** As a security operations analyst, I want intelligent budget-constrained threat intelligence from VirusTotal for high-risk IOC validation, so that known malicious indicators are blocked within strict API rate limits (4 queries/minute standard cap).
 
 #### Acceptance Criteria
 
-1. THE GTI_MCP client SHALL function as a **secondary validation layer** supplementing the primary defense composed of SQLiteThreatRepository, structural YAML policies, and Codebase_Memory_MCP
-2. THE GTI_MCP client SHALL be reserved ONLY for high-risk events: new external IP addresses not in local cache, suspicious file hashes, unknown domains, or events with structural gating signals indicating elevated threat
-3. THE system SHALL implement a GTI_Query_Budget_Tracker using a **token bucket rate limiter** with a hard cap of 4 GTI queries per 60-second sliding window to comply with VirusTotal free tier limits
+1. THE system SHALL execute GTI_MCP validation ONLY for High_Risk_Events as classified by structural gating or suspicious IOC signals
+2. THE system SHALL cache GTI query results in SQLite with a configurable TTL (default: 24 hours) to minimize external API calls
+3. THE system SHALL implement a GTI_Query_Budget_Tracker using a **token bucket rate limiter** with a hard cap of 4 GTI queries per 60-second sliding window to comply with VirusTotal API rate limits
 4. THE token bucket SHALL initialize with 4 tokens and replenish at a rate of 1 token every 15 seconds (4 tokens per 60 seconds)
 5. WHEN GTI budget is exhausted (0 tokens remaining), THE system SHALL continue evaluation without GTI signal, applying graceful degradation by redistributing GTI weight to other signals
 6. THE system SHALL prioritize GTI queries for high-risk events by ranking intercepted events by suspicion score and querying GTI only for the top-N highest-priority events within available budget
@@ -347,7 +340,7 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 
 ### Requirement 11: Evaluation Metrics and Accuracy Targets
 
-**User Story:** As a Kaggle competition judge, I want formal evaluation metrics demonstrating sub-10% false positive and false negative rates, so that I can verify the firewall meets production-grade accuracy standards.
+**User Story:** As a security engineer, I want formal evaluation metrics demonstrating sub-10% false positive and false negative rates, so that I can verify the firewall meets production-grade accuracy standards.
 
 #### Acceptance Criteria
 
@@ -361,7 +354,7 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 8. WHEN calculating recall, THE system SHALL compute (truePositives / totalMalicious) × 100.0, returning 0.0 when totalMalicious is zero
 9. WHEN calculating F1 score, THE system SHALL compute 2 × ((precision × recall) / (precision + recall)), returning 0.0 when (precision + recall) is zero
 10. FOR ANY completed test suite, THE system SHALL verify that truePositives + trueNegatives + falsePositives + falseNegatives equals totalTests
-11. THE system SHALL generate a SecurityMetrics report exportable as a JSON file for Kaggle judge submission
+11. THE system SHALL generate a SecurityMetrics report exportable as a JSON file for performance auditing
 12. WHEN a test result has a BLOCK or QUARANTINE verdict AND a MALICIOUS ground truth label, THE system SHALL count it as a true positive
 13. WHEN a test result has a QUARANTINE verdict AND a MALICIOUS ground truth label, THE system SHALL additionally increment quarantineCount
 14. WHEN a test result has a BLOCK or QUARANTINE verdict AND a BENIGN ground truth label, THE system SHALL count it as a false positive; IF the verdict is QUARANTINE, THE system SHALL additionally increment quarantineCount
