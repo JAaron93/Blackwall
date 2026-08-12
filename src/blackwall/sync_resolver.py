@@ -349,16 +349,13 @@ class SyncResolver:
         except Exception as err:
             logger.warning("CLI alert sink output failed: %s", err)
 
-        # 2. Execute user callback if registered (0.05s max budget for non-blocking execution)
+        # 2. Execute user callback if registered (non-blocking, isolated)
         if self.on_attacker_identified is not None:
             try:
                 if asyncio.iscoroutinefunction(self.on_attacker_identified):
                     await asyncio.wait_for(self.on_attacker_identified(report), timeout=0.05)
                 else:
-                    await asyncio.wait_for(
-                        asyncio.to_thread(self.on_attacker_identified, report),
-                        timeout=0.05,
-                    )
+                    self.on_attacker_identified(report)
             except Exception as err:
                 logger.warning("Attacker identified callback failed: %s", err)
 
