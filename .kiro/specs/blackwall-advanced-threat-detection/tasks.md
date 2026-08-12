@@ -898,30 +898,152 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 6.2, 6.3, 6.5, 10.2, 16.3, 16.11, 17.8_
     - _Verification: `pytest tests/evaluation/test_ailm_scenario.py -v -m weave`_
 
-  - [ ] 23.6 Create end-to-end Weave evaluation comparing detection algorithms
-    - Run multiple evaluation scenarios with different threshold configurations
-    - Compare precision, recall, F1, FPR across configurations in Weave UI
-    - Generate Weave comparison reports for algorithm tuning
-    - _Requirements: 16.8, 17.10_
-    - _Verification: `pytest tests/evaluation/test_weave_algorithm_comparison.py -v -m weave`_
+- [ ] 24. Implement Active Threat Reaction Engine (Feedback Loop to Pillars 1, 2, 3)
+  - [ ] 24.1 Create `ActiveReactionEngine` class
+    - Convert CRITICAL threat evidence into dynamic mitigation actions
+    - Implement `ActiveReactionPayload` model logging
+    - _Requirements: 22.4_
+    - _Verification: `pytest tests/unit/test_active_reaction_engine.py::test_payload_creation -v`_
 
-  - [ ] 23.7 Write BDD feature tests for Red Team Evaluation Scenarios
-    - Create `tests/features/red_team_scenarios.feature` with Gherkin scenarios
-    - Implement `Given/When/Then` steps in `tests/step_defs/test_red_team_scenarios_bdd.py` using `run_async`
-    - Scenario: coordinated multi-agent attack with shared IPs triggers CRITICAL swarm alert tracked in Weave
-    - Scenario: RCE → Privilege Escalation → Credential Theft chain is detected with novelty_score logged to Weave
-    - Scenario: agent establishing C2 beaconing to Pastebin triggers CRITICAL alert; metrics tracked in Weave
-    - Scenario: K8s service account token theft followed by fleet spawning both detected; latency logged to Weave
-    - Scenario: AILM spanning 3 trust boundaries triggers CRITICAL alert; boundary_crossing_accuracy logged
-    - Verify all scenarios meet accuracy thresholds (precision >= 0.95, recall >= 0.90, FPR <= 0.05)
-    - _Requirements: 4.2, 4.3, 5.2, 5.4, 5.5, 6.2, 6.3, 6.5, 7.2, 7.3, 7.5, 8.1, 8.2, 10.1, 10.2, 10.3, 10.5, 10.6, 16.3, 17.7, 17.8, 17.9_
-    - _Verification: `pytest tests/step_defs/test_red_team_scenarios_bdd.py -v -m weave`_
+  - [ ] 24.2 Implement dynamic eBPF socket drop rule injection
+    - Inject eBPF PID/socket drop rules into Pillar 1 (`LinuxeBPFDriver`) within 50ms
+    - _Requirements: 22.1_
+    - _Verification: `pytest tests/unit/test_active_reaction_engine.py::test_ebpf_socket_drop -v`_
 
-- [ ] 24. Checkpoint - Verify Weave integration
-  - Ensure all Weave tests pass with credentials, ask the user if questions arise.
-  - Verify backward compatibility: all tests pass without WANDB_API_KEY
+  - [ ] 24.3 Implement fleet-wide ZeroMQ threat signature broadcast
+    - Publish zero-latency block signatures to Pillar 2 Threat Mesh (<15ms)
+    - _Requirements: 22.2_
+    - _Verification: `pytest tests/unit/test_active_reaction_engine.py::test_mesh_broadcast -v`_
 
-- [ ] 25. Final checkpoint - Complete system verification
+  - [ ] 24.4 Implement Vault JIT credential invalidation
+    - Trigger Pillar 3 Vault Sidecar session revocation for compromised agents
+    - _Requirements: 22.3_
+    - _Verification: `pytest tests/unit/test_active_reaction_engine.py::test_credential_invalidation -v`_
+
+  - [ ] 24.5 Write property tests for Active Threat Reaction Engine
+    - **Property 82: Dynamic eBPF Socket Drop Injection**
+    - **Property 83: Zero-Latency Threat Mesh Broadcast**
+    - **Property 84: Identity Credential Invalidation**
+    - **Property 85: Reaction Execution Logging**
+    - **Validates: Requirements 22.1, 22.2, 22.3, 22.4**
+    - _Verification: `pytest tests/property/test_active_reaction_properties.py --hypothesis-seed=0 -v`_
+
+  - [ ] 24.6 Write BDD feature tests for Active Threat Reaction Engine
+    - Create `tests/features/active_threat_reaction.feature` with Gherkin scenarios
+    - Scenario: CRITICAL swarm detection injects eBPF socket drop rule into Pillar 1 within 50ms
+    - Scenario: CRITICAL exploit chain broadcasts ZeroMQ signature across Threat Mesh in <15ms
+    - Scenario: AILM breach revokes JIT tokens via Pillar 3 Vault sidecar
+    - _Requirements: 22.1, 22.2, 22.3, 22.4_
+    - _Verification: `pytest tests/step_defs/test_active_threat_reaction_bdd.py -v`_
+
+- [ ] 25. Implement Inbound Protocol Interception and Cross-Agent Inspection
+  - [ ] 25.1 Create `InboundProtocolFilter` class
+    - Implement ingress RPC message parsing and validation
+    - _Requirements: 23.4_
+    - _Verification: `pytest tests/unit/test_inbound_protocol_filter.py::test_message_parsing -v`_
+
+  - [ ] 25.2 Implement Origin/Host header validation
+    - Enforce origin checks for HTTP/SSE MCP and A2A endpoints; reject unauthenticated remote connections
+    - _Requirements: 23.1_
+    - _Verification: `pytest tests/unit/test_inbound_protocol_filter.py::test_header_validation -v`_
+
+  - [ ] 25.3 Implement sliding-window inbound rate-limiting
+    - Limit incoming cross-agent request volume per sender identity
+    - _Requirements: 23.2_
+    - _Verification: `pytest tests/unit/test_inbound_protocol_filter.py::test_rate_limiting -v`_
+
+  - [ ] 25.4 Implement JSON-RPC payload sanitization
+    - Extract and sanitize `tools/call` parameters before host agent execution
+    - _Requirements: 23.3_
+    - _Verification: `pytest tests/unit/test_inbound_protocol_filter.py::test_rpc_sanitization -v`_
+
+  - [ ] 25.5 Write property tests for Inbound Protocol Filter
+    - **Property 86: Inbound Header and Origin Enforcement**
+    - **Property 87: Inbound Rate Limit Boundary**
+    - **Property 88: Inbound JSON-RPC Sanitization**
+    - **Property 89: Malformed Protocol Rejection**
+    - **Validates: Requirements 23.1, 23.2, 23.3, 23.4**
+    - _Verification: `pytest tests/property/test_inbound_filter_properties.py --hypothesis-seed=0 -v`_
+
+  - [ ] 25.6 Write BDD feature tests for Inbound Protocol Filter
+    - Create `tests/features/inbound_protocol_filter.feature` with Gherkin scenarios
+    - Scenario: incoming RPC request with invalid Origin header is rejected
+    - Scenario: request surge exceeding sliding-window limit drops additional messages
+    - Scenario: valid incoming tools/call arguments are sanitized before execution
+    - _Requirements: 23.1, 23.2, 23.3, 23.4_
+    - _Verification: `pytest tests/step_defs/test_inbound_protocol_filter_bdd.py -v`_
+
+- [ ] 26. Implement Indirect Prompt Injection and Data Poisoning Defense
+  - [ ] 26.1 Create `PromptInjectionScanner` class
+    - Implement pattern matcher for structural jailbreaks and prompt overrides
+    - _Requirements: 24.1_
+    - _Verification: `pytest tests/unit/test_prompt_injection_scanner.py::test_pattern_matching -v`_
+
+  - [ ] 26.2 Implement payload scanning across external data sources
+    - Scan git diffs, web scrapes, and incoming messages before context ingestion
+    - _Requirements: 24.1_
+    - _Verification: `pytest tests/unit/test_prompt_injection_scanner.py::test_payload_scanning -v`_
+
+  - [ ] 26.3 Implement injection vector redaction
+    - Redact and quash injection vectors before passing data to host agent context
+    - _Requirements: 24.2_
+    - _Verification: `pytest tests/unit/test_prompt_injection_scanner.py::test_vector_redaction -v`_
+
+  - [ ] 26.4 Write property tests for Prompt Injection Scanner
+    - **Property 90: Prompt Injection Pattern Detection**
+    - **Property 91: Injection Vector Redaction**
+    - **Property 92: Injection Alert Generation**
+    - **Validates: Requirements 24.1, 24.2, 24.3**
+    - _Verification: `pytest tests/property/test_prompt_injection_properties.py --hypothesis-seed=0 -v`_
+
+  - [ ] 26.5 Write BDD feature tests for Prompt Injection Scanner
+    - Create `tests/features/prompt_injection_scanner.feature` with Gherkin scenarios
+    - Scenario: git diff containing hidden system prompt override is detected and flagged
+    - Scenario: injection vectors are redacted before content enters agent context
+    - Scenario: detected prompt injection attempt emits a HIGH severity alert to Alert Bus
+    - _Requirements: 24.1, 24.2, 24.3_
+    - _Verification: `pytest tests/step_defs/test_prompt_injection_scanner_bdd.py -v`_
+
+- [ ] 27. Implement Agent Fleet Resource and Token Velocity Enforcement (Denial of Wallet Defense)
+  - [ ] 27.1 Create `AgentQuotaEnforcer` class
+    - Track real-time token consumption and rolling burn rate per second
+    - _Requirements: 25.1_
+    - _Verification: `pytest tests/unit/test_agent_quota_enforcer.py::test_token_tracking -v`_
+
+  - [ ] 27.2 Implement velocity limit enforcement and quarantine
+    - Trigger automated throttling or temporary quarantine when velocity caps exceeded
+    - _Requirements: 25.2_
+    - _Verification: `pytest tests/unit/test_agent_quota_enforcer.py::test_velocity_enforcement -v`_
+
+  - [ ] 27.3 Implement Denial of Wallet alert generation
+    - Publish Denial of Wallet alerts when token burn spikes occur
+    - _Requirements: 25.3_
+    - _Verification: `pytest tests/unit/test_agent_quota_enforcer.py::test_dow_alerts -v`_
+
+  - [ ] 27.4 Write property tests for Agent Quota Enforcer
+    - **Property 93: Token Consumption Rate Tracking**
+    - **Property 94: Velocity Limit Quarantine Trigger**
+    - **Property 95: Quota Violation Alert Mapping**
+    - **Validates: Requirements 25.1, 25.2, 25.3**
+    - _Verification: `pytest tests/property/test_quota_enforcer_properties.py --hypothesis-seed=0 -v`_
+
+  - [ ] 27.5 Write BDD feature tests for Agent Quota Enforcer
+    - Create `tests/features/agent_quota_enforcer.feature` with Gherkin scenarios
+    - Scenario: token burn rate exceeding 500 tokens/sec triggers agent quarantine
+    - Scenario: API call velocity surge emits Denial of Wallet alert to Alert Bus
+    - _Requirements: 25.1, 25.2, 25.3_
+    - _Verification: `pytest tests/step_defs/test_agent_quota_enforcer_bdd.py -v`_
+
+- [ ] 28. System-wide integration and end-to-end verification
+  - [ ] 28.1 Wire new defensive components into orchestrator
+    - Connect ActiveReactionEngine, InboundProtocolFilter, PromptInjectionScanner, AgentQuotaEnforcer
+    - _Requirements: 22.1-22.4, 23.1-23.4, 24.1-24.3, 25.1-25.3_
+    - _Verification: `pytest tests/integration/test_orchestrator_breach_defenses.py -v`_
+
+- [ ] 29. Checkpoint - Verify breach defense integrations
+  - Ensure all breach defense tests pass, ask the user if questions arise.
+
+- [ ] 30. Final checkpoint - Complete system verification
   - Ensure all tests pass, ask the user if questions arise.
 
 
@@ -940,16 +1062,15 @@ The implementation follows a test-driven development approach with property-base
 - Error handling is comprehensive with exponential backoff, retry logic, and graceful degradation
 - Performance SLAs validated through integration tests: event processing < 100ms, path queries < 500ms, sustained throughput 1,000 events/sec; all SLA tests run one warmup iteration before timing (testing rule 1)
 - Red team scenarios validate detection capabilities in realistic attack simulations
-- The system operates as a passive observer (Property 64) without modifying pillar operations
+- Active Reaction Engine provides dynamic eBPF socket drop (Pillar 1), Threat Mesh broadcasts (Pillar 2), and JIT token invalidation (Pillar 3)
+- Inbound Protocol Filter enforces header validation and rate limits on A2A/MCP streams
+- Prompt Injection Scanner inspects incoming git diffs, web scrapes, and external payloads for jailbreak signatures
+- Agent Quota Enforcer guards against Denial of Wallet (DoW) attacks
 - All timestamps use UTC timezone-aware datetime objects
 - Score fields (risk_score, correlation_score, temporal_correlation, coordination_score, novelty_score, chaining_confidence) are validated to range [0.0, 1.0]
 - Minimum cardinality constraints: attack paths >= 2 nodes, swarms >= 2 agents
 - DSN/credential strings MUST NOT appear in log messages (architecture rule 1)
 - Tasks marked with `*` are optional property-based test tasks and can be skipped for faster MVP delivery
-- **Weave Integration (Tasks 22.x)**: Fully optional and backward compatible. All tests run without Weave when credentials are unavailable. Use `-m weave` to run Weave-specific tests. Req 21 (pyproject.toml extras + marker registration) is implemented in task 22.1.
-- **Weave Factory**: `build_detector_suite()` is the sole construction path for `WeaveTraced*` wrappers. The `detector_suite` fixture in `tests/conftest.py` reads `@pytest.mark.weave` via `request.node.get_closest_marker("weave")` and passes `force_traced` to the factory — no marker detection inside the factory itself.
-- **Weave Serializer**: `WeaveTraceSerializer` sanitizes all payloads before Weave emission regardless of transport mode; `action`, `target`, and `metadata` are never exported; payloads > 4096 bytes are truncated.
-- **Weave Configuration**: `WEAVE_DISABLED=true` always wins; `WEAVE_OFFLINE=true` enables local tracing without cloud credentials; `WEAVE_PARALLELISM` controls worker count (1-10). Config file at `.kiro/evals/weave_config.yaml` provides per-engine trace and metrics toggles.
 
 ## Task Dependency Graph
 
@@ -986,7 +1107,11 @@ The implementation follows a test-driven development approach with property-base
     { "id": 27, "tasks": ["23.1", "23.2", "23.3"] },
     { "id": 28, "tasks": ["23.4", "23.5"] },
     { "id": 29, "tasks": ["23.6"] },
-    { "id": 30, "tasks": ["23.7"] }
+    { "id": 30, "tasks": ["23.7", "24.1", "25.1", "26.1", "27.1"] },
+    { "id": 31, "tasks": ["24.2", "24.3", "24.4", "25.2", "25.3", "25.4", "26.2", "26.3", "27.2", "27.3"] },
+    { "id": 32, "tasks": ["24.5", "24.6", "25.5", "25.6", "26.4", "26.5", "27.4", "27.5"] },
+    { "id": 33, "tasks": ["28.1", "28.2"] }
   ]
 }
 ```
+

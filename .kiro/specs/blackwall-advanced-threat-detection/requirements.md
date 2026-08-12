@@ -341,3 +341,46 @@ The system operates as a cross-cutting analysis plane above the existing five Bl
 2. THE Advanced_Threat_Detection project configuration SHALL register the @pytest.mark.weave marker under [tool.pytest.ini_options].markers in pyproject.toml with a human-readable description
 3. WHEN a developer installs the project without the [weave] extra, THE Advanced_Threat_Detection SHALL import successfully and all non-Weave functionality SHALL operate normally
 4. WHEN pytest collects tests on a project without the [weave] extra installed, THE pytest run SHALL not emit "PytestUnknownMarkWarning" for the weave marker
+
+### Requirement 22: Active Threat Reaction and Fleet Containment Feedback Loop
+
+**User Story:** As an enterprise security engineer, I want high-confidence threat evidence detected by ATD to trigger automated mitigation actions across Pillars 1, 2, and 3, so that rogue agent attacks are halted at machine speed before breaching host environments or expanding across the enterprise fleet.
+
+#### Acceptance Criteria
+
+1. WHEN CRITICAL threat evidence (multi-stage attack path, agent swarm, or exploit chain) is produced, THE Active_Reaction_Engine SHALL inject a dynamic eBPF socket drop rule into Pillar 1 (`LinuxeBPFDriver`) within 50 milliseconds
+2. WHEN CRITICAL threat evidence is produced, THE Active_Reaction_Engine SHALL broadcast a zero-latency block signature across Pillar 2 Threat Mesh in less than 15 milliseconds
+3. WHEN an AILM breach or credential theft event is detected, THE Active_Reaction_Engine SHALL trigger Pillar 3 Vault sidecar to invalidate JIT credentials for the compromised agent
+4. WHEN a mitigation action is executed, THE Active_Reaction_Engine SHALL log an `ActiveReactionPayload` record to the attack graph and publish a notification alert to the Alert Bus
+
+### Requirement 23: Inbound Protocol Interception and Cross-Agent Request Inspection
+
+**User Story:** As a system administrator, I want incoming A2A and MCP protocol requests targeting host agent endpoints to be inspected and rate-limited, so that external rogue agents cannot coerce local agents into executing unauthorized actions.
+
+#### Acceptance Criteria
+
+1. WHEN an HTTP/SSE request arrives at an MCP or A2A endpoint, THE Inbound_Protocol_Filter SHALL validate `Origin` and `Host` headers and reject unauthenticated or non-loopback network requests
+2. WHEN incoming cross-agent request volume exceeds configured sliding-window thresholds, THE Inbound_Protocol_Filter SHALL drop additional requests and emit an inbound rate-limit alert
+3. WHEN a valid incoming `tools/call` RPC message is received, THE Inbound_Protocol_Filter SHALL extract and sanitize arguments before passing the payload to the host agent
+4. WHEN an incoming message fails JSON-RPC schema validation, THE Inbound_Protocol_Filter SHALL synthesize an MCP-compliant error response without leaking internal threat context
+
+### Requirement 24: Indirect Prompt Injection and Data Poisoning Defense
+
+**User Story:** As an AI safety architect, I want external data feeds (git diffs, web scrapes, incoming messages) passed to host agents to be scanned for prompt injections, so that data poisoning payloads cannot trick host agents into malicious tool execution.
+
+#### Acceptance Criteria
+
+1. WHEN external content is ingested for host agent context, THE Prompt_Injection_Scanner SHALL scan the payload for structural jailbreaks and system prompt override signatures
+2. WHEN prompt injection patterns are identified, THE Prompt_Injection_Scanner SHALL redact and neutralize injection vectors before the content is added to the agent context window
+3. WHEN a prompt injection attempt is detected, THE Prompt_Injection_Scanner SHALL publish an alert with HIGH or CRITICAL severity to the Alert Bus
+
+### Requirement 25: Agent Fleet Resource and Token Velocity Enforcement (Denial of Wallet Defense)
+
+**User Story:** As a cloud infrastructure lead, I want to monitor token burn rates and API velocity across agent fleets, so that rogue agent swarms cannot cause financial exhaustion or Denial of Wallet outages.
+
+#### Acceptance Criteria
+
+1. WHEN an agent executes actions, THE Agent_Quota_Enforcer SHALL record token consumption and track rolling token burn rates per second
+2. WHEN an agent exceeds configured token burn rate or request velocity ceilings, THE Agent_Quota_Enforcer SHALL trigger automated throttling or temporary quarantine
+3. WHEN a quota violation or velocity surge occurs, THE Agent_Quota_Enforcer SHALL publish a Denial of Wallet alert to the Alert Bus
+
