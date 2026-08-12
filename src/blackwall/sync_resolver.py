@@ -291,9 +291,6 @@ class SyncResolver:
         self, context: ToolCallContext, verdict: Verdict
     ) -> None:
         """Schedules attacker attribution non-blockingly in a background task to preserve verdict SLA (<5ms)."""
-        if len(self._background_tasks) >= 50:
-            logger.warning("Attribution task queue capacity (50) reached; dropping background scheduling.")
-            return
         try:
             loop = asyncio.get_running_loop()
             task = loop.create_task(self._process_attribution(context, verdict))
