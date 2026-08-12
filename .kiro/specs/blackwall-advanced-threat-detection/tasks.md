@@ -923,7 +923,7 @@ The implementation follows a test-driven development approach with property-base
   - [ ] 24.1 Create `ActiveReactionEngine` class
     - Convert CRITICAL threat evidence into dynamic mitigation actions
     - Implement `ActiveReactionPayload` model logging with Pydantic v2 validation and `evaluation_env_id` tracking
-    - Implement evaluation containment check (`is_evaluation_mode()`) suppressing production mitigation actions when `evaluation_env_id` is present
+    - Implement evaluation containment check that mandatorily queries `is_evaluation_mode(payload.trigger_evidence_id)` and suppresses production mitigation actions whenever the underlying evidence originated in evaluation mode, regardless of whether `evaluation_env_id` is populated
     - _Requirements: 22.4, 22.5, 14.5, 15.10_
     - _Verification: `pytest tests/unit/test_active_reaction_engine.py::test_payload_creation -v`_
 
