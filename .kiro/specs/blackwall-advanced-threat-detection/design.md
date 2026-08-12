@@ -776,6 +776,78 @@ class SwarmEvidence:
 - `temporal_correlation` must be >= 0.5 for valid swarm
 - `coordination_score` must be >= 0.75 for high-confidence swarm
 
+### Model 4: ActiveReactionPayload
+
+```python
+class ActiveReactionPayload(BaseModel):
+    reaction_id: str                      # UUID v4
+    trigger_evidence_id: str              # UUID v4
+    target_agent_id: str                  # Non-empty string
+    target_pid: Optional[int] = None       # Positive integer if provided
+    target_ip: Optional[str] = None        # Valid IP address format if provided
+    action_type: ReactionActionType        # Enum: "EBPF_DROP", "MESH_SIGNATURE_BROADCAST", "REVOKE_IDENTITY_TOKENS"
+    timestamp: datetime                    # UTC timezone-aware
+```
+
+**Validation Rules**:
+- `reaction_id` and `trigger_evidence_id` must be valid UUID v4 strings
+- `timestamp` must be UTC timezone-aware
+- `action_type` must be a valid `ReactionActionType` enum
+- `target_pid` (if provided) must be > 0
+
+### Model 5: InboundProtocolMessage
+
+```python
+class InboundProtocolMessage(BaseModel):
+    message_id: str                       # UUID v4
+    sender_id: str                        # Non-empty string
+    recipient_agent_id: str               # Non-empty string
+    protocol: InboundProtocolType         # Enum: "MCP_SSE", "MCP_STDIO", "A2A_REST"
+    method: InboundMethodType             # Enum: "tools/call", "prompt/submit"
+    payload: dict                         # Intercepted RPC payload
+    timestamp: datetime                    # UTC timezone-aware
+```
+
+**Validation Rules**:
+- `message_id` must be valid UUID v4 string
+- `sender_id` and `recipient_agent_id` must not be empty
+- `protocol` and `method` must be valid Enum values
+- `timestamp` must be UTC timezone-aware
+
+### Model 6: PromptInjectionEvidence
+
+```python
+class PromptInjectionEvidence(BaseModel):
+    scan_id: str                          # UUID v4
+    source_context: InjectionSourceType   # Enum: "git_diff", "web_scrape", "incoming_a2a_msg"
+    detected_patterns: List[str]          # Non-empty list of detected injection signatures
+    injection_confidence: float           # Scalar in range [0.0, 1.0]
+    sanitized_content: str                # Neutralized payload string
+```
+
+**Validation Rules**:
+- `scan_id` must be valid UUID v4 string
+- `injection_confidence` must be in range [0.0, 1.0]
+- `detected_patterns` must contain at least 1 identified pattern string
+
+### Model 7: AgentQuotaUsage
+
+```python
+class AgentQuotaUsage(BaseModel):
+    agent_id: str                         # Non-empty string
+    time_window_start: datetime           # UTC timezone-aware
+    tokens_consumed: int                  # Non-negative integer (>= 0)
+    api_call_count: int                   # Non-negative integer (>= 0)
+    token_burn_rate_per_sec: float        # Non-negative float (>= 0.0)
+    quota_exceeded: bool
+```
+
+**Validation Rules**:
+- `agent_id` must not be empty string
+- `tokens_consumed` and `api_call_count` must be >= 0
+- `token_burn_rate_per_sec` must be >= 0.0
+- `time_window_start` must be UTC timezone-aware
+
 ## Algorithmic Pseudocode
 
 ### Main Processing Algorithm: Multi-Stage Attack Path Correlation
@@ -1244,7 +1316,7 @@ async def correlate_attack_paths(
 
 ### Property 64: Passive Observation Invariant
 
-*For any* pillar operation being observed, the Advanced_Threat_Detection SHALL not modify the operation or its effects.
+*For any* pillar event stream being ingested by the Event_Collector, the Advanced_Threat_Detection SHALL operate as a passive observer without modifying or delaying the observed operation. Active mitigation actions executed by the Active_Reaction_Engine SHALL be dispatched asynchronously to Pillars 1, 2, and 3 upon CRITICAL evidence detection without blocking the passive event stream collector loop.
 
 **Validates: Requirement 12.7**
 
@@ -1433,6 +1505,12 @@ async def correlate_attack_paths(
 *For any* quota violation or velocity surge event, the Agent_Quota_Enforcer SHALL emit a Denial of Wallet alert to the Alert Bus.
 
 **Validates: Requirement 25.3**
+
+### Property 96: Breach Defense Model Pydantic Validation
+
+*For any* instantiated `ActiveReactionPayload`, `InboundProtocolMessage`, `PromptInjectionEvidence`, or `AgentQuotaUsage` model, Pydantic v2 validation SHALL enforce UUID v4 string format, UTC timezone-aware datetimes, non-negative usage metrics, and valid enum values for protocol/action types.
+
+**Validates: Requirements 22.4, 23.4, 24.1, 25.1**
 
 ## Error Handling
 

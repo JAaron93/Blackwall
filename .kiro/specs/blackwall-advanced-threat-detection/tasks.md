@@ -898,11 +898,30 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 6.2, 6.3, 6.5, 10.2, 16.3, 16.11, 17.8_
     - _Verification: `pytest tests/evaluation/test_ailm_scenario.py -v -m weave`_
 
+  - [ ] 23.6 Create end-to-end Weave evaluation comparing detection algorithms
+    - Run multiple evaluation scenarios with different threshold configurations
+    - Compare precision, recall, F1, FPR across configurations in Weave UI
+    - Generate Weave comparison reports for algorithm tuning
+    - _Requirements: 16.8, 17.10_
+    - _Verification: `pytest tests/evaluation/test_weave_algorithm_comparison.py -v -m weave`_
+
+  - [ ] 23.7 Write BDD feature tests for Red Team Evaluation Scenarios
+    - Create `tests/features/red_team_scenarios.feature` with Gherkin scenarios
+    - Implement `Given/When/Then` steps in `tests/step_defs/test_red_team_scenarios_bdd.py` using `run_async`
+    - Scenario: coordinated multi-agent attack with shared IPs triggers CRITICAL swarm alert tracked in Weave
+    - Scenario: RCE → Privilege Escalation → Credential Theft chain is detected with novelty_score logged to Weave
+    - Scenario: agent establishing C2 beaconing to Pastebin triggers CRITICAL alert; metrics tracked in Weave
+    - Scenario: K8s service account token theft followed by fleet spawning both detected; latency logged to Weave
+    - Scenario: AILM spanning 3 trust boundaries triggers CRITICAL alert; boundary_crossing_accuracy logged
+    - Verify all scenarios meet accuracy thresholds (precision >= 0.95, recall >= 0.90, FPR <= 0.05)
+    - _Requirements: 4.2, 4.3, 5.2, 5.4, 5.5, 6.2, 6.3, 6.5, 7.2, 7.3, 7.5, 8.1, 8.2, 10.1, 10.2, 10.3, 10.5, 10.6, 16.3, 17.7, 17.8, 17.9_
+    - _Verification: `pytest tests/step_defs/test_red_team_scenarios_bdd.py -v -m weave`_
+
 - [ ] 24. Implement Active Threat Reaction Engine (Feedback Loop to Pillars 1, 2, 3)
   - [ ] 24.1 Create `ActiveReactionEngine` class
     - Convert CRITICAL threat evidence into dynamic mitigation actions
-    - Implement `ActiveReactionPayload` model logging
-    - _Requirements: 22.4_
+    - Implement `ActiveReactionPayload` model logging with Pydantic v2 validation
+    - _Requirements: 22.4, 15.10_
     - _Verification: `pytest tests/unit/test_active_reaction_engine.py::test_payload_creation -v`_
 
   - [ ] 24.2 Implement dynamic eBPF socket drop rule injection
@@ -938,8 +957,8 @@ The implementation follows a test-driven development approach with property-base
 
 - [ ] 25. Implement Inbound Protocol Interception and Cross-Agent Inspection
   - [ ] 25.1 Create `InboundProtocolFilter` class
-    - Implement ingress RPC message parsing and validation
-    - _Requirements: 23.4_
+    - Implement ingress RPC message parsing and `InboundProtocolMessage` validation
+    - _Requirements: 23.4, 15.11_
     - _Verification: `pytest tests/unit/test_inbound_protocol_filter.py::test_message_parsing -v`_
 
   - [ ] 25.2 Implement Origin/Host header validation
@@ -975,8 +994,8 @@ The implementation follows a test-driven development approach with property-base
 
 - [ ] 26. Implement Indirect Prompt Injection and Data Poisoning Defense
   - [ ] 26.1 Create `PromptInjectionScanner` class
-    - Implement pattern matcher for structural jailbreaks and prompt overrides
-    - _Requirements: 24.1_
+    - Implement pattern matcher for structural jailbreaks and `PromptInjectionEvidence` validation
+    - _Requirements: 24.1, 15.12_
     - _Verification: `pytest tests/unit/test_prompt_injection_scanner.py::test_pattern_matching -v`_
 
   - [ ] 26.2 Implement payload scanning across external data sources
@@ -1006,8 +1025,8 @@ The implementation follows a test-driven development approach with property-base
 
 - [ ] 27. Implement Agent Fleet Resource and Token Velocity Enforcement (Denial of Wallet Defense)
   - [ ] 27.1 Create `AgentQuotaEnforcer` class
-    - Track real-time token consumption and rolling burn rate per second
-    - _Requirements: 25.1_
+    - Track real-time token consumption and rolling burn rate per second with `AgentQuotaUsage` validation
+    - _Requirements: 25.1, 15.13_
     - _Verification: `pytest tests/unit/test_agent_quota_enforcer.py::test_token_tracking -v`_
 
   - [ ] 27.2 Implement velocity limit enforcement and quarantine
@@ -1040,37 +1059,19 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 22.1-22.4, 23.1-23.4, 24.1-24.3, 25.1-25.3_
     - _Verification: `pytest tests/integration/test_orchestrator_breach_defenses.py -v`_
 
+  - [ ] 28.2 Write BDD feature tests for System-Wide Breach Defense Integration
+    - Create `tests/features/system_breach_defense.feature` with Gherkin scenarios
+    - Scenario: CRITICAL swarm detection triggers eBPF drop, ZeroMQ mesh broadcast, and Vault token revocation
+    - Scenario: incoming unauthorized A2A request is rate-limited and sanitized
+    - Scenario: git diff with prompt injection is neutralized before execution
+    - _Requirements: 22.1-22.4, 23.1-23.4, 24.1-24.3, 25.1-25.3_
+    - _Verification: `pytest tests/step_defs/test_system_breach_defense_bdd.py -v`_
+
 - [ ] 29. Checkpoint - Verify breach defense integrations
   - Ensure all breach defense tests pass, ask the user if questions arise.
 
 - [ ] 30. Final checkpoint - Complete system verification
   - Ensure all tests pass, ask the user if questions arise.
-
-
-## Notes
-
-- Each task references specific requirements for traceability
-- Verification commands use `pytest` with verbose output to validate implementation
-- Property tests use Hypothesis with `--hypothesis-seed=0` for reproducible CI runs; set `@settings(max_examples=100)` per-function (testing rule 12)
-- Integration tests use real PostgreSQL/TimescaleDB instances (not mocks) for performance validation
-- All BDD step definitions import `run_async` from `tests.step_defs.async_utils` — never define local `run_async` functions (testing rule 2)
-- Test files use absolute imports from the repository root (testing rule 6)
-- Mock credential strings use generic prefixes like `BW_SYNTHETIC_MOCK_SECRET_0192`, never `AWS_KEY`, `AKIA`, or `SLACK_TOKEN` patterns (testing rule 5)
-- Audit hook tests defer import to function scope or isolated subprocess (testing rule 4)
-- Checkpoints ensure incremental validation at logical breaks
-- All components follow async/await patterns consistent with existing Blackwall architecture
-- Error handling is comprehensive with exponential backoff, retry logic, and graceful degradation
-- Performance SLAs validated through integration tests: event processing < 100ms, path queries < 500ms, sustained throughput 1,000 events/sec; all SLA tests run one warmup iteration before timing (testing rule 1)
-- Red team scenarios validate detection capabilities in realistic attack simulations
-- Active Reaction Engine provides dynamic eBPF socket drop (Pillar 1), Threat Mesh broadcasts (Pillar 2), and JIT token invalidation (Pillar 3)
-- Inbound Protocol Filter enforces header validation and rate limits on A2A/MCP streams
-- Prompt Injection Scanner inspects incoming git diffs, web scrapes, and external payloads for jailbreak signatures
-- Agent Quota Enforcer guards against Denial of Wallet (DoW) attacks
-- All timestamps use UTC timezone-aware datetime objects
-- Score fields (risk_score, correlation_score, temporal_correlation, coordination_score, novelty_score, chaining_confidence) are validated to range [0.0, 1.0]
-- Minimum cardinality constraints: attack paths >= 2 nodes, swarms >= 2 agents
-- DSN/credential strings MUST NOT appear in log messages (architecture rule 1)
-- Tasks marked with `*` are optional property-based test tasks and can be skipped for faster MVP delivery
 
 ## Task Dependency Graph
 
@@ -1107,11 +1108,11 @@ The implementation follows a test-driven development approach with property-base
     { "id": 27, "tasks": ["23.1", "23.2", "23.3"] },
     { "id": 28, "tasks": ["23.4", "23.5"] },
     { "id": 29, "tasks": ["23.6"] },
-    { "id": 30, "tasks": ["23.7", "24.1", "25.1", "26.1", "27.1"] },
-    { "id": 31, "tasks": ["24.2", "24.3", "24.4", "25.2", "25.3", "25.4", "26.2", "26.3", "27.2", "27.3"] },
-    { "id": 32, "tasks": ["24.5", "24.6", "25.5", "25.6", "26.4", "26.5", "27.4", "27.5"] },
-    { "id": 33, "tasks": ["28.1", "28.2"] }
+    { "id": 30, "tasks": ["23.7"] },
+    { "id": 31, "tasks": ["24.1", "25.1", "26.1", "27.1"] },
+    { "id": 32, "tasks": ["24.2", "24.3", "24.4", "25.2", "25.3", "25.4", "26.2", "26.3", "27.2", "27.3"] },
+    { "id": 33, "tasks": ["24.5", "24.6", "25.5", "25.6", "26.4", "26.5", "27.4", "27.5"] },
+    { "id": 34, "tasks": ["28.1", "28.2"] }
   ]
 }
 ```
-

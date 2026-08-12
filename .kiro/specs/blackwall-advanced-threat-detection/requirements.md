@@ -192,7 +192,7 @@ The system operates as a cross-cutting analysis plane above the existing five Bl
 4. WHEN Pillar 4 intercepts a pipeline event, THE Event_Collector SHALL receive and include it in exploit chain analysis
 5. WHEN Pillar 5 generates a forensic alert, THE Event_Collector SHALL receive and use it as high-confidence threat evidence
 6. THE Advanced_Threat_Detection SHALL subscribe to event streams from all pillars using asynchronous iterators
-7. THE Advanced_Threat_Detection SHALL operate as a passive observer without modifying or blocking pillar operations
+7. THE Advanced_Threat_Detection SHALL operate as a passive observer for event stream collection without modifying or blocking pillar operations; WHEN CRITICAL threat evidence is identified, THE Active_Reaction_Engine SHALL asynchronously dispatch mitigation actions to Pillars 1, 2, and 3 without blocking the event collection stream loop
 
 ### Requirement 13: Retrospective Attack Analysis
 
@@ -232,6 +232,10 @@ The system operates as a cross-cutting analysis plane above the existing five Bl
 7. WHEN creating Swarm_Evidence, THE Advanced_Threat_Detection SHALL validate that agent_ids contains at least 2 agents
 8. WHEN creating Swarm_Evidence, THE Advanced_Threat_Detection SHALL validate that temporal_correlation is in range [0.0, 1.0]
 9. WHEN creating Swarm_Evidence, THE Advanced_Threat_Detection SHALL validate that coordination_score is in range [0.0, 1.0]
+10. WHEN creating an ActiveReactionPayload, THE Advanced_Threat_Detection SHALL validate UUID v4 fields, UTC timestamp, positive target_pid, and ReactionActionType enum bounds
+11. WHEN creating an InboundProtocolMessage, THE Advanced_Threat_Detection SHALL validate UUID v4 message_id, UTC timestamp, non-empty identifiers, and InboundProtocolType/InboundMethodType enum bounds
+12. WHEN creating a PromptInjectionEvidence model, THE Advanced_Threat_Detection SHALL validate UUID v4 scan_id, injection_confidence in range [0.0, 1.0], and non-empty pattern list
+13. WHEN creating an AgentQuotaUsage model, THE Advanced_Threat_Detection SHALL validate UTC timestamp, non-negative usage counts, and non-negative token burn rate per second
 
 
 ### Requirement 16: Weave Evaluation Tracking Integration
