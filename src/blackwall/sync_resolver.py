@@ -12,7 +12,6 @@ Verdict thresholds (DEMO MODE - tuned for standalone testing):
 """
 
 import asyncio
-import concurrent.futures
 from datetime import datetime, timezone
 import logging
 import os
@@ -116,7 +115,7 @@ class SyncResolver:
     Free-tier single-request synchronous resolver for Blackwall Core.
 
     Performs interception, evaluation, self-learning threat signature creation,
-    and non-blocking attacker attribution (<5ms SLA, NFR-1 & NFR-2).
+    and attacker attribution (<5ms SLA, NFR-1 & NFR-2).
     """
 
     def __init__(
@@ -140,12 +139,6 @@ class SyncResolver:
         self.demo_mode = demo_mode
         self.on_attacker_identified = on_attacker_identified
         self.telemetry = telemetry
-
-        # Background tasks set & callback executor for non-blocking operations
-        self._background_tasks: set[asyncio.Task[Any]] = set()
-        self._callback_executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=2, thread_name_prefix="bw_callback"
-        )
 
         # Rate limiter: Paid tier (300 RPM → capacity=300, refill_rate=5.0 t/s) vs Free tier (15 RPM)
         tier = (
@@ -206,7 +199,7 @@ class SyncResolver:
                 ),
                 confidence_score=1.0,
             )
-            self._schedule_attribution(context, verdict)
+            await self._process_attribution(context, verdict)
             return verdict
 
         # 2. Sanitize context
@@ -227,7 +220,7 @@ class SyncResolver:
                     reasoning=f"Blocked via signature match: {dict(matched_sig).get('attacker_intent', 'Unknown')}",
                     confidence_score=1.0,
                 )
-                self._schedule_attribution(context, verdict)
+                await self._process_attribution(context, verdict)
                 return verdict
 
         # 3. Query structural policy and Codebase Memory first (gating before external query)
@@ -270,9 +263,9 @@ class SyncResolver:
             confidence_score=score,
         )
 
-        # 6. Non-blocking Attacker Attribution post-verdict
+        # 6. Attacker Attribution post-verdict (inline processing for deterministic lifecycle)
         if decision in (VerdictDecision.BLOCK, VerdictDecision.QUARANTINE):
-            self._schedule_attribution(context, verdict)
+            await self._process_attribution(context, verdict)
 
         if decision == VerdictDecision.BLOCK:
             self._block_count += 1
@@ -289,28 +282,6 @@ class SyncResolver:
 
         return verdict
 
-    def _schedule_attribution(
-        self, context: ToolCallContext, verdict: Verdict
-    ) -> None:
-        """Schedules attacker attribution non-blockingly in a background task to preserve verdict SLA (<5ms)."""
-        try:
-            loop = asyncio.get_running_loop()
-            task = loop.create_task(self._process_attribution(context, verdict))
-            self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
-        except RuntimeError:
-            pass
-
-    async def flush_background_tasks(self) -> None:
-        """Awaits all pending background attribution tasks to complete."""
-        if self._background_tasks:
-            await asyncio.gather(*list(self._background_tasks), return_exceptions=True)
-
-    async def close(self) -> None:
-        """Flushes background tasks and shuts down executor pools."""
-        await self.flush_background_tasks()
-        self._callback_executor.shutdown(wait=False, cancel_futures=True)
-
     # ------------------------------------------------------------------
     # Attacker Attribution processing
     # ------------------------------------------------------------------
@@ -321,14 +292,14 @@ class SyncResolver:
         verdict: Verdict,
     ) -> None:
         """
-        Extract identity from sanitized context/metadata, update profile DB,
+        Extract raw identity attributes for fingerprinting, update profile DB,
         generate incident report with sanitized arguments, and emit notification sinks.
         Enforces fail-safe exception isolation (<5ms budget, NFR-2).
         """
         try:
             sanitized = self._hygiene.sanitize_context(context)
             extractor = AttackerIdentityExtractor()
-            identity = extractor.extract(context=sanitized, metadata=sanitized.metadata)
+            identity = extractor.extract(context=context, metadata=context.metadata)
 
             now_utc = datetime.now(timezone.utc)
             initial_profile = AttackerProfile(
@@ -358,7 +329,7 @@ class SyncResolver:
                 confidence=verdict.confidence_score,
             )
 
-            # Emit notification sinks inline with non-blocking error isolation
+            # Emit notification sinks inline with isolated error handling
             await self._emit_sinks(report, identity, profile)
 
         except Exception as exc:
@@ -375,19 +346,13 @@ class SyncResolver:
         except Exception as err:
             logger.warning("CLI alert sink output failed: %s", err)
 
-        # 2. Execute user callback if registered (non-blocking executor pool with timeout, isolated)
+        # 2. Execute user callback if registered (isolated execution)
         if self.on_attacker_identified is not None:
             try:
                 if asyncio.iscoroutinefunction(self.on_attacker_identified):
                     await asyncio.wait_for(self.on_attacker_identified(report), timeout=0.05)
                 else:
-                    loop = asyncio.get_running_loop()
-                    await asyncio.wait_for(
-                        loop.run_in_executor(
-                            self._callback_executor, self.on_attacker_identified, report
-                        ),
-                        timeout=0.05,
-                    )
+                    self.on_attacker_identified(report)
             except Exception as err:
                 logger.warning("Attacker identified callback failed: %s", err)
 
