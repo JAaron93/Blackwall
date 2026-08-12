@@ -565,8 +565,8 @@ class ActiveReactionPayload(BaseModel):
     @field_validator("timestamp")
     @classmethod
     def validate_utc_timestamp(cls, v: datetime) -> datetime:
-        if v.tzinfo is None or v.tzinfo.utcoffset(v) is None:
-            raise ValueError("timestamp must be UTC timezone-aware")
+        if v.tzinfo is None or v.utcoffset() != timedelta(0):
+            raise ValueError("timestamp must be UTC timezone-aware with zero offset (+00:00 or timezone.utc)")
         return v
 
 class ActiveReactionEngine:
@@ -634,8 +634,8 @@ class InboundProtocolMessage(BaseModel):
     @field_validator("timestamp")
     @classmethod
     def validate_utc_timestamp(cls, v: datetime) -> datetime:
-        if v.tzinfo is None or v.tzinfo.utcoffset(v) is None:
-            raise ValueError("timestamp must be UTC timezone-aware")
+        if v.tzinfo is None or v.utcoffset() != timedelta(0):
+            raise ValueError("timestamp must be UTC timezone-aware with zero offset (+00:00 or timezone.utc)")
         return v
 
 class InboundProtocolFilter:
@@ -729,8 +729,8 @@ class AgentQuotaUsage(BaseModel):
     @field_validator("time_window_start")
     @classmethod
     def validate_utc_timestamp(cls, v: datetime) -> datetime:
-        if v.tzinfo is None or v.tzinfo.utcoffset(v) is None:
-            raise ValueError("time_window_start must be UTC timezone-aware")
+        if v.tzinfo is None or v.utcoffset() != timedelta(0):
+            raise ValueError("time_window_start must be UTC timezone-aware with zero offset (+00:00 or timezone.utc)")
         return v
 
 class AgentQuotaEnforcer:
@@ -838,8 +838,8 @@ class ActiveReactionPayload(BaseModel):
     @field_validator("timestamp")
     @classmethod
     def validate_utc_timestamp(cls, v: datetime) -> datetime:
-        if v.tzinfo is None or v.tzinfo.utcoffset(v) is None:
-            raise ValueError("timestamp must be UTC timezone-aware")
+        if v.tzinfo is None or v.utcoffset() != timedelta(0):
+            raise ValueError("timestamp must be UTC timezone-aware with zero offset (+00:00 or timezone.utc)")
         return v
 ```
 
@@ -865,8 +865,8 @@ class InboundProtocolMessage(BaseModel):
     @field_validator("timestamp")
     @classmethod
     def validate_utc_timestamp(cls, v: datetime) -> datetime:
-        if v.tzinfo is None or v.tzinfo.utcoffset(v) is None:
-            raise ValueError("timestamp must be UTC timezone-aware")
+        if v.tzinfo is None or v.utcoffset() != timedelta(0):
+            raise ValueError("timestamp must be UTC timezone-aware with zero offset (+00:00 or timezone.utc)")
         return v
 ```
 
@@ -906,8 +906,8 @@ class AgentQuotaUsage(BaseModel):
     @field_validator("time_window_start")
     @classmethod
     def validate_utc_timestamp(cls, v: datetime) -> datetime:
-        if v.tzinfo is None or v.tzinfo.utcoffset(v) is None:
-            raise ValueError("time_window_start must be UTC timezone-aware")
+        if v.tzinfo is None or v.utcoffset() != timedelta(0):
+            raise ValueError("time_window_start must be UTC timezone-aware with zero offset (+00:00 or timezone.utc)")
         return v
 ```
 
