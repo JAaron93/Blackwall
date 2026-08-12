@@ -553,14 +553,21 @@ class ReactionActionType(str, Enum):
     REVOKE_IDENTITY_TOKENS = "REVOKE_IDENTITY_TOKENS"
 
 class ActiveReactionPayload(BaseModel):
-    reaction_id: str                          # UUID v4
-    trigger_evidence_id: str                  # UUID v4
-    target_agent_id: str                      # Non-empty string
-    target_pid: Optional[int] = None           # Positive integer (> 0)
-    target_ip: Optional[str] = None            # Valid IP address
-    action_type: ReactionActionType            # ReactionActionType enum
-    timestamp: datetime                        # UTC timezone-aware
-    evaluation_env_id: Optional[str] = None   # Isolated evaluation environment identifier if in eval mode
+    reaction_id: UUID4
+    trigger_evidence_id: UUID4
+    target_agent_id: str = Field(..., min_length=1)
+    target_pid: Optional[int] = Field(None, gt=0)
+    target_ip: Optional[str] = None
+    action_type: ReactionActionType
+    timestamp: AwareDatetime
+    evaluation_env_id: Optional[str] = None
+
+    @field_validator("timestamp")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        if v.tzinfo is None or v.tzinfo.utcoffset(v) is None:
+            raise ValueError("timestamp must be UTC timezone-aware")
+        return v
 
 class ActiveReactionEngine:
     async def is_evaluation_mode(
@@ -603,7 +610,7 @@ class ActiveReactionEngine:
 - Inject dynamic eBPF socket/process drop rules into Pillar 1 (production mode only)
 - Broadcast block signatures across enterprise nodes via Pillar 2 Threat Mesh in <15ms (production mode only)
 - Revoke active JIT credentials and honey-tokens via Pillar 3 Vault Sidecar (production mode only)
-- Enforce strict Pydantic v2 validation on all `ActiveReactionPayload` instances before execution
+- Enforce strict Pydantic v2 field constraints and UTC timezone checks on all `ActiveReactionPayload` instances before execution
 
 ### Component 10: InboundProtocolFilter
 
@@ -621,13 +628,20 @@ class InboundMethodType(str, Enum):
     PROMPT_SUBMIT = "prompt/submit"
 
 class InboundProtocolMessage(BaseModel):
-    message_id: str                           # UUID v4
-    sender_id: str                            # Non-empty string
-    recipient_agent_id: str                   # Non-empty string
-    protocol: InboundProtocolType             # InboundProtocolType enum
-    method: InboundMethodType                 # InboundMethodType enum
-    payload: dict                             # Intercepted RPC payload
-    timestamp: datetime                        # UTC timezone-aware
+    message_id: UUID4
+    sender_id: str = Field(..., min_length=1)
+    recipient_agent_id: str = Field(..., min_length=1)
+    protocol: InboundProtocolType
+    method: InboundMethodType
+    payload: dict
+    timestamp: AwareDatetime
+
+    @field_validator("timestamp")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        if v.tzinfo is None or v.tzinfo.utcoffset(v) is None:
+            raise ValueError("timestamp must be UTC timezone-aware")
+        return v
 
 class InboundProtocolFilter:
     async def validate_headers_and_origin(
@@ -659,7 +673,7 @@ class InboundProtocolFilter:
 - Enforce Origin/Host header validation and loopback binding rules
 - Rate-limit unauthenticated incoming cross-agent request streams
 - Sanitize incoming tool call parameters before execution by host agents
-- Enforce Pydantic v2 validation on all `InboundProtocolMessage` instances
+- Enforce Pydantic v2 field constraints on all `InboundProtocolMessage` instances
 
 ### Component 11: PromptInjectionScanner
 
@@ -673,11 +687,11 @@ class InjectionSourceType(str, Enum):
     INCOMING_A2A_MSG = "incoming_a2a_msg"
 
 class PromptInjectionEvidence(BaseModel):
-    scan_id: str                              # UUID v4
-    source_context: InjectionSourceType       # InjectionSourceType enum
-    detected_patterns: List[str]              # Non-empty list of injection signatures
-    injection_confidence: float               # Range [0.0, 1.0]
-    sanitized_content: str                    # Neutralized payload string
+    scan_id: UUID4
+    source_context: InjectionSourceType
+    detected_patterns: List[str] = Field(..., min_length=1)
+    injection_confidence: float = Field(..., ge=0.0, le=1.0)
+    sanitized_content: str
 
 class PromptInjectionScanner:
     async def scan_payload(
@@ -701,7 +715,7 @@ class PromptInjectionScanner:
 - Detect structural jailbreaks and system prompt override attempts
 - Neutralize malicious prompt injection vectors in real time
 - Emit high-confidence alerts when data poisoning is detected
-- Enforce Pydantic v2 validation on all `PromptInjectionEvidence` instances
+- Enforce Pydantic v2 field constraints and confidence range [0.0, 1.0] on all `PromptInjectionEvidence` instances
 
 ### Component 12: AgentQuotaEnforcer
 
@@ -710,12 +724,19 @@ class PromptInjectionScanner:
 **Interface**:
 ```python
 class AgentQuotaUsage(BaseModel):
-    agent_id: str                             # Non-empty string
-    time_window_start: datetime               # UTC timezone-aware
-    tokens_consumed: int                      # Non-negative integer (>= 0)
-    api_call_count: int                       # Non-negative integer (>= 0)
-    token_burn_rate_per_sec: float            # Non-negative float (>= 0.0)
+    agent_id: str = Field(..., min_length=1)
+    time_window_start: AwareDatetime
+    tokens_consumed: int = Field(..., ge=0)
+    api_call_count: int = Field(..., ge=0)
+    token_burn_rate_per_sec: float = Field(..., ge=0.0)
     quota_exceeded: bool
+
+    @field_validator("time_window_start")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        if v.tzinfo is None or v.tzinfo.utcoffset(v) is None:
+            raise ValueError("time_window_start must be UTC timezone-aware")
+        return v
 
 class AgentQuotaEnforcer:
     async def track_token_consumption(
@@ -810,73 +831,96 @@ class SwarmEvidence:
 
 ```python
 class ActiveReactionPayload(BaseModel):
-    reaction_id: str                      # UUID v4
-    trigger_evidence_id: str              # UUID v4
-    target_agent_id: str                  # Non-empty string
-    target_pid: Optional[int] = None       # Positive integer if provided
-    target_ip: Optional[str] = None        # Valid IP address format if provided
-    action_type: ReactionActionType        # Enum: "EBPF_DROP", "MESH_SIGNATURE_BROADCAST", "REVOKE_IDENTITY_TOKENS"
-    timestamp: datetime                    # UTC timezone-aware
+    reaction_id: UUID4
+    trigger_evidence_id: UUID4
+    target_agent_id: str = Field(..., min_length=1)
+    target_pid: Optional[int] = Field(None, gt=0)
+    target_ip: Optional[str] = None
+    action_type: ReactionActionType
+    timestamp: AwareDatetime
+    evaluation_env_id: Optional[str] = None
+
+    @field_validator("timestamp")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        if v.tzinfo is None or v.tzinfo.utcoffset(v) is None:
+            raise ValueError("timestamp must be UTC timezone-aware")
+        return v
 ```
 
 **Validation Rules**:
-- `reaction_id` and `trigger_evidence_id` must be valid UUID v4 strings
-- `timestamp` must be UTC timezone-aware
+- `reaction_id` and `trigger_evidence_id` must be valid UUID v4 objects
+- `target_agent_id` must be a non-empty string (`min_length=1`)
+- `timestamp` must be UTC timezone-aware (`AwareDatetime`)
 - `action_type` must be a valid `ReactionActionType` enum
-- `target_pid` (if provided) must be > 0
+- `target_pid` (if provided) must be > 0 (`gt=0`)
 
 ### Model 5: InboundProtocolMessage
 
 ```python
 class InboundProtocolMessage(BaseModel):
-    message_id: str                       # UUID v4
-    sender_id: str                        # Non-empty string
-    recipient_agent_id: str               # Non-empty string
-    protocol: InboundProtocolType         # Enum: "MCP_SSE", "MCP_STDIO", "A2A_REST"
-    method: InboundMethodType             # Enum: "tools/call", "prompt/submit"
-    payload: dict                         # Intercepted RPC payload
-    timestamp: datetime                    # UTC timezone-aware
+    message_id: UUID4
+    sender_id: str = Field(..., min_length=1)
+    recipient_agent_id: str = Field(..., min_length=1)
+    protocol: InboundProtocolType
+    method: InboundMethodType
+    payload: dict
+    timestamp: AwareDatetime
+
+    @field_validator("timestamp")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        if v.tzinfo is None or v.tzinfo.utcoffset(v) is None:
+            raise ValueError("timestamp must be UTC timezone-aware")
+        return v
 ```
 
 **Validation Rules**:
-- `message_id` must be valid UUID v4 string
-- `sender_id` and `recipient_agent_id` must not be empty
+- `message_id` must be valid UUID v4 object
+- `sender_id` and `recipient_agent_id` must be non-empty strings (`min_length=1`)
 - `protocol` and `method` must be valid Enum values
-- `timestamp` must be UTC timezone-aware
+- `timestamp` must be UTC timezone-aware (`AwareDatetime`)
 
 ### Model 6: PromptInjectionEvidence
 
 ```python
 class PromptInjectionEvidence(BaseModel):
-    scan_id: str                          # UUID v4
-    source_context: InjectionSourceType   # Enum: "git_diff", "web_scrape", "incoming_a2a_msg"
-    detected_patterns: List[str]          # Non-empty list of detected injection signatures
-    injection_confidence: float           # Scalar in range [0.0, 1.0]
-    sanitized_content: str                # Neutralized payload string
+    scan_id: UUID4
+    source_context: InjectionSourceType
+    detected_patterns: List[str] = Field(..., min_length=1)
+    injection_confidence: float = Field(..., ge=0.0, le=1.0)
+    sanitized_content: str
 ```
 
 **Validation Rules**:
-- `scan_id` must be valid UUID v4 string
-- `injection_confidence` must be in range [0.0, 1.0]
-- `detected_patterns` must contain at least 1 identified pattern string
+- `scan_id` must be valid UUID v4 object
+- `injection_confidence` must be constrained to range `[0.0, 1.0]` (`ge=0.0, le=1.0`)
+- `detected_patterns` must contain at least 1 identified pattern string (`min_length=1`)
 
 ### Model 7: AgentQuotaUsage
 
 ```python
 class AgentQuotaUsage(BaseModel):
-    agent_id: str                         # Non-empty string
-    time_window_start: datetime           # UTC timezone-aware
-    tokens_consumed: int                  # Non-negative integer (>= 0)
-    api_call_count: int                   # Non-negative integer (>= 0)
-    token_burn_rate_per_sec: float        # Non-negative float (>= 0.0)
+    agent_id: str = Field(..., min_length=1)
+    time_window_start: AwareDatetime
+    tokens_consumed: int = Field(..., ge=0)
+    api_call_count: int = Field(..., ge=0)
+    token_burn_rate_per_sec: float = Field(..., ge=0.0)
     quota_exceeded: bool
+
+    @field_validator("time_window_start")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        if v.tzinfo is None or v.tzinfo.utcoffset(v) is None:
+            raise ValueError("time_window_start must be UTC timezone-aware")
+        return v
 ```
 
 **Validation Rules**:
-- `agent_id` must not be empty string
-- `tokens_consumed` and `api_call_count` must be >= 0
-- `token_burn_rate_per_sec` must be >= 0.0
-- `time_window_start` must be UTC timezone-aware
+- `agent_id` must be a non-empty string (`min_length=1`)
+- `tokens_consumed` and `api_call_count` must be non-negative integers (`ge=0`)
+- `token_burn_rate_per_sec` must be a non-negative float (`ge=0.0`)
+- `time_window_start` must be UTC timezone-aware (`AwareDatetime`)
 
 ## Algorithmic Pseudocode
 
