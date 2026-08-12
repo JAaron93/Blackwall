@@ -7,7 +7,7 @@ Blackwall is an autonomous **Agentic Security Firewall** designed to intercept e
 Blackwall is structured into **two distinct product tiers**:
 
 1. **Blackwall Core (Individual Developer Edition)**:
-   - Single-host Python daemon centered around ADK callbacks (`before_tool_callback`), Python runtime audit hooks (`sys.addaudithook`), and local SQLite threat graph.
+   - Single-host Python daemon centered around ADK callbacks (`before_tool_callback`), Python runtime audit hooks (`sys.addaudithook`), local SQLite threat graph, and baseline single-host Attacker Attribution (`src/blackwall/attribution/` & `SyncResolver`).
    - Zero cluster-mesh/peer-to-peer networking (ZeroMQ/NATS) or C-kernel eBPF dependencies (exemption: 100% GCP Vertex AI Mode clients for Gemini Enterprise Agent Platform and VirusTotal GTI MCP are fully supported in Core; red-teamer attack agents in demo harness use Hyperbolic API).
 2. **Blackwall Enterprise Mesh (Enterprise Edition)**:
    - Multi-host security mesh isolated under `src/blackwall/enterprise/`.
