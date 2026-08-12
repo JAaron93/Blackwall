@@ -187,7 +187,7 @@ class SyncResolver:
             self._total_evaluations += 1
             elapsed = (time.time() - t0) * 1000.0
             self._total_latency_ms += elapsed
-            return Verdict(
+            verdict = Verdict(
                 decision=VerdictDecision.QUARANTINE,
                 reasoning=(
                     "Rate limit exhausted (15 RPM). "
@@ -195,6 +195,8 @@ class SyncResolver:
                 ),
                 confidence_score=1.0,
             )
+            await self._process_attribution(context, verdict)
+            return verdict
 
         # 2. Sanitize context
         sanitized = self._hygiene.sanitize_context(context)
@@ -209,11 +211,13 @@ class SyncResolver:
                 self._total_evaluations += 1
                 elapsed = (time.time() - t0) * 1000.0
                 self._total_latency_ms += elapsed
-                return Verdict(
+                verdict = Verdict(
                     decision=VerdictDecision.BLOCK,
                     reasoning=f"Blocked via signature match: {dict(matched_sig).get('attacker_intent', 'Unknown')}",
                     confidence_score=1.0,
                 )
+                await self._process_attribution(sanitized, verdict)
+                return verdict
 
         # 3. Query structural policy and Codebase Memory first (gating before external query)
         cbm_resp: Optional[CBMResponse] = await self._query_cbm(sanitized)
@@ -318,28 +322,37 @@ class SyncResolver:
                 confidence=verdict.confidence_score,
             )
 
-            # Output to CLI sink (stderr)
-            sys.stderr.write(report.to_markdown() + "\n")
-            sys.stderr.flush()
+            # 1. Output to CLI sink (stderr)
+            try:
+                sys.stderr.write(report.to_markdown() + "\n")
+                sys.stderr.flush()
+            except Exception as err:
+                logger.warning("CLI alert sink output failed: %s", err)
 
-            # Execute user callback if registered
+            # 2. Execute user callback if registered (non-blocking timeout, isolated)
             if self.on_attacker_identified is not None:
-                if asyncio.iscoroutinefunction(self.on_attacker_identified):
-                    await self.on_attacker_identified(report)
-                else:
-                    self.on_attacker_identified(report)
+                try:
+                    if asyncio.iscoroutinefunction(self.on_attacker_identified):
+                        await asyncio.wait_for(self.on_attacker_identified(report), timeout=2.0)
+                    else:
+                        self.on_attacker_identified(report)
+                except Exception as err:
+                    logger.warning("Attacker identified callback failed: %s", err)
 
-            # Emit OpenTelemetry security event span if telemetry enabled
+            # 3. Emit OpenTelemetry security event span if telemetry enabled (isolated)
             if self.telemetry and hasattr(self.telemetry, "create_span"):
-                span_name = "blackwall.attacker_identified"
-                attrs = {
-                    "attacker.agent_id": identity.agent_id or "UNKNOWN",
-                    "attacker.agent_name": identity.agent_name or "UNKNOWN",
-                    "attacker.fingerprint": identity.identity_fingerprint,
-                    "attacker.score": profile.threat_score,
-                    "attacker.total_attacks": profile.total_attacks,
-                }
-                self.telemetry.create_span(span_name, attributes=attrs)
+                try:
+                    span_name = "blackwall.attacker_identified"
+                    attrs = {
+                        "attacker.agent_id": identity.agent_id or "UNKNOWN",
+                        "attacker.agent_name": identity.agent_name or "UNKNOWN",
+                        "attacker.fingerprint": identity.identity_fingerprint,
+                        "attacker.score": profile.threat_score,
+                        "attacker.total_attacks": profile.total_attacks,
+                    }
+                    self.telemetry.create_span(span_name, attributes=attrs)
+                except Exception as err:
+                    logger.warning("OpenTelemetry span emission failed: %s", err)
 
         except Exception as exc:
             logger.warning("Attacker attribution failed gracefully (fail-safe mode): %s", exc)

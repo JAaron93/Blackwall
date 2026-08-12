@@ -257,88 +257,95 @@ class SQLiteThreatRepository:
         )
 
         async with self.pool.connection() as conn:
-            cursor = await conn.execute(
-                "SELECT first_seen, total_attacks, targeted_tools, associated_signatures FROM attacker_profiles WHERE fingerprint = ?",
-                (profile.fingerprint,),
-            )
-            row = await cursor.fetchone()
+            await conn.execute("BEGIN IMMEDIATE TRANSACTION")
+            try:
+                cursor = await conn.execute(
+                    "SELECT first_seen, total_attacks, targeted_tools, associated_signatures FROM attacker_profiles WHERE fingerprint = ?",
+                    (profile.fingerprint,),
+                )
+                row = await cursor.fetchone()
 
-            if row:
-                existing_first_seen, existing_attacks, existing_tools_json, existing_sigs_json = row
-                new_total_attacks = existing_attacks + 1
-                first_seen_str = existing_first_seen
+                if row:
+                    existing_first_seen, existing_attacks, existing_tools_json, existing_sigs_json = row
+                    new_total_attacks = existing_attacks + 1
+                    first_seen_str = existing_first_seen
 
-                existing_tools = (
-                    json.loads(existing_tools_json) if existing_tools_json else []
-                )
-                merged_tools = list(
-                    dict.fromkeys(existing_tools + profile.targeted_tools)
-                )
+                    existing_tools = (
+                        json.loads(existing_tools_json) if existing_tools_json else []
+                    )
+                    merged_tools = list(
+                        dict.fromkeys(existing_tools + profile.targeted_tools)
+                    )
 
-                existing_sigs = (
-                    json.loads(existing_sigs_json) if existing_sigs_json else []
-                )
-                merged_sigs = list(
-                    dict.fromkeys(existing_sigs + profile.associated_signatures)
-                )
+                    existing_sigs = (
+                        json.loads(existing_sigs_json) if existing_sigs_json else []
+                    )
+                    merged_sigs = list(
+                        dict.fromkeys(existing_sigs + profile.associated_signatures)
+                    )
 
-                tools_json = json.dumps(merged_tools)
-                sigs_json = json.dumps(merged_sigs)
+                    tools_json = json.dumps(merged_tools)
+                    sigs_json = json.dumps(merged_sigs)
 
-                await conn.execute(
-                    """
-                    UPDATE attacker_profiles
-                    SET last_seen = ?,
-                        total_attacks = ?,
-                        threat_score = ?,
-                        targeted_tools = ?,
-                        associated_signatures = ?,
-                        risk_category = ?
-                    WHERE fingerprint = ?
-                    """,
-                    (
-                        now_str,
-                        new_total_attacks,
-                        profile.threat_score,
-                        tools_json,
-                        sigs_json,
-                        profile.risk_category,
-                        profile.fingerprint,
-                    ),
-                )
-                first_dt = datetime.fromisoformat(first_seen_str)
-                return AttackerProfile(
-                    fingerprint=profile.fingerprint,
-                    first_seen=first_dt,
-                    last_seen=now_dt,
-                    total_attacks=new_total_attacks,
-                    threat_score=profile.threat_score,
-                    targeted_tools=merged_tools,
-                    associated_signatures=merged_sigs,
-                    risk_category=profile.risk_category,
-                )
-            else:
-                tools_json = json.dumps(profile.targeted_tools)
-                sigs_json = json.dumps(profile.associated_signatures)
-                await conn.execute(
-                    """
-                    INSERT INTO attacker_profiles (
-                        fingerprint, first_seen, last_seen, total_attacks,
-                        threat_score, associated_signatures, targeted_tools, risk_category
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        profile.fingerprint,
-                        first_seen_str,
-                        now_str,
-                        profile.total_attacks,
-                        profile.threat_score,
-                        sigs_json,
-                        tools_json,
-                        profile.risk_category,
-                    ),
-                )
-                return profile
+                    await conn.execute(
+                        """
+                        UPDATE attacker_profiles
+                        SET last_seen = ?,
+                            total_attacks = ?,
+                            threat_score = ?,
+                            targeted_tools = ?,
+                            associated_signatures = ?,
+                            risk_category = ?
+                        WHERE fingerprint = ?
+                        """,
+                        (
+                            now_str,
+                            new_total_attacks,
+                            profile.threat_score,
+                            tools_json,
+                            sigs_json,
+                            profile.risk_category,
+                            profile.fingerprint,
+                        ),
+                    )
+                    await conn.commit()
+                    first_dt = datetime.fromisoformat(first_seen_str)
+                    return AttackerProfile(
+                        fingerprint=profile.fingerprint,
+                        first_seen=first_dt,
+                        last_seen=now_dt,
+                        total_attacks=new_total_attacks,
+                        threat_score=profile.threat_score,
+                        targeted_tools=merged_tools,
+                        associated_signatures=merged_sigs,
+                        risk_category=profile.risk_category,
+                    )
+                else:
+                    tools_json = json.dumps(profile.targeted_tools)
+                    sigs_json = json.dumps(profile.associated_signatures)
+                    await conn.execute(
+                        """
+                        INSERT INTO attacker_profiles (
+                            fingerprint, first_seen, last_seen, total_attacks,
+                            threat_score, associated_signatures, targeted_tools, risk_category
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            profile.fingerprint,
+                            first_seen_str,
+                            now_str,
+                            profile.total_attacks,
+                            profile.threat_score,
+                            sigs_json,
+                            tools_json,
+                            profile.risk_category,
+                        ),
+                    )
+                    await conn.commit()
+                    return profile
+            except Exception:
+                await conn.rollback()
+                raise
 
     async def get_attacker_profile(
         self, fingerprint: str
