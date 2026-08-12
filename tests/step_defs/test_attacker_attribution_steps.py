@@ -51,6 +51,16 @@ class AttributionScenarioState:
         self.generator_identity: AttackerIdentity | None = None
         self.generator_profile: AttackerProfile | None = None
         self.built_report: IncidentReport | None = None
+        # Track 3 profile DB state
+        self.profile_db_repo: Any = None
+        self.profile_db_fingerprint: str = ""
+        self.profile_db_updated_profile: AttackerProfile | None = None
+        # Track 4 e2e state
+        self.e2e_context: ToolCallContext | None = None
+        self.e2e_verdict: Verdict | None = None
+        self.e2e_repo: Any = None
+        self.e2e_agent_name: str = ""
+        self.e2e_stderr: str = ""
 
 
 @pytest.fixture
@@ -424,4 +434,174 @@ def verify_placeholder_in_report(state: AttributionScenarioState):
 def verify_markdown_contains(state: AttributionScenarioState, expected_content: str):
     assert state.built_report is not None
     assert expected_content in state.built_report.to_markdown()
+
+
+# ===========================================================================
+# Track 3: Profile DB BDD Step Definitions
+# ===========================================================================
+
+@given(
+    parsers.parse(
+        'an existing AttackerProfile for fingerprint "{fingerprint}" with total_attacks {attacks:d}'
+    )
+)
+def set_existing_profile_db(
+    state: AttributionScenarioState, fingerprint: str, attacks: int
+):
+    import tempfile
+    from blackwall.db.repository import SQLiteThreatRepository
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    state.profile_db_repo = SQLiteThreatRepository(db_path=tmp.name)
+    state.profile_db_fingerprint = fingerprint
+
+    now = datetime.now(timezone.utc)
+    profile = AttackerProfile(
+        fingerprint=fingerprint,
+        first_seen=now,
+        last_seen=now,
+        total_attacks=attacks,
+        threat_score=0.50,
+        targeted_tools=["read_file"],
+    )
+    import asyncio
+    asyncio.run(state.profile_db_repo.upsert_attacker_profile(profile))
+
+
+@when(
+    parsers.parse(
+        'a new BLOCK verdict is assigned to fingerprint "{fingerprint}" with score {score:f} and targeted_tool "{tool_name}"'
+    )
+)
+def update_profile_db_scenario(
+    state: AttributionScenarioState, fingerprint: str, score: float, tool_name: str
+):
+    assert state.profile_db_repo is not None
+    now = datetime.now(timezone.utc)
+    profile = AttackerProfile(
+        fingerprint=fingerprint,
+        first_seen=now,
+        last_seen=now,
+        total_attacks=1,
+        threat_score=score,
+        targeted_tools=[tool_name],
+    )
+    import asyncio
+    state.profile_db_updated_profile = asyncio.run(
+        state.profile_db_repo.upsert_attacker_profile(profile)
+    )
+
+
+@then(
+    parsers.parse(
+        'the total_attacks count for fingerprint "{fingerprint}" MUST increment to {expected_attacks:d}'
+    )
+)
+def verify_profile_attacks_incremented(
+    state: AttributionScenarioState, fingerprint: str, expected_attacks: int
+):
+    assert state.profile_db_updated_profile is not None
+    assert state.profile_db_updated_profile.total_attacks == expected_attacks
+
+
+@then(
+    parsers.parse(
+        'the threat_score for fingerprint "{fingerprint}" MUST update to {expected_score:f}'
+    )
+)
+def verify_profile_score_updated(
+    state: AttributionScenarioState, fingerprint: str, expected_score: float
+):
+    assert state.profile_db_updated_profile is not None
+    assert state.profile_db_updated_profile.threat_score == pytest.approx(expected_score)
+
+
+@then(parsers.parse('the targeted_tools MUST contain "{tool_name}"'))
+def verify_profile_targeted_tools(
+    state: AttributionScenarioState, tool_name: str
+):
+    assert state.profile_db_updated_profile is not None
+    assert tool_name in state.profile_db_updated_profile.targeted_tools
+
+
+# ===========================================================================
+# Track 4: End-to-End Interception BDD Step Definitions
+# ===========================================================================
+
+@given(
+    parsers.parse(
+        'a rogue ADK tool call context for tool "{tool_name}" with command "{cmd}" and agent_name "{agent_name}"'
+    )
+)
+def set_e2e_rogue_context(
+    state: AttributionScenarioState, tool_name: str, cmd: str, agent_name: str
+):
+    import tempfile
+    from blackwall.db.repository import SQLiteThreatRepository
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    state.e2e_repo = SQLiteThreatRepository(db_path=tmp.name)
+    import asyncio
+    asyncio.run(state.e2e_repo.initialize())
+
+    state.e2e_agent_name = agent_name
+    state.e2e_context = ToolCallContext(
+        tool_name=tool_name,
+        arguments={"cmd": cmd},
+        metadata={
+            "agent_id": f"id-{agent_name}",
+            "agent_name": agent_name,
+            "thread_id": "th-e2e-100",
+        },
+    )
+
+
+@when("the tool call context is evaluated by SyncResolver")
+def evaluate_e2e_sync_resolver(state: AttributionScenarioState, capsys):
+    from unittest.mock import MagicMock
+    from blackwall.sync_resolver import SyncResolver
+    assert state.e2e_context is not None
+    assert state.e2e_repo is not None
+
+    mock_client = MagicMock()
+    resolver = SyncResolver(
+        client=mock_client,
+        repo=state.e2e_repo,
+        demo_mode=True,
+    )
+
+    import asyncio
+    state.e2e_verdict = asyncio.run(resolver.evaluate(state.e2e_context))
+    captured = capsys.readouterr()
+    state.e2e_stderr = captured.err
+
+
+@then(parsers.parse('the evaluation verdict MUST be {expected_verdict}'))
+def verify_e2e_verdict(state: AttributionScenarioState, expected_verdict: str):
+    assert state.e2e_verdict is not None
+    assert state.e2e_verdict.decision.value == expected_verdict
+
+
+@then(
+    parsers.parse(
+        'an AttackerProfile for agent "{agent_name}" MUST be persisted in SQLite with total_attacks {expected_attacks:d}'
+    )
+)
+def verify_e2e_persisted_profile(
+    state: AttributionScenarioState, agent_name: str, expected_attacks: int
+):
+    assert state.e2e_context is not None
+    assert state.e2e_repo is not None
+    extractor = AttackerIdentityExtractor()
+    identity = extractor.extract(state.e2e_context, state.e2e_context.metadata)
+    fp = identity.identity_fingerprint
+
+    import asyncio
+    profile = asyncio.run(state.e2e_repo.get_attacker_profile(fp))
+    assert profile is not None
+    assert profile.total_attacks == expected_attacks
+
+
+@then(parsers.parse('the CLI alert sink MUST output the incident report containing "{agent_name}"'))
+def verify_e2e_cli_alert(state: AttributionScenarioState, agent_name: str):
+    assert "# Blackwall Incident Attribution Report" in state.e2e_stderr
+    assert agent_name in state.e2e_stderr
 

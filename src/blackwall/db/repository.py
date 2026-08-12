@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 import json
 import time
 import uuid
@@ -6,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 import structlog
 
+from blackwall.models import AttackerProfile
 from .pool import AsyncConnectionPool
 
 logger = structlog.get_logger("blackwall.db.repository")
@@ -211,11 +213,168 @@ class SQLiteThreatRepository:
                 """
                 )
 
+                # Attacker Profiles table
+                await conn.execute(
+                    """
+                CREATE TABLE IF NOT EXISTS attacker_profiles (
+                    fingerprint TEXT PRIMARY KEY,
+                    first_seen TEXT NOT NULL,
+                    last_seen TEXT NOT NULL,
+                    total_attacks INTEGER NOT NULL DEFAULT 1,
+                    threat_score REAL NOT NULL DEFAULT 0.5,
+                    associated_signatures TEXT,
+                    targeted_tools TEXT,
+                    risk_category TEXT NOT NULL DEFAULT 'HIGH'
+                );
+                """
+                )
+
             self._schema_initialized = True
 
     async def close(self) -> None:
         """Closes the connection pool."""
         await self.pool.close()
+
+    async def upsert_attacker_profile(
+        self, profile: AttackerProfile
+    ) -> AttackerProfile:
+        """
+        Upserts an attacker profile record in SQLite.
+        If profile exists by fingerprint:
+          - Increments total_attacks += 1
+          - Updates last_seen to current UTC time
+          - Updates threat_score
+          - Merges targeted_tools and associated_signatures
+        If profile does not exist:
+          - Inserts new profile record.
+        Must complete in < 5ms (NFR-1).
+        """
+        await self.initialize()
+        now_dt = datetime.now(timezone.utc)
+        now_str = now_dt.isoformat()
+        first_seen_str = (
+            profile.first_seen.isoformat() if profile.first_seen else now_str
+        )
+
+        async with self.pool.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT first_seen, total_attacks, targeted_tools, associated_signatures FROM attacker_profiles WHERE fingerprint = ?",
+                (profile.fingerprint,),
+            )
+            row = await cursor.fetchone()
+
+            if row:
+                existing_first_seen, existing_attacks, existing_tools_json, existing_sigs_json = row
+                new_total_attacks = existing_attacks + 1
+                first_seen_str = existing_first_seen
+
+                existing_tools = (
+                    json.loads(existing_tools_json) if existing_tools_json else []
+                )
+                merged_tools = list(
+                    dict.fromkeys(existing_tools + profile.targeted_tools)
+                )
+
+                existing_sigs = (
+                    json.loads(existing_sigs_json) if existing_sigs_json else []
+                )
+                merged_sigs = list(
+                    dict.fromkeys(existing_sigs + profile.associated_signatures)
+                )
+
+                tools_json = json.dumps(merged_tools)
+                sigs_json = json.dumps(merged_sigs)
+
+                await conn.execute(
+                    """
+                    UPDATE attacker_profiles
+                    SET last_seen = ?,
+                        total_attacks = ?,
+                        threat_score = ?,
+                        targeted_tools = ?,
+                        associated_signatures = ?,
+                        risk_category = ?
+                    WHERE fingerprint = ?
+                    """,
+                    (
+                        now_str,
+                        new_total_attacks,
+                        profile.threat_score,
+                        tools_json,
+                        sigs_json,
+                        profile.risk_category,
+                        profile.fingerprint,
+                    ),
+                )
+                first_dt = datetime.fromisoformat(first_seen_str)
+                return AttackerProfile(
+                    fingerprint=profile.fingerprint,
+                    first_seen=first_dt,
+                    last_seen=now_dt,
+                    total_attacks=new_total_attacks,
+                    threat_score=profile.threat_score,
+                    targeted_tools=merged_tools,
+                    associated_signatures=merged_sigs,
+                    risk_category=profile.risk_category,
+                )
+            else:
+                tools_json = json.dumps(profile.targeted_tools)
+                sigs_json = json.dumps(profile.associated_signatures)
+                await conn.execute(
+                    """
+                    INSERT INTO attacker_profiles (
+                        fingerprint, first_seen, last_seen, total_attacks,
+                        threat_score, associated_signatures, targeted_tools, risk_category
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        profile.fingerprint,
+                        first_seen_str,
+                        now_str,
+                        profile.total_attacks,
+                        profile.threat_score,
+                        sigs_json,
+                        tools_json,
+                        profile.risk_category,
+                    ),
+                )
+                return profile
+
+    async def get_attacker_profile(
+        self, fingerprint: str
+    ) -> Optional[AttackerProfile]:
+        """Fetches an AttackerProfile by fingerprint from SQLite."""
+        await self.initialize()
+        async with self.pool.connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT fingerprint, first_seen, last_seen, total_attacks,
+                       threat_score, associated_signatures, targeted_tools, risk_category
+                FROM attacker_profiles
+                WHERE fingerprint = ?
+                """,
+                (fingerprint,),
+            )
+            row = await cursor.fetchone()
+            if not row:
+                return None
+
+            fp, fs, ls, total_attacks, score, sigs_json, tools_json, risk = row
+            first_dt = datetime.fromisoformat(fs) if isinstance(fs, str) else fs
+            last_dt = datetime.fromisoformat(ls) if isinstance(ls, str) else ls
+            sigs = json.loads(sigs_json) if sigs_json else []
+            tools = json.loads(tools_json) if tools_json else []
+
+            return AttackerProfile(
+                fingerprint=fp,
+                first_seen=first_dt,
+                last_seen=last_dt,
+                total_attacks=total_attacks,
+                threat_score=score,
+                associated_signatures=sigs,
+                targeted_tools=tools,
+                risk_category=risk,
+            )
 
     async def writeSignature(self, signature_data: dict[str, Any]) -> str:
         """Writes a threat signature using INSERT OR IGNORE to enforce uniqueness."""
