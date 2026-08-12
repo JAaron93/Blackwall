@@ -257,7 +257,6 @@ class SQLiteThreatRepository:
         )
 
         async with self.pool.connection() as conn:
-            await conn.execute("BEGIN IMMEDIATE TRANSACTION")
             try:
                 cursor = await conn.execute(
                     "SELECT first_seen, total_attacks, targeted_tools, associated_signatures FROM attacker_profiles WHERE fingerprint = ?",

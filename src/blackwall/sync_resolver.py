@@ -200,7 +200,7 @@ class SyncResolver:
                 ),
                 confidence_score=1.0,
             )
-            await self._process_attribution(context, verdict)
+            self._schedule_attribution(context, verdict)
             return verdict
 
         # 2. Sanitize context
@@ -221,7 +221,7 @@ class SyncResolver:
                     reasoning=f"Blocked via signature match: {dict(matched_sig).get('attacker_intent', 'Unknown')}",
                     confidence_score=1.0,
                 )
-                await self._process_attribution(context, verdict)
+                self._schedule_attribution(context, verdict)
                 return verdict
 
         # 3. Query structural policy and Codebase Memory first (gating before external query)
@@ -266,7 +266,7 @@ class SyncResolver:
 
         # 6. Inline signature generation & Attacker Attribution post-verdict
         if decision in (VerdictDecision.BLOCK, VerdictDecision.QUARANTINE):
-            await self._process_attribution(context, verdict)
+            self._schedule_attribution(context, verdict)
 
         if decision == VerdictDecision.BLOCK:
             self._block_count += 1
@@ -282,6 +282,23 @@ class SyncResolver:
         self._total_latency_ms += elapsed
 
         return verdict
+
+    def _schedule_attribution(
+        self, context: ToolCallContext, verdict: Verdict
+    ) -> None:
+        """Schedules attacker attribution non-blockingly in a background task."""
+        try:
+            loop = asyncio.get_running_loop()
+            task = loop.create_task(self._process_attribution(context, verdict))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+        except RuntimeError:
+            pass
+
+    async def flush_background_tasks(self) -> None:
+        """Awaits all pending background attribution tasks to complete."""
+        if self._background_tasks:
+            await asyncio.gather(*list(self._background_tasks), return_exceptions=True)
 
     # ------------------------------------------------------------------
     # Attacker Attribution processing

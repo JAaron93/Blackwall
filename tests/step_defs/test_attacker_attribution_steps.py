@@ -569,7 +569,12 @@ def evaluate_e2e_sync_resolver(state: AttributionScenarioState, capsys):
     )
 
     import asyncio
-    state.e2e_verdict = asyncio.run(resolver.evaluate(state.e2e_context))
+    async def _run():
+        verdict = await resolver.evaluate(state.e2e_context)
+        await resolver.flush_background_tasks()
+        return verdict
+
+    state.e2e_verdict = asyncio.run(_run())
     captured = capsys.readouterr()
     state.e2e_stderr = captured.err
 
