@@ -16,8 +16,8 @@ Blackwall is an autonomous **Agentic Security Firewall** designed to intercept e
 - **Context_Hygiene**: Regex-based sanitization middleware that strips sensitive data before policy evaluation
 - **Agent_Behavioral_Analytics**: Runtime monitoring engine tracking behavioral drift and generating threat signatures
 - **Threat_Signature_Graph**: SQLite-backed semantic graph database storing learned threat patterns with node/edge schema
-- **GTI_MCP**: Google Threat Intelligence Model Context Protocol server providing VirusTotal IOC validation (used as secondary validation layer for high-risk events only)
-- **GTI_Query_Budget_Tracker**: Token bucket rate limiter managing GTI queries with graceful degradation
+- **GTI_MCP**: Google Threat Intelligence Model Context Protocol server providing VirusTotal IOC validation (rate-limited to 4 queries/minute on free tier; used as secondary validation layer for high-risk events only)
+- **GTI_Query_Budget_Tracker**: Token bucket rate limiter enforcing 4 GTI queries per 60-second sliding window with graceful degradation
 - **High_Risk_Event**: Tool call classified as suspicious based on structural gating signals, unknown external IPs, suspicious file hashes, or unknown domains requiring GTI validation
 - **Codebase_Memory_MCP**: AST-based code analysis server identifying critical sinks and dependency chains
 - **Callback_Token**: Data structure holding suspended thread ID, timestamp, tool name, arguments, and resume function
@@ -296,13 +296,13 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 
 ### Requirement 9: Google Threat Intelligence Integration
 
-**User Story:** As a security operations analyst, I want intelligent budget-constrained threat intelligence from VirusTotal for high-risk IOC validation, so that known malicious indicators are blocked within strict API rate limits (4 queries/minute standard cap).
+**User Story:** As a security operations analyst, I want intelligent budget-constrained threat intelligence from VirusTotal for high-risk IOC validation, so that known malicious indicators are blocked within strict API rate limits (4 queries/minute free tier).
 
 #### Acceptance Criteria
 
 1. THE system SHALL execute GTI_MCP validation ONLY for High_Risk_Events as classified by structural gating or suspicious IOC signals
 2. THE system SHALL cache GTI query results in SQLite with a configurable TTL (default: 24 hours) to minimize external API calls
-3. THE system SHALL implement a GTI_Query_Budget_Tracker using a **token bucket rate limiter** with a hard cap of 4 GTI queries per 60-second sliding window to comply with VirusTotal API rate limits
+3. THE system SHALL implement a GTI_Query_Budget_Tracker using a **token bucket rate limiter** with a hard cap of 4 GTI queries per 60-second sliding window to comply with VirusTotal free tier limits
 4. THE token bucket SHALL initialize with 4 tokens and replenish at a rate of 1 token every 15 seconds (4 tokens per 60 seconds)
 5. WHEN GTI budget is exhausted (0 tokens remaining), THE system SHALL continue evaluation without GTI signal, applying graceful degradation by redistributing GTI weight to other signals
 6. THE system SHALL prioritize GTI queries for high-risk events by ranking intercepted events by suspicion score and querying GTI only for the top-N highest-priority events within available budget

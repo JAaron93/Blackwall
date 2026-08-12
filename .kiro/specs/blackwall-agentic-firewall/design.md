@@ -22,8 +22,8 @@ Blackwall operates exclusively in **100% GCP Vertex AI Mode (Paid Tier via Gemin
 - Self-learning Threat Signature Graph (SQLite with WAL mode, cosine similarity search)
 - Context Hygiene (regex-based PII redaction)
 - Python Runtime Audit Hooks (`sys.addaudithook` blocking OS-level bypasses)
-- GTI MCP (VirusTotal IOC validation - rate-limited secondary validation for high-risk events) and codebase-memory MCP (AST analysis)
-- GTI Query Budget Tracker (token bucket enforcing query caps with intelligent prioritization)
+- GTI MCP (VirusTotal IOC validation - rate-limited secondary validation for high-risk events, 4 queries/minute free tier) and codebase-memory MCP (AST analysis)
+- GTI Query Budget Tracker (token bucket enforcing 4/min free tier cap with intelligent prioritization)
 - Zero Ambient Authority (dropped privileges + JIT credential downscoping)
 - All 12 correctness properties and FRR/Evasion Rate evaluation formulas
 
@@ -268,7 +268,7 @@ Execution agents are strictly restricted from arbitrary tool usage via hardcoded
 - Structural gating signals indicating elevated threat level
 
 **The Rate Limit Constraint:**
-- Standard VirusTotal API: 4 requests per minute (default rate limit cap)
+- Free tier VirusTotal API: 4 requests per minute (hard cap)
 - Token bucket rate limiter enforcing 4 queries per 60-second sliding window
 - Budget exhaustion triggers graceful degradation (no GTI validation for affected requests)
 - Suspicion scoring prioritizes high-risk events within budget
@@ -805,7 +805,7 @@ CREATE VIRTUAL TABLE signature_fts USING fts5(
 
 ### Component 6.5: GTI Query Budget Tracker
 
-**Purpose**: Token bucket rate limiter managing 4 GTI queries per 60-second sliding window to enforce VirusTotal API rate limit constraints with graceful degradation.
+**Purpose**: Token bucket rate limiter managing 4 GTI queries per 60-second sliding window to enforce VirusTotal free tier constraints with graceful degradation.
 
 **Interface**:
 ```pascal
@@ -827,7 +827,7 @@ END STRUCTURE
 ```
 
 **Responsibilities**:
-- Initialize token bucket with 4 tokens (matching VirusTotal standard rate limit: 4 queries/minute)
+- Initialize token bucket with 4 tokens (matching VirusTotal free tier: 4 queries/minute)
 - Replenish 1 token every 15 seconds (4 tokens per 60-second sliding window)
 - Enforce hard cap of 4 tokens maximum (no token accumulation beyond capacity)
 - Track query deferrals when budget exhausted (queriesAttempted - queriesExecuted)
