@@ -635,7 +635,8 @@ The implementation follows a test-driven development approach with property-base
     - **Property 70: Evaluation Mode Alert Isolation**
     - **Property 71: Evaluation Environment Graph Isolation**
     - **Property 72: Evaluation State Reset**
-    - **Validates: Requirements 14.1, 14.2, 14.3, 14.4**
+    - **Property 97: Evaluation Mode Reaction Suppression**
+    - **Validates: Requirements 14.1, 14.2, 14.3, 14.4, 14.5, 22.5**
     - _Verification: `pytest tests/property/test_evaluation_mode_properties.py --hypothesis-seed=0 -v`_
 
   - [ ] 18.5 Write BDD feature tests for Evaluation Environment Support
@@ -645,7 +646,8 @@ The implementation follows a test-driven development approach with property-base
     - Scenario: alerts generated in evaluation mode do not trigger production incident response
     - Scenario: two evaluation environments use isolated attack graph instances with no shared state
     - Scenario: resetting evaluation state returns the environment to a clean initial state
-    - _Requirements: 14.1, 14.2, 14.3, 14.4_
+    - Scenario: threat evidence generated in evaluation mode suppresses production reactions and logs payloads to evaluation log
+    - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 22.5_
     - _Verification: `pytest tests/step_defs/test_evaluation_environment_bdd.py -v`_
 
 - [ ] 19. Checkpoint - Verify auxiliary features
@@ -920,23 +922,24 @@ The implementation follows a test-driven development approach with property-base
 - [ ] 24. Implement Active Threat Reaction Engine (Feedback Loop to Pillars 1, 2, 3)
   - [ ] 24.1 Create `ActiveReactionEngine` class
     - Convert CRITICAL threat evidence into dynamic mitigation actions
-    - Implement `ActiveReactionPayload` model logging with Pydantic v2 validation
-    - _Requirements: 22.4, 15.10_
+    - Implement `ActiveReactionPayload` model logging with Pydantic v2 validation and `evaluation_env_id` tracking
+    - Implement evaluation containment check (`is_evaluation_mode()`) suppressing production mitigation actions when `evaluation_env_id` is present
+    - _Requirements: 22.4, 22.5, 14.5, 15.10_
     - _Verification: `pytest tests/unit/test_active_reaction_engine.py::test_payload_creation -v`_
 
   - [ ] 24.2 Implement dynamic eBPF socket drop rule injection
-    - Inject eBPF PID/socket drop rules into Pillar 1 (`LinuxeBPFDriver`) within 50ms
-    - _Requirements: 22.1_
+    - Inject eBPF PID/socket drop rules into Pillar 1 (`LinuxeBPFDriver`) within 50ms (production mode only)
+    - _Requirements: 22.1, 22.5_
     - _Verification: `pytest tests/unit/test_active_reaction_engine.py::test_ebpf_socket_drop -v`_
 
   - [ ] 24.3 Implement fleet-wide ZeroMQ threat signature broadcast
-    - Publish zero-latency block signatures to Pillar 2 Threat Mesh (<15ms)
-    - _Requirements: 22.2_
+    - Publish zero-latency block signatures to Pillar 2 Threat Mesh (<15ms) (production mode only)
+    - _Requirements: 22.2, 22.5_
     - _Verification: `pytest tests/unit/test_active_reaction_engine.py::test_mesh_broadcast -v`_
 
   - [ ] 24.4 Implement Vault JIT credential invalidation
-    - Trigger Pillar 3 Vault Sidecar session revocation for compromised agents
-    - _Requirements: 22.3_
+    - Trigger Pillar 3 Vault Sidecar session revocation for compromised agents (production mode only)
+    - _Requirements: 22.3, 22.5_
     - _Verification: `pytest tests/unit/test_active_reaction_engine.py::test_credential_invalidation -v`_
 
   - [ ] 24.5 Write property tests for Active Threat Reaction Engine
@@ -944,7 +947,8 @@ The implementation follows a test-driven development approach with property-base
     - **Property 83: Zero-Latency Threat Mesh Broadcast**
     - **Property 84: Identity Credential Invalidation**
     - **Property 85: Reaction Execution Logging**
-    - **Validates: Requirements 22.1, 22.2, 22.3, 22.4**
+    - **Property 97: Evaluation Mode Reaction Suppression**
+    - **Validates: Requirements 22.1, 22.2, 22.3, 22.4, 22.5, 14.5**
     - _Verification: `pytest tests/property/test_active_reaction_properties.py --hypothesis-seed=0 -v`_
 
   - [ ] 24.6 Write BDD feature tests for Active Threat Reaction Engine
@@ -952,7 +956,8 @@ The implementation follows a test-driven development approach with property-base
     - Scenario: CRITICAL swarm detection injects eBPF socket drop rule into Pillar 1 within 50ms
     - Scenario: CRITICAL exploit chain broadcasts ZeroMQ signature across Threat Mesh in <15ms
     - Scenario: AILM breach revokes JIT tokens via Pillar 3 Vault sidecar
-    - _Requirements: 22.1, 22.2, 22.3, 22.4_
+    - Scenario: CRITICAL evidence originating from an evaluation environment suppresses production eBPF drop, Threat Mesh broadcast, and Vault credential revocation
+    - _Requirements: 22.1, 22.2, 22.3, 22.4, 22.5, 14.5_
     - _Verification: `pytest tests/step_defs/test_active_threat_reaction_bdd.py -v`_
 
 - [ ] 25. Implement Inbound Protocol Interception and Cross-Agent Inspection

@@ -216,6 +216,7 @@ The system operates as a cross-cutting analysis plane above the existing five Bl
 2. WHEN operating in evaluation mode, THE Advanced_Threat_Detection SHALL prevent alerts from triggering production incident response workflows
 3. THE Advanced_Threat_Detection SHALL support isolated attack graph instances per evaluation environment
 4. THE Advanced_Threat_Detection SHALL support resetting evaluation environment state between test runs
+5. WHEN operating in evaluation mode, THE Active_Reaction_Engine SHALL suppress production eBPF socket drops, fleet Threat Mesh broadcasts, and production Vault credential revocations, isolating all mitigation actions to the evaluation environment log
 
 ### Requirement 15: Data Validation and Integrity
 
@@ -356,6 +357,7 @@ The system operates as a cross-cutting analysis plane above the existing five Bl
 2. WHEN CRITICAL threat evidence is produced, THE Active_Reaction_Engine SHALL broadcast a zero-latency block signature across Pillar 2 Threat Mesh in less than 15 milliseconds
 3. WHEN an AILM breach or credential theft event is detected, THE Active_Reaction_Engine SHALL trigger Pillar 3 Vault sidecar to invalidate JIT credentials for the compromised agent
 4. WHEN a mitigation action is executed, THE Active_Reaction_Engine SHALL log an `ActiveReactionPayload` record to the attack graph and publish a notification alert to the Alert Bus
+5. WHEN threat evidence originates from an evaluation environment (`evaluation_env_id`), THE Active_Reaction_Engine SHALL suppress production eBPF socket drops, fleet Threat Mesh broadcasts, and Vault revocations, preventing evaluation scenarios from modifying production resources
 
 ### Requirement 23: Inbound Protocol Interception and Cross-Agent Request Inspection
 

@@ -556,37 +556,49 @@ class ActiveReactionPayload:
     target_ip: Optional[str]
     action_type: str                   # "EBPF_DROP", "MESH_SIGNATURE_BROADCAST", "REVOKE_IDENTITY_TOKENS"
     timestamp: datetime
+    evaluation_env_id: Optional[str] = None   # Isolated evaluation environment identifier if in eval mode
 
 class ActiveReactionEngine:
+    async def is_evaluation_mode(
+        self,
+        evidence_id: str
+    ) -> bool:
+        """Check if trigger evidence originated from an evaluation environment"""
+        ...
+
     async def execute_ebpf_socket_drop(
         self,
         pid: int,
-        target_ip: str
+        target_ip: str,
+        evaluation_env_id: Optional[str] = None
     ) -> bool:
-        """Inject real-time eBPF socket drop rule into Pillar 1 driver"""
+        """Inject real-time eBPF socket drop rule into Pillar 1 driver (suppressed in eval mode)"""
         ...
 
     async def broadcast_fleet_signature(
         self,
         pattern: str,
-        confidence: float
+        confidence: float,
+        evaluation_env_id: Optional[str] = None
     ) -> bool:
-        """Publish zero-latency block signature to Pillar 2 ZeroMQ Threat Mesh"""
+        """Publish zero-latency block signature to Pillar 2 ZeroMQ Threat Mesh (suppressed in eval mode)"""
         ...
 
     async def revoke_identity_session(
         self,
-        agent_id: str
+        agent_id: str,
+        evaluation_env_id: Optional[str] = None
     ) -> bool:
-        """Trigger Pillar 3 Vault sidecar to invalidate JIT tokens and synthetic honey-sessions"""
+        """Trigger Pillar 3 Vault sidecar to invalidate JIT tokens and synthetic honey-sessions (suppressed in eval mode)"""
         ...
 ```
 
 **Responsibilities**:
 - Convert high-risk ATD threat evidence into zero-latency enforcement payloads
-- Inject dynamic eBPF socket/process drop rules into Pillar 1
-- Broadcast block signatures across enterprise nodes via Pillar 2 Threat Mesh in <15ms
-- Revoke active JIT credentials and honey-tokens via Pillar 3 Vault Sidecar
+- Validate evaluation containment: suppress production eBPF drops, Threat Mesh broadcasts, and Vault revocations when evidence originates from an evaluation environment (`evaluation_env_id`)
+- Inject dynamic eBPF socket/process drop rules into Pillar 1 (production mode only)
+- Broadcast block signatures across enterprise nodes via Pillar 2 Threat Mesh in <15ms (production mode only)
+- Revoke active JIT credentials and honey-tokens via Pillar 3 Vault Sidecar (production mode only)
 
 ### Component 10: InboundProtocolFilter
 
@@ -1511,6 +1523,12 @@ async def correlate_attack_paths(
 *For any* instantiated `ActiveReactionPayload`, `InboundProtocolMessage`, `PromptInjectionEvidence`, or `AgentQuotaUsage` model, Pydantic v2 validation SHALL enforce UUID v4 string format, UTC timezone-aware datetimes, non-negative usage metrics, and valid enum values for protocol/action types.
 
 **Validates: Requirements 22.4, 23.4, 24.1, 25.1**
+
+### Property 97: Evaluation Mode Reaction Suppression
+
+*For any* threat evidence generated within an evaluation environment (labeled with `evaluation_env_id`), the `Active_Reaction_Engine` SHALL suppress production eBPF socket drops, fleet Threat Mesh broadcasts, and production Vault credential revocations, isolating all mitigation actions to the evaluation environment log.
+
+**Validates: Requirements 14.5, 22.5**
 
 ## Error Handling
 
