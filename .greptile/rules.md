@@ -21,7 +21,7 @@ Blackwall is divided into two distinct product tiers:
   - **Pillar 3 (Ephemeral Identity Sidecar)**: `src/blackwall/enterprise/identity/` (Honey-tokens `BW_SYNTHETIC_*` and Vault MCP JIT STS tokens).
   - **Pillar 4 (Pipeline Interception & Sandboxes)**: `src/blackwall/enterprise/pipeline/` (`@blackwall.guard_pipeline` and container sandboxes).
   - **Pillar 5 (Forensic Engine & OpenTelemetry)**: `src/blackwall/enterprise/forensics/` (Dual-mode LLM triage with regex/AST fallback, OpenTelemetry exporter).
-  - **Pillar 6 (Advanced Threat Detection & Attacker Attribution)**: `src/blackwall/enterprise/advanced_threat_detection/` (`EventStreamCollector`, `AttackGraphStore`, `AgentSwarmDetector`, `ExploitChainAnalyzer`, `AILMTracker`, `C2InfrastructureDetector`, `K8sDefenseLayer`, `RegistryMonitor`, `AttackerIdentityExtractor`, `AttackerProfile`, `IncidentReportGenerator`).
+   - **Pillar 6 (Advanced Threat Detection & Attacker Attribution)**: `src/blackwall/enterprise/advanced_threat_detection/` (`EventStreamCollector`, `AttackGraphStore`, `AgentSwarmDetector`, `ExploitChainAnalyzer`, `AILMTracker`, `C2InfrastructureDetector`, `K8sDefenseLayer`, `RegistryMonitor`, `ActiveReactionEngine`, `InboundProtocolFilter`, `PromptInjectionScanner`, `AgentQuotaEnforcer`, `AttackerIdentityExtractor`, `AttackerProfile`, `IncidentReportGenerator`).
 
 ---
 
@@ -36,13 +36,14 @@ Blackwall is divided into two distinct product tiers:
 
 ## 3. Data Model & Pydantic Validation
 
-- **Pydantic v2**: All models in `src/blackwall/enterprise/advanced_threat_detection/models.py` and attacker attribution modules MUST enforce strict Pydantic v2 validation.
+- **Pydantic v2**: All models in `src/blackwall/enterprise/advanced_threat_detection/models.py` (`NormalizedEvent`, `AttackPath`, `SwarmEvidence`, `ActiveReactionPayload`, `InboundProtocolMessage`, `PromptInjectionEvidence`, `AgentQuotaUsage`) and attacker attribution modules MUST enforce strict Pydantic v2 validation.
 - **Constraints**:
-  - `event_id`: UUID v4 format.
-  - `timestamps`: UTC timezone aware (`datetime.now(timezone.utc)`).
-  - Risk/Threat scores: Bounded strictly in range `[0.0, 1.0]`.
-  - Sequence lengths: Enforce minimum length constraints.
-  - Temporal ordering: `end_time >= start_time`.
+  - `event_id`, `reaction_id`, `trigger_evidence_id`, `message_id`, `scan_id`: UUID v4 format.
+  - `timestamps`: UTC timezone aware with zero offset (`AwareDatetime`, `v.utcoffset() == timedelta(0)`). Reject naive datetimes and non-UTC offsets.
+  - Risk/Confidence/Threat scores: Bounded strictly in range `[0.0, 1.0]`.
+  - Non-negative usage metrics: `tokens_consumed >= 0`, `api_call_count >= 0`, `token_burn_rate_per_sec >= 0.0`.
+  - String Enums: Validate `ReactionActionType`, `InboundProtocolType`, `InboundMethodType`, `InjectionSourceType`.
+  - Mandatory Evaluation Containment: `ActiveReactionEngine` methods MUST query `is_evaluation_mode(payload.trigger_evidence_id)` from the evidence graph and quash production actions in eval mode.
 - **Fail-Closed Behavior**: Attacker attribution and security resolvers MUST fail closed cleanly without raising unhandled exceptions.
 
 ---
