@@ -635,8 +635,7 @@ The implementation follows a test-driven development approach with property-base
     - **Property 70: Evaluation Mode Alert Isolation**
     - **Property 71: Evaluation Environment Graph Isolation**
     - **Property 72: Evaluation State Reset**
-    - **Property 97: Evaluation Mode Reaction Suppression**
-    - **Validates: Requirements 14.1, 14.2, 14.3, 14.4, 14.5, 22.5**
+    - **Validates: Requirements 14.1, 14.2, 14.3, 14.4**
     - _Verification: `pytest tests/property/test_evaluation_mode_properties.py --hypothesis-seed=0 -v`_
 
   - [ ] 18.5 Write BDD feature tests for Evaluation Environment Support
@@ -646,8 +645,7 @@ The implementation follows a test-driven development approach with property-base
     - Scenario: alerts generated in evaluation mode do not trigger production incident response
     - Scenario: two evaluation environments use isolated attack graph instances with no shared state
     - Scenario: resetting evaluation state returns the environment to a clean initial state
-    - Scenario: threat evidence generated in evaluation mode suppresses production reactions and logs payloads to evaluation log
-    - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 22.5_
+    - _Requirements: 14.1, 14.2, 14.3, 14.4_
     - _Verification: `pytest tests/step_defs/test_evaluation_environment_bdd.py -v`_
 
 - [ ] 19. Checkpoint - Verify auxiliary features
