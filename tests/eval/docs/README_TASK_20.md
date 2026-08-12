@@ -21,7 +21,7 @@ This directory contains documentation for Task 20 (Create comprehensive test dat
 - ✅ Reference-based approach (CWE/CVE IDs, pseudocode patterns, external references)
 - ✅ All cases include attack patterns, tool names, expected verdicts, and severity levels
 - ✅ No functional exploit code stored (safe for public distribution)
-- ✅ Suffices and is optimal for Kaggle submission
+- ✅ Suffices and is optimal for security evaluation metrics reporting
 
 ---
 

@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Blackwall is a **local Minimum Viable Product (MVP)** autonomous Agentic Firewall designed for the Kaggle "AI Agents: Intensive Vibe Coding" hackathon Freestyle track. The system operates as a **single-instance ambient daemon** running exclusively within a **Kali Linux sandbox VM** to demonstrate dual-agent threat mitigation in a controlled environment. Blackwall intercepts and evaluates AI agent execution flows before they reach external systems or the host OS through ADK 2.0's `before_tool_callback` hook, implementing a hybrid defense architecture combining structural YAML-based policies with semantic LLM-based intent analysis. The system leverages self-learning threat signature graphs stored in an embedded **SQLite database** (not Redis or distributed stores), rate-limited secondary validation from Google Threat Intelligence (GTI) MCP (4 queries/minute on free tier), and structural code analysis via codebase-memory-mcp to dynamically generate defensive skills with zero static allowlists. The architecture addresses critical API rate constraints (300 RPM Gemini vs 600 RPM attacker) through asynchronous batched evaluation with callback queue management, maintaining sub-10% false positive/negative rates while demonstrating Zero Ambient Authority (unprivileged user + Python runtime audit hooks), Agent Behavioral Analytics, and runtime AgBOM tracing. **All enterprise patterns, horizontal scaling, multi-tenant isolation, and distributed caching abstractions are explicitly out of scope.**
+Blackwall is an autonomous **Agentic Security Firewall** designed to intercept execution flows at machine speed before rogue or compromised AI agents can perform unauthorized OS/network actions, chain zero-day exploits, or harvest credentials. Operating across **Blackwall Core** (single-host daemon) and **Blackwall Enterprise Mesh** (multi-host security mesh), it intercepts and evaluates AI agent execution flows before they reach external systems or the host OS through ADK's `before_tool_callback` hook, implementing a hybrid defense architecture combining structural YAML-based policies with semantic LLM-based intent analysis powered strictly by **100% GCP Vertex AI Mode** (Gemini Enterprise Agent Platform). The system leverages self-learning threat signature graphs stored in an embedded **SQLite database** (WAL mode), rate-limited secondary validation from Google Threat Intelligence (GTI) MCP, and structural code analysis via codebase-memory-mcp to dynamically generate defensive skills with zero static allowlists. The architecture addresses critical API rate constraints through asynchronous batched evaluation with callback queue management (300+ RPM quota), maintaining sub-10% false positive/negative rates while demonstrating Zero Ambient Authority (unprivileged user + Python runtime audit hooks), Agent Behavioral Analytics, and runtime AgBOM tracing.
 
 ## Glossary
 
@@ -506,38 +506,29 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 11. THE `version` field in the YAML policy file SHALL follow semantic versioning format MAJOR.MINOR.PATCH
 12. THE `global.threatThreshold` and `global.quarantineThreshold` fields SHALL be in the range 0.0 to 1.0 inclusive
 
-### Requirement 18: Kaggle Submission and Demo Requirements
+### Requirement 18: Evaluation, Benchmarks, and Demo Harness Requirements
 
-**User Story:** As a hackathon participant, I want comprehensive demo materials and evaluation artifacts, so that Kaggle judges can reproduce results and verify performance claims.
+**User Story:** As a security engineer, I want comprehensive demo materials and evaluation artifacts, so that users and security teams can reproduce evaluation results and verify performance claims.
 
 #### Acceptance Criteria
 
 1. THE system SHALL include a public GitHub repository with complete source code, YAML configuration files, and documentation
 2. THE repository SHALL contain a README.md with: project overview, architecture summary, Mermaid diagrams, setup instructions, and usage examples
 3. THE repository SHALL include a `requirements.txt` or `pyproject.toml` listing all Python dependencies with pinned versions
-4. THE repository SHALL include a `docker-compose.yml` orchestrating the sandbox environment
-5. THE system SHALL include a demo video recording a dual-agent showdown with split-screen terminal showing the rogue agent side-by-side with Blackwall's live log output
-6. THE demo video SHALL show the rogue agent attempting a novel exploit (e.g., reverse shell install) and Blackwall intercepting, blocking, and creating a Threat_Signature
-7. THE demo video SHALL show the rogue agent attempting a variant of the same attack and Blackwall blocking it via Threat_Signature_Graph similarity matching without a GTI API call
-8. THE demo video SHALL display real-time Blackwall logs showing interception events, signature creation, and mitigation verdicts
-9. THE system SHALL include a test script that calculates FRR, Evasion Rate, and F1 score from a ground truth CSV and exports results as JSON
+4. THE repository SHALL include sandbox container configuration orchestrating the evaluation environment
+5. THE system SHALL include a live dual-agent showdown harness showing a rogue agent side-by-side with Blackwall's live log output
+6. THE demo harness SHALL show the rogue agent attempting a novel exploit (e.g., reverse shell install) and Blackwall intercepting, blocking, and creating a Threat_Signature
+7. THE demo harness SHALL show the rogue agent attempting a variant of the same attack and Blackwall blocking it via Threat_Signature_Graph similarity matching without a GTI API call
+8. THE demo harness SHALL display real-time Blackwall logs showing interception events, signature creation, and mitigation verdicts
+9. THE system SHALL include a test script that calculates FRR, Evasion Rate, and F1 score from a ground truth CSV/JSON and exports results
 10. THE test suite SHALL contain at least 50 MALICIOUS and 50 BENIGN test cases
-11. THE system SHALL generate a final SecurityMetrics JSON report for Kaggle judge submission
-12. THE sandbox environment SHALL run in a Kali Linux VM with dropped OS privileges and Python audit hooks enforcing ADK tool layer routing
+11. THE system SHALL generate a final SecurityMetrics JSON report for performance auditing
+12. THE sandbox environment SHALL run in a controlled environment with dropped OS privileges and Python audit hooks enforcing ADK tool layer routing
 13. THE rogue agent SHALL use Qwen3-Coder 480B via the Hyperbolic API running at up to 600 RPM
-14. THE Blackwall agent SHALL use Gemini 3.5 Flash via the paid Gemini Interactions API running at 300 RPM
-15. THE demo SHALL target a mock vulnerable application (e.g., Metasploitable) hosted inside the sandbox VM
-16. THE repository SHALL include Mermaid architecture diagrams covering: overall system architecture, main execution sequence, and component interaction flows
-17. THE repository SHALL include Behavior-Driven Development (BDD) scenarios in Gherkin syntax (Given/When/Then) demonstrating key security interception featuresmo video SHALL display real-time logs from Blackwall showing interception, signature creation, and mitigation
-9. THE system SHALL include test scripts calculating FRR, FPR, and Evasion Rate with ground truth labels
-10. THE test suite SHALL contain at least 50 MALICIOUS test cases and 50 BENIGN test cases
-11. THE system SHALL generate a final metrics report in JSON format for submission to Kaggle judges
-12. THE system SHALL run in a Kali Linux VM sandbox with dropped privileges and Python audit hooks enforcing ADK tool layer routing
-13. THE rogue agent SHALL use Qwen3-Coder 480B via Hyperbolic API running at 600 RPM
-14. THE Blackwall agent SHALL use Gemini 3.5 Flash via paid Gemini Interactions API running at 300 RPM
+14. THE Blackwall agent SHALL use Gemini 3.5 Flash via 100% GCP Vertex AI Mode running at 300+ RPM quota
 15. THE demo SHALL target a mock vulnerable application (e.g., Metasploitable) hosted inside the sandbox
-16. THE final submission SHALL include architectural diagrams in Mermaid or similar format showing component interactions
-17. THE submission SHALL include Behavior-Driven Development (BDD) scenarios in Gherkin syntax demonstrating key security features
+16. THE repository SHALL include Mermaid architecture diagrams covering: overall system architecture, main execution sequence, and component interaction flows
+17. THE repository SHALL include Behavior-Driven Development (BDD) scenarios in Gherkin syntax (Given/When/Then) demonstrating key security interception features
 
 
 ### Requirement 19: Quarantine and Auto-Refactoring (Green Team)

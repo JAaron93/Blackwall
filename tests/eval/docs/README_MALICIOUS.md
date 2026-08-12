@@ -188,7 +188,8 @@ This design ensures the dataset is:
 2. Expected verdicts verified (BLOCK or QUARANTINE)
 3. False Refusal Rate (FRR) < 10% target achieved
 4. Evasion Rate < 10% target achieved
-5. Metrics exported for Kaggle judges as reproducible proof
+5. Metrics exported for automated security reporting
+
 
 ## Attribution & Compliance
 
@@ -248,4 +249,4 @@ For questions about this dataset:
 **Last Updated:** 2025
 **Total Test Cases:** 59
 **Coverage:** 11 attack categories
-**Status:** Reference dataset for Kaggle "AI Agents: Intensive Vibe Coding" hackathon
+**Status:** Production reference evaluation dataset for Blackwall Security Suite

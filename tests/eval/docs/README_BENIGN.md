@@ -381,5 +381,5 @@ For questions about this dataset:
 **Last Updated:** January 2025
 **Total Test Cases:** 69
 **Coverage:** 5 major categories
-**Status:** Reference dataset for Kaggle "AI Agents: Intensive Vibe Coding" hackathon
+**Status:** Production reference evaluation dataset for Blackwall Security Suite
 **Integration Status:** Ready for evaluation pipeline

@@ -85,14 +85,15 @@ The existing circuit breaker (5 consecutive failures → degraded mode) continue
 - **Delayed Zero-Day Detection**: Novel threats not yet in local signatures may be missed if not classified as high-risk
 - **Complexity**: Suspicion scoring and prioritization logic adds implementation complexity
 - **Cache Dependency**: 24-hour TTL caching becomes critical to maximize budget utilization
-- **Judge Reproduction**: Kaggle judges may see different GTI query patterns depending on attack timing and budget state
+- **Evaluation Reproduction**: Evaluation runs may see different GTI query patterns depending on attack timing and budget state
 
 ### Mitigations:
 - **Self-Learning Signatures**: When GTI does validate a malicious IOC, the threat signature is permanently cached locally, enabling future instant detection without GTI queries
 - **24-Hour Cache TTL**: Repeated IOCs (e.g., same C2 IP across multiple attacks) only consume 1 GTI query per day
 - **High Cache Hit Rate Target**: >60% cache hit rate reduces effective GTI query consumption
-- **Documentation**: README and JUDGE_EVALUATION.md clearly document the 4/min constraint and how it affects demo behavior
-- **Metrics Transparency**: `BudgetMetrics` tracks queries attempted vs. executed, making budget exhaustion visible to judges
+- **Documentation**: README clearly documents the 4/min constraint and how it affects execution behavior
+- **Metrics Transparency**: `BudgetMetrics` tracks queries attempted vs. executed, making budget exhaustion visible to operators
+
 
 ### Future Considerations:
 If the project receives funding post-hackathon:

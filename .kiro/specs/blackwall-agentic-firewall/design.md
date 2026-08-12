@@ -2,21 +2,20 @@
 
 ## Overview
 
-Blackwall is a **local Minimum Viable Product (MVP)** autonomous Agentic Firewall designed for the Kaggle "AI Agents: Intensive Vibe Coding" hackathon Freestyle track. The system operates as a **single-instance ambient daemon** running exclusively within a **Kali Linux sandbox VM** to demonstrate dual-agent threat mitigation. Blackwall intercepts and evaluates AI agent execution flows before they reach external systems or the host OS through ADK 2.0's `before_tool_callback` hook, implementing a hybrid defense architecture combining structural YAML-based policies with semantic LLM-based intent analysis.
+Blackwall is an autonomous **Agentic Security Firewall** designed to intercept execution flows at machine speed before rogue or compromised AI agents can perform unauthorized OS/network actions, chain zero-day exploits, or harvest credentials. Operating across **Blackwall Core** (single-host daemon) and **Blackwall Enterprise Mesh** (multi-host security mesh), it intercepts and evaluates AI agent execution flows before they reach external systems or the host OS through ADK's `before_tool_callback` hook, implementing a hybrid defense architecture combining structural YAML-based policies with semantic LLM-based intent analysis.
 
-### Dual-Tier Operation Modes
+### Product Tier Architecture & Paid-Tier Execution Mode
 
-Blackwall ships with **two operational modes** controlled by the `BLACKWALL_TIER` environment variable to balance performance demonstration (paid tier) with judge reproducibility (free tier):
+Blackwall operates exclusively in **100% GCP Vertex AI Mode (Paid Tier via Gemini Enterprise Agent Platform)** enforcing high-throughput concurrency quota (300+ RPM):
 
-**Paid Tier (300 RPM):**
+**Paid Tier (300+ RPM Quota):**
 - Uses `client.interactions.create()` for asynchronous batched evaluation
 - Implements `InterceptionQueue` and `BatchResolver` for callback queue management
 - Leverages server-side context caching via `previous_interaction_id` (50%+ token cost reduction)
 - Background webhook-driven signature generation (`background=True` submissions)
 - Performance: <100ms @ 99th percentile for semantic evaluation, zero added latency for signature writes
-- Target throughput: 300 RPM sustained (matches Gemini paid tier ceiling)
+- Target throughput: 300+ RPM sustained (matches Gemini paid tier ceiling)
 
-**Free Tier (15 RPM):**
 - Uses `client.models.generate_content()` for synchronous single-request evaluation
 - Bypasses `InterceptionQueue`, `BatchResolver`, and webhook infrastructure entirely
 - Implements `SyncResolver` for direct blocking evaluation

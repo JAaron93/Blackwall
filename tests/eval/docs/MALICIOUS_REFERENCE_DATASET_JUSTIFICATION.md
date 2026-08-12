@@ -1,8 +1,8 @@
-# Reference-Based Test Dataset: Kaggle Submission Viability (Task 20.1 - Malicious Cases)
+# Reference-Based Test Dataset: Security Evaluation Viability (Task 20.1 - Malicious Cases)
 
 ## Executive Summary
 
-**Yes, the reference-based dataset approach is sufficient for Kaggle submission.** In fact, it's the optimal approach for this competition because it:
+**Yes, the reference-based dataset approach is sufficient for production threat evaluation.** In fact, it's the optimal approach for this framework because it:
 
 1. **Demonstrates identical security logic** to functional payloads
 2. **Enables judge reproducibility** without setup complexity
@@ -196,12 +196,12 @@ This is why the evasion rate isn't 0%—because there are semantically ambiguous
 
 ---
 
-## Checklist for Kaggle Submission
+## Checklist for Security Evaluation
 
 - [x] **Dataset is transparent**: CWE/CVE IDs, external references provided
 - [x] **Metrics are valid**: FRR and Evasion Rate are scientifically sound
 - [x] **Detection logic is identical**: Semantic analysis works on abstract patterns
-- [x] **Reproducibility is maximized**: Judges can verify sources independently
+- [x] **Reproducibility is maximized**: External verification of sources enabled
 - [x] **Industry standards are followed**: Research-grade threat model documentation
 - [x] **Self-learning proof is strong**: 100x+ speedup between Wave 1 and Wave 2
 - [x] **Safety standards are met**: No functional exploits in public repository
@@ -213,19 +213,17 @@ This is why the evasion rate isn't 0%—because there are semantically ambiguous
 
 - **Full dataset**: `tests/eval/test_data/malicious_cases.json` (59 test cases)
 - **Dataset docs**: `tests/eval/test_data/README_MALICIOUS.md`
-- **Judge guide**: `JUDGE_EVALUATION.md` (§ Reference-Based Test Dataset Architecture)
 - **Task notes**: `.kiro/specs/blackwall-agentic-firewall/tasks.md` (Task 20.1 completion notes)
 
 ---
 
 ## Conclusion
 
-The reference-based test dataset is not a compromise—it's the optimal approach for this competition:
+The reference-based test dataset is not a compromise—it's the optimal approach for security evaluation:
 
 1. **Scientifically rigorous**: Threat detection semantics are preserved
-2. **Judge-friendly**: Fully reproducible and transparent
+2. **Operator-friendly**: Fully reproducible and transparent
 3. **Industry standard**: Aligns with OWASP, NIST, and academic research practices
 4. **Safe distribution**: No functional exploits in public repository
 5. **Metrics validity**: FRR and Evasion Rate remain scientifically sound
 
-Proceed with confidence that this approach will satisfy Kaggle judges and demonstrate Blackwall's defensive capabilities comprehensively.
