@@ -70,3 +70,13 @@ def test_repeated_configure_provider_env_purges_newly_injected_keys(monkeypatch)
     configure_provider_env()
     assert "GEMINI_API_KEY" not in os.environ
     assert os.getenv("GOOGLE_GENAI_USE_VERTEXAI") == "true"
+
+
+def test_get_genai_client_instantiates_vertexai(monkeypatch):
+    monkeypatch.setenv("GCP_PROJECT", "vertex-test-project")
+    monkeypatch.setenv("GCP_LOCATION", "us-central1")
+
+    from blackwall.config import get_genai_client
+    client = get_genai_client()
+    assert client._vertexai is True
+

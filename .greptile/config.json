@@ -8,7 +8,7 @@
   "rules": [
     {
       "id": "vertex-ai-mode",
-      "rule": "100% GCP Vertex AI Mode (Paid Tier) Vendor Compliance: Ensure google-genai clients instantiate with vertexai=True, require GCP_PROJECT, and run in paid tier mode. Flag any PR reintroducing Google AI Studio API key configurations (GEMINI_API_KEY, LLM_API_KEY) or free-tier rate limit fallbacks.",
+      "rule": "100% GCP Vertex AI Mode (Paid Tier) Vendor Compliance: Ensure google-genai clients instantiate with vertexai=True, require GCP_PROJECT / GOOGLE_CLOUD_PROJECT via Application Default Credentials (ADC), and run in paid tier mode (GEMINI_TIER=paid, 300+ RPM quota). Flag any PR reintroducing Google AI Studio API key configurations (GEMINI_API_KEY, LLM_API_KEY, BACKUP_LLM_API_KEY) or free/standard tier rate limit fallbacks.",
       "severity": "high"
     },
     {
