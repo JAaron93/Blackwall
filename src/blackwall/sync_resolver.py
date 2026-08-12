@@ -20,8 +20,14 @@ import time
 from typing import Any, Callable, Dict, Optional
 from uuid import uuid4
 
-from blackwall.attribution.extractor import AttackerIdentityExtractor
-from blackwall.attribution.reporter import IncidentReportGenerator
+try:
+    from blackwall.enterprise.advanced_threat_detection import (
+        AttackerIdentityExtractor,
+        IncidentReportGenerator,
+    )
+except ImportError:
+    from blackwall.attribution.extractor import AttackerIdentityExtractor
+    from blackwall.attribution.reporter import IncidentReportGenerator
 from blackwall.models import (
     AttackerProfile,
     CBMResponse,
@@ -195,7 +201,8 @@ class SyncResolver:
                 ),
                 confidence_score=1.0,
             )
-            await self._process_attribution(context, verdict)
+            sanitized = self._hygiene.sanitize_context(context)
+            await self._process_attribution(sanitized, verdict)
             return verdict
 
         # 2. Sanitize context
@@ -335,7 +342,10 @@ class SyncResolver:
                     if asyncio.iscoroutinefunction(self.on_attacker_identified):
                         await asyncio.wait_for(self.on_attacker_identified(report), timeout=2.0)
                     else:
-                        self.on_attacker_identified(report)
+                        await asyncio.wait_for(
+                            asyncio.to_thread(self.on_attacker_identified, report),
+                            timeout=2.0,
+                        )
                 except Exception as err:
                     logger.warning("Attacker identified callback failed: %s", err)
 
