@@ -299,7 +299,7 @@ class SyncResolver:
         try:
             sanitized = self._hygiene.sanitize_context(context)
             extractor = AttackerIdentityExtractor()
-            identity = extractor.extract(context=context, metadata=context.metadata)
+            identity = extractor.extract(context=sanitized, metadata=sanitized.metadata)
 
             now_utc = datetime.now(timezone.utc)
             initial_profile = AttackerProfile(
