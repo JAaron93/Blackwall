@@ -78,5 +78,6 @@ def test_get_genai_client_instantiates_vertexai(monkeypatch):
 
     from blackwall.config import get_genai_client
     client = get_genai_client()
-    assert client._vertexai is True
+    assert client.vertexai is True
+
 
