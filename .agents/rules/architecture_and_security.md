@@ -93,4 +93,9 @@
 * **Rule:** Interface code blocks and data models in technical design specifications (`design.md`) MUST be declared using explicit Pydantic `BaseModel` schemas with field-level constraints (`UUID4`, `AwareDatetime`, `Field(min_length=1)`, `Field(gt=0)`, `Field(ge=0)`, `Field(ge=0.0, le=1.0)`) and Pydantic String Enums, rather than standard Python `@dataclass` or bare primitive type annotations (`str`, `int`, `datetime`).
 * **Rationale:** Declaring bare primitive types in spec interfaces allows implementers to create models that accept empty strings, negative numbers, or invalid enum values, bypassing validation at instantiation.
 
+## 22. Mandatory Field-Level Constraints on Security Data Models
+* **Rule:** Pydantic schemas and specification model declarations for security payloads, network targets, RPC streams, and sanitized text MUST use explicit Pydantic v2 `Field` constraints (`IPvAnyAddress`, `min_length=1`, `pattern=r"..."`, `Dict[str, Any] = Field(..., min_length=1)`) rather than bare unconstrained types (`Optional[str] = None`, `dict`, `str`).
+* **Rationale:** Bare primitive types accept malformed IP strings (`"not_an_ip"`), empty environment identifiers (`""`), unconstrained empty dicts (`{}`), or empty sanitized strings, allowing malformed data to bypass validation and reach persistence or mitigation engines.
+
+
 
