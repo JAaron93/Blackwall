@@ -1495,97 +1495,97 @@ async def correlate_attack_paths(
 
 **Validates: Requirement 15.9**
 
-### Property 82: Dynamic eBPF Socket Drop Injection
+### Property 89: Dynamic eBPF Socket Drop Injection
 
 *For any* CRITICAL threat evidence produced by ATD, the Active_Reaction_Engine SHALL inject an eBPF socket drop rule for the offending PID or IP into Pillar 1 within 50 milliseconds.
 
 **Validates: Requirement 22.1**
 
-### Property 83: Zero-Latency Threat Mesh Broadcast
+### Property 90: Zero-Latency Threat Mesh Broadcast
 
 *For any* CRITICAL threat evidence, the Active_Reaction_Engine SHALL broadcast a block signature to Pillar 2 Threat Mesh in less than 15 milliseconds.
 
 **Validates: Requirement 22.2**
 
-### Property 84: Identity Credential Invalidation
+### Property 91: Identity Credential Invalidation
 
 *For any* detected AILM breach or credential theft event, the Active_Reaction_Engine SHALL trigger Pillar 3 Vault sidecar to invalidate JIT credentials for the compromised agent.
 
 **Validates: Requirement 22.3**
 
-### Property 85: Reaction Execution Logging
+### Property 92: Reaction Execution Logging
 
 *For any* mitigation action taken by the Active_Reaction_Engine, an ActiveReactionPayload record SHALL be logged to the attack graph and an alert emitted to the Alert Bus.
 
 **Validates: Requirement 22.4**
 
-### Property 86: Inbound Header and Origin Enforcement
+### Property 93: Inbound Header and Origin Enforcement
 
 *For any* HTTP/SSE request to an MCP/A2A endpoint, the Inbound_Protocol_Filter SHALL validate Origin and Host headers and reject invalid origins.
 
 **Validates: Requirement 23.1**
 
-### Property 87: Inbound Rate Limit Boundary
+### Property 94: Inbound Rate Limit Boundary
 
 *For any* incoming RPC stream exceeding the configured sliding-window rate limit, the Inbound_Protocol_Filter SHALL drop additional requests and emit a rate limit alert.
 
 **Validates: Requirement 23.2**
 
-### Property 88: Inbound JSON-RPC Sanitization
+### Property 95: Inbound JSON-RPC Sanitization
 
 *For any* valid incoming `tools/call` RPC message, the Inbound_Protocol_Filter SHALL sanitize arguments before passing the payload to the host agent.
 
 **Validates: Requirement 23.3**
 
-### Property 89: Malformed Protocol Rejection
+### Property 96: Malformed Protocol Rejection
 
 *For any* incoming message failing JSON-RPC schema validation, the Inbound_Protocol_Filter SHALL synthesize an MCP-compliant error response without leaking internal state.
 
 **Validates: Requirement 23.4**
 
-### Property 90: Prompt Injection Pattern Detection
+### Property 97: Prompt Injection Pattern Detection
 
 *For any* external data payload containing jailbreak or system prompt override signatures, the Prompt_Injection_Scanner SHALL classify it as an injection attempt.
 
 **Validates: Requirement 24.1**
 
-### Property 91: Injection Vector Redaction
+### Property 98: Injection Vector Redaction
 
 *For any* detected prompt injection payload, the Prompt_Injection_Scanner SHALL neutralize the injection vector before data is added to the agent context.
 
 **Validates: Requirement 24.2**
 
-### Property 92: Injection Alert Generation
+### Property 99: Injection Alert Generation
 
 *For any* detected prompt injection attempt, the Prompt_Injection_Scanner SHALL publish a HIGH or CRITICAL severity alert to the Alert Bus.
 
 **Validates: Requirement 24.3**
 
-### Property 93: Token Consumption Rate Tracking
+### Property 100: Token Consumption Rate Tracking
 
 *For any* action executed by an agent, the Agent_Quota_Enforcer SHALL record token usage and compute the rolling burn rate per second.
 
 **Validates: Requirement 25.1**
 
-### Property 94: Velocity Limit Quarantine Trigger
+### Property 101: Velocity Limit Quarantine Trigger
 
 *For any* agent whose token burn rate or request velocity exceeds configured ceilings, the Agent_Quota_Enforcer SHALL trigger automated throttling or quarantine.
 
 **Validates: Requirement 25.2**
 
-### Property 95: Quota Violation Alert Mapping
+### Property 102: Quota Violation Alert Mapping
 
 *For any* quota violation or velocity surge event, the Agent_Quota_Enforcer SHALL emit a Denial of Wallet alert to the Alert Bus.
 
 **Validates: Requirement 25.3**
 
-### Property 96: Breach Defense Model Pydantic Validation
+### Property 103: Breach Defense Model Pydantic Validation
 
 *For any* instantiated `ActiveReactionPayload`, `InboundProtocolMessage`, `PromptInjectionEvidence`, or `AgentQuotaUsage` model, Pydantic v2 validation SHALL enforce UUID v4 string format, UTC timezone-aware datetimes, non-negative usage metrics, and valid enum values for protocol/action types.
 
 **Validates: Requirements 22.4, 23.4, 24.1, 25.1**
 
-### Property 97: Evaluation Mode Reaction Suppression
+### Property 104: Evaluation Mode Reaction Suppression
 
 *For any* reaction method invoked on `Active_Reaction_Engine`, the engine SHALL resolve evaluation state by querying `is_evaluation_mode(payload.trigger_evidence_id)` from the underlying threat evidence graph. If the trigger evidence was generated within an evaluation environment, the engine SHALL quash production eBPF drops, fleet Threat Mesh broadcasts, and Vault revocations regardless of whether `payload.evaluation_env_id` is populated or `None`.
 

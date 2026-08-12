@@ -941,11 +941,11 @@ The implementation follows a test-driven development approach with property-base
     - _Verification: `pytest tests/unit/test_active_reaction_engine.py::test_credential_invalidation -v`_
 
   - [ ] 24.5 Write property tests for Active Threat Reaction Engine
-    - **Property 82: Dynamic eBPF Socket Drop Injection**
-    - **Property 83: Zero-Latency Threat Mesh Broadcast**
-    - **Property 84: Identity Credential Invalidation**
-    - **Property 85: Reaction Execution Logging**
-    - **Property 97: Evaluation Mode Reaction Suppression**
+    - **Property 89: Dynamic eBPF Socket Drop Injection**
+    - **Property 90: Zero-Latency Threat Mesh Broadcast**
+    - **Property 91: Identity Credential Invalidation**
+    - **Property 92: Reaction Execution Logging**
+    - **Property 104: Evaluation Mode Reaction Suppression**
     - **Validates: Requirements 22.1, 22.2, 22.3, 22.4, 22.5, 14.5**
     - _Verification: `pytest tests/property/test_active_reaction_properties.py --hypothesis-seed=0 -v`_
 
@@ -980,10 +980,10 @@ The implementation follows a test-driven development approach with property-base
     - _Verification: `pytest tests/unit/test_inbound_protocol_filter.py::test_rpc_sanitization -v`_
 
   - [ ] 25.5 Write property tests for Inbound Protocol Filter
-    - **Property 86: Inbound Header and Origin Enforcement**
-    - **Property 87: Inbound Rate Limit Boundary**
-    - **Property 88: Inbound JSON-RPC Sanitization**
-    - **Property 89: Malformed Protocol Rejection**
+    - **Property 93: Inbound Header and Origin Enforcement**
+    - **Property 94: Inbound Rate Limit Boundary**
+    - **Property 95: Inbound JSON-RPC Sanitization**
+    - **Property 96: Malformed Protocol Rejection**
     - **Validates: Requirements 23.1, 23.2, 23.3, 23.4**
     - _Verification: `pytest tests/property/test_inbound_filter_properties.py --hypothesis-seed=0 -v`_
 
@@ -1012,9 +1012,9 @@ The implementation follows a test-driven development approach with property-base
     - _Verification: `pytest tests/unit/test_prompt_injection_scanner.py::test_vector_redaction -v`_
 
   - [ ] 26.4 Write property tests for Prompt Injection Scanner
-    - **Property 90: Prompt Injection Pattern Detection**
-    - **Property 91: Injection Vector Redaction**
-    - **Property 92: Injection Alert Generation**
+    - **Property 97: Prompt Injection Pattern Detection**
+    - **Property 98: Injection Vector Redaction**
+    - **Property 99: Injection Alert Generation**
     - **Validates: Requirements 24.1, 24.2, 24.3**
     - _Verification: `pytest tests/property/test_prompt_injection_properties.py --hypothesis-seed=0 -v`_
 
@@ -1043,9 +1043,9 @@ The implementation follows a test-driven development approach with property-base
     - _Verification: `pytest tests/unit/test_agent_quota_enforcer.py::test_dow_alerts -v`_
 
   - [ ] 27.4 Write property tests for Agent Quota Enforcer
-    - **Property 93: Token Consumption Rate Tracking**
-    - **Property 94: Velocity Limit Quarantine Trigger**
-    - **Property 95: Quota Violation Alert Mapping**
+    - **Property 100: Token Consumption Rate Tracking**
+    - **Property 101: Velocity Limit Quarantine Trigger**
+    - **Property 102: Quota Violation Alert Mapping**
     - **Validates: Requirements 25.1, 25.2, 25.3**
     - _Verification: `pytest tests/property/test_quota_enforcer_properties.py --hypothesis-seed=0 -v`_
 
