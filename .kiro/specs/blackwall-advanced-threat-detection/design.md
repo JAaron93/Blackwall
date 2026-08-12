@@ -581,27 +581,27 @@ class ActiveReactionEngine:
         self,
         payload: ActiveReactionPayload
     ) -> bool:
-        """Inject real-time eBPF socket drop rule into Pillar 1 driver (mandatory check: suppressed if payload.evaluation_env_id is present or evidence is in eval mode)"""
+        """Inject real-time eBPF socket drop rule into Pillar 1 driver (mandatory check: MUST query is_evaluation_mode(payload.trigger_evidence_id); quashed if evaluation mode detected)"""
         ...
 
     async def broadcast_fleet_signature(
         self,
         payload: ActiveReactionPayload
     ) -> bool:
-        """Publish zero-latency block signature to Pillar 2 ZeroMQ Threat Mesh (mandatory check: suppressed if payload.evaluation_env_id is present or evidence is in eval mode)"""
+        """Publish zero-latency block signature to Pillar 2 ZeroMQ Threat Mesh (mandatory check: MUST query is_evaluation_mode(payload.trigger_evidence_id); quashed if evaluation mode detected)"""
         ...
 
     async def revoke_identity_session(
         self,
         payload: ActiveReactionPayload
     ) -> bool:
-        """Trigger Pillar 3 Vault sidecar to invalidate JIT tokens and synthetic honey-sessions (mandatory check: suppressed if payload.evaluation_env_id is present or evidence is in eval mode)"""
+        """Trigger Pillar 3 Vault sidecar to invalidate JIT tokens and synthetic honey-sessions (mandatory check: MUST query is_evaluation_mode(payload.trigger_evidence_id); quashed if evaluation mode detected)"""
         ...
 ```
 
 **Responsibilities**:
 - Convert high-risk ATD threat evidence into zero-latency enforcement payloads
-- Mandatory Evaluation Containment Gate: Every mitigation action method (`execute_ebpf_socket_drop`, `broadcast_fleet_signature`, `revoke_identity_session`) MUST accept a required `ActiveReactionPayload` instance and internally query `is_evaluation_mode(payload.trigger_evidence_id)` or check `payload.evaluation_env_id`. If evaluation mode is detected, production execution MUST be suppressed regardless of caller parameters.
+- Mandatory Evidence-Derived Containment Gate: Every mitigation action method (`execute_ebpf_socket_drop`, `broadcast_fleet_signature`, `revoke_identity_session`) MUST accept a required `ActiveReactionPayload` instance and mandatorily query `await self.is_evaluation_mode(payload.trigger_evidence_id)` to resolve evaluation state directly from the underlying evidence graph. If `is_evaluation_mode()` returns `True` or `payload.evaluation_env_id` is non-null, production execution MUST be quashed, ensuring evaluation containment cannot be bypassed when `payload.evaluation_env_id` is `None`.
 - Inject dynamic eBPF socket/process drop rules into Pillar 1 (production mode only)
 - Broadcast block signatures across enterprise nodes via Pillar 2 Threat Mesh in <15ms (production mode only)
 - Revoke active JIT credentials and honey-tokens via Pillar 3 Vault Sidecar (production mode only)
@@ -1583,7 +1583,7 @@ async def correlate_attack_paths(
 
 ### Property 97: Evaluation Mode Reaction Suppression
 
-*For any* reaction method invoked on `Active_Reaction_Engine`, the engine SHALL derive evaluation state directly from the required `ActiveReactionPayload.trigger_evidence_id` or `ActiveReactionPayload.evaluation_env_id`. If the evidence originates from an evaluation environment, the engine SHALL suppress production eBPF drops, fleet Threat Mesh broadcasts, and Vault revocations regardless of caller parameter defaults.
+*For any* reaction method invoked on `Active_Reaction_Engine`, the engine SHALL resolve evaluation state by querying `is_evaluation_mode(payload.trigger_evidence_id)` from the underlying threat evidence graph. If the trigger evidence was generated within an evaluation environment, the engine SHALL quash production eBPF drops, fleet Threat Mesh broadcasts, and Vault revocations regardless of whether `payload.evaluation_env_id` is populated or `None`.
 
 **Validates: Requirements 14.5, 22.5**
 
