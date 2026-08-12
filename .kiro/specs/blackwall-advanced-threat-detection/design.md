@@ -26,16 +26,20 @@ graph TB
         EventCollector[Event Stream Collector]
         AttackGraph[(Attack Graph Store)]
 
-        subgraph Real-Time Detection
+        subgraph Real-Time Detection & Ingress Defense
             SwarmDetector[Agent Swarm Detector]
             AILMTracker[AILM Tracker]
             ExploitChainer[Exploit Chain Analyzer]
+            InboundFilter[Inbound Protocol Filter]
+            InjectionScanner[Prompt Injection Scanner]
+            QuotaEnforcer[Agent Quota Enforcer]
         end
 
-        subgraph Retrospective Analysis
+        subgraph Retrospective & Active Reaction
             PathCorrelator[Multi-Stage Path Correlator]
             C2Detector[C2 Infrastructure Detector]
             TemporalAnalyzer[Temporal Pattern Matcher]
+            ReactionEngine[Active Threat Reaction Engine]
         end
     end
 
@@ -53,6 +57,19 @@ graph TB
     AttackGraph --> PathCorrelator
     AttackGraph --> C2Detector
     AttackGraph --> TemporalAnalyzer
+    InboundFilter --> EventCollector
+    InjectionScanner --> EventCollector
+    QuotaEnforcer --> EventCollector
+
+    SwarmDetector -->|Critical Evidence| ReactionEngine
+    AILMTracker -->|Critical Evidence| ReactionEngine
+    ExploitChainer -->|Critical Evidence| ReactionEngine
+    PathCorrelator -->|Critical Evidence| ReactionEngine
+    C2Detector -->|Critical Evidence| ReactionEngine
+
+    ReactionEngine -->|Dynamic eBPF Drop| P1
+    ReactionEngine -->|Fleet Block Signature| P2
+    ReactionEngine -->|Revoke JIT Tokens| P3
 
     SwarmDetector -->|Alert| AlertBus[Alert Bus]
     AILMTracker -->|Alert| AlertBus
@@ -60,6 +77,10 @@ graph TB
     PathCorrelator -->|Alert| AlertBus
     C2Detector -->|Alert| AlertBus
     TemporalAnalyzer -->|Alert| AlertBus
+    ReactionEngine -->|Action Notification| AlertBus
+    InboundFilter -->|Violation Alert| AlertBus
+    InjectionScanner -->|Injection Alert| AlertBus
+    QuotaEnforcer -->|Exhaustion Alert| AlertBus
 ```
 
 ### Integration with Existing Pillars
@@ -520,6 +541,221 @@ class PackageRegistryMonitor:
 - Identify vulnerability probing patterns
 - Correlate with known CVE patterns
 
+### Component 9: ActiveReactionEngine
+
+**Purpose**: Active reaction coordinator that automatically translates high-confidence Pillar 6 threat evidence (multi-stage attack paths, agent swarms, exploit chains, AILM breaches) into immediate, automated mitigation actions across Pillars 1, 2, and 3.
+
+**Interface**:
+```python
+class ReactionActionType(str, Enum):
+    EBPF_DROP = "EBPF_DROP"
+    MESH_SIGNATURE_BROADCAST = "MESH_SIGNATURE_BROADCAST"
+    REVOKE_IDENTITY_TOKENS = "REVOKE_IDENTITY_TOKENS"
+
+class ActiveReactionPayload(BaseModel):
+    reaction_id: UUID4
+    trigger_evidence_id: UUID4
+    target_agent_id: str = Field(..., min_length=1)
+    target_pid: Optional[int] = Field(None, gt=0)
+    target_ip: Optional[IPvAnyAddress] = None
+    action_type: ReactionActionType
+    timestamp: AwareDatetime
+    evaluation_env_id: Optional[str] = Field(None, min_length=1, pattern=r"^[a-zA-Z0-9_-]+$")
+
+    @field_validator("timestamp")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        if v.tzinfo is None or v.utcoffset() != timedelta(0):
+            raise ValueError("timestamp must be UTC timezone-aware with zero offset (+00:00 or timezone.utc)")
+        return v
+
+class ActiveReactionEngine:
+    async def is_evaluation_mode(
+        self,
+        evidence_id: str
+    ) -> bool:
+        """Check if trigger evidence originated from an evaluation environment"""
+        ...
+
+    async def execute_ebpf_socket_drop(
+        self,
+        payload: ActiveReactionPayload
+    ) -> bool:
+        """Inject real-time eBPF socket drop rule into Pillar 1 driver (mandatory check: MUST query is_evaluation_mode(payload.trigger_evidence_id); quashed if evaluation mode detected)"""
+        ...
+
+    async def broadcast_fleet_signature(
+        self,
+        payload: ActiveReactionPayload
+    ) -> bool:
+        """Publish zero-latency block signature to Pillar 2 ZeroMQ Threat Mesh (mandatory check: MUST query is_evaluation_mode(payload.trigger_evidence_id); quashed if evaluation mode detected)"""
+        ...
+
+    async def revoke_identity_session(
+        self,
+        payload: ActiveReactionPayload
+    ) -> bool:
+        """Trigger Pillar 3 Vault sidecar to invalidate JIT tokens and synthetic honey-sessions (mandatory check: MUST query is_evaluation_mode(payload.trigger_evidence_id); quashed if evaluation mode detected)"""
+        ...
+```
+
+**Responsibilities**:
+- Convert high-risk ATD threat evidence into zero-latency enforcement payloads
+- Mandatory Evidence-Derived Containment Gate: Every mitigation action method (`execute_ebpf_socket_drop`, `broadcast_fleet_signature`, `revoke_identity_session`) MUST accept a required `ActiveReactionPayload` instance and mandatorily query `await self.is_evaluation_mode(payload.trigger_evidence_id)` to resolve evaluation state directly from the underlying evidence graph. If `is_evaluation_mode()` returns `True` or `payload.evaluation_env_id` is non-null, production execution MUST be quashed, ensuring evaluation containment cannot be bypassed when `payload.evaluation_env_id` is `None`.
+- Inject dynamic eBPF socket/process drop rules into Pillar 1 (production mode only)
+- Broadcast block signatures across enterprise nodes via Pillar 2 Threat Mesh in <15ms (production mode only)
+- Revoke active JIT credentials and honey-tokens via Pillar 3 Vault Sidecar (production mode only)
+- Enforce strict Pydantic v2 field constraints and UTC timezone checks on all `ActiveReactionPayload` instances before execution
+
+### Component 10: InboundProtocolFilter
+
+**Purpose**: Ingress protocol proxy inspecting incoming Agent-to-Agent (A2A) protocol streams and Model Context Protocol (MCP) HTTP/SSE JSON-RPC requests targeting host agent endpoints.
+
+**Interface**:
+```python
+class InboundProtocolType(str, Enum):
+    MCP_SSE = "MCP_SSE"
+    MCP_STDIO = "MCP_STDIO"
+    A2A_REST = "A2A_REST"
+
+class InboundMethodType(str, Enum):
+    TOOLS_CALL = "tools/call"
+    PROMPT_SUBMIT = "prompt/submit"
+
+class InboundProtocolMessage(BaseModel):
+    message_id: UUID4
+    sender_id: str = Field(..., min_length=1)
+    recipient_agent_id: str = Field(..., min_length=1)
+    protocol: InboundProtocolType
+    method: InboundMethodType
+    payload: Dict[str, Any] = Field(..., min_length=1)
+    timestamp: AwareDatetime
+
+    @field_validator("timestamp")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        if v.tzinfo is None or v.utcoffset() != timedelta(0):
+            raise ValueError("timestamp must be UTC timezone-aware with zero offset (+00:00 or timezone.utc)")
+        return v
+
+class InboundProtocolFilter:
+    async def validate_headers_and_origin(
+        self,
+        headers: dict,
+        remote_addr: str
+    ) -> bool:
+        """Validate Origin/Host headers and restrict unauthenticated remote access"""
+        ...
+
+    async def check_inbound_rate_limit(
+        self,
+        sender_id: str,
+        sliding_window_sec: int = 60
+    ) -> bool:
+        """Enforce sliding-window inbound rate-limiting per sender identity"""
+        ...
+
+    async def sanitize_incoming_rpc(
+        self,
+        message: InboundProtocolMessage
+    ) -> InboundProtocolMessage:
+        """Extract and sanitize JSON-RPC payloads before host agent execution"""
+        ...
+```
+
+**Responsibilities**:
+- Inspect incoming A2A and MCP JSON-RPC protocol payloads
+- Enforce Origin/Host header validation and loopback binding rules
+- Rate-limit unauthenticated incoming cross-agent request streams
+- Sanitize incoming tool call parameters before execution by host agents
+- Enforce Pydantic v2 field constraints on all `InboundProtocolMessage` instances
+
+### Component 11: PromptInjectionScanner
+
+**Purpose**: Ingress payload analyzer scanning external text, code repositories, git diffs, web scrapes, and incoming messages for indirect prompt injection and data poisoning patterns.
+
+**Interface**:
+```python
+class InjectionSourceType(str, Enum):
+    GIT_DIFF = "git_diff"
+    WEB_SCRAPE = "web_scrape"
+    INCOMING_A2A_MSG = "incoming_a2a_msg"
+
+class PromptInjectionEvidence(BaseModel):
+    scan_id: UUID4
+    source_context: InjectionSourceType
+    detected_patterns: List[str] = Field(..., min_length=1)
+    injection_confidence: float = Field(..., ge=0.0, le=1.0)
+    sanitized_content: str = Field(..., min_length=1)
+
+class PromptInjectionScanner:
+    async def scan_payload(
+        self,
+        content: str,
+        source_type: InjectionSourceType
+    ) -> PromptInjectionEvidence:
+        """Scan input content for indirect prompt injection indicators"""
+        ...
+
+    async def redact_injection_vectors(
+        self,
+        evidence: PromptInjectionEvidence
+    ) -> str:
+        """Quash and neutralize injection vectors before passing data to host agent context"""
+        ...
+```
+
+**Responsibilities**:
+- Intercept external files, diffs, and web pages before ingestion into agent context
+- Detect structural jailbreaks and system prompt override attempts
+- Neutralize malicious prompt injection vectors in real time
+- Emit high-confidence alerts when data poisoning is detected
+- Enforce Pydantic v2 field constraints and confidence range [0.0, 1.0] on all `PromptInjectionEvidence` instances
+
+### Component 12: AgentQuotaEnforcer
+
+**Purpose**: Enterprise resource and token velocity enforcer protecting against rogue agent Denial of Wallet (DoW) attacks and API quota exhaustion.
+
+**Interface**:
+```python
+class AgentQuotaUsage(BaseModel):
+    agent_id: str = Field(..., min_length=1)
+    time_window_start: AwareDatetime
+    tokens_consumed: int = Field(..., ge=0)
+    api_call_count: int = Field(..., ge=0)
+    token_burn_rate_per_sec: float = Field(..., ge=0.0)
+    quota_exceeded: bool
+
+    @field_validator("time_window_start")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        if v.tzinfo is None or v.utcoffset() != timedelta(0):
+            raise ValueError("time_window_start must be UTC timezone-aware with zero offset (+00:00 or timezone.utc)")
+        return v
+
+class AgentQuotaEnforcer:
+    async def track_token_consumption(
+        self,
+        agent_id: str,
+        tokens_used: int
+    ) -> AgentQuotaUsage:
+        """Record token consumption and compute rolling burn rate"""
+        ...
+
+    async def enforce_quota_limits(
+        self,
+        agent_id: str
+    ) -> bool:
+        """Check whether agent has exceeded velocity or cost caps; trigger throttling/quarantine"""
+        ...
+```
+
+**Responsibilities**:
+- Track real-time token burn rate and request velocity per agent identity
+- Enforce enterprise cost and API request throughput ceilings
+- Trigger automated throttling or quarantine when anomalous consumption occurs
+- Prevent Denial of Wallet (DoW) attacks on enterprise infrastructure
+
 ## Data Models
 
 ### Model 1: NormalizedEvent
@@ -585,6 +821,105 @@ class SwarmEvidence:
 - `agent_ids` must contain at least 2 agents
 - `temporal_correlation` must be >= 0.5 for valid swarm
 - `coordination_score` must be >= 0.75 for high-confidence swarm
+
+### Model 4: ActiveReactionPayload
+
+```python
+class ActiveReactionPayload(BaseModel):
+    reaction_id: UUID4
+    trigger_evidence_id: UUID4
+    target_agent_id: str = Field(..., min_length=1)
+    target_pid: Optional[int] = Field(None, gt=0)
+    target_ip: Optional[IPvAnyAddress] = None
+    action_type: ReactionActionType
+    timestamp: AwareDatetime
+    evaluation_env_id: Optional[str] = Field(None, min_length=1, pattern=r"^[a-zA-Z0-9_-]+$")
+
+    @field_validator("timestamp")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        if v.tzinfo is None or v.utcoffset() != timedelta(0):
+            raise ValueError("timestamp must be UTC timezone-aware with zero offset (+00:00 or timezone.utc)")
+        return v
+```
+
+**Validation Rules**:
+- `reaction_id` and `trigger_evidence_id` must be valid UUID v4 objects
+- `target_agent_id` must be a non-empty string (`min_length=1`)
+- `target_ip` (if provided) must be a valid IPv4 or IPv6 address (`IPvAnyAddress`)
+- `evaluation_env_id` (if provided) must be a non-empty alphanumeric string (`min_length=1`)
+- `timestamp` must be UTC timezone-aware (`AwareDatetime`)
+- `action_type` must be a valid `ReactionActionType` enum
+- `target_pid` (if provided) must be > 0 (`gt=0`)
+
+### Model 5: InboundProtocolMessage
+
+```python
+class InboundProtocolMessage(BaseModel):
+    message_id: UUID4
+    sender_id: str = Field(..., min_length=1)
+    recipient_agent_id: str = Field(..., min_length=1)
+    protocol: InboundProtocolType
+    method: InboundMethodType
+    payload: Dict[str, Any] = Field(..., min_length=1)
+    timestamp: AwareDatetime
+
+    @field_validator("timestamp")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        if v.tzinfo is None or v.utcoffset() != timedelta(0):
+            raise ValueError("timestamp must be UTC timezone-aware with zero offset (+00:00 or timezone.utc)")
+        return v
+```
+
+**Validation Rules**:
+- `message_id` must be valid UUID v4 object
+- `sender_id` and `recipient_agent_id` must be non-empty strings (`min_length=1`)
+- `protocol` and `method` must be valid Enum values
+- `payload` must be a non-empty dictionary (`min_length=1`)
+- `timestamp` must be UTC timezone-aware (`AwareDatetime`)
+
+### Model 6: PromptInjectionEvidence
+
+```python
+class PromptInjectionEvidence(BaseModel):
+    scan_id: UUID4
+    source_context: InjectionSourceType
+    detected_patterns: List[str] = Field(..., min_length=1)
+    injection_confidence: float = Field(..., ge=0.0, le=1.0)
+    sanitized_content: str = Field(..., min_length=1)
+```
+
+**Validation Rules**:
+- `scan_id` must be valid UUID v4 object
+- `injection_confidence` must be constrained to range `[0.0, 1.0]` (`ge=0.0, le=1.0`)
+- `detected_patterns` must contain at least 1 identified pattern string (`min_length=1`)
+- `sanitized_content` must be a non-empty string (`min_length=1`)
+
+### Model 7: AgentQuotaUsage
+
+```python
+class AgentQuotaUsage(BaseModel):
+    agent_id: str = Field(..., min_length=1)
+    time_window_start: AwareDatetime
+    tokens_consumed: int = Field(..., ge=0)
+    api_call_count: int = Field(..., ge=0)
+    token_burn_rate_per_sec: float = Field(..., ge=0.0)
+    quota_exceeded: bool
+
+    @field_validator("time_window_start")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        if v.tzinfo is None or v.utcoffset() != timedelta(0):
+            raise ValueError("time_window_start must be UTC timezone-aware with zero offset (+00:00 or timezone.utc)")
+        return v
+```
+
+**Validation Rules**:
+- `agent_id` must be a non-empty string (`min_length=1`)
+- `tokens_consumed` and `api_call_count` must be non-negative integers (`ge=0`)
+- `token_burn_rate_per_sec` must be a non-negative float (`ge=0.0`)
+- `time_window_start` must be UTC timezone-aware (`AwareDatetime`)
 
 ## Algorithmic Pseudocode
 
@@ -1054,7 +1389,7 @@ async def correlate_attack_paths(
 
 ### Property 64: Passive Observation Invariant
 
-*For any* pillar operation being observed, the Advanced_Threat_Detection SHALL not modify the operation or its effects.
+*For any* pillar event stream being ingested by the Event_Collector, the Advanced_Threat_Detection SHALL operate as a passive observer without modifying or delaying the observed operation. Active mitigation actions executed by the Active_Reaction_Engine SHALL be dispatched asynchronously to Pillars 1, 2, and 3 upon CRITICAL evidence detection without blocking the passive event stream collector loop.
 
 **Validates: Requirement 12.7**
 
@@ -1159,6 +1494,102 @@ async def correlate_attack_paths(
 *For any* Swarm_Evidence, the coordination_score SHALL be validated to be in the range [0.0, 1.0] inclusive.
 
 **Validates: Requirement 15.9**
+
+### Property 89: Dynamic eBPF Socket Drop Injection
+
+*For any* CRITICAL threat evidence produced by ATD, the Active_Reaction_Engine SHALL inject an eBPF socket drop rule for the offending PID or IP into Pillar 1 within 50 milliseconds.
+
+**Validates: Requirement 22.1**
+
+### Property 90: Zero-Latency Threat Mesh Broadcast
+
+*For any* CRITICAL threat evidence, the Active_Reaction_Engine SHALL broadcast a block signature to Pillar 2 Threat Mesh in less than 15 milliseconds.
+
+**Validates: Requirement 22.2**
+
+### Property 91: Identity Credential Invalidation
+
+*For any* detected AILM breach or credential theft event, the Active_Reaction_Engine SHALL trigger Pillar 3 Vault sidecar to invalidate JIT credentials for the compromised agent.
+
+**Validates: Requirement 22.3**
+
+### Property 92: Reaction Execution Logging
+
+*For any* mitigation action taken by the Active_Reaction_Engine, an ActiveReactionPayload record SHALL be logged to the attack graph and an alert emitted to the Alert Bus.
+
+**Validates: Requirement 22.4**
+
+### Property 93: Inbound Header and Origin Enforcement
+
+*For any* HTTP/SSE request to an MCP/A2A endpoint, the Inbound_Protocol_Filter SHALL validate Origin and Host headers and reject invalid origins.
+
+**Validates: Requirement 23.1**
+
+### Property 94: Inbound Rate Limit Boundary
+
+*For any* incoming RPC stream exceeding the configured sliding-window rate limit, the Inbound_Protocol_Filter SHALL drop additional requests and emit a rate limit alert.
+
+**Validates: Requirement 23.2**
+
+### Property 95: Inbound JSON-RPC Sanitization
+
+*For any* valid incoming `tools/call` RPC message, the Inbound_Protocol_Filter SHALL sanitize arguments before passing the payload to the host agent.
+
+**Validates: Requirement 23.3**
+
+### Property 96: Malformed Protocol Rejection
+
+*For any* incoming message failing JSON-RPC schema validation, the Inbound_Protocol_Filter SHALL synthesize an MCP-compliant error response without leaking internal state.
+
+**Validates: Requirement 23.4**
+
+### Property 97: Prompt Injection Pattern Detection
+
+*For any* external data payload containing jailbreak or system prompt override signatures, the Prompt_Injection_Scanner SHALL classify it as an injection attempt.
+
+**Validates: Requirement 24.1**
+
+### Property 98: Injection Vector Redaction
+
+*For any* detected prompt injection payload, the Prompt_Injection_Scanner SHALL neutralize the injection vector before data is added to the agent context.
+
+**Validates: Requirement 24.2**
+
+### Property 99: Injection Alert Generation
+
+*For any* detected prompt injection attempt, the Prompt_Injection_Scanner SHALL publish a HIGH or CRITICAL severity alert to the Alert Bus.
+
+**Validates: Requirement 24.3**
+
+### Property 100: Token Consumption Rate Tracking
+
+*For any* action executed by an agent, the Agent_Quota_Enforcer SHALL record token usage and compute the rolling burn rate per second.
+
+**Validates: Requirement 25.1**
+
+### Property 101: Velocity Limit Quarantine Trigger
+
+*For any* agent whose token burn rate or request velocity exceeds configured ceilings, the Agent_Quota_Enforcer SHALL trigger automated throttling or quarantine.
+
+**Validates: Requirement 25.2**
+
+### Property 102: Quota Violation Alert Mapping
+
+*For any* quota violation or velocity surge event, the Agent_Quota_Enforcer SHALL emit a Denial of Wallet alert to the Alert Bus.
+
+**Validates: Requirement 25.3**
+
+### Property 103: Breach Defense Model Pydantic Validation
+
+*For any* instantiated `ActiveReactionPayload`, `InboundProtocolMessage`, `PromptInjectionEvidence`, or `AgentQuotaUsage` model, Pydantic v2 validation SHALL enforce UUID v4 string format, UTC timezone-aware datetimes, non-negative usage metrics, and valid enum values for protocol/action types.
+
+**Validates: Requirements 22.4, 23.4, 24.1, 25.1**
+
+### Property 104: Evaluation Mode Reaction Suppression
+
+*For any* reaction method invoked on `Active_Reaction_Engine`, the engine SHALL resolve evaluation state by querying `is_evaluation_mode(payload.trigger_evidence_id)` from the underlying threat evidence graph. If the trigger evidence was generated within an evaluation environment, the engine SHALL quash production eBPF drops, fleet Threat Mesh broadcasts, and Vault revocations regardless of whether `payload.evaluation_env_id` is populated or `None`.
+
+**Validates: Requirements 14.5, 22.5**
 
 ## Error Handling
 

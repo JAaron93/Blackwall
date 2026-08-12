@@ -28,7 +28,7 @@
     },
     {
       "id": "advanced-threat-detection-isolation",
-      "rule": "Advanced Threat Detection (Pillar 6) Isolation & Model Validation: Verify Pillar 6 components reside under src/blackwall/enterprise/advanced_threat_detection/ and Pydantic v2 data models enforce UUID v4 event_id, UTC timezone awareness for timestamps, score bounds [0.0, 1.0], min sequence sizes, and temporal ordering (end_time >= start_time).",
+      "rule": "Advanced Threat Detection (Pillar 6) Isolation & Model Validation: Verify Pillar 6 components (including ActiveReactionEngine, InboundProtocolFilter, PromptInjectionScanner, AgentQuotaEnforcer) reside under src/blackwall/enterprise/advanced_threat_detection/ and Pydantic v2 data models enforce UUID v4 identifiers, UTC timezone awareness with zero offset (utcoffset == 0), score bounds [0.0, 1.0], non-negative usage limits, string enums, and mandatory evidence-derived evaluation containment.",
       "severity": "high"
     },
     {
