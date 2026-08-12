@@ -20,14 +20,10 @@ import time
 from typing import Any, Callable, Dict, Optional
 from uuid import uuid4
 
-try:
-    from blackwall.enterprise.advanced_threat_detection import (
-        AttackerIdentityExtractor,
-        IncidentReportGenerator,
-    )
-except ImportError:
-    from blackwall.attribution.extractor import AttackerIdentityExtractor
-    from blackwall.attribution.reporter import IncidentReportGenerator
+from blackwall.attribution import (
+    AttackerIdentityExtractor,
+    IncidentReportGenerator,
+)
 from blackwall.models import (
     AttackerProfile,
     CBMResponse,
@@ -140,6 +136,9 @@ class SyncResolver:
         self.demo_mode = demo_mode
         self.on_attacker_identified = on_attacker_identified
         self.telemetry = telemetry
+
+        # Background tasks tracking set to prevent task cancellation during loop execution
+        self._background_tasks: set[asyncio.Task[Any]] = set()
 
         # Rate limiter: Paid tier (300 RPM → capacity=300, refill_rate=5.0 t/s) vs Free tier (15 RPM)
         tier = (
@@ -331,9 +330,15 @@ class SyncResolver:
                 confidence=verdict.confidence_score,
             )
 
-            # Emit notification sinks (CLI, callback, telemetry) inline with strict 0.05s timeout
-            # guaranteeing completion before evaluate returns without stalling verdict delivery.
-            await self._emit_sinks(report, identity, profile)
+            # Schedule notification sinks in background task retained in self._background_tasks
+            # to prevent task cancellation while returning verdict immediately.
+            try:
+                loop = asyncio.get_running_loop()
+                task = loop.create_task(self._emit_sinks(report, identity, profile))
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
+            except RuntimeError:
+                await self._emit_sinks(report, identity, profile)
 
         except Exception as exc:
             logger.warning("Attacker attribution failed gracefully (fail-safe mode): %s", exc)
