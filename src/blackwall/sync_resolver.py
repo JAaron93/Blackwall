@@ -198,7 +198,7 @@ class SyncResolver:
             self._total_evaluations += 1
             elapsed = (time.time() - t0) * 1000.0
             self._total_latency_ms += elapsed
-            verdict = Verdict(
+            return Verdict(
                 decision=VerdictDecision.QUARANTINE,
                 reasoning=(
                     "Rate limit exhausted (15 RPM). "
@@ -206,8 +206,6 @@ class SyncResolver:
                 ),
                 confidence_score=1.0,
             )
-            self._schedule_attribution(context, verdict)
-            return verdict
 
         # 2. Sanitize context
         sanitized = self._hygiene.sanitize_context(context)
@@ -293,6 +291,9 @@ class SyncResolver:
         self, context: ToolCallContext, verdict: Verdict
     ) -> None:
         """Schedules attacker attribution non-blockingly in a background task to preserve verdict SLA (<5ms)."""
+        if len(self._background_tasks) >= 50:
+            logger.warning("Attribution task queue capacity (50) reached; dropping background scheduling.")
+            return
         try:
             loop = asyncio.get_running_loop()
             task = loop.create_task(self._process_attribution(context, verdict))
