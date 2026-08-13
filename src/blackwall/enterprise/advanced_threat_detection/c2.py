@@ -76,6 +76,26 @@ def _extract_hostname_and_path(url_or_domain: str) -> Tuple[str, str]:
         return clean.strip().lower(), ""
 
 
+def _normalize_endpoint(url_or_domain: str) -> str:
+    """Normalize full endpoint string preserving netloc (with port), path, and query string."""
+    raw = url_or_domain.strip().lower()
+    if not raw:
+        return ""
+
+    url_str = raw
+    if not url_str.startswith(("http://", "https://")):
+        url_str = "http://" + url_str
+
+    try:
+        parsed = urlparse(url_str)
+        netloc = parsed.netloc or raw.split("/")[0]
+        path = parsed.path.rstrip("/")
+        query = f"?{parsed.query}" if parsed.query else ""
+        return f"{netloc}{path}{query}"
+    except Exception:
+        return raw
+
+
 class C2InfrastructureDetector:
     """Detects Command-and-Control (C2) infrastructure establishment, beaconing, and persistence."""
 
@@ -126,7 +146,7 @@ class C2InfrastructureDetector:
         endpoint: str,
         time_window: Tuple[datetime, datetime],
     ) -> bool:
-        """Detect periodic beaconing patterns indicative of C2 communication to a specific endpoint.
+        """Detect periodic beaconing patterns indicative of C2 communication to a specific distinct endpoint.
 
         Args:
             agent_id: Agent identifier string.
@@ -145,26 +165,26 @@ class C2InfrastructureDetector:
 
         agent_events = self._events_by_agent.get(str(agent_id), [])
 
-        target_host, target_path = _extract_hostname_and_path(endpoint)
+        target_norm = _normalize_endpoint(endpoint)
+        target_host, _ = _extract_hostname_and_path(endpoint)
         matching_timestamps: List[datetime] = []
 
         for evt in agent_events:
             if not (start_win <= evt.timestamp <= end_win):
                 continue
 
-            evt_target_host, evt_target_path = _extract_hostname_and_path(evt.target)
-            metadata_host = ""
-            metadata_path = ""
+            evt_target_norm = _normalize_endpoint(evt.target)
+            evt_target_host, _ = _extract_hostname_and_path(evt.target)
+            meta_norm = ""
             if isinstance(evt.metadata, dict):
-                meta_domain = evt.metadata.get("domain") or evt.metadata.get("host") or evt.metadata.get("endpoint", "")
+                meta_domain = evt.metadata.get("endpoint") or evt.metadata.get("url") or evt.metadata.get("domain") or ""
                 if isinstance(meta_domain, str) and meta_domain:
-                    metadata_host, metadata_path = _extract_hostname_and_path(meta_domain)
+                    meta_norm = _normalize_endpoint(meta_domain)
 
-            # Match against target endpoint URL or specific host+path
+            # Match exact normalized endpoint (including port/query) or exact host if domain-level query
             if (
-                endpoint.strip().lower() == evt.target.strip().lower()
-                or (target_host and target_host == evt_target_host and (not target_path or target_path == evt_target_path))
-                or (target_host and target_host == metadata_host and (not target_path or target_path == metadata_path))
+                (target_norm and (target_norm == evt_target_norm or target_norm == meta_norm))
+                or (target_host and target_host == evt_target_host and target_norm == evt_target_norm)
             ):
                 matching_timestamps.append(evt.timestamp)
 
