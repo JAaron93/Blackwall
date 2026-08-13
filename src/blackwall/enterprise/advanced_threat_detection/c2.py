@@ -46,9 +46,13 @@ PERSISTENCE_PATTERNS = [
 ]
 
 NETWORK_ACTION_KEYWORDS = {
-    "connect", "sys_connect", "sendto", "sys_sendto", "socket", "bind",
-    "accept", "recvfrom", "network_access", "http_request", "tcp_connect",
-    "udp_send", "dns_query", "net_outbound"
+    "connect", "sys_connect", "sendto", "sys_sendto", "socket_connect",
+    "network_access", "http_request", "tcp_connect", "udp_send", "dns_query", "net_outbound"
+}
+
+NON_NETWORK_ACTION_KEYWORDS = {
+    "send_signal", "sendfile", "socketpair", "send_sig", "kill_proc",
+    "signal", "write", "read", "open", "close", "chmod", "chown", "execve"
 }
 
 
@@ -141,23 +145,26 @@ class C2InfrastructureDetector:
 
         agent_events = self._events_by_agent.get(str(agent_id), [])
 
-        target_host, _ = _extract_hostname_and_path(endpoint)
+        target_host, target_path = _extract_hostname_and_path(endpoint)
         matching_timestamps: List[datetime] = []
 
         for evt in agent_events:
             if not (start_win <= evt.timestamp <= end_win):
                 continue
 
-            evt_target_host, _ = _extract_hostname_and_path(evt.target)
+            evt_target_host, evt_target_path = _extract_hostname_and_path(evt.target)
             metadata_host = ""
+            metadata_path = ""
             if isinstance(evt.metadata, dict):
                 meta_domain = evt.metadata.get("domain") or evt.metadata.get("host") or evt.metadata.get("endpoint", "")
                 if isinstance(meta_domain, str) and meta_domain:
-                    metadata_host, _ = _extract_hostname_and_path(meta_domain)
+                    metadata_host, metadata_path = _extract_hostname_and_path(meta_domain)
 
-            # Match against specific target host or exact endpoint string
-            if target_host and (
-                target_host == evt_target_host or target_host == metadata_host or endpoint.strip().lower() == evt.target.strip().lower()
+            # Match against target endpoint URL or specific host+path
+            if (
+                endpoint.strip().lower() == evt.target.strip().lower()
+                or (target_host and target_host == evt_target_host and (not target_path or target_path == evt_target_path))
+                or (target_host and target_host == metadata_host and (not target_path or target_path == metadata_path))
             ):
                 matching_timestamps.append(evt.timestamp)
 
@@ -263,10 +270,16 @@ class C2InfrastructureDetector:
             # Restrict kernel network events strictly to genuine network syscall actions
             if evt.source == EventSource.KERNEL_SYSCALL:
                 act_lower = evt.action.lower()
-                is_net = (
-                    act_lower in NETWORK_ACTION_KEYWORDS
-                    or any(k in act_lower for k in ("connect", "socket", "network", "http", "dns", "send", "recv"))
-                )
+                if act_lower in NON_NETWORK_ACTION_KEYWORDS:
+                    is_net = False
+                else:
+                    is_net = (
+                        act_lower in NETWORK_ACTION_KEYWORDS
+                        or (
+                            any(k in act_lower for k in ("connect", "socket", "network", "http", "dns", "tcp", "udp"))
+                            and not any(ex in act_lower for ex in ("file", "signal", "pair"))
+                        )
+                    )
                 if is_net:
                     kernel_network_events.append(evt)
             elif evt.source in (EventSource.TOOL_CALL, EventSource.PIPELINE_EXECUTION):
