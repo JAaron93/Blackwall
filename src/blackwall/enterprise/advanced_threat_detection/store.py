@@ -753,14 +753,43 @@ class AttackGraphStore:
         if self._pool:
             async with self._pool.acquire() as conn:
                 async with conn.transaction():
-                    result = await conn.execute(
-                        "DELETE FROM event_nodes WHERE timestamp < $1;", cutoff_time
+                    purged_rows = await conn.fetch(
+                        "SELECT node_id FROM event_nodes WHERE timestamp < $1;", cutoff_time
                     )
-                    # result is like 'DELETE 5'
-                    try:
-                        purged_count = int(result.split()[-1])
-                    except (ValueError, IndexError):
-                        purged_count = 0
+                    purged_ids = [r["node_id"] for r in purged_rows]
+                    if purged_ids:
+                        edge_rows = await conn.fetch(
+                            "SELECT edge_id FROM causal_edges WHERE from_node = ANY($1) OR to_node = ANY($1);",
+                            purged_ids,
+                        )
+                        edge_ids_to_remove = [r["edge_id"] for r in edge_rows]
+
+                        result = await conn.execute(
+                            "DELETE FROM event_nodes WHERE timestamp < $1;", cutoff_time
+                        )
+                        try:
+                            purged_count = int(result.split()[-1])
+                        except (ValueError, IndexError):
+                            purged_count = len(purged_ids)
+
+                        if edge_ids_to_remove:
+                            await conn.execute(
+                                """
+                                UPDATE event_nodes
+                                SET incoming_edges = (
+                                    SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+                                    FROM jsonb_array_elements_text(incoming_edges) AS elem
+                                    WHERE elem != ALL($1)
+                                ),
+                                outgoing_edges = (
+                                    SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+                                    FROM jsonb_array_elements_text(outgoing_edges) AS elem
+                                    WHERE elem != ALL($1)
+                                )
+                                WHERE incoming_edges ?| $1 OR outgoing_edges ?| $1;
+                                """,
+                                edge_ids_to_remove,
+                            )
 
         # Purge from in-memory structures
         to_delete = [
@@ -768,6 +797,11 @@ class AttackGraphStore:
             for nid, node in self._nodes.items()
             if node.event.timestamp < cutoff_time
         ]
+        removed_edge_ids = {
+            e["edge_id"]
+            for e in self._edges
+            if e["from_node"] in to_delete or e["to_node"] in to_delete
+        }
         for nid in to_delete:
             node = self._nodes.pop(nid, None)
             if node:
@@ -776,11 +810,21 @@ class AttackGraphStore:
                 if nid in agent_nids:
                     agent_nids.remove(nid)
 
+        for node in self._nodes.values():
+            if removed_edge_ids:
+                node.incoming_edges = [
+                    e for e in node.incoming_edges if e not in removed_edge_ids
+                ]
+                node.outgoing_edges = [
+                    e for e in node.outgoing_edges if e not in removed_edge_ids
+                ]
+
         self._edges = [
             e
             for e in self._edges
-            if e["from_node"] in self._nodes and e["to_node"] in self._nodes
+            if e["edge_id"] not in removed_edge_ids
         ]
         self._invalidate_path_cache()
         return len(to_delete) if not self._pool else purged_count
+
 

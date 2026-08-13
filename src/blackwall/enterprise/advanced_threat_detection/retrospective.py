@@ -1,6 +1,7 @@
 """Retrospective Analysis and Historical Query component for Blackwall Advanced Threat Detection (Pillar 6 Task 17)."""
 
 import logging
+import math
 import uuid
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
@@ -8,6 +9,7 @@ from typing import Any
 
 from blackwall.enterprise.advanced_threat_detection.correlator import (
     MITRE_PATTERNS,
+    SEMANTIC_TIERS,
     PathCorrelator,
 )
 from blackwall.enterprise.advanced_threat_detection.graph_export import (
@@ -120,7 +122,7 @@ class RetrospectiveAnalyzer:
         """Perform batch analysis on historical events to identify attack paths missed by real-time short-window detection.
 
         Identifies multi-hop chains spanning wide temporal gaps (e.g. low-and-slow stealth campaigns)
-        using causal edge tracking and relaxed temporal adjacency.
+        using causal edge tracking and behavioral affinity.
         """
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
@@ -140,7 +142,8 @@ class RetrospectiveAnalyzer:
             end_win = datetime.now(UTC)
             start_win = end_win - timedelta(days=30)
 
-        nodes = await self.store.query_nodes(agent_id, (start_win, end_win))
+        # Batch query nodes from store
+        nodes = await self.store.query_nodes(agent_id, (start_win, end_win), limit=batch_size)
         if len(nodes) < min_path_length:
             return []
 
@@ -153,86 +156,121 @@ class RetrospectiveAnalyzer:
 
         # Process each agent's historical stream in batches
         for aid, agent_nodes in nodes_by_agent.items():
-            sorted_nodes = sorted(agent_nodes, key=lambda n: n.event.timestamp)
-
-            # Build extended adjacency graph supporting causal links + multi-day gaps
-            adj: dict[uuid.UUID, list[tuple[AttackNode, float]]] = defaultdict(list)
-            edge_to_targets: dict[uuid.UUID, list[AttackNode]] = defaultdict(list)
-            for n in sorted_nodes:
-                for inc_edge in n.incoming_edges:
-                    edge_to_targets[inc_edge].append(n)
-
-            for i, n_a in enumerate(sorted_nodes):
-                added_target_ids = set()
-
-                # 1. Causal edge links (any time gap)
-                for out_edge in n_a.outgoing_edges:
-                    for target_node in edge_to_targets.get(out_edge, []):
-                        if (
-                            target_node.node_id != n_a.node_id
-                            and target_node.node_id not in added_target_ids
-                            and target_node.event.timestamp >= n_a.event.timestamp
-                        ):
-                            adj[n_a.node_id].append((target_node, 1.0))
-                            added_target_ids.add(target_node.node_id)
-
-                # 2. Relaxed temporal links up to max_time_gap_seconds
-                for n_b in sorted_nodes[i + 1 :]:
-                    delta = (n_b.event.timestamp - n_a.event.timestamp).total_seconds()
-                    if delta > max_time_gap_seconds:
-                        break
-                    if n_b.node_id not in added_target_ids:
-                        weight = 0.5 + (0.5 * (1.0 - (delta / max_time_gap_seconds)))
-                        adj[n_a.node_id].append((n_b, weight))
-                        added_target_ids.add(n_b.node_id)
-
-            # Traverse and find paths
-            all_paths: list[list[AttackNode]] = []
-            for start_node in sorted_nodes:
-                self._dfs_retrospective(
-                    current_node=start_node,
-                    current_path=[start_node],
-                    adj=adj,
-                    min_path_length=min_path_length,
-                    visited_in_path={start_node.node_id},
-                    results=all_paths,
-                    max_depth=15,
-                    max_results=500,
-                )
-
-            # Materialize AttackPath instances
-            seen_signatures: set[tuple[uuid.UUID, ...]] = set()
-            for path_nodes in all_paths:
-                sig = tuple(n.node_id for n in path_nodes)
-                if sig in seen_signatures or len(path_nodes) < min_path_length:
-                    continue
-                seen_signatures.add(sig)
-
-                max_risk = max(n.event.risk_score for n in path_nodes)
-                if max_risk < min_risk_score:
+            # Process in slices of batch_size
+            for batch_start_idx in range(0, len(agent_nodes), batch_size):
+                batch_nodes = agent_nodes[batch_start_idx : batch_start_idx + batch_size]
+                if len(batch_nodes) < min_path_length:
                     continue
 
-                stages = []
-                for n in path_nodes:
-                    for pattern, code in MITRE_PATTERNS:
-                        if pattern.search(n.event.action) or pattern.search(n.event.target):
-                            if code not in stages:
-                                stages.append(code)
+                sorted_nodes = sorted(batch_nodes, key=lambda n: n.event.timestamp)
 
-                try:
-                    path_obj = AttackPath(
-                        path_id=uuid.uuid4(),
-                        agent_id=aid,
-                        nodes=path_nodes,
-                        start_time=path_nodes[0].event.timestamp,
-                        end_time=path_nodes[-1].event.timestamp,
-                        risk_score=min(1.0, max(0.0, max_risk)),
-                        attack_stages=stages,
-                        correlation_score=0.9,
+                # Build extended adjacency graph supporting causal links + semantic affinity
+                adj: dict[uuid.UUID, list[tuple[AttackNode, float]]] = defaultdict(list)
+                edge_to_targets: dict[uuid.UUID, list[AttackNode]] = defaultdict(list)
+                for n in sorted_nodes:
+                    for inc_edge in n.incoming_edges:
+                        edge_to_targets[inc_edge].append(n)
+
+                for i, n_a in enumerate(sorted_nodes):
+                    added_target_ids = set()
+
+                    # 1. Direct causal edges (highest confidence, any time gap)
+                    for out_edge in n_a.outgoing_edges:
+                        for target_node in edge_to_targets.get(out_edge, []):
+                            if (
+                                target_node.node_id != n_a.node_id
+                                and target_node.node_id not in added_target_ids
+                                and target_node.event.timestamp >= n_a.event.timestamp
+                            ):
+                                adj[n_a.node_id].append((target_node, 1.0))
+                                added_target_ids.add(target_node.node_id)
+
+                    # 2. Behavioral/Semantic affinity or short temporal links
+                    for n_b in sorted_nodes[i + 1 :]:
+                        delta = (n_b.event.timestamp - n_a.event.timestamp).total_seconds()
+                        if delta > max_time_gap_seconds:
+                            break
+
+                        if n_b.node_id in added_target_ids:
+                            continue
+
+                        # Check for behavioral/affinity match:
+                        # a) Short temporal proximity (<= 300s)
+                        # b) Same target / asset
+                        # c) Progressive ATT&CK tier progression
+                        tier_a = SEMANTIC_TIERS.get(n_a.event.source, 1)
+                        tier_b = SEMANTIC_TIERS.get(n_b.event.source, 1)
+                        same_target = n_a.event.target == n_b.event.target
+                        is_short_temporal = delta <= 300
+                        is_tier_progression = tier_b >= tier_a and (tier_b - tier_a) <= 3
+
+                        if is_short_temporal or same_target or is_tier_progression:
+                            decay = math.exp(-delta / max(300.0, max_time_gap_seconds / 10.0))
+                            semantic_base = 0.5 + (0.2 if same_target else 0.0) + (0.1 * abs(tier_b - tier_a))
+                            weight = min(1.0, 0.4 * decay + 0.6 * semantic_base)
+                            adj[n_a.node_id].append((n_b, weight))
+                            added_target_ids.add(n_b.node_id)
+
+                # Traverse and find paths
+                all_paths: list[list[AttackNode]] = []
+                for start_node in sorted_nodes:
+                    self._dfs_retrospective(
+                        current_node=start_node,
+                        current_path=[start_node],
+                        adj=adj,
+                        min_path_length=min_path_length,
+                        visited_in_path={start_node.node_id},
+                        results=all_paths,
+                        max_depth=15,
+                        max_results=500,
                     )
-                    identified_paths.append(path_obj)
-                except ValueError:
-                    continue
+
+                # Materialize AttackPath instances
+                seen_signatures: set[tuple[uuid.UUID, ...]] = set()
+                for path_nodes in all_paths:
+                    sig = tuple(n.node_id for n in path_nodes)
+                    if sig in seen_signatures or len(path_nodes) < min_path_length:
+                        continue
+                    seen_signatures.add(sig)
+
+                    max_risk = max(n.event.risk_score for n in path_nodes)
+                    if max_risk < min_risk_score:
+                        continue
+
+                    # Compute path edge weights and dynamic correlation score
+                    weights = []
+                    for k in range(len(path_nodes) - 1):
+                        curr_n = path_nodes[k]
+                        next_n = path_nodes[k + 1]
+                        matched_w = next(
+                            (w for nb, w in adj[curr_n.node_id] if nb.node_id == next_n.node_id),
+                            0.7,
+                        )
+                        weights.append(matched_w)
+
+                    correlation_score = min(1.0, max(0.0, sum(weights) / max(1, len(weights))))
+
+                    stages = []
+                    for n in path_nodes:
+                        for pattern, code in MITRE_PATTERNS:
+                            if pattern.search(n.event.action) or pattern.search(n.event.target):
+                                if code not in stages:
+                                    stages.append(code)
+
+                    try:
+                        path_obj = AttackPath(
+                            path_id=uuid.uuid4(),
+                            agent_id=aid,
+                            nodes=path_nodes,
+                            start_time=path_nodes[0].event.timestamp,
+                            end_time=path_nodes[-1].event.timestamp,
+                            risk_score=min(1.0, max(0.0, max_risk)),
+                            attack_stages=stages,
+                            correlation_score=correlation_score,
+                        )
+                        identified_paths.append(path_obj)
+                    except ValueError:
+                        continue
 
         identified_paths.sort(key=lambda p: p.risk_score, reverse=True)
         return identified_paths
@@ -333,12 +371,18 @@ class RetrospectiveAnalyzer:
                 # Compute temporal and action correlation
                 all_actions = [agent_actions[a] for a in agents]
                 common_actions = set.intersection(*all_actions) if all_actions else set()
+                shared_action_ratio = len(common_actions) / max(1, max(len(a_set) for a_set in all_actions))
+                agent_weight = min(1.0, len(agents) / 4.0)
+
                 coordination_score = min(
                     1.0,
-                    0.5 + (0.1 * len(common_actions)) + (0.1 * min(len(agents), 5)),
+                    max(
+                        0.0,
+                        0.4 + (0.3 * shared_action_ratio) + (0.3 * agent_weight),
+                    ),
                 )
 
-                if coordination_score >= similarity_threshold * 0.5:
+                if coordination_score >= similarity_threshold:
                     swarm_obj = SwarmEvidence(
                         swarm_id=uuid.uuid4(),
                         agent_ids=set(agents),
@@ -365,7 +409,7 @@ class RetrospectiveAnalyzer:
         agent_id: str | None = None,
         time_window: tuple[datetime, datetime] | None = None,
     ) -> str:
-        """Export current attack graph to JSON or GraphML format."""
+        """Export current attack graph to JSON or GraphML format, scoping edges strictly to selected nodes."""
         if time_window:
             nodes = await self.store.query_nodes(agent_id, time_window)
             edges = await self.store.get_edges(time_window)
@@ -376,4 +420,13 @@ class RetrospectiveAnalyzer:
         if agent_id:
             nodes = [n for n in nodes if n.event.agent_id == agent_id]
 
-        return self.exporter.export(format, nodes, edges)
+        # Filter edges to only include those whose source and target nodes exist in the exported nodes list
+        node_id_strs = {str(n.node_id) for n in nodes}
+        scoped_edges = [
+            e
+            for e in edges
+            if str(e.get("from_node", "")) in node_id_strs
+            and str(e.get("to_node", "")) in node_id_strs
+        ]
+
+        return self.exporter.export(format, nodes, scoped_edges)

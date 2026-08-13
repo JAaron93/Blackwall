@@ -87,4 +87,9 @@
   4. Tests support an extended duration mode via environment variable (e.g. `BLACKWALL_EXTENDED_LOAD_TEST=true` for 300-second load tests) alongside fast CI execution defaults.
 * **Rationale:** Sub-second burst benchmarks pass easily in memory but fail to expose memory leaks, unbounded cache growth, connection pool starvation, and garbage collection pauses that only appear under continuous streaming ingestion.
 
+## 24. Historical Retrospective Window Offsets in Testing
+* **Rule:** When generating synthetic multi-day historical events for testing retention boundaries (e.g. `<= 30` day retention), test fixtures MUST ensure event timestamps stay strictly within the active retention window (`now - timedelta(days=29)`) rather than spanning beyond the cutoff horizon (`days=30, hours=2`), preventing false assertions during retention purge tests.
+* **Rationale:** Generating events at or beyond the exact boundary creates subtle sub-day discrepancies where events are legitimately purged as expired, causing test failures on valid retention invariants.
+
+
 
