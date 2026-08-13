@@ -6,12 +6,25 @@ and AI-Induced Lateral Movement (AILM) tracking.
 
 import logging
 
+from blackwall.enterprise.advanced_threat_detection.ailm import AILMTracker
+from blackwall.enterprise.advanced_threat_detection.alert_bus import AlertBus
+from blackwall.enterprise.advanced_threat_detection.c2 import (
+    C2InfrastructureDetector,
+)
+from blackwall.enterprise.advanced_threat_detection.collector import (
+    EventStreamCollector,
+)
+from blackwall.enterprise.advanced_threat_detection.correlator import PathCorrelator
 from blackwall.enterprise.advanced_threat_detection.enums import (
+    AlertSeverity,
     EventSource,
     ExploitCategory,
 )
+from blackwall.enterprise.advanced_threat_detection.exploit import ExploitChainAnalyzer
+from blackwall.enterprise.advanced_threat_detection.k8s import KubernetesDefenseLayer
 from blackwall.enterprise.advanced_threat_detection.models import (
     AILMEvidence,
+    Alert,
     AttackNode,
     AttackPath,
     C2Evidence,
@@ -22,16 +35,6 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     RegistryThreatEvidence,
     SwarmEvidence,
 )
-from blackwall.enterprise.advanced_threat_detection.ailm import AILMTracker
-from blackwall.enterprise.advanced_threat_detection.c2 import (
-    C2InfrastructureDetector,
-)
-from blackwall.enterprise.advanced_threat_detection.k8s import KubernetesDefenseLayer
-from blackwall.enterprise.advanced_threat_detection.collector import (
-    EventStreamCollector,
-)
-from blackwall.enterprise.advanced_threat_detection.correlator import PathCorrelator
-from blackwall.enterprise.advanced_threat_detection.exploit import ExploitChainAnalyzer
 from blackwall.enterprise.advanced_threat_detection.registry import (
     PackageRegistryMonitor,
 )
@@ -41,27 +44,31 @@ from blackwall.enterprise.advanced_threat_detection.swarm import AgentSwarmDetec
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection")
 
 __all__ = [
-    "EventSource",
-    "ExploitCategory",
-    "NormalizedEvent",
+    "AILMEvidence",
+    "AILMTracker",
+    "AgentSwarmDetector",
+    "Alert",
+    "AlertBus",
+    "AlertSeverity",
+    "AttackGraphStore",
     "AttackNode",
     "AttackPath",
-    "SwarmEvidence",
-    "ExploitChainEvidence",
-    "PermissionGrant",
-    "AILMEvidence",
     "C2Evidence",
-    "K8sThreatEvidence",
-    "RegistryThreatEvidence",
-    "AttackGraphStore",
-    "EventStreamCollector",
-    "PathCorrelator",
-    "AgentSwarmDetector",
-    "ExploitChainAnalyzer",
-    "AILMTracker",
     "C2InfrastructureDetector",
+    "EventSource",
+    "EventStreamCollector",
+    "ExploitCategory",
+    "ExploitChainAnalyzer",
+    "ExploitChainEvidence",
+    "K8sThreatEvidence",
     "KubernetesDefenseLayer",
+    "NormalizedEvent",
     "PackageRegistryMonitor",
+    "PathCorrelator",
+    "PermissionGrant",
+    "RegistryThreatEvidence",
+    "SwarmEvidence",
     "logger",
 ]
+
 

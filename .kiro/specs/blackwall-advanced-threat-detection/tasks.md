@@ -481,27 +481,27 @@ The implementation follows a test-driven development approach with property-base
 - [x] 14. Checkpoint - Verify all detection components
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 15. Implement Alert Generation and Real-Time Integration
-  - [ ] 15.1 Create AlertBus class for alert publication
+- [x] 15. Implement Alert Generation and Real-Time Integration
+  - [x] 15.1 Create AlertBus class for alert publication
     - Implement alert publishing interface with severity levels (LOW, MEDIUM, HIGH, CRITICAL)
     - Add retry logic for alert delivery failures (up to 5 retries)
     - Log persistent failures for manual investigation
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7_
     - _Verification: `pytest tests/unit/test_alert_bus.py::test_alert_publishing -v`_
 
-  - [ ] 15.2 Implement alert generation for swarm detection
+  - [x] 15.2 Implement alert generation for swarm detection
     - Publish CRITICAL alerts when swarms detected
     - Include SwarmEvidence in alert payload
     - _Requirements: 10.1_
     - _Verification: `pytest tests/unit/test_alert_generation.py::test_swarm_alerts -v`_
 
-  - [ ] 15.3 Implement alert generation for AILM events
+  - [x] 15.3 Implement alert generation for AILM events
     - Map AILM risk_level to alert severity (HIGH or CRITICAL)
     - Include AILMEvidence in alert payload
     - _Requirements: 10.2_
     - _Verification: `pytest tests/unit/test_alert_generation.py::test_ailm_alerts -v`_
 
-  - [ ] 15.4 Implement alert generation for exploit chains, attack paths, C2, K8s threats, and registry threats
+  - [x] 15.4 Implement alert generation for exploit chains, attack paths, C2, K8s threats, and registry threats
     - Map novelty_score to severity for exploit chains
     - Map risk_score to severity for attack paths
     - CRITICAL severity for C2 infrastructure detection
@@ -510,7 +510,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 10.3, 10.4, 10.5, 10.6, 10.7_
     - _Verification: `pytest tests/unit/test_alert_generation.py::test_all_alert_types -v`_
 
-  - [ ] 15.5 Write property tests for alert generation
+  - [x] 15.5 Write property tests for alert generation
     - **Property 57: Swarm Detection Alert Generation**
     - **Property 58: AILM Alert Severity Mapping**
     - **Property 59: Exploit Chain Alert Severity Mapping**
@@ -521,7 +521,7 @@ The implementation follows a test-driven development approach with property-base
     - **Validates: Requirements 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7**
     - _Verification: `pytest tests/property/test_alert_generation_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 15.6 Write BDD feature tests for Alert Generation
+  - [x] 15.6 Write BDD feature tests for Alert Generation
     - Create `tests/features/alert_generation.feature` with Gherkin scenarios
     - Implement `Given/When/Then` steps in `tests/step_defs/test_alert_generation_bdd.py` using `run_async`
     - Scenario: detected swarm publishes a CRITICAL alert to the AlertBus

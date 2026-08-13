@@ -1,12 +1,13 @@
 """Data models for Blackwall Advanced Threat Detection pillar."""
 
-from datetime import datetime
-from typing import Any, Dict, List, Set, Tuple
+from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, UUID4, field_validator, model_validator
+from pydantic import UUID4, BaseModel, Field, field_validator, model_validator
 
 from blackwall.enterprise.advanced_threat_detection.enums import (
+    AlertSeverity,
     EventSource,
     ExploitCategory,
 )
@@ -28,7 +29,7 @@ class NormalizedEvent(BaseModel):
     agent_id: str
     action: str
     target: str
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     risk_score: float = Field(..., ge=0.0, le=1.0)
 
     @field_validator("event_id")
@@ -55,8 +56,8 @@ class AttackNode(BaseModel):
 
     node_id: UUID4
     event: NormalizedEvent
-    incoming_edges: List[UUID4] = Field(default_factory=list)
-    outgoing_edges: List[UUID4] = Field(default_factory=list)
+    incoming_edges: list[UUID4] = Field(default_factory=list)
+    outgoing_edges: list[UUID4] = Field(default_factory=list)
 
 
 class AttackPath(BaseModel):
@@ -64,11 +65,11 @@ class AttackPath(BaseModel):
 
     path_id: UUID4
     agent_id: str
-    nodes: List[AttackNode] = Field(..., min_length=2)
+    nodes: list[AttackNode] = Field(..., min_length=2)
     start_time: datetime
     end_time: datetime
     risk_score: float = Field(..., ge=0.0, le=1.0)
-    attack_stages: List[str] = Field(default_factory=list)
+    attack_stages: list[str] = Field(default_factory=list)
     correlation_score: float = Field(..., ge=0.0, le=1.0)
 
     @field_validator("start_time", "end_time")
@@ -79,7 +80,7 @@ class AttackPath(BaseModel):
 
     @field_validator("nodes")
     @classmethod
-    def validate_min_nodes(cls, v: List[AttackNode]) -> List[AttackNode]:
+    def validate_min_nodes(cls, v: list[AttackNode]) -> list[AttackNode]:
         """Validate nodes contains at least 2 nodes."""
         return validate_min_items(
             v, min_items=2, custom_msg="AttackPath nodes must contain at least 2 events"
@@ -101,8 +102,8 @@ class SwarmEvidence(BaseModel):
     """Evidence structure for coordinated multi-agent swarm behavior."""
 
     swarm_id: UUID4
-    agent_ids: Set[str] = Field(..., min_length=2)
-    shared_patterns: List[str] = Field(default_factory=list)
+    agent_ids: set[str] = Field(..., min_length=2)
+    shared_patterns: list[str] = Field(default_factory=list)
     temporal_correlation: float = Field(..., ge=0.0, le=1.0)
     coordination_score: float = Field(..., ge=0.0, le=1.0)
     first_seen: datetime
@@ -116,7 +117,7 @@ class SwarmEvidence(BaseModel):
 
     @field_validator("agent_ids")
     @classmethod
-    def validate_min_agents(cls, v: Set[str]) -> Set[str]:
+    def validate_min_agents(cls, v: set[str]) -> set[str]:
         """Validate agent_ids contains at least 2 agents."""
         return validate_min_items(
             v,
@@ -140,7 +141,7 @@ class ExploitChainEvidence(BaseModel):
     """Evidence structure for zero-day exploit chaining sequences."""
 
     chain_id: UUID4
-    exploits: List[Tuple[str, ExploitCategory]] = Field(default_factory=list)
+    exploits: list[tuple[str, ExploitCategory]] = Field(default_factory=list)
     novelty_score: float = Field(..., ge=0.0, le=1.0)
     chaining_confidence: float = Field(..., ge=0.0, le=1.0)
 
@@ -178,8 +179,8 @@ class AILMEvidence(BaseModel):
     """Evidence structure for AI-Induced Lateral Movement (AILM)."""
 
     agent_id: str
-    composed_permissions: Set[str] = Field(default_factory=set)
-    boundary_crossings: List[str] = Field(default_factory=list)
+    composed_permissions: set[str] = Field(default_factory=set)
+    boundary_crossings: list[str] = Field(default_factory=list)
     risk_level: str
 
 
@@ -187,9 +188,9 @@ class C2Evidence(BaseModel):
     """Evidence structure for Command-and-Control (C2) infrastructure establishment."""
 
     agent_id: str
-    c2_endpoints: List[str] = Field(default_factory=list)
+    c2_endpoints: list[str] = Field(default_factory=list)
     communication_pattern: str
-    persistence_indicators: List[str] = Field(default_factory=list)
+    persistence_indicators: list[str] = Field(default_factory=list)
 
 
 class K8sThreatEvidence(BaseModel):
@@ -199,7 +200,7 @@ class K8sThreatEvidence(BaseModel):
     namespace: str
     pod_name: str
     service_account: str
-    evidence: Dict[str, Any] = Field(default_factory=dict)
+    evidence: dict[str, Any] = Field(default_factory=dict)
 
 
 class RegistryThreatEvidence(BaseModel):
@@ -207,5 +208,42 @@ class RegistryThreatEvidence(BaseModel):
 
     registry_type: str
     package_name: str
-    exploit_indicators: List[str] = Field(default_factory=list)
-    cve_candidates: List[str] = Field(default_factory=list)
+    exploit_indicators: list[str] = Field(default_factory=list)
+    cve_candidates: list[str] = Field(default_factory=list)
+
+
+class Alert(BaseModel):
+    """Real-time security alert published across Blackwall threat detection engines."""
+
+    alert_id: UUID4 = Field(default_factory=uuid4)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    severity: AlertSeverity
+    threat_type: str
+    title: str
+    description: str
+    evidence_id: UUID4 | None = None
+    agent_id: str | None = None
+    agent_ids: list[str] = Field(default_factory=list)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("alert_id", "evidence_id")
+    @classmethod
+    def validate_uuid_v4_fields(cls, v: Any, info: Any) -> Any:
+        """Validate alert_id and evidence_id are valid UUID v4."""
+        if v is None:
+            return None
+        return validate_uuid_v4_format(v, field_name=info.field_name)
+
+    @field_validator("timestamp")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        """Validate timestamp is timezone-aware and set to UTC."""
+        return validate_utc_datetime(v)
+
+    @field_validator("threat_type", "title", "description")
+    @classmethod
+    def validate_non_empty_fields(cls, v: str, info: Any) -> str:
+        """Validate required string fields are not empty or whitespace only."""
+        return validate_non_empty_string(v, field_name=info.field_name)
+
