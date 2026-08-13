@@ -81,6 +81,13 @@ class KubernetesDefenseLayer:
                 or event.metadata.get("authorized") is True
                 or event.metadata.get("access_type") == "legitimate"
                 or event.metadata.get("legitimate") is True
+                or (
+                    event.metadata.get("is_authorized") is None
+                    and event.metadata.get("authorized") is None
+                    and event.metadata.get("unauthorized") is not True
+                    and event.metadata.get("is_unauthorized") is not True
+                    and event.risk_score < 0.6
+                )
             )
 
             if is_token_access and not is_authorized:
@@ -209,19 +216,39 @@ class KubernetesDefenseLayer:
                 continue
 
             target_str = event.target or ""
+            target_lower = target_str.lower()
             action_str = (event.action or "").lower()
             api_call = str(event.metadata.get("api_call") or "")
+            api_call_lower = api_call.lower()
 
-            if TOKEN_PATH_PATTERN in target_str or "/var/run/secrets" in target_str:
+            if TOKEN_PATH_PATTERN in target_str or "/var/run/secrets" in target_str or "vault" in target_lower:
                 continue
 
-            is_k8s_api = (
-                event.source in {EventSource.TOOL_CALL, EventSource.IDENTITY_ACCESS}
-                or "kubernetes" in target_str.lower()
-                or "k8s" in target_str.lower()
-                or "/api/v1/" in target_str
-                or bool(api_call)
+            has_k8s_indicator = (
+                "kubernetes" in target_lower
+                or "k8s" in target_lower
+                or "kubernetes" in api_call_lower
+                or "k8s" in api_call_lower
+                or "/api/v1/namespaces/" in target_lower
+                or "/api/v1/namespaces/" in api_call_lower
+                or "/apis/" in target_lower
+                or "/apis/" in api_call_lower
+                or event.metadata.get("k8s_api") is True
+                or event.metadata.get("is_k8s_api") is True
             )
+
+            is_non_k8s_host = (
+                ("http://" in target_lower or "https://" in target_lower)
+                and not (
+                    "kubernetes" in target_lower
+                    or "k8s" in target_lower
+                    or "10.96.0.1" in target_lower
+                    or "127.0.0.1:6443" in target_lower
+                    or "localhost:6443" in target_lower
+                )
+            )
+
+            is_k8s_api = has_k8s_indicator and not is_non_k8s_host
 
             is_secret_read = is_k8s_api and (
                 bool(K8S_SECRET_API_REGEX.search(target_str))
@@ -229,8 +256,8 @@ class KubernetesDefenseLayer:
                 or (
                     action_str in {"get_secret", "list_secrets", "read_secret"}
                     and (
-                        "secret" in target_str.lower()
-                        or "secret" in api_call.lower()
+                        "secret" in target_lower
+                        or "secret" in api_call_lower
                     )
                 )
             )
