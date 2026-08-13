@@ -50,24 +50,42 @@ NETWORK_ACTION_KEYWORDS = {
     "network_access", "http_request", "tcp_connect", "udp_send", "dns_query", "net_outbound"
 }
 
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0", "localhost.localdomain"}
+
 
 def _extract_hostname_and_path(url_or_domain: str) -> Tuple[str, str]:
-    """Extract host/domain and path from input string safely."""
+    """Extract host/domain and path from input string safely, robust to IPv6 addresses."""
     raw = url_or_domain.strip().lower()
     if not raw:
         return "", ""
+
+    if raw == "::1" or raw.startswith("::1/"):
+        parts = raw.split("/", 1)
+        path = "/" + parts[1] if len(parts) > 1 else ""
+        return "::1", path
 
     url_str = raw
     if not url_str.startswith(("http://", "https://")):
         url_str = "http://" + url_str
 
     try:
+        scheme, rest = url_str.split("://", 1)
+        host_port_path = rest.split("/", 1)
+        host_port = host_port_path[0]
+        path_part = "/" + host_port_path[1] if len(host_port_path) > 1 else ""
+
+        # Enclose unbracketed IPv6 addresses
+        if ":" in host_port and not host_port.startswith("["):
+            if host_port.count(":") >= 2:
+                host_port = f"[{host_port}]"
+
+        url_str = f"{scheme}://{host_port}{path_part}"
         parsed = urlparse(url_str)
-        host = parsed.hostname or raw.split("/")[0].split(":")[0]
+        host = parsed.hostname or host_port.lstrip("[").rstrip("]")
         path = parsed.path or ""
         return host.strip().lower(), path.strip().lower()
     except Exception:
-        clean = raw.split("/")[0].split(":")[0]
+        clean = raw.split("/")[0]
         return clean.strip().lower(), ""
 
 
@@ -98,9 +116,37 @@ def _is_local_endpoint(target_or_host: str) -> bool:
         return False
     if raw.startswith("/") or raw.startswith("unix:") or raw.startswith("file:"):
         return True
-    host, _ = _extract_hostname_and_path(raw)
-    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0", "localhost.localdomain"):
+
+    # Direct match for loopback/local targets
+    if raw in LOCAL_HOSTS:
         return True
+
+    # Strip scheme if present
+    clean = raw
+    if clean.startswith(("http://", "https://")):
+        clean = clean.split("://", 1)[1]
+
+    # Strip path/query
+    clean = clean.split("/")[0].split("?")[0]
+
+    if clean in LOCAL_HOSTS:
+        return True
+
+    # Handle port stripping (e.g. 127.0.0.1:8080, [::1]:8080, ::1)
+    if ":" in clean:
+        if clean.startswith("[") and "]" in clean:
+            host_part = clean.split("]")[0].lstrip("[")
+            if host_part in LOCAL_HOSTS:
+                return True
+        elif clean.count(":") == 1:
+            host_part = clean.split(":")[0]
+            if host_part in LOCAL_HOSTS:
+                return True
+
+    host, _ = _extract_hostname_and_path(raw)
+    if host in LOCAL_HOSTS or host.lstrip("[").rstrip("]") in LOCAL_HOSTS:
+        return True
+
     return False
 
 

@@ -229,3 +229,39 @@ async def test_persistence_indicators():
     assert "Self-respawning process loop" in indicators
     assert "Scheduled task persistence mechanism" in indicators
     assert "MacOS launchd persistence mechanism" in indicators
+
+
+@pytest.mark.asyncio
+async def test_ipv6_loopback_local_filter():
+    """Verify that unbracketed and bracketed IPv6 loopback targets are filtered as local endpoints."""
+    detector = C2InfrastructureDetector()
+    agent_id = "agent-ipv6-01"
+    base_time = datetime(2026, 8, 13, 12, 0, 0, tzinfo=timezone.utc)
+    time_window = (base_time, base_time + timedelta(hours=1))
+
+    # Kernel connect to ::1
+    e_kernel = create_event(
+        agent_id=agent_id,
+        action="connect",
+        target="::1",
+        offset_seconds=5.0,
+        source=EventSource.KERNEL_SYSCALL,
+        base_time=base_time,
+    )
+
+    # Tool call targeting ::1
+    e_tool = create_event(
+        agent_id=agent_id,
+        action="http_request",
+        target="::1",
+        offset_seconds=10.0,
+        source=EventSource.TOOL_CALL,
+        base_time=base_time,
+    )
+
+    detector.record_event(e_kernel)
+    detector.record_event(e_tool)
+
+    evidences = await detector.detect_c2_establishment(agent_id, time_window)
+    assert len(evidences) == 0
+
