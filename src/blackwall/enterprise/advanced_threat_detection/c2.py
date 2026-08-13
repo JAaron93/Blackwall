@@ -52,6 +52,11 @@ NETWORK_ACTION_KEYWORDS = {
 
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0", "localhost.localdomain"}
 
+DESTINATION_KEYS = {
+    "url", "uri", "endpoint", "domain", "host", "target",
+    "c2_url", "remote_url", "destination", "dest_url", "server"
+}
+
 
 def _is_local_host(host_str: str) -> bool:
     """Check if host string is a local hostname, IPv4 loopback (127.0.0.0/8), IPv6 loopback (::1), or IPv4-mapped IPv6 loopback (::ffff:127.0.0.0/8)."""
@@ -168,26 +173,16 @@ def _is_local_endpoint(target_or_host: str) -> bool:
 
 
 def _extract_metadata_endpoints(metadata: Any) -> List[str]:
-    """Extract candidate normalized target endpoint strings from event metadata dictionary."""
+    """Extract candidate normalized target endpoint strings from explicit network destination metadata keys."""
     if not isinstance(metadata, dict):
         return []
     endpoints: List[str] = []
-    # Check explicit target metadata keys (url, uri, endpoint, domain, host, target)
-    for key in ("url", "uri", "endpoint", "domain", "host", "target"):
+    for key in DESTINATION_KEYS:
         val = metadata.get(key)
         if isinstance(val, str) and val.strip():
             norm = _normalize_endpoint(val)
             if norm and norm not in endpoints and not _is_local_endpoint(val):
                 endpoints.append(norm)
-
-    # Check remaining string values in metadata ONLY if they are valid URLs starting with http:// or https://
-    for k, v in metadata.items():
-        if k not in ("url", "uri", "endpoint", "domain", "host", "target") and isinstance(v, str):
-            v_strip = v.strip().lower()
-            if v_strip.startswith(("http://", "https://")):
-                norm = _normalize_endpoint(v)
-                if norm and norm not in endpoints and not _is_local_endpoint(v):
-                    endpoints.append(norm)
 
     return endpoints
 
@@ -405,14 +400,10 @@ class C2InfrastructureDetector:
             # Extract candidate endpoints/URLs from target or metadata
             candidate_urls = [evt.target]
             if isinstance(evt.metadata, dict):
-                for k in ("url", "uri", "endpoint", "domain", "host", "target"):
+                for k in DESTINATION_KEYS:
                     val = evt.metadata.get(k)
                     if isinstance(val, str) and val.strip():
                         candidate_urls.append(val)
-                for k, v in evt.metadata.items():
-                    if k not in ("url", "uri", "endpoint", "domain", "host", "target") and isinstance(v, str):
-                        if v.strip().lower().startswith(("http://", "https://")):
-                            candidate_urls.append(v)
 
             for candidate in candidate_urls:
                 service = await self.classify_endpoint(candidate)
