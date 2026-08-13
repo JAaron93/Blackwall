@@ -47,8 +47,7 @@ PERSISTENCE_PATTERNS = [
 
 NETWORK_ACTION_KEYWORDS = {
     "connect", "sys_connect", "sendto", "sys_sendto", "socket_connect",
-    "network_access", "http_request", "tcp_connect", "udp_send", "dns_query", "net_outbound",
-    "socket", "sys_socket", "bind", "sys_bind", "accept", "sys_accept", "recvfrom", "sys_recvfrom"
+    "network_access", "http_request", "tcp_connect", "udp_send", "dns_query", "net_outbound"
 }
 
 
@@ -283,7 +282,7 @@ class C2InfrastructureDetector:
         tool_call_events: List[NormalizedEvent] = []
 
         for evt in agent_events:
-            # Restrict kernel network events strictly to genuine network syscall actions
+            # Restrict kernel network events strictly to genuine outbound network syscall actions
             if evt.source == EventSource.KERNEL_SYSCALL:
                 act_lower = evt.action.lower()
                 is_net = act_lower in NETWORK_ACTION_KEYWORDS
