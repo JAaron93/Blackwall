@@ -38,6 +38,8 @@ Greptile reviews must enforce the existing base branch architectural patterns:
 3. **Context Hygiene & Sanitization**:
    - `ContextResolver` middleware must replace sensitive environment variable patterns with generic placeholders (`[[VARIABLE_NAME]]`).
    - Integration tests querying external hostnames (e.g. GTI / VirusTotal) must use un-redacted standalone hostnames (e.g. `wd-bouygues.com`) to prevent accidental sanitization matching.
+4. **VirusTotal GTI Free-Tier Rate Limit Invariant**:
+   - VirusTotal Google Threat Intelligence (GTI) MCP queries MUST remain strictly capped at the 4 queries per 60-second sliding window free-tier limit via `GTIQueryBudgetTracker` token bucket rate limiting (1 token replenished every 15 seconds). GTI validation is reserved exclusively for high-risk events with graceful degradation upon budget exhaustion.
 
 ---
 

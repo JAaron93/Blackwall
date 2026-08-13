@@ -24,11 +24,22 @@ from dotenv import load_dotenv
 async def verify_environment() -> bool:
     print("🔍 Starting GCP Vertex AI Mode Environment Verification...")
 
-    # Load .env asynchronously via to_thread
-    env_file = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
-    if os.path.exists(env_file):
-        await asyncio.to_thread(load_dotenv, env_file)
-        print(f"  ✓ Loaded environment from {env_file}")
+    # Load candidate .env files asynchronously via to_thread
+    candidate_envs = [
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend", ".env")),
+    ]
+    for env_file in candidate_envs:
+        if os.path.exists(env_file):
+            try:
+                await asyncio.to_thread(load_dotenv, env_file, override=False)
+                print(f"  ✓ Processed environment from {env_file}")
+            except (OSError, UnicodeDecodeError, ValueError) as read_err:
+                print(
+                    f"  ⚠️ Diagnostic Warning: Failed to read {env_file}: {read_err}",
+                    file=sys.stderr,
+                )
+
 
     from blackwall.config import configure_provider_env, get_genai_client
 

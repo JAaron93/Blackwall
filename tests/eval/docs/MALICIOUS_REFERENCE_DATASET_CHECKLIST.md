@@ -123,24 +123,23 @@ Dataset satisfies requirements:
 - [x] Expected verdicts are consistent ("BLOCK" for all 59)
 - [x] References are HTTPS URLs (safe and verifiable)
 
-## Kaggle Submission Readiness ✓
+## Security Evaluation Readiness ✓
 
 - [x] Approach is scientifically sound
 - [x] Documentation is comprehensive
-- [x] Judge reproducibility is maximized
+- [x] Operator reproducibility is maximized
 - [x] Safety/compliance concerns are addressed
 - [x] Industry standards are followed
 - [x] Metrics are valid and traceable
 - [x] Sources are verifiable
 - [x] All documentation is in place
 
-## Recommended Reading Order for Judges
+## Recommended Reading Order
 
-1. **README.md** - Quick overview with prominent note (30 sec)
-2. **MALICIOUS_REFERENCE_DATASET_JUSTIFICATION.md** - Full justification (5 min)
-3. **JUDGE_EVALUATION.md** § "Reference-Based Test Dataset Architecture" (3 min)
-4. **tests/eval/test_data/README_MALICIOUS.md** - Dataset details (2 min)
-5. **tests/eval/test_data/malicious_cases.json** - See the actual test cases
+1. **README.md** - Quick overview
+2. **MALICIOUS_REFERENCE_DATASET_JUSTIFICATION.md** - Full technical justification
+3. **tests/eval/test_data/README_MALICIOUS.md** - Dataset details
+4. **tests/eval/test_data/malicious_cases.json** - See the actual test cases
 
 ---
 
@@ -150,8 +149,7 @@ Dataset satisfies requirements:
 
 ✅ **Reference-based approach is justified across multiple documents**
 
-✅ **Judge materials are comprehensive and accessible**
+✅ **Evaluation materials are comprehensive and accessible**
 
-✅ **Approach is sufficient and optimal for Kaggle submission**
+✅ **Approach is sufficient and optimal for security evaluation**
 
-Ready to proceed to Task 20.2 (benign test cases).

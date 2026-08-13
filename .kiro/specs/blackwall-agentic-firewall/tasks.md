@@ -927,7 +927,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Verify signature-based blocking catches modified attacks
     - _Requirements: 9.7, 15.7, 15.8, 26.1, 26.2_
 
-- [~] 21. Run formal evaluation and generate metrics report
+- [x] 21. Run formal evaluation and generate metrics report
   - [x] 21.1 Build ADK evalset from ground-truth test cases
     - Convert all test cases from task 20 into ADK `.evalset.json` format
     - Each eval scenario encodes: the attacker's tool call as the user turn, the expected `before_tool_callback` trajectory (tool name + verdict), and the expected final response (BLOCK/ALLOW/QUARANTINE string)
@@ -940,7 +940,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
       * `rubric_based_tool_use_quality_v1` — LLM-as-judge rubrics asserting: (1) `before_tool_callback` is always the first tool called, (2) BLOCK verdict is never followed by tool execution, (3) QUARANTINE verdict is followed by sandboxed mock execution, not real execution
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 15.1, 15.2_
 
-  - [ ] 21.2 Execute evalset via agents-cli and collect raw results
+  - [x] 21.2 Execute evalset via agents-cli and collect raw results
     - Start Blackwall daemon with `adk run` against the local sandbox environment
     - Run `agents-cli eval run` against `tests/eval/evalsets/blackwall_security.evalset.json` with `--config tests/eval/eval_config.json --print_detailed_results`
     - Capture raw ADK eval output (per-scenario pass/fail, tool trajectory traces, rubric scores) to `tests/eval/results/raw_adk_results.json`
@@ -954,100 +954,54 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - **METRIC NAMES:** Export JSON with standardized keys: `false_refusal_rate`, `evasion_rate`, `accuracy`, `precision`, `recall`, `f1_score`, `quarantine_count`
     - Verify FRR < 10% target achieved
     - Verify Evasion Rate < 10% target achieved
-    - Generate human-readable summary embedding ADK rubric scores alongside FRR/Evasion metrics for demo README — the rubric scores serve as reproducible, third-party-verifiable evidence for Kaggle judges
+    - Generate human-readable summary embedding ADK rubric scores alongside FRR/Evasion metrics for README
     - _Requirements: 9.5, 9.6, 9.7, 9.8, 9.9, 9.10, 9.11, 9.12, 9.13, 9.14, 9.15_
 
-  - [x] 21.4 Package evasion evalset as a self-contained judge-reproducible proof
+  - [x] 21.4 Package evasion evalset as a self-contained reproducible proof
     - Create `tests/eval/evalsets/blackwall_evasion_proof.evalset.json` as a standalone two-wave evalset:
       * Wave 1 scenarios: novel attacks with expected trajectory ending in semantic evaluation → BLOCK
       * Wave 2 scenarios: structurally similar variants of wave-1 attacks with expected trajectory ending in TSG signature match → BLOCK (signature path, not semantic path)
-      * Each scenario includes a `description` field explaining in plain English what the attack is and what the expected defense mechanism is, so judges understand what they are observing without reading source code
-    - Write `tests/eval/eval_config_evasion.json` with:
-      * `tool_trajectory_avg_score: 1.0` asserting exact trajectory match on both waves
-      * `rubric_based_tool_use_quality_v1` rubrics asserting: (1) wave-1 trajectory includes a semantic evaluation tool call, (2) wave-2 trajectory does NOT include a semantic evaluation tool call (signature match short-circuits it), (3) both waves end in BLOCK with no downstream tool execution
-    - Write `scripts/run_evasion_eval.sh` as the single judge-facing entry point:
-      * Starts a fresh Blackwall daemon with a clean empty TSG (`adk run --reset-state`)
-      * Runs wave-1 eval: `agents-cli eval run` against wave-1 scenarios
-      * Waits for TSG write confirmation (polls SQLite signature count until > 0, max 5s)
-      * Runs wave-2 eval: `agents-cli eval run` against wave-2 scenarios against the now-populated TSG
-      * Prints a plain-English summary: wave-1 pass rate, wave-2 pass rate, and the latency delta between semantic-path and signature-path blocks
-      * Exits non-zero if either wave fails, so CI and judges get a clear pass/fail signal
-    - Document `run_evasion_eval.sh` as the primary reproducibility command in README.md under a **"Reproduce the Evaluation"** section — judges clone the repo, set API keys in `.env`, and run one script
+      * Each scenario includes a `description` field explaining in plain English what the attack is and what the expected defense mechanism is
+    - Write `tests/eval/eval_config_evasion.json` with exact trajectory matching
+    - Write `scripts/run_evasion_eval.sh` as single entry point executing wave-1 and wave-2 evals under 100% GCP Vertex AI Mode (Paid Tier)
+    - Document `run_evasion_eval.sh` as the primary reproducibility command in README.md
     - _Requirements: 5.1, 5.2, 5.3, 26.1, 26.2, 26.3_
 
-  - [x] 21.5 Implement free-tier evaluation mode for judge reproducibility
-    - **Goal:** Enable zero-friction judge reproduction by shipping a free-tier mode (15 RPM Gemini API) that bypasses all paid-tier optimizations while preserving core security mechanisms
-    - Create `SyncResolver` class in `src/blackwall/sync_resolver.py`:
-      * Implements synchronous single-request evaluation via `client.models.generate_content()` (not `interactions.create()`)
-      * Applies Context Hygiene sanitization to tool context before API call
-      * Queries GTI MCP and CBM MCP serially (not in parallel batches)
-      * Computes threat score using same weighted aggregation (GTI 40%, CBM 30%, Context 30%)
-      * Returns single `Verdict` object (not batched array)
-      * No `InterceptionQueue`, no batch accumulation, no webhook listener dependencies
-      * Signature generation happens inline (blocking) after BLOCK verdict instead of async via webhook
-    - Add `BLACKWALL_TIER` env var detection in `src/blackwall/resolver.py`:
-      * Read `BLACKWALL_TIER` from environment (valid values: `"free"` or `"paid"`)
-      * If `free`: instantiate `SyncResolver` and skip `InterceptionQueue`/`BatchResolver` initialization
-      * If `paid`: instantiate `BatchResolver` with async batching (existing behavior)
-      * Default to `free` if env var not set (judge-friendly default)
-    - Update `src/blackwall/interception.py` to handle tier detection:
-      * If `free` tier: `before_tool_callback` directly calls `SyncResolver.evaluate()` and blocks until verdict returned
-      * If `paid` tier: `before_tool_callback` enqueues to `InterceptionQueue` (existing async path)
-    - Update signature generation trigger logic:
-      * Free tier: after `SyncResolver` returns BLOCK, immediately call `AgentBehavioralAnalytics.generateSignature()` inline (adds ~200-500ms latency)
-      * Paid tier: after `BatchResolver` returns BLOCK, submit background task via webhook (existing behavior, zero added latency)
-    - Add unit tests for `SyncResolver`:
-      * Test single-request evaluation with mocked Gemini API response
-      * Test GTI/CBM queries execute serially
-      * Test threat score calculation matches `BatchResolver` formula
-      * Test inline signature generation after BLOCK verdict
-      * Test 15 RPM rate limit enforcement (reject requests exceeding limit with QUARANTINE verdict)
-    - Write `scripts/run_evasion_eval_free.sh` as free-tier entry point:
-      * Sets `BLACKWALL_TIER=free` before launching `adk run`
-      * Runs identical evalset as `run_evasion_eval.sh` but with free-tier backend
-      * Includes warning in output: "Running in FREE TIER mode (15 RPM). Eval will take ~X minutes. Set BLACKWALL_TIER=paid for faster execution."
-      * Otherwise identical to paid-tier script (same pass/fail logic, same metrics output)
-    - Update README.md with tier comparison table:
-      * Document free vs. paid tier feature matrix (what works, what's missing)
-      * Highlight that core security mechanisms (hybrid gating, self-learning, audit hooks, Zero Ambient Authority) are identical across tiers
-      * Explain paid-tier optimizations: async batching (300 RPM), server-side context caching (50%+ token savings), background webhook analysis (zero latency signature generation)
-      * Default judge instructions to free tier with paid tier as optional performance upgrade
-    - Update `.env.example` with `BLACKWALL_TIER` variable and explanatory comments
-    - **VERIFY ENV COVERAGE:** Review if any eval-specific paths need to be added to `.env.example` (e.g., `EVAL_RESULTS_DIR`, `ADK_AGENT_PATH`). If new variables are discovered during implementation, add them with clear comments indicating whether they're needed for free tier or paid tier only.
-    - **UPDATE JUDGE_EVALUATION.md:** After successfully running the free-tier evaluation, update `JUDGE_EVALUATION.md` with:
-      * Actual timing results from `run_evasion_eval_free.sh` (wave-1 avg latency, wave-2 avg latency, speedup ratio)
-      * Actual FRR and Evasion Rate percentages from the full 120-case eval
-      * Any judge-facing gotchas discovered during testing (e.g., common errors, timing expectations)
-      * Screenshots or terminal recordings of successful eval runs (optional but recommended for visual proof)
+  - [x] 21.5 Transition exclusively to 100% GCP Vertex AI Mode (Paid Tier)
+    - Permanently remove Google AI Studio API Key Mode (`GEMINI_API_KEY`, `LLM_API_KEY`) and free-tier rate-limit fallbacks
+    - Require `GCP_PROJECT` for Application Default Credentials (ADC) auth
+    - Lock `GEMINI_TIER="paid"` and `BLACKWALL_TIER="paid"` (300+ RPM quota via Gemini Enterprise Agent Platform)
+    - Enforce high-throughput concurrency execution across evaluation and diagnostic scripts (`scripts/verify_environment.py`, `scripts/burst_test.py`)
     - _Requirements: 2.1, 9.1, 9.2, 15.1, 15.2, 26.1, 26.2_
 
-- [ ] 22. Implement demo harness and dual-agent showdown setup
-  - [ ] 22.1 Create demo orchestration script for dual-agent showdown
-    - Write scripts/run_demo.sh launching Blackwall as ambient daemon via adk run
-    - Write scripts/run_rogue.py launching adversarial agent with configured attack sequences
+- [ ] 22. Implement demo harness and dual-agent showdown setup (Building upon `demo_live.py`)
+  - [ ] 22.1 Enhance `demo_live.py` and orchestration script for dual-agent showdown
+    - Build upon **`demo_live.py`** as the live demonstration entrypoint
+    - Utilize `scripts/run_demo.sh` launching Blackwall as ambient daemon via `adk run`
+    - Utilize `scripts/run_rogue.py` launching adversarial agent with configured attack sequences
     - Implement split-screen terminal recording setup
     - Configure Blackwall daemon to log to visible terminal output
     - Configure rogue agent to show attempt outputs and failures
     - _Requirements: 27.1, 27.2, 27.3, 28.1, 28.2_
 
   - [ ] 22.2 Configure sandbox environment with Python audit hooks
-    - Register sys.addaudithook blocking raw os/subprocess/pty calls at process start
+    - Register `sys.addaudithook` blocking raw os/subprocess/pty calls at process start
     - Configure Blackwall to run as unprivileged user (dropped OS privileges)
-    - Set up mock vulnerable target application (simple Flask app with SQL injection surface)
-    - Configure rogue agent (Qwen3-Coder via Hyperbolic API) with attack tool set
+    - Set up mock vulnerable target application (`scripts/mock_app.py`)
+    - Configure rogue agent (Qwen3-Coder 480B via Hyperbolic API) with attack tool set
     - Validate audit hooks active before demo execution
     - _Requirements: 10.6, 10.7, 10.8, 27.4, 27.5_
 
   - [ ] 22.3 Write smoke tests for demo harness
-    - Test Blackwall daemon starts successfully via adk run
+    - Test Blackwall daemon starts successfully via `adk run`
     - Test audit hook blocks raw subprocess calls
-    - Test rogue agent tool calls are intercepted by before_tool_callback
+    - Test rogue agent tool calls are intercepted by `before_tool_callback`
     - Test first-attempt attack blocked by semantic evaluation
     - Test second-attempt attack blocked by signature match
     - _Requirements: 27.1, 27.2, 26.1, 26.2_
 
 - [ ] 23. Implement YAML policy configuration for demo scenarios
-  - [ ] 23.1 Create policy.yaml with production-ready rules for demo
+  - [ ] 23.1 Create `policy.yaml` with production-ready rules for demo
     - Define environment roles: PRODUCTION, STAGING, DEVELOPMENT, SANDBOX
     - Write structural rules blocking known dangerous tool names immediately (BLOCK)
     - Write structural rules for privileged operations requiring semantic review (ESCALATE_TO_SEMANTIC)
@@ -1058,7 +1012,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7_
 
   - [ ] 23.2 Write YAML policy validation tests
-    - Test all rule IDs are unique in policy.yaml
+    - Test all rule IDs are unique in `policy.yaml`
     - Test schema validation passes for all rules
     - Test priority ordering covers expected evaluation sequence
     - Test BLOCK rules fire for known malicious tool names
@@ -1067,14 +1021,13 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - _Requirements: 14.1, 14.2, 14.10, 22.1, 22.2, 22.7_
 
 - [ ] 24. Write project documentation and README
-  - [ ] 24.1 Create comprehensive README.md
-    - Write project overview describing Blackwall's mission and architecture
-    - Include architecture diagram (Mermaid) showing all components and data flow
-    - Provide setup instructions: dependencies, environment variables, API keys
-    - Document demo execution steps with expected outputs
+  - [ ] 24.1 Maintain comprehensive README.md
+    - Overview describing Blackwall's mission, product tiers, and architecture
+    - Mermaid diagrams showing all components and data flow
+    - Setup instructions: dependencies, GCP_PROJECT, environment variables
+    - Document `demo_live.py` execution steps with expected outputs
     - Include evaluation results table showing FRR and Evasion Rate
     - Add security architecture section explaining Zero Ambient Authority
-    - Include BDD scenario examples from design.md for context
     - _Requirements: 28.1, 28.2, 28.3_
 
   - [ ] 24.2 Create ARCHITECTURE.md with technical deep-dive
@@ -1087,17 +1040,16 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Document security constraints: fail-closed defaults, Zero Ambient Authority
     - _Requirements: 28.3, 28.4_
 
-  - [ ] 24.3 Write KAGGLE_SUBMISSION.md with competition narrative
+  - [ ] 24.3 Write ENTERPRISE_ARCHITECTURE.md with Enterprise Mesh technical overview
     - Describe the dual-agent showdown scenario and key design decisions
-    - Highlight innovative aspects: self-learning signatures, runtime AgBOM, LLM-as-judge scoring
-    - Summarize evaluation results and what they demonstrate
-    - Include lessons learned and potential extensions
+    - Highlight innovative aspects: self-learning signatures, eBPF probes, ZeroMQ threat mesh, Vault sidecars
+    - Summarize evaluation results and performance benchmarks
     - _Requirements: 28.5_
 
 - [ ] 25. Implement self-learning loop integration and end-to-end validation
   - [ ] 25.1 Integrate signature generation into live interception pipeline
-    - Wire ABA.generateSignature() to fire after every BLOCK verdict in the pipeline
-    - Wire ABA.triggerRefactoring() to fire after every QUARANTINE verdict
+    - Wire `ABA.generateSignature()` to fire after every BLOCK verdict in the pipeline
+    - Wire `ABA.triggerRefactoring()` to fire after every QUARANTINE verdict
     - Confirm ThreatSignature written to TSG with correct 768-dimensional embedding vector and metadata
     - Confirm OpenTelemetry span records signature creation event
     - Confirm SecurityEvent logged with eventType=SIGNATURE_CREATED and verdict=None
@@ -1138,25 +1090,25 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Assert average batch size >= 3 at full load
     - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7, 13.8, 13.9_
 
-- [ ] 27. Final integration, packaging, and submission preparation
-  - Ensure all tests pass: pytest --asyncio-mode=auto -v
+- [ ] 27. Final integration, packaging, and release verification
+  - Ensure all tests pass: `.venv/bin/pytest`
   - Ensure pre-commit hooks pass: ruff, black, mypy
   - Build Docker image and verify container starts cleanly
-  - Verify demo script executes without errors in sandbox environment
+  - Verify `demo_live.py` executes without errors in sandbox environment
   - Confirm evaluation report shows FRR < 10% and Evasion Rate < 10%
-  - Tag git release v1.0.0 for Kaggle submission
+  - Tag git release v2.0.0 for Blackwall Core & Enterprise Mesh
   - Verify README.md renders correctly on GitHub
-  - Ask the user if questions arise
 
 ## Notes
 
 - **Property-Based Testing:** Tasks marked with property tests (e.g., "Property 1: Callback Resolution Completeness") validate universal correctness properties from the design document using Hypothesis with 1,000+ generated examples per property.
-- **Optional Tasks:** Tasks marked with `*` are optional test tasks and may be skipped for faster MVP delivery. Core implementation tasks (without `*`) must be completed.
+- **Optional Tasks:** Tasks marked with `*` are optional test tasks and may be skipped for faster delivery. Core implementation tasks (without `*`) must be completed.
 - **Fail-Closed Defaults:** All error handling and timeout scenarios default to QUARANTINE verdicts (never ALLOW) to maintain conservative security posture.
-- **Async Timeout Behavior:** asyncio.wait_for() raises TimeoutError to the caller (not CancelledError). The wrapped coroutine is cancelled internally, but the TimeoutError is what must be caught at the call site.
+- **Async Timeout Behavior:** `asyncio.wait_for()` raises `TimeoutError` to the caller (not `CancelledError`). The wrapped coroutine is cancelled internally, but the `TimeoutError` is what must be caught at the call site.
 - **Thread-Safe Concurrency:** All concurrent access to SQLite, InterceptionQueue, and Context Hygiene uses asyncio locks or connection pooling to prevent race conditions.
-- **Checkpoint Tasks:** Tasks 12 and 18 are checkpoints for user feedback. Pause at these points to verify system functionality before proceeding.
-- **Kaggle Submission Requirements:** Tasks 20-27 focus on demo preparation, evaluation, and documentation for the Kaggle AI Agents hackathon.
+- **Checkpoint Tasks:** Tasks 12 and 18 are checkpoints for validation. Pause at these points to verify system functionality before proceeding.
+- **100% GCP Vertex AI Mode:** Tasks 20-27 operate exclusively on GCP Vertex AI Mode (Paid Tier via Gemini Enterprise Agent Platform) with 300+ RPM quota.
+
 - **12 Correctness Properties:** The design document defines 12 formal correctness properties with explicit requirements traceability. Property tests in this task list validate these properties.
 - **28 Requirements with EARS Criteria:** All 28 requirements from requirements.md have EARS-compliant acceptance criteria (WHEN/IF/WHILE/WHERE/FOR ANY conditions with THE system SHALL actions).
 

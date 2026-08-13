@@ -2,16 +2,15 @@
 
 ## Introduction
 
-Blackwall is a **local Minimum Viable Product (MVP)** autonomous Agentic Firewall designed for the Kaggle "AI Agents: Intensive Vibe Coding" hackathon Freestyle track. The system operates as a **single-instance ambient daemon** running exclusively within a **Kali Linux sandbox VM** to demonstrate dual-agent threat mitigation in a controlled environment. Blackwall intercepts and evaluates AI agent execution flows before they reach external systems or the host OS through ADK 2.0's `before_tool_callback` hook, implementing a hybrid defense architecture combining structural YAML-based policies with semantic LLM-based intent analysis. The system leverages self-learning threat signature graphs stored in an embedded **SQLite database** (not Redis or distributed stores), rate-limited secondary validation from Google Threat Intelligence (GTI) MCP (4 queries/minute on free tier), and structural code analysis via codebase-memory-mcp to dynamically generate defensive skills with zero static allowlists. The architecture addresses critical API rate constraints (300 RPM Gemini vs 600 RPM attacker) through asynchronous batched evaluation with callback queue management, maintaining sub-10% false positive/negative rates while demonstrating Zero Ambient Authority (unprivileged user + Python runtime audit hooks), Agent Behavioral Analytics, and runtime AgBOM tracing. **All enterprise patterns, horizontal scaling, multi-tenant isolation, and distributed caching abstractions are explicitly out of scope.**
+Blackwall is an autonomous **Agentic Security Firewall** designed to intercept execution flows at machine speed before rogue or compromised AI agents can perform unauthorized OS/network actions, chain zero-day exploits, or harvest credentials. Operating across **Blackwall Core** (single-host daemon) and **Blackwall Enterprise Mesh** (multi-host security mesh), it intercepts and evaluates AI agent execution flows before they reach external systems or the host OS through ADK's `before_tool_callback` hook, implementing a hybrid defense architecture combining structural YAML-based policies with semantic LLM-based intent analysis powered strictly by **100% GCP Vertex AI Mode** (Gemini Enterprise Agent Platform). The system leverages self-learning threat signature graphs stored in an embedded **SQLite database** (WAL mode), rate-limited secondary validation from Google Threat Intelligence (GTI) MCP, and structural code analysis via codebase-memory-mcp to dynamically generate defensive skills with zero static allowlists. The architecture addresses critical API rate constraints through asynchronous batched evaluation with callback queue management (300+ RPM quota), maintaining sub-10% false positive/negative rates while demonstrating Zero Ambient Authority (unprivileged user + Python runtime audit hooks), Agent Behavioral Analytics, and runtime AgBOM tracing.
 
 ## Glossary
 
 - **Blackwall**: The autonomous Agentic Firewall system that intercepts and evaluates AI agent tool calls
 - **ADK**: Agent Development Kit 2.0, the runtime environment providing the `before_tool_callback` hook
 - **Interception_Queue**: Thread-safe FIFO queue holding suspended ADK tool callbacks during batch accumulation (paid tier only)
-- **Batch_Resolver**: Component orchestrating asynchronous batched API calls to Gemini while managing 300 RPM rate limits (paid tier only)
-- **Sync_Resolver**: Component performing synchronous single-request evaluation for free tier (15 RPM), bypassing batching and webhooks
-- **Hybrid_Policy_Server**: Dual-layer threat evaluation engine combining structural and semantic gating (tier-agnostic)
+- **Batch_Resolver**: Component orchestrating asynchronous batched API calls to Gemini while managing rate limits (300+ RPM quota via Gemini Enterprise Agent Platform)
+- **Hybrid_Policy_Server**: Dual-layer threat evaluation engine combining structural and semantic gating
 - **Structural_Gating**: Fast deterministic YAML-based policy evaluation (<5ms target latency)
 - **Semantic_Gating**: Deep LLM-based intent analysis using GTI and codebase analysis
 - **Context_Hygiene**: Regex-based sanitization middleware that strips sensitive data before policy evaluation
@@ -69,25 +68,19 @@ Blackwall executes as an unprivileged OS user (non-root) within the Kali Linux V
 All agent execution flows route through ADK 2.0's tool-calling abstraction. No direct shell access, no raw subprocess execution for the rogue agent, and no OS-level privilege model beyond the audit hook. Blackwall's `before_tool_callback` is the sole interception point.
 
 ### LS-05: Demo Sandbox Scope
-The system demonstrates a **dual-agent showdown** with **dual-tier operation modes** to enable both performance benchmarking (paid tier) and judge reproducibility (free tier):
+The system demonstrates a **dual-agent showdown** running on **100% GCP Vertex AI Mode (Paid Tier via Gemini Enterprise Agent Platform)**:
 
-**Paid Tier (300 RPM):**
-1. **Blackwall Agent:** Gemini 3.1 Flash-Lite via paid Gemini Interactions API (300 RPM limit)
+**Paid Tier (300+ RPM Quota):**
+1. **Blackwall Agent:** Gemini 3.5 Flash via GCP Vertex AI Mode (300+ RPM quota)
 2. **Architecture:** Asynchronous batched evaluation via `client.interactions.create()`, server-side context caching, webhook-driven background signature generation
 3. **Performance:** <100ms @ 99th percentile for batched semantic evaluation, zero added latency for signature generation
-4. **Use Case:** Full-scale demo showcasing throughput capabilities and optimization engineering
+4. **Use Case:** Full-scale demonstration showcasing throughput capabilities and security interception
 
-**Free Tier (15 RPM):**
-1. **Blackwall Agent:** Gemini 3.1 Flash-Lite via free Gemini API (15 RPM limit, no billing required)
-2. **Architecture:** Synchronous single-request evaluation via `client.models.generate_content()`, no batching, inline signature generation
-3. **Performance:** ~1-2s per interception (semantic path), ~10ms per signature match (TSG fast path)
-4. **Use Case:** Zero-friction judge reproduction requiring only an API key with no payment setup
-
-**Common Elements (Both Tiers):**
+**Common Elements:**
 - **Rogue Agent:** Qwen3-Coder 480B via Hyperbolic API (600 RPM max attack rate)
-- **Target Application:** Simple vulnerable mock application (e.g., Metasploitable) running inside the sandbox
-- **Execution Environment:** Single Kali Linux VM with dropped privileges for rogue agent
-- **Core Security Mechanisms:** Hybrid gating, self-learning signatures, audit hooks, Zero Ambient Authority (identical across tiers)
+- **Target Application:** Simple vulnerable mock application (`scripts/mock_app.py`) running inside the sandbox
+- **Execution Environment:** Sandbox environment with dropped privileges for rogue agent
+- **Core Security Mechanisms:** Hybrid gating, self-learning signatures, audit hooks, Zero Ambient Authority
 - **Evaluation Metrics:** FRR and Evasion Rate calculation (identical formulas, different execution speed)
 
 **Tier Selection:**
@@ -307,8 +300,8 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 
 #### Acceptance Criteria
 
-1. THE GTI_MCP client SHALL function as a **secondary validation layer** supplementing the primary defense composed of SQLiteThreatRepository, structural YAML policies, and Codebase_Memory_MCP
-2. THE GTI_MCP client SHALL be reserved ONLY for high-risk events: new external IP addresses not in local cache, suspicious file hashes, unknown domains, or events with structural gating signals indicating elevated threat
+1. THE system SHALL execute GTI_MCP validation ONLY for High_Risk_Events as classified by structural gating or suspicious IOC signals
+2. THE system SHALL cache GTI query results in SQLite with a configurable TTL (default: 24 hours) to minimize external API calls
 3. THE system SHALL implement a GTI_Query_Budget_Tracker using a **token bucket rate limiter** with a hard cap of 4 GTI queries per 60-second sliding window to comply with VirusTotal free tier limits
 4. THE token bucket SHALL initialize with 4 tokens and replenish at a rate of 1 token every 15 seconds (4 tokens per 60 seconds)
 5. WHEN GTI budget is exhausted (0 tokens remaining), THE system SHALL continue evaluation without GTI signal, applying graceful degradation by redistributing GTI weight to other signals
@@ -347,7 +340,7 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 
 ### Requirement 11: Evaluation Metrics and Accuracy Targets
 
-**User Story:** As a Kaggle competition judge, I want formal evaluation metrics demonstrating sub-10% false positive and false negative rates, so that I can verify the firewall meets production-grade accuracy standards.
+**User Story:** As a security engineer, I want formal evaluation metrics demonstrating sub-10% false positive and false negative rates, so that I can verify the firewall meets production-grade accuracy standards.
 
 #### Acceptance Criteria
 
@@ -361,7 +354,7 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 8. WHEN calculating recall, THE system SHALL compute (truePositives / totalMalicious) × 100.0, returning 0.0 when totalMalicious is zero
 9. WHEN calculating F1 score, THE system SHALL compute 2 × ((precision × recall) / (precision + recall)), returning 0.0 when (precision + recall) is zero
 10. FOR ANY completed test suite, THE system SHALL verify that truePositives + trueNegatives + falsePositives + falseNegatives equals totalTests
-11. THE system SHALL generate a SecurityMetrics report exportable as a JSON file for Kaggle judge submission
+11. THE system SHALL generate a SecurityMetrics report exportable as a JSON file for performance auditing
 12. WHEN a test result has a BLOCK or QUARANTINE verdict AND a MALICIOUS ground truth label, THE system SHALL count it as a true positive
 13. WHEN a test result has a QUARANTINE verdict AND a MALICIOUS ground truth label, THE system SHALL additionally increment quarantineCount
 14. WHEN a test result has a BLOCK or QUARANTINE verdict AND a BENIGN ground truth label, THE system SHALL count it as a false positive; IF the verdict is QUARANTINE, THE system SHALL additionally increment quarantineCount
@@ -506,38 +499,29 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 11. THE `version` field in the YAML policy file SHALL follow semantic versioning format MAJOR.MINOR.PATCH
 12. THE `global.threatThreshold` and `global.quarantineThreshold` fields SHALL be in the range 0.0 to 1.0 inclusive
 
-### Requirement 18: Kaggle Submission and Demo Requirements
+### Requirement 18: Evaluation, Benchmarks, and Demo Harness Requirements
 
-**User Story:** As a hackathon participant, I want comprehensive demo materials and evaluation artifacts, so that Kaggle judges can reproduce results and verify performance claims.
+**User Story:** As a security engineer, I want comprehensive demo materials and evaluation artifacts, so that users and security teams can reproduce evaluation results and verify performance claims.
 
 #### Acceptance Criteria
 
 1. THE system SHALL include a public GitHub repository with complete source code, YAML configuration files, and documentation
 2. THE repository SHALL contain a README.md with: project overview, architecture summary, Mermaid diagrams, setup instructions, and usage examples
 3. THE repository SHALL include a `requirements.txt` or `pyproject.toml` listing all Python dependencies with pinned versions
-4. THE repository SHALL include a `docker-compose.yml` orchestrating the sandbox environment
-5. THE system SHALL include a demo video recording a dual-agent showdown with split-screen terminal showing the rogue agent side-by-side with Blackwall's live log output
-6. THE demo video SHALL show the rogue agent attempting a novel exploit (e.g., reverse shell install) and Blackwall intercepting, blocking, and creating a Threat_Signature
-7. THE demo video SHALL show the rogue agent attempting a variant of the same attack and Blackwall blocking it via Threat_Signature_Graph similarity matching without a GTI API call
-8. THE demo video SHALL display real-time Blackwall logs showing interception events, signature creation, and mitigation verdicts
-9. THE system SHALL include a test script that calculates FRR, Evasion Rate, and F1 score from a ground truth CSV and exports results as JSON
+4. THE repository SHALL include sandbox container configuration orchestrating the evaluation environment
+5. THE system SHALL include a live dual-agent showdown harness showing a rogue agent side-by-side with Blackwall's live log output
+6. THE demo harness SHALL show the rogue agent attempting a novel exploit (e.g., reverse shell install) and Blackwall intercepting, blocking, and creating a Threat_Signature
+7. THE demo harness SHALL show the rogue agent attempting a variant of the same attack and Blackwall blocking it via Threat_Signature_Graph similarity matching without a GTI API call
+8. THE demo harness SHALL display real-time Blackwall logs showing interception events, signature creation, and mitigation verdicts
+9. THE system SHALL include a test script that calculates FRR, Evasion Rate, and F1 score from a ground truth CSV/JSON and exports results
 10. THE test suite SHALL contain at least 50 MALICIOUS and 50 BENIGN test cases
-11. THE system SHALL generate a final SecurityMetrics JSON report for Kaggle judge submission
-12. THE sandbox environment SHALL run in a Kali Linux VM with dropped OS privileges and Python audit hooks enforcing ADK tool layer routing
+11. THE system SHALL generate a final SecurityMetrics JSON report for performance auditing
+12. THE sandbox environment SHALL run in a controlled environment with dropped OS privileges and Python audit hooks enforcing ADK tool layer routing
 13. THE rogue agent SHALL use Qwen3-Coder 480B via the Hyperbolic API running at up to 600 RPM
-14. THE Blackwall agent SHALL use Gemini 3.5 Flash via the paid Gemini Interactions API running at 300 RPM
-15. THE demo SHALL target a mock vulnerable application (e.g., Metasploitable) hosted inside the sandbox VM
-16. THE repository SHALL include Mermaid architecture diagrams covering: overall system architecture, main execution sequence, and component interaction flows
-17. THE repository SHALL include Behavior-Driven Development (BDD) scenarios in Gherkin syntax (Given/When/Then) demonstrating key security interception featuresmo video SHALL display real-time logs from Blackwall showing interception, signature creation, and mitigation
-9. THE system SHALL include test scripts calculating FRR, FPR, and Evasion Rate with ground truth labels
-10. THE test suite SHALL contain at least 50 MALICIOUS test cases and 50 BENIGN test cases
-11. THE system SHALL generate a final metrics report in JSON format for submission to Kaggle judges
-12. THE system SHALL run in a Kali Linux VM sandbox with dropped privileges and Python audit hooks enforcing ADK tool layer routing
-13. THE rogue agent SHALL use Qwen3-Coder 480B via Hyperbolic API running at 600 RPM
-14. THE Blackwall agent SHALL use Gemini 3.5 Flash via paid Gemini Interactions API running at 300 RPM
+14. THE Blackwall agent SHALL use Gemini 3.5 Flash via 100% GCP Vertex AI Mode running at 300+ RPM quota
 15. THE demo SHALL target a mock vulnerable application (e.g., Metasploitable) hosted inside the sandbox
-16. THE final submission SHALL include architectural diagrams in Mermaid or similar format showing component interactions
-17. THE submission SHALL include Behavior-Driven Development (BDD) scenarios in Gherkin syntax demonstrating key security features
+16. THE repository SHALL include Mermaid architecture diagrams covering: overall system architecture, main execution sequence, and component interaction flows
+17. THE repository SHALL include Behavior-Driven Development (BDD) scenarios in Gherkin syntax (Given/When/Then) demonstrating key security interception features
 
 
 ### Requirement 19: Quarantine and Auto-Refactoring (Green Team)

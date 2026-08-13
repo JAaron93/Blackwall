@@ -1,9 +1,10 @@
 # Blackwall Agent: Demo Harness & Dual-Agent Showdown Architecture
 
 ## 1. Introduction
-To effectively demonstrate the capabilities of the Blackwall Agentic Firewall for the Kaggle "AI Agents: Intensive Vibe Coding" hackathon, we implemented a sophisticated, self-contained dual-agent testing harness.
+To evaluate and demonstrate the real-time threat interception capabilities of the Blackwall Agentic Firewall, the system utilizes a self-contained dual-agent testing harness anchored by `demo_live.py` (along with `scripts/mock_app.py`, `scripts/run_rogue.py`, `scripts/run_demo.sh`, and `sys.addaudithook` runtime hooks).
 
-This harness provides a safe, contained environment—a "sandbox arena"—where a hostile "Rogue Agent" can attempt to exploit a vulnerable application while the Blackwall Agent monitors, intercepts, and mitigates those threats in real-time.
+This harness provides a safe, contained environment—a "sandbox arena"—where an adversarial "Rogue Agent" (powered by Qwen3-Coder 480B via Hyperbolic API) attempts to exploit a vulnerable application while the Blackwall Agent monitors, intercepts, and mitigates those threats in real-time.
+
 
 ## 2. Architectural Components
 

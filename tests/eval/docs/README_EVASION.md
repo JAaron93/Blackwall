@@ -203,4 +203,4 @@ The combination of `malicious_cases.json` (Wave 1 seed attacks) and `evasion_cas
 **Total Evasion Cases:** 30
 **Coverage:** 7 attack types, 19 evasion technique types
 **Wave:** 2 (signature-based detection validation)
-**Status:** Reference dataset for Kaggle "AI Agents: Intensive Vibe Coding" hackathon
+**Status:** Production reference evaluation dataset for Blackwall Security Suite

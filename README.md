@@ -2,7 +2,7 @@
 
 > **Autonomous defense against adversarial AI agents through self-learning threat signatures and hybrid gating.**
 
-Blackwall is a production-ready local MVP autonomous Agentic Firewall designed for the Kaggle "AI Agents: Intensive Vibe Coding" hackathon Freestyle track. It intercepts and evaluates AI agent execution flows **before they reach external systems or the host OS**, implementing a **hybrid defense architecture** combining structural YAML-based policies with semantic LLM-based intent analysis.
+Blackwall is an autonomous **Agentic Security Firewall** designed to intercept execution flows at machine speed before rogue or compromised AI agents can perform unauthorized OS/network actions, chain zero-day exploits, or harvest credentials. Operating across **Blackwall Core** (single-host daemon) and **Blackwall Enterprise Mesh** (multi-host security mesh), it intercepts execution flows **before they reach external systems or the host OS**, implementing a **hybrid defense architecture** combining structural YAML-based policies with semantic LLM-based intent analysis powered strictly by **100% GCP Vertex AI Mode** (Gemini Enterprise Agent Platform).
 
 **Problem:** AI agents running at 600 requests-per-minute can generate novel adversarial payloads faster than traditional signature-based defenses can react. Static allowlists fail. Reactive monitoring leaves gaps. Blackwall solves this through **self-learning threat signatures** that evolve in real-time.
 
@@ -24,7 +24,7 @@ python3 demo_live.py
 
 **Expected output:** Real-time threat evaluation with colorful progress display, showing BLOCK/QUARANTINE/ALLOW decisions for 5 attacks.
 
-**For detailed setup:** See [JUDGE_EVALUATION.md](JUDGE_EVALUATION.md)
+**For detailed architecture:** See [.kiro/specs/blackwall-agentic-firewall/design.md](.kiro/specs/blackwall-agentic-firewall/design.md)
 
 ---
 
@@ -523,20 +523,20 @@ pytest tests/features/blackwall_guardrails.feature -v
 
 ---
 
-## 🤝 For Kaggle Judges
+## 🤝 Evaluation & Security Benchmarks
 
-### How to Verify Claims
+### How to Run System Evaluation
 
-1. **Start Here:** [JUDGE_EVALUATION.md](JUDGE_EVALUATION.md) (5-minute setup)
+1. **Start Here:** Set `GCP_PROJECT` in `.env` (100% GCP Vertex AI Mode via Gemini Enterprise Agent Platform)
 2. **Run Evaluation:** `bash scripts/run_evasion_eval.sh`
 3. **See Results:** Wave 1 blocks novel attacks → Wave 2 blocks variants 100x faster
 4. **Read Design:** [design.md](.kiro/specs/blackwall-agentic-firewall/design.md) for full architecture
 
-### Key Claims & How They're Proven
+### Key Claims & Verification Results
 
 | Claim | Evidence | Location |
 |-------|----------|----------|
-| Self-learning works | Wave 1→Wave 2 latency delta (1,415ms→12ms) | JUDGE_EVALUATION.md, eval results |
+| Self-learning works | Wave 1→Wave 2 latency delta (1,415ms→12ms) | Evasion evaluation results |
 | Hybrid gating effective | Structural layer <5ms, semantic <100ms @ P99 | design.md, test logs |
 | Zero static allowlists | All signatures learned from Wave 1, Wave 2 uses none | evalset, signature query logs |
 | <10% error rates | 120-case suite: FRR 6.0% (3÷50), Evasion Rate 2.9% (2÷70) | eval_config.json results |
@@ -570,34 +570,24 @@ VirusTotal free tier: 4 queries/minute
 
 ---
 
-## 📖 Citation & Attribution
+## 📖 Citation & Architecture Reference
 
-**Blackwall Agentic Firewall**
-Kaggle "AI Agents: Intensive Vibe Coding" Hackathon, Freestyle Track
+**Blackwall Agentic Firewall (Core & Enterprise Security Mesh)**
 
-**Architecture**: Hybrid structural + semantic gating with self-learning threat signatures
-**Models**: Gemini 3.1 Flash-Lite (rapid triage), Gemini 3.1 Pro-Preview (deep reasoning)
-**Evaluation**: 120-case suite with <10% FRR and evasion rates on reference-based dataset
-**Code**: Python 3.11+, asyncio, SQLite WAL, property-based testing with Hypothesis
+**Architecture**: Hybrid structural + semantic gating with self-learning threat signature graph  
+**Platform**: 100% GCP Vertex AI Mode (Gemini Enterprise Agent Platform)  
+**Models**: Gemini 3.5 Flash-Lite (rapid triage), Gemini 3.1 Pro-Preview (deep reasoning)  
+**Evaluation**: 120-case suite with sub-10% FRR and evasion rates on reference-based dataset  
+**Code**: Python 3.11+, asyncio, SQLite WAL, eBPF probes, ZeroMQ threat mesh  
 **Repository**: [GitHub - Blackwall](https://github.com/JAaron93/Blackwall)
 
 ---
 
 ## 🚀 Ready to Get Started?
 
-**For Judges:**
-1. See [JUDGE_EVALUATION.md](JUDGE_EVALUATION.md) for complete setup (5 minutes)
-2. Run `bash scripts/run_evasion_eval.sh`
-3. Review results and check [design.md](.kiro/specs/blackwall-agentic-firewall/design.md)
-
 **For Developers:**
 1. Read [requirements.md](.kiro/specs/blackwall-agentic-firewall/requirements.md) for full specification
 2. Review [design.md](.kiro/specs/blackwall-agentic-firewall/design.md) for architecture
-3. Run `pytest tests/ -v` for all unit and property tests
-4. Check [tasks.md](.kiro/specs/blackwall-agentic-firewall/tasks.md) for implementation details
+3. Run `.venv/bin/pytest` for all unit, integration, and property tests
+4. Check [tasks.md](.kiro/specs/blackwall-agentic-firewall/tasks.md) for active implementation deliverables
 
----
-
-**Questions?** Open an issue on GitHub or review the comprehensive documentation linked above.
-
-**Want the slides?** See the [project submission](https://github.com/JAaron93/Blackwall) on GitHub for presentation materials.

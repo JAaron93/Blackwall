@@ -81,6 +81,7 @@
   2. **Pass 2 — Regex scan over serialized string**: Apply regex pattern matching over the stringified JSON payload to redact embedded credential patterns (e.g. multi-segment project keys `sk-(?:[a-zA-Z0-9]+-)*[a-zA-Z0-9]{8,}`, Google `AIza`, URLs, emails, IP addresses).
 * **Rationale:** Performing regex substitution exclusively on JSON-serialized strings fails to match quoted property names (e.g., `(?i)password[\s:=]+` misses `"password": "value"` due to double quotes around key names), allowing plaintext credentials to survive in sanitized payloads and leak into serialized incident reports or telemetry streams.
 
+
 ## 19. Strict UTC Zero-Offset Pydantic Validator Invariant
 * **Rule:** Pydantic `@field_validator` classmethods enforcing UTC timezone compliance on timestamps MUST verify `v.tzinfo is None or v.utcoffset() != timedelta(0)` and raise `ValueError` on failure. Checking only `v.tzinfo is None` or `v.tzinfo.utcoffset(v) is None` is strictly prohibited.
 * **Rationale:** Aware datetimes with non-UTC offsets (e.g. `EST`, `-05:00`, `+02:00`) have non-null `tzinfo` objects. Checking only for timezone awareness accepts non-UTC offsets, violating the required zero-offset UTC timestamp contract across security event graphs.
@@ -105,6 +106,9 @@
 * **Rule:** Async security resolvers and interception engines (`SyncResolver`, callback handlers) executing user-registered synchronous hooks (e.g. `on_attacker_identified`, security event handlers) MUST run synchronous functions off the main event loop thread via `loop.run_in_executor(None, fn, arg)` wrapped in `await asyncio.wait_for(..., timeout=0.05)`. Resolver execution paths MUST NOT invoke synchronous user functions directly on the main event loop thread or leave timed-out threadpool tasks un-isolated.
 * **Rationale:** Direct synchronous execution on the event loop thread halts all concurrent security evaluations for the duration of the callback. Calling `asyncio.to_thread` inside `wait_for` without executor management can leak threadpool workers when callbacks time out. Using `loop.run_in_executor` with explicit `asyncio.wait_for` isolation guarantees the resolver SLA (<5ms budget) while safely timing out slow callbacks after 50ms without stalling the event loop thread or accumulating executor workers.
 
+## 25. VirusTotal GTI Free-Tier Rate Limit Architectural Invariant
+* **Rule:** VirusTotal Google Threat Intelligence (GTI) MCP queries MUST remain strictly capped at 4 queries per 60-second sliding window via `GTIQueryBudgetTracker` token bucket rate limiting (1 token replenished every 15 seconds). Provider configuration refactors migrating Gemini LLM providers to GCP Vertex AI Mode MUST NEVER strip, loosen, or remove VirusTotal free-tier rate limits.
+* **Rationale:** VirusTotal commercial enterprise API subscriptions cost >$1,000/month and are an explicit non-goal. Conflating third-party Threat Intelligence rate limits with Gemini LLM model quotas creates catastrophic financial exposure.
 
 
 

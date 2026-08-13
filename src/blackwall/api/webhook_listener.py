@@ -29,9 +29,11 @@ class WebhookListener:
         db_repository: SQLiteThreatRepository,
         gemini_client: Any,
         audience: str = "",
+        resolver: Any = None,
     ):
         self.db = db_repository
         self.gemini_client = gemini_client
+        self.resolver = resolver
         self.port = int(os.environ.get("BLACKWALL_WEBHOOK_PORT", 8090))
         self.jwks_url = os.environ.get(
             "GEMINI_JWKS_URL",
@@ -334,8 +336,11 @@ class WebhookListener:
             await self.db.remove_in_flight_task(task_id)
 
             span.set_attribute("signatures_created_count", len(signatures))
+            total_latency = webhook_latency_ms + fetch_latency_ms
+            if self.resolver is not None:
+                self.resolver.track_webhook_callback(total_latency)
             logger.info(
-                f"Processed webhook for task {task_id} (interaction {interaction_id}) in {webhook_latency_ms + fetch_latency_ms:.2f}ms"
+                f"Processed webhook for task {task_id} (interaction {interaction_id}) in {total_latency:.2f}ms"
             )
 
     async def start(self) -> None:
