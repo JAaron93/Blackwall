@@ -172,7 +172,7 @@ def _extract_metadata_endpoints(metadata: Any) -> List[str]:
     if not isinstance(metadata, dict):
         return []
     endpoints: List[str] = []
-    # Check common target metadata keys (url, uri, endpoint, domain, host, target)
+    # Check explicit target metadata keys (url, uri, endpoint, domain, host, target)
     for key in ("url", "uri", "endpoint", "domain", "host", "target"):
         val = metadata.get(key)
         if isinstance(val, str) and val.strip():
@@ -180,12 +180,14 @@ def _extract_metadata_endpoints(metadata: Any) -> List[str]:
             if norm and norm not in endpoints and not _is_local_endpoint(val):
                 endpoints.append(norm)
 
-    # Check any remaining string values in metadata containing URL/domain indicators
+    # Check remaining string values in metadata ONLY if they are valid URLs starting with http:// or https://
     for k, v in metadata.items():
-        if isinstance(v, str) and ("http" in v.lower() or "://" in v or "bin" in v.lower() or "paste" in v.lower()):
-            norm = _normalize_endpoint(v)
-            if norm and norm not in endpoints and not _is_local_endpoint(v):
-                endpoints.append(norm)
+        if k not in ("url", "uri", "endpoint", "domain", "host", "target") and isinstance(v, str):
+            v_strip = v.strip().lower()
+            if v_strip.startswith(("http://", "https://")):
+                norm = _normalize_endpoint(v)
+                if norm and norm not in endpoints and not _is_local_endpoint(v):
+                    endpoints.append(norm)
 
     return endpoints
 
@@ -403,9 +405,14 @@ class C2InfrastructureDetector:
             # Extract candidate endpoints/URLs from target or metadata
             candidate_urls = [evt.target]
             if isinstance(evt.metadata, dict):
+                for k in ("url", "uri", "endpoint", "domain", "host", "target"):
+                    val = evt.metadata.get(k)
+                    if isinstance(val, str) and val.strip():
+                        candidate_urls.append(val)
                 for k, v in evt.metadata.items():
-                    if isinstance(v, str) and ("http" in v or "bin" in v or "paste" in v or "site" in v or "storage" in v):
-                        candidate_urls.append(v)
+                    if k not in ("url", "uri", "endpoint", "domain", "host", "target") and isinstance(v, str):
+                        if v.strip().lower().startswith(("http://", "https://")):
+                            candidate_urls.append(v)
 
             for candidate in candidate_urls:
                 service = await self.classify_endpoint(candidate)
