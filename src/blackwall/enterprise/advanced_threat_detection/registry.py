@@ -165,18 +165,13 @@ class PackageRegistryMonitor:
 
                     action = str(req.get("action") or req.get("method") or "http_get").upper()
                     raw_ts = req.get("timestamp")
-                    if isinstance(raw_ts, datetime):
-                        try:
-                            ts = validate_utc_datetime(raw_ts)
-                        except Exception:
-                            if raw_ts.tzinfo is None:
-                                ts = raw_ts.replace(tzinfo=timezone.utc)
-                            else:
-                                ts = raw_ts.astimezone(timezone.utc)
-                    elif isinstance(raw_ts, (int, float)):
-                        ts = datetime.fromtimestamp(raw_ts, tz=timezone.utc)
+                    if raw_ts is not None:
+                        if not isinstance(raw_ts, datetime):
+                            raise ValueError(f"timestamp must be a datetime instance, got {type(raw_ts).__name__}")
+                        ts = validate_utc_datetime(raw_ts)
                     else:
                         ts = utc_now()
+
 
                     raw_score = req.get("risk_score", 0.4)
                     try:
