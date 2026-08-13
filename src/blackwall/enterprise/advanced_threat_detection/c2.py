@@ -90,7 +90,7 @@ def _extract_hostname_and_path(url_or_domain: str) -> Tuple[str, str]:
 
 
 def _normalize_endpoint(url_or_domain: str) -> str:
-    """Normalize full endpoint string preserving netloc case-insensitively while preserving path and query case."""
+    """Normalize full endpoint string preserving scheme and netloc case-insensitively while preserving path and query case."""
     raw = url_or_domain.strip()
     if not raw:
         return ""
@@ -101,10 +101,11 @@ def _normalize_endpoint(url_or_domain: str) -> str:
 
     try:
         parsed = urlparse(url_str)
+        scheme = (parsed.scheme or "http").lower()
         netloc = (parsed.netloc or raw.split("/")[0]).lower()
         path = parsed.path.rstrip("/")
         query = f"?{parsed.query}" if parsed.query else ""
-        return f"{netloc}{path}{query}"
+        return f"{scheme}://{netloc}{path}{query}"
     except Exception:
         return raw
 
@@ -244,7 +245,7 @@ class C2InfrastructureDetector:
                 if isinstance(meta_domain, str) and meta_domain:
                     meta_norm = _normalize_endpoint(meta_domain)
 
-            # Match exact normalized endpoint (including port/query) or exact host if domain-level query
+            # Match exact normalized endpoint (including scheme, port/query) or exact host if domain-level query
             if (
                 (target_norm and (target_norm == evt_target_norm or target_norm == meta_norm))
                 or (target_host and target_host == evt_target_host and target_norm == evt_target_norm)
