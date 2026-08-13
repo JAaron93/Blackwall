@@ -91,7 +91,7 @@ class RetrospectiveAnalyzer:
                 max_depth=max_depth,
             )
 
-        # Query all agents in the historical window
+        # Query all agents in the historical window with bounded limit
         all_nodes = await self.store.query_nodes(None, (start_win, end_win), limit=max_nodes)
         distinct_agents = sorted(list({n.event.agent_id for n in all_nodes}))
 
@@ -121,8 +121,8 @@ class RetrospectiveAnalyzer:
     ) -> list[AttackPath]:
         """Perform batch analysis on historical events to identify attack paths missed by real-time short-window detection.
 
-        Identifies multi-hop chains spanning wide temporal gaps (e.g. low-and-slow stealth campaigns)
-        using causal edge tracking and behavioral affinity.
+        Paginates historical queries in bounded batches to preserve memory and identifies multi-hop chains
+        using causal edge tracking, same-target correlation, and strict tier escalation.
         """
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
@@ -142,32 +142,38 @@ class RetrospectiveAnalyzer:
             end_win = datetime.now(UTC)
             start_win = end_win - timedelta(days=30)
 
-        # Query all nodes for the historical window
-        all_nodes = await self.store.query_nodes(agent_id, (start_win, end_win))
-        if len(all_nodes) < min_path_length:
-            return []
-
-        # Group nodes by agent_id for per-agent path reconstruction
-        nodes_by_agent: dict[str, list[AttackNode]] = defaultdict(list)
-        for node in all_nodes:
-            nodes_by_agent[node.event.agent_id].append(node)
-
         identified_paths: list[AttackPath] = []
         seen_signatures: set[tuple[uuid.UUID, ...]] = set()
 
-        overlap = min(batch_size // 2, 20)
-        step = max(1, batch_size - overlap)
+        # Paginate history in bounded batches directly from store
+        current_cursor = start_win
+        lookback_overlap_nodes: list[AttackNode] = []
 
-        # Process each agent's historical stream in batches of batch_size across the full window
-        for aid, agent_nodes in nodes_by_agent.items():
-            sorted_agent_nodes = sorted(agent_nodes, key=lambda n: n.event.timestamp)
+        while current_cursor <= end_win:
+            batch_nodes = await self.store.query_nodes(
+                agent_id, (current_cursor, end_win), limit=batch_size
+            )
+            if not batch_nodes:
+                break
 
-            for batch_start_idx in range(0, len(sorted_agent_nodes), step):
-                batch_nodes = sorted_agent_nodes[batch_start_idx : batch_start_idx + batch_size]
-                if len(batch_nodes) < min_path_length:
+            # Combine lookback nodes from previous batch boundary to preserve cross-batch edges
+            combined_batch = list(lookback_overlap_nodes)
+            seen_ids = {n.node_id for n in combined_batch}
+            for n in batch_nodes:
+                if n.node_id not in seen_ids:
+                    combined_batch.append(n)
+                    seen_ids.add(n.node_id)
+
+            # Group nodes by agent_id
+            nodes_by_agent: dict[str, list[AttackNode]] = defaultdict(list)
+            for node in combined_batch:
+                nodes_by_agent[node.event.agent_id].append(node)
+
+            for aid, agent_nodes in nodes_by_agent.items():
+                if len(agent_nodes) < min_path_length:
                     continue
 
-                sorted_nodes = sorted(batch_nodes, key=lambda n: n.event.timestamp)
+                sorted_nodes = sorted(agent_nodes, key=lambda n: n.event.timestamp)
 
                 # Build extended adjacency graph supporting causal links + semantic affinity
                 adj: dict[uuid.UUID, list[tuple[AttackNode, float]]] = defaultdict(list)
@@ -201,11 +207,12 @@ class RetrospectiveAnalyzer:
 
                         tier_a = SEMANTIC_TIERS.get(n_a.event.source, 1)
                         tier_b = SEMANTIC_TIERS.get(n_b.event.source, 1)
-                        same_target = n_a.event.target == n_b.event.target
+                        same_target = bool(n_a.event.target and n_a.event.target == n_b.event.target)
                         is_short_temporal = delta <= 300
-                        is_tier_progression = tier_b >= tier_a and (tier_b - tier_a) <= 3
+                        is_strict_tier_escalation = tier_b > tier_a and (tier_b - tier_a) <= 3
 
-                        if is_short_temporal or same_target or is_tier_progression:
+                        # Link only on short temporal proximity, same target affinity, or strict tier escalation
+                        if is_short_temporal or same_target or is_strict_tier_escalation:
                             decay = math.exp(-delta / max(300.0, max_time_gap_seconds / 10.0))
                             semantic_base = 0.5 + (0.2 if same_target else 0.0) + (0.1 * abs(tier_b - tier_a))
                             weight = min(1.0, 0.4 * decay + 0.6 * semantic_base)
@@ -271,6 +278,14 @@ class RetrospectiveAnalyzer:
                         identified_paths.append(path_obj)
                     except ValueError:
                         continue
+
+            if len(batch_nodes) < batch_size:
+                break
+
+            # Advance cursor past the latest timestamp in current batch
+            latest_batch_ts = max(n.event.timestamp for n in batch_nodes)
+            lookback_overlap_nodes = [n for n in batch_nodes if n.event.timestamp == latest_batch_ts]
+            current_cursor = latest_batch_ts + timedelta(microseconds=1)
 
         identified_paths.sort(key=lambda p: p.risk_score, reverse=True)
         return identified_paths
