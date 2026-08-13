@@ -308,7 +308,13 @@ class KubernetesDefenseLayer:
             if time_window and not (start_w <= event.timestamp <= end_w):
                 continue
             act = (event.action or "").lower()
-            if "pod" in act or "k8s://" in event.target or event.metadata.get("pod_name"):
+            is_k8s_pod_target = bool(event.target and event.target.startswith("k8s://pods/"))
+            is_lifecycle_action = (
+                act in POD_TERM_ACTIONS
+                or act in POD_CREATE_ACTIONS
+                or event.metadata.get("event_type") == "pod_lifecycle"
+            )
+            if is_lifecycle_action or is_k8s_pod_target:
                 pod_name = str(event.metadata.get("pod_name") or event.target)
                 if pod_name not in pod_events:
                     pod_events[pod_name] = []
@@ -326,15 +332,14 @@ class KubernetesDefenseLayer:
             for ev in sorted_events:
                 act = (ev.action or "").lower()
                 status = str(ev.metadata.get("status") or "").lower()
+
                 is_term = (
                     act in POD_TERM_ACTIONS
-                    or status == "terminated"
-                    or (ev.metadata.get("event_type") == "pod_lifecycle" and "terminate" in act)
+                    or (ev.metadata.get("event_type") == "pod_lifecycle" and ("terminate" in act or status == "terminated"))
                 )
                 is_create = (
                     act in POD_CREATE_ACTIONS
-                    or status in {"running", "created"}
-                    or (ev.metadata.get("event_type") == "pod_lifecycle" and "create" in act)
+                    or (ev.metadata.get("event_type") == "pod_lifecycle" and ("create" in act or status in {"running", "created"}))
                 )
 
                 if is_term:
