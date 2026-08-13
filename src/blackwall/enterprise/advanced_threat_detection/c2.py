@@ -161,6 +161,29 @@ def _is_local_endpoint(target_or_host: str) -> bool:
     return False
 
 
+def _extract_metadata_endpoints(metadata: Any) -> List[str]:
+    """Extract candidate normalized target endpoint strings from event metadata dictionary."""
+    if not isinstance(metadata, dict):
+        return []
+    endpoints: List[str] = []
+    # Check common target metadata keys (url, uri, endpoint, domain, host, target)
+    for key in ("url", "uri", "endpoint", "domain", "host", "target"):
+        val = metadata.get(key)
+        if isinstance(val, str) and val.strip():
+            norm = _normalize_endpoint(val)
+            if norm and norm not in endpoints and not _is_local_endpoint(val):
+                endpoints.append(norm)
+
+    # Check any remaining string values in metadata containing URL/domain indicators
+    for k, v in metadata.items():
+        if isinstance(v, str) and ("http" in v.lower() or "://" in v or "bin" in v.lower() or "paste" in v.lower()):
+            norm = _normalize_endpoint(v)
+            if norm and norm not in endpoints and not _is_local_endpoint(v):
+                endpoints.append(norm)
+
+    return endpoints
+
+
 class C2InfrastructureDetector:
     """Detects Command-and-Control (C2) infrastructure establishment, beaconing, and persistence."""
 
@@ -249,15 +272,11 @@ class C2InfrastructureDetector:
 
             evt_target_norm = _normalize_endpoint(evt.target)
             evt_target_host, _ = _extract_hostname_and_path(evt.target)
-            meta_norm = ""
-            if isinstance(evt.metadata, dict):
-                meta_domain = evt.metadata.get("endpoint") or evt.metadata.get("url") or evt.metadata.get("domain") or ""
-                if isinstance(meta_domain, str) and meta_domain:
-                    meta_norm = _normalize_endpoint(meta_domain)
+            meta_norms = _extract_metadata_endpoints(evt.metadata)
 
             # Match exact normalized endpoint (including scheme, port/query) or exact host if domain-level query
             if (
-                (target_norm and (target_norm == evt_target_norm or target_norm == meta_norm))
+                (target_norm and (target_norm == evt_target_norm or target_norm in meta_norms))
                 or (target_host and target_host == evt_target_host and target_norm == evt_target_norm)
             ):
                 matching_timestamps.append(evt.timestamp)
@@ -396,26 +415,17 @@ class C2InfrastructureDetector:
         cross_pillar_correlated = False
         if kernel_network_events and tool_call_events:
             for k_evt in kernel_network_events:
-                k_norm = _normalize_endpoint(k_evt.target)
-                k_meta_norm = ""
-                if isinstance(k_evt.metadata, dict):
-                    k_meta = k_evt.metadata.get("domain") or k_evt.metadata.get("host") or k_evt.metadata.get("endpoint") or ""
-                    if isinstance(k_meta, str) and k_meta:
-                        k_meta_norm = _normalize_endpoint(k_meta)
+                k_targets = set(
+                    filter(None, [_normalize_endpoint(k_evt.target)] + _extract_metadata_endpoints(k_evt.metadata))
+                )
 
                 for t_evt in tool_call_events:
-                    t_norm = _normalize_endpoint(t_evt.target)
-                    t_meta_norm = ""
-                    if isinstance(t_evt.metadata, dict):
-                        t_meta = t_evt.metadata.get("domain") or t_evt.metadata.get("host") or t_evt.metadata.get("endpoint") or ""
-                        if isinstance(t_meta, str) and t_meta:
-                            t_meta_norm = _normalize_endpoint(t_meta)
+                    t_targets = set(
+                        filter(None, [_normalize_endpoint(t_evt.target)] + _extract_metadata_endpoints(t_evt.metadata))
+                    )
 
-                    # Correlate if non-empty matching exact normalized network endpoints (both non-local)
-                    if (
-                        (k_norm and (k_norm == t_norm or k_norm == t_meta_norm))
-                        or (k_meta_norm and (k_meta_norm == t_norm or k_meta_norm == t_meta_norm))
-                    ):
+                    # Correlate if any non-empty normalized endpoint overlaps between kernel and tool/pipeline events
+                    if k_targets & t_targets:
                         cross_pillar_correlated = True
                         break
                 if cross_pillar_correlated:

@@ -310,4 +310,42 @@ async def test_ipv6_loopback_local_filter():
     assert len(evidences) == 0
 
 
+@pytest.mark.asyncio
+async def test_url_metadata_cross_pillar_correlation():
+    """Verify that URL endpoint stored in tool event metadata["url"] correlates with kernel connect."""
+    detector = C2InfrastructureDetector()
+    agent_id = "agent-url-meta-01"
+    base_time = datetime(2026, 8, 13, 12, 0, 0, tzinfo=timezone.utc)
+    time_window = (base_time, base_time + timedelta(hours=1))
+
+    # Kernel event connect to remote pastebin C2 endpoint
+    e_kernel = create_event(
+        agent_id=agent_id,
+        action="connect",
+        target="https://pastebin.com/raw/c2_payload",
+        offset_seconds=5.0,
+        source=EventSource.KERNEL_SYSCALL,
+        base_time=base_time,
+    )
+
+    # Tool call event where action="fetch_data", target="http_client", and endpoint is in metadata["url"]
+    e_tool = create_event(
+        agent_id=agent_id,
+        action="fetch_data",
+        target="http_client",
+        offset_seconds=10.0,
+        source=EventSource.TOOL_CALL,
+        metadata={"url": "https://pastebin.com/raw/c2_payload"},
+        base_time=base_time,
+    )
+
+    detector.record_event(e_kernel)
+    detector.record_event(e_tool)
+
+    evidences = await detector.detect_c2_establishment(agent_id, time_window)
+    assert len(evidences) == 1
+    assert "Cross-pillar correlation between Pillar 1 network syscalls and tool calls" in evidences[0].persistence_indicators
+
+
+
 
