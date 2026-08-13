@@ -201,6 +201,7 @@ class AttackGraphStore:
             return []
 
         nodes: list[AttackNode] = []
+        new_nodes: list[AttackNode] = []
         nodes_to_insert_db: list[NormalizedEvent] = []
 
         for event in events:
@@ -216,45 +217,51 @@ class AttackGraphStore:
                 outgoing_edges=[],
             )
             nodes.append(node)
-            self._nodes[node_id] = node
-            self._agent_nodes_index.setdefault(event.agent_id, []).append(node_id)
+            new_nodes.append(node)
             nodes_to_insert_db.append(event)
+
+        # 1. Database persistence inside atomic transaction FIRST
+        if self._pool and nodes_to_insert_db:
+            async with self._pool.acquire() as conn:
+                async with conn.transaction():
+                    insert_tuples = [
+                        (
+                            str(ev.event_id),
+                            str(ev.event_id),
+                            ev.timestamp,
+                            (
+                                ev.source.value
+                                if hasattr(ev.source, "value")
+                                else str(ev.source)
+                            ),
+                            ev.agent_id,
+                            ev.action,
+                            ev.target,
+                            json.dumps(ev.metadata),
+                            ev.risk_score,
+                            json.dumps([]),
+                            json.dumps([]),
+                        )
+                        for ev in nodes_to_insert_db
+                    ]
+                    await conn.executemany(
+                        """
+                        INSERT INTO event_nodes (
+                            node_id, event_id, timestamp, source, agent_id, action, target, metadata, risk_score, incoming_edges, outgoing_edges
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10::jsonb, $11::jsonb)
+                        ON CONFLICT (node_id) DO NOTHING;
+                        """,
+                        insert_tuples,
+                    )
+
+        # 2. Mutate in-memory cache structures ONLY AFTER successful DB commit
+        for node in new_nodes:
+            self._nodes[node.node_id] = node
+            self._agent_nodes_index.setdefault(node.event.agent_id, []).append(node.node_id)
 
         affected_agents = {e.agent_id for e in events}
         for aid in affected_agents:
             self._invalidate_path_cache(aid)
-
-        if self._pool and nodes_to_insert_db:
-            async with self._pool.acquire() as conn:
-                insert_tuples = [
-                    (
-                        str(ev.event_id),
-                        str(ev.event_id),
-                        ev.timestamp,
-                        (
-                            ev.source.value
-                            if hasattr(ev.source, "value")
-                            else str(ev.source)
-                        ),
-                        ev.agent_id,
-                        ev.action,
-                        ev.target,
-                        json.dumps(ev.metadata),
-                        ev.risk_score,
-                        json.dumps([]),
-                        json.dumps([]),
-                    )
-                    for ev in nodes_to_insert_db
-                ]
-                await conn.executemany(
-                    """
-                    INSERT INTO event_nodes (
-                        node_id, event_id, timestamp, source, agent_id, action, target, metadata, risk_score, incoming_edges, outgoing_edges
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10::jsonb, $11::jsonb)
-                    ON CONFLICT (node_id) DO NOTHING;
-                    """,
-                    insert_tuples,
-                )
 
         return nodes
 
