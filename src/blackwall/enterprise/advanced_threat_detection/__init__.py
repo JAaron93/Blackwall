@@ -32,6 +32,9 @@ from blackwall.enterprise.advanced_threat_detection.collector import (
 )
 from blackwall.enterprise.advanced_threat_detection.correlator import PathCorrelator
 from blackwall.enterprise.advanced_threat_detection.exploit import ExploitChainAnalyzer
+from blackwall.enterprise.advanced_threat_detection.registry import (
+    PackageRegistryMonitor,
+)
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from blackwall.enterprise.advanced_threat_detection.swarm import AgentSwarmDetector
 
@@ -58,5 +61,7 @@ __all__ = [
     "AILMTracker",
     "C2InfrastructureDetector",
     "KubernetesDefenseLayer",
+    "PackageRegistryMonitor",
     "logger",
 ]
+
