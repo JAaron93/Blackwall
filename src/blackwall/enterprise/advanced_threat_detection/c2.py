@@ -91,6 +91,19 @@ def _normalize_endpoint(url_or_domain: str) -> str:
         return raw
 
 
+def _is_local_endpoint(target_or_host: str) -> bool:
+    """Check if target or host represents a local socket, loopback address, or Unix domain path."""
+    raw = target_or_host.strip().lower()
+    if not raw:
+        return False
+    if raw.startswith("/") or raw.startswith("unix:") or raw.startswith("file:"):
+        return True
+    host, _ = _extract_hostname_and_path(raw)
+    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0", "localhost.localdomain"):
+        return True
+    return False
+
+
 class C2InfrastructureDetector:
     """Detects Command-and-Control (C2) infrastructure establishment, beaconing, and persistence."""
 
@@ -123,6 +136,9 @@ class C2InfrastructureDetector:
             'cloud_storage', 'webhook_receiver') or None if non-C2.
         """
         if not domain_or_url or not domain_or_url.strip():
+            return None
+
+        if _is_local_endpoint(domain_or_url):
             return None
 
         host, path = _extract_hostname_and_path(domain_or_url)
@@ -158,6 +174,9 @@ class C2InfrastructureDetector:
         start_win = validate_utc_datetime(start_raw)
         end_win = validate_utc_datetime(end_raw)
 
+        if _is_local_endpoint(endpoint):
+            return False
+
         agent_events = self._events_by_agent.get(str(agent_id), [])
 
         target_norm = _normalize_endpoint(endpoint)
@@ -166,6 +185,9 @@ class C2InfrastructureDetector:
 
         for evt in agent_events:
             if not (start_win <= evt.timestamp <= end_win):
+                continue
+
+            if _is_local_endpoint(evt.target):
                 continue
 
             evt_target_norm = _normalize_endpoint(evt.target)
@@ -282,14 +304,19 @@ class C2InfrastructureDetector:
         tool_call_events: List[NormalizedEvent] = []
 
         for evt in agent_events:
-            # Restrict kernel network events strictly to genuine outbound network syscall actions
+            # Restrict kernel network events strictly to genuine outbound network syscall actions (and non-local endpoints)
             if evt.source == EventSource.KERNEL_SYSCALL:
                 act_lower = evt.action.lower()
-                is_net = act_lower in NETWORK_ACTION_KEYWORDS
+                is_net = (
+                    act_lower in NETWORK_ACTION_KEYWORDS
+                    and not _is_local_endpoint(evt.target)
+                    and not (isinstance(evt.metadata, dict) and (evt.metadata.get("is_local") is True or evt.metadata.get("family") == "AF_UNIX"))
+                )
                 if is_net:
                     kernel_network_events.append(evt)
             elif evt.source in (EventSource.TOOL_CALL, EventSource.PIPELINE_EXECUTION):
-                tool_call_events.append(evt)
+                if not _is_local_endpoint(evt.target):
+                    tool_call_events.append(evt)
 
             # Extract candidate endpoints/URLs from target or metadata
             candidate_urls = [evt.target]
@@ -327,7 +354,7 @@ class C2InfrastructureDetector:
                         if isinstance(t_meta, str) and t_meta:
                             t_meta_norm = _normalize_endpoint(t_meta)
 
-                    # Correlate if non-empty matching exact normalized network endpoints
+                    # Correlate if non-empty matching exact normalized network endpoints (both non-local)
                     if (
                         (k_norm and (k_norm == t_norm or k_norm == t_meta_norm))
                         or (k_meta_norm and (k_meta_norm == t_norm or k_meta_norm == t_meta_norm))
