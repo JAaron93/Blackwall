@@ -361,9 +361,9 @@ class PackageRegistryMonitor:
                 distinct_pkgs = {
                     str(e.metadata.get("package_name") or e.target) for e in burst
                 }
-                # Cross-package scanning/reconnaissance targets multiple distinct packages.
-                # Single-package retries (len(distinct_pkgs) == 1) represent normal client retry behavior.
-                if len(distinct_pkgs) < 2:
+                # Cross-package scanning/reconnaissance targets multiple distinct packages across the registry.
+                # Single-package retries or minor repetition represent normal client retry behavior.
+                if len(distinct_pkgs) < 5:
                     continue
 
                 scanning_indicator = [
