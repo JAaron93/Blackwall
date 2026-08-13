@@ -142,23 +142,28 @@ class RetrospectiveAnalyzer:
             end_win = datetime.now(UTC)
             start_win = end_win - timedelta(days=30)
 
-        # Batch query nodes from store
-        nodes = await self.store.query_nodes(agent_id, (start_win, end_win), limit=batch_size)
-        if len(nodes) < min_path_length:
+        # Query all nodes for the historical window
+        all_nodes = await self.store.query_nodes(agent_id, (start_win, end_win))
+        if len(all_nodes) < min_path_length:
             return []
 
         # Group nodes by agent_id for per-agent path reconstruction
         nodes_by_agent: dict[str, list[AttackNode]] = defaultdict(list)
-        for node in nodes:
+        for node in all_nodes:
             nodes_by_agent[node.event.agent_id].append(node)
 
         identified_paths: list[AttackPath] = []
+        seen_signatures: set[tuple[uuid.UUID, ...]] = set()
 
-        # Process each agent's historical stream in batches
+        overlap = min(batch_size // 2, 20)
+        step = max(1, batch_size - overlap)
+
+        # Process each agent's historical stream in batches of batch_size across the full window
         for aid, agent_nodes in nodes_by_agent.items():
-            # Process in slices of batch_size
-            for batch_start_idx in range(0, len(agent_nodes), batch_size):
-                batch_nodes = agent_nodes[batch_start_idx : batch_start_idx + batch_size]
+            sorted_agent_nodes = sorted(agent_nodes, key=lambda n: n.event.timestamp)
+
+            for batch_start_idx in range(0, len(sorted_agent_nodes), step):
+                batch_nodes = sorted_agent_nodes[batch_start_idx : batch_start_idx + batch_size]
                 if len(batch_nodes) < min_path_length:
                     continue
 
@@ -194,10 +199,6 @@ class RetrospectiveAnalyzer:
                         if n_b.node_id in added_target_ids:
                             continue
 
-                        # Check for behavioral/affinity match:
-                        # a) Short temporal proximity (<= 300s)
-                        # b) Same target / asset
-                        # c) Progressive ATT&CK tier progression
                         tier_a = SEMANTIC_TIERS.get(n_a.event.source, 1)
                         tier_b = SEMANTIC_TIERS.get(n_b.event.source, 1)
                         same_target = n_a.event.target == n_b.event.target
@@ -226,7 +227,6 @@ class RetrospectiveAnalyzer:
                     )
 
                 # Materialize AttackPath instances
-                seen_signatures: set[tuple[uuid.UUID, ...]] = set()
                 for path_nodes in all_paths:
                     sig = tuple(n.node_id for n in path_nodes)
                     if sig in seen_signatures or len(path_nodes) < min_path_length:
@@ -237,7 +237,7 @@ class RetrospectiveAnalyzer:
                     if max_risk < min_risk_score:
                         continue
 
-                    # Compute path edge weights and dynamic correlation score
+                    # Compute dynamic correlation score from path edge weights
                     weights = []
                     for k in range(len(path_nodes) - 1):
                         curr_n = path_nodes[k]
@@ -409,7 +409,7 @@ class RetrospectiveAnalyzer:
         agent_id: str | None = None,
         time_window: tuple[datetime, datetime] | None = None,
     ) -> str:
-        """Export current attack graph to JSON or GraphML format, scoping edges strictly to selected nodes."""
+        """Export current attack graph to JSON or GraphML format, scoping nodes and edges strictly to the subgraph."""
         if time_window:
             nodes = await self.store.query_nodes(agent_id, time_window)
             edges = await self.store.get_edges(time_window)
@@ -428,5 +428,17 @@ class RetrospectiveAnalyzer:
             if str(e.get("from_node", "")) in node_id_strs
             and str(e.get("to_node", "")) in node_id_strs
         ]
+        scoped_edge_ids = {e["edge_id"] for e in scoped_edges}
 
-        return self.exporter.export(format, nodes, scoped_edges)
+        # Filter nodes' incoming and outgoing edge lists to eliminate dangling references in exported node payloads
+        scoped_nodes = [
+            AttackNode(
+                node_id=n.node_id,
+                event=n.event,
+                incoming_edges=[e for e in n.incoming_edges if e in scoped_edge_ids],
+                outgoing_edges=[e for e in n.outgoing_edges if e in scoped_edge_ids],
+            )
+            for n in nodes
+        ]
+
+        return self.exporter.export(format, scoped_nodes, scoped_edges)

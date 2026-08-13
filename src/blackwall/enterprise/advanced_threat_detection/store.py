@@ -762,7 +762,7 @@ class AttackGraphStore:
                             "SELECT edge_id FROM causal_edges WHERE from_node = ANY($1) OR to_node = ANY($1);",
                             purged_ids,
                         )
-                        edge_ids_to_remove = [r["edge_id"] for r in edge_rows]
+                        edge_ids_to_remove = [str(r["edge_id"]) for r in edge_rows]
 
                         result = await conn.execute(
                             "DELETE FROM event_nodes WHERE timestamp < $1;", cutoff_time
@@ -786,7 +786,7 @@ class AttackGraphStore:
                                     FROM jsonb_array_elements_text(outgoing_edges) AS elem
                                     WHERE elem != ALL($1)
                                 )
-                                WHERE incoming_edges ?| $1 OR outgoing_edges ?| $1;
+                                WHERE incoming_edges ?| $1::text[] OR outgoing_edges ?| $1::text[];
                                 """,
                                 edge_ids_to_remove,
                             )
