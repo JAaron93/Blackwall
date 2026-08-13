@@ -71,3 +71,10 @@
 ## 21. Strict File Parsing in Evaluation Test Harnesses
 * **Rule:** Evaluation report generators, test harness loaders (`ReportGenerator._load_evalset`, `ReportGenerator._load_results`), and benchmark parsers MUST use strict JSON parsing (`json.loads`) that raises explicit `JSONDecodeError` on malformed or empty files. They MUST NOT use fallback-swallowing utilities (like `parse_json_safely`) that substitute empty default structures.
 * **Rationale:** Swallowing JSON decode errors in evaluation harnesses converts corrupted or missing evalsets/results into zero-case evaluation runs, producing misleading false-pass report metrics.
+
+## 22. Cross-Package Multi-Pillar Test Coverage for Domain Scanners
+* **Rule:** Unit and property test suites for specialized threat monitors (e.g. `PackageRegistryMonitor`, `KubernetesDefenseLayer`) MUST include explicit test cases verifying both:
+  1. **Single-Target False-Positive Rejection**: Multiple repeated failures/retries (e.g. 5x 404s) for the same single entity/package MUST NOT be flagged as multi-target reconnaissance or scanning.
+  2. **Mixed-Pillar Graph Isolation**: Generic non-domain events in a shared `AttackGraphStore` (e.g. generic HTTP 404s from general tool calls or API endpoints) MUST NOT be misclassified as domain-specific threats (such as package registry scanning).
+* **Rationale:** Testing only homogeneous multi-target scenarios misses false-positive bugs caused by client retries and cross-pillar event pollution in shared database stores.
+
