@@ -139,3 +139,8 @@
 * **Rule (Stream Parsing Decoupled from DB Persistence):** In asynchronous streaming normalizers (`monitor_registry_access`), raw record validation and normalization MUST be decoupled from database insertion (`store.insert_event`). Database connection or infrastructure exceptions MUST propagate directly to the caller and MUST NOT be swallowed or masked as malformed stream records, ensuring in-memory caches and persistent stores remain synchronized.
 * **Rationale:** Blurring single-package client retries with multi-package reconnaissance generates false-positive alerts on routine network retries. Querying shared attack graphs without domain discriminators allows unrelated non-registry 404 errors to contaminate security evidence. Conflating database connection errors with malformed stream data leaves unsynchronized in-memory state and drops valid security telemetry without alerting operators.
 
+## 32. Event-Driven Non-Polling Invariant & Retry Delay Declarations
+* **Rule:** Blackwall enforces an event-driven execution architecture strictly validated by `scripts/verify_no_polling.py` and `tests/integration/test_pipeline_checkpoint.py`. New modules implementing asynchronous delivery retry or connection backoff routines using `await asyncio.sleep(...)` MUST be explicitly declared in `approved_locations` in `scripts/verify_no_polling.py`. They MUST ensure backoff delays are triggered strictly on exception retry branches and never executed on the happy path.
+* **Rationale:** Automated CI gates run AST scans across `src/` to prevent polling loops from entering the fast analysis path. Omitting retry-capable modules from the approved locations list breaks CI verification.
+
+
