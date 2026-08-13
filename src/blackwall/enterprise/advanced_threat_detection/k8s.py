@@ -233,13 +233,24 @@ class KubernetesDefenseLayer:
             if TOKEN_PATH_PATTERN in target_str or "/var/run/secrets" in target_str or "vault" in target_lower:
                 continue
 
-            is_k8s_api = (
-                event.metadata.get("k8s_api") is True
+            is_k8s_endpoint = (
+                bool(K8S_SECRET_API_REGEX.search(target_str))
+                or bool(K8S_SECRET_API_REGEX.search(api_call))
+                or "k8s://" in target_lower
+                or "k8s://" in api_call_lower
+                or "kubernetes" in target_lower
+                or "kubernetes" in api_call_lower
+                or "/api/v1/namespaces/" in target_lower
+                or "/api/v1/namespaces/" in api_call_lower
+                or event.metadata.get("k8s_api") is True
                 or event.metadata.get("is_k8s_api") is True
-                or bool(K8S_SECRET_API_REGEX.search(target_str))
+            )
+
+            is_secret_action = (
+                bool(K8S_SECRET_API_REGEX.search(target_str))
                 or bool(K8S_SECRET_API_REGEX.search(api_call))
                 or (
-                    action_str in {"get_secret", "list_secrets", "read_secret"}
+                    action_str in {"get_secret", "list_secrets", "read_secret", "get_secrets", "list_secret"}
                     and (
                         "secret" in target_lower
                         or "secret" in api_call_lower
@@ -247,7 +258,9 @@ class KubernetesDefenseLayer:
                 )
             )
 
-            if is_k8s_api:
+            is_secret_read = is_k8s_endpoint and is_secret_action
+
+            if is_secret_read:
                 secret_events.append(event)
                 await self.track_k8s_api_access(event)
 
