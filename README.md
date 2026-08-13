@@ -79,7 +79,7 @@ report = await manager.triage_log_event({"command": "reverse_shell /bin/bash -i"
 from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 from blackwall.enterprise.advanced_threat_detection import (
-    EventStreamCollector, NormalizedEvent, EventSource, AttackGraphStore, PathCorrelator, AgentSwarmDetector, ExploitChainAnalyzer, AILMTracker, PermissionGrant
+    EventStreamCollector, NormalizedEvent, EventSource, AttackGraphStore, PathCorrelator, AgentSwarmDetector, ExploitChainAnalyzer, AILMTracker, C2InfrastructureDetector, PermissionGrant
 )
 
 collector = EventStreamCollector()
@@ -137,7 +137,14 @@ ailm_evidences = await ailm_tracker.detect_permission_composition(
     agent_id=str(grant.granted_to),
     time_window=(now - timedelta(minutes=1), now + timedelta(minutes=10)),
 )
-# Detects multi-step zero-day exploit sequences, AI-Induced Lateral Movement across trust boundaries, and computes risk levels
+
+c2_detector = C2InfrastructureDetector(store=store)
+await c2_detector.classify_endpoint("https://pastebin.com/raw/c2_payload")
+c2_evidences = await c2_detector.detect_c2_establishment(
+    agent_id="agent-007",
+    time_window=(now - timedelta(minutes=1), now + timedelta(minutes=10)),
+)
+# Detects multi-step zero-day exploit sequences, C2 infrastructure establishment/beaconing, AI-Induced Lateral Movement across trust boundaries, and computes risk levels
 
 ```
 

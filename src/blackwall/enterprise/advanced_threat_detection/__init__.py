@@ -23,6 +23,9 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     SwarmEvidence,
 )
 from blackwall.enterprise.advanced_threat_detection.ailm import AILMTracker
+from blackwall.enterprise.advanced_threat_detection.c2 import (
+    C2InfrastructureDetector,
+)
 from blackwall.enterprise.advanced_threat_detection.collector import (
     EventStreamCollector,
 )
@@ -52,5 +55,6 @@ __all__ = [
     "AgentSwarmDetector",
     "ExploitChainAnalyzer",
     "AILMTracker",
+    "C2InfrastructureDetector",
     "logger",
 ]

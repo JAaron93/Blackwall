@@ -343,35 +343,35 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6_
     - _Verification: `pytest tests/step_defs/test_ailm_tracker_bdd.py -v`_
 
-- [ ] 11. Implement C2 Infrastructure Detector
-  - [ ] 11.1 Create C2InfrastructureDetector class with endpoint classification
+- [x] 11. Implement C2 Infrastructure Detector
+  - [x] 11.1 Create C2InfrastructureDetector class with endpoint classification
     - Implement `classify_endpoint()` with database of known C2 service patterns
     - Detect RequestBin, Pastebin, GitHub Gist, cloud storage services, webhook receivers
     - Return service type or None for non-C2 endpoints
     - _Requirements: 7.1_
     - _Verification: `pytest tests/unit/test_c2_detector.py::test_classify_endpoint -v`_
 
-  - [ ] 11.2 Implement C2 establishment detection
+  - [x] 11.2 Implement C2 establishment detection
     - Create `detect_c2_establishment()` identifying agents creating/accessing C2 endpoints
     - Populate C2Evidence with c2_endpoints list
     - _Requirements: 7.2_
     - _Verification: `pytest tests/unit/test_c2_detector.py::test_c2_establishment -v`_
 
-  - [ ] 11.3 Implement beaconing pattern detection
+  - [x] 11.3 Implement beaconing pattern detection
     - Create `detect_beaconing()` analyzing network connection timing
     - Identify periodic polling or callback behavior
     - Classify communication_pattern (beaconing, polling, webhook, etc.)
     - _Requirements: 7.3, 7.4_
     - _Verification: `pytest tests/unit/test_c2_detector.py::test_beaconing -v`_
 
-  - [ ] 11.4 Implement persistence indicator identification
+  - [x] 11.4 Implement persistence indicator identification
     - Detect self-respawning processes, cron jobs, scheduled tasks
     - Populate persistence_indicators list in C2Evidence
     - Correlate network events from Pillar 1 with tool call patterns
     - _Requirements: 7.5, 7.6_
     - _Verification: `pytest tests/unit/test_c2_detector.py::test_persistence_indicators -v`_
 
-  - [ ] 11.5 Write property tests for C2 detection
+  - [x] 11.5 Write property tests for C2 detection
     - **Property 41: C2 Endpoint Detection**
     - **Property 42: Beaconing Pattern Detection**
     - **Property 43: C2 Communication Pattern Classification**
@@ -380,7 +380,7 @@ The implementation follows a test-driven development approach with property-base
     - **Validates: Requirements 7.2, 7.3, 7.4, 7.5, 7.6**
     - _Verification: `pytest tests/property/test_c2_detector_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 11.6 Write BDD feature tests for C2 Infrastructure Detector
+  - [x] 11.6 Write BDD feature tests for C2 Infrastructure Detector
     - Create `tests/features/c2_infrastructure_detector.feature` with Gherkin scenarios
     - Implement `Given/When/Then` steps in `tests/step_defs/test_c2_infrastructure_detector_bdd.py` using `run_async`
     - Scenario: a Pastebin URL is classified as a known C2 endpoint
