@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import math
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
+from urllib.parse import urlparse
 from uuid import UUID
 
 from blackwall.enterprise.advanced_threat_detection.enums import EventSource
@@ -14,25 +15,26 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from blackwall.validators import validate_temporal_sequence, validate_utc_datetime
 
-# Known C2 Service Patterns (Requirement 7.1)
-KNOWN_C2_PATTERNS = [
+# Known C2 Hostname Domain Patterns (Requirement 7.1)
+KNOWN_C2_HOST_PATTERNS = [
     # RequestBin patterns
-    (r"(?:https?://)?(?:www\.)?(?:requestbin\.(?:net|com)|request\.bin|requestb\.in)", "requestbin"),
+    (r"^(?:[a-zA-Z0-9_-]+\.)?requestbin\.(?:net|com)$", "requestbin"),
+    (r"^(?:[a-zA-Z0-9_-]+\.)?requestb\.in$", "requestbin"),
     # Pastebin & Gist patterns
-    (r"(?:https?://)?(?:www\.)?pastebin\.com", "pastebin"),
-    (r"(?:https?://)?(?:www\.)?gist\.github\.com", "github_gist"),
-    (r"(?:https?://)?(?:www\.)?(?:hastebin\.com|justpaste\.it|rentry\.co|ghostbin\.com)", "pastebin"),
+    (r"^(?:[a-zA-Z0-9_-]+\.)?pastebin\.com$", "pastebin"),
+    (r"^gist\.github\.com$", "github_gist"),
+    (r"^(?:[a-zA-Z0-9_-]+\.)?(?:hastebin\.com|justpaste\.it|rentry\.co|ghostbin\.com)$", "pastebin"),
     # Webhook receivers & tunnels
-    (r"(?:https?://)?(?:www\.)?webhook\.site", "webhook_receiver"),
-    (r"(?:https?://)?(?:[a-zA-Z0-9_-]+\.)?pipedream\.(?:net|com)", "webhook_receiver"),
-    (r"(?:https?://)?(?:[a-zA-Z0-9_-]+\.)?ngrok(?:-free)?\.(?:io|app)", "webhook_receiver"),
-    (r"(?:https?://)?(?:[a-zA-Z0-9_-]+\.)?(?:localtunnel\.me|serveo\.net|pagekite\.me)", "webhook_receiver"),
-    (r"(?:https?://)?(?:discord(?:app)?\.com/api/webhooks|hooks\.slack\.com)", "webhook_receiver"),
+    (r"^webhook\.site$", "webhook_receiver"),
+    (r"^(?:[a-zA-Z0-9_-]+\.)?pipedream\.(?:net|com)$", "webhook_receiver"),
+    (r"^(?:[a-zA-Z0-9_-]+\.)?ngrok(?:-free)?\.(?:io|app)$", "webhook_receiver"),
+    (r"^(?:[a-zA-Z0-9_-]+\.)?(?:localtunnel\.me|serveo\.net|pagekite\.me)$", "webhook_receiver"),
+    (r"^(?:[a-zA-Z0-9_-]+\.)?(?:discord(?:app)?\.com|hooks\.slack\.com)$", "webhook_receiver"),
     # Cloud storage services
-    (r"(?:https?://)?(?:[a-zA-Z0-9_-]+\.)?s3\.amazonaws\.com", "cloud_storage"),
-    (r"(?:https?://)?storage\.googleapis\.com", "cloud_storage"),
-    (r"(?:https?://)?(?:[a-zA-Z0-9_-]+\.)?blob\.core\.windows\.net", "cloud_storage"),
-    (r"(?:https?://)?(?:www\.)?(?:dropbox\.com|mega\.nz|drive\.google\.com)", "cloud_storage"),
+    (r"^(?:[a-zA-Z0-9_-]+\.)?s3\.amazonaws\.com$", "cloud_storage"),
+    (r"^storage\.googleapis\.com$", "cloud_storage"),
+    (r"^(?:[a-zA-Z0-9_-]+\.)?blob\.core\.windows\.net$", "cloud_storage"),
+    (r"^(?:[a-zA-Z0-9_-]+\.)?(?:dropbox\.com|mega\.nz|drive\.google\.com)$", "cloud_storage"),
 ]
 
 PERSISTENCE_PATTERNS = [
@@ -42,6 +44,32 @@ PERSISTENCE_PATTERNS = [
     (r"launchctl|LaunchDaemons|LaunchAgents", "MacOS launchd persistence mechanism"),
     (r"respawn|while\s+true|restart=always|supervisord|auto-restart", "Self-respawning process loop"),
 ]
+
+NETWORK_ACTION_KEYWORDS = {
+    "connect", "sys_connect", "sendto", "sys_sendto", "socket", "bind",
+    "accept", "recvfrom", "network_access", "http_request", "tcp_connect",
+    "udp_send", "dns_query", "net_outbound"
+}
+
+
+def _extract_hostname_and_path(url_or_domain: str) -> Tuple[str, str]:
+    """Extract host/domain and path from input string safely."""
+    raw = url_or_domain.strip().lower()
+    if not raw:
+        return "", ""
+
+    url_str = raw
+    if not url_str.startswith(("http://", "https://")):
+        url_str = "http://" + url_str
+
+    try:
+        parsed = urlparse(url_str)
+        host = parsed.hostname or raw.split("/")[0].split(":")[0]
+        path = parsed.path or ""
+        return host.strip().lower(), path.strip().lower()
+    except Exception:
+        clean = raw.split("/")[0].split(":")[0]
+        return clean.strip().lower(), ""
 
 
 class C2InfrastructureDetector:
@@ -66,7 +94,7 @@ class C2InfrastructureDetector:
         self._events_by_agent[agent_id].append(event)
 
     async def classify_endpoint(self, domain_or_url: str) -> Optional[str]:
-        """Classify endpoint as a potential C2 service pattern.
+        """Classify endpoint as a potential C2 service pattern based on parsed hostname.
 
         Args:
             domain_or_url: Target domain, IP, or URL string.
@@ -78,10 +106,12 @@ class C2InfrastructureDetector:
         if not domain_or_url or not domain_or_url.strip():
             return None
 
-        clean_str = domain_or_url.strip().lower()
+        host, path = _extract_hostname_and_path(domain_or_url)
+        if not host:
+            return None
 
-        for pattern, service_type in KNOWN_C2_PATTERNS:
-            if re.search(pattern, clean_str, re.IGNORECASE):
+        for pattern, service_type in KNOWN_C2_HOST_PATTERNS:
+            if re.search(pattern, host, re.IGNORECASE):
                 return service_type
 
         return None
@@ -92,7 +122,7 @@ class C2InfrastructureDetector:
         endpoint: str,
         time_window: Tuple[datetime, datetime],
     ) -> bool:
-        """Detect periodic beaconing patterns indicative of C2 communication.
+        """Detect periodic beaconing patterns indicative of C2 communication to a specific endpoint.
 
         Args:
             agent_id: Agent identifier string.
@@ -111,22 +141,24 @@ class C2InfrastructureDetector:
 
         agent_events = self._events_by_agent.get(str(agent_id), [])
 
-        # Filter events for matching endpoint/target within time window
-        endpoint_clean = endpoint.strip().lower()
+        target_host, _ = _extract_hostname_and_path(endpoint)
         matching_timestamps: List[datetime] = []
 
         for evt in agent_events:
             if not (start_win <= evt.timestamp <= end_win):
                 continue
-            target_str = str(evt.target).lower()
-            metadata_str = str(evt.metadata).lower()
-            action_str = str(evt.action).lower()
+
+            evt_target_host, _ = _extract_hostname_and_path(evt.target)
+            metadata_host = ""
+            if isinstance(evt.metadata, dict):
+                meta_domain = evt.metadata.get("domain") or evt.metadata.get("host") or evt.metadata.get("endpoint", "")
+                if isinstance(meta_domain, str) and meta_domain:
+                    metadata_host, _ = _extract_hostname_and_path(meta_domain)
+
+            # Match against specific target host or endpoint string
             if (
-                endpoint_clean in target_str
-                or endpoint_clean in metadata_str
-                or endpoint_clean in action_str
-                or endpoint_clean == "all"
-                or endpoint_clean == "*"
+                (target_host and (target_host == evt_target_host or target_host == metadata_host))
+                or endpoint.strip().lower() in evt.target.strip().lower()
             ):
                 matching_timestamps.append(evt.timestamp)
 
@@ -142,7 +174,6 @@ class C2InfrastructureDetector:
             for i in range(len(matching_timestamps) - 1)
         ]
 
-        # Ignore non-positive deltas
         valid_deltas = [d for d in deltas if d > 0]
         if len(valid_deltas) < 2:
             return False
@@ -154,8 +185,7 @@ class C2InfrastructureDetector:
         variance = sum((d - mean_delta) ** 2 for d in valid_deltas) / len(valid_deltas)
         std_dev = math.sqrt(variance)
 
-        # Coefficient of variation (std_dev / mean_delta)
-        # Low variance (CV <= 0.25) indicates periodic beaconing / polling
+        # Coefficient of variation (std_dev / mean_delta <= 0.25 indicates regular periodic beaconing)
         return (std_dev / mean_delta) <= 0.25
 
     async def detect_persistence_indicators(
@@ -231,16 +261,24 @@ class C2InfrastructureDetector:
         tool_call_events: List[NormalizedEvent] = []
 
         for evt in agent_events:
+            # Restrict kernel network events to genuine network syscalls/operations
             if evt.source == EventSource.KERNEL_SYSCALL:
-                kernel_network_events.append(evt)
-            elif evt.source == EventSource.TOOL_CALL or evt.source == EventSource.PIPELINE_EXECUTION:
+                act_lower = evt.action.lower()
+                is_net = (
+                    act_lower in NETWORK_ACTION_KEYWORDS
+                    or any(k in act_lower for k in ("connect", "socket", "network", "http", "dns"))
+                    or (isinstance(evt.metadata, dict) and ("ip" in evt.metadata or "domain" in evt.metadata or "host" in evt.metadata))
+                )
+                if is_net:
+                    kernel_network_events.append(evt)
+            elif evt.source in (EventSource.TOOL_CALL, EventSource.PIPELINE_EXECUTION):
                 tool_call_events.append(evt)
 
-            # Check target and metadata for C2 endpoint patterns
+            # Extract candidate endpoints/URLs from target or metadata
             candidate_urls = [evt.target]
             if isinstance(evt.metadata, dict):
                 for k, v in evt.metadata.items():
-                    if isinstance(v, str) and ("http" in v or "bin" in v or "paste" in v or "site" in v):
+                    if isinstance(v, str) and ("http" in v or "bin" in v or "paste" in v or "site" in v or "storage" in v):
                         candidate_urls.append(v)
 
             for candidate in candidate_urls:
@@ -253,33 +291,49 @@ class C2InfrastructureDetector:
         # Detect persistence indicators
         persistence_indicators = await self.detect_persistence_indicators(agent_key, time_window)
 
-        # Check cross-pillar correlation between Pillar 1 network events and tool calls
+        # Cross-pillar correlation between network syscalls (Pillar 1) and tool calls (Pillar 4)
         cross_pillar_correlated = False
         if kernel_network_events and tool_call_events:
             for k_evt in kernel_network_events:
+                k_host, _ = _extract_hostname_and_path(k_evt.target)
+                k_meta_host = ""
+                if isinstance(k_evt.metadata, dict):
+                    k_meta = k_evt.metadata.get("domain") or k_evt.metadata.get("host") or ""
+                    if isinstance(k_meta, str) and k_meta:
+                        k_meta_host, _ = _extract_hostname_and_path(k_meta)
+
                 for t_evt in tool_call_events:
-                    # If network event and tool call target or metadata overlap
+                    t_host, _ = _extract_hostname_and_path(t_evt.target)
+                    t_meta_host = ""
+                    if isinstance(t_evt.metadata, dict):
+                        t_meta = t_evt.metadata.get("domain") or t_evt.metadata.get("host") or ""
+                        if isinstance(t_meta, str) and t_meta:
+                            t_meta_host, _ = _extract_hostname_and_path(t_meta)
+
+                    # Correlate if non-empty matching network endpoints/hosts or exact targets
                     if (
-                        k_evt.target in t_evt.target
-                        or t_evt.target in k_evt.target
-                        or (isinstance(k_evt.metadata, dict) and k_evt.metadata.get("domain") == t_evt.target)
+                        (k_host and (k_host == t_host or k_host == t_meta_host))
+                        or (k_meta_host and (k_meta_host == t_host or k_meta_host == t_meta_host))
+                        or (k_evt.target and k_evt.target == t_evt.target)
                     ):
                         cross_pillar_correlated = True
                         break
+                if cross_pillar_correlated:
+                    break
 
         if cross_pillar_correlated and "Cross-pillar correlation between Pillar 1 network syscalls and tool calls" not in persistence_indicators:
             persistence_indicators.append(
                 "Cross-pillar correlation between Pillar 1 network syscalls and tool calls"
             )
 
-        # Determine beaconing
+        # Determine beaconing per detected endpoint
         is_beaconing = False
-        for endpoint in c2_endpoints or ["all"]:
+        for endpoint in c2_endpoints:
             if await self.detect_beaconing(agent_key, endpoint, time_window):
                 is_beaconing = True
                 break
 
-        # If no endpoints detected and no persistence/beaconing, no C2 evidence
+        # If no endpoints detected and no persistence/beaconing, return empty list
         if not c2_endpoints and not is_beaconing and not persistence_indicators:
             return []
 
