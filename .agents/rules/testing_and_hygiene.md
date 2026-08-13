@@ -79,3 +79,12 @@
   2. **Mixed-Pillar Graph Isolation**: Generic non-domain events in a shared `AttackGraphStore` (e.g. generic HTTP 404s from general tool calls or API endpoints) MUST NOT be misclassified as domain-specific threats (such as package registry scanning).
 * **Rationale:** Testing only homogeneous multi-target scenarios misses false-positive bugs caused by client retries and cross-pillar event pollution in shared database stores.
 
+## 23. Paced Continuous Streaming Harnesses for Sustained Throughput SLAs
+* **Rule:** Throughput SLA tests validating sustained processing rates (e.g. >= 1,000 events/second sustained for >= 5 minutes) MUST NOT measure isolated sub-second in-memory bursts in isolation. Tests MUST employ paced streaming loops across multiple successive intervals/windows, asserting that:
+  1. Throughput rate exceeds the target threshold on every individual window and across aggregate runtime.
+  2. Zero events are dropped or error out across all streaming slices.
+  3. Memory consumption, cache growth, and connection pool utilization remain strictly bounded without degradation over prolonged ingestion.
+  4. Tests support an extended duration mode via environment variable (e.g. `BLACKWALL_EXTENDED_LOAD_TEST=true` for 300-second load tests) alongside fast CI execution defaults.
+* **Rationale:** Sub-second burst benchmarks pass easily in memory but fail to expose memory leaks, unbounded cache growth, connection pool starvation, and garbage collection pauses that only appear under continuous streaming ingestion.
+
+

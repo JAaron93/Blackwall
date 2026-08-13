@@ -4,9 +4,9 @@
 * **Rule:** Log messages MUST NEVER include raw DSN connection strings (`self.dsn`), URLs containing embedded credentials, or raw authentication keys. Omit DSN parameters or log sanitized host/port strings to prevent credential exposure in failure logs.
 * **Rationale:** In failure scenarios, logs are widely captured and shared across SOC systems. Including DSNs or URLs with embedded credentials leaks database passwords into log streams.
 
-## 2. Atomic Database Transactions & Cache Synchronization
-* **Rule:** Store modules persisting data across both a database backend (e.g. PostgreSQL via `asyncpg`) and an in-memory cache MUST wrap database persistence statements in an explicit transaction (`async with conn.transaction():`), and mutate in-memory cache structures ONLY after successful DB commit. Re-ingesting duplicate items (e.g. `ON CONFLICT DO NOTHING`) MUST preserve existing cached edge/relationship lists.
-* **Rationale:** Non-atomic operations leave in-memory caches and database tables out of sync during transient network failures, corrupting graph edge relationships.
+## 2. Atomic Database Transactions & Post-Commit Cache Synchronization
+* **Rule:** Store modules persisting data across both a database backend (e.g. PostgreSQL via `asyncpg`) and an in-memory cache MUST wrap database persistence statements in an explicit transaction (`async with conn.transaction():`). In-memory cache structures (`self._nodes`, `self._agent_nodes_index`, and cache invalidation) MUST be mutated strictly **after** the transaction block exits and commits. Cache structures MUST NOT be mutated inside the transaction context manager.
+* **Rationale:** If PostgreSQL fails during the commit phase upon exiting `conn.transaction()`, any in-memory cache mutations performed inside the transaction block leave phantom records in memory that were rolled back in the database, causing state corruption and foreign-key failures in subsequent edge links.
 
 ## 3. Explicit Connection Error Escalation
 * **Rule:** Persistent store initialization methods MUST NOT silently degrade to in-memory mode when an explicit connection DSN is provided and `in_memory=False`. Database connection exceptions MUST be raised to signal non-durable state to callers.
@@ -142,5 +142,14 @@
 ## 32. Event-Driven Non-Polling Invariant & Retry Delay Declarations
 * **Rule:** Blackwall enforces an event-driven execution architecture strictly validated by `scripts/verify_no_polling.py` and `tests/integration/test_pipeline_checkpoint.py`. New modules implementing asynchronous delivery retry or connection backoff routines using `await asyncio.sleep(...)` MUST be explicitly declared in `approved_locations` in `scripts/verify_no_polling.py`. They MUST ensure backoff delays are triggered strictly on exception retry branches and never executed on the happy path.
 * **Rationale:** Automated CI gates run AST scans across `src/` to prevent polling loops from entering the fast analysis path. Omitting retry-capable modules from the approved locations list breaks CI verification.
+
+## 33. Authoritative Persisted Row Ingestion on Database Conflict
+* **Rule:** Dual-tier or database-backed stores utilizing `ON CONFLICT DO NOTHING` on single or batch insertions MUST fetch authoritative persisted rows from the database (e.g. `SELECT * FROM ... WHERE node_id = ANY(...)`) for all inserted or conflicted entities. In-memory node caches MUST be populated with the authoritative persisted rows (including existing incoming/outgoing causal edges) rather than caching incoming unlinked payloads.
+* **Rationale:** When an event already exists in PostgreSQL but is absent from the local cache, `ON CONFLICT DO NOTHING` ignores the insert in the database. Caching the incoming payload with empty edge lists causes database-backed and cache-backed graph consumers to observe contradictory relationship graphs for the same entity.
+
+## 34. Within-Batch Identifier Deduplication in Bulk Operations
+* **Rule:** Bulk ingestion and batch normalization methods (`insert_events_batch`, `process_event_batch`) MUST track and deduplicate identifiers (e.g. `event_id`) within the batch payload itself before instantiating node records or updating index collections.
+* **Rationale:** Batches containing multiple events with the same `event_id` pass single-item cache checks and can append the same identifier multiple times to entity indices (e.g. `_agent_nodes_index`), causing in-memory graph traversals to observe duplicate nodes absent from persistence.
+
 
 
