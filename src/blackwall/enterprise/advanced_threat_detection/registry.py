@@ -147,44 +147,64 @@ class PackageRegistryMonitor:
                 if not isinstance(req, dict):
                     continue
 
-                endpoint = str(req.get("endpoint") or req.get("path") or req.get("url") or "")
-                if endpoint.startswith("http://") or endpoint.startswith("https://"):
-                    full_target = endpoint
-                else:
-                    full_target = f"{clean_reg_url.rstrip('/')}/{endpoint.lstrip('/')}"
+                try:
+                    endpoint = str(req.get("endpoint") or req.get("path") or req.get("url") or "")
+                    if endpoint.startswith("http://") or endpoint.startswith("https://"):
+                        full_target = endpoint
+                    else:
+                        full_target = f"{clean_reg_url.rstrip('/')}/{endpoint.lstrip('/')}"
 
-                pkg_name = str(req.get("package_name") or req.get("package") or "")
-                if not pkg_name and "/" in endpoint:
-                    pkg_name = endpoint.strip("/").split("/")[-1]
+                    pkg_name = str(req.get("package_name") or req.get("package") or "")
+                    if not pkg_name and "/" in endpoint:
+                        pkg_name = endpoint.strip("/").split("/")[-1]
 
-                meta = dict(req)
-                inferred_type = _infer_registry_type(full_target, meta)
-                meta["registry_type"] = inferred_type
-                meta["package_name"] = pkg_name
+                    meta = dict(req)
+                    inferred_type = _infer_registry_type(full_target, meta)
+                    meta["registry_type"] = inferred_type
+                    meta["package_name"] = pkg_name
 
-                action = str(req.get("action") or req.get("method") or "http_get").upper()
-                raw_ts = req.get("timestamp")
-                if isinstance(raw_ts, datetime):
-                    ts = validate_utc_datetime(raw_ts)
-                else:
-                    ts = utc_now()
+                    action = str(req.get("action") or req.get("method") or "http_get").upper()
+                    raw_ts = req.get("timestamp")
+                    if isinstance(raw_ts, datetime):
+                        try:
+                            ts = validate_utc_datetime(raw_ts)
+                        except Exception:
+                            if raw_ts.tzinfo is None:
+                                ts = raw_ts.replace(tzinfo=timezone.utc)
+                            else:
+                                ts = raw_ts.astimezone(timezone.utc)
+                    elif isinstance(raw_ts, (int, float)):
+                        ts = datetime.fromtimestamp(raw_ts, tz=timezone.utc)
+                    else:
+                        ts = utc_now()
 
-                event = NormalizedEvent(
-                    event_id=ensure_uuid_v4(req.get("event_id")),
-                    timestamp=ts,
-                    source=EventSource.PIPELINE_EXECUTION,
-                    agent_id=agent_id,
-                    action=action,
-                    target=full_target,
-                    metadata=meta,
-                    risk_score=float(req.get("risk_score", 0.4)),
-                )
+                    raw_score = req.get("risk_score", 0.4)
+                    try:
+                        score_val = float(raw_score)
+                        risk_score = max(0.0, min(score_val, 1.0))
+                    except (ValueError, TypeError):
+                        risk_score = 0.4
 
-                self._tracked_events.append(event)
-                if self.store is not None:
-                    await self.store.insert_event(event)
+                    event = NormalizedEvent(
+                        event_id=ensure_uuid_v4(req.get("event_id")),
+                        timestamp=ts,
+                        source=EventSource.PIPELINE_EXECUTION,
+                        agent_id=agent_id,
+                        action=action,
+                        target=full_target,
+                        metadata=meta,
+                        risk_score=risk_score,
+                    )
 
-                yield event
+                    self._tracked_events.append(event)
+                    if self.store is not None:
+                        await self.store.insert_event(event)
+
+                    yield event
+                except Exception as exc:
+                    logger.warning("Skipping malformed registry record: %s (error: %s)", req, exc)
+                    continue
+
 
     def correlate_cve(
         self,

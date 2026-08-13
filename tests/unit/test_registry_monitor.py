@@ -246,3 +246,32 @@ async def test_invalid_time_window_raises_error():
     t0 = datetime(2026, 8, 13, 11, 0, 0, tzinfo=timezone.utc)
     with pytest.raises(ValueError):
         await monitor.detect_exploit_probing(time_window=(t1, t0))
+
+
+@pytest.mark.asyncio
+async def test_stream_resilience_on_malformed_records():
+    """Verify malformed records do not terminate monitor_registry_access stream."""
+    monitor = PackageRegistryMonitor()
+
+    async def mixed_stream():
+        # Valid record 1
+        yield {"endpoint": "/express", "package_name": "express"}
+        # Malformed record: invalid nonnumeric risk score
+        yield {"endpoint": "/bad1", "risk_score": "not_a_number"}
+        # Malformed record: naive datetime
+        yield {"endpoint": "/bad2", "timestamp": datetime(2026, 8, 13, 12, 0, 0)}
+        # Valid record 2
+        yield {"endpoint": "/lodash", "package_name": "lodash"}
+
+    events = []
+    async for ev in monitor.monitor_registry_access(
+        agent_id="resilience-agent",
+        registry_url="https://registry.npmjs.org",
+        request_stream=mixed_stream(),
+    ):
+        events.append(ev)
+
+    assert len(events) == 4
+    assert events[0].agent_id == "resilience-agent"
+    assert events[3].agent_id == "resilience-agent"
+
