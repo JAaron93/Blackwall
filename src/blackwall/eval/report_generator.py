@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from blackwall.validators import format_iso_datetime, parse_json_safely
+
 from blackwall.eval.metrics import calculateMetrics
 from blackwall.models import (
     GroundTruthLabel,
@@ -215,7 +217,7 @@ class ReportGenerator:
         c = _count_case_results(case_results)
 
         return SecurityReport(
-            generated_at=datetime.now(timezone.utc).isoformat(),
+            generated_at=format_iso_datetime(),
             evalset_path=str(self.evalset_path),
             results_path=str(self.results_path),
             total_cases=len(case_results),
@@ -264,7 +266,7 @@ class ReportGenerator:
     # ------------------------------------------------------------------
 
     def _load_evalset(self) -> None:
-        data = json.loads(self.evalset_path.read_text(encoding="utf-8"))
+        data = parse_json_safely(self.evalset_path.read_text(encoding="utf-8"), default={})
         cases: list[dict[str, Any]] = (
             data.get("eval_cases", data) if isinstance(data, dict) else data
         )
@@ -274,7 +276,7 @@ class ReportGenerator:
         )
 
     def _load_results(self) -> list[dict[str, Any]]:
-        data = json.loads(self.results_path.read_text(encoding="utf-8"))
+        data = parse_json_safely(self.results_path.read_text(encoding="utf-8"), default=[])
         if isinstance(data, list):
             return data
         return data.get("results", data.get("eval_cases", []))

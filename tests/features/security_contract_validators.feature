@@ -68,3 +68,19 @@ Feature: Security Contract Centralized Validation Guardrails
     Given a valid UTC start time and an earlier UTC end time
     When the temporal sequence validation helper is executed
     Then a ValueError should be raised with "end_time must be greater than or equal to start_time"
+
+  Scenario: Parse JSON safely returns parsed dict or fallback default
+    Given a JSON string '{"key": "value"}'
+    When the safe JSON parse helper is executed with default "fallback"
+    Then the parsed JSON output should match the dict structure
+
+  Scenario: Format and parse ISO datetime returns valid UTC datetime
+    Given a timezone-aware UTC datetime
+    When the ISO datetime format helper is executed
+    Then the formatted string is a valid ISO 8601 string and parses back to UTC datetime
+
+  Scenario: Compute word intersection match quality returns non-zero ratio for matching words
+    Given a query text "SELECT username FROM users" and candidate text "SELECT username FROM users WHERE active = 1"
+    When the word intersection match quality helper is executed
+    Then the match quality score should be greater than 0.5
+

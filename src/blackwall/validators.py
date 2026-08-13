@@ -1,8 +1,9 @@
 """Centralized validation and utility helpers for Blackwall."""
 
 from datetime import datetime, timezone
+import json
 import re
-from typing import Any, Collection, Optional, TypeVar
+from typing import Any, Collection, Optional, TypeVar, Union
 from uuid import UUID, uuid4
 
 T = TypeVar("T", bound=Collection[Any])
@@ -88,3 +89,57 @@ def validate_temporal_sequence(
     if end_time < start_time:
         msg = custom_msg or f"{end_name} must be greater than or equal to {start_name}"
         raise ValueError(msg)
+
+
+def parse_json_safely(v: Optional[Union[str, bytes]], default: Any = None) -> Any:
+    """Safely parse a JSON string or bytes object, returning a default fallback on error or empty input."""
+    if v is None:
+        return default
+    if isinstance(v, (str, bytes)):
+        s = v.decode("utf-8") if isinstance(v, bytes) else v
+        if not s.strip():
+            return default
+        try:
+            return json.loads(s)
+        except Exception:
+            return default
+    return default
+
+
+def format_iso_datetime(v: Optional[datetime] = None) -> str:
+    """Format a timezone-aware UTC datetime (or current UTC time if None) to an ISO 8601 string."""
+    dt = v if v is not None else utc_now()
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
+def parse_iso_datetime(
+    v: Optional[Union[str, datetime]], default: Optional[datetime] = None
+) -> Optional[datetime]:
+    """Parse an ISO 8601 string or datetime into a UTC timezone-aware datetime object."""
+    if v is None:
+        return default
+    if isinstance(v, datetime):
+        return v if v.tzinfo is not None else v.replace(tzinfo=timezone.utc)
+    if isinstance(v, str):
+        if not v.strip():
+            return default
+        try:
+            dt = datetime.fromisoformat(v)
+            return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            return default
+    return default
+
+
+def compute_word_intersection_match_quality(query_text: str, candidate_text: str) -> float:
+    """Compute word-level intersection match quality between a query text and candidate text."""
+    query_words = set(re.findall(r"\w+", query_text.lower()))
+    candidate_words = set(re.findall(r"\w+", candidate_text.lower()))
+    if not query_words or not candidate_words:
+        return 0.0
+    intersection = query_words & candidate_words
+    min_len = min(len(query_words), len(candidate_words))
+    return len(intersection) / max(min_len, 1)
+

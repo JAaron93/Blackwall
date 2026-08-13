@@ -8,6 +8,13 @@ from typing import Any, Dict, List, Optional
 import structlog
 
 from blackwall.models import AttackerProfile
+from blackwall.validators import (
+    compute_word_intersection_match_quality,
+    format_iso_datetime,
+    parse_iso_datetime,
+    parse_json_safely,
+    utc_now,
+)
 from .pool import AsyncConnectionPool
 
 logger = structlog.get_logger("blackwall.db.repository")
@@ -250,10 +257,10 @@ class SQLiteThreatRepository:
         Must complete in < 5ms (NFR-1).
         """
         await self.initialize()
-        now_dt = datetime.now(timezone.utc)
-        now_str = now_dt.isoformat()
+        now_dt = utc_now()
+        now_str = format_iso_datetime(now_dt)
         first_seen_str = (
-            profile.first_seen.isoformat() if profile.first_seen else now_str
+            format_iso_datetime(profile.first_seen) if profile.first_seen else now_str
         )
 
         tools_json = json.dumps(profile.targeted_tools)
@@ -307,18 +314,10 @@ class SQLiteThreatRepository:
 
                 if row:
                     fp, fs_str, ls_str, attacks, score, tools_raw, sigs_raw, risk = row
-                    fs_dt = (
-                        datetime.fromisoformat(fs_str)
-                        if isinstance(fs_str, str)
-                        else now_dt
-                    )
-                    ls_dt = (
-                        datetime.fromisoformat(ls_str)
-                        if isinstance(ls_str, str)
-                        else now_dt
-                    )
-                    tools = json.loads(tools_raw) if tools_raw else []
-                    sigs = json.loads(sigs_raw) if sigs_raw else []
+                    fs_dt = parse_iso_datetime(fs_str, default=now_dt)
+                    ls_dt = parse_iso_datetime(ls_str, default=now_dt)
+                    tools = parse_json_safely(tools_raw, default=[])
+                    sigs = parse_json_safely(sigs_raw, default=[])
                     return AttackerProfile(
                         fingerprint=fp,
                         first_seen=fs_dt,
@@ -354,10 +353,10 @@ class SQLiteThreatRepository:
                 return None
 
             fp, fs, ls, total_attacks, score, sigs_json, tools_json, risk = row
-            first_dt = datetime.fromisoformat(fs) if isinstance(fs, str) else fs
-            last_dt = datetime.fromisoformat(ls) if isinstance(ls, str) else ls
-            sigs = json.loads(sigs_json) if sigs_json else []
-            tools = json.loads(tools_json) if tools_json else []
+            first_dt = parse_iso_datetime(fs)
+            last_dt = parse_iso_datetime(ls)
+            sigs = parse_json_safely(sigs_json, default=[])
+            tools = parse_json_safely(tools_json, default=[])
 
             return AttackerProfile(
                 fingerprint=fp,
@@ -736,14 +735,9 @@ class SQLiteThreatRepository:
                         payload_pattern = row[4] or ""
                         target_tool_val = row[5] or ""
                         candidate_text = f"{attacker_intent} {payload_pattern} {target_tool_val}"
-                        candidate_words = set(re.findall(r"\w+", candidate_text.lower()))
-
-                        if query_words and candidate_words:
-                            intersection = query_words & candidate_words
-                            min_len = min(len(query_words), len(candidate_words))
-                            match_quality = len(intersection) / max(min_len, 1)
-                        else:
-                            match_quality = 0.0
+                        match_quality = compute_word_intersection_match_quality(
+                            query_text, candidate_text
+                        )
 
                         fts_rank_scale = min(max(1.0 + abs(bm25_rank) / 10.0, 1.0), 1.5)
                         normalized_score = min(
@@ -801,14 +795,9 @@ class SQLiteThreatRepository:
                         payload_pattern = row[4] or ""
                         target_tool_val = row[5] or ""
                         candidate_text = f"{attacker_intent} {payload_pattern} {target_tool_val}"
-                        candidate_words = set(re.findall(r"\w+", candidate_text.lower()))
-
-                        if query_words and candidate_words:
-                            intersection = query_words & candidate_words
-                            min_len = min(len(query_words), len(candidate_words))
-                            match_quality = len(intersection) / max(min_len, 1)
-                        else:
-                            match_quality = 0.0
+                        match_quality = compute_word_intersection_match_quality(
+                            query_text, candidate_text
+                        )
 
                         fts_rank_scale = min(max(1.0 + abs(bm25_rank) / 10.0, 1.0), 1.5)
                         normalized_score = min(

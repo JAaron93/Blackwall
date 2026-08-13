@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from blackwall.enterprise.advanced_threat_detection.enums import EventSource
 from blackwall.enterprise.advanced_threat_detection.models import NormalizedEvent
 
-from blackwall.validators import ensure_uuid_v4
+from blackwall.validators import ensure_uuid_v4, utc_now
 
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.collector")
@@ -57,7 +57,7 @@ class EventStreamCollector:
                     raw_ts,
                     source,
                 )
-                timestamp = datetime.now(UTC)
+                timestamp = utc_now()
             else:
                 timestamp = raw_ts.astimezone(UTC)
         elif isinstance(raw_ts, str):
@@ -70,7 +70,7 @@ class EventStreamCollector:
                         raw_ts,
                         source,
                     )
-                    timestamp = datetime.now(UTC)
+                    timestamp = utc_now()
                 else:
                     timestamp = parsed_dt.astimezone(UTC)
             except Exception as parse_err:
@@ -80,11 +80,11 @@ class EventStreamCollector:
                     source,
                     parse_err,
                 )
-                timestamp = datetime.now(UTC)
+                timestamp = utc_now()
         elif isinstance(raw_ts, (int, float)):
             timestamp = datetime.fromtimestamp(raw_ts, tz=UTC)
         else:
-            timestamp = datetime.now(UTC)
+            timestamp = utc_now()
 
         # Agent ID extraction (explicit None check to preserve falsy non-empty IDs like 0)
         raw_agent_id = raw_event.get("agent_id")
