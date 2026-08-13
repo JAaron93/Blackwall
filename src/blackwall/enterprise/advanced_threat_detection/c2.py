@@ -53,6 +53,16 @@ NETWORK_ACTION_KEYWORDS = {
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0", "localhost.localdomain"}
 
 
+def _is_local_host(host_str: str) -> bool:
+    """Check if host string is a local hostname, IPv4 loopback (127.0.0.0/8), or IPv6 loopback (::1)."""
+    clean_host = host_str.strip().lower().lstrip("[").rstrip("]")
+    if not clean_host:
+        return False
+    if clean_host in LOCAL_HOSTS or clean_host.startswith("127.") or clean_host == "::1":
+        return True
+    return False
+
+
 def _extract_hostname_and_path(url_or_domain: str) -> Tuple[str, str]:
     """Extract host/domain and path from input string safely, robust to IPv6 addresses."""
     raw = url_or_domain.strip().lower()
@@ -119,7 +129,7 @@ def _is_local_endpoint(target_or_host: str) -> bool:
         return True
 
     # Direct match for loopback/local targets
-    if raw in LOCAL_HOSTS or raw.lstrip("[").rstrip("]") in LOCAL_HOSTS:
+    if _is_local_host(raw):
         return True
 
     # Strip scheme if present
@@ -130,22 +140,22 @@ def _is_local_endpoint(target_or_host: str) -> bool:
     # Strip path/query
     clean = clean.split("/")[0].split("?")[0]
 
-    if clean in LOCAL_HOSTS or clean.lstrip("[").rstrip("]") in LOCAL_HOSTS:
+    if _is_local_host(clean):
         return True
 
-    # Handle port stripping (e.g. 127.0.0.1:8080, [::1]:8080, ::1:8080)
+    # Handle port stripping (e.g. 127.0.0.2:8080, [::1]:8080, ::1:8080)
     if ":" in clean:
         if clean.startswith("[") and "]" in clean:
             host_part = clean.split("]")[0].lstrip("[")
-            if host_part in LOCAL_HOSTS:
+            if _is_local_host(host_part):
                 return True
         # Try stripping port from the right (for IPv4, hostnames, or unbracketed IPv6 with port like ::1:8080)
         host_part = clean.rsplit(":", 1)[0].lstrip("[").rstrip("]")
-        if host_part in LOCAL_HOSTS:
+        if _is_local_host(host_part):
             return True
 
     host, _ = _extract_hostname_and_path(raw)
-    if host in LOCAL_HOSTS or host.lstrip("[").rstrip("]") in LOCAL_HOSTS:
+    if _is_local_host(host):
         return True
 
     return False

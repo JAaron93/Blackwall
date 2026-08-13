@@ -279,12 +279,35 @@ async def test_ipv6_loopback_local_filter():
         base_time=base_time,
     )
 
+    # Kernel connect to 127.0.0.2:8080 (IPv4 loopback subnet)
+    e_kernel_ipv4 = create_event(
+        agent_id=agent_id,
+        action="connect",
+        target="127.0.0.2:8080",
+        offset_seconds=25.0,
+        source=EventSource.KERNEL_SYSCALL,
+        base_time=base_time,
+    )
+
+    # Tool call targeting http://127.0.0.2:8080/api
+    e_tool_ipv4 = create_event(
+        agent_id=agent_id,
+        action="http_request",
+        target="http://127.0.0.2:8080/api",
+        offset_seconds=30.0,
+        source=EventSource.TOOL_CALL,
+        base_time=base_time,
+    )
+
     detector.record_event(e_kernel)
     detector.record_event(e_tool)
     detector.record_event(e_kernel_port)
     detector.record_event(e_tool_port)
+    detector.record_event(e_kernel_ipv4)
+    detector.record_event(e_tool_ipv4)
 
     evidences = await detector.detect_c2_establishment(agent_id, time_window)
     assert len(evidences) == 0
+
 
 
