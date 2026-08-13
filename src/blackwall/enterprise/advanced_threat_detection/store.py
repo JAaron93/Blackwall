@@ -200,14 +200,18 @@ class AttackGraphStore:
         if not events:
             return []
 
-        nodes: list[AttackNode] = []
+        nodes_by_id: dict[uuid.UUID, AttackNode] = {}
         new_nodes: list[AttackNode] = []
         nodes_to_insert_db: list[NormalizedEvent] = []
 
         for event in events:
             node_id = event.event_id
             if node_id in self._nodes:
-                nodes.append(self._nodes[node_id])
+                if node_id not in nodes_by_id:
+                    nodes_by_id[node_id] = self._nodes[node_id]
+                continue
+            if node_id in nodes_by_id:
+                # Within-batch duplicate: reuse already prepared AttackNode
                 continue
 
             node = AttackNode(
@@ -216,7 +220,7 @@ class AttackGraphStore:
                 incoming_edges=[],
                 outgoing_edges=[],
             )
-            nodes.append(node)
+            nodes_by_id[node_id] = node
             new_nodes.append(node)
             nodes_to_insert_db.append(event)
 
@@ -263,7 +267,7 @@ class AttackGraphStore:
         for aid in affected_agents:
             self._invalidate_path_cache(aid)
 
-        return nodes
+        return [nodes_by_id[e.event_id] for e in events]
 
     async def link_events(
         self,

@@ -1,7 +1,8 @@
-"""Property-based tests for Performance Optimization and SLA Validation using Hypothesis (Pillar 6 Task 16)."""
+"""Property-based tests for Performance Optimization and SLA Validation using Hypothesis (Pillar 6 Task 16 / Property 64)."""
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+import random
 import uuid
 
 from hypothesis import given, settings
@@ -31,7 +32,7 @@ def _run(coro):
 
 
 # ---------------------------------------------------------------------------
-# Property: Batch Normalization Valid Acceptance
+# Property 64.1: Batch Normalization Valid Acceptance and Rejection
 # ---------------------------------------------------------------------------
 @given(
     source=st.sampled_from(list(EventSource)),
@@ -50,7 +51,10 @@ def test_property_batch_normalization_valid_acceptance(
     risk: float,
     batch_size: int,
 ):
-    """Property: EventStreamCollector.process_event_batch successfully normalizes all valid raw events."""
+    """Feature: blackwall-advanced-threat-detection, Property 64.1: Batch Normalization Acceptance
+
+    EventStreamCollector.process_event_batch successfully normalizes all valid raw events across all 5 pillars.
+    """
     collector = EventStreamCollector()
     now = datetime.now(UTC)
 
@@ -76,9 +80,6 @@ def test_property_batch_normalization_valid_acceptance(
         assert 0.0 <= ev.risk_score <= 1.0
 
 
-# ---------------------------------------------------------------------------
-# Property: Batch Normalization Malformed Rejection
-# ---------------------------------------------------------------------------
 @given(
     source=st.sampled_from(list(EventSource)),
     invalid_agent=st.sampled_from(["", "   ", "\t", "\n"]),
@@ -88,15 +89,16 @@ def test_property_batch_normalization_malformed_rejection(
     source: EventSource,
     invalid_agent: str,
 ):
-    """Property: EventStreamCollector.process_event_batch safely discards malformed and invalid items."""
+    """Feature: blackwall-advanced-threat-detection, Property 64.2: Batch Normalization Rejection
+
+    EventStreamCollector.process_event_batch safely discards non-dict and missing/empty agent payloads.
+    """
     collector = EventStreamCollector()
     now = datetime.now(UTC)
 
     mixed_batch = [
-        # Non-dict item
         "not_a_dict",
         12345,
-        # Dict with empty agent_id
         {
             "event_id": str(uuid.uuid4()),
             "timestamp": now.isoformat(),
@@ -104,7 +106,6 @@ def test_property_batch_normalization_malformed_rejection(
             "action": "test_action",
             "target": "/test",
         },
-        # Valid item
         {
             "event_id": str(uuid.uuid4()),
             "timestamp": now.isoformat(),
@@ -120,7 +121,7 @@ def test_property_batch_normalization_malformed_rejection(
 
 
 # ---------------------------------------------------------------------------
-# Property: Batch Store Persistence and Deduplication
+# Property 64.3: Batch Persistence, Deduplication, and Within-Batch Duplicates
 # ---------------------------------------------------------------------------
 @given(
     agent_id=valid_id_strategy,
@@ -131,7 +132,11 @@ def test_property_batch_store_persistence_and_deduplication(
     agent_id: str,
     num_events: int,
 ):
-    """Property: AttackGraphStore.insert_events_batch handles duplicates cleanly and updates agent indexes."""
+    """Feature: blackwall-advanced-threat-detection, Property 64.3: Store Batch Persistence & Deduplication
+
+    AttackGraphStore.insert_events_batch handles duplicates cleanly, updates agent indexes without duplication,
+    and returns 1-to-1 corresponding nodes.
+    """
     store = AttackGraphStore(in_memory=True)
     _run(store.initialize())
     now = datetime.now(UTC)
@@ -158,7 +163,11 @@ def test_property_batch_store_persistence_and_deduplication(
     nodes2 = _run(store.insert_events_batch(events))
     assert len(nodes2) == num_events
 
-    # Verify nodes retrieved match agent index
+    # Verify nodes retrieved match agent index exactly without duplicate entries
+    agent_indexed_ids = store._agent_nodes_index.get(agent_id, [])
+    assert len(agent_indexed_ids) == len(set(agent_indexed_ids))
+    assert len(agent_indexed_ids) == num_events
+
     queried = _run(
         store.query_nodes(
             agent_id, (now - timedelta(minutes=1), now + timedelta(hours=1))
@@ -169,15 +178,65 @@ def test_property_batch_store_persistence_and_deduplication(
     _run(store.close())
 
 
+@given(
+    agent_id=valid_id_strategy,
+    num_unique=st.integers(min_value=2, max_value=6),
+)
+@settings(max_examples=50)
+def test_property_within_batch_duplicates_atomicity(
+    agent_id: str,
+    num_unique: int,
+):
+    """Feature: blackwall-advanced-threat-detection, Property 64.4: Within-Batch Duplicate Atomicity
+
+    When a batch contains multiple occurrences of identical event IDs, in-memory indexes and nodes
+    are updated exactly once per distinct event ID.
+    """
+    store = AttackGraphStore(in_memory=True)
+    _run(store.initialize())
+    now = datetime.now(UTC)
+
+    unique_events = [
+        NormalizedEvent(
+            event_id=str(uuid.uuid4()),
+            timestamp=now + timedelta(seconds=i),
+            source=EventSource.TOOL_CALL,
+            agent_id=agent_id,
+            action=f"action_{i}",
+            target=f"/target/{i}",
+            metadata={},
+            risk_score=0.4,
+        )
+        for i in range(num_unique)
+    ]
+
+    # Duplicate events within the same batch list
+    duplicated_batch = unique_events + [unique_events[0], unique_events[-1]]
+    random.shuffle(duplicated_batch)
+
+    nodes = _run(store.insert_events_batch(duplicated_batch))
+    assert len(nodes) == len(duplicated_batch)
+
+    # In-memory index MUST not have duplicate entries
+    agent_indexed_ids = store._agent_nodes_index.get(agent_id, [])
+    assert len(agent_indexed_ids) == num_unique
+    assert len(set(agent_indexed_ids)) == num_unique
+
+    _run(store.close())
+
+
 # ---------------------------------------------------------------------------
-# Property: Query Path Caching and Invalidation
+# Property 64.5: Query Path Caching and Invalidation
 # ---------------------------------------------------------------------------
 @given(
     agent_id=valid_id_strategy,
 )
 @settings(max_examples=50)
 def test_property_query_path_caching_and_invalidation(agent_id: str):
-    """Property: AttackGraphStore.query_paths caches results and invalidates upon new event insertion."""
+    """Feature: blackwall-advanced-threat-detection, Property 64.5: Path Caching Invalidation
+
+    AttackGraphStore.query_paths caches query results and immediately invalidates upon new event insertion.
+    """
     store = AttackGraphStore(in_memory=True)
     _run(store.initialize())
     now = datetime.now(UTC)
@@ -226,7 +285,7 @@ def test_property_query_path_caching_and_invalidation(agent_id: str):
 
 
 # ---------------------------------------------------------------------------
-# Property: Incremental Fingerprint Valid Acceptance and Rejection
+# Property 64.6: Incremental Fingerprint Valid Acceptance and Rejection
 # ---------------------------------------------------------------------------
 @given(
     agent_id=valid_id_strategy,
@@ -239,7 +298,10 @@ def test_property_incremental_fingerprint_valid_acceptance(
     num_events: int,
     window: int,
 ):
-    """Property: AgentSwarmDetector.update_fingerprint_incremental produces valid 64-char SHA-256 hashes."""
+    """Feature: blackwall-advanced-threat-detection, Property 64.6: Incremental Fingerprint Acceptance
+
+    AgentSwarmDetector.update_fingerprint_incremental produces deterministic 64-char SHA-256 hashes.
+    """
     detector = AgentSwarmDetector()
     now = datetime.now(UTC)
 
@@ -273,7 +335,10 @@ def test_property_incremental_fingerprint_rejection(
     invalid_agent: str,
     invalid_window: int,
 ):
-    """Property: AgentSwarmDetector.update_fingerprint_incremental rejects invalid agent_id and non-positive window."""
+    """Feature: blackwall-advanced-threat-detection, Property 64.7: Incremental Fingerprint Rejection
+
+    AgentSwarmDetector.update_fingerprint_incremental rejects invalid agent_id and non-positive window.
+    """
     detector = AgentSwarmDetector()
     now = datetime.now(UTC)
     sample_events = [
