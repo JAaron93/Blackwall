@@ -79,9 +79,10 @@ report = await manager.triage_log_event({"command": "reverse_shell /bin/bash -i"
 from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 from blackwall.enterprise.advanced_threat_detection import (
-    EventStreamCollector, NormalizedEvent, EventSource, AttackGraphStore, PathCorrelator, AgentSwarmDetector, ExploitChainAnalyzer, AILMTracker, C2InfrastructureDetector, KubernetesDefenseLayer, PackageRegistryMonitor, PermissionGrant
+    EventStreamCollector, NormalizedEvent, EventSource, AttackGraphStore, PathCorrelator,
+    AgentSwarmDetector, ExploitChainAnalyzer, AILMTracker, C2InfrastructureDetector,
+    KubernetesDefenseLayer, PackageRegistryMonitor, PermissionGrant, AlertBus, AlertSeverity
 )
-
 
 collector = EventStreamCollector()
 raw_kernel_event = {"action": "execve", "target": "/usr/bin/python3", "agent_id": "agent-007"}
@@ -157,6 +158,12 @@ registry_evidences = await registry_monitor.detect_exploit_probing(
     agent_id="agent-007",
     time_window=(now - timedelta(minutes=1), now + timedelta(minutes=10)),
 )
+
+# Real-Time Alert Bus & Subscription Integration
+alert_bus = AlertBus(max_retries=5)
+alert_bus.subscribe(lambda alert: print(f"[{alert.severity}] {alert.title}: {alert.description}"))
+if swarms:
+    await alert_bus.publish_swarm_alert(swarms[0])
 # Detects multi-step zero-day exploit sequences, C2 infrastructure establishment/beaconing, AI-Induced Lateral Movement, Kubernetes cluster attacks, and package registry exploit probing (Log4j, Spring4Shell, CVEs)
 ```
 

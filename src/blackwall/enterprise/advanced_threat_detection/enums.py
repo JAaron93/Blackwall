@@ -21,3 +21,13 @@ class ExploitCategory(str, Enum):
     CREDENTIAL_THEFT = "credential_theft"
     PERSISTENCE = "persistence"
     LATERAL_MOVEMENT = "lateral_movement"
+
+
+class AlertSeverity(str, Enum):
+    """Severity levels for threat detection alerts."""
+
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+    CRITICAL = "CRITICAL"
+
