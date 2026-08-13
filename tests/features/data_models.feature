@@ -3,10 +3,10 @@ Feature: Advanced Threat Detection Data Models Validation
   I want to ensure data models enforce strict validation rules
   So that invalid security events, attack paths, and swarm evidence are rejected at model boundaries
 
-  Scenario: NormalizedEvent creation assigns valid UUID v4 and UTC timezone-aware timestamp
-    Given a request to create a NormalizedEvent with valid parameters
+  Scenario: NormalizedEvent creation validates UUID v4 string parsing and UTC timezone-aware timestamp
+    Given a request to create a NormalizedEvent with valid string UUID v4 and ISO UTC timestamp
     When the NormalizedEvent is instantiated
-    Then the event_id is a valid UUID v4
+    Then the event_id is parsed into a valid UUID v4 object
     And the timestamp is timezone-aware and set to UTC
 
   Scenario: risk_score outside [0.0, 1.0] is rejected with a validation error

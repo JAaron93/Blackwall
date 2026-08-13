@@ -38,10 +38,10 @@ def state() -> DataModelsBDDState:
     return DataModelsBDDState()
 
 
-# Scenario 1: NormalizedEvent creation assigns valid UUID v4 and UTC timezone-aware timestamp
-@given("a request to create a NormalizedEvent with valid parameters")
+# Scenario 1: NormalizedEvent creation validates UUID v4 string parsing and UTC timezone-aware timestamp
+@given("a request to create a NormalizedEvent with valid string UUID v4 and ISO UTC timestamp")
 def given_valid_event_parameters(state: DataModelsBDDState) -> None:
-    state.raw_event_id = str(uuid.uuid4())
+    state.raw_event_id = "c56a4180-65aa-42ec-a945-5fd21dec0538"
     state.raw_timestamp = datetime.now(timezone.utc)
 
 
@@ -62,10 +62,11 @@ def when_normalized_event_instantiated(state: DataModelsBDDState) -> None:
     state.normalized_event = run_async(_create_event())
 
 
-@then("the event_id is a valid UUID v4")
+@then("the event_id is parsed into a valid UUID v4 object")
 def then_event_id_valid_uuid_v4(state: DataModelsBDDState) -> None:
     assert state.normalized_event is not None
     assert isinstance(state.normalized_event.event_id, uuid.UUID)
+    assert str(state.normalized_event.event_id) == "c56a4180-65aa-42ec-a945-5fd21dec0538"
     assert state.normalized_event.event_id.version == 4
 
 
