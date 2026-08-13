@@ -19,6 +19,22 @@ K8S_SECRET_API_REGEX = re.compile(
     re.IGNORECASE,
 )
 
+POD_TERM_ACTIONS = {
+    "terminate_pod",
+    "delete_pod",
+    "kill_pod",
+    "pod_terminate",
+    "pod_delete",
+    "sys_kill_pod",
+}
+POD_CREATE_ACTIONS = {
+    "create_pod",
+    "spawn_pod",
+    "pod_create",
+    "run_pod",
+    "sys_create_pod",
+}
+
 
 class KubernetesDefenseLayer:
     """Detects Kubernetes-specific threats including token theft, fleet spawning, secrets exfiltration, and self-respawning pods."""
@@ -81,13 +97,6 @@ class KubernetesDefenseLayer:
                 or event.metadata.get("authorized") is True
                 or event.metadata.get("access_type") == "legitimate"
                 or event.metadata.get("legitimate") is True
-                or (
-                    event.metadata.get("is_authorized") is None
-                    and event.metadata.get("authorized") is None
-                    and event.metadata.get("unauthorized") is not True
-                    and event.metadata.get("is_unauthorized") is not True
-                    and event.risk_score < 0.6
-                )
             )
 
             if is_token_access and not is_authorized:
@@ -224,34 +233,10 @@ class KubernetesDefenseLayer:
             if TOKEN_PATH_PATTERN in target_str or "/var/run/secrets" in target_str or "vault" in target_lower:
                 continue
 
-            has_k8s_indicator = (
-                "kubernetes" in target_lower
-                or "k8s" in target_lower
-                or "kubernetes" in api_call_lower
-                or "k8s" in api_call_lower
-                or "/api/v1/namespaces/" in target_lower
-                or "/api/v1/namespaces/" in api_call_lower
-                or "/apis/" in target_lower
-                or "/apis/" in api_call_lower
-                or event.metadata.get("k8s_api") is True
+            is_k8s_api = (
+                event.metadata.get("k8s_api") is True
                 or event.metadata.get("is_k8s_api") is True
-            )
-
-            is_non_k8s_host = (
-                ("http://" in target_lower or "https://" in target_lower)
-                and not (
-                    "kubernetes" in target_lower
-                    or "k8s" in target_lower
-                    or "10.96.0.1" in target_lower
-                    or "127.0.0.1:6443" in target_lower
-                    or "localhost:6443" in target_lower
-                )
-            )
-
-            is_k8s_api = has_k8s_indicator and not is_non_k8s_host
-
-            is_secret_read = is_k8s_api and (
-                bool(K8S_SECRET_API_REGEX.search(target_str))
+                or bool(K8S_SECRET_API_REGEX.search(target_str))
                 or bool(K8S_SECRET_API_REGEX.search(api_call))
                 or (
                     action_str in {"get_secret", "list_secrets", "read_secret"}
@@ -262,7 +247,7 @@ class KubernetesDefenseLayer:
                 )
             )
 
-            if is_secret_read:
+            if is_k8s_api:
                 secret_events.append(event)
                 await self.track_k8s_api_access(event)
 
@@ -323,7 +308,7 @@ class KubernetesDefenseLayer:
             if time_window and not (start_w <= event.timestamp <= end_w):
                 continue
             act = (event.action or "").lower()
-            if "pod" in act or "terminate" in act or "create" in act or "k8s://" in event.target:
+            if "pod" in act or "k8s://" in event.target or event.metadata.get("pod_name"):
                 pod_name = str(event.metadata.get("pod_name") or event.target)
                 if pod_name not in pod_events:
                     pod_events[pod_name] = []
@@ -341,10 +326,21 @@ class KubernetesDefenseLayer:
             for ev in sorted_events:
                 act = (ev.action or "").lower()
                 status = str(ev.metadata.get("status") or "").lower()
-                if "terminate" in act or status == "terminated":
+                is_term = (
+                    act in POD_TERM_ACTIONS
+                    or status == "terminated"
+                    or (ev.metadata.get("event_type") == "pod_lifecycle" and "terminate" in act)
+                )
+                is_create = (
+                    act in POD_CREATE_ACTIONS
+                    or status in {"running", "created"}
+                    or (ev.metadata.get("event_type") == "pod_lifecycle" and "create" in act)
+                )
+
+                if is_term:
                     terminations += 1
                     has_been_terminated = True
-                elif "create" in act or status == "running":
+                elif is_create:
                     creations += 1
                     if has_been_terminated:
                         respawn_count += 1
