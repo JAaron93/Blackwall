@@ -335,4 +335,37 @@ async def test_monitor_registry_access_escalates_store_persistence_error(monkeyp
             pass
 
 
+@pytest.mark.asyncio
+async def test_single_package_404_retries_not_flagged_as_scanning():
+    """Verify that repeated 404 retries of a single unavailable package are not flagged as scanning."""
+    store = AttackGraphStore(in_memory=True)
+    monitor = PackageRegistryMonitor(store=store)
+
+    base_time = datetime(2026, 8, 13, 12, 0, 0, tzinfo=timezone.utc)
+    time_window = (base_time, base_time + timedelta(minutes=10))
+
+    # 5 retries for the SAME package
+    for i in range(5):
+        event = create_registry_event(
+            agent_id="retry-agent",
+            action="GET",
+            target="https://pypi.org/simple/missing-pkg/",
+            offset_seconds=float(i * 2),
+            metadata={
+                "registry_type": "PyPI",
+                "package_name": "missing-pkg",
+                "status_code": 404,
+            },
+            base_time=base_time,
+        )
+        await store.insert_event(event)
+
+    evidences = await monitor.detect_exploit_probing(
+        agent_id="retry-agent", time_window=time_window
+    )
+    # Must NOT produce false positive threat evidence
+    assert len(evidences) == 0
+
+
+
 

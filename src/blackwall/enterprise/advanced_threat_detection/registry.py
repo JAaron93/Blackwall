@@ -361,8 +361,13 @@ class PackageRegistryMonitor:
                 distinct_pkgs = {
                     str(e.metadata.get("package_name") or e.target) for e in burst
                 }
+                # Cross-package scanning/reconnaissance targets multiple distinct packages.
+                # Single-package retries (len(distinct_pkgs) == 1) represent normal client retry behavior.
+                if len(distinct_pkgs) < 2:
+                    continue
+
                 scanning_indicator = [
-                    f"Unusual scanning activity by agent '{grp_agent}': {len(burst)} consecutive 404 responses on {grp_reg} registry across {len(distinct_pkgs)} packages"
+                    f"Unusual scanning activity by agent '{grp_agent}': {len(burst)} consecutive 404 responses on {grp_reg} registry across {len(distinct_pkgs)} distinct packages"
                 ]
                 cves = self.correlate_cve(scanning_indicator, target_str=burst[0].target)
                 evidences.append(
