@@ -191,15 +191,16 @@ class PackageRegistryMonitor:
                         metadata=meta,
                         risk_score=risk_score,
                     )
-
-                    self._tracked_events.append(event)
-                    if self.store is not None:
-                        await self.store.insert_event(event)
-
-                    yield event
                 except Exception as exc:
                     logger.warning("Skipping malformed registry record: %s (error: %s)", req, exc)
                     continue
+
+                if self.store is not None:
+                    await self.store.insert_event(event)
+
+                self._tracked_events.append(event)
+                yield event
+
 
 
     def correlate_cve(

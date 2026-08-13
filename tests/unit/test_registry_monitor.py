@@ -312,3 +312,27 @@ async def test_exploit_probing_gradual_404_scanning():
     assert any("gradual-agent" in ind for ind in evidences[0].exploit_indicators)
 
 
+@pytest.mark.asyncio
+async def test_monitor_registry_access_escalates_store_persistence_error(monkeypatch):
+    """Verify that store insertion errors propagate without being masked as malformed records."""
+    store = AttackGraphStore(in_memory=True)
+    monitor = PackageRegistryMonitor(store=store)
+
+    async def fail_insert(*args, **kwargs):
+        raise RuntimeError("Database connection severed during insertion")
+
+    monkeypatch.setattr(store, "insert_event", fail_insert)
+
+    async def sample_stream():
+        yield {"endpoint": "/pkg-test", "package_name": "pkg-test"}
+
+    with pytest.raises(RuntimeError, match="Database connection severed during insertion"):
+        async for _ in monitor.monitor_registry_access(
+            agent_id="test-agent",
+            registry_url="https://registry.npmjs.org",
+            request_stream=sample_stream(),
+        ):
+            pass
+
+
+
