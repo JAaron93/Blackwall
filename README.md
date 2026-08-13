@@ -79,8 +79,9 @@ report = await manager.triage_log_event({"command": "reverse_shell /bin/bash -i"
 from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 from blackwall.enterprise.advanced_threat_detection import (
-    EventStreamCollector, NormalizedEvent, EventSource, AttackGraphStore, PathCorrelator, AgentSwarmDetector, ExploitChainAnalyzer, AILMTracker, C2InfrastructureDetector, KubernetesDefenseLayer, PermissionGrant
+    EventStreamCollector, NormalizedEvent, EventSource, AttackGraphStore, PathCorrelator, AgentSwarmDetector, ExploitChainAnalyzer, AILMTracker, C2InfrastructureDetector, KubernetesDefenseLayer, PackageRegistryMonitor, PermissionGrant
 )
+
 
 collector = EventStreamCollector()
 raw_kernel_event = {"action": "execve", "target": "/usr/bin/python3", "agent_id": "agent-007"}
@@ -150,7 +151,13 @@ token_evidences = await k8s_defense.detect_pod_token_theft(agent_id="agent-007")
 fleet_evidences = await k8s_defense.detect_fleet_spawning(min_pods=10, min_nodes=5)
 secrets_evidences = await k8s_defense.detect_secrets_exfiltration(agent_id="agent-007")
 respawn_evidences = await k8s_defense.detect_self_respawn()
-# Detects multi-step zero-day exploit sequences, C2 infrastructure establishment/beaconing, AI-Induced Lateral Movement, and Kubernetes-level cluster attacks
+
+registry_monitor = PackageRegistryMonitor(store=store)
+registry_evidences = await registry_monitor.detect_exploit_probing(
+    agent_id="agent-007",
+    time_window=(now - timedelta(minutes=1), now + timedelta(minutes=10)),
+)
+# Detects multi-step zero-day exploit sequences, C2 infrastructure establishment/beaconing, AI-Induced Lateral Movement, Kubernetes cluster attacks, and package registry exploit probing (Log4j, Spring4Shell, CVEs)
 ```
 
 #### 🧪 Enterprise BDD & Property Verification
