@@ -262,6 +262,8 @@ class KubernetesDefenseLayer:
 
         for pod_name, events in pod_events.items():
             sorted_events = sorted(events, key=lambda e: e.timestamp)
+            has_been_terminated = False
+            respawn_count = 0
             terminations = 0
             creations = 0
             ns_val = "default"
@@ -272,14 +274,17 @@ class KubernetesDefenseLayer:
                 status = str(ev.metadata.get("status") or "").lower()
                 if "terminate" in act or status == "terminated":
                     terminations += 1
+                    has_been_terminated = True
                 elif "create" in act or status == "running":
                     creations += 1
+                    if has_been_terminated:
+                        respawn_count += 1
                 if ev.metadata.get("namespace"):
                     ns_val = str(ev.metadata.get("namespace"))
                 if ev.metadata.get("service_account"):
                     sa_val = str(ev.metadata.get("service_account"))
 
-            if terminations >= 1 and creations >= 1:
+            if respawn_count >= 1:
                 evidences.append(
                     K8sThreatEvidence(
                         threat_type="self_respawning_pod",
@@ -289,6 +294,7 @@ class KubernetesDefenseLayer:
                         evidence={
                             "terminations": terminations,
                             "creations": creations,
+                            "respawn_count": respawn_count,
                             "pod_name": pod_name,
                         },
                     )

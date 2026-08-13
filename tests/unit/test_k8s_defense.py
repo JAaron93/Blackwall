@@ -198,3 +198,36 @@ async def test_self_respawn():
     evidence = evidences[0]
     assert evidence.threat_type == "self_respawning_pod"
     assert evidence.pod_name == pod_name
+
+
+@pytest.mark.asyncio
+async def test_normal_creation_then_termination_not_flagged():
+    """Verify normal pod creation followed by termination is NOT flagged as self-respawning."""
+    store = AttackGraphStore(in_memory=True)
+    layer = KubernetesDefenseLayer(store=store)
+    base_time = datetime(2026, 8, 13, 12, 0, 0, tzinfo=timezone.utc)
+    time_window = (base_time, base_time + timedelta(minutes=15))
+
+    pod_name = "normal-app-pod"
+    c_event = create_event(
+        agent_id="normal-agent",
+        action="create_pod",
+        target=f"k8s://pods/{pod_name}",
+        offset_seconds=0.0,
+        metadata={"namespace": "default", "pod_name": pod_name, "status": "running"},
+        base_time=base_time,
+    )
+    await store.insert_event(c_event)
+
+    t_event = create_event(
+        agent_id="normal-agent",
+        action="terminate_pod",
+        target=f"k8s://pods/{pod_name}",
+        offset_seconds=10.0,
+        metadata={"namespace": "default", "pod_name": pod_name, "status": "terminated"},
+        base_time=base_time,
+    )
+    await store.insert_event(t_event)
+
+    evidences = await layer.detect_self_respawn(time_window=time_window)
+    assert len(evidences) == 0
