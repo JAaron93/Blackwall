@@ -79,7 +79,7 @@ report = await manager.triage_log_event({"command": "reverse_shell /bin/bash -i"
 from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 from blackwall.enterprise.advanced_threat_detection import (
-    EventStreamCollector, NormalizedEvent, EventSource, AttackGraphStore, PathCorrelator, AgentSwarmDetector, ExploitChainAnalyzer, AILMTracker, C2InfrastructureDetector, PermissionGrant
+    EventStreamCollector, NormalizedEvent, EventSource, AttackGraphStore, PathCorrelator, AgentSwarmDetector, ExploitChainAnalyzer, AILMTracker, C2InfrastructureDetector, KubernetesDefenseLayer, PermissionGrant
 )
 
 collector = EventStreamCollector()
@@ -144,8 +144,13 @@ c2_evidences = await c2_detector.detect_c2_establishment(
     agent_id="agent-007",
     time_window=(now - timedelta(minutes=1), now + timedelta(minutes=10)),
 )
-# Detects multi-step zero-day exploit sequences, C2 infrastructure establishment/beaconing, AI-Induced Lateral Movement across trust boundaries, and computes risk levels
 
+k8s_defense = KubernetesDefenseLayer(store=store)
+token_evidences = await k8s_defense.detect_pod_token_theft(agent_id="agent-007")
+fleet_evidences = await k8s_defense.detect_fleet_spawning(min_pods=10, min_nodes=5)
+secrets_evidences = await k8s_defense.detect_secrets_exfiltration(agent_id="agent-007")
+respawn_evidences = await k8s_defense.detect_self_respawn()
+# Detects multi-step zero-day exploit sequences, C2 infrastructure establishment/beaconing, AI-Induced Lateral Movement, and Kubernetes-level cluster attacks
 ```
 
 #### 🧪 Enterprise BDD & Property Verification

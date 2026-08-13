@@ -391,33 +391,33 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6_
     - _Verification: `pytest tests/step_defs/test_c2_infrastructure_detector_bdd.py -v`_
 
-- [ ] 12. Implement Kubernetes Defense Layer
-  - [ ] 12.1 Create KubernetesDefenseLayer class with pod token theft detection
+- [x] 12. Implement Kubernetes Defense Layer
+  - [x] 12.1 Create KubernetesDefenseLayer class with pod token theft detection
     - Implement `detect_pod_token_theft()` identifying unauthorized access to service account tokens
     - Monitor file access to `/var/run/secrets/kubernetes.io/serviceaccount/token`
     - Generate K8sThreatEvidence with threat_type, namespace, pod_name, service_account
     - _Requirements: 8.1, 8.4_
     - _Verification: `pytest tests/unit/test_k8s_defense.py::test_pod_token_theft -v`_
 
-  - [ ] 12.2 Implement fleet spawning detection
+  - [x] 12.2 Implement fleet spawning detection
     - Create `detect_fleet_spawning()` identifying rapid pod creation patterns
     - Detect creation across multiple nodes within short time windows
     - _Requirements: 8.2_
     - _Verification: `pytest tests/unit/test_k8s_defense.py::test_fleet_spawning -v`_
 
-  - [ ] 12.3 Implement secrets exfiltration detection
+  - [x] 12.3 Implement secrets exfiltration detection
     - Create `detect_secrets_exfiltration()` identifying bulk secret reads from Kubernetes API
     - Track both successful and failed API calls
     - _Requirements: 8.3, 8.5_
     - _Verification: `pytest tests/unit/test_k8s_defense.py::test_secrets_exfiltration -v`_
 
-  - [ ] 12.4 Implement self-respawning pod detection
+  - [x] 12.4 Implement self-respawning pod detection
     - Detect pods that automatically recreate after termination
     - Identify restart loop patterns
     - _Requirements: 8.6_
     - _Verification: `pytest tests/unit/test_k8s_defense.py::test_self_respawn -v`_
 
-  - [ ] 12.5 Write property tests for Kubernetes defense
+  - [x] 12.5 Write property tests for Kubernetes defense
     - **Property 46: Pod Token Theft Detection**
     - **Property 47: Fleet Spawning Detection**
     - **Property 48: Secrets Exfiltration Detection**
@@ -427,7 +427,7 @@ The implementation follows a test-driven development approach with property-base
     - **Validates: Requirements 8.1, 8.2, 8.3, 8.4, 8.5, 8.6**
     - _Verification: `pytest tests/property/test_k8s_defense_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 12.6 Write BDD feature tests for Kubernetes Defense Layer
+  - [x] 12.6 Write BDD feature tests for Kubernetes Defense Layer
     - Create `tests/features/kubernetes_defense.feature` with Gherkin scenarios
     - Implement `Given/When/Then` steps in `tests/step_defs/test_kubernetes_defense_bdd.py` using `run_async`
     - Scenario: file access to `/var/run/secrets/kubernetes.io/serviceaccount/token` triggers pod token theft detection
