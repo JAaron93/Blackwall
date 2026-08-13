@@ -155,10 +155,9 @@ class C2InfrastructureDetector:
                 if isinstance(meta_domain, str) and meta_domain:
                     metadata_host, _ = _extract_hostname_and_path(meta_domain)
 
-            # Match against specific target host or endpoint string
-            if (
-                (target_host and (target_host == evt_target_host or target_host == metadata_host))
-                or endpoint.strip().lower() in evt.target.strip().lower()
+            # Match against specific target host or exact endpoint string
+            if target_host and (
+                target_host == evt_target_host or target_host == metadata_host or endpoint.strip().lower() == evt.target.strip().lower()
             ):
                 matching_timestamps.append(evt.timestamp)
 
@@ -261,13 +260,12 @@ class C2InfrastructureDetector:
         tool_call_events: List[NormalizedEvent] = []
 
         for evt in agent_events:
-            # Restrict kernel network events to genuine network syscalls/operations
+            # Restrict kernel network events strictly to genuine network syscall actions
             if evt.source == EventSource.KERNEL_SYSCALL:
                 act_lower = evt.action.lower()
                 is_net = (
                     act_lower in NETWORK_ACTION_KEYWORDS
-                    or any(k in act_lower for k in ("connect", "socket", "network", "http", "dns"))
-                    or (isinstance(evt.metadata, dict) and ("ip" in evt.metadata or "domain" in evt.metadata or "host" in evt.metadata))
+                    or any(k in act_lower for k in ("connect", "socket", "network", "http", "dns", "send", "recv"))
                 )
                 if is_net:
                     kernel_network_events.append(evt)
