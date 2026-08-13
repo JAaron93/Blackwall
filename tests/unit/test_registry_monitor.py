@@ -275,3 +275,37 @@ async def test_stream_resilience_on_malformed_records():
     assert events[0].agent_id == "resilience-agent"
     assert events[3].agent_id == "resilience-agent"
 
+
+@pytest.mark.asyncio
+async def test_exploit_probing_gradual_404_scanning():
+    """Verify gradual 404 scanning spanning > 5 minutes with consecutive gaps <= 5 min is detected."""
+    store = AttackGraphStore(in_memory=True)
+    monitor = PackageRegistryMonitor(store=store)
+
+    base_time = datetime(2026, 8, 13, 12, 0, 0, tzinfo=timezone.utc)
+    # 6 events spaced 90 seconds apart = total span 450 seconds (> 300s), but consecutive gap 90s (<= 300s)
+    for i in range(6):
+        event = create_registry_event(
+            agent_id="gradual-agent",
+            action="GET",
+            target=f"https://pypi.org/simple/pkg-gradual-{i}/",
+            offset_seconds=float(i * 90),
+            metadata={
+                "registry_type": "PyPI",
+                "package_name": f"pkg-gradual-{i}",
+                "status_code": 404,
+            },
+            base_time=base_time,
+        )
+        await store.insert_event(event)
+
+    evidences = await monitor.detect_exploit_probing(
+        agent_id="gradual-agent",
+        time_window=(base_time - timedelta(minutes=1), base_time + timedelta(minutes=20)),
+    )
+
+    assert len(evidences) >= 1
+    assert evidences[0].registry_type == "PyPI"
+    assert any("gradual-agent" in ind for ind in evidences[0].exploit_indicators)
+
+

@@ -353,7 +353,7 @@ class PackageRegistryMonitor:
                 if not current_burst:
                     current_burst.append(ev)
                 else:
-                    if (ev.timestamp - current_burst[0].timestamp).total_seconds() <= 300:
+                    if (ev.timestamp - current_burst[-1].timestamp).total_seconds() <= 300:
                         current_burst.append(ev)
                     else:
                         if len(current_burst) >= 5:
@@ -361,6 +361,7 @@ class PackageRegistryMonitor:
                         current_burst = [ev]
             if len(current_burst) >= 5:
                 scanning_bursts.append(list(current_burst))
+
 
             for burst in scanning_bursts:
                 distinct_pkgs = {
