@@ -111,6 +111,8 @@ def format_iso_datetime(v: Optional[datetime] = None) -> str:
     dt = v if v is not None else utc_now()
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
     return dt.isoformat()
 
 
@@ -121,13 +123,13 @@ def parse_iso_datetime(
     if v is None:
         return default
     if isinstance(v, datetime):
-        return v if v.tzinfo is not None else v.replace(tzinfo=timezone.utc)
+        return v.astimezone(timezone.utc) if v.tzinfo is not None else v.replace(tzinfo=timezone.utc)
     if isinstance(v, str):
         if not v.strip():
             return default
         try:
             dt = datetime.fromisoformat(v)
-            return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc) if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
         except Exception:
             return default
     return default

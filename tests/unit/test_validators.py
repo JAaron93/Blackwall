@@ -187,3 +187,41 @@ def test_compute_word_intersection_match_quality():
     assert compute_word_intersection_match_quality("", "candidate") == 0.0
     assert compute_word_intersection_match_quality("abc", "xyz") == 0.0
 
+
+# ----------------------------------------------------------------------
+# Property-based tests (Hypothesis)
+# ----------------------------------------------------------------------
+from hypothesis import given, strategies as st
+
+
+@given(st.text())
+def test_property_parse_json_safely_never_crashes_on_random_text(random_text):
+    """Property test: parse_json_safely never raises exceptions on arbitrary text."""
+    res = parse_json_safely(random_text, default="FALLBACK")
+    # Must either be a parsed JSON value or the fallback default
+    assert res is not None
+
+
+@given(st.datetimes(timezones=st.timezones()))
+def test_property_iso_datetime_formatting_and_parsing_roundtrip(dt):
+    """Property test: formatting and parsing datetimes preserves UTC timezone awareness."""
+    iso_str = format_iso_datetime(dt)
+    parsed = parse_iso_datetime(iso_str)
+    assert parsed is not None
+    assert parsed.tzinfo is timezone.utc
+
+
+@given(st.text(), st.text())
+def test_property_compute_word_intersection_match_quality_bounded(t1, t2):
+    """Property test: match quality score is strictly bounded between 0.0 and 1.0."""
+    score = compute_word_intersection_match_quality(t1, t2)
+    assert 0.0 <= score <= 1.0
+
+
+@given(st.text(min_size=1, alphabet=st.characters(whitelist_categories=("Lu", "Ll"))))
+def test_property_identical_words_yield_full_match_quality(word):
+    """Property test: identical alphabetic words yield a match quality of 1.0."""
+    score = compute_word_intersection_match_quality(word, word)
+    assert score == 1.0
+
+

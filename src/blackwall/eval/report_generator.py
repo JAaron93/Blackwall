@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from blackwall.validators import format_iso_datetime, parse_json_safely
+from blackwall.validators import format_iso_datetime
 
 from blackwall.eval.metrics import calculateMetrics
 from blackwall.models import (
@@ -266,7 +266,7 @@ class ReportGenerator:
     # ------------------------------------------------------------------
 
     def _load_evalset(self) -> None:
-        data = parse_json_safely(self.evalset_path.read_text(encoding="utf-8"), default={})
+        data = json.loads(self.evalset_path.read_text(encoding="utf-8"))
         cases: list[dict[str, Any]] = (
             data.get("eval_cases", data) if isinstance(data, dict) else data
         )
@@ -276,7 +276,7 @@ class ReportGenerator:
         )
 
     def _load_results(self) -> list[dict[str, Any]]:
-        data = parse_json_safely(self.results_path.read_text(encoding="utf-8"), default=[])
+        data = json.loads(self.results_path.read_text(encoding="utf-8"))
         if isinstance(data, list):
             return data
         return data.get("results", data.get("eval_cases", []))
