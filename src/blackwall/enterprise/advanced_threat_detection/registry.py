@@ -173,11 +173,12 @@ class PackageRegistryMonitor:
                         ts = utc_now()
 
 
-                    raw_score = req.get("risk_score", 0.4)
-                    try:
-                        score_val = float(raw_score)
-                        risk_score = max(0.0, min(score_val, 1.0))
-                    except (ValueError, TypeError):
+                    if "risk_score" in req and req["risk_score"] is not None:
+                        score_val = float(req["risk_score"])
+                        if not (0.0 <= score_val <= 1.0):
+                            raise ValueError(f"risk_score must be between 0.0 and 1.0, got {score_val}")
+                        risk_score = score_val
+                    else:
                         risk_score = 0.4
 
                     event = NormalizedEvent(
@@ -243,22 +244,19 @@ class PackageRegistryMonitor:
                     datetime(1970, 1, 1, tzinfo=timezone.utc),
                     datetime(2100, 1, 1, tzinfo=timezone.utc),
                 )
-                try:
-                    store_nodes = await self.store.query_nodes(
-                        agent_id=agent_id, time_window=q_window
-                    )
-                    for n in store_nodes:
-                        if n.event.event_id not in seen_event_ids:
-                            candidate_events.append(n.event)
-                            seen_event_ids.add(n.event.event_id)
-                except Exception as exc:
-                    logger.debug("Failed querying store nodes: %s", exc)
-
-            if hasattr(self.store, "_nodes"):
+                store_nodes = await self.store.query_nodes(
+                    agent_id=agent_id, time_window=q_window
+                )
+                for n in store_nodes:
+                    if n.event.event_id not in seen_event_ids:
+                        candidate_events.append(n.event)
+                        seen_event_ids.add(n.event.event_id)
+            elif hasattr(self.store, "_nodes"):
                 for node in self.store._nodes.values():
                     if node.event.event_id not in seen_event_ids:
                         candidate_events.append(node.event)
                         seen_event_ids.add(node.event.event_id)
+
 
         for ev in self._tracked_events:
             if ev.event_id not in seen_event_ids:

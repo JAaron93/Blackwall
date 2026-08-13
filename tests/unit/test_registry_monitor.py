@@ -271,10 +271,11 @@ async def test_stream_resilience_on_malformed_records():
     ):
         events.append(ev)
 
-    assert len(events) == 3
+    assert len(events) == 2
     assert events[0].agent_id == "resilience-agent"
     assert events[0].metadata.get("package_name") == "express"
-    assert events[2].metadata.get("package_name") == "lodash"
+    assert events[1].metadata.get("package_name") == "lodash"
+
 
 
 
