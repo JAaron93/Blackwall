@@ -6,7 +6,6 @@ import pytest
 from pytest_bdd import given, scenarios, then, when
 
 from blackwall.enterprise.advanced_threat_detection import (
-    AILMEvidence,
     AILMTracker,
     PermissionGrant,
 )

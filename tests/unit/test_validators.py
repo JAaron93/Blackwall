@@ -2,10 +2,15 @@
 
 from datetime import datetime, timezone, timedelta
 import uuid
+from hypothesis import given, strategies as st
 import pytest
 
 from blackwall.validators import (
+    compute_word_intersection_match_quality,
     ensure_uuid_v4,
+    format_iso_datetime,
+    parse_iso_datetime,
+    parse_json_safely,
     utc_now,
     validate_min_items,
     validate_non_empty_string,
@@ -141,3 +146,82 @@ def test_validate_temporal_sequence():
         ValueError, match="end_time must be greater than or equal to start_time"
     ):
         validate_temporal_sequence(now_utc, earlier_utc)
+
+
+def test_parse_json_safely():
+    """Verify parse_json_safely correctly parses valid JSON and returns fallback on invalid/empty input."""
+    assert parse_json_safely('{"a": 1}') == {"a": 1}
+    assert parse_json_safely(b'["x", "y"]') == ["x", "y"]
+    assert parse_json_safely(None, default=[]) == []
+    assert parse_json_safely("", default={}) == {}
+    assert parse_json_safely("invalid json", default=None) is None
+
+
+def test_format_iso_datetime():
+    """Verify format_iso_datetime produces valid ISO 8601 strings."""
+    dt = datetime(2026, 8, 12, 12, 0, 0, tzinfo=timezone.utc)
+    assert format_iso_datetime(dt) == "2026-08-12T12:00:00+00:00"
+
+    current_iso = format_iso_datetime()
+    assert "T" in current_iso
+
+
+def test_parse_iso_datetime():
+    """Verify parse_iso_datetime parses ISO strings and ensures timezone awareness."""
+    parsed = parse_iso_datetime("2026-08-12T12:00:00+00:00")
+    assert isinstance(parsed, datetime)
+    assert parsed.tzinfo is not None
+
+    dt_obj = datetime(2026, 8, 12, 12, 0, 0)
+    assert parse_iso_datetime(dt_obj).tzinfo is timezone.utc
+    assert parse_iso_datetime(None) is None
+    assert parse_iso_datetime("invalid date") is None
+
+
+def test_compute_word_intersection_match_quality():
+    """Verify compute_word_intersection_match_quality calculates correct word intersection ratio."""
+    q = "SELECT username FROM users"
+    c = "SELECT username, secret FROM users"
+    score = compute_word_intersection_match_quality(q, c)
+    assert 0.5 < score <= 1.0
+
+    assert compute_word_intersection_match_quality("", "candidate") == 0.0
+    assert compute_word_intersection_match_quality("abc", "xyz") == 0.0
+
+
+# ----------------------------------------------------------------------
+# Property-based tests (Hypothesis)
+# ----------------------------------------------------------------------
+
+
+@given(st.text())
+def test_property_parse_json_safely_never_crashes_on_random_text(random_text):
+    """Property test: parse_json_safely never raises exceptions on arbitrary text."""
+    res = parse_json_safely(random_text, default="FALLBACK")
+    # Must either be a parsed JSON value or the fallback default
+    assert res is not None
+
+
+@given(st.datetimes(timezones=st.timezones()))
+def test_property_iso_datetime_formatting_and_parsing_roundtrip(dt):
+    """Property test: formatting and parsing datetimes preserves UTC timezone awareness."""
+    iso_str = format_iso_datetime(dt)
+    parsed = parse_iso_datetime(iso_str)
+    assert parsed is not None
+    assert parsed.tzinfo is timezone.utc
+
+
+@given(st.text(), st.text())
+def test_property_compute_word_intersection_match_quality_bounded(t1, t2):
+    """Property test: match quality score is strictly bounded between 0.0 and 1.0."""
+    score = compute_word_intersection_match_quality(t1, t2)
+    assert 0.0 <= score <= 1.0
+
+
+@given(st.text(min_size=1, alphabet=st.characters(whitelist_categories=("Lu", "Ll"))))
+def test_property_identical_words_yield_full_match_quality(word):
+    """Property test: identical alphabetic words yield a match quality of 1.0."""
+    score = compute_word_intersection_match_quality(word, word)
+    assert score == 1.0
+
+

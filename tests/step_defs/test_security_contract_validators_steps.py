@@ -7,6 +7,10 @@ import pytest
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from blackwall.validators import (
+    compute_word_intersection_match_quality,
+    format_iso_datetime,
+    parse_iso_datetime,
+    parse_json_safely,
     validate_min_items,
     validate_non_empty_string,
     validate_semver_format,
@@ -206,3 +210,53 @@ def execute_temporal_sequence_validation(state: ValidatorState):
 @then("the temporal sequence validation succeeds without error")
 def verify_temporal_sequence_success(state: ValidatorState):
     assert state.error is None
+
+
+# JSON parse steps
+@given(parsers.parse("a JSON string '{json_str}'"))
+def set_json_string(state: ValidatorState, json_str: str):
+    state.json_input = json_str
+
+
+@when(parsers.parse('the safe JSON parse helper is executed with default "{default_val}"'))
+def execute_safe_json_parse(state: ValidatorState, default_val: str):
+    state.json_output = parse_json_safely(state.json_input, default=default_val)
+
+
+@then("the parsed JSON output should match the dict structure")
+def verify_json_output(state: ValidatorState):
+    assert state.json_output == {"key": "value"}
+
+
+# ISO datetime steps
+@when("the ISO datetime format helper is executed")
+def execute_iso_format(state: ValidatorState):
+    state.iso_str = format_iso_datetime(state.start_dt)
+
+
+@then("the formatted string is a valid ISO 8601 string and parses back to UTC datetime")
+def verify_iso_format_and_parse(state: ValidatorState):
+    assert "T" in state.iso_str
+    parsed = parse_iso_datetime(state.iso_str)
+    assert parsed is not None
+    assert parsed.tzinfo is timezone.utc
+
+
+# Word intersection match quality steps
+@given(parsers.parse('a query text "{query}" and candidate text "{candidate}"'))
+def set_match_quality_texts(state: ValidatorState, query: str, candidate: str):
+    state.query_text = query
+    state.candidate_text = candidate
+
+
+@when("the word intersection match quality helper is executed")
+def execute_match_quality(state: ValidatorState):
+    state.match_quality = compute_word_intersection_match_quality(
+        state.query_text, state.candidate_text
+    )
+
+
+@then(parsers.parse("the match quality score should be greater than {threshold:f}"))
+def verify_match_quality_score(state: ValidatorState, threshold: float):
+    assert state.match_quality > threshold
+

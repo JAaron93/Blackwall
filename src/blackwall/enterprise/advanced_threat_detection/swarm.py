@@ -1,7 +1,7 @@
 """Agent Swarm Detector component for Blackwall Advanced Threat Detection (Pillar 6 Task 7)."""
 
 from collections import deque
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 import hashlib
 import logging
 import math
@@ -15,7 +15,11 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from blackwall.policy.models import PolicyConfig
-from blackwall.validators import validate_temporal_sequence, validate_utc_datetime
+from blackwall.validators import (
+    utc_now,
+    validate_temporal_sequence,
+    validate_utc_datetime,
+)
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.swarm")
 
@@ -88,7 +92,7 @@ class AgentSwarmDetector:
             raise ValueError("window must be positive")
 
         if end_time is None:
-            end_win = datetime.now(timezone.utc)
+            end_win = utc_now()
         else:
             end_win = validate_utc_datetime(end_time)
 

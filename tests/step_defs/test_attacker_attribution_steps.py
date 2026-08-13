@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 import json
 import os
+from typing import Any
 from unittest.mock import patch
 from uuid import uuid4
 import pytest
@@ -15,6 +16,7 @@ from blackwall.models import (
     IdentitySource,
     IncidentReport,
     ToolCallContext,
+    Verdict,
     VerdictDecision,
 )
 from blackwall.attribution.extractor import AttackerIdentityExtractor

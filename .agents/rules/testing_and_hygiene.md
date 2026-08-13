@@ -64,7 +64,10 @@
 * **Rule:** In technical task specifications (`tasks.md`), property test subtasks and BDD feature test subtasks for new components MUST be scheduled in dependency graph waves that occur **at or after** the wave where the underlying component classes are implemented. Test tasks MUST NOT be placed in earlier verification waves prior to component creation.
 * **Rationale:** Placing test subtasks in early waves (e.g. wave 19 testing `ActiveReactionEngine` before its wave 31 implementation) causes wave-by-wave implementation and verification loops to fail due to missing symbols.
 
+## 20. Pytest Major Version Pinning for Fixture Scoping & Performance SLAs
+* **Rule:** Dependencies in `pyproject.toml` MUST maintain upper-bound constraints on `pytest` and `pytest-bdd` (`pytest>=8.0.0,<9.0.0` and `pytest-bdd>=8.0.0,<9.0.0`). Automated package security upgrades (e.g. `pip-audit --fix`) MUST NOT upgrade `pytest` to `9.0.0+`.
+* **Rationale:** Upgrading to Pytest 9.0+ alters internal test fixture scoping and setup/teardown timing, causing latency-sensitive SLA benchmark tests (`test_latency_requirement`) to exceed the 5ms SLA limit.
 
-
-
-
+## 21. Strict File Parsing in Evaluation Test Harnesses
+* **Rule:** Evaluation report generators, test harness loaders (`ReportGenerator._load_evalset`, `ReportGenerator._load_results`), and benchmark parsers MUST use strict JSON parsing (`json.loads`) that raises explicit `JSONDecodeError` on malformed or empty files. They MUST NOT use fallback-swallowing utilities (like `parse_json_safely`) that substitute empty default structures.
+* **Rationale:** Swallowing JSON decode errors in evaluation harnesses converts corrupted or missing evalsets/results into zero-case evaluation runs, producing misleading false-pass report metrics.

@@ -5,7 +5,6 @@ import os
 import tempfile
 import asyncio
 from hypothesis import given, settings, strategies as st
-import pytest
 
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.models import AttackerIdentity, AttackerProfile, IdentitySource

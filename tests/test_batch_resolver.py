@@ -401,8 +401,6 @@ def test_context_hygiene_patterns_instance_isolation():
 
 
 def test_context_hygiene_empty_default_patterns_safety():
-    from unittest.mock import patch
-    from blackwall.resolver import ContextHygiene
 
     # Mocking DEFAULT_PATTERNS as empty during class execution logic must not raise NameError
     _COMPILED_DEFAULT_PATTERNS = []
