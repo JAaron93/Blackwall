@@ -121,8 +121,7 @@ class RetrospectiveAnalyzer:
     ) -> list[AttackPath]:
         """Perform batch analysis on historical events to identify attack paths missed by real-time short-window detection.
 
-        Paginates historical queries in bounded batches to preserve memory and identifies multi-hop chains
-        using causal edge tracking, same-target correlation, and strict tier escalation.
+        Paginates historical queries in bounded batches to preserve memory and handles timestamp ties without event skipping.
         """
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
@@ -144,25 +143,39 @@ class RetrospectiveAnalyzer:
 
         identified_paths: list[AttackPath] = []
         seen_signatures: set[tuple[uuid.UUID, ...]] = set()
+        seen_node_ids: set[uuid.UUID] = set()
 
-        # Paginate history in bounded batches directly from store
         current_cursor = start_win
         lookback_overlap_nodes: list[AttackNode] = []
 
         while current_cursor <= end_win:
-            batch_nodes = await self.store.query_nodes(
+            raw_batch = await self.store.query_nodes(
                 agent_id, (current_cursor, end_win), limit=batch_size
             )
-            if not batch_nodes:
+            if not raw_batch:
                 break
+
+            # Deduplicate against previously processed node_ids for boundary ties
+            batch_nodes = [n for n in raw_batch if n.node_id not in seen_node_ids]
+            if not batch_nodes:
+                if len(raw_batch) >= batch_size:
+                    # All returned nodes were already seen at current_cursor; advance by 1 microsecond
+                    earliest_ts = min(n.event.timestamp for n in raw_batch)
+                    current_cursor = earliest_ts + timedelta(microseconds=1)
+                    continue
+                else:
+                    break
+
+            for n in batch_nodes:
+                seen_node_ids.add(n.node_id)
 
             # Combine lookback nodes from previous batch boundary to preserve cross-batch edges
             combined_batch = list(lookback_overlap_nodes)
-            seen_ids = {n.node_id for n in combined_batch}
+            seen_in_batch = {n.node_id for n in combined_batch}
             for n in batch_nodes:
-                if n.node_id not in seen_ids:
+                if n.node_id not in seen_in_batch:
                     combined_batch.append(n)
-                    seen_ids.add(n.node_id)
+                    seen_in_batch.add(n.node_id)
 
             # Group nodes by agent_id
             nodes_by_agent: dict[str, list[AttackNode]] = defaultdict(list)
@@ -279,13 +292,12 @@ class RetrospectiveAnalyzer:
                     except ValueError:
                         continue
 
-            if len(batch_nodes) < batch_size:
+            if len(raw_batch) < batch_size:
                 break
 
-            # Advance cursor past the latest timestamp in current batch
-            latest_batch_ts = max(n.event.timestamp for n in batch_nodes)
-            lookback_overlap_nodes = [n for n in batch_nodes if n.event.timestamp == latest_batch_ts]
-            current_cursor = latest_batch_ts + timedelta(microseconds=1)
+            latest_batch_ts = max(n.event.timestamp for n in raw_batch)
+            lookback_overlap_nodes = [n for n in raw_batch if n.event.timestamp == latest_batch_ts]
+            current_cursor = latest_batch_ts
 
         identified_paths.sort(key=lambda p: p.risk_score, reverse=True)
         return identified_paths
