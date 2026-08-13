@@ -12,14 +12,24 @@ Verdict thresholds (DEMO MODE - tuned for standalone testing):
 """
 
 import asyncio
+import concurrent.futures
+from datetime import datetime, timezone
 import logging
 import os
+import sys
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
+from uuid import uuid4
 
+from blackwall.attribution import (
+    AttackerIdentityExtractor,
+    IncidentReportGenerator,
+)
 from blackwall.models import (
+    AttackerProfile,
     CBMResponse,
     GTIResponse,
+    IncidentReport,
     SyncResolverMetrics,
     ToolCallContext,
     Verdict,
@@ -91,19 +101,22 @@ _SUSPICIOUS_KEYWORDS = frozenset(
         "truncate",
         "insert",
         "delete",
-        "xp_cmd",
-        "cmdshell",
+        "rm -rf",
+        "system(",
+        "popen",
+        "import os",
+        "import sys",
+        "import socket",
     }
 )
 
 
 class SyncResolver:
     """
-    Free-tier single-request synchronous resolver using
-    client.models.generate_content().
+    Free-tier single-request synchronous resolver for Blackwall Core.
 
-    No InterceptionQueue, no BatchResolver, no webhooks.
-    Rate limited to 15 RPM via a token bucket.
+    Performs interception, evaluation, self-learning threat signature creation,
+    and non-blocking attacker attribution (<5ms SLA, NFR-1 & NFR-2).
     """
 
     def __init__(
@@ -115,6 +128,8 @@ class SyncResolver:
         cbm_client: Any = None,
         gti_budget_tracker: Any = None,
         demo_mode: bool = False,
+        on_attacker_identified: Optional[Callable[[IncidentReport], Any]] = None,
+        telemetry: Optional[Any] = None,
     ) -> None:
         self.client = client
         self.policy_server = policy_server
@@ -123,6 +138,14 @@ class SyncResolver:
         self.cbm_client = cbm_client
         self.gti_budget_tracker = gti_budget_tracker
         self.demo_mode = demo_mode
+        self.on_attacker_identified = on_attacker_identified
+        self.telemetry = telemetry
+
+        # Background tasks set & callback executor pool for non-blocking lifecycle management
+        self._background_tasks: set[asyncio.Task[Any]] = set()
+        self._callback_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="bw_callback"
+        )
 
         # Rate limiter: Paid tier (300 RPM → capacity=300, refill_rate=5.0 t/s) vs Free tier (15 RPM)
         tier = (
@@ -138,8 +161,6 @@ class SyncResolver:
         self._hygiene = ContextHygiene()
 
         # True only when the GTI budget tracker explicitly denied the last query.
-        # Reset to False at the start of each evaluate() call so the flag is
-        # per-interception, not sticky across requests.
         self._gti_budget_exhausted: bool = False
 
         # Metrics counters
@@ -162,6 +183,7 @@ class SyncResolver:
         Single-request evaluation.
         Rate-checked → hygiene-sanitized → GTI query → CBM query →
         score aggregation → threshold decision → (optional) inline sig.
+        Must complete in < 5ms (SLA).
         """
         t0 = time.time()
 
@@ -198,11 +220,13 @@ class SyncResolver:
                 self._total_evaluations += 1
                 elapsed = (time.time() - t0) * 1000.0
                 self._total_latency_ms += elapsed
-                return Verdict(
+                verdict = Verdict(
                     decision=VerdictDecision.BLOCK,
                     reasoning=f"Blocked via signature match: {dict(matched_sig).get('attacker_intent', 'Unknown')}",
                     confidence_score=1.0,
                 )
+                self._schedule_attribution(context, verdict)
+                return verdict
 
         # 3. Query structural policy and Codebase Memory first (gating before external query)
         cbm_resp: Optional[CBMResponse] = await self._query_cbm(sanitized)
@@ -244,7 +268,10 @@ class SyncResolver:
             confidence_score=score,
         )
 
-        # 6. Inline signature generation after BLOCK
+        # 6. Non-blocking Attacker Attribution post-verdict
+        if decision in (VerdictDecision.BLOCK, VerdictDecision.QUARANTINE):
+            self._schedule_attribution(context, verdict)
+
         if decision == VerdictDecision.BLOCK:
             self._block_count += 1
             await self._inline_generate_signature(sanitized, verdict)
@@ -259,6 +286,123 @@ class SyncResolver:
         self._total_latency_ms += elapsed
 
         return verdict
+
+    def _schedule_attribution(
+        self, context: ToolCallContext, verdict: Verdict
+    ) -> None:
+        """Schedules attacker attribution non-blockingly in a background task to preserve verdict SLA (<5ms)."""
+        try:
+            loop = asyncio.get_running_loop()
+            task = loop.create_task(self._process_attribution(context, verdict))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+        except RuntimeError:
+            pass
+
+    async def flush_background_tasks(self) -> None:
+        """Awaits all pending background attribution tasks to complete."""
+        if self._background_tasks:
+            await asyncio.gather(*list(self._background_tasks), return_exceptions=True)
+
+    async def close(self) -> None:
+        """Flushes background tasks and shuts down executor pools."""
+        await self.flush_background_tasks()
+        self._callback_executor.shutdown(wait=False, cancel_futures=True)
+
+    # ------------------------------------------------------------------
+    # Attacker Attribution processing
+    # ------------------------------------------------------------------
+
+    async def _process_attribution(
+        self,
+        context: ToolCallContext,
+        verdict: Verdict,
+    ) -> None:
+        """
+        Extract identity from sanitized context/metadata, update profile DB,
+        generate incident report with sanitized arguments, and emit notification sinks.
+        Enforces fail-safe exception isolation (<5ms budget, NFR-2).
+        """
+        try:
+            sanitized = self._hygiene.sanitize_context(context)
+            extractor = AttackerIdentityExtractor()
+            identity = extractor.extract(context=sanitized, metadata=sanitized.metadata)
+
+            now_utc = datetime.now(timezone.utc)
+            initial_profile = AttackerProfile(
+                fingerprint=identity.identity_fingerprint,
+                first_seen=now_utc,
+                last_seen=now_utc,
+                total_attacks=1,
+                threat_score=verdict.confidence_score,
+                targeted_tools=[context.tool_name],
+            )
+
+            if self.repo and hasattr(self.repo, "upsert_attacker_profile"):
+                profile = await self.repo.upsert_attacker_profile(initial_profile)
+            else:
+                profile = initial_profile
+
+            generator = IncidentReportGenerator()
+            report = generator.build(
+                event_id=uuid4(),
+                verdict=verdict.decision,
+                identity=identity,
+                profile=profile,
+                tool_context=sanitized,
+                technique="Intercepted Unsafe Tool Execution",
+                mitigation=verdict.reasoning,
+                recommended_action="Revoke agent credentials and inspect execution trace",
+                confidence=verdict.confidence_score,
+            )
+
+            # Emit notification sinks with non-blocking error isolation
+            await self._emit_sinks(report, identity, profile)
+
+        except Exception as exc:
+            logger.warning("Attacker attribution failed gracefully (fail-safe mode): %s", exc)
+
+    async def _emit_sinks(
+        self, report: IncidentReport, identity: Any, profile: AttackerProfile
+    ) -> None:
+        """Emits notification sinks (CLI stderr, user callback, telemetry) with isolated error handling."""
+        # 1. Output to CLI sink (stderr)
+        try:
+            sys.stderr.write(report.to_markdown() + "\n")
+            sys.stderr.flush()
+        except Exception as err:
+            logger.warning("CLI alert sink output failed: %s", err)
+
+        # 2. Execute user callback if registered (non-blocking executor pool with timeout, isolated)
+        if self.on_attacker_identified is not None:
+            try:
+                if asyncio.iscoroutinefunction(self.on_attacker_identified):
+                    await asyncio.wait_for(self.on_attacker_identified(report), timeout=0.05)
+                else:
+                    loop = asyncio.get_running_loop()
+                    await asyncio.wait_for(
+                        loop.run_in_executor(
+                            self._callback_executor, self.on_attacker_identified, report
+                        ),
+                        timeout=0.05,
+                    )
+            except Exception as err:
+                logger.warning("Attacker identified callback failed: %s", err)
+
+        # 3. Emit OpenTelemetry security event span if telemetry enabled (isolated)
+        if self.telemetry and hasattr(self.telemetry, "create_span"):
+            try:
+                span_name = "blackwall.attacker_identified"
+                attrs = {
+                    "attacker.agent_id": identity.agent_id or "UNKNOWN",
+                    "attacker.agent_name": identity.agent_name or "UNKNOWN",
+                    "attacker.fingerprint": identity.identity_fingerprint,
+                    "attacker.score": profile.threat_score,
+                    "attacker.total_attacks": profile.total_attacks,
+                }
+                self.telemetry.create_span(span_name, attributes=attrs)
+            except Exception as err:
+                logger.warning("OpenTelemetry span emission failed: %s", err)
 
     # ------------------------------------------------------------------
     # GTI query

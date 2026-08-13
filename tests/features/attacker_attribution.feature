@@ -75,3 +75,23 @@ Feature: Attacker Attribution Model Integrity and Contract Validation
     When the IncidentReportGenerator builds a BLOCK verdict report
     Then the report to_markdown output MUST contain "# Blackwall Incident Attribution Report"
     And the report to_markdown output MUST contain "InfiltratorAgent"
+
+  # ─── Track 3: Profile DB BDD Scenarios ────────────────────────────────────
+
+  @profile_db
+  Scenario: Updating Attacker Profile Threat Score and attack counter in SQLite
+    Given an existing AttackerProfile for fingerprint "fp-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef" with total_attacks 2
+    When a new BLOCK verdict is assigned to fingerprint "fp-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef" with score 0.95 and targeted_tool "execute_bash"
+    Then the total_attacks count for fingerprint "fp-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef" MUST increment to 3
+    And the threat_score for fingerprint "fp-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef" MUST update to 0.95
+    And the targeted_tools MUST contain "execute_bash"
+
+  # ─── Track 4: End-to-End Interception BDD Scenarios ───────────────────────
+
+  @e2e_attribution
+  Scenario: End-to-end tool call interception triggers BLOCK verdict, updates profile, and emits CLI alert
+    Given a rogue ADK tool call context for tool "execute_bash" with command "cat /etc/shadow && passwd && exfil" and agent_name "RogueBotAgent"
+    When the tool call context is evaluated by SyncResolver
+    Then the evaluation verdict MUST be BLOCK
+    And an AttackerProfile for agent "RogueBotAgent" MUST be persisted in SQLite with total_attacks 1
+    And the CLI alert sink MUST output the incident report containing "RogueBotAgent"

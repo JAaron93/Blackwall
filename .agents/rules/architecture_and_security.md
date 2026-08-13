@@ -81,8 +81,34 @@
   2. **Pass 2 — Regex scan over serialized string**: Apply regex pattern matching over the stringified JSON payload to redact embedded credential patterns (e.g. multi-segment project keys `sk-(?:[a-zA-Z0-9]+-)*[a-zA-Z0-9]{8,}`, Google `AIza`, URLs, emails, IP addresses).
 * **Rationale:** Performing regex substitution exclusively on JSON-serialized strings fails to match quoted property names (e.g., `(?i)password[\s:=]+` misses `"password": "value"` due to double quotes around key names), allowing plaintext credentials to survive in sanitized payloads and leak into serialized incident reports or telemetry streams.
 
-## 19. VirusTotal GTI Free-Tier Rate Limit Architectural Invariant
+
+## 19. Strict UTC Zero-Offset Pydantic Validator Invariant
+* **Rule:** Pydantic `@field_validator` classmethods enforcing UTC timezone compliance on timestamps MUST verify `v.tzinfo is None or v.utcoffset() != timedelta(0)` and raise `ValueError` on failure. Checking only `v.tzinfo is None` or `v.tzinfo.utcoffset(v) is None` is strictly prohibited.
+* **Rationale:** Aware datetimes with non-UTC offsets (e.g. `EST`, `-05:00`, `+02:00`) have non-null `tzinfo` objects. Checking only for timezone awareness accepts non-UTC offsets, violating the required zero-offset UTC timestamp contract across security event graphs.
+
+## 20. Mandatory Evidence-Derived Evaluation Containment Gate
+* **Rule:** Security engines executing active mitigation actions (e.g. eBPF socket drops, ZeroMQ Threat Mesh broadcasts, Vault token revocations) MUST require an explicit `ActiveReactionPayload` instance containing `trigger_evidence_id` and mandatorily query `await self.is_evaluation_mode(payload.trigger_evidence_id)` against the evidence graph. Action methods MUST NOT rely on optional caller parameters (e.g. `evaluation_env_id: Optional[str] = None`) or check payload fields in isolation.
+* **Rationale:** Callers converting evaluation evidence into payloads might omit optional fields or default them to `None`. Querying the underlying threat evidence graph directly ensures evaluation containment cannot be bypassed.
+
+## 21. Explicit Pydantic v2 Field Constraints in Architectural Specifications
+* **Rule:** Interface code blocks and data models in technical design specifications (`design.md`) MUST be declared using explicit Pydantic `BaseModel` schemas with field-level constraints (`UUID4`, `AwareDatetime`, `Field(min_length=1)`, `Field(gt=0)`, `Field(ge=0)`, `Field(ge=0.0, le=1.0)`) and Pydantic String Enums, rather than standard Python `@dataclass` or bare primitive type annotations (`str`, `int`, `datetime`).
+* **Rationale:** Declaring bare primitive types in spec interfaces allows implementers to create models that accept empty strings, negative numbers, or invalid enum values, bypassing validation at instantiation.
+
+## 22. Mandatory Field-Level Constraints on Security Data Models
+* **Rule:** Pydantic schemas and specification model declarations for security payloads, network targets, RPC streams, and sanitized text MUST use explicit Pydantic v2 `Field` constraints (`IPvAnyAddress`, `min_length=1`, `pattern=r"..."`, `Dict[str, Any] = Field(..., min_length=1)`) rather than bare unconstrained types (`Optional[str] = None`, `dict`, `str`).
+* **Rationale:** Bare primitive types accept malformed IP strings (`"not_an_ip"`), empty environment identifiers (`""`), unconstrained empty dicts (`{}`), or empty sanitized strings, allowing malformed data to bypass validation and reach persistence or mitigation engines.
+
+## 23. Atomic SQLite Upsert & Read-Modify-Write Contention Prevention
+* **Rule:** SQLite database persistence methods tracking entity metrics or updating aggregated state (e.g. `upsert_attacker_profile`, `upsert_threat_signature`) MUST use a single atomic SQL statement (`INSERT INTO ... ON CONFLICT(key) DO UPDATE SET ... RETURNING ...`) utilizing SQLite 3.35+ `RETURNING` clauses and SQLite JSON functions (`json_each`, `json_group_array`). Executing sequential `SELECT` followed by `UPDATE`/`INSERT` or acquiring explicit database-wide write locks (`BEGIN IMMEDIATE TRANSACTION`) is strictly prohibited.
+* **Rationale:** Sequential read-modify-write loops introduce race conditions and lost updates under concurrent async calls. Explicit transaction lock blocks (`BEGIN IMMEDIATE TRANSACTION`) cause database lock contention and busy timeouts under SQLite connection pools. Single-statement atomic SQL upserts execute in <1ms, guarantee zero lost updates, and prevent connection pool starvation.
+
+## 24. Non-Blocking Synchronous User Callbacks in Interception Resolvers
+* **Rule:** Async security resolvers and interception engines (`SyncResolver`, callback handlers) executing user-registered synchronous hooks (e.g. `on_attacker_identified`, security event handlers) MUST run synchronous functions off the main event loop thread via `loop.run_in_executor(None, fn, arg)` wrapped in `await asyncio.wait_for(..., timeout=0.05)`. Resolver execution paths MUST NOT invoke synchronous user functions directly on the main event loop thread or leave timed-out threadpool tasks un-isolated.
+* **Rationale:** Direct synchronous execution on the event loop thread halts all concurrent security evaluations for the duration of the callback. Calling `asyncio.to_thread` inside `wait_for` without executor management can leak threadpool workers when callbacks time out. Using `loop.run_in_executor` with explicit `asyncio.wait_for` isolation guarantees the resolver SLA (<5ms budget) while safely timing out slow callbacks after 50ms without stalling the event loop thread or accumulating executor workers.
+
+## 25. VirusTotal GTI Free-Tier Rate Limit Architectural Invariant
 * **Rule:** VirusTotal Google Threat Intelligence (GTI) MCP queries MUST remain strictly capped at 4 queries per 60-second sliding window via `GTIQueryBudgetTracker` token bucket rate limiting (1 token replenished every 15 seconds). Provider configuration refactors migrating Gemini LLM providers to GCP Vertex AI Mode MUST NEVER strip, loosen, or remove VirusTotal free-tier rate limits.
 * **Rationale:** VirusTotal commercial enterprise API subscriptions cost >$1,000/month and are an explicit non-goal. Conflating third-party Threat Intelligence rate limits with Gemini LLM model quotas creates catastrophic financial exposure.
+
 
 

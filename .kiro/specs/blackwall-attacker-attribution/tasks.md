@@ -14,11 +14,11 @@ This task document breaks down the implementation of attacker attribution into m
 | **TASK-2A.2**| Identity Extractor BDD Scenarios | FR-1, FR-2, NFR-2 | TASK-2A.1 | Parallel Track A | **[x] COMPLETE** |
 | **TASK-2B.1**| Incident Report Builder | FR-4, FR-6 | TASK-1.2 | Parallel Track B | **[x] COMPLETE** |
 | **TASK-2B.2**| Incident Report Builder BDD Scenarios | FR-4, FR-6 | TASK-2B.1 | Parallel Track B | **[x] COMPLETE** |
-| **TASK-3.1** | SQLite Attacker Profile DB | FR-3, NFR-1 | TASK-1.2 | Sequential | Pending |
-| **TASK-3.2** | Attacker Profile DB BDD Scenarios | FR-3, NFR-1 | TASK-3.1 | Sequential | Pending |
-| **TASK-4.1** | Resolver & ADK Integration | FR-5, NFR-1, US-1 | TASK-2A.2, TASK-2B.2, TASK-3.2 | Sequential | Pending |
-| **TASK-4.2** | End-to-End Interception BDD Scenarios| FR-5, US-1, US-2 | TASK-4.1 | Sequential | Pending |
-| **TASK-5**   | Full System Verification | US-1, US-2, BDD Scenarios | TASK-4.2 | Sequential | Pending |
+| **TASK-3.1** | SQLite Attacker Profile DB | FR-3, NFR-1 | TASK-1.2 | Sequential | **[x] COMPLETE** |
+| **TASK-3.2** | Attacker Profile DB BDD Scenarios | FR-3, NFR-1 | TASK-3.1 | Sequential | **[x] COMPLETE** |
+| **TASK-4.1** | Resolver & ADK Integration | FR-5, NFR-1, US-1 | TASK-2A.2, TASK-2B.2, TASK-3.2 | Sequential | **[x] COMPLETE** |
+| **TASK-4.2** | End-to-End Interception BDD Scenarios| FR-5, US-1, US-2 | TASK-4.1 | Sequential | **[x] COMPLETE** |
+| **TASK-5**   | Full System Verification | US-1, US-2, BDD Scenarios | TASK-4.2 | Sequential | **[x] COMPLETE** |
 
 ---
 
@@ -73,25 +73,25 @@ This task document breaks down the implementation of attacker attribution into m
 
 ## Track 3: Persistence & Resolver Integration
 
-### TASK-3.1: SQLite Attacker Profile Store & Threat Graph Updates (TDD)
+### - [x] TASK-3.1: SQLite Attacker Profile Store & Threat Graph Updates (TDD)
 - **Description**: Extend `src/blackwall/db/database.py` with `attacker_profiles` table schema and update methods (`upsert_attacker_profile`, `get_attacker_profile`).
 - **Dependencies**: TASK-1.2.
 - **Traceability**: FR-3, NFR-1.
 - **TDD Requirement**: Write failing tests in `tests/test_attacker_profile_db.py` verifying SQLite CRUD operations and SLA execution times (<5ms).
 
-### TASK-3.2: Implement Attacker Profile DB BDD Gherkin Scenarios
+### - [x] TASK-3.2: Implement Attacker Profile DB BDD Gherkin Scenarios
 - **Description**: Add Gherkin BDD feature scenarios to `tests/features/attacker_attribution.feature` and step definitions in `tests/step_defs/test_attacker_attribution_steps.py` testing persistent profile updates and total attack counter increments.
 - **Dependencies**: TASK-3.1.
 - **Traceability**: FR-3, NFR-1, BDD Scenarios.
 - **BDD Requirement**: Execute `pytest -k "profile_db"` to verify BDD scenarios pass.
 
-### TASK-4.1: Integrate Attribution into `SyncResolver` & `ADKIntegration`
+### - [x] TASK-4.1: Integrate Attribution into `SyncResolver` & `ADKIntegration`
 - **Description**: Wire `AttackerIdentityExtractor`, `AttackerProfile` DB updates, and `IncidentReportGenerator` into `SyncResolver.evaluate()` when a `BLOCK` or `QUARANTINE` verdict is issued.
 - **Dependencies**: TASK-2A.2, TASK-2B.2, TASK-3.2.
 - **Traceability**: FR-5, NFR-1, US-1.
 - **TDD Requirement**: Add integration tests in `tests/test_attribution_integration.py` ensuring blocked callbacks automatically emit reports and log alerts.
 
-### TASK-4.2: Implement End-to-End Interception BDD Gherkin Scenarios
+### - [x] TASK-4.2: Implement End-to-End Interception BDD Gherkin Scenarios
 - **Description**: Add end-to-end Gherkin BDD feature scenarios to `tests/features/attacker_attribution.feature` and step definitions in `tests/step_defs/test_attacker_attribution_steps.py` testing full interception flow: tool call -> BLOCK verdict -> attacker identity extraction -> profile score update -> CLI alert.
 - **Dependencies**: TASK-4.1.
 - **Traceability**: FR-5, US-1, US-2, BDD Scenarios.
@@ -101,7 +101,7 @@ This task document breaks down the implementation of attacker attribution into m
 
 ## Track 4: Full System Verification
 
-### TASK-5: Full System Regression & Verification
+### - [x] TASK-5: Full System Regression & Verification
 - **Description**: Execute complete test suite and BDD feature validation across Blackwall Core and Enterprise Mesh modules.
 - **Dependencies**: TASK-4.2.
 - **Traceability**: US-1, US-2, BDD Scenarios.
