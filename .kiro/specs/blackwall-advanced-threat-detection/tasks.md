@@ -438,28 +438,28 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6_
     - _Verification: `pytest tests/step_defs/test_kubernetes_defense_bdd.py -v`_
 
-- [ ] 13. Implement Package Registry Monitor
-  - [ ] 13.1 Create PackageRegistryMonitor class with registry access monitoring
+- [x] 13. Implement Package Registry Monitor
+  - [x] 13.1 Create PackageRegistryMonitor class with registry access monitoring
     - Implement `monitor_registry_access()` as async iterator for registry events
     - Intercept HTTP traffic to Artifactory, npm, PyPI proxies
     - Generate NormalizedEvent for each registry access
     - _Requirements: 9.1_
     - _Verification: `pytest tests/unit/test_registry_monitor.py::test_monitor_access -v`_
 
-  - [ ] 13.2 Implement exploit probing detection
+  - [x] 13.2 Implement exploit probing detection
     - Create `detect_exploit_probing()` identifying malformed package requests
     - Detect unusual request patterns deviating from normal package manager behavior
     - Generate RegistryThreatEvidence with registry_type and exploit_indicators
     - _Requirements: 9.2, 9.3, 9.4, 9.5_
     - _Verification: `pytest tests/unit/test_registry_monitor.py::test_exploit_probing -v`_
 
-  - [ ] 13.3 Implement CVE correlation
+  - [x] 13.3 Implement CVE correlation
     - Compare detected patterns against known CVE exploitation signatures
     - Populate cve_candidates list in RegistryThreatEvidence
     - _Requirements: 9.6_
     - _Verification: `pytest tests/unit/test_registry_monitor.py::test_cve_correlation -v`_
 
-  - [ ] 13.4 Write property tests for registry monitoring
+  - [x] 13.4 Write property tests for registry monitoring
     - **Property 52: Malformed Registry Request Detection**
     - **Property 53: Unusual Registry Pattern Detection**
     - **Property 54: Registry Threat Evidence Type**
@@ -468,7 +468,7 @@ The implementation follows a test-driven development approach with property-base
     - **Validates: Requirements 9.2, 9.3, 9.4, 9.5, 9.6**
     - _Verification: `pytest tests/property/test_registry_monitor_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 13.5 Write BDD feature tests for Package Registry Monitor
+  - [x] 13.5 Write BDD feature tests for Package Registry Monitor
     - Create `tests/features/package_registry_monitor.feature` with Gherkin scenarios
     - Implement `Given/When/Then` steps in `tests/step_defs/test_package_registry_monitor_bdd.py` using `run_async`
     - Scenario: a malformed npm package request is detected as exploit probing
@@ -478,7 +478,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
     - _Verification: `pytest tests/step_defs/test_package_registry_monitor_bdd.py -v`_
 
-- [ ] 14. Checkpoint - Verify all detection components
+- [x] 14. Checkpoint - Verify all detection components
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 15. Implement Alert Generation and Real-Time Integration
