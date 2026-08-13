@@ -1,13 +1,13 @@
 """Agent Swarm Detector component for Blackwall Advanced Threat Detection (Pillar 6 Task 7)."""
 
-from collections import deque
-from datetime import datetime, timedelta
 import hashlib
 import logging
 import math
 import re
-from typing import Dict, List, Optional, Set, Tuple
 import uuid
+from collections import deque
+from datetime import datetime, timedelta
+from typing import Any
 
 from blackwall.enterprise.advanced_threat_detection.models import (
     NormalizedEvent,
@@ -27,7 +27,7 @@ IP_REGEX = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 DOMAIN_REGEX = re.compile(r"\b[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b")
 
 
-def _avg_min_time_diff(ts1: List[datetime], ts2: List[datetime]) -> float:
+def _avg_min_time_diff(ts1: list[datetime], ts2: list[datetime]) -> float:
     """Compute average minimal time difference (in seconds) between two sorted timestamp lists in O(N+M) time."""
     if not ts1 or not ts2:
         return 0.0
@@ -51,11 +51,11 @@ class AgentSwarmDetector:
 
     def __init__(
         self,
-        store: Optional[AttackGraphStore] = None,
-        policy: Optional[PolicyConfig] = None,
-        default_window: Optional[int] = None,
-        default_min_agents: Optional[int] = None,
-        default_correlation_threshold: Optional[float] = None,
+        store: AttackGraphStore | None = None,
+        policy: PolicyConfig | None = None,
+        default_window: int | None = None,
+        default_min_agents: int | None = None,
+        default_correlation_threshold: float | None = None,
     ) -> None:
         self.store = store or AttackGraphStore(in_memory=True)
         self.policy = policy
@@ -77,12 +77,62 @@ class AgentSwarmDetector:
             if default_correlation_threshold is not None
             else (p_cfg.correlationThreshold if p_cfg else 0.75)
         )
+        self._fingerprint_state: dict[str, dict[str, Any]] = {}
+
+    def update_fingerprint_incremental(
+        self,
+        agent_id: str,
+        new_events: list[NormalizedEvent],
+        window: int | None = None,
+    ) -> str:
+        """Incrementally update behavioral fingerprint state with new events without full window recomputation.
+
+        Args:
+            agent_id: Identifier of the agent.
+            new_events: List of new NormalizedEvent instances to incorporate.
+            window: Optional window size in seconds (default 3600).
+
+        Returns:
+            Updated SHA-256 behavioral fingerprint hex string.
+        """
+        if not agent_id or not agent_id.strip():
+            raise ValueError("agent_id must be non-empty")
+        win = window if window is not None else self.default_window
+        if win <= 0:
+            raise ValueError("window must be positive")
+
+        if agent_id not in self._fingerprint_state:
+            self._fingerprint_state[agent_id] = {
+                "events": deque(maxlen=5000),
+                "action_tokens": deque(maxlen=5000),
+                "last_hash": "",
+            }
+
+        state = self._fingerprint_state[agent_id]
+        sorted_new = sorted(new_events, key=lambda e: e.timestamp)
+
+        for e in sorted_new:
+            token = f"{e.source.value}:{e.action}:{e.target}"
+            state["events"].append(e)
+            state["action_tokens"].append(token)
+
+        if state["events"]:
+            latest_ts = state["events"][-1].timestamp
+            cutoff = latest_ts - timedelta(seconds=win)
+            while state["events"] and state["events"][0].timestamp < cutoff:
+                state["events"].popleft()
+                state["action_tokens"].popleft()
+
+        seq_str = "|".join(state["action_tokens"])
+        fingerprint = hashlib.sha256(seq_str.encode("utf-8")).hexdigest()
+        state["last_hash"] = fingerprint
+        return fingerprint
 
     async def fingerprint_agent(
         self,
         agent_id: str,
-        window: Optional[int] = None,
-        end_time: Optional[datetime] = None,
+        window: int | None = None,
+        end_time: datetime | None = None,
     ) -> str:
         """Generate behavioral fingerprint for agent over time window (seconds) using action sequence hashing."""
         win = window if window is not None else self.default_window
@@ -99,7 +149,7 @@ class AgentSwarmDetector:
         start_win = end_win - timedelta(seconds=win)
 
         # Query events for agent in window
-        nodes = await self.store.query_nodes(agent_id, (start_win, end_win), limit=1000)
+        nodes = await self.store.query_nodes(agent_id, (start_win, end_win), limit=5000)
         events = [node.event for node in nodes]
         events.sort(key=lambda e: e.timestamp)
 
@@ -109,10 +159,10 @@ class AgentSwarmDetector:
 
     async def detect_swarms(
         self,
-        time_window: Tuple[datetime, datetime],
-        min_agents: Optional[int] = None,
-        correlation_threshold: Optional[float] = None,
-    ) -> List[SwarmEvidence]:
+        time_window: tuple[datetime, datetime],
+        min_agents: int | None = None,
+        correlation_threshold: float | None = None,
+    ) -> list[SwarmEvidence]:
         """Detect coordinated agent swarms meeting correlation and minimum agent count thresholds."""
         m_agents = min_agents if min_agents is not None else self.default_min_agents
         c_thresh = (
@@ -139,7 +189,7 @@ class AgentSwarmDetector:
         )
 
         # Group nodes/events by agent_id
-        events_by_agent: Dict[str, List[NormalizedEvent]] = {}
+        events_by_agent: dict[str, list[NormalizedEvent]] = {}
         for node in all_nodes:
             aid = node.event.agent_id
             if aid not in events_by_agent:
@@ -151,8 +201,8 @@ class AgentSwarmDetector:
             return []
 
         # Find pairwise correlations and build agent adjacency graph
-        all_pairwise_corrs: Dict[Tuple[str, str], float] = {}
-        correlated_pairs: Dict[Tuple[str, str], float] = {}
+        all_pairwise_corrs: dict[tuple[str, str], float] = {}
+        correlated_pairs: dict[tuple[str, str], float] = {}
 
         for i in range(len(agent_ids)):
             for j in range(i + 1, len(agent_ids)):
@@ -165,20 +215,20 @@ class AgentSwarmDetector:
                     correlated_pairs[(a1, a2)] = corr
 
         # Build connected components (swarms) of agents
-        adjacency: Dict[str, Set[str]] = {aid: set() for aid in agent_ids}
+        adjacency: dict[str, set[str]] = {aid: set() for aid in agent_ids}
         for (a1, a2), _ in correlated_pairs.items():
             adjacency[a1].add(a2)
             adjacency[a2].add(a1)
 
-        visited: Set[str] = set()
-        swarms: List[SwarmEvidence] = []
+        visited: set[str] = set()
+        swarms: list[SwarmEvidence] = []
 
         for aid in agent_ids:
             if aid in visited or not adjacency[aid]:
                 continue
 
             # BFS component search using deque
-            component: Set[str] = set()
+            component: set[str] = set()
             queue = deque([aid])
             while queue:
                 curr = queue.popleft()
@@ -236,8 +286,8 @@ class AgentSwarmDetector:
 
     async def compute_coordination_score(
         self,
-        agents: List[str],
-        time_window: Tuple[datetime, datetime],
+        agents: list[str],
+        time_window: tuple[datetime, datetime],
     ) -> float:
         """Compute coordination score for agent group in range [0.0, 1.0]."""
         if not agents or len(agents) < 2:
@@ -253,7 +303,7 @@ class AgentSwarmDetector:
         all_nodes = await self.store.query_nodes(
             agent_id=None, time_window=(start_win, end_win), limit=5000
         )
-        events_by_agent: Dict[str, List[NormalizedEvent]] = {a: [] for a in agents}
+        events_by_agent: dict[str, list[NormalizedEvent]] = {a: [] for a in agents}
         for node in all_nodes:
             if node.event.agent_id in events_by_agent:
                 events_by_agent[node.event.agent_id].append(node.event)
@@ -312,9 +362,9 @@ class AgentSwarmDetector:
 
     def _compute_pairwise_correlation(
         self,
-        events1: List[NormalizedEvent],
-        events2: List[NormalizedEvent],
-        time_window: Tuple[datetime, datetime],
+        events1: list[NormalizedEvent],
+        events2: list[NormalizedEvent],
+        time_window: tuple[datetime, datetime],
     ) -> float:
         """Compute pairwise correlation between two agents' events in O(N+M) time."""
         if not events1 or not events2:
@@ -352,15 +402,15 @@ class AgentSwarmDetector:
 
     def _extract_shared_infrastructure(
         self,
-        events_by_agent: Dict[str, List[NormalizedEvent]],
-    ) -> List[str]:
+        events_by_agent: dict[str, list[NormalizedEvent]],
+    ) -> list[str]:
         """Extract shared IP addresses, domains, and resource patterns across agents."""
         if len(events_by_agent) < 2:
             return []
 
-        agent_ips: Dict[str, Set[str]] = {}
-        agent_domains: Dict[str, Set[str]] = {}
-        agent_resources: Dict[str, Set[str]] = {}
+        agent_ips: dict[str, set[str]] = {}
+        agent_domains: dict[str, set[str]] = {}
+        agent_resources: dict[str, set[str]] = {}
 
         for aid, events in events_by_agent.items():
             agent_ips[aid] = set()
@@ -383,7 +433,7 @@ class AgentSwarmDetector:
                         if k in ("resource", "url", "endpoint", "path"):
                             agent_resources[aid].add(v_str)
 
-        shared_patterns: List[str] = []
+        shared_patterns: list[str] = []
 
         all_ips = set.union(*agent_ips.values()) if agent_ips else set()
         for ip in all_ips:

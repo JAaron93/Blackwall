@@ -1,10 +1,10 @@
 """Attack Graph Store component for Blackwall Advanced Threat Detection (Pillar 6)."""
 
-from datetime import datetime, timezone
 import json
 import logging
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import uuid
+from datetime import UTC, datetime
+from typing import Any
 
 import asyncpg
 
@@ -24,15 +24,15 @@ class AttackGraphStore:
 
     def __init__(
         self,
-        dsn: Optional[str] = None,
-        pool: Optional[Any] = None,
+        dsn: str | None = None,
+        pool: Any | None = None,
         in_memory: bool = False,
         min_pool_size: int = 1,
         max_pool_size: int = 10,
     ) -> None:
         self.dsn = dsn
         self._external_pool = pool
-        self._pool: Optional[asyncpg.Pool] = None
+        self._pool: asyncpg.Pool | None = None
         self.in_memory = in_memory or (
             dsn is not None and (dsn.startswith("sqlite") or dsn == ":memory:")
         )
@@ -40,8 +40,10 @@ class AttackGraphStore:
         self.max_pool_size = max_pool_size
 
         # In-memory backing structures (used when in_memory=True or as local cache/fallback)
-        self._nodes: Dict[uuid.UUID, AttackNode] = {}
-        self._edges: List[Dict[str, Any]] = (
+        self._nodes: dict[uuid.UUID, AttackNode] = {}
+        self._agent_nodes_index: dict[str, list[uuid.UUID]] = {}
+        self._path_cache: dict[tuple[str, datetime, datetime, int], list[AttackPath]] = {}
+        self._edges: list[dict[str, Any]] = (
             []
         )  # edge_id, from_node, to_node, relationship, created_at
         self._initialized = False
@@ -136,6 +138,15 @@ class AttackGraphStore:
             self._pool = None
         self._initialized = False
 
+    def _invalidate_path_cache(self, agent_id: str | None = None) -> None:
+        """Invalidate query path cache entries."""
+        if agent_id is None:
+            self._path_cache.clear()
+        else:
+            keys_to_del = [k for k in self._path_cache if k[0] == agent_id]
+            for k in keys_to_del:
+                self._path_cache.pop(k, None)
+
     async def insert_event(self, event: NormalizedEvent) -> AttackNode:
         """Insert event as node in attack graph, preserving temporal ordering."""
         node_id = event.event_id
@@ -178,12 +189,79 @@ class AttackGraphStore:
                 )
 
         self._nodes[node_id] = node
+        self._agent_nodes_index.setdefault(event.agent_id, []).append(node_id)
+        self._invalidate_path_cache(event.agent_id)
         return node
+
+    async def insert_events_batch(
+        self, events: list[NormalizedEvent]
+    ) -> list[AttackNode]:
+        """Insert a batch of events as nodes in the attack graph atomically and efficiently."""
+        if not events:
+            return []
+
+        nodes: list[AttackNode] = []
+        nodes_to_insert_db: list[NormalizedEvent] = []
+
+        for event in events:
+            node_id = event.event_id
+            if node_id in self._nodes:
+                nodes.append(self._nodes[node_id])
+                continue
+
+            node = AttackNode(
+                node_id=node_id,
+                event=event,
+                incoming_edges=[],
+                outgoing_edges=[],
+            )
+            nodes.append(node)
+            self._nodes[node_id] = node
+            self._agent_nodes_index.setdefault(event.agent_id, []).append(node_id)
+            nodes_to_insert_db.append(event)
+
+        affected_agents = {e.agent_id for e in events}
+        for aid in affected_agents:
+            self._invalidate_path_cache(aid)
+
+        if self._pool and nodes_to_insert_db:
+            async with self._pool.acquire() as conn:
+                insert_tuples = [
+                    (
+                        str(ev.event_id),
+                        str(ev.event_id),
+                        ev.timestamp,
+                        (
+                            ev.source.value
+                            if hasattr(ev.source, "value")
+                            else str(ev.source)
+                        ),
+                        ev.agent_id,
+                        ev.action,
+                        ev.target,
+                        json.dumps(ev.metadata),
+                        ev.risk_score,
+                        json.dumps([]),
+                        json.dumps([]),
+                    )
+                    for ev in nodes_to_insert_db
+                ]
+                await conn.executemany(
+                    """
+                    INSERT INTO event_nodes (
+                        node_id, event_id, timestamp, source, agent_id, action, target, metadata, risk_score, incoming_edges, outgoing_edges
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10::jsonb, $11::jsonb)
+                    ON CONFLICT (node_id) DO NOTHING;
+                    """,
+                    insert_tuples,
+                )
+
+        return nodes
 
     async def link_events(
         self,
-        from_node: Union[uuid.UUID, str],
-        to_node: Union[uuid.UUID, str],
+        from_node: uuid.UUID | str,
+        to_node: uuid.UUID | str,
         relationship: str,
     ) -> None:
         """Create directed causal edge between from_node and to_node."""
@@ -205,7 +283,7 @@ class AttackGraphStore:
         edge_id_str = str(edge_id)
         from_node_str = str(from_uuid)
         to_node_str = str(to_uuid)
-        created_at = datetime.now(timezone.utc)
+        created_at = datetime.now(UTC)
 
         # Database persistence inside atomic transaction first
         if self._pool:
@@ -250,8 +328,9 @@ class AttackGraphStore:
             "created_at": created_at,
         }
         self._edges.append(edge_record)
+        self._invalidate_path_cache()
 
-    def _parse_edge_uuids(self, raw_edges: Any) -> List[uuid.UUID]:
+    def _parse_edge_uuids(self, raw_edges: Any) -> list[uuid.UUID]:
         """Safely parse edge UUIDs from DB JSON/list, logging warnings for malformed entries."""
         if not raw_edges:
             return []
@@ -259,7 +338,7 @@ class AttackGraphStore:
         if not isinstance(edge_list, list):
             return []
 
-        valid_edges: List[uuid.UUID] = []
+        valid_edges: list[uuid.UUID] = []
         for item in edge_list:
             try:
                 valid_edges.append(validate_uuid_v4_format(item))
@@ -269,7 +348,7 @@ class AttackGraphStore:
                 )
         return valid_edges
 
-    async def get_node(self, node_id: Union[uuid.UUID, str]) -> Optional[AttackNode]:
+    async def get_node(self, node_id: uuid.UUID | str) -> AttackNode | None:
         """Retrieve AttackNode by node_id."""
         node_uuid = validate_uuid_v4_format(node_id)
 
@@ -312,10 +391,10 @@ class AttackGraphStore:
 
     async def query_nodes(
         self,
-        agent_id: Optional[str],
-        time_window: Tuple[datetime, datetime],
-        limit: Optional[int] = None,
-    ) -> List[AttackNode]:
+        agent_id: str | None,
+        time_window: tuple[datetime, datetime],
+        limit: int | None = None,
+    ) -> list[AttackNode]:
         """Fetch all AttackNodes for an agent (or all agents if agent_id is None) within the specified time window."""
         if limit is not None and limit <= 0:
             raise ValueError("limit must be positive")
@@ -347,7 +426,7 @@ class AttackGraphStore:
                     query,
                     *params,
                 )
-                db_nodes: List[AttackNode] = []
+                db_nodes: list[AttackNode] = []
                 for row in rows:
                     ev = NormalizedEvent(
                         event_id=row["event_id"],
@@ -376,14 +455,20 @@ class AttackGraphStore:
                 return db_nodes
 
         # In-memory mode (self._pool is None)
-        nodes_map: Dict[uuid.UUID, AttackNode] = {}
-        for node in self._nodes.values():
-            if (
-                agent_id is None or node.event.agent_id == agent_id
-            ) and start_time_win <= node.event.timestamp <= end_time_win:
-                nodes_map[node.node_id] = node
+        if agent_id is not None:
+            node_ids = self._agent_nodes_index.get(agent_id, [])
+            candidate_nodes = []
+            for nid in node_ids:
+                node = self._nodes.get(nid)
+                if node and start_time_win <= node.event.timestamp <= end_time_win:
+                    candidate_nodes.append(node)
+        else:
+            candidate_nodes = [
+                node
+                for node in self._nodes.values()
+                if start_time_win <= node.event.timestamp <= end_time_win
+            ]
 
-        candidate_nodes = list(nodes_map.values())
         candidate_nodes.sort(key=lambda n: n.event.timestamp)
         if limit is not None:
             candidate_nodes = candidate_nodes[:limit]
@@ -392,12 +477,16 @@ class AttackGraphStore:
     async def query_paths(
         self,
         agent_id: str,
-        time_window: Tuple[datetime, datetime],
+        time_window: tuple[datetime, datetime],
         min_path_length: int = 2,
-    ) -> List[AttackPath]:
+    ) -> list[AttackPath]:
         """Query multi-hop attack paths for agent within specified time window."""
         if min_path_length < 2:
             raise ValueError("min_path_length must be at least 2")
+
+        cache_key = (agent_id, time_window[0], time_window[1], min_path_length)
+        if cache_key in self._path_cache:
+            return list(self._path_cache[cache_key])
 
         candidate_nodes = await self.query_nodes(agent_id, time_window)
 
@@ -405,8 +494,8 @@ class AttackGraphStore:
             return []
 
         # Group nodes into contiguous temporal or causally connected paths
-        paths: List[AttackPath] = []
-        current_path_nodes: List[AttackNode] = [candidate_nodes[0]]
+        paths: list[AttackPath] = []
+        current_path_nodes: list[AttackNode] = [candidate_nodes[0]]
 
         for next_node in candidate_nodes[1:]:
             prev_node = current_path_nodes[-1]
@@ -430,9 +519,10 @@ class AttackGraphStore:
 
         # Sort paths by risk_score descending
         paths.sort(key=lambda p: p.risk_score, reverse=True)
+        self._path_cache[cache_key] = paths
         return paths
 
-    def _build_attack_path(self, agent_id: str, nodes: List[AttackNode]) -> AttackPath:
+    def _build_attack_path(self, agent_id: str, nodes: list[AttackNode]) -> AttackPath:
         """Helper to create valid AttackPath object from list of nodes."""
         path_id = uuid.uuid4()
         start_time = nodes[0].event.timestamp
@@ -470,11 +560,11 @@ class AttackGraphStore:
     async def find_correlated_agents(
         self,
         pattern: str,
-        time_window: Tuple[datetime, datetime],
-    ) -> List[Tuple[str, str]]:
+        time_window: tuple[datetime, datetime],
+    ) -> list[tuple[str, str]]:
         """Find pairs of agents exhibiting similar patterns within time window."""
         start_win, end_win = time_window
-        matched_agents: Dict[str, Set[str]] = {}
+        matched_agents: dict[str, set[str]] = {}
 
         for node in self._nodes.values():
             if start_win <= node.event.timestamp <= end_win:
@@ -482,7 +572,7 @@ class AttackGraphStore:
                     matched_agents.setdefault(pattern, set()).add(node.event.agent_id)
 
         agents_list = sorted(list(matched_agents.get(pattern, set())))
-        pairs: List[Tuple[str, str]] = []
+        pairs: list[tuple[str, str]] = []
         for i in range(len(agents_list)):
             for j in range(i + 1, len(agents_list)):
                 pairs.append((agents_list[i], agents_list[j]))
