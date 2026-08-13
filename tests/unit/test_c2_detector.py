@@ -299,15 +299,38 @@ async def test_ipv6_loopback_local_filter():
         base_time=base_time,
     )
 
+    # Kernel connect to [::ffff:127.0.0.1]:8080 (IPv4-mapped IPv6 loopback)
+    e_kernel_mapped = create_event(
+        agent_id=agent_id,
+        action="connect",
+        target="[::ffff:127.0.0.1]:8080",
+        offset_seconds=35.0,
+        source=EventSource.KERNEL_SYSCALL,
+        base_time=base_time,
+    )
+
+    # Tool call targeting http://[::ffff:127.0.0.1]:8080/api
+    e_tool_mapped = create_event(
+        agent_id=agent_id,
+        action="http_request",
+        target="http://[::ffff:127.0.0.1]:8080/api",
+        offset_seconds=40.0,
+        source=EventSource.TOOL_CALL,
+        base_time=base_time,
+    )
+
     detector.record_event(e_kernel)
     detector.record_event(e_tool)
     detector.record_event(e_kernel_port)
     detector.record_event(e_tool_port)
     detector.record_event(e_kernel_ipv4)
     detector.record_event(e_tool_ipv4)
+    detector.record_event(e_kernel_mapped)
+    detector.record_event(e_tool_mapped)
 
     evidences = await detector.detect_c2_establishment(agent_id, time_window)
     assert len(evidences) == 0
+
 
 
 @pytest.mark.asyncio

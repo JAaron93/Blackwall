@@ -54,11 +54,17 @@ LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0", "localhost.l
 
 
 def _is_local_host(host_str: str) -> bool:
-    """Check if host string is a local hostname, IPv4 loopback (127.0.0.0/8), or IPv6 loopback (::1)."""
+    """Check if host string is a local hostname, IPv4 loopback (127.0.0.0/8), IPv6 loopback (::1), or IPv4-mapped IPv6 loopback (::ffff:127.0.0.0/8)."""
     clean_host = host_str.strip().lower().lstrip("[").rstrip("]")
     if not clean_host:
         return False
-    if clean_host in LOCAL_HOSTS or clean_host.startswith("127.") or clean_host == "::1":
+    if (
+        clean_host in LOCAL_HOSTS
+        or clean_host.startswith("127.")
+        or clean_host == "::1"
+        or clean_host.startswith("::ffff:127.")
+        or clean_host.startswith("::ffff:7f")
+    ):
         return True
     return False
 
@@ -143,7 +149,7 @@ def _is_local_endpoint(target_or_host: str) -> bool:
     if _is_local_host(clean):
         return True
 
-    # Handle port stripping (e.g. 127.0.0.2:8080, [::1]:8080, ::1:8080)
+    # Handle port stripping (e.g. 127.0.0.2:8080, [::1]:8080, ::1:8080, [::ffff:127.0.0.1]:8080)
     if ":" in clean:
         if clean.startswith("[") and "]" in clean:
             host_part = clean.split("]")[0].lstrip("[")
