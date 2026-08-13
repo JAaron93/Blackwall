@@ -118,7 +118,7 @@ def _is_local_endpoint(target_or_host: str) -> bool:
         return True
 
     # Direct match for loopback/local targets
-    if raw in LOCAL_HOSTS:
+    if raw in LOCAL_HOSTS or raw.lstrip("[").rstrip("]") in LOCAL_HOSTS:
         return True
 
     # Strip scheme if present
@@ -129,19 +129,19 @@ def _is_local_endpoint(target_or_host: str) -> bool:
     # Strip path/query
     clean = clean.split("/")[0].split("?")[0]
 
-    if clean in LOCAL_HOSTS:
+    if clean in LOCAL_HOSTS or clean.lstrip("[").rstrip("]") in LOCAL_HOSTS:
         return True
 
-    # Handle port stripping (e.g. 127.0.0.1:8080, [::1]:8080, ::1)
+    # Handle port stripping (e.g. 127.0.0.1:8080, [::1]:8080, ::1:8080)
     if ":" in clean:
         if clean.startswith("[") and "]" in clean:
             host_part = clean.split("]")[0].lstrip("[")
             if host_part in LOCAL_HOSTS:
                 return True
-        elif clean.count(":") == 1:
-            host_part = clean.split(":")[0]
-            if host_part in LOCAL_HOSTS:
-                return True
+        # Try stripping port from the right (for IPv4, hostnames, or unbracketed IPv6 with port like ::1:8080)
+        host_part = clean.rsplit(":", 1)[0].lstrip("[").rstrip("]")
+        if host_part in LOCAL_HOSTS:
+            return True
 
     host, _ = _extract_hostname_and_path(raw)
     if host in LOCAL_HOSTS or host.lstrip("[").rstrip("]") in LOCAL_HOSTS:

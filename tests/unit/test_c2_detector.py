@@ -259,9 +259,32 @@ async def test_ipv6_loopback_local_filter():
         base_time=base_time,
     )
 
+    # Kernel connect to ::1:8080 (unbracketed IPv6 with port)
+    e_kernel_port = create_event(
+        agent_id=agent_id,
+        action="connect",
+        target="::1:8080",
+        offset_seconds=15.0,
+        source=EventSource.KERNEL_SYSCALL,
+        base_time=base_time,
+    )
+
+    # Tool call targeting [::1]:8080
+    e_tool_port = create_event(
+        agent_id=agent_id,
+        action="http_request",
+        target="[::1]:8080",
+        offset_seconds=20.0,
+        source=EventSource.TOOL_CALL,
+        base_time=base_time,
+    )
+
     detector.record_event(e_kernel)
     detector.record_event(e_tool)
+    detector.record_event(e_kernel_port)
+    detector.record_event(e_tool_port)
 
     evidences = await detector.detect_c2_establishment(agent_id, time_window)
     assert len(evidences) == 0
+
 
