@@ -47,12 +47,8 @@ PERSISTENCE_PATTERNS = [
 
 NETWORK_ACTION_KEYWORDS = {
     "connect", "sys_connect", "sendto", "sys_sendto", "socket_connect",
-    "network_access", "http_request", "tcp_connect", "udp_send", "dns_query", "net_outbound"
-}
-
-NON_NETWORK_ACTION_KEYWORDS = {
-    "send_signal", "sendfile", "socketpair", "send_sig", "kill_proc",
-    "signal", "write", "read", "open", "close", "chmod", "chown", "execve"
+    "network_access", "http_request", "tcp_connect", "udp_send", "dns_query", "net_outbound",
+    "socket", "sys_socket", "bind", "sys_bind", "accept", "sys_accept", "recvfrom", "sys_recvfrom"
 }
 
 
@@ -290,16 +286,7 @@ class C2InfrastructureDetector:
             # Restrict kernel network events strictly to genuine network syscall actions
             if evt.source == EventSource.KERNEL_SYSCALL:
                 act_lower = evt.action.lower()
-                if act_lower in NON_NETWORK_ACTION_KEYWORDS:
-                    is_net = False
-                else:
-                    is_net = (
-                        act_lower in NETWORK_ACTION_KEYWORDS
-                        or (
-                            any(k in act_lower for k in ("connect", "socket", "network", "http", "dns", "tcp", "udp"))
-                            and not any(ex in act_lower for ex in ("file", "signal", "pair"))
-                        )
-                    )
+                is_net = act_lower in NETWORK_ACTION_KEYWORDS
                 if is_net:
                     kernel_network_events.append(evt)
             elif evt.source in (EventSource.TOOL_CALL, EventSource.PIPELINE_EXECUTION):
@@ -326,26 +313,25 @@ class C2InfrastructureDetector:
         cross_pillar_correlated = False
         if kernel_network_events and tool_call_events:
             for k_evt in kernel_network_events:
-                k_host, _ = _extract_hostname_and_path(k_evt.target)
-                k_meta_host = ""
+                k_norm = _normalize_endpoint(k_evt.target)
+                k_meta_norm = ""
                 if isinstance(k_evt.metadata, dict):
-                    k_meta = k_evt.metadata.get("domain") or k_evt.metadata.get("host") or ""
+                    k_meta = k_evt.metadata.get("domain") or k_evt.metadata.get("host") or k_evt.metadata.get("endpoint") or ""
                     if isinstance(k_meta, str) and k_meta:
-                        k_meta_host, _ = _extract_hostname_and_path(k_meta)
+                        k_meta_norm = _normalize_endpoint(k_meta)
 
                 for t_evt in tool_call_events:
-                    t_host, _ = _extract_hostname_and_path(t_evt.target)
-                    t_meta_host = ""
+                    t_norm = _normalize_endpoint(t_evt.target)
+                    t_meta_norm = ""
                     if isinstance(t_evt.metadata, dict):
-                        t_meta = t_evt.metadata.get("domain") or t_evt.metadata.get("host") or ""
+                        t_meta = t_evt.metadata.get("domain") or t_evt.metadata.get("host") or t_evt.metadata.get("endpoint") or ""
                         if isinstance(t_meta, str) and t_meta:
-                            t_meta_host, _ = _extract_hostname_and_path(t_meta)
+                            t_meta_norm = _normalize_endpoint(t_meta)
 
-                    # Correlate if non-empty matching network endpoints/hosts or exact targets
+                    # Correlate if non-empty matching exact normalized network endpoints
                     if (
-                        (k_host and (k_host == t_host or k_host == t_meta_host))
-                        or (k_meta_host and (k_meta_host == t_host or k_meta_host == t_meta_host))
-                        or (k_evt.target and k_evt.target == t_evt.target)
+                        (k_norm and (k_norm == t_norm or k_norm == t_meta_norm))
+                        or (k_meta_norm and (k_meta_norm == t_norm or k_meta_norm == t_meta_norm))
                     ):
                         cross_pillar_correlated = True
                         break
