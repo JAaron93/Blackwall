@@ -26,6 +26,7 @@ from blackwall.enterprise.advanced_threat_detection.ailm import AILMTracker
 from blackwall.enterprise.advanced_threat_detection.c2 import (
     C2InfrastructureDetector,
 )
+from blackwall.enterprise.advanced_threat_detection.k8s import KubernetesDefenseLayer
 from blackwall.enterprise.advanced_threat_detection.collector import (
     EventStreamCollector,
 )
@@ -56,5 +57,6 @@ __all__ = [
     "ExploitChainAnalyzer",
     "AILMTracker",
     "C2InfrastructureDetector",
+    "KubernetesDefenseLayer",
     "logger",
 ]
