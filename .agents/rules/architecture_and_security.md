@@ -110,5 +110,20 @@
 * **Rule:** VirusTotal Google Threat Intelligence (GTI) MCP queries MUST remain strictly capped at 4 queries per 60-second sliding window via `GTIQueryBudgetTracker` token bucket rate limiting (1 token replenished every 15 seconds). Provider configuration refactors migrating Gemini LLM providers to GCP Vertex AI Mode MUST NEVER strip, loosen, or remove VirusTotal free-tier rate limits.
 * **Rationale:** VirusTotal commercial enterprise API subscriptions cost >$1,000/month and are an explicit non-goal. Conflating third-party Threat Intelligence rate limits with Gemini LLM model quotas creates catastrophic financial exposure.
 
+## 26. Network Security Detector Endpoint Parsing & IPv4/IPv6 Loopback Range Filtering
+* **Rule:** Security detection modules parsing network targets or hostnames (e.g. `C2InfrastructureDetector`, network event correlators) MUST:
+  1. Enclose unbracketed IPv6 target strings (e.g. `::1`, `::1:8080`) in brackets (`[::1]`, `[::1]:8080`) before passing to URL parsers (`urlparse`) to prevent colons from being split into empty host components.
+  2. Treat the entire `127.0.0.0/8` IPv4 loopback block (e.g. `127.0.0.2`), IPv6 loopback (`::1`, `[::1]`), and IPv4-mapped IPv6 loopback addresses (`::ffff:127.0.0.0/8`, e.g. `[::ffff:127.0.0.1]:8080`) as local loopback endpoints (`_is_local_host` / `_is_local_endpoint`) alongside `localhost`.
+* **Rationale:** Single IP exact-string comparisons (e.g., checking only `"127.0.0.1"` or `"::1"`) allow unbracketed IPv6 ports, alternative IPv4 loopback subnets (`127.0.0.2`), or IPv4-mapped IPv6 loopbacks (`::ffff:127.0.0.1`) to bypass local endpoint filtering, resulting in false cross-pillar persistence indicators and false `C2Evidence`.
+
+## 27. Destination Metadata Extraction Isolation in Security Event Correlation
+* **Rule:** Cross-pillar security correlation components and endpoint classifiers extracting target endpoints from event metadata MUST restrict metadata extraction strictly to explicit, known network destination keys (`DESTINATION_KEYS = {"url", "uri", "endpoint", "domain", "host", "target", "c2_url", "remote_url", "destination", "dest_url", "server"}`) or validated HTTP/HTTPS URLs. Security engines MUST NOT perform loose substring searches (e.g. searching for `"http"`, `"bin"`, or `"paste"`) over arbitrary string metadata values.
+* **Rationale:** Loose substring scanning over generic metadata keys converts incidental string values (e.g., `metadata["command"] = "/bin/bash"` or `metadata["referrer"] = "https://docs.python.org"`) into target network endpoint identities, causing false cross-pillar correlation overlaps and false threat evidence between unrelated events.
+
+## 28. Case & Scheme Preservation in URL Endpoint Normalization
+* **Rule:** URL endpoint normalization functions (`_normalize_endpoint`) MUST preserve the lowercased scheme (`http://` vs `https://`) and lowercased netloc (with port), while preserving the original letter-casing of path and query string parameters (`f"{scheme}://{netloc}{path}{query}"`).
+* **Rationale:** Stripping schemes or collapsing HTTP and HTTPS URLs into identical endpoint identities merges distinct protocol traffic, corrupting periodic beaconing frequency metrics ($\sigma / \mu \le 0.25$) and generating false C2 correlation.
+
+
 
 
