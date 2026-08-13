@@ -114,7 +114,7 @@ def _infer_registry_type(url_or_target: str, metadata: Dict[str, Any]) -> Option
         return "npm"
     elif "pypi" in target_lower:
         return "PyPI"
-    elif "cargo" in target_lower or "crates.io" in target_lower:
+    elif "cargo" in target_lower:
         return "Cargo"
     elif "rubygems" in target_lower:
         return "RubyGems"
