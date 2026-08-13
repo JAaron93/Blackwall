@@ -156,6 +156,7 @@ class AttackGraphStore:
             return self._nodes[node_id]
 
         if self._pool:
+            committed_node: AttackNode | None = None
             async with self._pool.acquire() as conn:
                 async with conn.transaction():
                     await conn.execute(
@@ -202,17 +203,20 @@ class AttackGraphStore:
                         )
                         inc = self._parse_edge_uuids(row["incoming_edges"])
                         out = self._parse_edge_uuids(row["outgoing_edges"])
-                        node = AttackNode(
+                        committed_node = AttackNode(
                             node_id=node_id,
                             event=ev_parsed,
                             incoming_edges=inc,
                             outgoing_edges=out,
                         )
-                        self._nodes[node_id] = node
-                        if node_id not in self._agent_nodes_index.get(ev_parsed.agent_id, []):
-                            self._agent_nodes_index.setdefault(ev_parsed.agent_id, []).append(node_id)
-                        self._invalidate_path_cache(ev_parsed.agent_id)
-                        return node
+
+            # Mutate cache only after successful commit
+            if committed_node:
+                self._nodes[node_id] = committed_node
+                if node_id not in self._agent_nodes_index.get(committed_node.event.agent_id, []):
+                    self._agent_nodes_index.setdefault(committed_node.event.agent_id, []).append(node_id)
+                self._invalidate_path_cache(committed_node.event.agent_id)
+                return committed_node
 
         node = AttackNode(
             node_id=node_id,
@@ -258,6 +262,7 @@ class AttackGraphStore:
 
         # 1. Database persistence inside atomic transaction FIRST
         if self._pool and nodes_to_insert_db:
+            committed_nodes: list[AttackNode] = []
             async with self._pool.acquire() as conn:
                 async with conn.transaction():
                     insert_tuples = [
@@ -318,10 +323,14 @@ class AttackGraphStore:
                             incoming_edges=inc,
                             outgoing_edges=out,
                         )
-                        nodes_by_id[n_uuid] = db_node
-                        self._nodes[n_uuid] = db_node
-                        if n_uuid not in self._agent_nodes_index.get(ev_parsed.agent_id, []):
-                            self._agent_nodes_index.setdefault(ev_parsed.agent_id, []).append(n_uuid)
+                        committed_nodes.append(db_node)
+
+            # Transaction has committed successfully: mutate in-memory cache now
+            for node in committed_nodes:
+                nodes_by_id[node.node_id] = node
+                self._nodes[node.node_id] = node
+                if node.node_id not in self._agent_nodes_index.get(node.event.agent_id, []):
+                    self._agent_nodes_index.setdefault(node.event.agent_id, []).append(node.node_id)
         else:
             # 2. Mutate in-memory cache structures for in-memory mode
             for node in new_nodes:

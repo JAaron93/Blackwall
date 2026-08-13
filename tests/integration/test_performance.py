@@ -193,7 +193,7 @@ async def test_sustained_throughput():
     await store.initialize()
 
     now = datetime.now(UTC)
-    rounds = 5
+    rounds = 10
     batch_size = 1000
     total_expected_events = rounds * batch_size
 
@@ -248,6 +248,54 @@ async def test_sustained_throughput():
     assert (
         overall_throughput >= 1000.0
     ), f"Overall sustained throughput was {overall_throughput:.2f} events/s, expected >= 1000"
+
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_sustained_load_stream_harness():
+    """Test continuous streamed event ingestion over time asserting sustained throughput stability."""
+    import os
+
+    # Default duration: 1.0 second during rapid CI, 300.0 seconds (5 minutes) for extended load tests
+    duration = 300.0 if os.getenv("BLACKWALL_EXTENDED_LOAD_TEST") == "true" else 1.0
+
+    collector = EventStreamCollector()
+    store = AttackGraphStore(in_memory=True)
+    await store.initialize()
+
+    now = datetime.now(UTC)
+    start_time = time.perf_counter()
+    total_events = 0
+    iteration = 0
+
+    while (time.perf_counter() - start_time) < duration:
+        batch = [
+            {
+                "event_id": str(uuid.uuid4()),
+                "timestamp": (now + timedelta(seconds=iteration, milliseconds=i)).isoformat(),
+                "agent_id": f"stream-agent-{i % 20}",
+                "action": "stream_action",
+                "target": f"/stream/{iteration}/{i}",
+                "metadata": {"iter": iteration},
+                "risk_score": 0.2,
+            }
+            for i in range(250)
+        ]
+        t_iter_start = time.perf_counter()
+        normalized = collector.process_event_batch(EventSource.KERNEL_SYSCALL, batch)
+        nodes = await store.insert_events_batch(normalized)
+        t_iter_elapsed = time.perf_counter() - t_iter_start
+
+        iter_rate = len(nodes) / t_iter_elapsed if t_iter_elapsed > 0 else 1000.0
+        assert iter_rate >= 1000.0
+        total_events += len(nodes)
+        iteration += 1
+
+    total_elapsed = time.perf_counter() - start_time
+    avg_rate = total_events / total_elapsed if total_elapsed > 0 else 1000.0
+    assert avg_rate >= 1000.0
+    assert total_events > 0
 
     await store.close()
 
