@@ -663,3 +663,124 @@ class AttackGraphStore:
                 pairs.append((agents_list[i], agents_list[j]))
 
         return pairs
+
+    async def get_edges(
+        self, time_window: tuple[datetime, datetime] | None = None
+    ) -> list[dict[str, Any]]:
+        """Retrieve causal edges from database or in-memory store."""
+        if self._pool:
+            async with self._pool.acquire() as conn:
+                if time_window:
+                    rows = await conn.fetch(
+                        """
+                        SELECT edge_id, from_node, to_node, relationship, created_at
+                        FROM causal_edges
+                        WHERE created_at >= $1 AND created_at <= $2
+                        ORDER BY created_at ASC;
+                        """,
+                        time_window[0],
+                        time_window[1],
+                    )
+                else:
+                    rows = await conn.fetch(
+                        """
+                        SELECT edge_id, from_node, to_node, relationship, created_at
+                        FROM causal_edges
+                        ORDER BY created_at ASC;
+                        """
+                    )
+                return [
+                    {
+                        "edge_id": row["edge_id"],
+                        "from_node": row["from_node"],
+                        "to_node": row["to_node"],
+                        "relationship": row["relationship"],
+                        "created_at": row["created_at"],
+                    }
+                    for row in rows
+                ]
+
+        if time_window:
+            start_win, end_win = time_window
+            return [
+                e
+                for e in self._edges
+                if start_win <= e["created_at"] <= end_win
+            ]
+        return list(self._edges)
+
+    async def get_all_nodes(self) -> list[AttackNode]:
+        """Retrieve all nodes from the attack graph."""
+        if self._pool:
+            async with self._pool.acquire() as conn:
+                rows = await conn.fetch(
+                    "SELECT * FROM event_nodes ORDER BY timestamp ASC;"
+                )
+                db_nodes: list[AttackNode] = []
+                for row in rows:
+                    ev = NormalizedEvent(
+                        event_id=row["event_id"],
+                        timestamp=row["timestamp"],
+                        source=EventSource(row["source"]),
+                        agent_id=row["agent_id"],
+                        action=row["action"],
+                        target=row["target"],
+                        metadata=(
+                            json.loads(row["metadata"])
+                            if isinstance(row["metadata"], str)
+                            else row["metadata"]
+                        ),
+                        risk_score=row["risk_score"],
+                    )
+                    inc = self._parse_edge_uuids(row["incoming_edges"])
+                    out = self._parse_edge_uuids(row["outgoing_edges"])
+                    db_node = AttackNode(
+                        node_id=row["node_id"],
+                        event=ev,
+                        incoming_edges=inc,
+                        outgoing_edges=out,
+                    )
+                    db_nodes.append(db_node)
+                return db_nodes
+
+        nodes = list(self._nodes.values())
+        nodes.sort(key=lambda n: n.event.timestamp)
+        return nodes
+
+    async def purge_events_before(self, cutoff_time: datetime) -> int:
+        """Purge events older than cutoff_time from attack graph (enforcing retention invariant)."""
+        purged_count = 0
+        if self._pool:
+            async with self._pool.acquire() as conn:
+                async with conn.transaction():
+                    result = await conn.execute(
+                        "DELETE FROM event_nodes WHERE timestamp < $1;", cutoff_time
+                    )
+                    # result is like 'DELETE 5'
+                    try:
+                        purged_count = int(result.split()[-1])
+                    except (ValueError, IndexError):
+                        purged_count = 0
+
+        # Purge from in-memory structures
+        to_delete = [
+            nid
+            for nid, node in self._nodes.items()
+            if node.event.timestamp < cutoff_time
+        ]
+        for nid in to_delete:
+            node = self._nodes.pop(nid, None)
+            if node:
+                purged_count = max(purged_count, len(to_delete))
+                agent_nids = self._agent_nodes_index.get(node.event.agent_id, [])
+                if nid in agent_nids:
+                    agent_nids.remove(nid)
+
+        self._edges = [
+            e
+            for e in self._edges
+            if e["from_node"] in self._nodes and e["to_node"] in self._nodes
+        ]
+        self._invalidate_path_cache()
+        return len(to_delete) if not self._pool else purged_count
+

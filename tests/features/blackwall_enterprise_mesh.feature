@@ -56,3 +56,10 @@ Feature: Blackwall Enterprise Security Mesh End-to-End Integration
     When heterogeneous events from kernel, tool, identity, pipeline, and forensic sources are collected
     Then events are normalized into standard NormalizedEvents with UUID v4 IDs, UTC timestamps, and risk scores
     And malformed payloads or invalid stream factories fail cleanly without corrupting telemetry
+
+  Scenario: Pillar 6 Retrospective Analysis and GraphML export integration
+    Given an Enterprise Retrospective Analyzer with historical multi-agent attack graphs
+    When retrospective path analysis and GraphML exports are requested
+    Then historical attack paths spanning multi-day windows are reconstructed
+    And standard GraphML XML is exported with directed graph attributes
+

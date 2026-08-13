@@ -12,11 +12,17 @@ from blackwall.enterprise.advanced_threat_detection.collector import (
 )
 from blackwall.enterprise.advanced_threat_detection.correlator import PathCorrelator
 from blackwall.enterprise.advanced_threat_detection.enums import EventSource
+from blackwall.enterprise.advanced_threat_detection.graph_export import (
+    AttackGraphExporter,
+)
 from blackwall.enterprise.advanced_threat_detection.models import (
     AttackNode,
     AttackPath,
     NormalizedEvent,
     SwarmEvidence,
+)
+from blackwall.enterprise.advanced_threat_detection.retrospective import (
+    RetrospectiveAnalyzer,
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from tests.step_defs.async_utils import run_async
@@ -502,3 +508,81 @@ def then_swarm_evidence_produced(atd_state):
     assert 0.0 <= swarm.temporal_correlation <= 1.0
     assert 0.0 <= swarm.coordination_score <= 1.0
     assert len(swarm.shared_patterns) >= 1
+
+
+# Scenario 7 steps (Retrospective Analysis & Export)
+@given("a RetrospectiveAnalyzer instance with multi-day historical events")
+def given_retro_analyzer_multi_day(atd_state):
+    store = AttackGraphStore(in_memory=True)
+    run_async(store.initialize())
+    atd_state.retro_store = store
+    atd_state.retro_analyzer = RetrospectiveAnalyzer(store=store)
+    atd_state.retro_exporter = AttackGraphExporter()
+
+    now = datetime.now(UTC)
+    events = []
+    for day in range(5, 0, -1):
+        ts = now - timedelta(days=day)
+        ev1 = NormalizedEvent(
+            event_id=uuid.uuid4(),
+            timestamp=ts,
+            source=EventSource.TOOL_CALL,
+            agent_id="agent-retro-bdd",
+            action="probe_api",
+            target="https://target.local/api",
+            risk_score=0.4,
+        )
+        ev2 = NormalizedEvent(
+            event_id=uuid.uuid4(),
+            timestamp=ts + timedelta(minutes=2),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id="agent-retro-bdd",
+            action="execve",
+            target="/bin/sh",
+            risk_score=0.9,
+        )
+        events.extend([ev1, ev2])
+
+    nodes = run_async(store.insert_events_batch(events))
+    atd_state.retro_nodes = nodes
+    atd_state.retro_window = (now - timedelta(days=7), now)
+
+
+@when(
+    "historical time windows are queried and graphs are exported in JSON and GraphML formats"
+)
+def when_query_and_export_formats(atd_state):
+    atd_state.retro_paths = run_async(
+        atd_state.retro_analyzer.analyze_historical_window(
+            agent_id="agent-retro-bdd",
+            time_window=atd_state.retro_window,
+        )
+    )
+    atd_state.exported_json = atd_state.retro_exporter.export_json(
+        nodes=atd_state.retro_nodes
+    )
+    atd_state.exported_graphml = atd_state.retro_exporter.export_graphml(
+        nodes=atd_state.retro_nodes
+    )
+
+
+@then("retrospective attack paths are identified across the multi-day window")
+def then_verify_retro_paths_identified(atd_state):
+    assert len(atd_state.retro_paths) >= 1
+    for p in atd_state.retro_paths:
+        assert atd_state.retro_window[0] <= p.start_time <= atd_state.retro_window[1]
+
+
+@then("the exported graph outputs match standard JSON and GraphML schemas")
+def then_verify_exported_schemas(atd_state):
+    import json
+    import xml.etree.ElementTree as ET
+
+    parsed_json = json.loads(atd_state.exported_json)
+    assert "nodes" in parsed_json
+    assert len(parsed_json["nodes"]) == len(atd_state.retro_nodes)
+
+    root = ET.fromstring(atd_state.exported_graphml)
+    tag_clean = root.tag.split("}")[-1] if "}" in root.tag else root.tag
+    assert tag_clean == "graphml"
+

@@ -569,31 +569,31 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 11.1, 11.2, 11.3, 11.4_
     - _Verification: `pytest tests/step_defs/test_performance_sla_bdd.py -v`_
 
-- [ ] 17. Implement Retrospective Analysis and Historical Queries
-  - [ ] 17.1 Implement historical time window support
+- [x] 17. Implement Retrospective Analysis and Historical Queries
+  - [x] 17.1 Implement historical time window support
     - Support queries spanning days or weeks
     - Maintain 30-day event history in Attack_Graph
     - _Requirements: 13.1, 13.4_
     - _Verification: `pytest tests/integration/test_retrospective.py::test_historical_windows -v`_
 
-  - [ ] 17.2 Implement retrospective path detection
+  - [x] 17.2 Implement retrospective path detection
     - Identify attack paths not detected in real-time
     - Support batch analysis of historical data
     - _Requirements: 13.2_
     - _Verification: `pytest tests/integration/test_retrospective.py::test_retrospective_detection -v`_
 
-  - [ ] 17.3 Implement multi-agent historical correlation
+  - [x] 17.3 Implement multi-agent historical correlation
     - Correlate events across multiple agents for delayed swarm pattern detection
     - _Requirements: 13.3_
     - _Verification: `pytest tests/integration/test_retrospective.py::test_historical_correlation -v`_
 
-  - [ ] 17.4 Implement attack graph export
+  - [x] 17.4 Implement attack graph export
     - Support export in standard formats (JSON, GraphML)
     - Enable external analysis tool integration
     - _Requirements: 13.5_
     - _Verification: `pytest tests/unit/test_graph_export.py::test_export_formats -v`_
 
-  - [ ] 17.5 Write property tests for retrospective analysis
+  - [x] 17.5 Write property tests for retrospective analysis
     - **Property 65: Historical Time Window Support**
     - **Property 66: Retrospective Path Detection**
     - **Property 67: Multi-Agent Historical Correlation**
@@ -601,7 +601,7 @@ The implementation follows a test-driven development approach with property-base
     - **Validates: Requirements 13.1, 13.2, 13.3, 13.5**
     - _Verification: `pytest tests/property/test_retrospective_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 17.6 Write BDD feature tests for Retrospective Analysis
+  - [x] 17.6 Write BDD feature tests for Retrospective Analysis
     - Create `tests/features/retrospective_analysis.feature` with Gherkin scenarios
     - Implement `Given/When/Then` steps in `tests/step_defs/test_retrospective_analysis_bdd.py` using `run_async`
     - Scenario: historical time window query spanning 7 days returns all attack paths in that period

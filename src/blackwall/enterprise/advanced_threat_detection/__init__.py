@@ -21,6 +21,9 @@ from blackwall.enterprise.advanced_threat_detection.enums import (
     ExploitCategory,
 )
 from blackwall.enterprise.advanced_threat_detection.exploit import ExploitChainAnalyzer
+from blackwall.enterprise.advanced_threat_detection.graph_export import (
+    AttackGraphExporter,
+)
 from blackwall.enterprise.advanced_threat_detection.k8s import KubernetesDefenseLayer
 from blackwall.enterprise.advanced_threat_detection.models import (
     AILMEvidence,
@@ -38,6 +41,9 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 from blackwall.enterprise.advanced_threat_detection.registry import (
     PackageRegistryMonitor,
 )
+from blackwall.enterprise.advanced_threat_detection.retrospective import (
+    RetrospectiveAnalyzer,
+)
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from blackwall.enterprise.advanced_threat_detection.swarm import AgentSwarmDetector
 
@@ -50,6 +56,7 @@ __all__ = [
     "Alert",
     "AlertBus",
     "AlertSeverity",
+    "AttackGraphExporter",
     "AttackGraphStore",
     "AttackNode",
     "AttackPath",
@@ -67,8 +74,10 @@ __all__ = [
     "PathCorrelator",
     "PermissionGrant",
     "RegistryThreatEvidence",
+    "RetrospectiveAnalyzer",
     "SwarmEvidence",
     "logger",
 ]
+
 
 
