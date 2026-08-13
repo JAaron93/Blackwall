@@ -228,6 +228,8 @@ class PackageRegistryMonitor:
         time_window: Optional[Tuple[datetime, datetime]] = None,
     ) -> List[RegistryThreatEvidence]:
         """Detect probing for package registry vulnerabilities, malformed requests, and unusual patterns."""
+        start_w = None
+        end_w = None
         if time_window is not None:
             start_raw, end_raw = time_window
             validate_temporal_sequence(
@@ -236,15 +238,37 @@ class PackageRegistryMonitor:
             start_w = validate_utc_datetime(start_raw)
             end_w = validate_utc_datetime(end_raw)
 
-        # Collect events from store and tracked events
+        # Collect events from persistent store and tracked events
         candidate_events: List[NormalizedEvent] = []
-        nodes = self.store._nodes.values() if hasattr(self.store, "_nodes") else []
-        for node in nodes:
-            candidate_events.append(node.event)
+        seen_event_ids: Set[uuid.UUID] = set()
+
+        if self.store is not None:
+            if hasattr(self.store, "query_nodes"):
+                q_window = (start_w, end_w) if (start_w and end_w) else (
+                    datetime(1970, 1, 1, tzinfo=timezone.utc),
+                    datetime(2100, 1, 1, tzinfo=timezone.utc),
+                )
+                try:
+                    store_nodes = await self.store.query_nodes(
+                        agent_id=agent_id, time_window=q_window
+                    )
+                    for n in store_nodes:
+                        if n.event.event_id not in seen_event_ids:
+                            candidate_events.append(n.event)
+                            seen_event_ids.add(n.event.event_id)
+                except Exception as exc:
+                    logger.debug("Failed querying store nodes: %s", exc)
+
+            if hasattr(self.store, "_nodes"):
+                for node in self.store._nodes.values():
+                    if node.event.event_id not in seen_event_ids:
+                        candidate_events.append(node.event)
+                        seen_event_ids.add(node.event.event_id)
 
         for ev in self._tracked_events:
-            if ev not in candidate_events:
+            if ev.event_id not in seen_event_ids:
                 candidate_events.append(ev)
+                seen_event_ids.add(ev.event_id)
 
         # Filter by agent_id and time_window
         filtered_events: List[NormalizedEvent] = []
@@ -262,7 +286,7 @@ class PackageRegistryMonitor:
 
         # 1. Per-event malformed request inspection
         events_by_pkg: Dict[Tuple[str, str], List[NormalizedEvent]] = {}
-        status_404_events: List[NormalizedEvent] = []
+        status_404_by_agent_reg: Dict[Tuple[str, str], List[NormalizedEvent]] = {}
 
         for ev in filtered_events:
             target_str = str(ev.target or "")
@@ -286,7 +310,10 @@ class PackageRegistryMonitor:
 
             status_code = meta.get("status_code")
             if status_code == 404 or "404" in ev.action:
-                status_404_events.append(ev)
+                grp_key = (ev.agent_id, reg_type)
+                if grp_key not in status_404_by_agent_reg:
+                    status_404_by_agent_reg[grp_key] = []
+                status_404_by_agent_reg[grp_key].append(ev)
 
             # Check malformed patterns
             combined_search_space = f"{target_str} {payload_str} {meta_str} {ev.action}"
@@ -313,26 +340,44 @@ class PackageRegistryMonitor:
                     )
                 )
 
-        # 2. Check for aggregated unusual scanning patterns (e.g. >= 5 404 responses across packages)
-        if len(status_404_events) >= 5:
-            distinct_pkgs = {
-                str(e.metadata.get("package_name") or e.target) for e in status_404_events
-            }
-            primary_reg = _infer_registry_type(
-                status_404_events[0].target,
-                status_404_events[0].metadata if isinstance(status_404_events[0].metadata, dict) else {},
-            )
-            scanning_indicator = [
-                f"Unusual scanning activity: {len(status_404_events)} consecutive 404 responses across {len(distinct_pkgs)} packages"
-            ]
-            cves = self.correlate_cve(scanning_indicator, target_str=status_404_events[0].target)
-            evidences.append(
-                RegistryThreatEvidence(
-                    registry_type=primary_reg,
-                    package_name=f"scanning-batch-{len(distinct_pkgs)}-pkgs",
-                    exploit_indicators=scanning_indicator,
-                    cve_candidates=cves,
+        # 2. Check for scoped unusual 404 scanning patterns (grouped by agent and registry type)
+        for (grp_agent, grp_reg), ev_list in status_404_by_agent_reg.items():
+            if len(ev_list) < 5:
+                continue
+
+            sorted_404s = sorted(ev_list, key=lambda e: e.timestamp)
+            scanning_bursts: List[List[NormalizedEvent]] = []
+            current_burst: List[NormalizedEvent] = []
+
+            for ev in sorted_404s:
+                if not current_burst:
+                    current_burst.append(ev)
+                else:
+                    if (ev.timestamp - current_burst[0].timestamp).total_seconds() <= 300:
+                        current_burst.append(ev)
+                    else:
+                        if len(current_burst) >= 5:
+                            scanning_bursts.append(list(current_burst))
+                        current_burst = [ev]
+            if len(current_burst) >= 5:
+                scanning_bursts.append(list(current_burst))
+
+            for burst in scanning_bursts:
+                distinct_pkgs = {
+                    str(e.metadata.get("package_name") or e.target) for e in burst
+                }
+                scanning_indicator = [
+                    f"Unusual scanning activity by agent '{grp_agent}': {len(burst)} consecutive 404 responses on {grp_reg} registry across {len(distinct_pkgs)} packages"
+                ]
+                cves = self.correlate_cve(scanning_indicator, target_str=burst[0].target)
+                evidences.append(
+                    RegistryThreatEvidence(
+                        registry_type=grp_reg,
+                        package_name=f"scanning-batch-{len(distinct_pkgs)}-pkgs",
+                        exploit_indicators=scanning_indicator,
+                        cve_candidates=cves,
+                    )
                 )
-            )
 
         return evidences
+
