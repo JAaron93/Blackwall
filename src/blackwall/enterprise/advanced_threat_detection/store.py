@@ -155,39 +155,71 @@ class AttackGraphStore:
         if node_id in self._nodes:
             return self._nodes[node_id]
 
+        if self._pool:
+            async with self._pool.acquire() as conn:
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        INSERT INTO event_nodes (
+                            node_id, event_id, timestamp, source, agent_id, action, target, metadata, risk_score, incoming_edges, outgoing_edges
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10::jsonb, $11::jsonb)
+                        ON CONFLICT (node_id) DO NOTHING;
+                        """,
+                        str(node_id),
+                        str(event.event_id),
+                        event.timestamp,
+                        (
+                            event.source.value
+                            if hasattr(event.source, "value")
+                            else str(event.source)
+                        ),
+                        event.agent_id,
+                        event.action,
+                        event.target,
+                        json.dumps(event.metadata),
+                        event.risk_score,
+                        json.dumps([]),
+                        json.dumps([]),
+                    )
+                    # Fetch authoritative row from DB to handle conflict-skipped rows
+                    row = await conn.fetchrow(
+                        "SELECT * FROM event_nodes WHERE node_id = $1;", str(node_id)
+                    )
+                    if row:
+                        ev_parsed = NormalizedEvent(
+                            event_id=row["event_id"],
+                            timestamp=row["timestamp"],
+                            source=EventSource(row["source"]),
+                            agent_id=row["agent_id"],
+                            action=row["action"],
+                            target=row["target"],
+                            metadata=(
+                                json.loads(row["metadata"])
+                                if isinstance(row["metadata"], str)
+                                else row["metadata"]
+                            ),
+                            risk_score=row["risk_score"],
+                        )
+                        inc = self._parse_edge_uuids(row["incoming_edges"])
+                        out = self._parse_edge_uuids(row["outgoing_edges"])
+                        node = AttackNode(
+                            node_id=node_id,
+                            event=ev_parsed,
+                            incoming_edges=inc,
+                            outgoing_edges=out,
+                        )
+                        self._nodes[node_id] = node
+                        if node_id not in self._agent_nodes_index.get(ev_parsed.agent_id, []):
+                            self._agent_nodes_index.setdefault(ev_parsed.agent_id, []).append(node_id)
+                        self._invalidate_path_cache(ev_parsed.agent_id)
+                        return node
+
         node = AttackNode(
             node_id=node_id,
             event=event,
             incoming_edges=[],
             outgoing_edges=[],
         )
-
-        if self._pool:
-            async with self._pool.acquire() as conn:
-                await conn.execute(
-                    """
-                    INSERT INTO event_nodes (
-                        node_id, event_id, timestamp, source, agent_id, action, target, metadata, risk_score, incoming_edges, outgoing_edges
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10::jsonb, $11::jsonb)
-                    ON CONFLICT (node_id) DO NOTHING;
-                    """,
-                    str(node_id),
-                    str(event.event_id),
-                    event.timestamp,
-                    (
-                        event.source.value
-                        if hasattr(event.source, "value")
-                        else str(event.source)
-                    ),
-                    event.agent_id,
-                    event.action,
-                    event.target,
-                    json.dumps(event.metadata),
-                    event.risk_score,
-                    json.dumps([]),
-                    json.dumps([]),
-                )
-
         self._nodes[node_id] = node
         self._agent_nodes_index.setdefault(event.agent_id, []).append(node_id)
         self._invalidate_path_cache(event.agent_id)
@@ -257,11 +289,44 @@ class AttackGraphStore:
                         """,
                         insert_tuples,
                     )
-
-        # 2. Mutate in-memory cache structures ONLY AFTER successful DB commit
-        for node in new_nodes:
-            self._nodes[node.node_id] = node
-            self._agent_nodes_index.setdefault(node.event.agent_id, []).append(node.node_id)
+                    # Fetch authoritative DB rows for all inserted/conflicted IDs to maintain cache consistency
+                    db_rows = await conn.fetch(
+                        "SELECT * FROM event_nodes WHERE node_id = ANY($1::text[]);",
+                        [str(ev.event_id) for ev in nodes_to_insert_db],
+                    )
+                    for row in db_rows:
+                        n_uuid = validate_uuid_v4_format(row["node_id"])
+                        ev_parsed = NormalizedEvent(
+                            event_id=row["event_id"],
+                            timestamp=row["timestamp"],
+                            source=EventSource(row["source"]),
+                            agent_id=row["agent_id"],
+                            action=row["action"],
+                            target=row["target"],
+                            metadata=(
+                                json.loads(row["metadata"])
+                                if isinstance(row["metadata"], str)
+                                else row["metadata"]
+                            ),
+                            risk_score=row["risk_score"],
+                        )
+                        inc = self._parse_edge_uuids(row["incoming_edges"])
+                        out = self._parse_edge_uuids(row["outgoing_edges"])
+                        db_node = AttackNode(
+                            node_id=n_uuid,
+                            event=ev_parsed,
+                            incoming_edges=inc,
+                            outgoing_edges=out,
+                        )
+                        nodes_by_id[n_uuid] = db_node
+                        self._nodes[n_uuid] = db_node
+                        if n_uuid not in self._agent_nodes_index.get(ev_parsed.agent_id, []):
+                            self._agent_nodes_index.setdefault(ev_parsed.agent_id, []).append(n_uuid)
+        else:
+            # 2. Mutate in-memory cache structures for in-memory mode
+            for node in new_nodes:
+                self._nodes[node.node_id] = node
+                self._agent_nodes_index.setdefault(node.event.agent_id, []).append(node.node_id)
 
         affected_agents = {e.agent_id for e in events}
         for aid in affected_agents:
