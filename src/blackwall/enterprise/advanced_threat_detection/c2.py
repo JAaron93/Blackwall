@@ -72,18 +72,18 @@ def _extract_hostname_and_path(url_or_domain: str) -> Tuple[str, str]:
 
 
 def _normalize_endpoint(url_or_domain: str) -> str:
-    """Normalize full endpoint string preserving netloc (with port), path, and query string."""
-    raw = url_or_domain.strip().lower()
+    """Normalize full endpoint string preserving netloc case-insensitively while preserving path and query case."""
+    raw = url_or_domain.strip()
     if not raw:
         return ""
 
     url_str = raw
-    if not url_str.startswith(("http://", "https://")):
+    if not url_str.lower().startswith(("http://", "https://")):
         url_str = "http://" + url_str
 
     try:
         parsed = urlparse(url_str)
-        netloc = parsed.netloc or raw.split("/")[0]
+        netloc = (parsed.netloc or raw.split("/")[0]).lower()
         path = parsed.path.rstrip("/")
         query = f"?{parsed.query}" if parsed.query else ""
         return f"{netloc}{path}{query}"
