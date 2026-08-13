@@ -23,7 +23,7 @@ from blackwall.models import ToolCallContext, VerdictDecision, CBMResponse
 # 2. Test that the Blackwall agent daemon can be imported and runs (starts successfully)
 @pytest.mark.asyncio
 async def test_blackwall_daemon_starts() -> None:
-    from agent import ADK_AVAILABLE, root_agent
+    from agent import root_agent
 
     assert root_agent is not None
     assert root_agent.name == "blackwall_target_agent"

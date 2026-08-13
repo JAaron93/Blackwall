@@ -1,15 +1,13 @@
 """Integration tests for Attacker Attribution in SyncResolver."""
 
-from datetime import datetime, timezone
 import os
-import sys
 import tempfile
 from unittest.mock import MagicMock, patch
 import pytest
 
 from blackwall.attribution.extractor import AttackerIdentityExtractor
 from blackwall.db.repository import SQLiteThreatRepository
-from blackwall.models import IncidentReport, ToolCallContext, Verdict, VerdictDecision
+from blackwall.models import IncidentReport, ToolCallContext, VerdictDecision
 from blackwall.sync_resolver import SyncResolver
 
 

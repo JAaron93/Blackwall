@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone, timedelta
 import uuid
+from hypothesis import given, strategies as st
 import pytest
 
 from blackwall.validators import (
@@ -191,7 +192,6 @@ def test_compute_word_intersection_match_quality():
 # ----------------------------------------------------------------------
 # Property-based tests (Hypothesis)
 # ----------------------------------------------------------------------
-from hypothesis import given, strategies as st
 
 
 @given(st.text())

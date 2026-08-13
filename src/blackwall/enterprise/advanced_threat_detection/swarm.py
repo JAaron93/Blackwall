@@ -1,7 +1,7 @@
 """Agent Swarm Detector component for Blackwall Advanced Threat Detection (Pillar 6 Task 7)."""
 
 from collections import deque
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 import hashlib
 import logging
 import math
