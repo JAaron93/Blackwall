@@ -183,28 +183,33 @@ def given_workload_1000eps(state):
 @when("the system processes and ingests the sustained batch workload")
 def when_process_sustained_workload(state):
     now = datetime.now(UTC)
-    batch_size = 2000
-    raw_batch = [
-        {
-            "event_id": str(uuid.uuid4()),
-            "timestamp": (now + timedelta(milliseconds=i)).isoformat(),
-            "agent_id": f"agent-sustained-{i % 20}",
-            "action": "syscall_exec",
-            "target": f"/bin/test_{i}",
-            "metadata": {},
-            "risk_score": 0.2,
-        }
-        for i in range(batch_size)
-    ]
+    rounds = 5
+    batch_size = 1000
+    total_events = rounds * batch_size
 
     async def _run():
+        total_nodes = 0
         t0 = time.perf_counter()
-        nodes = await state.collector.collect_and_store_batch(
-            state.store, EventSource.KERNEL_SYSCALL, raw_batch
-        )
+        for r in range(rounds):
+            raw_batch = [
+                {
+                    "event_id": str(uuid.uuid4()),
+                    "timestamp": (now + timedelta(seconds=r, milliseconds=i)).isoformat(),
+                    "agent_id": f"agent-sustained-{i % 20}",
+                    "action": "syscall_exec",
+                    "target": f"/bin/test_{r}_{i}",
+                    "metadata": {"round": r},
+                    "risk_score": 0.2,
+                }
+                for i in range(batch_size)
+            ]
+            nodes = await state.collector.collect_and_store_batch(
+                state.store, EventSource.KERNEL_SYSCALL, raw_batch
+            )
+            total_nodes += len(nodes)
         total_time = time.perf_counter() - t0
-        state.throughput_rate = len(nodes) / total_time
-        assert len(nodes) == batch_size
+        state.throughput_rate = total_nodes / total_time
+        assert total_nodes == total_events
 
     run_async(_run())
 
