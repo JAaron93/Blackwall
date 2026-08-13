@@ -11,9 +11,7 @@ from pydantic import ValidationError
 
 from blackwall.enterprise.advanced_threat_detection.enums import EventSource
 from blackwall.enterprise.advanced_threat_detection.models import NormalizedEvent
-
 from blackwall.validators import ensure_uuid_v4, utc_now
-
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.collector")
 
@@ -237,6 +235,55 @@ class EventStreamCollector:
                 )
                 await asyncio.sleep(backoff)
 
+    def process_event_batch(
+        self, source: EventSource, raw_events: list[dict[str, Any]]
+    ) -> list[NormalizedEvent]:
+        """Normalize a batch of heterogeneous raw events synchronously for high throughput.
+
+        Args:
+            source: EventSource indicating the pillar source.
+            raw_events: List of raw event dictionary payloads.
+
+        Returns:
+            List of successfully normalized NormalizedEvent instances.
+        """
+        normalized_events: list[NormalizedEvent] = []
+        for raw_item in raw_events:
+            if not isinstance(raw_item, dict):
+                logger.warning(
+                    "Discarding malformed event payload in batch for source %s: expected dict, got %s",
+                    source,
+                    type(raw_item),
+                )
+                continue
+            try:
+                normalized = self.normalize_event(source, raw_item)
+                normalized_events.append(normalized)
+            except (ValueError, ValidationError) as exc:
+                logger.warning(
+                    "Validation error normalizing event in batch from %s: %s",
+                    source,
+                    exc,
+                )
+                continue
+        return normalized_events
+
+    async def collect_and_store_batch(
+        self,
+        store: Any,
+        source: EventSource,
+        raw_events: list[dict[str, Any]],
+    ) -> list[Any]:
+        """Normalize a batch of events and persist them into AttackGraphStore using batch insertion."""
+        normalized = self.process_event_batch(source, raw_events)
+        if hasattr(store, "insert_events_batch"):
+            return await store.insert_events_batch(normalized)
+        nodes = []
+        for ev in normalized:
+            node = await store.insert_event(ev)
+            nodes.append(node)
+        return nodes
+
     async def collect_from_kernel(
         self, source_stream: AsyncIterable[dict[str, Any]] | None = None
     ) -> AsyncIterator[NormalizedEvent]:
@@ -275,3 +322,4 @@ class EventStreamCollector:
         """Stream events from Pillar 5: Forensic Triage Engine."""
         async for ev in self._process_stream(EventSource.FORENSIC_ALERT, source_stream):
             yield ev
+

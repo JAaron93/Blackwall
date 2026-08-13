@@ -532,14 +532,14 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7_
     - _Verification: `pytest tests/step_defs/test_alert_generation_bdd.py -v`_
 
-- [ ] 16. Implement Performance Optimization and SLA Validation
-  - [ ] 16.1 Optimize event processing pipeline for low latency
+- [x] 16. Implement Performance Optimization and SLA Validation
+  - [x] 16.1 Optimize event processing pipeline for low latency
     - Ensure event processing from all pillars < 100ms latency
     - Implement async batching and connection pooling
     - _Requirements: 11.1_
     - _Verification: `pytest tests/integration/test_performance.py::test_event_processing_latency -v`_
 
-  - [ ] 16.2 Optimize path query performance
+  - [x] 16.2 Optimize path query performance
     - Ensure path queries < 500ms for 17K+ event graphs
     - Add database indexes for temporal queries
     - Implement query result caching where appropriate
@@ -547,19 +547,19 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 11.2_
     - _Verification: `pytest tests/integration/test_performance.py::test_path_query_latency -v`_
 
-  - [ ] 16.3 Implement sustained throughput handling
+  - [x] 16.3 Implement sustained throughput handling
     - Validate system handles 1,000 events/second sustained
     - Load test for at least 5 minutes
     - _Requirements: 11.3_
     - _Verification: `pytest tests/integration/test_performance.py::test_sustained_throughput -v`_
 
-  - [ ] 16.4 Optimize swarm detection fingerprinting
+  - [x] 16.4 Optimize swarm detection fingerprinting
     - Ensure behavioral fingerprints for 1-hour windows < 2 seconds latency
     - Implement incremental fingerprint updates
     - _Requirements: 11.4_
     - _Verification: `pytest tests/integration/test_performance.py::test_fingerprint_latency -v`_
 
-  - [ ] 16.5 Write BDD feature tests for Performance and SLA Validation
+  - [x] 16.5 Write BDD feature tests for Performance and SLA Validation
     - Create `tests/features/performance_sla.feature` with Gherkin scenarios
     - Implement `Given/When/Then` steps in `tests/step_defs/test_performance_sla_bdd.py` using `run_async`
     - Scenario: event processing latency is under 100ms (warmup run excluded from measurement)
