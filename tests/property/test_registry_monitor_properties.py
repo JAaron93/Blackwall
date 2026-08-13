@@ -158,9 +158,10 @@ def test_property_55_registry_threat_evidence_indicators(
         ("${jndi:ldap://test}", "CVE-2021-44228"),
         ("../../../../etc/passwd", "CVE-2020-7980"),
         ("__proto__", "CVE-2020-7774"),
-        ("internal-corp-token-pkg", "CVE-2021-38153"),
+        ("internal-corp-auth-pkg", "CVE-2021-38153"),
     ]),
 )
+
 @settings(max_examples=20)
 @pytest.mark.asyncio
 async def test_property_56_registry_cve_correlation(cve_keyword: tuple):

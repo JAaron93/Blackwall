@@ -72,8 +72,9 @@ async def test_monitor_access():
     assert len(collected) == 2
     assert all(isinstance(ev, NormalizedEvent) for ev in collected)
     assert collected[0].agent_id == "build-agent-01"
-    assert "registry.npmjs.org" in collected[0].target
+    assert collected[0].target.startswith("https://registry.npmjs.org/")
     assert collected[0].metadata.get("registry_type") == "npm"
+
 
 
 @pytest.mark.asyncio

@@ -93,18 +93,29 @@ def _infer_registry_type(url_or_target: str, metadata: Dict[str, Any]) -> str:
     if metadata and "registry_type" in metadata and metadata["registry_type"]:
         return str(metadata["registry_type"])
 
+    parsed = urlparse(url_or_target or "")
+    hostname = (parsed.hostname or "").lower()
+    path = (parsed.path or "").lower()
     target_lower = (url_or_target or "").lower()
-    if "artifactory" in target_lower or "jfrog" in target_lower:
+
+    if "artifactory" in hostname or "jfrog" in hostname or "artifactory" in path:
         return "Artifactory"
-    elif "npmjs" in target_lower or "npm" in target_lower:
+    elif hostname == "registry.npmjs.org" or hostname.endswith(".npmjs.org") or "npm" in hostname or "npm" in path:
         return "npm"
-    elif "pypi" in target_lower or "/simple/" in target_lower or "python" in target_lower:
+    elif hostname == "pypi.org" or hostname.endswith(".pypi.org") or hostname == "pypi.python.org" or "pypi" in hostname or "/simple/" in path or "python" in hostname:
         return "PyPI"
-    elif "cargo" in target_lower or "crates.io" in target_lower:
+    elif hostname == "crates.io" or hostname.endswith(".crates.io") or "cargo" in hostname or "cargo" in path:
         return "Cargo"
-    elif "rubygems" in target_lower or "gem" in target_lower:
+    elif hostname == "rubygems.org" or hostname.endswith(".rubygems.org") or "rubygems" in hostname:
         return "RubyGems"
+    elif "artifactory" in target_lower or "jfrog" in target_lower:
+        return "Artifactory"
+    elif "npm" in target_lower:
+        return "npm"
+    elif "pypi" in target_lower:
+        return "PyPI"
     return "generic"
+
 
 
 class PackageRegistryMonitor:
