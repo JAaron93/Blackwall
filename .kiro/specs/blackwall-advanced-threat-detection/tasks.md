@@ -33,7 +33,7 @@ The implementation follows a test-driven development approach with property-base
     - **Validates: Requirements 15.1, 15.2, 15.3, 15.5, 15.6, 15.7, 15.8**
     - _Verification: `pytest tests/property/test_models_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 1.4 Write BDD feature tests for core data models
+  - [x] 1.4 Write BDD feature tests for core data models
     - Create `tests/features/data_models.feature` with Gherkin scenarios
     - Implement `Given/When/Then` steps in `tests/step_defs/test_data_models_bdd.py` using `run_async` from `tests.step_defs.async_utils`
     - Scenario: NormalizedEvent creation assigns valid UUID v4 and UTC timezone-aware timestamp
@@ -83,7 +83,7 @@ The implementation follows a test-driven development approach with property-base
     - **Validates: Requirements 2.1, 2.2, 2.3, 2.5**
     - _Verification: `pytest tests/property/test_attack_graph_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 2.6 Write BDD feature tests for Attack Graph Store
+  - [x] 2.6 Write BDD feature tests for Attack Graph Store
     - Create `tests/features/attack_graph_store.feature` with Gherkin scenarios
     - Implement `Given/When/Then` steps in `tests/step_defs/test_attack_graph_store_bdd.py` using `run_async`
     - Scenario: inserting a NormalizedEvent creates a node with temporal ordering preserved
@@ -129,7 +129,7 @@ The implementation follows a test-driven development approach with property-base
     - **Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 15.4**
     - _Verification: `pytest tests/property/test_event_collector_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 4.5 Write BDD feature tests for Event Stream Collector
+  - [x] 4.5 Write BDD feature tests for Event Stream Collector
     - Create `tests/features/event_stream_collector.feature` with Gherkin scenarios
     - Implement `Given/When/Then` steps in `tests/step_defs/test_event_stream_collector_bdd.py` using `run_async`
     - Scenario: kernel syscall event is normalized to KERNEL_SYSCALL source with UTC timestamp and UUID v4
@@ -181,7 +181,7 @@ The implementation follows a test-driven development approach with property-base
     - **Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7**
     - _Verification: `pytest tests/property/test_path_correlator_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 5.6 Write BDD feature tests for Multi-Stage Attack Path Correlation
+  - [x] 5.6 Write BDD feature tests for Multi-Stage Attack Path Correlation
     - Create `tests/features/path_correlation.feature` with Gherkin scenarios
     - Implement `Given/When/Then` steps in `tests/step_defs/test_path_correlation_bdd.py` using `run_async`
     - Scenario: events within 5 minutes of each other are linked in the temporal adjacency graph
