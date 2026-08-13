@@ -88,8 +88,8 @@ CVE_SIGNATURES: List[Tuple[re.Pattern, str]] = [
 ]
 
 
-def _infer_registry_type(url_or_target: str, metadata: Dict[str, Any]) -> str:
-    """Infer package registry type (npm, PyPI, Artifactory, generic) from URL or metadata."""
+def _infer_registry_type(url_or_target: str, metadata: Dict[str, Any]) -> Optional[str]:
+    """Infer package registry type (npm, PyPI, Artifactory, Cargo, RubyGems) from URL or metadata."""
     if metadata and "registry_type" in metadata and metadata["registry_type"]:
         return str(metadata["registry_type"])
 
@@ -102,7 +102,7 @@ def _infer_registry_type(url_or_target: str, metadata: Dict[str, Any]) -> str:
         return "Artifactory"
     elif hostname == "registry.npmjs.org" or hostname.endswith(".npmjs.org") or "npm" in hostname or "npm" in path:
         return "npm"
-    elif hostname == "pypi.org" or hostname.endswith(".pypi.org") or hostname == "pypi.python.org" or "pypi" in hostname or "/simple/" in path or "python" in hostname:
+    elif hostname == "pypi.org" or hostname.endswith(".pypi.org") or hostname == "pypi.python.org" or "pypi" in hostname or "/simple/" in path:
         return "PyPI"
     elif hostname == "crates.io" or hostname.endswith(".crates.io") or "cargo" in hostname or "cargo" in path:
         return "Cargo"
@@ -114,7 +114,11 @@ def _infer_registry_type(url_or_target: str, metadata: Dict[str, Any]) -> str:
         return "npm"
     elif "pypi" in target_lower:
         return "PyPI"
-    return "generic"
+    elif "cargo" in target_lower or "crates.io" in target_lower:
+        return "Cargo"
+    elif "rubygems" in target_lower:
+        return "RubyGems"
+    return None
 
 
 
@@ -287,6 +291,12 @@ class PackageRegistryMonitor:
             meta = ev.metadata if isinstance(ev.metadata, dict) else {}
             meta_str = str(meta)
             payload_str = str(meta.get("payload") or meta.get("query") or meta.get("body") or "")
+            reg_type = _infer_registry_type(target_str, meta)
+
+            # If target cannot be identified as a package registry and no explicit package metadata exists, ignore it
+            if not reg_type and not meta.get("package_name") and not meta.get("package") and not meta.get("registry_type"):
+                continue
+
             pkg_name = str(meta.get("package_name") or meta.get("package") or "")
             if not pkg_name:
                 parsed = urlparse(target_str)
@@ -296,7 +306,7 @@ class PackageRegistryMonitor:
                 else:
                     pkg_name = target_str
 
-            reg_type = _infer_registry_type(target_str, meta)
+            reg_type = reg_type or "generic"
             key = (reg_type, pkg_name)
             if key not in events_by_pkg:
                 events_by_pkg[key] = []

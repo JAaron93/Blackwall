@@ -367,5 +367,37 @@ async def test_single_package_404_retries_not_flagged_as_scanning():
     assert len(evidences) == 0
 
 
+@pytest.mark.asyncio
+async def test_non_registry_404_events_ignored():
+    """Verify that generic non-registry HTTP 404 events in shared store are not misclassified as registry scanning."""
+    store = AttackGraphStore(in_memory=True)
+    monitor = PackageRegistryMonitor(store=store)
+
+    base_time = datetime(2026, 8, 13, 12, 0, 0, tzinfo=timezone.utc)
+    time_window = (base_time, base_time + timedelta(minutes=10))
+
+    # 10 generic 404s against web endpoints (not package registries)
+    for i in range(10):
+        event = create_registry_event(
+            agent_id="web-agent",
+            action="GET",
+            target=f"https://api.internal.service/v1/users/{i}/profile",
+            offset_seconds=float(i * 2),
+            risk_score=0.1,
+            source=EventSource.TOOL_CALL,
+            metadata={
+                "status_code": 404,
+            },
+            base_time=base_time,
+        )
+        await store.insert_event(event)
+
+    evidences = await monitor.detect_exploit_probing(
+        agent_id="web-agent", time_window=time_window
+    )
+    assert len(evidences) == 0
+
+
+
 
 
