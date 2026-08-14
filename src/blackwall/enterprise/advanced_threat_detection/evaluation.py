@@ -54,12 +54,17 @@ class EvaluationEnvironment:
                 f"EvaluationEnvironment '{self.env_id}' is closed and cannot accept operations."
             )
 
-    async def initialize(self) -> None:
-        """Initialize the isolated graph store."""
+    async def _initialize_locked(self) -> None:
+        """Internal initialization while self._lock is held."""
         self._check_not_closed()
         if not self._initialized:
             await self.store.initialize()
             self._initialized = True
+
+    async def initialize(self) -> None:
+        """Initialize the isolated graph store."""
+        async with self._lock:
+            await self._initialize_locked()
 
     def label_event(self, event: NormalizedEvent) -> NormalizedEvent:
         """Stamp a NormalizedEvent with this evaluation environment's metadata."""
@@ -90,8 +95,7 @@ class EvaluationEnvironment:
     async def insert_event(self, event: NormalizedEvent) -> AttackNode:
         """Label and insert an event into this environment's isolated attack graph."""
         async with self._lock:
-            self._check_not_closed()
-            await self.initialize()
+            await self._initialize_locked()
             labeled = self.label_event(event)
             return await self.store.insert_event(labeled)
 
@@ -100,8 +104,7 @@ class EvaluationEnvironment:
     ) -> list[AttackNode]:
         """Label and batch-insert events into this environment's isolated attack graph."""
         async with self._lock:
-            self._check_not_closed()
-            await self.initialize()
+            await self._initialize_locked()
             labeled_events = [self.label_event(e) for e in events]
             return await self.store.insert_events_batch(labeled_events)
 
@@ -121,21 +124,17 @@ class EvaluationEnvironment:
 
     async def publish_alert(self, alert: Alert) -> bool:
         """Label and publish an alert to this environment's isolated alert bus."""
-        self._check_not_closed()
-        labeled = self.label_alert(alert)
-        return await self.alert_bus.publish(labeled)
+        async with self._lock:
+            self._check_not_closed()
+            labeled = self.label_alert(alert)
+            return await self.alert_bus.publish(labeled)
 
     async def reset(self) -> None:
         """Reset the evaluation environment state to a clean initial baseline."""
         async with self._lock:
             self._check_not_closed()
-            # Clear in-memory structures
-            self.store._nodes.clear()
-            self.store._agent_nodes_index.clear()
-            self.store._path_cache.clear()
-            self.store._edges.clear()
 
-            # If PostgreSQL pool is configured, delete ONLY rows for this specific evaluation environment
+            # If PostgreSQL pool is configured, delete scoped DB records first
             if self.store._pool:
                 try:
                     async with self.store._pool.acquire() as conn, conn.transaction():
@@ -153,14 +152,20 @@ class EvaluationEnvironment:
                                 "DELETE FROM event_nodes WHERE metadata->>'evaluation_env_id' = $1;",
                                 self.env_id,
                             )
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "Error deleting scoped DB records during eval reset for %s: %s",
+                except Exception as exc:
+                    logger.exception(
+                        "Error deleting scoped DB records during eval reset for %s",
                         self.env_id,
-                        exc,
                     )
+                    raise RuntimeError(
+                        f"Failed to reset evaluation environment '{self.env_id}'."
+                    ) from exc
 
-            # Clear alert bus history
+            # Clear in-memory structures and alert bus once DB deletion succeeds
+            self.store._nodes.clear()
+            self.store._agent_nodes_index.clear()
+            self.store._path_cache.clear()
+            self.store._edges.clear()
             self.alert_bus.clear()
             logger.info("Evaluation environment %s successfully reset.", self.env_id)
 

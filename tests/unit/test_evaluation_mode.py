@@ -362,3 +362,37 @@ async def test_shared_graph_production_node_isolation():
     assert await manager.is_evaluation_mode(prod_node.node_id) is False
     assert await manager.is_evaluation_mode(prod_node.node_id, env_id="eval-shared-test") is False
     assert await env.get_node(prod_node.node_id) is None
+
+
+@pytest.mark.asyncio
+async def test_failed_db_reset_raises_runtime_error_and_preserves_memory_state():
+    """Verify reset raises RuntimeError and does not falsely claim success when DB transaction fails."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    env = EvaluationEnvironment("eval-fail-reset", in_memory=True)
+    ev = create_sample_event(agent_id="agent-persist")
+    node = await env.insert_event(ev)
+
+    mock_pool = MagicMock()
+    mock_conn = MagicMock()
+    mock_txn = MagicMock()
+
+    mock_txn.__aenter__ = AsyncMock(return_value=None)
+    mock_txn.__aexit__ = AsyncMock(return_value=None)
+    mock_conn.transaction.return_value = mock_txn
+
+    mock_acquire_cm = MagicMock()
+    mock_acquire_cm.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_acquire_cm.__aexit__ = AsyncMock(return_value=None)
+    mock_pool.acquire.return_value = mock_acquire_cm
+
+    mock_conn.fetch = AsyncMock(side_effect=Exception("Simulated PostgreSQL connection failure"))
+
+    env.store._pool = mock_pool
+
+    with pytest.raises(RuntimeError, match="Failed to reset evaluation environment 'eval-fail-reset'"):
+        await env.reset()
+
+    # In-memory nodes and state must still exist because DB delete failed
+    assert len(env.store._nodes) == 1
+    assert await env.store.get_node(node.node_id) is not None
