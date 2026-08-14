@@ -121,7 +121,8 @@ class RetrospectiveAnalyzer:
     ) -> list[AttackPath]:
         """Perform batch analysis on historical events to identify attack paths missed by real-time short-window detection.
 
-        Paginates historical queries in bounded batches to preserve memory and handles timestamp ties without event skipping.
+        Paginates historical queries in bounded batches to preserve memory, maintains lookback overlap across max_time_gap_seconds
+        so cross-batch paths are never dropped, and handles timestamp ties without event skipping.
         """
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
@@ -296,7 +297,10 @@ class RetrospectiveAnalyzer:
                 break
 
             latest_batch_ts = max(n.event.timestamp for n in raw_batch)
-            lookback_overlap_nodes = [n for n in raw_batch if n.event.timestamp == latest_batch_ts]
+            cutoff_lookback = latest_batch_ts - timedelta(seconds=max_time_gap_seconds)
+            lookback_overlap_nodes = [
+                n for n in combined_batch if n.event.timestamp >= cutoff_lookback
+            ]
             current_cursor = latest_batch_ts
 
         identified_paths.sort(key=lambda p: p.risk_score, reverse=True)
