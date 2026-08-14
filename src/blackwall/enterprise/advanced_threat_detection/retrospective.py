@@ -176,6 +176,7 @@ class RetrospectiveAnalyzer:
 
                 # Build extended adjacency graph supporting causal links + semantic affinity
                 adj: dict[uuid.UUID, list[tuple[AttackNode, float]]] = defaultdict(list)
+                in_degree: dict[uuid.UUID, int] = defaultdict(int)
                 edge_to_targets: dict[uuid.UUID, list[AttackNode]] = defaultdict(list)
                 for n in sorted_nodes:
                     for inc_edge in n.incoming_edges:
@@ -193,9 +194,14 @@ class RetrospectiveAnalyzer:
                                 and target_node.event.timestamp >= n_a.event.timestamp
                             ):
                                 adj[n_a.node_id].append((target_node, 1.0))
+                                in_degree[target_node.node_id] += 1
                                 added_target_ids.add(target_node.node_id)
 
-                    # 2. Behavioral/Semantic affinity links across historical time gaps
+                    # 2. Behavioral/Semantic affinity: connect to next chronological same-target or tier-escalation node
+                    target_connected = False
+                    tier_connected = False
+                    tier_a = SEMANTIC_TIERS.get(n_a.event.source, 1)
+
                     for n_b in sorted_nodes[i + 1 :]:
                         delta = (n_b.event.timestamp - n_a.event.timestamp).total_seconds()
                         if delta > max_time_gap_seconds:
@@ -204,7 +210,6 @@ class RetrospectiveAnalyzer:
                         if n_b.node_id in added_target_ids:
                             continue
 
-                        tier_a = SEMANTIC_TIERS.get(n_a.event.source, 1)
                         tier_b = SEMANTIC_TIERS.get(n_b.event.source, 1)
                         same_target = bool(n_a.event.target and n_a.event.target == n_b.event.target)
 
@@ -213,17 +218,31 @@ class RetrospectiveAnalyzer:
                         b_has_mitre = any(pat.search(n_b.event.action) or pat.search(n_b.event.target) for pat, _ in MITRE_PATTERNS)
                         is_strict_tier_escalation = (tier_b > tier_a) and (tier_b - tier_a <= 3) and (a_has_mitre or b_has_mitre)
 
-                        # Require shared target or strict multi-tier ATT&CK escalation
-                        if same_target or is_strict_tier_escalation:
+                        if same_target and not target_connected:
                             decay = math.exp(-delta / max(300.0, max_time_gap_seconds / 10.0))
-                            semantic_base = 0.5 + (0.3 if same_target else 0.0) + (0.1 * abs(tier_b - tier_a))
+                            weight = min(1.0, 0.3 * decay + 0.7 * 0.8)
+                            adj[n_a.node_id].append((n_b, weight))
+                            in_degree[n_b.node_id] += 1
+                            added_target_ids.add(n_b.node_id)
+                            target_connected = True
+
+                        elif is_strict_tier_escalation and not tier_connected:
+                            decay = math.exp(-delta / max(300.0, max_time_gap_seconds / 10.0))
+                            semantic_base = 0.5 + (0.1 * abs(tier_b - tier_a))
                             weight = min(1.0, 0.3 * decay + 0.7 * semantic_base)
                             adj[n_a.node_id].append((n_b, weight))
+                            in_degree[n_b.node_id] += 1
                             added_target_ids.add(n_b.node_id)
+                            tier_connected = True
 
-                # Traverse and find paths without artificial caps across starting nodes
+                # Determine root / starting nodes to prevent combinatorial enumeration
+                root_nodes = [n for n in sorted_nodes if in_degree[n.node_id] == 0]
+                if not root_nodes:
+                    root_nodes = sorted_nodes
+
+                # Traverse from root nodes
                 all_paths: list[list[AttackNode]] = []
-                for start_node in sorted_nodes:
+                for start_node in root_nodes:
                     self._dfs_retrospective(
                         current_node=start_node,
                         current_path=[start_node],
@@ -280,10 +299,10 @@ class RetrospectiveAnalyzer:
                     except ValueError:
                         continue
 
-                # Evict expired nodes from active buffer that are older than cutoff_ts and have no pending outgoing edges
+                # Evict expired nodes from active buffer strictly older than cutoff_ts
                 active_agent_nodes[aid] = [
                     n for n in agent_nodes
-                    if n.event.timestamp >= cutoff_ts or len(n.outgoing_edges) > 0
+                    if n.event.timestamp >= cutoff_ts
                 ]
 
             if len(batch_nodes) < batch_size:
