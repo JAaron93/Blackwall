@@ -119,10 +119,10 @@ class RetrospectiveAnalyzer:
         max_time_gap_seconds: int = 86400 * 7,
         min_risk_score: float = 0.0,
     ) -> list[AttackPath]:
-        """Perform batch analysis on historical events to identify attack paths missed by real-time short-window detection.
+        """Perform retrospective analysis on historical events to identify attack paths missed by real-time short-window detection.
 
-        Retrieves a snapshot of historical events, evaluates them in chronological batches maintaining lookback buffers
-        across max_time_gap_seconds, and enforces causal, target, or tier-escalation affinity to prevent false paths.
+        Reconstructs multi-day stealth campaigns by evaluating causal relationships and behavioral/semantic affinity
+        without omitting cross-window causal links or dropping paths.
         """
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
@@ -149,153 +149,137 @@ class RetrospectiveAnalyzer:
         identified_paths: list[AttackPath] = []
         seen_signatures: set[tuple[uuid.UUID, ...]] = set()
 
-        # Active node buffers per agent across sliding batches
-        active_agent_nodes: dict[str, list[AttackNode]] = defaultdict(list)
+        # Group nodes by agent
+        agent_nodes_map: dict[str, list[AttackNode]] = defaultdict(list)
+        for n in all_nodes:
+            agent_nodes_map[n.event.agent_id].append(n)
 
-        for batch_start in range(0, len(all_nodes), batch_size):
-            batch_nodes = all_nodes[batch_start : batch_start + batch_size]
-            if not batch_nodes:
-                break
+        for aid, agent_nodes in agent_nodes_map.items():
+            if len(agent_nodes) < min_path_length:
+                continue
 
-            # Ingest batch nodes into active per-agent buffers
-            for node in batch_nodes:
-                active_agent_nodes[node.event.agent_id].append(node)
+            sorted_nodes = sorted(agent_nodes, key=lambda n: (n.event.timestamp, str(n.node_id)))
 
-            latest_batch_ts = max(n.event.timestamp for n in batch_nodes)
-            cutoff_ts = latest_batch_ts - timedelta(seconds=max_time_gap_seconds)
+            # Build extended adjacency graph supporting causal links + semantic affinity
+            adj: dict[uuid.UUID, list[tuple[AttackNode, float]]] = defaultdict(list)
+            in_degree: dict[uuid.UUID, int] = defaultdict(int)
+            edge_to_targets: dict[uuid.UUID, list[AttackNode]] = defaultdict(list)
+            for n in sorted_nodes:
+                for inc_edge in n.incoming_edges:
+                    edge_to_targets[inc_edge].append(n)
 
-            for aid, agent_nodes in list(active_agent_nodes.items()):
-                if len(agent_nodes) < min_path_length:
+            for i, n_a in enumerate(sorted_nodes):
+                added_target_ids = set()
+
+                # 1. Direct causal edges (highest confidence, any time gap across the whole window)
+                for out_edge in n_a.outgoing_edges:
+                    for target_node in edge_to_targets.get(out_edge, []):
+                        if (
+                            target_node.node_id != n_a.node_id
+                            and target_node.node_id not in added_target_ids
+                            and target_node.event.timestamp >= n_a.event.timestamp
+                        ):
+                            adj[n_a.node_id].append((target_node, 1.0))
+                            in_degree[target_node.node_id] += 1
+                            added_target_ids.add(target_node.node_id)
+
+                # 2. Behavioral/Semantic affinity: connect to qualifying same-target or tier-escalation nodes
+                tier_a = SEMANTIC_TIERS.get(n_a.event.source, 1)
+
+                for n_b in sorted_nodes[i + 1 :]:
+                    delta = (n_b.event.timestamp - n_a.event.timestamp).total_seconds()
+                    if delta > max_time_gap_seconds:
+                        break
+
+                    if n_b.node_id in added_target_ids:
+                        continue
+
+                    tier_b = SEMANTIC_TIERS.get(n_b.event.source, 1)
+                    same_target = bool(n_a.event.target and n_a.event.target == n_b.event.target)
+
+                    # Match ATT&CK patterns
+                    a_has_mitre = any(pat.search(n_a.event.action) or pat.search(n_a.event.target) for pat, _ in MITRE_PATTERNS)
+                    b_has_mitre = any(pat.search(n_b.event.action) or pat.search(n_b.event.target) for pat, _ in MITRE_PATTERNS)
+                    is_strict_tier_escalation = (tier_b > tier_a) and (tier_b - tier_a <= 3) and (a_has_mitre or b_has_mitre)
+
+                    if same_target:
+                        decay = math.exp(-delta / max(300.0, max_time_gap_seconds / 10.0))
+                        weight = min(1.0, 0.3 * decay + 0.7 * 0.8)
+                        adj[n_a.node_id].append((n_b, weight))
+                        in_degree[n_b.node_id] += 1
+                        added_target_ids.add(n_b.node_id)
+
+                    elif is_strict_tier_escalation:
+                        decay = math.exp(-delta / max(300.0, max_time_gap_seconds / 10.0))
+                        semantic_base = 0.5 + (0.1 * abs(tier_b - tier_a))
+                        weight = min(1.0, 0.3 * decay + 0.7 * semantic_base)
+                        adj[n_a.node_id].append((n_b, weight))
+                        in_degree[n_b.node_id] += 1
+                        added_target_ids.add(n_b.node_id)
+
+            # Determine root / starting nodes to prevent redundant combinatorial sub-path enumeration
+            root_nodes = [n for n in sorted_nodes if in_degree[n.node_id] == 0]
+            if not root_nodes:
+                root_nodes = sorted_nodes
+
+            # Traverse from root nodes across the acyclic / causal graph
+            all_paths: list[list[AttackNode]] = []
+            for start_node in root_nodes:
+                self._dfs_retrospective(
+                    current_node=start_node,
+                    current_path=[start_node],
+                    adj=adj,
+                    min_path_length=min_path_length,
+                    visited_in_path={start_node.node_id},
+                    results=all_paths,
+                    max_depth=15,
+                )
+
+            # Materialize AttackPath instances
+            for path_nodes in all_paths:
+                sig = tuple(n.node_id for n in path_nodes)
+                if sig in seen_signatures or len(path_nodes) < min_path_length:
+                    continue
+                seen_signatures.add(sig)
+
+                max_risk = max(n.event.risk_score for n in path_nodes)
+                if max_risk < min_risk_score:
                     continue
 
-                sorted_nodes = sorted(agent_nodes, key=lambda n: (n.event.timestamp, str(n.node_id)))
-
-                # Build extended adjacency graph supporting causal links + semantic affinity
-                adj: dict[uuid.UUID, list[tuple[AttackNode, float]]] = defaultdict(list)
-                in_degree: dict[uuid.UUID, int] = defaultdict(int)
-                edge_to_targets: dict[uuid.UUID, list[AttackNode]] = defaultdict(list)
-                for n in sorted_nodes:
-                    for inc_edge in n.incoming_edges:
-                        edge_to_targets[inc_edge].append(n)
-
-                for i, n_a in enumerate(sorted_nodes):
-                    added_target_ids = set()
-
-                    # 1. Direct causal edges (highest confidence, any time gap)
-                    for out_edge in n_a.outgoing_edges:
-                        for target_node in edge_to_targets.get(out_edge, []):
-                            if (
-                                target_node.node_id != n_a.node_id
-                                and target_node.node_id not in added_target_ids
-                                and target_node.event.timestamp >= n_a.event.timestamp
-                            ):
-                                adj[n_a.node_id].append((target_node, 1.0))
-                                in_degree[target_node.node_id] += 1
-                                added_target_ids.add(target_node.node_id)
-
-                    # 2. Behavioral/Semantic affinity: connect to qualifying same-target or tier-escalation nodes
-                    tier_a = SEMANTIC_TIERS.get(n_a.event.source, 1)
-
-                    for n_b in sorted_nodes[i + 1 :]:
-                        delta = (n_b.event.timestamp - n_a.event.timestamp).total_seconds()
-                        if delta > max_time_gap_seconds:
-                            break
-
-                        if n_b.node_id in added_target_ids:
-                            continue
-
-                        tier_b = SEMANTIC_TIERS.get(n_b.event.source, 1)
-                        same_target = bool(n_a.event.target and n_a.event.target == n_b.event.target)
-
-                        # Match ATT&CK patterns
-                        a_has_mitre = any(pat.search(n_a.event.action) or pat.search(n_a.event.target) for pat, _ in MITRE_PATTERNS)
-                        b_has_mitre = any(pat.search(n_b.event.action) or pat.search(n_b.event.target) for pat, _ in MITRE_PATTERNS)
-                        is_strict_tier_escalation = (tier_b > tier_a) and (tier_b - tier_a <= 3) and (a_has_mitre or b_has_mitre)
-
-                        if same_target:
-                            decay = math.exp(-delta / max(300.0, max_time_gap_seconds / 10.0))
-                            weight = min(1.0, 0.3 * decay + 0.7 * 0.8)
-                            adj[n_a.node_id].append((n_b, weight))
-                            in_degree[n_b.node_id] += 1
-                            added_target_ids.add(n_b.node_id)
-
-                        elif is_strict_tier_escalation:
-                            decay = math.exp(-delta / max(300.0, max_time_gap_seconds / 10.0))
-                            semantic_base = 0.5 + (0.1 * abs(tier_b - tier_a))
-                            weight = min(1.0, 0.3 * decay + 0.7 * semantic_base)
-                            adj[n_a.node_id].append((n_b, weight))
-                            in_degree[n_b.node_id] += 1
-                            added_target_ids.add(n_b.node_id)
-
-                # Determine root / starting nodes to prevent redundant combinatorial sub-path enumeration
-                root_nodes = [n for n in sorted_nodes if in_degree[n.node_id] == 0]
-                if not root_nodes:
-                    root_nodes = sorted_nodes
-
-                # Traverse from root nodes across the acyclic / causal graph
-                all_paths: list[list[AttackNode]] = []
-                for start_node in root_nodes:
-                    self._dfs_retrospective(
-                        current_node=start_node,
-                        current_path=[start_node],
-                        adj=adj,
-                        min_path_length=min_path_length,
-                        visited_in_path={start_node.node_id},
-                        results=all_paths,
-                        max_depth=15,
+                # Compute dynamic correlation score from path edge weights
+                weights = []
+                for k in range(len(path_nodes) - 1):
+                    curr_n = path_nodes[k]
+                    next_n = path_nodes[k + 1]
+                    matched_w = next(
+                        (w for nb, w in adj[curr_n.node_id] if nb.node_id == next_n.node_id),
+                        0.7,
                     )
+                    weights.append(matched_w)
 
-                # Materialize AttackPath instances
-                for path_nodes in all_paths:
-                    sig = tuple(n.node_id for n in path_nodes)
-                    if sig in seen_signatures or len(path_nodes) < min_path_length:
-                        continue
-                    seen_signatures.add(sig)
+                correlation_score = min(1.0, max(0.0, sum(weights) / max(1, len(weights))))
 
-                    max_risk = max(n.event.risk_score for n in path_nodes)
-                    if max_risk < min_risk_score:
-                        continue
+                stages = []
+                for n in path_nodes:
+                    for pattern, code in MITRE_PATTERNS:
+                        if pattern.search(n.event.action) or pattern.search(n.event.target):
+                            if code not in stages:
+                                stages.append(code)
 
-                    # Compute dynamic correlation score from path edge weights
-                    weights = []
-                    for k in range(len(path_nodes) - 1):
-                        curr_n = path_nodes[k]
-                        next_n = path_nodes[k + 1]
-                        matched_w = next(
-                            (w for nb, w in adj[curr_n.node_id] if nb.node_id == next_n.node_id),
-                            0.7,
-                        )
-                        weights.append(matched_w)
-
-                    correlation_score = min(1.0, max(0.0, sum(weights) / max(1, len(weights))))
-
-                    stages = []
-                    for n in path_nodes:
-                        for pattern, code in MITRE_PATTERNS:
-                            if pattern.search(n.event.action) or pattern.search(n.event.target):
-                                if code not in stages:
-                                    stages.append(code)
-
-                    try:
-                        path_obj = AttackPath(
-                            path_id=uuid.uuid4(),
-                            agent_id=aid,
-                            nodes=path_nodes,
-                            start_time=path_nodes[0].event.timestamp,
-                            end_time=path_nodes[-1].event.timestamp,
-                            risk_score=min(1.0, max(0.0, max_risk)),
-                            attack_stages=stages,
-                            correlation_score=correlation_score,
-                        )
-                        identified_paths.append(path_obj)
-                    except ValueError:
-                        continue
-
-                # Evict expired nodes from active buffer strictly older than cutoff_ts
-                active_agent_nodes[aid] = [
-                    n for n in agent_nodes
-                    if n.event.timestamp >= cutoff_ts
-                ]
+                try:
+                    path_obj = AttackPath(
+                        path_id=uuid.uuid4(),
+                        agent_id=aid,
+                        nodes=path_nodes,
+                        start_time=path_nodes[0].event.timestamp,
+                        end_time=path_nodes[-1].event.timestamp,
+                        risk_score=min(1.0, max(0.0, max_risk)),
+                        attack_stages=stages,
+                        correlation_score=correlation_score,
+                    )
+                    identified_paths.append(path_obj)
+                except ValueError:
+                    continue
 
         identified_paths.sort(key=lambda p: p.risk_score, reverse=True)
         return identified_paths
