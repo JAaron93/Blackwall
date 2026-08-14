@@ -121,8 +121,8 @@ class RetrospectiveAnalyzer:
     ) -> list[AttackPath]:
         """Perform batch analysis on historical events to identify attack paths missed by real-time short-window detection.
 
-        Uses keyset cursor pagination to prevent skipping/duplicating events under concurrency, maintains lookback buffers across
-        max_time_gap_seconds so cross-batch paths are never dropped, and enforces causal, target, or tier-escalation affinity to prevent false paths.
+        Retrieves a snapshot of historical events, evaluates them in chronological batches maintaining lookback buffers
+        across max_time_gap_seconds, and enforces causal, target, or tier-escalation affinity to prevent false paths.
         """
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
@@ -142,24 +142,20 @@ class RetrospectiveAnalyzer:
             end_win = datetime.now(UTC)
             start_win = end_win - timedelta(days=30)
 
+        all_nodes = await self.store.query_nodes(agent_id, (start_win, end_win))
+        if not all_nodes:
+            return []
+
         identified_paths: list[AttackPath] = []
         seen_signatures: set[tuple[uuid.UUID, ...]] = set()
 
         # Active node buffers per agent across sliding batches
         active_agent_nodes: dict[str, list[AttackNode]] = defaultdict(list)
-        last_cursor: tuple[datetime, uuid.UUID] | None = None
 
-        while True:
-            batch_nodes = await self.store.query_nodes(
-                agent_id,
-                (start_win, end_win),
-                limit=batch_size,
-                after_cursor=last_cursor,
-            )
+        for batch_start in range(0, len(all_nodes), batch_size):
+            batch_nodes = all_nodes[batch_start : batch_start + batch_size]
             if not batch_nodes:
                 break
-
-            last_cursor = (batch_nodes[-1].event.timestamp, batch_nodes[-1].node_id)
 
             # Ingest batch nodes into active per-agent buffers
             for node in batch_nodes:
@@ -304,9 +300,6 @@ class RetrospectiveAnalyzer:
                     n for n in agent_nodes
                     if n.event.timestamp >= cutoff_ts
                 ]
-
-            if len(batch_nodes) < batch_size:
-                break
 
         identified_paths.sort(key=lambda p: p.risk_score, reverse=True)
         return identified_paths

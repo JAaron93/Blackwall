@@ -782,6 +782,7 @@ class AttackGraphStore:
     async def purge_events_before(self, cutoff_time: datetime) -> int:
         """Purge events older than cutoff_time from attack graph (enforcing retention invariant)."""
         purged_count = 0
+        edge_ids_to_remove: list[str] = []
         if self._pool:
             async with self._pool.acquire() as conn:
                 async with conn.transaction():
@@ -822,6 +823,8 @@ class AttackGraphStore:
                                 """,
                                 edge_ids_to_remove,
                             )
+            self._node_cache.clear()
+            self._path_cache.clear()
 
         # Purge from in-memory structures
         to_delete = [
@@ -834,6 +837,7 @@ class AttackGraphStore:
             for e in self._edges
             if e["from_node"] in to_delete or e["to_node"] in to_delete
         }
+        removed_edge_ids.update(edge_ids_to_remove)
         for nid in to_delete:
             node = self._nodes.pop(nid, None)
             if node:
@@ -845,18 +849,16 @@ class AttackGraphStore:
         for node in self._nodes.values():
             if removed_edge_ids:
                 node.incoming_edges = [
-                    e for e in node.incoming_edges if e not in removed_edge_ids
+                    e for e in node.incoming_edges if e not in removed_edge_ids and str(e) not in {str(x) for x in removed_edge_ids}
                 ]
                 node.outgoing_edges = [
-                    e for e in node.outgoing_edges if e not in removed_edge_ids
+                    e for e in node.outgoing_edges if e not in removed_edge_ids and str(e) not in {str(x) for x in removed_edge_ids}
                 ]
 
         self._edges = [
             e
             for e in self._edges
-            if e["edge_id"] not in removed_edge_ids
+            if e["from_node"] not in to_delete and e["to_node"] not in to_delete
         ]
-        self._invalidate_path_cache()
-        return len(to_delete) if not self._pool else purged_count
-
-
+        self._path_cache.clear()
+        return purged_count if self._pool else len(to_delete)
