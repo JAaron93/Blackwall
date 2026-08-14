@@ -235,12 +235,12 @@ class RetrospectiveAnalyzer:
                             added_target_ids.add(n_b.node_id)
                             tier_connected = True
 
-                # Determine root / starting nodes to prevent combinatorial enumeration
+                # Determine root / starting nodes to prevent redundant combinatorial sub-path enumeration
                 root_nodes = [n for n in sorted_nodes if in_degree[n.node_id] == 0]
                 if not root_nodes:
                     root_nodes = sorted_nodes
 
-                # Traverse from root nodes
+                # Traverse from root nodes across the acyclic / causal graph
                 all_paths: list[list[AttackNode]] = []
                 for start_node in root_nodes:
                     self._dfs_retrospective(
