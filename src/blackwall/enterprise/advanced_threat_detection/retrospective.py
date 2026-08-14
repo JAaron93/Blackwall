@@ -218,19 +218,21 @@ class RetrospectiveAnalyzer:
                             adj[n_a.node_id].append((n_b, weight))
                             added_target_ids.add(n_b.node_id)
 
-                # Traverse and find paths
+                # Traverse and find paths without stopping across start nodes
                 all_paths: list[list[AttackNode]] = []
                 for start_node in sorted_nodes:
+                    node_paths: list[list[AttackNode]] = []
                     self._dfs_retrospective(
                         current_node=start_node,
                         current_path=[start_node],
                         adj=adj,
                         min_path_length=min_path_length,
                         visited_in_path={start_node.node_id},
-                        results=all_paths,
+                        results=node_paths,
                         max_depth=15,
-                        max_results=500,
+                        max_results_per_start=100,
                     )
+                    all_paths.extend(node_paths)
 
                 # Materialize AttackPath instances
                 for path_nodes in all_paths:
@@ -299,10 +301,10 @@ class RetrospectiveAnalyzer:
         visited_in_path: set[uuid.UUID],
         results: list[list[AttackNode]],
         max_depth: int,
-        max_results: int,
+        max_results_per_start: int = 100,
     ) -> None:
         """DFS exploration for retrospective multi-stage path reconstruction."""
-        if len(results) >= max_results:
+        if len(results) >= max_results_per_start:
             return
 
         if len(current_path) >= min_path_length:
@@ -324,7 +326,7 @@ class RetrospectiveAnalyzer:
                     visited_in_path,
                     results,
                     max_depth,
-                    max_results,
+                    max_results_per_start,
                 )
 
                 current_path.pop()
@@ -443,15 +445,15 @@ class RetrospectiveAnalyzer:
             if str(e.get("from_node", "")) in node_id_strs
             and str(e.get("to_node", "")) in node_id_strs
         ]
-        scoped_edge_ids = {e["edge_id"] for e in scoped_edges}
+        scoped_edge_ids = {str(e["edge_id"]) for e in scoped_edges}
 
         # Filter nodes' incoming and outgoing edge lists to eliminate dangling references in exported node payloads
         scoped_nodes = [
             AttackNode(
                 node_id=n.node_id,
                 event=n.event,
-                incoming_edges=[e for e in n.incoming_edges if e in scoped_edge_ids],
-                outgoing_edges=[e for e in n.outgoing_edges if e in scoped_edge_ids],
+                incoming_edges=[e for e in n.incoming_edges if str(e) in scoped_edge_ids],
+                outgoing_edges=[e for e in n.outgoing_edges if str(e) in scoped_edge_ids],
             )
             for n in nodes
         ]
