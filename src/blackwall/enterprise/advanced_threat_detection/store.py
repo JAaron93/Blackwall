@@ -781,14 +781,17 @@ class AttackGraphStore:
 
     async def purge_events_before(self, cutoff_time: datetime) -> int:
         """Purge events older than cutoff_time from attack graph (enforcing retention invariant)."""
+        purged_count = 0
+        edge_ids_to_remove: list[str] = []
+        purged_ids: list[str] = []
+
         if self._pool:
-            purged_count = 0
             async with self._pool.acquire() as conn:
                 async with conn.transaction():
                     purged_rows = await conn.fetch(
                         "SELECT node_id FROM event_nodes WHERE timestamp < $1;", cutoff_time
                     )
-                    purged_ids = [r["node_id"] for r in purged_rows]
+                    purged_ids = [str(r["node_id"]) for r in purged_rows]
                     if purged_ids:
                         edge_rows = await conn.fetch(
                             "SELECT edge_id FROM causal_edges WHERE from_node = ANY($1) OR to_node = ANY($1);",
@@ -822,20 +825,23 @@ class AttackGraphStore:
                                 """,
                                 edge_ids_to_remove,
                             )
-            self._path_cache.clear()
-            return purged_count
 
-        # Purge from in-memory structures
+        # Synchronize and purge process-local memory/cache state
+        purged_id_set = set(purged_ids)
         to_delete = [
             nid
             for nid, node in self._nodes.items()
-            if node.event.timestamp < cutoff_time
+            if node.event.timestamp < cutoff_time or str(nid) in purged_id_set
         ]
+        to_delete_set = {str(nid) for nid in to_delete}
+
         removed_edge_ids = {
-            e["edge_id"]
+            str(e["edge_id"])
             for e in self._edges
-            if e["from_node"] in to_delete or e["to_node"] in to_delete
+            if str(e["from_node"]) in to_delete_set or str(e["to_node"]) in to_delete_set
         }
+        removed_edge_ids.update(edge_ids_to_remove)
+
         for nid in to_delete:
             node = self._nodes.pop(nid, None)
             if node:
@@ -846,17 +852,19 @@ class AttackGraphStore:
         for node in self._nodes.values():
             if removed_edge_ids:
                 node.incoming_edges = [
-                    e for e in node.incoming_edges if e not in removed_edge_ids
+                    e for e in node.incoming_edges if str(e) not in removed_edge_ids
                 ]
                 node.outgoing_edges = [
-                    e for e in node.outgoing_edges if e not in removed_edge_ids
+                    e for e in node.outgoing_edges if str(e) not in removed_edge_ids
                 ]
 
         self._edges = [
             e
             for e in self._edges
-            if e["from_node"] not in to_delete and e["to_node"] not in to_delete
+            if str(e["from_node"]) not in to_delete_set
+            and str(e["to_node"]) not in to_delete_set
+            and str(e["edge_id"]) not in removed_edge_ids
         ]
         self._path_cache.clear()
-        return len(to_delete)
+        return purged_count if self._pool else len(to_delete)
 
