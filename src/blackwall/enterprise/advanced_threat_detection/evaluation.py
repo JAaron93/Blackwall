@@ -6,6 +6,7 @@ state resets, and evidence-derived containment checks for evaluation environment
 """
 
 import asyncio
+import hashlib
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -65,8 +66,18 @@ class EvaluationAttackGraphStore(AttackGraphStore):
     ) -> None:
         async with self._env._lock:
             self._check_store_open()
+            from_uuid = validate_uuid_v4_format(from_node)
+            to_uuid = validate_uuid_v4_format(to_node)
+            if from_uuid not in self._nodes:
+                derived_from = self._env.derive_evaluation_event_id(from_uuid)
+                if derived_from in self._nodes:
+                    from_uuid = derived_from
+            if to_uuid not in self._nodes:
+                derived_to = self._env.derive_evaluation_event_id(to_uuid)
+                if derived_to in self._nodes:
+                    to_uuid = derived_to
             await super().link_events(
-                from_node=from_node, to_node=to_node, relationship=relationship
+                from_node=from_uuid, to_node=to_uuid, relationship=relationship
             )
 
     async def close(self) -> None:
@@ -96,6 +107,14 @@ class EvaluationEnvironment:
         self._closed = False
         self._lock = asyncio.Lock()
 
+    def derive_evaluation_event_id(self, event_id: uuid.UUID | str) -> uuid.UUID:
+        """Deterministically derive an environment-isolated UUIDv4 to prevent collisions in shared databases."""
+        clean_uuid = validate_uuid_v4_format(event_id)
+        digest = hashlib.sha256(
+            f"blackwall://eval/{self.env_id}/{clean_uuid}".encode()
+        ).digest()
+        return uuid.UUID(bytes=digest[:16], version=4)
+
     def _check_not_closed(self) -> None:
         """Raise RuntimeError if this evaluation environment has been closed."""
         if self._closed:
@@ -116,20 +135,25 @@ class EvaluationEnvironment:
             await self._initialize_locked()
 
     def label_event(self, event: NormalizedEvent) -> NormalizedEvent:
-        """Stamp a NormalizedEvent with this evaluation environment's metadata."""
+        """Stamp a NormalizedEvent with this evaluation environment's metadata and isolated identifier."""
         meta = dict(event.metadata)
         meta["evaluation_env_id"] = self.env_id
         meta["is_evaluation"] = True
         meta["eval_mode"] = True
-        return event.model_copy(update={"metadata": meta})
+        meta["original_event_id"] = str(event.event_id)
+        eval_id = self.derive_evaluation_event_id(event.event_id)
+        return event.model_copy(update={"event_id": eval_id, "metadata": meta})
 
     def label_raw_event(self, raw_event: dict[str, Any]) -> dict[str, Any]:
-        """Stamp a raw event dictionary with this evaluation environment's metadata."""
+        """Stamp a raw event dictionary with this evaluation environment's metadata and isolated identifier."""
         stamped = dict(raw_event)
         meta = dict(stamped.get("metadata", {})) if isinstance(stamped.get("metadata"), dict) else {}
         meta["evaluation_env_id"] = self.env_id
         meta["is_evaluation"] = True
         meta["eval_mode"] = True
+        if stamped.get("event_id"):
+            meta["original_event_id"] = str(stamped["event_id"])
+            stamped["event_id"] = str(self.derive_evaluation_event_id(stamped["event_id"]))
         stamped["metadata"] = meta
         return stamped
 
@@ -161,6 +185,9 @@ class EvaluationEnvironment:
             self._check_not_closed()
             clean_uuid = validate_uuid_v4_format(node_id)
             node = await self.store.get_node(clean_uuid)
+            if node is None:
+                scoped_uuid = self.derive_evaluation_event_id(clean_uuid)
+                node = await self.store.get_node(scoped_uuid)
             if node is not None:
                 meta = node.event.metadata
                 if meta.get("evaluation_env_id") == self.env_id and (
@@ -410,7 +437,7 @@ class EvaluationEnvironmentManager:
             env = self.get_environment(env_id)
             if env:
                 try:
-                    node = await env.store.get_node(clean_node_id)
+                    node = await env.get_node(clean_node_id)
                     if (
                         node is not None
                         and self.is_evaluation_event(node.event)
@@ -424,7 +451,7 @@ class EvaluationEnvironmentManager:
 
         for env in list(self._environments.values()):
             try:
-                node = await env.store.get_node(clean_node_id)
+                node = await env.get_node(clean_node_id)
                 if node is not None and self.is_evaluation_event(node.event):
                     return True
             except (OSError, RuntimeError) as exc:

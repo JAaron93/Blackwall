@@ -468,3 +468,41 @@ async def test_retained_graph_store_rejects_writes_after_environment_closure():
 
     with pytest.raises(RuntimeError, match="graph store is closed and cannot accept writes"):
         await store.link_events(ev.event_id, ev_after.event_id, "caused")
+
+
+@pytest.mark.asyncio
+async def test_shared_database_event_identifier_collision_isolation():
+    """Verify that two evaluation environments ingesting the same event ID are completely isolated without collisions."""
+    manager = EvaluationEnvironmentManager(in_memory=True)
+    env_a = manager.get_or_create_environment("eval-tenant-a")
+    env_b = manager.get_or_create_environment("eval-tenant-b")
+
+    shared_event = create_sample_event(agent_id="agent-collision-test")
+    raw_id = shared_event.event_id
+
+    # Ingest the same identical event into both evaluation environments
+    node_a = await env_a.insert_event(shared_event)
+    node_b = await env_b.insert_event(shared_event)
+
+    # Scoped event IDs must be distinct per environment
+    assert node_a.node_id != node_b.node_id
+    assert node_a.event.event_id != node_b.event.event_id
+    assert node_a.event.metadata["evaluation_env_id"] == "eval-tenant-a"
+    assert node_b.event.metadata["evaluation_env_id"] == "eval-tenant-b"
+
+    # Both environments resolve their respective nodes correctly
+    assert await manager.is_evaluation_mode(raw_id, env_id="eval-tenant-a") is True
+    assert await manager.is_evaluation_mode(raw_id, env_id="eval-tenant-b") is True
+    assert await manager.is_evaluation_mode(node_a.node_id, env_id="eval-tenant-a") is True
+    assert await manager.is_evaluation_mode(node_b.node_id, env_id="eval-tenant-b") is True
+
+    # Cross-tenant queries return False
+    assert await manager.is_evaluation_mode(node_a.node_id, env_id="eval-tenant-b") is False
+    assert await manager.is_evaluation_mode(node_b.node_id, env_id="eval-tenant-a") is False
+
+    # Resetting tenant A must NOT delete or affect tenant B
+    await env_a.reset()
+    assert await manager.is_evaluation_mode(raw_id, env_id="eval-tenant-a") is False
+    assert await manager.is_evaluation_mode(raw_id, env_id="eval-tenant-b") is True
+    assert await manager.is_evaluation_mode(node_b.node_id, env_id="eval-tenant-b") is True
+    assert await env_b.get_node(raw_id) is not None
