@@ -26,6 +26,51 @@ from blackwall.validators import (
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.evaluation")
 
 
+class EvaluationAttackGraphStore(AttackGraphStore):
+    """AttackGraphStore bound to an EvaluationEnvironment that enforces lifecycle closure guards."""
+
+    def __init__(
+        self,
+        env: "EvaluationEnvironment",
+        dsn: str | None = None,
+        in_memory: bool = True,
+    ) -> None:
+        super().__init__(dsn=dsn, in_memory=in_memory)
+        self._env = env
+        self._store_closed = False
+
+    def _check_store_open(self) -> None:
+        if self._store_closed or self._env._closed:
+            raise RuntimeError(
+                f"EvaluationEnvironment '{self._env.env_id}' graph store is closed and cannot accept writes."
+            )
+
+    async def insert_event(self, event: NormalizedEvent) -> AttackNode:
+        self._check_store_open()
+        return await super().insert_event(event)
+
+    async def insert_events_batch(
+        self, events: list[NormalizedEvent]
+    ) -> list[AttackNode]:
+        self._check_store_open()
+        return await super().insert_events_batch(events)
+
+    async def link_events(
+        self,
+        from_node: uuid.UUID | str,
+        to_node: uuid.UUID | str,
+        relationship: str = "caused",
+    ) -> None:
+        self._check_store_open()
+        await super().link_events(
+            from_node=from_node, to_node=to_node, relationship=relationship
+        )
+
+    async def close(self) -> None:
+        self._store_closed = True
+        await super().close()
+
+
 class EvaluationEnvironment:
     """Encapsulates an isolated evaluation environment instance with its own graph store and alert bus."""
 
@@ -41,7 +86,7 @@ class EvaluationEnvironment:
         self.in_memory = in_memory
         self.created_at = datetime.now(UTC)
         self.metadata: dict[str, Any] = dict(metadata) if metadata else {}
-        self.store = AttackGraphStore(dsn=dsn, in_memory=in_memory)
+        self.store = EvaluationAttackGraphStore(env=self, dsn=dsn, in_memory=in_memory)
         self.alert_bus = AlertBus()
         self._initialized = False
         self._closed = False

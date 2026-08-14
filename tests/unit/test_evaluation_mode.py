@@ -444,3 +444,27 @@ async def test_delete_environment_closes_pool_on_reset_failure():
     # Environment must be transitioned to closed state and pool closed
     assert env._closed is True
     mock_pool.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_retained_graph_store_rejects_writes_after_environment_closure():
+    """Verify that a store reference obtained via get_graph_store rejects writes once closed."""
+    manager = EvaluationEnvironmentManager(in_memory=True)
+    store = manager.get_graph_store("eval-retained-store")
+
+    ev = create_sample_event(agent_id="agent-before-close")
+    await store.insert_event(ev)
+
+    # Delete / close environment
+    await manager.delete_environment("eval-retained-store")
+
+    # Retained store reference must reject writes rather than silently writing in memory
+    ev_after = create_sample_event(agent_id="agent-after-close")
+    with pytest.raises(RuntimeError, match="graph store is closed and cannot accept writes"):
+        await store.insert_event(ev_after)
+
+    with pytest.raises(RuntimeError, match="graph store is closed and cannot accept writes"):
+        await store.insert_events_batch([ev_after])
+
+    with pytest.raises(RuntimeError, match="graph store is closed and cannot accept writes"):
+        await store.link_events(ev.event_id, ev_after.event_id, "caused")
