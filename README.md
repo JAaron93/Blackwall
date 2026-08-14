@@ -184,6 +184,10 @@ if swarms:
 # Detects multi-step zero-day exploit sequences, C2 infrastructure establishment/beaconing, AI-Induced Lateral Movement, Kubernetes cluster attacks, retrospective historical campaigns, and package registry exploit probing (Log4j, Spring4Shell, CVEs)
 ```
 
+> [!TIP]
+> For a complete external visualization and analysis guide using **NetworkX**, **Gephi**, or **Cytoscape.js** with Blackwall attack graph exports, see [docs/graph_export_tools_guide.md](docs/graph_export_tools_guide.md).
+
+
 #### 🧪 Enterprise BDD & Property Verification
 
 ```bash
