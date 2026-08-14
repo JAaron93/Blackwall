@@ -121,8 +121,8 @@ class RetrospectiveAnalyzer:
     ) -> list[AttackPath]:
         """Perform batch analysis on historical events to identify attack paths missed by real-time short-window detection.
 
-        Uses deterministic offset pagination to bound memory, maintains lookback buffers across max_time_gap_seconds
-        so cross-batch paths are never dropped, and enforces causal, target, or tier-escalation affinity to prevent false paths.
+        Uses keyset cursor pagination to prevent skipping/duplicating events under concurrency, maintains lookback buffers across
+        max_time_gap_seconds so cross-batch paths are never dropped, and enforces causal, target, or tier-escalation affinity to prevent false paths.
         """
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
@@ -147,16 +147,19 @@ class RetrospectiveAnalyzer:
 
         # Active node buffers per agent across sliding batches
         active_agent_nodes: dict[str, list[AttackNode]] = defaultdict(list)
-        offset = 0
+        last_cursor: tuple[datetime, uuid.UUID] | None = None
 
         while True:
             batch_nodes = await self.store.query_nodes(
-                agent_id, (start_win, end_win), limit=batch_size, offset=offset
+                agent_id,
+                (start_win, end_win),
+                limit=batch_size,
+                after_cursor=last_cursor,
             )
             if not batch_nodes:
                 break
 
-            offset += len(batch_nodes)
+            last_cursor = (batch_nodes[-1].event.timestamp, batch_nodes[-1].node_id)
 
             # Ingest batch nodes into active per-agent buffers
             for node in batch_nodes:
@@ -218,21 +221,18 @@ class RetrospectiveAnalyzer:
                             adj[n_a.node_id].append((n_b, weight))
                             added_target_ids.add(n_b.node_id)
 
-                # Traverse and find paths without stopping across start nodes
+                # Traverse and find paths without artificial caps across starting nodes
                 all_paths: list[list[AttackNode]] = []
                 for start_node in sorted_nodes:
-                    node_paths: list[list[AttackNode]] = []
                     self._dfs_retrospective(
                         current_node=start_node,
                         current_path=[start_node],
                         adj=adj,
                         min_path_length=min_path_length,
                         visited_in_path={start_node.node_id},
-                        results=node_paths,
+                        results=all_paths,
                         max_depth=15,
-                        max_results_per_start=100,
                     )
-                    all_paths.extend(node_paths)
 
                 # Materialize AttackPath instances
                 for path_nodes in all_paths:
@@ -300,13 +300,9 @@ class RetrospectiveAnalyzer:
         min_path_length: int,
         visited_in_path: set[uuid.UUID],
         results: list[list[AttackNode]],
-        max_depth: int,
-        max_results_per_start: int = 100,
+        max_depth: int = 15,
     ) -> None:
         """DFS exploration for retrospective multi-stage path reconstruction."""
-        if len(results) >= max_results_per_start:
-            return
-
         if len(current_path) >= min_path_length:
             results.append(list(current_path))
 
@@ -326,7 +322,6 @@ class RetrospectiveAnalyzer:
                     visited_in_path,
                     results,
                     max_depth,
-                    max_results_per_start,
                 )
 
                 current_path.pop()
@@ -429,13 +424,14 @@ class RetrospectiveAnalyzer:
         """Export current attack graph to JSON or GraphML format, scoping nodes and edges strictly to the subgraph."""
         if time_window:
             nodes = await self.store.query_nodes(agent_id, time_window)
-            edges = await self.store.get_edges(time_window)
         else:
             nodes = await self.store.get_all_nodes()
-            edges = await self.store.get_edges()
 
         if agent_id:
             nodes = [n for n in nodes if n.event.agent_id == agent_id]
+
+        # Retrieve all edges to prevent omitting causal edges created outside node time window
+        edges = await self.store.get_edges()
 
         # Filter edges to only include those whose source and target nodes exist in the exported nodes list
         node_id_strs = {str(n.node_id) for n in nodes}

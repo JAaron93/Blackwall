@@ -480,6 +480,7 @@ class AttackGraphStore:
         time_window: tuple[datetime, datetime],
         limit: int | None = None,
         offset: int | None = None,
+        after_cursor: tuple[datetime, uuid.UUID | str] | None = None,
     ) -> list[AttackNode]:
         """Fetch all AttackNodes for an agent (or all agents if agent_id is None) within the specified time window."""
         if limit is not None and limit <= 0:
@@ -491,20 +492,28 @@ class AttackGraphStore:
 
         if self._pool:
             async with self._pool.acquire() as conn:
+                where_clauses = ["timestamp >= $1", "timestamp <= $2"]
+                params: list[Any] = [start_time_win, end_time_win]
+
                 if agent_id is not None:
-                    query = """
-                        SELECT * FROM event_nodes
-                        WHERE agent_id = $1 AND timestamp >= $2 AND timestamp <= $3
-                        ORDER BY timestamp ASC, node_id ASC
-                    """
-                    params = [agent_id, start_time_win, end_time_win]
-                else:
-                    query = """
-                        SELECT * FROM event_nodes
-                        WHERE timestamp >= $1 AND timestamp <= $2
-                        ORDER BY timestamp ASC, node_id ASC
-                    """
-                    params = [start_time_win, end_time_win]
+                    params.append(agent_id)
+                    where_clauses.insert(0, f"agent_id = ${len(params)}")
+
+                if after_cursor is not None:
+                    cursor_ts, cursor_nid = after_cursor
+                    params.append(cursor_ts)
+                    idx_ts = len(params)
+                    params.append(str(cursor_nid))
+                    idx_nid = len(params)
+                    where_clauses.append(
+                        f"(timestamp > ${idx_ts} OR (timestamp = ${idx_ts} AND node_id > ${idx_nid}))"
+                    )
+
+                query = f"""
+                    SELECT * FROM event_nodes
+                    WHERE {' AND '.join(where_clauses)}
+                    ORDER BY timestamp ASC, node_id ASC
+                """
 
                 if limit is not None:
                     query += f" LIMIT {int(limit)}"
@@ -560,9 +569,26 @@ class AttackGraphStore:
             ]
 
         candidate_nodes.sort(key=lambda n: (n.event.timestamp, str(n.node_id)))
+
+        if after_cursor is not None:
+            cursor_ts, cursor_nid = after_cursor
+            cursor_nid_str = str(cursor_nid)
+            candidate_nodes = [
+                n
+                for n in candidate_nodes
+                if (
+                    n.event.timestamp > cursor_ts
+                    or (
+                        n.event.timestamp == cursor_ts
+                        and str(n.node_id) > cursor_nid_str
+                    )
+                )
+            ]
+
         start_idx = offset if offset is not None else 0
         end_idx = (start_idx + limit) if limit is not None else len(candidate_nodes)
         return candidate_nodes[start_idx:end_idx]
+
 
 
     async def query_paths(
