@@ -46,14 +46,16 @@ class EvaluationAttackGraphStore(AttackGraphStore):
             )
 
     async def insert_event(self, event: NormalizedEvent) -> AttackNode:
-        self._check_store_open()
-        return await super().insert_event(event)
+        async with self._env._lock:
+            self._check_store_open()
+            return await super().insert_event(event)
 
     async def insert_events_batch(
         self, events: list[NormalizedEvent]
     ) -> list[AttackNode]:
-        self._check_store_open()
-        return await super().insert_events_batch(events)
+        async with self._env._lock:
+            self._check_store_open()
+            return await super().insert_events_batch(events)
 
     async def link_events(
         self,
@@ -61,14 +63,16 @@ class EvaluationAttackGraphStore(AttackGraphStore):
         to_node: uuid.UUID | str,
         relationship: str = "caused",
     ) -> None:
-        self._check_store_open()
-        await super().link_events(
-            from_node=from_node, to_node=to_node, relationship=relationship
-        )
+        async with self._env._lock:
+            self._check_store_open()
+            await super().link_events(
+                from_node=from_node, to_node=to_node, relationship=relationship
+            )
 
     async def close(self) -> None:
-        self._store_closed = True
-        await super().close()
+        async with self._env._lock:
+            self._store_closed = True
+            await super().close()
 
 
 class EvaluationEnvironment:
@@ -139,19 +143,17 @@ class EvaluationEnvironment:
 
     async def insert_event(self, event: NormalizedEvent) -> AttackNode:
         """Label and insert an event into this environment's isolated attack graph."""
-        async with self._lock:
-            await self._initialize_locked()
-            labeled = self.label_event(event)
-            return await self.store.insert_event(labeled)
+        await self.initialize()
+        labeled = self.label_event(event)
+        return await self.store.insert_event(labeled)
 
     async def insert_events_batch(
         self, events: list[NormalizedEvent]
     ) -> list[AttackNode]:
         """Label and batch-insert events into this environment's isolated attack graph."""
-        async with self._lock:
-            await self._initialize_locked()
-            labeled_events = [self.label_event(e) for e in events]
-            return await self.store.insert_events_batch(labeled_events)
+        await self.initialize()
+        labeled_events = [self.label_event(e) for e in events]
+        return await self.store.insert_events_batch(labeled_events)
 
     async def get_node(self, node_id: uuid.UUID | str) -> AttackNode | None:
         """Retrieve a node from this environment's graph, ensuring it belongs to this evaluation environment."""
@@ -235,11 +237,9 @@ class EvaluationEnvironment:
 
     async def close(self) -> None:
         """Close graph store connection pool and transition to closed state."""
-        async with self._lock:
-            if not self._closed:
-                self._closed = True
-                self._initialized = False
-                await self.store.close()
+        self._closed = True
+        self._initialized = False
+        await self.store.close()
 
     def is_production_action_suppressed(self) -> bool:
         """All mitigations from evaluation environments must be suppressed from production."""
@@ -409,15 +409,27 @@ class EvaluationEnvironmentManager:
         if env_id:
             env = self.get_environment(env_id)
             if env:
-                node = await env.get_node(clean_node_id)
-                if node is not None:
-                    return True
+                try:
+                    node = await env.store.get_node(clean_node_id)
+                    if (
+                        node is not None
+                        and self.is_evaluation_event(node.event)
+                        and node.event.metadata.get("evaluation_env_id") == env.env_id
+                    ):
+                        return True
+                except (OSError, RuntimeError) as exc:
+                    logger.debug("Error checking evaluation mode for env %s: %s", env_id, exc)
+                    return False
             return False
 
         for env in list(self._environments.values()):
-            node = await env.get_node(clean_node_id)
-            if node is not None:
-                return True
+            try:
+                node = await env.store.get_node(clean_node_id)
+                if node is not None and self.is_evaluation_event(node.event):
+                    return True
+            except (OSError, RuntimeError) as exc:
+                logger.debug("Error checking evaluation mode in env %s: %s", env.env_id, exc)
+                continue
 
         return False
 
