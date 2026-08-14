@@ -159,12 +159,29 @@ registry_evidences = await registry_monitor.detect_exploit_probing(
     time_window=(now - timedelta(minutes=1), now + timedelta(minutes=10)),
 )
 
+# Retrospective Historical Analysis & Attack Graph Export (Pillar 6 Task 17)
+from blackwall.enterprise.advanced_threat_detection import RetrospectiveAnalyzer, AttackGraphExporter
+
+retro_analyzer = RetrospectiveAnalyzer(store=store)
+historical_paths = await retro_analyzer.detect_retrospective_paths(
+    agent_id="agent-007",
+    time_window=(now - timedelta(days=7), now),
+    min_path_length=2,
+)
+delayed_swarms = await retro_analyzer.correlate_multi_agent_history(
+    time_window=(now - timedelta(days=30), now),
+    similarity_threshold=0.7,
+    min_agents=2,
+)
+json_export = await retro_analyzer.export_attack_graph(format="json")
+graphml_export = await retro_analyzer.export_attack_graph(format="graphml")
+
 # Real-Time Alert Bus & Subscription Integration
 alert_bus = AlertBus(max_retries=5)
 alert_bus.subscribe(lambda alert: print(f"[{alert.severity}] {alert.title}: {alert.description}"))
 if swarms:
     await alert_bus.publish_swarm_alert(swarms[0])
-# Detects multi-step zero-day exploit sequences, C2 infrastructure establishment/beaconing, AI-Induced Lateral Movement, Kubernetes cluster attacks, and package registry exploit probing (Log4j, Spring4Shell, CVEs)
+# Detects multi-step zero-day exploit sequences, C2 infrastructure establishment/beaconing, AI-Induced Lateral Movement, Kubernetes cluster attacks, retrospective historical campaigns, and package registry exploit probing (Log4j, Spring4Shell, CVEs)
 ```
 
 #### 🧪 Enterprise BDD & Property Verification
