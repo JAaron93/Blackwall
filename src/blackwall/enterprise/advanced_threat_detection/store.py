@@ -479,10 +479,13 @@ class AttackGraphStore:
         agent_id: str | None,
         time_window: tuple[datetime, datetime],
         limit: int | None = None,
+        offset: int | None = None,
     ) -> list[AttackNode]:
         """Fetch all AttackNodes for an agent (or all agents if agent_id is None) within the specified time window."""
         if limit is not None and limit <= 0:
             raise ValueError("limit must be positive")
+        if offset is not None and offset < 0:
+            raise ValueError("offset must be non-negative")
 
         start_time_win, end_time_win = time_window
 
@@ -492,19 +495,21 @@ class AttackGraphStore:
                     query = """
                         SELECT * FROM event_nodes
                         WHERE agent_id = $1 AND timestamp >= $2 AND timestamp <= $3
-                        ORDER BY timestamp ASC
+                        ORDER BY timestamp ASC, node_id ASC
                     """
                     params = [agent_id, start_time_win, end_time_win]
                 else:
                     query = """
                         SELECT * FROM event_nodes
                         WHERE timestamp >= $1 AND timestamp <= $2
-                        ORDER BY timestamp ASC
+                        ORDER BY timestamp ASC, node_id ASC
                     """
                     params = [start_time_win, end_time_win]
 
                 if limit is not None:
                     query += f" LIMIT {int(limit)}"
+                if offset is not None:
+                    query += f" OFFSET {int(offset)}"
                 query += ";"
 
                 rows = await conn.fetch(
@@ -554,10 +559,11 @@ class AttackGraphStore:
                 if start_time_win <= node.event.timestamp <= end_time_win
             ]
 
-        candidate_nodes.sort(key=lambda n: n.event.timestamp)
-        if limit is not None:
-            candidate_nodes = candidate_nodes[:limit]
-        return candidate_nodes
+        candidate_nodes.sort(key=lambda n: (n.event.timestamp, str(n.node_id)))
+        start_idx = offset if offset is not None else 0
+        end_idx = (start_idx + limit) if limit is not None else len(candidate_nodes)
+        return candidate_nodes[start_idx:end_idx]
+
 
     async def query_paths(
         self,

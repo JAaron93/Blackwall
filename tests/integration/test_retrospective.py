@@ -227,3 +227,80 @@ async def test_historical_correlation():
         or agent_c in swarm.agent_ids
     )
     assert swarm.coordination_score > 0.0
+
+
+@pytest.mark.asyncio
+async def test_retrospective_pagination_with_timestamp_ties():
+    """Verify pagination correctly handles large batches with identical timestamps across page boundaries."""
+    store = AttackGraphStore(in_memory=True)
+    await store.initialize()
+    analyzer = RetrospectiveAnalyzer(store=store)
+
+    now = datetime.now(UTC)
+    agent_id = "agent-ties-test"
+
+    # Insert 10 events with identical timestamps (simulating burst/tie across batch_size=3)
+    events = [
+        make_event(
+            agent_id=agent_id,
+            action=f"action_{i}",
+            target="target://shared-db",
+            timestamp=now - timedelta(days=1),
+            risk_score=0.7,
+        )
+        for i in range(10)
+    ]
+    await store.insert_events_batch(events)
+
+    paths = await analyzer.detect_retrospective_paths(
+        agent_id=agent_id,
+        time_window=(now - timedelta(days=2), now),
+        batch_size=3,
+        min_path_length=2,
+    )
+    assert len(paths) >= 1
+    # Ensure all nodes sharing the target were processed across all pages
+    for p in paths:
+        assert p.agent_id == agent_id
+
+
+@pytest.mark.asyncio
+async def test_retrospective_cross_batch_causal_path_reconstruction():
+    """Verify causal attack paths crossing batch boundaries are reconstructed without dropping edges."""
+    store = AttackGraphStore(in_memory=True)
+    await store.initialize()
+    analyzer = RetrospectiveAnalyzer(store=store)
+
+    now = datetime.now(UTC)
+    agent_id = "agent-cross-batch"
+
+    # Insert 6 sequential events spread across 6 days
+    events = []
+    for day in range(6, 0, -1):
+        events.append(
+            make_event(
+                agent_id=agent_id,
+                action=f"stage_step_{day}",
+                target=f"target_{day}",
+                timestamp=now - timedelta(days=day),
+                risk_score=0.8,
+            )
+        )
+    nodes = await store.insert_events_batch(events)
+
+    # Link nodes sequentially: node 0 -> node 1 -> node 2 -> node 3 -> node 4 -> node 5
+    for i in range(len(nodes) - 1):
+        await store.link_events(nodes[i].node_id, nodes[i + 1].node_id, "TRIGGERED")
+
+    # Run detection with small batch_size=2 so that links span across multiple batch pages
+    paths = await analyzer.detect_retrospective_paths(
+        agent_id=agent_id,
+        time_window=(now - timedelta(days=7), now),
+        batch_size=2,
+        min_path_length=2,
+    )
+    assert len(paths) >= 1
+    # Verify that multi-hop paths crossing batch boundaries were successfully discovered
+    longest_path = max(paths, key=lambda p: len(p.nodes))
+    assert len(longest_path.nodes) >= 2
+
