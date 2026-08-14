@@ -291,7 +291,13 @@ async def test_scoped_db_reset_query_execution():
     mock_pool.acquire.return_value = mock_acquire_cm
 
     fake_node_id = str(uuid.uuid4())
-    mock_conn.fetch = AsyncMock(return_value=[{"node_id": fake_node_id}])
+    fake_edge_id = str(uuid.uuid4())
+    mock_conn.fetch = AsyncMock(
+        side_effect=[
+            [{"node_id": fake_node_id}],
+            [{"edge_id": fake_edge_id}],
+        ]
+    )
     mock_conn.execute = AsyncMock(return_value=None)
 
     env.store._pool = mock_pool
@@ -299,18 +305,22 @@ async def test_scoped_db_reset_query_execution():
     await env.reset()
 
     # Verify scoped fetch was performed with env_id
-    mock_conn.fetch.assert_called_once()
-    fetch_args = mock_conn.fetch.call_args[0]
+    assert mock_conn.fetch.call_count == 2
+    fetch_args = mock_conn.fetch.call_args_list[0][0]
     assert "metadata->>'evaluation_env_id' = $1" in fetch_args[0]
     assert fetch_args[1] == "eval-scoped-test"
 
-    # Verify scoped deletes
-    assert mock_conn.execute.call_count == 2
+    # Verify scoped deletes and surviving node edge cleanup
+    assert mock_conn.execute.call_count == 3
     del_edges_call = mock_conn.execute.call_args_list[0][0]
     assert "DELETE FROM causal_edges" in del_edges_call[0]
     assert del_edges_call[1] == [fake_node_id]
 
-    del_nodes_call = mock_conn.execute.call_args_list[1][0]
+    update_edges_call = mock_conn.execute.call_args_list[1][0]
+    assert "UPDATE event_nodes" in update_edges_call[0]
+    assert update_edges_call[1] == [fake_edge_id]
+
+    del_nodes_call = mock_conn.execute.call_args_list[2][0]
     assert "DELETE FROM event_nodes WHERE metadata->>'evaluation_env_id' = $1" in del_nodes_call[0]
     assert del_nodes_call[1] == "eval-scoped-test"
 
@@ -396,3 +406,41 @@ async def test_failed_db_reset_raises_runtime_error_and_preserves_memory_state()
     # In-memory nodes and state must still exist because DB delete failed
     assert len(env.store._nodes) == 1
     assert await env.store.get_node(node.node_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_delete_environment_closes_pool_on_reset_failure():
+    """Verify delete_environment closes store pool and cleans manager references even if reset fails."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    manager = EvaluationEnvironmentManager(in_memory=True)
+    env = manager.get_or_create_environment("eval-del-fail")
+
+    mock_pool = MagicMock()
+    mock_conn = MagicMock()
+    mock_txn = MagicMock()
+
+    mock_txn.__aenter__ = AsyncMock(return_value=None)
+    mock_txn.__aexit__ = AsyncMock(return_value=None)
+    mock_conn.transaction.return_value = mock_txn
+
+    mock_acquire_cm = MagicMock()
+    mock_acquire_cm.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_acquire_cm.__aexit__ = AsyncMock(return_value=None)
+    mock_pool.acquire.return_value = mock_acquire_cm
+
+    mock_conn.fetch = AsyncMock(side_effect=Exception("DB Failure during reset"))
+    mock_pool.close = AsyncMock(return_value=None)
+
+    env.store._pool = mock_pool
+
+    with pytest.raises(RuntimeError, match="Failed to reset evaluation environment 'eval-del-fail'"):
+        await manager.delete_environment("eval-del-fail")
+
+    # Manager environment entry must be removed
+    assert manager.get_environment("eval-del-fail") is None
+    assert "eval-del-fail" not in manager.list_environments()
+
+    # Environment must be transitioned to closed state and pool closed
+    assert env._closed is True
+    mock_pool.close.assert_called_once()

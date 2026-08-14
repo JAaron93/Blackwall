@@ -144,10 +144,29 @@ class EvaluationEnvironment:
                         )
                         if rows:
                             node_ids = [r["node_id"] for r in rows]
+                            edge_rows = await conn.fetch(
+                                "SELECT edge_id FROM causal_edges WHERE from_node = ANY($1::text[]) OR to_node = ANY($1::text[]);",
+                                node_ids,
+                            )
+                            edge_ids = [er["edge_id"] for er in edge_rows] if edge_rows else []
+
                             await conn.execute(
                                 "DELETE FROM causal_edges WHERE from_node = ANY($1::text[]) OR to_node = ANY($1::text[]);",
                                 node_ids,
                             )
+
+                            if edge_ids:
+                                await conn.execute(
+                                    """
+                                    UPDATE event_nodes
+                                    SET incoming_edges = incoming_edges - $1::text[],
+                                        outgoing_edges = outgoing_edges - $1::text[]
+                                    WHERE NOT (node_id = ANY($2::text[]));
+                                    """,
+                                    edge_ids,
+                                    node_ids,
+                                )
+
                             await conn.execute(
                                 "DELETE FROM event_nodes WHERE metadata->>'evaluation_env_id' = $1;",
                                 self.env_id,
@@ -376,13 +395,18 @@ class EvaluationEnvironmentManager:
         return list(self._environments.keys())
 
     async def delete_environment(self, env_id: str) -> None:
-        """Remove and close an evaluation environment."""
+        """Remove and close an evaluation environment, ensuring pool closure on failure."""
         async with self._lock:
             clean_id = str(env_id).strip() if env_id else ""
             if clean_id in self._environments:
-                env = self._environments.pop(clean_id)
-                await env.reset()
-                await env.close()
+                env = self._environments.get(clean_id)
+                try:
+                    await env.reset()
+                finally:
+                    try:
+                        await env.close()
+                    finally:
+                        self._environments.pop(clean_id, None)
                 logger.info("Deleted evaluation environment %s", clean_id)
 
     async def close_all(self) -> None:
