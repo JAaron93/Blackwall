@@ -28,7 +28,7 @@ logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.evalu
 
 
 class EvaluationAttackGraphStore(AttackGraphStore):
-    """AttackGraphStore bound to an EvaluationEnvironment that enforces lifecycle closure guards."""
+    """AttackGraphStore bound to an EvaluationEnvironment that enforces evaluation labeling and lifecycle closure guards."""
 
     def __init__(
         self,
@@ -49,14 +49,24 @@ class EvaluationAttackGraphStore(AttackGraphStore):
     async def insert_event(self, event: NormalizedEvent) -> AttackNode:
         async with self._env._lock:
             self._check_store_open()
-            return await super().insert_event(event)
+            labeled = self._env.label_event(event)
+            return await super().insert_event(labeled)
 
     async def insert_events_batch(
         self, events: list[NormalizedEvent]
     ) -> list[AttackNode]:
         async with self._env._lock:
             self._check_store_open()
-            return await super().insert_events_batch(events)
+            labeled_events = [self._env.label_event(e) for e in events]
+            return await super().insert_events_batch(labeled_events)
+
+    async def get_node(self, node_id: uuid.UUID | str) -> AttackNode | None:
+        clean_uuid = validate_uuid_v4_format(node_id)
+        node = await super().get_node(clean_uuid)
+        if node is not None:
+            return node
+        derived = self._env.derive_evaluation_event_id(clean_uuid)
+        return await super().get_node(derived)
 
     async def link_events(
         self,
@@ -68,17 +78,29 @@ class EvaluationAttackGraphStore(AttackGraphStore):
             self._check_store_open()
             from_uuid = validate_uuid_v4_format(from_node)
             to_uuid = validate_uuid_v4_format(to_node)
-            if from_uuid not in self._nodes:
+
+            from_node_obj = await super().get_node(from_uuid)
+            if from_node_obj is None:
                 derived_from = self._env.derive_evaluation_event_id(from_uuid)
-                if derived_from in self._nodes:
-                    from_uuid = derived_from
-            if to_uuid not in self._nodes:
+                from_node_obj = await super().get_node(derived_from)
+            if from_node_obj is not None:
+                from_uuid = from_node_obj.node_id
+
+            to_node_obj = await super().get_node(to_uuid)
+            if to_node_obj is None:
                 derived_to = self._env.derive_evaluation_event_id(to_uuid)
-                if derived_to in self._nodes:
-                    to_uuid = derived_to
+                to_node_obj = await super().get_node(derived_to)
+            if to_node_obj is not None:
+                to_uuid = to_node_obj.node_id
+
             await super().link_events(
                 from_node=from_uuid, to_node=to_uuid, relationship=relationship
             )
+
+    async def purge_events_before(self, cutoff_time: datetime) -> int:
+        async with self._env._lock:
+            self._check_store_open()
+            return await super().purge_events_before(cutoff_time)
 
     async def close(self) -> None:
         async with self._env._lock:
@@ -168,33 +190,26 @@ class EvaluationEnvironment:
     async def insert_event(self, event: NormalizedEvent) -> AttackNode:
         """Label and insert an event into this environment's isolated attack graph."""
         await self.initialize()
-        labeled = self.label_event(event)
-        return await self.store.insert_event(labeled)
+        return await self.store.insert_event(event)
 
     async def insert_events_batch(
         self, events: list[NormalizedEvent]
     ) -> list[AttackNode]:
         """Label and batch-insert events into this environment's isolated attack graph."""
         await self.initialize()
-        labeled_events = [self.label_event(e) for e in events]
-        return await self.store.insert_events_batch(labeled_events)
+        return await self.store.insert_events_batch(events)
 
     async def get_node(self, node_id: uuid.UUID | str) -> AttackNode | None:
         """Retrieve a node from this environment's graph, ensuring it belongs to this evaluation environment."""
-        async with self._lock:
-            self._check_not_closed()
-            clean_uuid = validate_uuid_v4_format(node_id)
-            node = await self.store.get_node(clean_uuid)
-            if node is None:
-                scoped_uuid = self.derive_evaluation_event_id(clean_uuid)
-                node = await self.store.get_node(scoped_uuid)
-            if node is not None:
-                meta = node.event.metadata
-                if meta.get("evaluation_env_id") == self.env_id and (
-                    meta.get("is_evaluation") is True or meta.get("eval_mode") is True
-                ):
-                    return node
-            return None
+        self._check_not_closed()
+        node = await self.store.get_node(node_id)
+        if node is not None:
+            meta = node.event.metadata
+            if meta.get("evaluation_env_id") == self.env_id and (
+                meta.get("is_evaluation") is True or meta.get("eval_mode") is True
+            ):
+                return node
+        return None
 
     async def publish_alert(self, alert: Alert) -> bool:
         """Label and publish an alert to this environment's isolated alert bus."""

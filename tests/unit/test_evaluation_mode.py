@@ -11,6 +11,7 @@ from blackwall.enterprise.advanced_threat_detection import (
     AlertSeverity,
     AttackGraphStore,
     AttackNode,
+    EvaluationAttackGraphStore,
     EvaluationEnvironment,
     EvaluationEnvironmentManager,
     EventSource,
@@ -363,10 +364,10 @@ async def test_shared_graph_production_node_isolation():
     manager = EvaluationEnvironmentManager(in_memory=True)
     env = manager.get_or_create_environment("eval-shared-test")
 
-    # Directly insert an un-labeled production event into the environment's store
+    # Directly insert an un-labeled production event into underlying storage without eval decorator
     prod_event = create_sample_event(agent_id="prod-agent-01")
     assert "evaluation_env_id" not in prod_event.metadata
-    prod_node = await env.store.insert_event(prod_event)
+    prod_node = await super(EvaluationAttackGraphStore, env.store).insert_event(prod_event)
 
     # Manager must NOT consider this node as evaluation mode because metadata lacks evaluation stamp
     assert await manager.is_evaluation_mode(prod_node.node_id) is False
@@ -468,6 +469,32 @@ async def test_retained_graph_store_rejects_writes_after_environment_closure():
 
     with pytest.raises(RuntimeError, match="graph store is closed and cannot accept writes"):
         await store.link_events(ev.event_id, ev_after.event_id, "caused")
+
+    with pytest.raises(RuntimeError, match="graph store is closed and cannot accept writes"):
+        await store.purge_events_before(datetime.now(UTC))
+
+
+@pytest.mark.asyncio
+async def test_direct_store_insertion_enforces_evaluation_labeling_and_containment():
+    """Verify that inserting directly into store returned by manager.get_graph_store applies evaluation labeling and containment."""
+    manager = EvaluationEnvironmentManager(in_memory=True)
+    store = manager.get_graph_store("eval-direct-store")
+
+    raw_event = create_sample_event(agent_id="agent-direct")
+    assert "evaluation_env_id" not in raw_event.metadata
+
+    # Insert raw unlabeled event directly via store reference
+    node = await store.insert_event(raw_event)
+
+    # Node and stored event must carry evaluation provenance and scoped ID
+    assert node.event.metadata["evaluation_env_id"] == "eval-direct-store"
+    assert node.event.metadata["is_evaluation"] is True
+    assert node.event.metadata["eval_mode"] is True
+    assert node.event.metadata["original_event_id"] == str(raw_event.event_id)
+
+    # Containment gate recognizes evidence through manager
+    assert await manager.is_evaluation_mode(raw_event.event_id, env_id="eval-direct-store") is True
+    assert await manager.is_evaluation_mode(node.node_id, env_id="eval-direct-store") is True
 
 
 @pytest.mark.asyncio

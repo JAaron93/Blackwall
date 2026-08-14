@@ -21,6 +21,7 @@ from blackwall.enterprise.advanced_threat_detection.enums import (
     ExploitCategory,
 )
 from blackwall.enterprise.advanced_threat_detection.evaluation import (
+    EvaluationAttackGraphStore,
     EvaluationEnvironment,
     EvaluationEnvironmentManager,
 )
@@ -66,6 +67,7 @@ __all__ = [
     "AttackPath",
     "C2Evidence",
     "C2InfrastructureDetector",
+    "EvaluationAttackGraphStore",
     "EvaluationEnvironment",
     "EvaluationEnvironmentManager",
     "EventSource",
