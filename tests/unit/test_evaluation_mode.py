@@ -398,6 +398,7 @@ async def test_failed_db_reset_raises_runtime_error_and_preserves_memory_state()
     mock_pool.acquire.return_value = mock_acquire_cm
 
     mock_conn.fetch = AsyncMock(side_effect=Exception("Simulated PostgreSQL connection failure"))
+    mock_conn.fetchrow = AsyncMock(return_value=None)
 
     env.store._pool = mock_pool
 
@@ -533,3 +534,61 @@ async def test_shared_database_event_identifier_collision_isolation():
     assert await manager.is_evaluation_mode(raw_id, env_id="eval-tenant-b") is True
     assert await manager.is_evaluation_mode(node_b.node_id, env_id="eval-tenant-b") is True
     assert await env_b.get_node(raw_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_evaluation_store_purge_preserves_foreign_and_production_nodes():
+    """Verify that evaluation store purge_events_before only removes nodes for its own environment."""
+    manager = EvaluationEnvironmentManager(in_memory=True)
+    env_eval = manager.get_or_create_environment("eval-purge-test")
+    eval_store = env_eval.store
+
+    old_time = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
+    cutoff = datetime(2026, 1, 2, 0, 0, tzinfo=UTC)
+
+    # Ingest old eval event
+    eval_ev = create_sample_event(agent_id="eval-agent", timestamp=old_time)
+    eval_node = await eval_store.insert_event(eval_ev)
+
+    # Ingest foreign node directly in backing memory (simulating shared DB/cache)
+    foreign_ev = create_sample_event(agent_id="foreign-agent", timestamp=old_time)
+    foreign_node = AttackNode(node_id=foreign_ev.event_id, event=foreign_ev)
+    eval_store._nodes[foreign_node.node_id] = foreign_node
+
+    # Purge via eval store
+    purged_count = await eval_store.purge_events_before(cutoff)
+    assert purged_count == 1
+
+    # Eval node must be purged
+    assert await eval_store.get_node(eval_node.node_id) is None
+
+    # Foreign node must be preserved in underlying storage
+    assert foreign_node.node_id in eval_store._nodes
+
+
+@pytest.mark.asyncio
+async def test_evaluation_store_link_events_rejects_foreign_cross_environment_nodes():
+    """Verify that link_events with raw UUIDs resolves to this environment's nodes and does not link foreign nodes."""
+    manager = EvaluationEnvironmentManager(in_memory=True)
+    env = manager.get_or_create_environment("eval-link-test")
+    eval_store = env.store
+
+    # Insert valid evaluation events
+    ev1 = create_sample_event(agent_id="eval-link-1")
+    ev2 = create_sample_event(agent_id="eval-link-2")
+    node1 = await eval_store.insert_event(ev1)
+    node2 = await eval_store.insert_event(ev2)
+
+    # Insert a foreign node directly into memory with the same raw UUID as ev2 but foreign metadata
+    foreign_node = AttackNode(node_id=ev2.event_id, event=ev2)
+    eval_store._nodes[foreign_node.node_id] = foreign_node
+
+    # Link using raw UUIDs
+    await eval_store.link_events(ev1.event_id, ev2.event_id, "caused")
+
+    # The link must be applied between evaluation-scoped nodes, not the foreign node
+    reloaded_node1 = await eval_store.get_node(node1.node_id)
+    reloaded_node2 = await eval_store.get_node(node2.node_id)
+    assert len(reloaded_node1.outgoing_edges) == 1
+    assert len(reloaded_node2.incoming_edges) == 1
+    assert len(foreign_node.incoming_edges) == 0

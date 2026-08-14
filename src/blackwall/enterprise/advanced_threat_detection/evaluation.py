@@ -28,7 +28,7 @@ logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.evalu
 
 
 class EvaluationAttackGraphStore(AttackGraphStore):
-    """AttackGraphStore bound to an EvaluationEnvironment that enforces evaluation labeling and lifecycle closure guards."""
+    """AttackGraphStore bound to an EvaluationEnvironment that enforces evaluation labeling, scoped IDs, and lifecycle closure guards."""
 
     def __init__(
         self,
@@ -62,11 +62,47 @@ class EvaluationAttackGraphStore(AttackGraphStore):
 
     async def get_node(self, node_id: uuid.UUID | str) -> AttackNode | None:
         clean_uuid = validate_uuid_v4_format(node_id)
-        node = await super().get_node(clean_uuid)
-        if node is not None:
-            return node
+        # Fast path: check in-memory cache for clean_uuid (if already scoped node_id)
+        if clean_uuid in self._nodes:
+            node = self._nodes[clean_uuid]
+            if node.event.metadata.get("evaluation_env_id") == self._env.env_id:
+                return node
+        # Check in-memory cache for derived scoped ID (if raw event_id passed)
         derived = self._env.derive_evaluation_event_id(clean_uuid)
-        return await super().get_node(derived)
+        if derived in self._nodes:
+            node = self._nodes[derived]
+            if node.event.metadata.get("evaluation_env_id") == self._env.env_id:
+                return node
+
+        # Database fallback if PostgreSQL pool is active
+        if self._pool:
+            node = await super().get_node(derived)
+            if (
+                node is not None
+                and node.event.metadata.get("evaluation_env_id") == self._env.env_id
+            ):
+                return node
+            node = await super().get_node(clean_uuid)
+            if (
+                node is not None
+                and node.event.metadata.get("evaluation_env_id") == self._env.env_id
+            ):
+                return node
+
+        return None
+
+    async def _resolve_eval_node_id(self, node_ref: uuid.UUID | str) -> uuid.UUID:
+        clean_uuid = validate_uuid_v4_format(node_ref)
+        # Check environment-derived scoped UUID first
+        derived = self._env.derive_evaluation_event_id(clean_uuid)
+        node = await super().get_node(derived)
+        if node is not None and node.event.metadata.get("evaluation_env_id") == self._env.env_id:
+            return derived
+        # Check raw UUID with evaluation provenance validation
+        node = await super().get_node(clean_uuid)
+        if node is not None and node.event.metadata.get("evaluation_env_id") == self._env.env_id:
+            return clean_uuid
+        return derived
 
     async def link_events(
         self,
@@ -76,31 +112,166 @@ class EvaluationAttackGraphStore(AttackGraphStore):
     ) -> None:
         async with self._env._lock:
             self._check_store_open()
-            from_uuid = validate_uuid_v4_format(from_node)
-            to_uuid = validate_uuid_v4_format(to_node)
-
-            from_node_obj = await super().get_node(from_uuid)
-            if from_node_obj is None:
-                derived_from = self._env.derive_evaluation_event_id(from_uuid)
-                from_node_obj = await super().get_node(derived_from)
-            if from_node_obj is not None:
-                from_uuid = from_node_obj.node_id
-
-            to_node_obj = await super().get_node(to_uuid)
-            if to_node_obj is None:
-                derived_to = self._env.derive_evaluation_event_id(to_uuid)
-                to_node_obj = await super().get_node(derived_to)
-            if to_node_obj is not None:
-                to_uuid = to_node_obj.node_id
+            from_uuid = await self._resolve_eval_node_id(from_node)
+            to_uuid = await self._resolve_eval_node_id(to_node)
 
             await super().link_events(
                 from_node=from_uuid, to_node=to_uuid, relationship=relationship
             )
 
+    async def query_nodes(
+        self,
+        agent_id: str | None = None,
+        time_range: tuple[datetime, datetime] | None = None,
+        risk_threshold: float = 0.0,
+        limit: int = 100,
+    ) -> list[AttackNode]:
+        nodes = await super().query_nodes(
+            agent_id=agent_id,
+            time_range=time_range,
+            risk_threshold=risk_threshold,
+            limit=limit,
+        )
+        return [
+            n
+            for n in nodes
+            if n.event.metadata.get("evaluation_env_id") == self._env.env_id
+        ]
+
+    async def get_all_nodes(self) -> list[AttackNode]:
+        nodes = await super().get_all_nodes()
+        return [
+            n
+            for n in nodes
+            if n.event.metadata.get("evaluation_env_id") == self._env.env_id
+        ]
+
     async def purge_events_before(self, cutoff_time: datetime) -> int:
+        """Purge only this evaluation environment's events older than cutoff_time."""
         async with self._env._lock:
             self._check_store_open()
-            return await super().purge_events_before(cutoff_time)
+            purged_count = 0
+            edge_ids_to_remove: list[str] = []
+            purged_ids: list[str] = []
+
+            to_delete_candidates = {
+                str(nid)
+                for nid, node in self._nodes.items()
+                if node.event.timestamp < cutoff_time
+                and node.event.metadata.get("evaluation_env_id") == self._env.env_id
+            }
+
+            if self._pool:
+                async with self._pool.acquire() as conn, conn.transaction():
+                    purged_rows = await conn.fetch(
+                        """
+                        SELECT node_id FROM event_nodes 
+                        WHERE timestamp < $1 AND metadata->>'evaluation_env_id' = $2;
+                        """,
+                        cutoff_time,
+                        self._env.env_id,
+                    )
+                    purged_ids = [str(r["node_id"]) for r in purged_rows]
+                    all_purge_ids = list(set(purged_ids) | to_delete_candidates)
+                    if all_purge_ids:
+                        edge_rows = await conn.fetch(
+                            "SELECT edge_id FROM causal_edges WHERE from_node = ANY($1::text[]) OR to_node = ANY($1::text[]);",
+                            all_purge_ids,
+                        )
+                        edge_ids_to_remove = [str(r["edge_id"]) for r in edge_rows]
+
+                        if edge_ids_to_remove:
+                            await conn.execute(
+                                "DELETE FROM causal_edges WHERE edge_id = ANY($1::text[]);",
+                                edge_ids_to_remove,
+                            )
+
+                        result = await conn.execute(
+                            """
+                            DELETE FROM event_nodes 
+                            WHERE timestamp < $1 AND metadata->>'evaluation_env_id' = $2;
+                            """,
+                            cutoff_time,
+                            self._env.env_id,
+                        )
+                        try:
+                            purged_count = int(result.split()[-1])
+                        except (ValueError, IndexError):
+                            purged_count = len(purged_ids)
+
+                        if edge_ids_to_remove:
+                            await conn.execute(
+                                """
+                                UPDATE event_nodes
+                                SET incoming_edges = (
+                                    SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+                                    FROM jsonb_array_elements_text(incoming_edges) AS elem
+                                    WHERE elem != ALL($1)
+                                ),
+                                outgoing_edges = (
+                                    SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+                                    FROM jsonb_array_elements_text(outgoing_edges) AS elem
+                                    WHERE elem != ALL($1)
+                                )
+                                WHERE incoming_edges ?| $1::text[] OR outgoing_edges ?| $1::text[];
+                                """,
+                                edge_ids_to_remove,
+                            )
+
+            purged_id_set = set(purged_ids) | to_delete_candidates
+            to_delete = [
+                nid
+                for nid in list(self._nodes.keys())
+                if (
+                    str(nid) in purged_id_set
+                    or (
+                        self._nodes[nid].event.timestamp < cutoff_time
+                        and self._nodes[nid].event.metadata.get("evaluation_env_id")
+                        == self._env.env_id
+                    )
+                )
+            ]
+            to_delete_set = {str(nid) for nid in to_delete} | purged_id_set
+
+            removed_edge_ids: set[str] = {
+                str(e.get("edge_id", ""))
+                for e in self._edges
+                if str(e.get("from_node", "")) in to_delete_set
+                or str(e.get("to_node", "")) in to_delete_set
+            }
+            removed_edge_ids.update(str(x) for x in edge_ids_to_remove)
+
+            for nid in to_delete:
+                node = self._nodes.pop(nid, None)
+                if node:
+                    agent_nids = self._agent_nodes_index.get(node.event.agent_id, [])
+                    if nid in agent_nids:
+                        agent_nids.remove(nid)
+
+            self._path_cache.clear()
+            self._edges = [
+                e
+                for e in self._edges
+                if str(e.get("edge_id", "")) not in removed_edge_ids
+            ]
+
+            if removed_edge_ids:
+                for node in self._nodes.values():
+                    node.incoming_edges = [
+                        eid
+                        for eid in node.incoming_edges
+                        if str(eid) not in removed_edge_ids
+                    ]
+                    node.outgoing_edges = [
+                        eid
+                        for eid in node.outgoing_edges
+                        if str(eid) not in removed_edge_ids
+                    ]
+
+            if not self._pool:
+                purged_count = len(to_delete)
+
+            return purged_count
 
     async def close(self) -> None:
         async with self._env._lock:
