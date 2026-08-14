@@ -833,12 +833,13 @@ class AttackGraphStore:
             for nid, node in self._nodes.items()
             if node.event.timestamp < cutoff_time or str(nid) in purged_id_set
         ]
-        to_delete_set = {str(nid) for nid in to_delete}
+        to_delete_set = {str(nid) for nid in to_delete} | purged_id_set
 
         removed_edge_ids = {
             str(e["edge_id"])
             for e in self._edges
-            if str(e["from_node"]) in to_delete_set or str(e["to_node"]) in to_delete_set
+            if str(e.get("from_node", "")) in to_delete_set
+            or str(e.get("to_node", "")) in to_delete_set
         }
         removed_edge_ids.update(edge_ids_to_remove)
 
@@ -861,10 +862,11 @@ class AttackGraphStore:
         self._edges = [
             e
             for e in self._edges
-            if str(e["from_node"]) not in to_delete_set
-            and str(e["to_node"]) not in to_delete_set
-            and str(e["edge_id"]) not in removed_edge_ids
+            if str(e.get("from_node", "")) not in to_delete_set
+            and str(e.get("to_node", "")) not in to_delete_set
+            and str(e.get("edge_id", "")) not in removed_edge_ids
         ]
         self._path_cache.clear()
         return purged_count if self._pool else len(to_delete)
+
 
