@@ -151,5 +151,14 @@
 * **Rule:** Bulk ingestion and batch normalization methods (`insert_events_batch`, `process_event_batch`) MUST track and deduplicate identifiers (e.g. `event_id`) within the batch payload itself before instantiating node records or updating index collections.
 * **Rationale:** Batches containing multiple events with the same `event_id` pass single-item cache checks and can append the same identifier multiple times to entity indices (e.g. `_agent_nodes_index`), causing in-memory graph traversals to observe duplicate nodes absent from persistence.
 
+## 35. Graph Export Edge Scoping Invariant
+* **Rule:** When exporting subgraphs (e.g. filtered by `agent_id` or `time_window`), exporters MUST scope exported causal edges strictly to nodes present in the exported payload (`from_node` and `to_node` both present in exported node set) to prevent dangling edge identifiers and broken references in JSON and GraphML representations.
+* **Rationale:** Filtering nodes without filtering causal edges causes edge arrays to reference nonexistent source/target node IDs in the export payload, breaking graph visualization and downstream schema validation.
+
+## 36. Purge Edge Array Cascading & Dangling Identifier Prevention
+* **Rule:** Database and in-memory event purging routines (`purge_events_before`) MUST clean up edge UUID references from retained nodes' `incoming_edges` and `outgoing_edges` arrays when adjacent nodes are deleted, preventing orphaned edge references from persisting in retained records.
+* **Rationale:** Deleting expired nodes removes causal edge rows but leaves dangling edge UUID strings inside JSON arrays of retained nodes, corrupting subsequent graph traversals and export structures.
+
+
 
 

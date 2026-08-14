@@ -21,11 +21,14 @@ from blackwall.enterprise import (
     VaultMCPAdapter,
 )
 from blackwall.enterprise.advanced_threat_detection import (
+    AttackGraphExporter,
+    AttackGraphStore,
     AttackNode,
     AttackPath,
     EventSource,
     EventStreamCollector,
     NormalizedEvent,
+    RetrospectiveAnalyzer,
 )
 
 from tests.step_defs.async_utils import run_async
@@ -509,3 +512,84 @@ def verify_clean_failures(state):
                 EventSource.TOOL_CALL, mock_bad_stream()
             ).__anext__()
         )
+
+
+# --- Scenario: Pillar 6 Retrospective Analysis and GraphML export integration ---
+
+
+@given(
+    "an Enterprise Retrospective Analyzer with historical multi-agent attack graphs"
+)
+def init_enterprise_retrospective_analyzer(state):
+    store = AttackGraphStore(in_memory=True)
+    run_async(store.initialize())
+    state.mesh_retro_store = store
+    state.mesh_retro_analyzer = RetrospectiveAnalyzer(store=store)
+    state.mesh_retro_exporter = AttackGraphExporter()
+
+    now = datetime.now(timezone.utc)
+    events = [
+        NormalizedEvent(
+            event_id=uuid.uuid4(),
+            timestamp=now - timedelta(days=2),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id="mesh-agent-retro",
+            action="exec_recon",
+            target="/bin/uname",
+            risk_score=0.5,
+        ),
+        NormalizedEvent(
+            event_id=uuid.uuid4(),
+            timestamp=now - timedelta(days=1),
+            source=EventSource.IDENTITY_ACCESS,
+            agent_id="mesh-agent-retro",
+            action="acquire_credential",
+            target="vault://secret/app",
+            risk_score=0.85,
+        ),
+    ]
+    nodes = run_async(store.insert_events_batch(events))
+    run_async(store.link_events(nodes[0].node_id, nodes[1].node_id, "TRIGGERED"))
+    state.mesh_retro_nodes = nodes
+    state.mesh_retro_time_window = (now - timedelta(days=5), now)
+
+
+@when("retrospective path analysis and GraphML exports are requested")
+def execute_retrospective_and_graphml(state):
+    state.mesh_retro_paths = run_async(
+        state.mesh_retro_analyzer.detect_retrospective_paths(
+            agent_id="mesh-agent-retro",
+            time_window=state.mesh_retro_time_window,
+            min_path_length=2,
+        )
+    )
+    state.mesh_graphml_xml = state.mesh_retro_exporter.export_graphml(
+        nodes=state.mesh_retro_nodes
+    )
+
+
+@then("historical attack paths spanning multi-day windows are reconstructed")
+def verify_reconstructed_mesh_paths(state):
+    assert len(state.mesh_retro_paths) >= 1
+    path = state.mesh_retro_paths[0]
+    assert len(path.nodes) >= 2
+    assert path.risk_score >= 0.8
+
+
+@then("standard GraphML XML is exported with directed graph attributes")
+def verify_mesh_graphml_xml(state):
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(state.mesh_graphml_xml)
+    tag_clean = root.tag.split("}")[-1] if "}" in root.tag else root.tag
+    assert tag_clean == "graphml"
+
+    graph_elem = None
+    for elem in root.iter():
+        elem_tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+        if elem_tag == "graph":
+            graph_elem = elem
+            break
+    assert graph_elem is not None
+    assert graph_elem.attrib.get("edgedefault") == "directed"
+

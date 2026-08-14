@@ -42,3 +42,10 @@ Feature: Blackwall Advanced Threat Detection Pillar Data Validation
     When agent action sequences are fingerprinted and swarms are detected
     Then deterministic SHA-256 behavioral fingerprints are generated
     And SwarmEvidence is produced with temporal correlation, coordination score, and shared infrastructure patterns
+
+  Scenario: Retrospective Analysis historical query and graph export compliance
+    Given a RetrospectiveAnalyzer instance with multi-day historical events
+    When historical time windows are queried and graphs are exported in JSON and GraphML formats
+    Then retrospective attack paths are identified across the multi-day window
+    And the exported graph outputs match standard JSON and GraphML schemas
+

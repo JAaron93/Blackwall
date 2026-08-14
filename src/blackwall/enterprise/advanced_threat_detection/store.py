@@ -479,32 +479,46 @@ class AttackGraphStore:
         agent_id: str | None,
         time_window: tuple[datetime, datetime],
         limit: int | None = None,
+        offset: int | None = None,
+        after_cursor: tuple[datetime, uuid.UUID | str] | None = None,
     ) -> list[AttackNode]:
         """Fetch all AttackNodes for an agent (or all agents if agent_id is None) within the specified time window."""
         if limit is not None and limit <= 0:
             raise ValueError("limit must be positive")
+        if offset is not None and offset < 0:
+            raise ValueError("offset must be non-negative")
 
         start_time_win, end_time_win = time_window
 
         if self._pool:
             async with self._pool.acquire() as conn:
+                where_clauses = ["timestamp >= $1", "timestamp <= $2"]
+                params: list[Any] = [start_time_win, end_time_win]
+
                 if agent_id is not None:
-                    query = """
-                        SELECT * FROM event_nodes
-                        WHERE agent_id = $1 AND timestamp >= $2 AND timestamp <= $3
-                        ORDER BY timestamp ASC
-                    """
-                    params = [agent_id, start_time_win, end_time_win]
-                else:
-                    query = """
-                        SELECT * FROM event_nodes
-                        WHERE timestamp >= $1 AND timestamp <= $2
-                        ORDER BY timestamp ASC
-                    """
-                    params = [start_time_win, end_time_win]
+                    params.append(agent_id)
+                    where_clauses.insert(0, f"agent_id = ${len(params)}")
+
+                if after_cursor is not None:
+                    cursor_ts, cursor_nid = after_cursor
+                    params.append(cursor_ts)
+                    idx_ts = len(params)
+                    params.append(str(cursor_nid))
+                    idx_nid = len(params)
+                    where_clauses.append(
+                        f"(timestamp > ${idx_ts} OR (timestamp = ${idx_ts} AND node_id > ${idx_nid}))"
+                    )
+
+                query = f"""
+                    SELECT * FROM event_nodes
+                    WHERE {' AND '.join(where_clauses)}
+                    ORDER BY timestamp ASC, node_id ASC
+                """
 
                 if limit is not None:
                     query += f" LIMIT {int(limit)}"
+                if offset is not None:
+                    query += f" OFFSET {int(offset)}"
                 query += ";"
 
                 rows = await conn.fetch(
@@ -554,10 +568,28 @@ class AttackGraphStore:
                 if start_time_win <= node.event.timestamp <= end_time_win
             ]
 
-        candidate_nodes.sort(key=lambda n: n.event.timestamp)
-        if limit is not None:
-            candidate_nodes = candidate_nodes[:limit]
-        return candidate_nodes
+        candidate_nodes.sort(key=lambda n: (n.event.timestamp, str(n.node_id)))
+
+        if after_cursor is not None:
+            cursor_ts, cursor_nid = after_cursor
+            cursor_nid_str = str(cursor_nid)
+            candidate_nodes = [
+                n
+                for n in candidate_nodes
+                if (
+                    n.event.timestamp > cursor_ts
+                    or (
+                        n.event.timestamp == cursor_ts
+                        and str(n.node_id) > cursor_nid_str
+                    )
+                )
+            ]
+
+        start_idx = offset if offset is not None else 0
+        end_idx = (start_idx + limit) if limit is not None else len(candidate_nodes)
+        return candidate_nodes[start_idx:end_idx]
+
+
 
     async def query_paths(
         self,
@@ -663,3 +695,186 @@ class AttackGraphStore:
                 pairs.append((agents_list[i], agents_list[j]))
 
         return pairs
+
+    async def get_edges(
+        self, time_window: tuple[datetime, datetime] | None = None
+    ) -> list[dict[str, Any]]:
+        """Retrieve causal edges from database or in-memory store."""
+        if self._pool:
+            async with self._pool.acquire() as conn:
+                if time_window:
+                    rows = await conn.fetch(
+                        """
+                        SELECT edge_id, from_node, to_node, relationship, created_at
+                        FROM causal_edges
+                        WHERE created_at >= $1 AND created_at <= $2
+                        ORDER BY created_at ASC;
+                        """,
+                        time_window[0],
+                        time_window[1],
+                    )
+                else:
+                    rows = await conn.fetch(
+                        """
+                        SELECT edge_id, from_node, to_node, relationship, created_at
+                        FROM causal_edges
+                        ORDER BY created_at ASC;
+                        """
+                    )
+                return [
+                    {
+                        "edge_id": row["edge_id"],
+                        "from_node": row["from_node"],
+                        "to_node": row["to_node"],
+                        "relationship": row["relationship"],
+                        "created_at": row["created_at"],
+                    }
+                    for row in rows
+                ]
+
+        if time_window:
+            start_win, end_win = time_window
+            return [
+                e
+                for e in self._edges
+                if start_win <= e["created_at"] <= end_win
+            ]
+        return list(self._edges)
+
+    async def get_all_nodes(self) -> list[AttackNode]:
+        """Retrieve all nodes from the attack graph."""
+        if self._pool:
+            async with self._pool.acquire() as conn:
+                rows = await conn.fetch(
+                    "SELECT * FROM event_nodes ORDER BY timestamp ASC;"
+                )
+                db_nodes: list[AttackNode] = []
+                for row in rows:
+                    ev = NormalizedEvent(
+                        event_id=row["event_id"],
+                        timestamp=row["timestamp"],
+                        source=EventSource(row["source"]),
+                        agent_id=row["agent_id"],
+                        action=row["action"],
+                        target=row["target"],
+                        metadata=(
+                            json.loads(row["metadata"])
+                            if isinstance(row["metadata"], str)
+                            else row["metadata"]
+                        ),
+                        risk_score=row["risk_score"],
+                    )
+                    inc = self._parse_edge_uuids(row["incoming_edges"])
+                    out = self._parse_edge_uuids(row["outgoing_edges"])
+                    db_node = AttackNode(
+                        node_id=row["node_id"],
+                        event=ev,
+                        incoming_edges=inc,
+                        outgoing_edges=out,
+                    )
+                    db_nodes.append(db_node)
+                return db_nodes
+
+        nodes = list(self._nodes.values())
+        nodes.sort(key=lambda n: n.event.timestamp)
+        return nodes
+
+    async def purge_events_before(self, cutoff_time: datetime) -> int:
+        """Purge events older than cutoff_time from attack graph (enforcing retention invariant)."""
+        purged_count = 0
+        edge_ids_to_remove: list[str] = []
+        purged_ids: list[str] = []
+
+        to_delete_candidates = {
+            str(nid)
+            for nid, node in self._nodes.items()
+            if node.event.timestamp < cutoff_time
+        }
+
+        if self._pool:
+            async with self._pool.acquire() as conn:
+                async with conn.transaction():
+                    purged_rows = await conn.fetch(
+                        "SELECT node_id FROM event_nodes WHERE timestamp < $1;", cutoff_time
+                    )
+                    purged_ids = [str(r["node_id"]) for r in purged_rows]
+                    all_purge_ids = list(set(purged_ids) | to_delete_candidates)
+                    if all_purge_ids:
+                        edge_rows = await conn.fetch(
+                            "SELECT edge_id FROM causal_edges WHERE from_node = ANY($1::text[]) OR to_node = ANY($1::text[]);",
+                            all_purge_ids,
+                        )
+                        edge_ids_to_remove = [str(r["edge_id"]) for r in edge_rows]
+
+                        result = await conn.execute(
+                            "DELETE FROM event_nodes WHERE timestamp < $1;", cutoff_time
+                        )
+                        try:
+                            purged_count = int(result.split()[-1])
+                        except (ValueError, IndexError):
+                            purged_count = len(purged_ids)
+
+                        if edge_ids_to_remove:
+                            await conn.execute(
+                                """
+                                UPDATE event_nodes
+                                SET incoming_edges = (
+                                    SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+                                    FROM jsonb_array_elements_text(incoming_edges) AS elem
+                                    WHERE elem != ALL($1)
+                                ),
+                                outgoing_edges = (
+                                    SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+                                    FROM jsonb_array_elements_text(outgoing_edges) AS elem
+                                    WHERE elem != ALL($1)
+                                )
+                                WHERE incoming_edges ?| $1::text[] OR outgoing_edges ?| $1::text[];
+                                """,
+                                edge_ids_to_remove,
+                            )
+
+        # Synchronize and purge process-local memory/cache state
+        purged_id_set = set(purged_ids) | to_delete_candidates
+        to_delete = [
+            nid
+            for nid in list(self._nodes.keys())
+            if str(nid) in purged_id_set
+            or self._nodes[nid].event.timestamp < cutoff_time
+        ]
+        to_delete_set = {str(nid) for nid in to_delete} | purged_id_set
+
+        removed_edge_ids: set[str] = {
+            str(e.get("edge_id", ""))
+            for e in self._edges
+            if str(e.get("from_node", "")) in to_delete_set
+            or str(e.get("to_node", "")) in to_delete_set
+        }
+        removed_edge_ids.update(str(x) for x in edge_ids_to_remove)
+
+        for nid in to_delete:
+            node = self._nodes.pop(nid, None)
+            if node:
+                agent_nids = self._agent_nodes_index.get(node.event.agent_id, [])
+                if nid in agent_nids:
+                    agent_nids.remove(nid)
+
+        for node in self._nodes.values():
+            node.incoming_edges = [
+                e for e in node.incoming_edges if str(e) not in removed_edge_ids
+            ]
+            node.outgoing_edges = [
+                e for e in node.outgoing_edges if str(e) not in removed_edge_ids
+            ]
+
+        self._edges = [
+            e
+            for e in self._edges
+            if str(e.get("from_node", "")) not in to_delete_set
+            and str(e.get("to_node", "")) not in to_delete_set
+            and str(e.get("edge_id", "")) not in removed_edge_ids
+        ]
+        self._path_cache.clear()
+        return purged_count if self._pool else len(to_delete)
+
+
+
