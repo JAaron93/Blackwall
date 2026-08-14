@@ -5,6 +5,7 @@ state resets, and evidence-derived containment checks for evaluation environment
 (Requirements 14.1 - 14.5, 22.5 & Properties 69 - 72).
 """
 
+import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -40,6 +41,7 @@ class EvaluationEnvironment:
         self.store = AttackGraphStore(dsn=dsn, in_memory=in_memory)
         self.alert_bus = AlertBus()
         self._initialized = False
+        self._lock = asyncio.Lock()
 
     async def initialize(self) -> None:
         """Initialize the isolated graph store."""
@@ -75,17 +77,19 @@ class EvaluationEnvironment:
 
     async def insert_event(self, event: NormalizedEvent) -> AttackNode:
         """Label and insert an event into this environment's isolated attack graph."""
-        await self.initialize()
-        labeled = self.label_event(event)
-        return await self.store.insert_event(labeled)
+        async with self._lock:
+            await self.initialize()
+            labeled = self.label_event(event)
+            return await self.store.insert_event(labeled)
 
     async def insert_events_batch(
         self, events: list[NormalizedEvent]
     ) -> list[AttackNode]:
         """Label and batch-insert events into this environment's isolated attack graph."""
-        await self.initialize()
-        labeled_events = [self.label_event(e) for e in events]
-        return await self.store.insert_events_batch(labeled_events)
+        async with self._lock:
+            await self.initialize()
+            labeled_events = [self.label_event(e) for e in events]
+            return await self.store.insert_events_batch(labeled_events)
 
     async def publish_alert(self, alert: Alert) -> bool:
         """Label and publish an alert to this environment's isolated alert bus."""
@@ -94,31 +98,46 @@ class EvaluationEnvironment:
 
     async def reset(self) -> None:
         """Reset the evaluation environment state to a clean initial baseline."""
-        # Clear in-memory structures
-        self.store._nodes.clear()
-        self.store._agent_nodes_index.clear()
-        self.store._path_cache.clear()
-        self.store._edges.clear()
+        async with self._lock:
+            # Clear in-memory structures
+            self.store._nodes.clear()
+            self.store._agent_nodes_index.clear()
+            self.store._path_cache.clear()
+            self.store._edges.clear()
 
-        # If PostgreSQL pool is configured, truncate tables
-        if self.store._pool:
-            try:
-                async with self.store._pool.acquire() as conn:
-                    await conn.execute("TRUNCATE TABLE causal_edges, event_nodes CASCADE;")
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "Error truncating DB tables during eval reset for %s: %s",
-                    self.env_id,
-                    exc,
-                )
+            # If PostgreSQL pool is configured, delete ONLY rows for this specific evaluation environment
+            if self.store._pool:
+                try:
+                    async with self.store._pool.acquire() as conn, conn.transaction():
+                        rows = await conn.fetch(
+                            "SELECT node_id FROM event_nodes WHERE metadata->>'evaluation_env_id' = $1;",
+                            self.env_id,
+                        )
+                        if rows:
+                            node_ids = [r["node_id"] for r in rows]
+                            await conn.execute(
+                                "DELETE FROM causal_edges WHERE from_node = ANY($1::text[]) OR to_node = ANY($1::text[]);",
+                                node_ids,
+                            )
+                            await conn.execute(
+                                "DELETE FROM event_nodes WHERE metadata->>'evaluation_env_id' = $1;",
+                                self.env_id,
+                            )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Error deleting scoped DB records during eval reset for %s: %s",
+                        self.env_id,
+                        exc,
+                    )
 
-        # Clear alert bus history
-        self.alert_bus.clear()
-        logger.info("Evaluation environment %s successfully reset.", self.env_id)
+            # Clear alert bus history
+            self.alert_bus.clear()
+            logger.info("Evaluation environment %s successfully reset.", self.env_id)
 
     async def close(self) -> None:
         """Close graph store connection pool."""
-        await self.store.close()
+        async with self._lock:
+            await self.store.close()
 
     def is_production_action_suppressed(self) -> bool:
         """All mitigations from evaluation environments must be suppressed from production."""
@@ -136,6 +155,7 @@ class EvaluationEnvironmentManager:
         self.default_dsn = default_dsn
         self.in_memory = in_memory
         self._environments: dict[str, EvaluationEnvironment] = {}
+        self._lock = asyncio.Lock()
 
     def get_or_create_environment(
         self,
@@ -301,15 +321,17 @@ class EvaluationEnvironmentManager:
 
     async def reset_environment(self, env_id: str) -> None:
         """Reset a specific evaluation environment to clean initial state."""
-        env = self.get_environment(env_id)
-        if env:
-            await env.reset()
+        async with self._lock:
+            env = self.get_environment(env_id)
+            if env:
+                await env.reset()
 
     async def reset_all(self) -> None:
         """Reset all managed evaluation environments."""
-        for env in self._environments.values():
-            await env.reset()
-        logger.info("Reset all %d evaluation environments.", len(self._environments))
+        async with self._lock:
+            for env in list(self._environments.values()):
+                await env.reset()
+            logger.info("Reset all %d evaluation environments.", len(self._environments))
 
     def list_environments(self) -> list[str]:
         """Return a list of all active evaluation environment IDs."""
@@ -317,15 +339,17 @@ class EvaluationEnvironmentManager:
 
     async def delete_environment(self, env_id: str) -> None:
         """Remove and close an evaluation environment."""
-        clean_id = str(env_id).strip() if env_id else ""
-        if clean_id in self._environments:
-            env = self._environments.pop(clean_id)
-            await env.reset()
-            await env.close()
-            logger.info("Deleted evaluation environment %s", clean_id)
+        async with self._lock:
+            clean_id = str(env_id).strip() if env_id else ""
+            if clean_id in self._environments:
+                env = self._environments.pop(clean_id)
+                await env.reset()
+                await env.close()
+                logger.info("Deleted evaluation environment %s", clean_id)
 
     async def close_all(self) -> None:
         """Close all managed evaluation environments."""
-        for env in list(self._environments.values()):
-            await env.close()
-        self._environments.clear()
+        async with self._lock:
+            for env in list(self._environments.values()):
+                await env.close()
+            self._environments.clear()
