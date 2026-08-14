@@ -12,12 +12,44 @@ from blackwall.enterprise.advanced_threat_detection.models import AttackNode
 class AttackGraphExporter:
     """Exports attack graph structures (nodes and causal edges) into standard formats (JSON, GraphML)."""
 
+    def _scope_graph(
+        self, nodes: list[AttackNode], edges: list[dict[str, Any]] | None
+    ) -> tuple[list[AttackNode], list[dict[str, Any]]]:
+        """Filter edges and node edge references so that all edge endpoints are contained within the exported nodes."""
+        node_id_strs = {str(n.node_id) for n in nodes}
+        scoped_edges: list[dict[str, Any]] = []
+        if edges:
+            for e in edges:
+                if (
+                    str(e.get("from_node", "")) in node_id_strs
+                    and str(e.get("to_node", "")) in node_id_strs
+                ):
+                    scoped_edges.append(e)
+
+        scoped_edge_ids = {str(e.get("edge_id", "")) for e in scoped_edges}
+        scoped_nodes = [
+            AttackNode(
+                node_id=n.node_id,
+                event=n.event,
+                incoming_edges=[
+                    e for e in n.incoming_edges if str(e) in scoped_edge_ids
+                ],
+                outgoing_edges=[
+                    e for e in n.outgoing_edges if str(e) in scoped_edge_ids
+                ],
+            )
+            for n in nodes
+        ]
+        return scoped_nodes, scoped_edges
+
     def export_json(
         self, nodes: list[AttackNode], edges: list[dict[str, Any]] | None = None
     ) -> str:
         """Export attack graph nodes and edges to standard structured JSON."""
+        scoped_nodes, scoped_edges = self._scope_graph(nodes, edges)
+
         nodes_data = []
-        for node in nodes:
+        for node in scoped_nodes:
             ev_dict = {
                 "event_id": str(node.event.event_id),
                 "timestamp": node.event.timestamp.isoformat(),
@@ -42,21 +74,20 @@ class AttackGraphExporter:
             )
 
         edges_data = []
-        if edges:
-            for edge in edges:
-                edges_data.append(
-                    {
-                        "edge_id": str(edge.get("edge_id", "")),
-                        "from_node": str(edge.get("from_node", "")),
-                        "to_node": str(edge.get("to_node", "")),
-                        "relationship": str(edge.get("relationship", "CONNECTED")),
-                        "created_at": (
-                            edge["created_at"].isoformat()
-                            if hasattr(edge.get("created_at"), "isoformat")
-                            else str(edge.get("created_at", ""))
-                        ),
-                    }
-                )
+        for edge in scoped_edges:
+            edges_data.append(
+                {
+                    "edge_id": str(edge.get("edge_id", "")),
+                    "from_node": str(edge.get("from_node", "")),
+                    "to_node": str(edge.get("to_node", "")),
+                    "relationship": str(edge.get("relationship", "CONNECTED")),
+                    "created_at": (
+                        edge["created_at"].isoformat()
+                        if hasattr(edge.get("created_at"), "isoformat")
+                        else str(edge.get("created_at", ""))
+                    ),
+                }
+            )
 
         payload = {
             "version": "1.0",
@@ -70,6 +101,8 @@ class AttackGraphExporter:
         self, nodes: list[AttackNode], edges: list[dict[str, Any]] | None = None
     ) -> str:
         """Export attack graph nodes and edges to schema-compliant GraphML XML format."""
+        scoped_nodes, scoped_edges = self._scope_graph(nodes, edges)
+
         graphml_ns = "http://graphml.graphdrawing.org/xmlns"
         ET.register_namespace("", graphml_ns)
 
@@ -101,7 +134,7 @@ class AttackGraphExporter:
         graph_elem.attrib["edgedefault"] = "directed"
 
         # Populate nodes
-        for node in nodes:
+        for node in scoped_nodes:
             n_elem = ET.SubElement(graph_elem, f"{{{graphml_ns}}}node")
             n_elem.attrib["id"] = str(node.node_id)
 
@@ -128,28 +161,28 @@ class AttackGraphExporter:
                 d_elem.text = value_text
 
         # Populate edges
-        if edges:
-            for idx, edge in enumerate(edges):
-                e_elem = ET.SubElement(graph_elem, f"{{{graphml_ns}}}edge")
-                edge_id = str(edge.get("edge_id") or f"e{idx}")
-                e_elem.attrib["id"] = edge_id
-                e_elem.attrib["source"] = str(edge.get("from_node", ""))
-                e_elem.attrib["target"] = str(edge.get("to_node", ""))
+        for idx, edge in enumerate(scoped_edges):
+            e_elem = ET.SubElement(graph_elem, f"{{{graphml_ns}}}edge")
+            edge_id = str(edge.get("edge_id") or f"e{idx}")
+            e_elem.attrib["id"] = edge_id
+            e_elem.attrib["source"] = str(edge.get("from_node", ""))
+            e_elem.attrib["target"] = str(edge.get("to_node", ""))
 
-                d_rel = ET.SubElement(e_elem, f"{{{graphml_ns}}}data")
-                d_rel.attrib["key"] = "d7"
-                d_rel.text = str(edge.get("relationship", "CONNECTED"))
+            d_rel = ET.SubElement(e_elem, f"{{{graphml_ns}}}data")
+            d_rel.attrib["key"] = "d7"
+            d_rel.text = str(edge.get("relationship", "CONNECTED"))
 
-                d_created = ET.SubElement(e_elem, f"{{{graphml_ns}}}data")
-                d_created.attrib["key"] = "d8"
-                created_val = edge.get("created_at")
-                d_created.text = (
-                    created_val.isoformat()
-                    if hasattr(created_val, "isoformat")
-                    else str(created_val or "")
-                )
+            d_created = ET.SubElement(e_elem, f"{{{graphml_ns}}}data")
+            d_created.attrib["key"] = "d8"
+            created_val = edge.get("created_at")
+            d_created.text = (
+                created_val.isoformat()
+                if hasattr(created_val, "isoformat")
+                else str(created_val or "")
+            )
 
-        return ET.tostring(root, encoding="utf-8", xml_declaration=True).decode("utf-8")
+        xml_str = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+        return xml_str.decode("utf-8")
 
     def export(
         self,
@@ -157,27 +190,27 @@ class AttackGraphExporter:
         nodes: list[AttackNode],
         edges: list[dict[str, Any]] | None = None,
     ) -> str:
-        """Dispatcher to export nodes and edges according to requested format ('json' or 'graphml')."""
-        fmt_lower = format.strip().lower()
-        if fmt_lower == "json":
+        """Export attack graph to specified format (json or graphml)."""
+        fmt = format.lower().strip()
+        if fmt == "json":
             return self.export_json(nodes, edges)
-        if fmt_lower == "graphml":
+        elif fmt in ("graphml", "xml"):
             return self.export_graphml(nodes, edges)
-        raise ValueError(
-            f"Unsupported export format '{format}'. Supported formats: 'json', 'graphml'"
-        )
+        else:
+            raise ValueError(
+                f"Unsupported export format '{format}'. Supported formats are: json, graphml"
+            )
 
     def export_to_file(
         self,
-        filepath: str,
+        file_path: str,
         format: str,
         nodes: list[AttackNode],
         edges: list[dict[str, Any]] | None = None,
-    ) -> None:
-        """Export graph structure to a file on disk."""
+    ) -> str:
+        """Export attack graph and write to file path."""
         content = self.export(format, nodes, edges)
-        dir_path = os.path.dirname(filepath)
-        if dir_path:
-            os.makedirs(dir_path, exist_ok=True)
-        with open(filepath, "w", encoding="utf-8") as f:
+        os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
+        with open(file_path, "w", encoding="utf-8") as f:
             f.write(content)
+        return file_path

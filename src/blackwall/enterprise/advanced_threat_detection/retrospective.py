@@ -193,9 +193,7 @@ class RetrospectiveAnalyzer:
                                 in_degree[target_node.node_id] += 1
                                 added_target_ids.add(target_node.node_id)
 
-                    # 2. Behavioral/Semantic affinity: connect to next chronological same-target or tier-escalation node
-                    target_connected = False
-                    tier_connected = False
+                    # 2. Behavioral/Semantic affinity: connect to qualifying same-target or tier-escalation nodes
                     tier_a = SEMANTIC_TIERS.get(n_a.event.source, 1)
 
                     for n_b in sorted_nodes[i + 1 :]:
@@ -214,22 +212,20 @@ class RetrospectiveAnalyzer:
                         b_has_mitre = any(pat.search(n_b.event.action) or pat.search(n_b.event.target) for pat, _ in MITRE_PATTERNS)
                         is_strict_tier_escalation = (tier_b > tier_a) and (tier_b - tier_a <= 3) and (a_has_mitre or b_has_mitre)
 
-                        if same_target and not target_connected:
+                        if same_target:
                             decay = math.exp(-delta / max(300.0, max_time_gap_seconds / 10.0))
                             weight = min(1.0, 0.3 * decay + 0.7 * 0.8)
                             adj[n_a.node_id].append((n_b, weight))
                             in_degree[n_b.node_id] += 1
                             added_target_ids.add(n_b.node_id)
-                            target_connected = True
 
-                        elif is_strict_tier_escalation and not tier_connected:
+                        elif is_strict_tier_escalation:
                             decay = math.exp(-delta / max(300.0, max_time_gap_seconds / 10.0))
                             semantic_base = 0.5 + (0.1 * abs(tier_b - tier_a))
                             weight = min(1.0, 0.3 * decay + 0.7 * semantic_base)
                             adj[n_a.node_id].append((n_b, weight))
                             in_degree[n_b.node_id] += 1
                             added_target_ids.add(n_b.node_id)
-                            tier_connected = True
 
                 # Determine root / starting nodes to prevent redundant combinatorial sub-path enumeration
                 root_nodes = [n for n in sorted_nodes if in_degree[n.node_id] == 0]
@@ -445,25 +441,4 @@ class RetrospectiveAnalyzer:
         # Retrieve all edges to prevent omitting causal edges created outside node time window
         edges = await self.store.get_edges()
 
-        # Filter edges to only include those whose source and target nodes exist in the exported nodes list
-        node_id_strs = {str(n.node_id) for n in nodes}
-        scoped_edges = [
-            e
-            for e in edges
-            if str(e.get("from_node", "")) in node_id_strs
-            and str(e.get("to_node", "")) in node_id_strs
-        ]
-        scoped_edge_ids = {str(e["edge_id"]) for e in scoped_edges}
-
-        # Filter nodes' incoming and outgoing edge lists to eliminate dangling references in exported node payloads
-        scoped_nodes = [
-            AttackNode(
-                node_id=n.node_id,
-                event=n.event,
-                incoming_edges=[e for e in n.incoming_edges if str(e) in scoped_edge_ids],
-                outgoing_edges=[e for e in n.outgoing_edges if str(e) in scoped_edge_ids],
-            )
-            for n in nodes
-        ]
-
-        return self.exporter.export(format, scoped_nodes, scoped_edges)
+        return self.exporter.export(format, nodes, edges)
