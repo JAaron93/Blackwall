@@ -152,12 +152,25 @@
 * **Rationale:** Batches containing multiple events with the same `event_id` pass single-item cache checks and can append the same identifier multiple times to entity indices (e.g. `_agent_nodes_index`), causing in-memory graph traversals to observe duplicate nodes absent from persistence.
 
 ## 35. Graph Export Edge Scoping Invariant
-* **Rule:** When exporting subgraphs (e.g. filtered by `agent_id` or `time_window`), exporters MUST scope exported causal edges strictly to nodes present in the exported payload (`from_node` and `to_node` both present in exported node set) to prevent dangling edge identifiers and broken references in JSON and GraphML representations.
-* **Rationale:** Filtering nodes without filtering causal edges causes edge arrays to reference nonexistent source/target node IDs in the export payload, breaking graph visualization and downstream schema validation.
+* **Rule:** Attack graph exporters (e.g. `AttackGraphExporter`, `RetrospectiveAnalyzer.export_attack_graph`) MUST defensively scope exported graphs before serialization. Regardless of whether filtering occurs at the query layer or direct exporter invocation:
+  1. Exported edges MUST be filtered strictly to edges whose source and target nodes both exist in the exported node set (`from_node` and `to_node` in exported node IDs).
+  2. Exported node records MUST have their `incoming_edges` and `outgoing_edges` arrays filtered strictly to the scoped edge IDs.
+* **Rationale:** Direct callers often pass filtered node subsets alongside full edge tables. Serializing un-scoped edges or retaining dangling edge IDs in node payloads creates malformed JSON/GraphML outputs that fail downstream schema validators and graph visualizers.
 
-## 36. Purge Edge Array Cascading & Dangling Identifier Prevention
-* **Rule:** Database and in-memory event purging routines (`purge_events_before`) MUST clean up edge UUID references from retained nodes' `incoming_edges` and `outgoing_edges` arrays when adjacent nodes are deleted, preventing orphaned edge references from persisting in retained records.
-* **Rationale:** Deleting expired nodes removes causal edge rows but leaves dangling edge UUID strings inside JSON arrays of retained nodes, corrupting subsequent graph traversals and export structures.
+## 36. Purge Edge Array Cascading & Dual Storage Synchronization
+* **Rule:** Database and in-memory event purging routines (`purge_events_before`) in hybrid/dual-tier stores MUST maintain exact state parity across PostgreSQL and process-local cache:
+  1. Candidate purged node IDs MUST combine both persisted database rows and in-memory cache records (`purged_ids | to_delete_candidates`).
+  2. In PostgreSQL, all causal edges adjacent to any purged node ID (`causal_edges WHERE from_node = ANY(...) OR to_node = ANY(...)`) MUST be queried and removed, and retained database nodes updated to strip those edge IDs.
+  3. In process-local memory, all adjacent edge IDs (combining database-purged edge IDs and `self._edges` connections) MUST be stripped from `incoming_edges` and `outgoing_edges` across all retained cached node instances using stringified ID matching.
+  4. Cache invalidations MUST reference valid attributes (e.g. `self._path_cache.clear()`), and process-local indices (`self._agent_nodes_index`) MUST be purged of deleted node IDs.
+* **Rationale:** If a cached node's adjacent edge was persisted in PostgreSQL but absent from process-local `self._edges`, purging only database rows leaves dangling edge references on cached node instances, leading to corrupted cache-backed graph queries.
+
+## 37. Cross-Window Causal Path Preservation in Retrospective Traversal
+* **Rule:** Retrospective analysis engines (`RetrospectiveAnalyzer.detect_retrospective_paths`) querying historical attack paths across multi-day/week windows MUST preserve direct causal links regardless of elapsed time:
+  1. Direct causal edges (`outgoing_edges` / `causal_edges`) represent explicit execution dependencies and MUST NOT be subjected to short-window or arbitrary time-gap eviction filters.
+  2. Batching or sliding-window historical queries MUST evaluate complete agent node histories or retain unresolved causal source nodes until all chronological successors have been processed.
+* **Rationale:** Adversaries executing slow-moving or low-and-slow campaigns may trigger secondary payloads days after initial access. Evicting causal sources at batch or sliding-window boundaries severs multi-hop attack paths and allows persistent stealth campaigns to evade detection.
+
 
 
 
