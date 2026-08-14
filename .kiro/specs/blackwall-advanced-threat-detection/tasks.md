@@ -611,26 +611,26 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5_
     - _Verification: `pytest tests/step_defs/test_retrospective_analysis_bdd.py -v`_
 
-- [ ] 18. Implement Evaluation Environment Support
-  - [ ] 18.1 Create evaluation environment labeling
+- [x] 18. Implement Evaluation Environment Support
+  - [x] 18.1 Create evaluation environment labeling
     - Add evaluation environment identifier to event metadata
     - Prevent eval alerts from triggering production workflows
     - _Requirements: 14.1, 14.2_
     - _Verification: `pytest tests/unit/test_evaluation_mode.py::test_eval_labeling -v`_
 
-  - [ ] 18.2 Implement isolated attack graph instances per evaluation environment
+  - [x] 18.2 Implement isolated attack graph instances per evaluation environment
     - Create separate graph instances for each eval environment
     - Ensure isolation from production and other eval environments
     - _Requirements: 14.3_
     - _Verification: `pytest tests/unit/test_evaluation_mode.py::test_graph_isolation -v`_
 
-  - [ ] 18.3 Implement evaluation state reset
+  - [x] 18.3 Implement evaluation state reset
     - Support resetting eval environment to clean state
     - Clear attack graphs and event history
     - _Requirements: 14.4_
     - _Verification: `pytest tests/unit/test_evaluation_mode.py::test_state_reset -v`_
 
-  - [ ] 18.4 Write property tests for evaluation mode
+  - [x] 18.4 Write property tests for evaluation mode
     - **Property 69: Evaluation Mode Event Labeling**
     - **Property 70: Evaluation Mode Alert Isolation**
     - **Property 71: Evaluation Environment Graph Isolation**
@@ -638,7 +638,7 @@ The implementation follows a test-driven development approach with property-base
     - **Validates: Requirements 14.1, 14.2, 14.3, 14.4**
     - _Verification: `pytest tests/property/test_evaluation_mode_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 18.5 Write BDD feature tests for Evaluation Environment Support
+  - [x] 18.5 Write BDD feature tests for Evaluation Environment Support
     - Create `tests/features/evaluation_environment.feature` with Gherkin scenarios
     - Implement `Given/When/Then` steps in `tests/step_defs/test_evaluation_environment_bdd.py` using `run_async`
     - Scenario: events in evaluation mode carry the eval environment identifier in metadata
@@ -648,7 +648,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 14.1, 14.2, 14.3, 14.4_
     - _Verification: `pytest tests/step_defs/test_evaluation_environment_bdd.py -v`_
 
-- [ ] 19. Checkpoint - Verify auxiliary features
+- [x] 19. Checkpoint - Verify auxiliary features
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 20. Implement Error Handling and Resilience
