@@ -18,7 +18,10 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     NormalizedEvent,
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
-from blackwall.validators import validate_non_empty_string
+from blackwall.validators import (
+    validate_non_empty_string,
+    validate_uuid_v4_format,
+)
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.evaluation")
 
@@ -41,10 +44,19 @@ class EvaluationEnvironment:
         self.store = AttackGraphStore(dsn=dsn, in_memory=in_memory)
         self.alert_bus = AlertBus()
         self._initialized = False
+        self._closed = False
         self._lock = asyncio.Lock()
+
+    def _check_not_closed(self) -> None:
+        """Raise RuntimeError if this evaluation environment has been closed."""
+        if self._closed:
+            raise RuntimeError(
+                f"EvaluationEnvironment '{self.env_id}' is closed and cannot accept operations."
+            )
 
     async def initialize(self) -> None:
         """Initialize the isolated graph store."""
+        self._check_not_closed()
         if not self._initialized:
             await self.store.initialize()
             self._initialized = True
@@ -78,6 +90,7 @@ class EvaluationEnvironment:
     async def insert_event(self, event: NormalizedEvent) -> AttackNode:
         """Label and insert an event into this environment's isolated attack graph."""
         async with self._lock:
+            self._check_not_closed()
             await self.initialize()
             labeled = self.label_event(event)
             return await self.store.insert_event(labeled)
@@ -87,18 +100,35 @@ class EvaluationEnvironment:
     ) -> list[AttackNode]:
         """Label and batch-insert events into this environment's isolated attack graph."""
         async with self._lock:
+            self._check_not_closed()
             await self.initialize()
             labeled_events = [self.label_event(e) for e in events]
             return await self.store.insert_events_batch(labeled_events)
 
+    async def get_node(self, node_id: uuid.UUID | str) -> AttackNode | None:
+        """Retrieve a node from this environment's graph, ensuring it belongs to this evaluation environment."""
+        async with self._lock:
+            self._check_not_closed()
+            clean_uuid = validate_uuid_v4_format(node_id)
+            node = await self.store.get_node(clean_uuid)
+            if node is not None:
+                meta = node.event.metadata
+                if meta.get("evaluation_env_id") == self.env_id and (
+                    meta.get("is_evaluation") is True or meta.get("eval_mode") is True
+                ):
+                    return node
+            return None
+
     async def publish_alert(self, alert: Alert) -> bool:
         """Label and publish an alert to this environment's isolated alert bus."""
+        self._check_not_closed()
         labeled = self.label_alert(alert)
         return await self.alert_bus.publish(labeled)
 
     async def reset(self) -> None:
         """Reset the evaluation environment state to a clean initial baseline."""
         async with self._lock:
+            self._check_not_closed()
             # Clear in-memory structures
             self.store._nodes.clear()
             self.store._agent_nodes_index.clear()
@@ -135,9 +165,12 @@ class EvaluationEnvironment:
             logger.info("Evaluation environment %s successfully reset.", self.env_id)
 
     async def close(self) -> None:
-        """Close graph store connection pool."""
+        """Close graph store connection pool and transition to closed state."""
         async with self._lock:
-            await self.store.close()
+            if not self._closed:
+                self._closed = True
+                self._initialized = False
+                await self.store.close()
 
     def is_production_action_suppressed(self) -> bool:
         """All mitigations from evaluation environments must be suppressed from production."""
@@ -307,13 +340,13 @@ class EvaluationEnvironmentManager:
         if env_id:
             env = self.get_environment(env_id)
             if env:
-                node = await env.store.get_node(clean_node_id)
+                node = await env.get_node(clean_node_id)
                 if node is not None:
                     return True
             return False
 
-        for env in self._environments.values():
-            node = await env.store.get_node(clean_node_id)
+        for env in list(self._environments.values()):
+            node = await env.get_node(clean_node_id)
             if node is not None:
                 return True
 

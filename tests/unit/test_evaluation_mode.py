@@ -313,3 +313,52 @@ async def test_scoped_db_reset_query_execution():
     del_nodes_call = mock_conn.execute.call_args_list[1][0]
     assert "DELETE FROM event_nodes WHERE metadata->>'evaluation_env_id' = $1" in del_nodes_call[0]
     assert del_nodes_call[1] == "eval-scoped-test"
+
+
+@pytest.mark.asyncio
+async def test_closed_environment_rejects_operations():
+    """Verify closed environments explicitly reject writes and operations rather than detaching in memory."""
+    env = EvaluationEnvironment("eval-closed-test", in_memory=True)
+    await env.initialize()
+    await env.close()
+
+    ev = create_sample_event(agent_id="agent-closed")
+
+    with pytest.raises(RuntimeError, match="is closed and cannot accept operations"):
+        await env.insert_event(ev)
+
+    with pytest.raises(RuntimeError, match="is closed and cannot accept operations"):
+        await env.insert_events_batch([ev])
+
+    with pytest.raises(RuntimeError, match="is closed and cannot accept operations"):
+        await env.reset()
+
+    with pytest.raises(RuntimeError, match="is closed and cannot accept operations"):
+        await env.get_node(ev.event_id)
+
+    with pytest.raises(RuntimeError, match="is closed and cannot accept operations"):
+        await env.publish_alert(
+            Alert(
+                severity=AlertSeverity.HIGH,
+                threat_type="rce",
+                title="test",
+                description="test",
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_shared_graph_production_node_isolation():
+    """Verify is_evaluation_mode rejects production nodes present in underlying store without eval metadata."""
+    manager = EvaluationEnvironmentManager(in_memory=True)
+    env = manager.get_or_create_environment("eval-shared-test")
+
+    # Directly insert an un-labeled production event into the environment's store
+    prod_event = create_sample_event(agent_id="prod-agent-01")
+    assert "evaluation_env_id" not in prod_event.metadata
+    prod_node = await env.store.insert_event(prod_event)
+
+    # Manager must NOT consider this node as evaluation mode because metadata lacks evaluation stamp
+    assert await manager.is_evaluation_mode(prod_node.node_id) is False
+    assert await manager.is_evaluation_mode(prod_node.node_id, env_id="eval-shared-test") is False
+    assert await env.get_node(prod_node.node_id) is None
