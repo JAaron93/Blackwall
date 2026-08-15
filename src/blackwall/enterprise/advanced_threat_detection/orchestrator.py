@@ -44,6 +44,24 @@ from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStor
 from blackwall.enterprise.advanced_threat_detection.swarm import AgentSwarmDetector
 from blackwall.validators import utc_now, validate_utc_datetime
 
+try:
+    import psutil
+
+    _PROCESS = psutil.Process()
+except Exception:
+    _PROCESS = None
+
+
+def _get_current_memory_mb() -> float:
+    """Return resident set size memory in MB if psutil is available."""
+    if _PROCESS is not None:
+        try:
+            return _PROCESS.memory_info().rss / (1024.0 * 1024.0)
+        except Exception:
+            return 0.0
+    return 0.0
+
+
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.orchestrator")
 
 
@@ -148,10 +166,11 @@ class AdvancedThreatDetection:
             async def _replace_and_run() -> None:
                 if old_task and not old_task.done():
                     old_task.cancel()
-                    try:
-                        await old_task
-                    except (asyncio.CancelledError, Exception):
-                        pass
+                    await asyncio.gather(old_task, return_exceptions=True)
+                    # If this replacement task was itself cancelled, do not start stream
+                    curr = asyncio.current_task()
+                    if curr is not None and curr.cancelling():
+                        raise asyncio.CancelledError()
                 await self._run_pillar_stream(source, stream_factory)
 
             task = asyncio.create_task(_replace_and_run())
@@ -270,8 +289,15 @@ class AdvancedThreatDetection:
                 raise ValueError("raw_event dictionary must be provided when source is EventSource")
             normalized = self.collector.normalize_event(source_or_event, raw_event)
 
-        # Record throughput in throttler
+        # Record throughput and evaluate resource throttling
         self.throttler.record_event()
+        mem_mb = _get_current_memory_mb()
+        if self.throttler.should_throttle(current_memory_mb=mem_mb):
+            logger.warning(
+                "AdvancedThreatDetection throttling active (rate=%.1f/s, memory=%.1fMB)",
+                self.throttler.current_rate(),
+                mem_mb,
+            )
 
         # Persist event in attack graph store
         await self.store.insert_event(normalized)
