@@ -123,10 +123,10 @@ class AlertBus:
                             delivered_count = i + 1
                         except asyncio.CancelledError:
                             try:
-                                await delivery_task
-                            except Exception:
-                                pass
-                            delivered_count = i + 1
+                                await asyncio.wait_for(delivery_task, timeout=1.0)
+                                delivered_count = i + 1
+                            except (asyncio.TimeoutError, Exception):
+                                delivery_task.cancel()
                             raise
                 except (asyncio.CancelledError, Exception):
                     # Re-queue any undelivered alerts back to the front of _pending_alerts

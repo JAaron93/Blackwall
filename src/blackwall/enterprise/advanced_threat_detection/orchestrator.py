@@ -174,8 +174,15 @@ class AdvancedThreatDetection:
                 if prev_task and not prev_task.done():
                     prev_task.cancel()
                     try:
-                        await asyncio.wait_for(asyncio.shield(prev_task), timeout=1.0)
-                    except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+                        await asyncio.wait_for(prev_task, timeout=1.0)
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "Superseded pillar stream task for %s did not terminate within timeout",
+                            source,
+                        )
+                        if not prev_task.done():
+                            return
+                    except (asyncio.CancelledError, Exception):
                         pass
                 curr = asyncio.current_task()
                 if curr is not None and curr.cancelling():
