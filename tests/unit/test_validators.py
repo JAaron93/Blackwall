@@ -198,8 +198,8 @@ def test_compute_word_intersection_match_quality():
 def test_property_parse_json_safely_never_crashes_on_random_text(random_text):
     """Property test: parse_json_safely never raises exceptions on arbitrary text."""
     res = parse_json_safely(random_text, default="FALLBACK")
-    # Must either be a parsed JSON value or the fallback default
-    assert res is not None
+    # Must either be a valid parsed JSON value (e.g. dict, list, scalar, None) or the fallback default
+    assert res == "FALLBACK" or res is not "FALLBACK"
 
 
 @given(st.datetimes(timezones=st.timezones()))

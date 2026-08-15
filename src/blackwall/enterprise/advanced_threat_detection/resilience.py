@@ -100,6 +100,7 @@ class ResourceThrottler:
         max_events_per_second: int = 1000,
         max_queue_size: int = 10000,
         sliding_window_seconds: float = 1.0,
+        max_memory_mb: int = 512,
     ) -> None:
         if max_events_per_second <= 0:
             raise ValueError("max_events_per_second must be positive")
@@ -107,10 +108,13 @@ class ResourceThrottler:
             raise ValueError("max_queue_size must be positive")
         if sliding_window_seconds <= 0:
             raise ValueError("sliding_window_seconds must be positive")
+        if max_memory_mb <= 0:
+            raise ValueError("max_memory_mb must be positive")
 
         self.max_events_per_second = max_events_per_second
         self.max_queue_size = max_queue_size
         self.sliding_window_seconds = sliding_window_seconds
+        self.max_memory_mb = max_memory_mb
         self._timestamps: deque[float] = deque()
 
     def record_event(self) -> None:
@@ -131,18 +135,27 @@ class ResourceThrottler:
             return 0.0
         return len(self._timestamps) / self.sliding_window_seconds
 
-    def should_throttle(self, current_queue_size: int = 0) -> bool:
+    def should_throttle(
+        self,
+        current_queue_size: int = 0,
+        current_memory_mb: float = 0.0,
+    ) -> bool:
         """Check whether incoming events or analysis should be throttled."""
         if current_queue_size >= self.max_queue_size:
             return True
         if self.current_rate() >= self.max_events_per_second:
             return True
+        if current_memory_mb > 0 and current_memory_mb >= self.max_memory_mb:
+            return True
         return False
 
     def get_analysis_depth(
-        self, base_depth: int = 5, current_queue_size: int = 0
+        self,
+        base_depth: int = 5,
+        current_queue_size: int = 0,
+        current_memory_mb: float = 0.0,
     ) -> int:
-        """Calculate dynamic analysis depth based on current queue load and event rate."""
+        """Calculate dynamic analysis depth based on current queue load, event rate, and memory usage."""
         if base_depth <= 0:
             raise ValueError("base_depth must be positive")
 
@@ -150,6 +163,7 @@ class ResourceThrottler:
         is_severe = (
             current_queue_size >= self.max_queue_size
             or rate >= (self.max_events_per_second * 1.5)
+            or (current_memory_mb > 0 and current_memory_mb >= self.max_memory_mb)
         )
         if is_severe:
             return max(1, base_depth // 3)
@@ -157,6 +171,7 @@ class ResourceThrottler:
         is_moderate = (
             current_queue_size >= (self.max_queue_size * 0.7)
             or rate >= (self.max_events_per_second * 0.9)
+            or (current_memory_mb > 0 and current_memory_mb >= (self.max_memory_mb * 0.8))
         )
         if is_moderate:
             return max(1, base_depth // 2)

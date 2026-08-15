@@ -32,22 +32,127 @@ class AlertBus:
         max_retries: int = 5,
         retry_delay: float = 0.01,
         history_capacity: int = 1000,
+        batch_size: int = 100,
+        flush_interval_seconds: float = 1.0,
     ) -> None:
         if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries <= 0:
             raise ValueError("max_retries must be a strictly positive integer")
         if isinstance(history_capacity, bool) or not isinstance(history_capacity, int) or history_capacity <= 0:
             raise ValueError("history_capacity must be a strictly positive integer")
+        if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size <= 0:
+            raise ValueError("batch_size must be a strictly positive integer")
+        if flush_interval_seconds <= 0:
+            raise ValueError("flush_interval_seconds must be positive")
 
         self.max_retries = max_retries
         self.retry_delay = retry_delay
+        self.batch_size = batch_size
+        self.flush_interval_seconds = flush_interval_seconds
         self._subscribers: list[Callable[[Alert], Any]] = []
         self._alerts: deque[Alert] = deque(maxlen=history_capacity)
+        self._pending_alerts: deque[Alert] = deque()
         self._persistent_failures: list[dict[str, Any]] = []
+        self._flush_task: asyncio.Task[Any] | None = None
+        self._wake_event = asyncio.Event()
+        self._running = False
+        self._lock = asyncio.Lock()
+        self._flush_lock = asyncio.Lock()
 
     @property
     def persistent_failures(self) -> list[dict[str, Any]]:
         """Return recorded persistent alert delivery failures."""
         return list(self._persistent_failures)
+
+    async def start(self) -> None:
+        """Start background periodic flush timer if not already running."""
+        async with self._lock:
+            if self._running:
+                return
+            self._running = True
+            self._wake_event.clear()
+            if self.flush_interval_seconds > 0:
+                self._flush_task = asyncio.create_task(self._periodic_flush_loop())
+
+    async def stop(self, drain_timeout: float = 10.0) -> None:
+        """Stop background flush task and cleanly flush remaining pending alerts."""
+        try:
+            async with self._lock:
+                if not self._running:
+                    return
+                self._running = False
+                self._wake_event.set()
+        except Exception:
+            self._running = False
+
+        task = self._flush_task
+        self._flush_task = None
+        if task is not None and not task.done():
+            try:
+                task_loop = task.get_loop()
+                current_loop = asyncio.get_running_loop()
+                if task_loop is current_loop and not task_loop.is_closed():
+                    try:
+                        # Allow periodic task to exit gracefully upon wake_event
+                        await asyncio.wait_for(task, timeout=2.0)
+                    except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                        task.cancel()
+                        try:
+                            await task
+                        except (asyncio.CancelledError, Exception):
+                            pass
+                else:
+                    task.cancel()
+            except Exception:
+                pass
+
+        try:
+            await asyncio.wait_for(self._flush_pending(), timeout=drain_timeout)
+        except (asyncio.CancelledError, asyncio.TimeoutError, Exception) as exc:
+            logger.warning("AlertBus shutdown flush terminated or timed out: %s", exc)
+
+    async def _periodic_flush_loop(self) -> None:
+        """Periodically flush buffered alerts at flush_interval_seconds or on wake signal."""
+        try:
+            while self._running:
+                try:
+                    await asyncio.wait_for(
+                        self._wake_event.wait(),
+                        timeout=self.flush_interval_seconds,
+                    )
+                    self._wake_event.clear()
+                except asyncio.TimeoutError:
+                    pass
+                if not self._running:
+                    break
+                await self.flush()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
+
+    async def flush(self) -> bool:
+        """Flush all pending alerts to subscribers in bounded batch chunks."""
+        return await self._flush_pending()
+
+    async def _flush_pending(self) -> bool:
+        async with self._flush_lock:
+            if not self._pending_alerts:
+                return True
+            all_ok = True
+            while self._pending_alerts:
+                alert = self._pending_alerts[0]
+                try:
+                    ok = await self._deliver_alert(alert)
+                    if not ok:
+                        all_ok = False
+                    self._pending_alerts.popleft()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    self._pending_alerts.popleft()
+                    all_ok = False
+                    logger.error("Unexpected error delivering alert %s: %s", alert.alert_id, exc)
+            return all_ok
 
     def subscribe(self, handler: Callable[[Alert], Any]) -> None:
         """Register a synchronous or asynchronous alert subscriber handler."""
@@ -59,56 +164,99 @@ class AlertBus:
         if handler in self._subscribers:
             self._subscribers.remove(handler)
 
-    async def publish(self, alert: Alert) -> bool:
-        """Publish an alert to all registered subscribers with retry resilience.
+    async def _deliver_to_subscriber(
+        self, subscriber: Callable[[Alert], Any], alert: Alert
+    ) -> bool:
+        """Deliver an alert to a single subscriber with retry resilience and per-attempt timeout."""
+        last_error: Exception | None = None
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                if inspect.iscoroutinefunction(subscriber):
+                    await asyncio.wait_for(subscriber(alert), timeout=2.0)
+                else:
+                    result = subscriber(alert)
+                    if inspect.iscoroutine(result):
+                        await asyncio.wait_for(result, timeout=2.0)
+                return True
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                if attempt < self.max_retries and self.retry_delay > 0:
+                    await asyncio.sleep(self.retry_delay)
 
-        Retries delivery up to max_retries times upon failure. If all retries are
-        exhausted, records the persistent failure and logs a critical error.
-        """
-        self._alerts.append(alert)
+        error_msg = str(last_error) if last_error else "Unknown delivery failure"
+        failure_record = {
+            "alert_id": str(alert.alert_id),
+            "error": error_msg,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "subscriber": getattr(subscriber, "__name__", str(subscriber)),
+        }
+        self._persistent_failures.append(failure_record)
+        logger.critical(
+            "Persistent alert delivery failure for alert %s to subscriber %s after %d retries: %s",
+            alert.alert_id,
+            subscriber,
+            self.max_retries,
+            error_msg,
+        )
+        return False
+
+    async def _deliver_alert(self, alert: Alert) -> bool:
+        """Deliver a single alert to all subscribers concurrently with resilience and deduplication."""
+        if not any(a.alert_id == alert.alert_id for a in self._alerts):
+            self._alerts.append(alert)
         if not self._subscribers:
             return True
 
-        all_success = True
+        if not hasattr(alert, "_delivered_subscriber_ids"):
+            alert._delivered_subscriber_ids = set()
 
-        for subscriber in list(self._subscribers):
-            delivered = False
-            last_error: Exception | None = None
+        pending_subs = [
+            sub for sub in self._subscribers
+            if id(sub) not in alert._delivered_subscriber_ids
+        ]
+        if not pending_subs:
+            return True
 
-            for attempt in range(1, self.max_retries + 1):
-                try:
-                    if inspect.iscoroutinefunction(subscriber):
-                        await subscriber(alert)
-                    else:
-                        result = subscriber(alert)
-                        if inspect.iscoroutine(result):
-                            await result
-                    delivered = True
-                    break
-                except Exception as exc:  # noqa: BLE001
-                    last_error = exc
-                    if attempt < self.max_retries and self.retry_delay > 0:
-                        await asyncio.sleep(self.retry_delay)
+        async def _deliver_and_track(subscriber: Callable[[Alert], Any]) -> bool:
+            ok = await self._deliver_to_subscriber(subscriber, alert)
+            if ok:
+                alert._delivered_subscriber_ids.add(id(subscriber))
+            return ok
 
-            if not delivered:
-                all_success = False
-                error_msg = str(last_error) if last_error else "Unknown delivery failure"
-                failure_record = {
-                    "alert_id": str(alert.alert_id),
-                    "error": error_msg,
-                    "timestamp": datetime.now(UTC).isoformat(),
-                    "subscriber": getattr(subscriber, "__name__", str(subscriber)),
-                }
-                self._persistent_failures.append(failure_record)
-                logger.critical(
-                    "Persistent alert delivery failure for alert %s to subscriber %s after %d retries: %s",
-                    alert.alert_id,
-                    subscriber,
-                    self.max_retries,
-                    error_msg,
-                )
+        results = await asyncio.gather(
+            *(_deliver_and_track(sub) for sub in pending_subs),
+            return_exceptions=False,
+        )
+        return all(results)
 
-        return all_success
+    async def publish(self, alert: Alert) -> bool:
+        """Publish an alert to all registered subscribers or buffer if batching is active."""
+        if self._running and self.batch_size > 1 and self.flush_interval_seconds > 0:
+            self._pending_alerts.append(alert)
+            if len(self._pending_alerts) >= self.batch_size:
+                return await self.flush()
+            return True
+        return await self._deliver_alert(alert)
+
+    async def publish_batch(self, alerts: list[Alert]) -> bool:
+        """Publish a batch of alerts in bounded chunk sizes up to batch_size."""
+        if not alerts:
+            return True
+        if self._running and self.batch_size > 1 and self.flush_interval_seconds > 0:
+            self._pending_alerts.extend(alerts)
+            if len(self._pending_alerts) >= self.batch_size:
+                return await self.flush()
+            return True
+        all_ok = True
+        for i in range(0, len(alerts), self.batch_size):
+            chunk = alerts[i : i + self.batch_size]
+            for alert in chunk:
+                ok = await self._deliver_alert(alert)
+                if not ok:
+                    all_ok = False
+        return all_ok
 
     def get_alerts(
         self,
@@ -117,7 +265,7 @@ class AlertBus:
         agent_id: str | None = None,
     ) -> list[Alert]:
         """Retrieve stored alerts filtered by severity, threat_type, or agent_id."""
-        filtered = list(self._alerts)
+        filtered = list(self._alerts) + list(self._pending_alerts)
         if severity is not None:
             filtered = [a for a in filtered if a.severity == severity]
         if threat_type is not None:
@@ -132,6 +280,7 @@ class AlertBus:
     def clear(self) -> None:
         """Clear all stored alerts and persistent failures."""
         self._alerts.clear()
+        self._pending_alerts.clear()
         self._persistent_failures.clear()
 
     # ---------------------------------------------------------------------------

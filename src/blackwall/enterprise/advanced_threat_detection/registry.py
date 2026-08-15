@@ -319,21 +319,46 @@ class PackageRegistryMonitor:
                     status_404_by_agent_reg[grp_key] = []
                 status_404_by_agent_reg[grp_key].append(ev)
 
-            # Check malformed patterns
-            combined_search_space = f"{target_str} {payload_str} {meta_str} {ev.action}"
+        for (reg_type, pkg_name), pkg_events in events_by_pkg.items():
             matched_indicators: List[str] = []
+            matched_event_ids: List[str] = []
+            combined_payloads: List[str] = []
+            representative_target: str = ""
 
-            for pattern, indicator_desc in MALFORMED_PATTERNS:
-                if pattern.search(combined_search_space):
-                    matched_indicators.append(f"{indicator_desc}: {pkg_name}")
+            for ev in pkg_events:
+                target_str = str(ev.target or "")
+                if not representative_target:
+                    representative_target = target_str
+                meta = ev.metadata if isinstance(ev.metadata, dict) else {}
+                meta_str = str(meta)
+                payload_str = str(meta.get("payload") or meta.get("query") or meta.get("body") or "")
+                combined_search_space = f"{target_str} {payload_str} {meta_str} {ev.action}"
 
-            # Check internal scope on package registry
-            if any(p in pkg_name.lower() or p in target_str.lower() for p in ("internal-", "private-", "@internal/", "@corp/")):
-                matched_indicators.append(f"Internal scope probing on package registry: {pkg_name}")
+                ev_matched = False
+                for pattern, indicator_desc in MALFORMED_PATTERNS:
+                    if pattern.search(combined_search_space):
+                        ind_text = f"{indicator_desc}: {pkg_name}"
+                        if ind_text not in matched_indicators:
+                            matched_indicators.append(ind_text)
+                        ev_matched = True
+
+                # Check internal scope on package registry
+                if any(p in pkg_name.lower() or p in target_str.lower() for p in ("internal-", "private-", "@internal/", "@corp/")):
+                    ind_text = f"Internal scope probing on package registry: {pkg_name}"
+                    if ind_text not in matched_indicators:
+                        matched_indicators.append(ind_text)
+                    ev_matched = True
+
+                if ev_matched:
+                    matched_event_ids.append(str(ev.event_id))
+                    if payload_str:
+                        combined_payloads.append(payload_str)
 
             if matched_indicators:
                 cve_candidates = self.correlate_cve(
-                    matched_indicators, target_str=target_str, payload_str=payload_str
+                    matched_indicators,
+                    target_str=representative_target,
+                    payload_str=" ".join(combined_payloads),
                 )
                 evidences.append(
                     RegistryThreatEvidence(
@@ -341,6 +366,8 @@ class PackageRegistryMonitor:
                         package_name=pkg_name,
                         exploit_indicators=matched_indicators,
                         cve_candidates=cve_candidates,
+                        probing_event_count=max(len(matched_event_ids), 1),
+                        event_ids=matched_event_ids,
                     )
                 )
 
@@ -380,12 +407,15 @@ class PackageRegistryMonitor:
                     f"Unusual scanning activity by agent '{grp_agent}': {len(burst)} consecutive 404 responses on {grp_reg} registry across {len(distinct_pkgs)} distinct packages"
                 ]
                 cves = self.correlate_cve(scanning_indicator, target_str=burst[0].target)
+                burst_event_ids = [str(e.event_id) for e in burst]
                 evidences.append(
                     RegistryThreatEvidence(
                         registry_type=grp_reg,
                         package_name=f"scanning-batch-{len(distinct_pkgs)}-pkgs",
                         exploit_indicators=scanning_indicator,
                         cve_candidates=cves,
+                        probing_event_count=len(burst),
+                        event_ids=burst_event_ids,
                     )
                 )
 

@@ -239,6 +239,7 @@ class C2InfrastructureDetector:
         agent_id: str,
         endpoint: str,
         time_window: Tuple[datetime, datetime],
+        beaconing_threshold: float = 0.25,
     ) -> bool:
         """Detect periodic beaconing patterns indicative of C2 communication to a specific distinct endpoint.
 
@@ -246,6 +247,7 @@ class C2InfrastructureDetector:
             agent_id: Agent identifier string.
             endpoint: Target endpoint or domain to evaluate.
             time_window: Tuple of (start_time, end_time) UTC datetimes.
+            beaconing_threshold: Coefficient of variation threshold for periodic regularity.
 
         Returns:
             True if periodic beaconing pattern is detected, False otherwise.
@@ -307,8 +309,8 @@ class C2InfrastructureDetector:
         variance = sum((d - mean_delta) ** 2 for d in valid_deltas) / len(valid_deltas)
         std_dev = math.sqrt(variance)
 
-        # Coefficient of variation (std_dev / mean_delta <= 0.25 indicates regular periodic beaconing)
-        return (std_dev / mean_delta) <= 0.25
+        # Coefficient of variation (std_dev / mean_delta <= threshold indicates regular periodic beaconing)
+        return (std_dev / mean_delta) <= beaconing_threshold
 
     async def detect_persistence_indicators(
         self,
@@ -350,12 +352,14 @@ class C2InfrastructureDetector:
         self,
         agent_id: str,
         time_window: Tuple[datetime, datetime],
+        beaconing_threshold: float = 0.25,
     ) -> List[C2Evidence]:
         """Detect C2 infrastructure setup and communication patterns for an agent.
 
         Args:
             agent_id: Agent identifier string.
             time_window: Tuple of (start_time, end_time) UTC datetimes.
+            beaconing_threshold: Regularity threshold for beaconing detection.
 
         Returns:
             List of C2Evidence objects detected for the agent.
@@ -443,7 +447,7 @@ class C2InfrastructureDetector:
         # Determine beaconing per detected endpoint
         is_beaconing = False
         for endpoint in c2_endpoints:
-            if await self.detect_beaconing(agent_key, endpoint, time_window):
+            if await self.detect_beaconing(agent_key, endpoint, time_window, beaconing_threshold=beaconing_threshold):
                 is_beaconing = True
                 break
 

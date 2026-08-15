@@ -689,8 +689,8 @@ The implementation follows a test-driven development approach with property-base
     - Scenario: resource exhaustion throttles processing and emits a capacity warning
     - _Verification: `pytest tests/step_defs/test_error_handling_bdd.py -v`_
 
-- [ ] 21. Integration and System Wiring
-  - [ ] 21.1 Create main AdvancedThreatDetection orchestrator class
+- [x] 21. Integration and System Wiring
+  - [x] 21.1 Create main AdvancedThreatDetection orchestrator class
     - Wire EventStreamCollector to AttackGraphStore
     - Wire AttackGraphStore to all detection engines
     - Wire detection engines to AlertBus
@@ -698,7 +698,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 12.6, 12.7_
     - _Verification: `pytest tests/integration/test_orchestrator.py::test_component_wiring -v`_
 
-  - [ ] 21.2 Implement pillar integration points
+  - [x] 21.2 Implement pillar integration points
     - Subscribe to Pillar 1 (Kernel eBPF/Audit) event stream
     - Subscribe to Pillar 2 (Threat Mesh) signature stream
     - Subscribe to Pillar 3 (Identity Sidecar) identity event stream
@@ -708,13 +708,13 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.7_
     - _Verification: `pytest tests/integration/test_pillar_integration.py -v`_
 
-  - [ ] 21.3 Implement configuration management
+  - [x] 21.3 Implement configuration management
     - Create configuration schema for thresholds and parameters
     - Support environment variable overrides
     - Validate configuration on startup; raise ValueError when DSN provided with `in_memory=False` and connection fails (architecture rule 3)
     - _Verification: `pytest tests/unit/test_configuration.py -v`_
 
-  - [ ] 21.4 Write end-to-end integration tests
+  - [x] 21.4 Write end-to-end integration tests
     - Test complete event flow from pillar ingestion to alert generation
     - Verify all detection engines activate on appropriate patterns
     - Test multi-pillar event correlation
@@ -722,7 +722,7 @@ The implementation follows a test-driven development approach with property-base
     - **Validates: Requirement 12.7**
     - _Verification: `pytest tests/integration/test_end_to_end.py -v`_
 
-  - [ ] 21.5 Write BDD feature tests for Integration and System Wiring
+  - [x] 21.5 Write BDD feature tests for Integration and System Wiring
     - Create `tests/features/system_integration.feature` with Gherkin scenarios
     - Implement `Given/When/Then` steps in `tests/step_defs/test_system_integration_bdd.py` using `run_async`
     - Scenario: an event from each of the 5 pillars flows through the full pipeline to an alert

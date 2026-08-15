@@ -210,6 +210,8 @@ class RegistryThreatEvidence(BaseModel):
     package_name: str
     exploit_indicators: list[str] = Field(default_factory=list)
     cve_candidates: list[str] = Field(default_factory=list)
+    probing_event_count: int = 1
+    event_ids: list[str] = Field(default_factory=list)
 
 
 class Alert(BaseModel):
