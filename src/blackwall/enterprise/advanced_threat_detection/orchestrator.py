@@ -29,6 +29,8 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     AttackNode,
     AttackPath,
     NormalizedEvent,
+    RegistryThreatEvidence,
+    SwarmEvidence,
 )
 from blackwall.enterprise.advanced_threat_detection.registry import PackageRegistryMonitor
 from blackwall.enterprise.advanced_threat_detection.resilience import (
@@ -51,15 +53,20 @@ class AdvancedThreatDetection:
     def __init__(
         self,
         config: Optional[AdvancedThreatDetectionConfig] = None,
+        stream_factories: Optional[dict[EventSource, Callable[[], Any]]] = None,
     ) -> None:
         self.config = config or AdvancedThreatDetectionConfig()
         self._running = False
         self._lock = asyncio.Lock()
+        self._stream_factories: dict[EventSource, Callable[[], Any]] = dict(stream_factories or {})
+        self._stream_tasks: List[asyncio.Task[Any]] = []
 
-        # Core subsystem infrastructure
+        # Core subsystem infrastructure configured per runtime config
         self.store = AttackGraphStore(
             dsn=self.config.database_url,
             in_memory=self.config.in_memory,
+            min_pool_size=self.config.min_connections,
+            max_pool_size=self.config.max_connections,
         )
         self.collector = EventStreamCollector(
             reconnect_max_attempts=self.config.reconnect_max_attempts,
@@ -125,6 +132,35 @@ class AdvancedThreatDetection:
             )
         )
 
+    def register_pillar_stream(
+        self,
+        source: EventSource,
+        stream_factory: Callable[[], Any],
+    ) -> None:
+        """Register a pillar event stream factory for automatic background collection."""
+        self._stream_factories[source] = stream_factory
+        if self._running:
+            task = asyncio.create_task(self._run_pillar_stream(source, stream_factory))
+            self._stream_tasks.append(task)
+
+    async def _run_pillar_stream(
+        self, source: EventSource, stream_factory: Callable[[], Any]
+    ) -> None:
+        """Continuously collect and ingest events from a registered pillar stream."""
+        try:
+            async for event in self.collector.collect_with_reconnect(source, stream_factory):
+                if not self._running:
+                    break
+                await self.ingest_event(event)
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.warning(
+                "Background collection for pillar stream %s terminated: %s",
+                source,
+                exc,
+            )
+
     @property
     def is_running(self) -> bool:
         """Return boolean indicating if the orchestrator is currently running."""
@@ -152,6 +188,12 @@ class AdvancedThreatDetection:
                 await self.store.initialize()
 
             self._running = True
+
+            # Start background collection tasks for all registered pillar streams
+            for source, factory in self._stream_factories.items():
+                task = asyncio.create_task(self._run_pillar_stream(source, factory))
+                self._stream_tasks.append(task)
+
             logger.info("AdvancedThreatDetection orchestrator started successfully")
 
     async def stop(self) -> None:
@@ -161,6 +203,15 @@ class AdvancedThreatDetection:
                 return
 
             self._running = False
+
+            # Cancel and await all active pillar collection streams
+            for task in self._stream_tasks:
+                if not task.done():
+                    task.cancel()
+            if self._stream_tasks:
+                await asyncio.gather(*self._stream_tasks, return_exceptions=True)
+            self._stream_tasks.clear()
+
             await self.store.close()
             logger.info("AdvancedThreatDetection orchestrator stopped")
 
@@ -207,6 +258,20 @@ class AdvancedThreatDetection:
                 await self.k8s_defense.track_k8s_api_access(normalized)
 
         return normalized
+
+    async def _publish_alert(self, alert: Alert, target_list: List[Alert]) -> None:
+        """Publish alert if it meets minimum severity threshold."""
+        sev_order = {
+            AlertSeverity.LOW: 1,
+            AlertSeverity.MEDIUM: 2,
+            AlertSeverity.HIGH: 3,
+            AlertSeverity.CRITICAL: 4,
+        }
+        min_threshold = sev_order.get(self.config.alert_min_severity, 1)
+        alert_level = sev_order.get(alert.severity, 1)
+        if alert_level >= min_threshold:
+            await self.alert_bus.publish(alert)
+            target_list.append(alert)
 
     async def correlate_agent_threats(
         self,
@@ -259,8 +324,7 @@ class AdvancedThreatDetection:
                             "node_count": len(path.nodes),
                         },
                     )
-                    await self.alert_bus.publish(alert)
-                    new_alerts.append(alert)
+                    await self._publish_alert(alert, new_alerts)
 
         # 2. Zero-Day Exploit Chain Analysis
         if self.exploit_analyzer is not None:
@@ -273,24 +337,24 @@ class AdvancedThreatDetection:
                 fallback=[],
             )
             for chain in chains:
-                sev = self.alert_bus.map_exploit_chain_severity(chain)
-                alert = Alert(
-                    alert_id=uuid.uuid4(),
-                    timestamp=utc_now(),
-                    severity=sev,
-                    threat_type="exploit_chain",
-                    title=f"Exploit Chain Detected ({len(chain.exploits)} steps)",
-                    description=f"Zero-day exploit sequence detected for agent {agent_id} (novelty: {chain.novelty_score:.2f})",
-                    evidence_id=chain.chain_id,
-                    agent_id=agent_id,
-                    evidence={
-                        "novelty_score": chain.novelty_score,
-                        "chaining_confidence": chain.chaining_confidence,
-                        "exploits": [str(cat.value) if hasattr(cat, "value") else str(cat) for _, cat in chain.exploits],
-                    },
-                )
-                await self.alert_bus.publish(alert)
-                new_alerts.append(alert)
+                if chain.novelty_score >= self.config.exploit_novelty_threshold or chain.chaining_confidence >= 0.5:
+                    sev = self.alert_bus.map_exploit_chain_severity(chain)
+                    alert = Alert(
+                        alert_id=uuid.uuid4(),
+                        timestamp=utc_now(),
+                        severity=sev,
+                        threat_type="exploit_chain",
+                        title=f"Exploit Chain Detected ({len(chain.exploits)} steps)",
+                        description=f"Zero-day exploit sequence detected for agent {agent_id} (novelty: {chain.novelty_score:.2f})",
+                        evidence_id=chain.chain_id,
+                        agent_id=agent_id,
+                        evidence={
+                            "novelty_score": chain.novelty_score,
+                            "chaining_confidence": chain.chaining_confidence,
+                            "exploits": [str(cat.value) if hasattr(cat, "value") else str(cat) for _, cat in chain.exploits],
+                        },
+                    )
+                    await self._publish_alert(alert, new_alerts)
 
         # 3. AI-Induced Lateral Movement (AILM)
         if self.ailm_tracker is not None:
@@ -319,8 +383,7 @@ class AdvancedThreatDetection:
                             "boundary_crossings": ailm.boundary_crossings,
                         },
                     )
-                    await self.alert_bus.publish(alert)
-                    new_alerts.append(alert)
+                    await self._publish_alert(alert, new_alerts)
 
         # 4. Command-and-Control (C2) Detection
         if self.c2_detector is not None:
@@ -348,8 +411,7 @@ class AdvancedThreatDetection:
                         "persistence_indicators": c2.persistence_indicators,
                     },
                 )
-                await self.alert_bus.publish(alert)
-                new_alerts.append(alert)
+                await self._publish_alert(alert, new_alerts)
 
         # 5. Kubernetes Container Defense Layer
         if self.k8s_defense is not None:
@@ -373,8 +435,70 @@ class AdvancedThreatDetection:
                     agent_id=agent_id,
                     evidence=k8s.evidence,
                 )
-                await self.alert_bus.publish(alert)
-                new_alerts.append(alert)
+                await self._publish_alert(alert, new_alerts)
+
+        # 6. Coordinated Multi-Agent Swarm Detection
+        if self.swarm_detector is not None:
+            swarms: List[SwarmEvidence] = await self.runner.run_safe(
+                detector_name="swarm_detector",
+                coro=self.swarm_detector.detect_swarms(
+                    time_window=(win_start, win_end),
+                    min_agents=self.config.swarm_min_agents,
+                    correlation_threshold=self.config.swarm_correlation_threshold,
+                ),
+                fallback=[],
+            )
+            for swarm in swarms:
+                if agent_id in swarm.agent_ids:
+                    sev = self.alert_bus.map_swarm_severity(swarm)
+                    alert = Alert(
+                        alert_id=uuid.uuid4(),
+                        timestamp=utc_now(),
+                        severity=sev,
+                        threat_type="agent_swarm",
+                        title=f"Coordinated Agent Swarm Detected ({len(swarm.agent_ids)} agents)",
+                        description=f"Coordinated swarm behavior detected involving agent {agent_id} (coordination score: {swarm.coordination_score:.2f})",
+                        evidence_id=swarm.swarm_id,
+                        agent_id=agent_id,
+                        agent_ids=list(swarm.agent_ids),
+                        evidence={
+                            "coordination_score": swarm.coordination_score,
+                            "temporal_correlation": swarm.temporal_correlation,
+                            "shared_patterns": swarm.shared_patterns,
+                            "agent_ids": list(swarm.agent_ids),
+                        },
+                    )
+                    await self._publish_alert(alert, new_alerts)
+
+        # 7. Package Registry Exploit Probing & Monitoring
+        if self.registry_monitor is not None:
+            reg_evidences: List[RegistryThreatEvidence] = await self.runner.run_safe(
+                detector_name="registry_monitor",
+                coro=self.registry_monitor.detect_exploit_probing(
+                    agent_id=agent_id,
+                    time_window=(win_start, win_end),
+                ),
+                fallback=[],
+            )
+            for reg in reg_evidences:
+                conf = 0.85 if reg.cve_candidates else 0.5
+                sev = self.alert_bus.map_registry_severity(reg, exploit_confidence=conf)
+                alert = Alert(
+                    alert_id=uuid.uuid4(),
+                    timestamp=utc_now(),
+                    severity=sev,
+                    threat_type="registry_threat",
+                    title=f"Package Registry Exploit Probing Detected ({reg.registry_type})",
+                    description=f"Package registry exploit probing detected for agent {agent_id} on {reg.package_name}",
+                    agent_id=agent_id,
+                    evidence={
+                        "registry_type": reg.registry_type,
+                        "package_name": reg.package_name,
+                        "exploit_indicators": reg.exploit_indicators,
+                        "cve_candidates": reg.cve_candidates,
+                    },
+                )
+                await self._publish_alert(alert, new_alerts)
 
         return new_alerts
 
