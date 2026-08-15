@@ -175,14 +175,7 @@ class AdvancedThreatDetection:
                     prev_task.cancel()
                     try:
                         await asyncio.wait_for(prev_task, timeout=1.0)
-                    except asyncio.TimeoutError:
-                        logger.warning(
-                            "Superseded pillar stream task for %s did not terminate within timeout",
-                            source,
-                        )
-                        if not prev_task.done():
-                            return
-                    except (asyncio.CancelledError, Exception):
+                    except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
                         pass
                 curr = asyncio.current_task()
                 if curr is not None and curr.cancelling():
@@ -287,16 +280,26 @@ class AdvancedThreatDetection:
                     pass
             if tasks_to_cancel:
                 try:
-                    await asyncio.gather(
-                        *[t for t in tasks_to_cancel if not t.get_loop().is_closed()],
-                        return_exceptions=True,
-                    )
-                except Exception:
+                    active_tasks = [t for t in tasks_to_cancel if not t.get_loop().is_closed()]
+                    if active_tasks:
+                        await asyncio.wait_for(
+                            asyncio.gather(*active_tasks, return_exceptions=True),
+                            timeout=2.0,
+                        )
+                except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
                     pass
             self._stream_tasks.clear()
 
-            await self.alert_bus.stop()
-            await self.store.close()
+            try:
+                await asyncio.wait_for(self.alert_bus.stop(), timeout=3.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+                pass
+
+            try:
+                await asyncio.wait_for(self.store.close(), timeout=3.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+                pass
+
             logger.info("AdvancedThreatDetection orchestrator stopped")
 
     async def __aenter__(self) -> "AdvancedThreatDetection":

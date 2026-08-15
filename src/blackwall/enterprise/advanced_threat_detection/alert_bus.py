@@ -83,10 +83,13 @@ class AlertBus:
                 pass
             try:
                 if not task.get_loop().is_closed():
-                    await task
-            except (asyncio.CancelledError, RuntimeError, Exception):
+                    await asyncio.wait_for(task, timeout=2.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError, RuntimeError, Exception):
                 pass
-        await self._flush_pending()
+        try:
+            await asyncio.wait_for(self._flush_pending(), timeout=2.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+            pass
 
     async def _periodic_flush_loop(self) -> None:
         """Periodically flush buffered alerts at flush_interval_seconds."""
@@ -162,11 +165,11 @@ class AlertBus:
             for attempt in range(1, self.max_retries + 1):
                 try:
                     if inspect.iscoroutinefunction(subscriber):
-                        await subscriber(alert)
+                        await asyncio.wait_for(subscriber(alert), timeout=5.0)
                     else:
                         result = subscriber(alert)
                         if inspect.iscoroutine(result):
-                            await result
+                            await asyncio.wait_for(result, timeout=5.0)
                     delivered = True
                     break
                 except Exception as exc:  # noqa: BLE001
