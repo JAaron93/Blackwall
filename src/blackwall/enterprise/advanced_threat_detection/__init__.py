@@ -20,6 +20,11 @@ from blackwall.enterprise.advanced_threat_detection.enums import (
     EventSource,
     ExploitCategory,
 )
+from blackwall.enterprise.advanced_threat_detection.evaluation import (
+    EvaluationAttackGraphStore,
+    EvaluationEnvironment,
+    EvaluationEnvironmentManager,
+)
 from blackwall.enterprise.advanced_threat_detection.exploit import ExploitChainAnalyzer
 from blackwall.enterprise.advanced_threat_detection.graph_export import (
     AttackGraphExporter,
@@ -62,6 +67,9 @@ __all__ = [
     "AttackPath",
     "C2Evidence",
     "C2InfrastructureDetector",
+    "EvaluationAttackGraphStore",
+    "EvaluationEnvironment",
+    "EvaluationEnvironmentManager",
     "EventSource",
     "EventStreamCollector",
     "ExploitCategory",
@@ -78,6 +86,7 @@ __all__ = [
     "SwarmEvidence",
     "logger",
 ]
+
 
 
 

@@ -60,6 +60,7 @@ markers = [
     "enterprise: Enterprise security mesh test scenarios",
     "advanced_threat_detection: Advanced threat detection test scenarios",
     "retrospective: Retrospective analysis and historical query test scenarios",
+    "evaluation: Evaluation environment and containment test scenarios",
     "asyncio: Mark async tests to run with pytest-asyncio",
     "weave: Mark evaluation tests that require Weights & Biases Weave tracing. Run selectively with: pytest -m weave. Auto-skipped at collection time when _weave_available() returns False (see tests/conftest.py). Conditions that enable Weave (checked in order): WEAVE_DISABLED=true disables entirely; WEAVE_OFFLINE=true enables local tracing without credentials; WANDB_API_KEY set enables cloud sync; ~/.netrc api.wandb.ai entry or ~/.config/wandb/settings api_key enables cloud sync via stored credentials. All paths also require the weave package to be importable (pip install -e '.[weave]').",
 ]

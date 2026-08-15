@@ -171,6 +171,16 @@
   2. Batching or sliding-window historical queries MUST evaluate complete agent node histories or retain unresolved causal source nodes until all chronological successors have been processed.
 * **Rationale:** Adversaries executing slow-moving or low-and-slow campaigns may trigger secondary payloads days after initial access. Evicting causal sources at batch or sliding-window boundaries severs multi-hop attack paths and allows persistent stealth campaigns to evade detection.
 
+## 38. Evaluation Environment Support & Mandatory Production Containment Gate (Architecture Rule 20)
+* **Rule (When and How to Use Evaluation Environments):**
+  1. **When to Use:** Security testing agents, eval suites, and red-team benchmarks (e.g. CyberGym, synthetic prompt injections, Weave evals) MUST route telemetry through `EvaluationEnvironmentManager` / `EvaluationEnvironment` (`blackwall.enterprise.advanced_threat_detection.evaluation`) to isolate synthetic attacks from production databases and active incident response.
+  2. **Mandatory Containment Gate:** Live mitigation handlers (e.g., eBPF socket drops, Threat Mesh broadcasts, Vault honeytoken revocations) MUST evaluate `await manager.is_evaluation_mode(evidence_id)` or `manager.should_suppress_production_reaction(alert_or_event)` before executing active production mitigations. If containment evaluates to `True`, active production disruption MUST be suppressed.
+  3. **Multi-Tenant Deterministic ID Derivation:** Evaluation environments ingesting events MUST deterministically derive scoped UUIDv4 identifiers per environment (`blackwall://eval/{env_id}/{event_id}`) using SHA-256 derivation while preserving `original_event_id` in metadata. This guarantees zero identifier collisions and prevents cross-tenant state leakage when multiple evaluation environments share a single PostgreSQL database.
+  4. **Scoped PostgreSQL Reset & Edge Cleanup:** Environment state resets (`env.reset()`) MUST scope deletions strictly to `metadata->>'evaluation_env_id' = $1` inside atomic transactions and clean up deleted edge IDs from surviving nodes' `incoming_edges` and `outgoing_edges` JSONB arrays.
+  5. **Lifecycle Closure Guards:** Calling `env.close()` or `manager.delete_environment()` MUST transition the underlying store to a closed state. Retained store references MUST reject subsequent writes (`insert_event`, `insert_events_batch`, `link_events`) with `RuntimeError` rather than silently writing to detached in-memory graphs.
+* **Rationale:** Blurring evaluation telemetry with production threat graphs triggers false-positive incident response actions (such as dropping legitimate connections or revoking live infrastructure tokens). In shared database configurations, un-scoped event identifiers cause cross-tenant collision ignores and corrupt evidence provenance.
+
+
 
 
 
