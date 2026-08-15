@@ -597,14 +597,18 @@ class AdvancedThreatDetection:
             )
             total_probing_events = 0
             for r in reg_evidences:
-                evidence_probes = 0
-                for ind in r.exploit_indicators:
-                    m = re.search(r"(\d+)\s+consecutive\s+404\s+responses", ind)
-                    if m:
-                        evidence_probes += int(m.group(1))
-                    else:
-                        evidence_probes += 1
-                total_probing_events += max(evidence_probes, 1)
+                count = getattr(r, "probing_event_count", None)
+                if count is not None and count > 0:
+                    total_probing_events += count
+                else:
+                    evidence_probes = 0
+                    for ind in r.exploit_indicators:
+                        m = re.search(r"(\d+)\s+consecutive\s+404\s+responses", ind)
+                        if m:
+                            evidence_probes += int(m.group(1))
+                        else:
+                            evidence_probes += 1
+                    total_probing_events += max(evidence_probes, 1)
 
             # Threshold matches on total probing events count or known CVE detections
             if total_probing_events >= self.config.registry_min_probing_events or any(

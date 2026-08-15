@@ -220,3 +220,38 @@ async def test_startup_db_connection_failure():
 
     with pytest.raises(ValueError):
         await atd.start()
+
+
+@pytest.mark.asyncio
+async def test_registry_repeated_probing_triggers_alert():
+    """Verify repeated malformed registry probes against a single package trigger an alert when meeting threshold."""
+    config = AdvancedThreatDetectionConfig(
+        in_memory=True,
+        registry_min_probing_events=3,
+    )
+    async with AdvancedThreatDetection(config=config) as atd:
+        agent_id = "attacker-registry-probe"
+        t0 = datetime.now(UTC) - timedelta(seconds=30)
+
+        # Ingest 3 malformed probes targeting the same package without a known CVE
+        for i in range(3):
+            e = {
+                "event_id": str(uuid.uuid4()),
+                "timestamp": (t0 + timedelta(seconds=i * 2)).isoformat(),
+                "agent_id": agent_id,
+                "action": "GET",
+                "target": f"https://registry.npmjs.org/my-pkg?test={i}",
+                "metadata": {
+                    "registry_type": "npm",
+                    "package_name": "my-pkg",
+                    "payload": '{"__proto__": {"admin": true}}',
+                },
+                "risk_score": 0.6,
+            }
+            await atd.ingest_event(EventSource.PIPELINE_EXECUTION, e)
+
+        alerts = await atd.correlate_agent_threats(agent_id=agent_id)
+        reg_alerts = [a for a in alerts if a.threat_type == "registry_threat"]
+        assert len(reg_alerts) == 1
+        assert reg_alerts[0].agent_id == agent_id
+        assert reg_alerts[0].evidence["package_name"] == "my-pkg"
