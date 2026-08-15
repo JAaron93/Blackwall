@@ -144,7 +144,7 @@ class WeaveMetricsCollector:
                     weave.publish(data)
                 elif hasattr(weave, "log"):
                     weave.log(data)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 logger.debug("Failed to publish metrics to Weave: %s", exc)
 
         return data

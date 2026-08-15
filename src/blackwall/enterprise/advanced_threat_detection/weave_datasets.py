@@ -47,14 +47,11 @@ class LocalEvaluationDataset:
 
 
 def _sanitize_scenario_event(event_dict: dict[str, Any]) -> dict[str, Any]:
-    """Sanitize raw event dictionary for inclusion in Weave dataset trace."""
-    sanitized: dict[str, Any] = {
-        "event_id": str(event_dict.get("event_id", "")),
-        "timestamp": str(event_dict.get("timestamp", "")),
-        "source": str(event_dict.get("source", "")),
-        "risk_score": float(event_dict.get("risk_score", 0.0)),
-    }
-    return WeaveTraceSerializer.enforce_size(sanitized)
+    """Sanitize raw scenario event dictionary for inclusion in dataset row while preserving detector inputs."""
+    sanitized = dict(event_dict)
+    if "metadata" in sanitized:
+        sanitized["metadata"] = WeaveTraceSerializer.mask_metadata(sanitized["metadata"])
+    return sanitized
 
 
 def _load_scenario_file(file_path: Path) -> list[dict[str, Any]]:
@@ -104,7 +101,7 @@ def _load_scenario_file(file_path: Path) -> list[dict[str, Any]]:
             "file_path": str(file_path),
         }
         return [row]
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.warning("Error parsing scenario YAML '%s': %s", file_path, exc)
         return []
 
@@ -150,7 +147,7 @@ def create_evaluation_dataset(
     if should_enable_weave() and weave is not None and hasattr(weave, "Dataset"):
         try:
             return weave.Dataset(name=name, rows=rows)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "Failed to instantiate weave.Dataset for '%s': %s. Falling back to local dataset.",
                 name,

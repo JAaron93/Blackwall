@@ -114,6 +114,6 @@ class WeaveTraceSerializer:
                     "_truncated": True,
                     "_original_bytes": len(raw_bytes),
                 }
-        except Exception:
+        except Exception:  # noqa: BLE001, S110
             pass
         return payload

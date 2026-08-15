@@ -43,7 +43,7 @@ def has_wandb_credentials() -> bool:
         netrc_auth = netrc.netrc()
         if netrc_auth.authenticators("api.wandb.ai") or netrc_auth.authenticators("wandb.ai"):
             return True
-    except Exception:
+    except Exception:  # noqa: BLE001, S110
         pass
 
     # Check ~/.config/wandb/settings or ~/.wandb/settings
@@ -58,7 +58,7 @@ def has_wandb_credentials() -> bool:
                 content = p.read_text(encoding="utf-8")
                 if "api_key" in content or "api.wandb.ai" in content:
                     return True
-    except Exception:
+    except Exception:  # noqa: BLE001, S110
         pass
 
     return False
@@ -124,7 +124,7 @@ def load_weave_config(config_path: str | None = None) -> WeaveConfig:
             parallelism=int(weave_data.get("parallelism", default_config.parallelism)),
             tags=list(weave_data.get("tags", default_config.tags)),
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.warning(
             "Error loading Weave config from '%s': %s. Using default configuration.",
             config_path,
@@ -164,6 +164,6 @@ def init_weave(config: WeaveConfig | None = None) -> bool:
         weave.init(**init_kwargs)
         logger.info("Weave initialized successfully for project '%s'.", config.project_name)
         return True
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.error("Failed to initialize Weave: %s", exc)
         return False

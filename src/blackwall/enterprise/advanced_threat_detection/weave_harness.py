@@ -53,7 +53,7 @@ class WeaveEvaluationHarness:
             elif hasattr(weave, "log"):
                 weave.log(payload)
             logger.debug("Published detection metrics to Weave for dataset '%s'", dataset_name)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "Failed to publish metrics to Weave for dataset '%s': %s",
                 dataset_name,
@@ -85,7 +85,7 @@ class WeaveEvaluationHarness:
                     eval_res = evaluation.evaluate(model)
 
                 return {"name": name, "results": eval_res, "tracked_in_weave": True}
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "Weave Evaluation '%s' encountered an error: %s. Falling back to local runner.",
                     name,
@@ -120,11 +120,11 @@ class WeaveEvaluationHarness:
                         else:
                             score_val = scorer(row, output)
                         row_scores[s_name] = score_val
-                    except Exception as s_exc:
+                    except Exception as s_exc:  # noqa: BLE001
                         logger.debug("Scorer %s error: %s", scorer, s_exc)
 
                 results.append({"index": idx, "input": row, "output": output, "scores": row_scores})
-            except Exception as row_exc:
+            except Exception as row_exc:  # noqa: BLE001
                 logger.warning("Error evaluating row %d: %s", idx, row_exc)
                 results.append({"index": idx, "input": row, "error": str(row_exc)})
 
