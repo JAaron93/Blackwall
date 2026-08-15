@@ -15,6 +15,7 @@ from blackwall.enterprise.advanced_threat_detection.enums import (
     EventSource,
 )
 from blackwall.enterprise.advanced_threat_detection.models import (
+    AttackNode,
     NormalizedEvent,
 )
 
@@ -214,8 +215,40 @@ async def test_database_failure_handling(caplog: pytest.LogCaptureFixture) -> No
     with pytest.raises(RuntimeError, match="permanently broken"):
         await failing_store.insert_event(event)
     assert fail_attempts == 3
+    assert event.event_id not in failing_store._nodes
 
-    # 3. Query timeout returning partial results
+    # 3. link_events eviction on retry exhaustion to prevent stale cache divergence
+    store_link = AttackGraphStore(pool=mock_pool_fail, max_retries=3, retry_backoff_base=0.01)
+    ev_a = NormalizedEvent(
+        event_id="00000000-0000-4000-8000-000000000021",
+        timestamp=datetime.now(UTC),
+        source=EventSource.KERNEL_SYSCALL,
+        agent_id="agent-link-test",
+        action="read",
+        target="/tmp/a",
+        risk_score=0.1,
+    )
+    ev_b = NormalizedEvent(
+        event_id="00000000-0000-4000-8000-000000000022",
+        timestamp=datetime.now(UTC),
+        source=EventSource.KERNEL_SYSCALL,
+        agent_id="agent-link-test",
+        action="write",
+        target="/tmp/b",
+        risk_score=0.2,
+    )
+    # Pre-populate local cache
+    store_link._nodes[ev_a.event_id] = AttackNode(node_id=ev_a.event_id, event=ev_a)
+    store_link._nodes[ev_b.event_id] = AttackNode(node_id=ev_b.event_id, event=ev_b)
+
+    with pytest.raises(RuntimeError, match="permanently broken"):
+        await store_link.link_events(ev_a.event_id, ev_b.event_id, "CAUSED_BY")
+
+    # Endpoints must be evicted from cache to avoid stale relationship state
+    assert ev_a.event_id not in store_link._nodes
+    assert ev_b.event_id not in store_link._nodes
+
+    # 4. Query timeout returning partial results
     in_memory_store = AttackGraphStore(in_memory=True)
     
     ev1 = NormalizedEvent(

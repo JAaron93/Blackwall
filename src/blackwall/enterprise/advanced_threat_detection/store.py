@@ -256,7 +256,12 @@ class AttackGraphStore:
                     )
                 return None
 
-            committed_node = await self._execute_with_retry(_db_insert)
+            try:
+                committed_node = await self._execute_with_retry(_db_insert)
+            except Exception:
+                self._nodes.pop(node_id, None)
+                self._invalidate_path_cache(event.agent_id)
+                raise
 
             # Mutate cache only after successful commit
             if committed_node:
@@ -373,7 +378,14 @@ class AttackGraphStore:
                     res_nodes.append(db_node)
                 return res_nodes
 
-            committed_nodes = await self._execute_with_retry(_db_batch_insert)
+            try:
+                committed_nodes = await self._execute_with_retry(_db_batch_insert)
+            except Exception:
+                for ev in nodes_to_insert_db:
+                    self._nodes.pop(ev.event_id, None)
+                for aid in affected_agents:
+                    self._invalidate_path_cache(aid)
+                raise
 
             # Transaction has committed successfully: mutate in-memory cache now
             for node in committed_nodes:
@@ -462,15 +474,23 @@ class AttackGraphStore:
                     edge_id_str,
                 )
 
-            await self._execute_with_retry(_db_link)
+            try:
+                await self._execute_with_retry(_db_link)
+            except Exception:
+                # Evict endpoints from local in-memory cache to prevent stale/divergent graph state
+                # if an ambiguous transaction commit occurred prior to retry exhaustion.
+                self._nodes.pop(from_uuid, None)
+                self._nodes.pop(to_uuid, None)
+                self._invalidate_path_cache()
+                raise
 
         # Update in-memory node structures only after DB write succeeds (or in in-memory mode)
-        src_node = self._nodes[from_uuid]
-        tgt_node = self._nodes[to_uuid]
+        src_node = self._nodes.get(from_uuid)
+        tgt_node = self._nodes.get(to_uuid)
 
-        if edge_id not in src_node.outgoing_edges:
+        if src_node is not None and edge_id not in src_node.outgoing_edges:
             src_node.outgoing_edges.append(edge_id)
-        if edge_id not in tgt_node.incoming_edges:
+        if tgt_node is not None and edge_id not in tgt_node.incoming_edges:
             tgt_node.incoming_edges.append(edge_id)
 
         edge_record = {
@@ -480,7 +500,8 @@ class AttackGraphStore:
             "relationship": relationship,
             "created_at": created_at,
         }
-        self._edges.append(edge_record)
+        if edge_record not in self._edges:
+            self._edges.append(edge_record)
         self._invalidate_path_cache()
 
     def _parse_edge_uuids(self, raw_edges: Any) -> list[uuid.UUID]:
