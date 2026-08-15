@@ -83,19 +83,18 @@ class AlertBus:
                 pass
             try:
                 if not task.get_loop().is_closed():
-                    await asyncio.wait_for(task, timeout=2.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError, RuntimeError, Exception):
+                    await task
+            except (asyncio.CancelledError, RuntimeError, Exception):
                 pass
-        try:
-            await asyncio.wait_for(self._flush_pending(), timeout=2.0)
-        except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
-            pass
+        await self._flush_pending()
 
     async def _periodic_flush_loop(self) -> None:
         """Periodically flush buffered alerts at flush_interval_seconds."""
         try:
             while self._running:
                 await asyncio.sleep(self.flush_interval_seconds)
+                if not self._running:
+                    break
                 await self.flush()
         except asyncio.CancelledError:
             pass
@@ -112,31 +111,17 @@ class AlertBus:
                 return True
             all_ok = True
             while self._pending_alerts:
-                chunk = []
-                while self._pending_alerts and len(chunk) < self.batch_size:
-                    chunk.append(self._pending_alerts.popleft())
-                delivered_count = 0
+                alert = self._pending_alerts.popleft()
                 try:
-                    for i, alert in enumerate(chunk):
-                        delivery_task = asyncio.create_task(self._deliver_alert(alert))
-                        try:
-                            ok = await asyncio.shield(delivery_task)
-                            if not ok:
-                                all_ok = False
-                            delivered_count = i + 1
-                        except asyncio.CancelledError:
-                            try:
-                                await asyncio.wait_for(delivery_task, timeout=1.0)
-                                delivered_count = i + 1
-                            except (asyncio.TimeoutError, Exception):
-                                delivery_task.cancel()
-                            raise
-                except (asyncio.CancelledError, Exception):
-                    # Re-queue any undelivered alerts back to the front of _pending_alerts
-                    undelivered = chunk[delivered_count:]
-                    for alert_item in reversed(undelivered):
-                        self._pending_alerts.appendleft(alert_item)
+                    ok = await self._deliver_alert(alert)
+                    if not ok:
+                        all_ok = False
+                except asyncio.CancelledError:
+                    self._pending_alerts.appendleft(alert)
                     raise
+                except Exception as exc:
+                    all_ok = False
+                    logger.error("Unexpected error delivering alert %s: %s", alert.alert_id, exc)
             return all_ok
 
     def subscribe(self, handler: Callable[[Alert], Any]) -> None:

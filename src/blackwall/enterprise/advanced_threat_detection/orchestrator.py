@@ -82,6 +82,7 @@ class AdvancedThreatDetection:
         self._lock = asyncio.Lock()
         self._stream_factories: dict[EventSource, Callable[[], Any]] = dict(stream_factories or {})
         self._stream_tasks: dict[EventSource, asyncio.Task[Any]] = {}
+        self._stream_generations: dict[EventSource, int] = {}
 
         # Core subsystem infrastructure configured per runtime config
         self.store = AttackGraphStore(
@@ -165,11 +166,14 @@ class AdvancedThreatDetection:
         """Register a pillar event stream factory for automatic background collection."""
         self._stream_factories[source] = stream_factory
         if self._running:
+            self._stream_generations[source] = self._stream_generations.get(source, 0) + 1
+            gen = self._stream_generations[source]
             old_task = self._stream_tasks.get(source)
 
             async def _replace_and_run(
                 factory: Callable[[], Any],
                 prev_task: Optional[asyncio.Task[Any]],
+                expected_gen: int,
             ) -> None:
                 if prev_task and not prev_task.done():
                     prev_task.cancel()
@@ -180,27 +184,30 @@ class AdvancedThreatDetection:
                 curr = asyncio.current_task()
                 if curr is not None and curr.cancelling():
                     raise asyncio.CancelledError()
-                if not self._running or self._stream_tasks.get(source) is not curr:
+                if not self._running or self._stream_generations.get(source) != expected_gen:
                     return
-                await self._run_pillar_stream(source, factory)
+                await self._run_pillar_stream(source, factory, expected_gen)
 
-            task = asyncio.create_task(_replace_and_run(stream_factory, old_task))
+            task = asyncio.create_task(_replace_and_run(stream_factory, old_task, gen))
             self._stream_tasks[source] = task
 
     async def _run_pillar_stream(
-        self, source: EventSource, stream_factory: Callable[[], Any]
+        self,
+        source: EventSource,
+        stream_factory: Callable[[], Any],
+        generation: int,
     ) -> None:
         """Continuously collect and ingest events from a registered pillar stream."""
         curr_task = asyncio.current_task()
         try:
             async for event in self.collector.collect_with_reconnect(source, stream_factory):
-                if not self._running:
+                if not self._running or self._stream_generations.get(source) != generation:
                     break
                 # Guard against stale collectors when replacement tasks overlap
                 if self._stream_tasks.get(source) is not curr_task:
                     break
                 await self.ingest_event(event)
-                if not self._running or self._stream_tasks.get(source) is not curr_task:
+                if not self._running or self._stream_generations.get(source) != generation:
                     break
         except asyncio.CancelledError:
             pass
@@ -260,7 +267,9 @@ class AdvancedThreatDetection:
             for source, factory in self._stream_factories.items():
                 if source in self._stream_tasks and not self._stream_tasks[source].done():
                     self._stream_tasks[source].cancel()
-                task = asyncio.create_task(self._run_pillar_stream(source, factory))
+                self._stream_generations[source] = self._stream_generations.get(source, 0) + 1
+                gen = self._stream_generations[source]
+                task = asyncio.create_task(self._run_pillar_stream(source, factory, gen))
                 self._stream_tasks[source] = task
 
             logger.info("AdvancedThreatDetection orchestrator started successfully")
@@ -272,6 +281,7 @@ class AdvancedThreatDetection:
                 return
 
             self._running = False
+            self._stream_generations.clear()
 
             # Cancel and await all active pillar collection streams
             tasks_to_cancel = [t for t in self._stream_tasks.values() if not t.done()]
@@ -292,16 +302,8 @@ class AdvancedThreatDetection:
                     pass
             self._stream_tasks.clear()
 
-            try:
-                await asyncio.wait_for(self.alert_bus.stop(), timeout=3.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
-                pass
-
-            try:
-                await asyncio.wait_for(self.store.close(), timeout=3.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
-                pass
-
+            await self.alert_bus.stop()
+            await self.store.close()
             logger.info("AdvancedThreatDetection orchestrator stopped")
 
     async def __aenter__(self) -> "AdvancedThreatDetection":
