@@ -259,13 +259,24 @@ async def test_database_failure_handling(caplog: pytest.LogCaptureFixture) -> No
         target="/tmp/old",
         risk_score=0.1,
     )
+    ev_retained = NormalizedEvent(
+        event_id="00000000-0000-4000-8000-000000000032",
+        timestamp=datetime(2026, 8, 15, 10, 0, 0, tzinfo=UTC),
+        source=EventSource.KERNEL_SYSCALL,
+        agent_id="agent-purge-test",
+        action="write",
+        target="/tmp/retained",
+        risk_score=0.1,
+    )
     store_purge._nodes[ev_old.event_id] = AttackNode(node_id=ev_old.event_id, event=ev_old)
+    store_purge._nodes[ev_retained.event_id] = AttackNode(node_id=ev_retained.event_id, event=ev_retained)
     
     with pytest.raises(RuntimeError, match="permanently broken"):
         await store_purge.purge_events_before(datetime(2026, 8, 15, 9, 0, 0, tzinfo=UTC))
     
-    # Old node must be purged from in-memory cache
-    assert ev_old.event_id not in store_purge._nodes
+    # Store cache must be cleared on retry exhaustion to prevent serving stale / dangling adjacency
+    assert len(store_purge._nodes) == 0
+    assert len(store_purge._edges) == 0
 
     # 5. Query timeout returning partial results
     in_memory_store = AttackGraphStore(in_memory=True)

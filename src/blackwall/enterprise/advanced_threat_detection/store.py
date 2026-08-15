@@ -968,12 +968,13 @@ class AttackGraphStore:
             try:
                 purged_count, purged_ids, edge_ids_to_remove = await self._execute_with_retry(_db_purge)
             except Exception:
-                self._sync_in_memory_purge(
-                    cutoff_time=cutoff_time,
-                    to_delete_candidates=to_delete_candidates,
-                    edge_ids_to_remove=[],
-                    purged_ids=[],
-                )
+                # If retry is exhausted on DB purge, PostgreSQL may have committed the purge
+                # before the connection dropped. Evict in-memory graph cache to prevent retained
+                # cached nodes from serving stale or dangling adjacency removed by the database.
+                self._nodes.clear()
+                self._edges.clear()
+                self._agent_nodes_index.clear()
+                self._path_cache.clear()
                 raise
 
             return self._sync_in_memory_purge(
@@ -1023,14 +1024,6 @@ class AttackGraphStore:
                 if nid in agent_nids:
                     agent_nids.remove(nid)
 
-        for node in self._nodes.values():
-            node.incoming_edges = [
-                e for e in node.incoming_edges if str(e) not in removed_edge_ids
-            ]
-            node.outgoing_edges = [
-                e for e in node.outgoing_edges if str(e) not in removed_edge_ids
-            ]
-
         self._edges = [
             e
             for e in self._edges
@@ -1038,6 +1031,25 @@ class AttackGraphStore:
             and str(e.get("to_node", "")) not in to_delete_set
             and str(e.get("edge_id", "")) not in removed_edge_ids
         ]
+        valid_remaining_edge_ids = {str(e.get("edge_id", "")) for e in self._edges}
+
+        for node in self._nodes.values():
+            if self._pool is None:
+                # In pure in-memory mode, only retain edges present in active edge list
+                node.incoming_edges = [
+                    e for e in node.incoming_edges if str(e) in valid_remaining_edge_ids
+                ]
+                node.outgoing_edges = [
+                    e for e in node.outgoing_edges if str(e) in valid_remaining_edge_ids
+                ]
+            else:
+                node.incoming_edges = [
+                    e for e in node.incoming_edges if str(e) not in removed_edge_ids
+                ]
+                node.outgoing_edges = [
+                    e for e in node.outgoing_edges if str(e) not in removed_edge_ids
+                ]
+
         self._path_cache.clear()
         if self._pool and db_purged_count is not None:
             return db_purged_count
