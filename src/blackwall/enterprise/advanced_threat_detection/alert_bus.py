@@ -53,6 +53,7 @@ class AlertBus:
         self._pending_alerts: deque[Alert] = deque()
         self._persistent_failures: list[dict[str, Any]] = []
         self._flush_task: asyncio.Task[Any] | None = None
+        self._wake_event = asyncio.Event()
         self._running = False
         self._lock = asyncio.Lock()
         self._flush_lock = asyncio.Lock()
@@ -68,34 +69,59 @@ class AlertBus:
             if self._running:
                 return
             self._running = True
+            self._wake_event.clear()
             if self.flush_interval_seconds > 0:
                 self._flush_task = asyncio.create_task(self._periodic_flush_loop())
 
-    async def stop(self) -> None:
-        """Stop background flush task and flush remaining pending alerts within a bounded timeout."""
-        self._running = False
+    async def stop(self, drain_timeout: float = 10.0) -> None:
+        """Stop background flush task and cleanly flush remaining pending alerts."""
+        try:
+            async with self._lock:
+                if not self._running:
+                    return
+                self._running = False
+                self._wake_event.set()
+        except Exception:
+            self._running = False
+
         task = self._flush_task
         self._flush_task = None
         if task is not None and not task.done():
             try:
-                task.cancel()
-            except RuntimeError:
+                task_loop = task.get_loop()
+                current_loop = asyncio.get_running_loop()
+                if task_loop is current_loop and not task_loop.is_closed():
+                    try:
+                        # Allow periodic task to exit gracefully upon wake_event
+                        await asyncio.wait_for(task, timeout=2.0)
+                    except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                        task.cancel()
+                        try:
+                            await task
+                        except (asyncio.CancelledError, Exception):
+                            pass
+                else:
+                    task.cancel()
+            except Exception:
                 pass
-            try:
-                if not task.get_loop().is_closed():
-                    await task
-            except (asyncio.CancelledError, RuntimeError, Exception):
-                pass
+
         try:
-            await asyncio.wait_for(self._flush_pending(), timeout=5.0)
+            await asyncio.wait_for(self._flush_pending(), timeout=drain_timeout)
         except (asyncio.CancelledError, asyncio.TimeoutError, Exception) as exc:
             logger.warning("AlertBus shutdown flush terminated or timed out: %s", exc)
 
     async def _periodic_flush_loop(self) -> None:
-        """Periodically flush buffered alerts at flush_interval_seconds."""
+        """Periodically flush buffered alerts at flush_interval_seconds or on wake signal."""
         try:
             while self._running:
-                await asyncio.sleep(self.flush_interval_seconds)
+                try:
+                    await asyncio.wait_for(
+                        self._wake_event.wait(),
+                        timeout=self.flush_interval_seconds,
+                    )
+                    self._wake_event.clear()
+                except asyncio.TimeoutError:
+                    pass
                 if not self._running:
                     break
                 await self.flush()
@@ -114,12 +140,16 @@ class AlertBus:
                 return True
             all_ok = True
             while self._pending_alerts:
-                alert = self._pending_alerts.popleft()
+                alert = self._pending_alerts[0]
                 try:
                     ok = await self._deliver_alert(alert)
                     if not ok:
                         all_ok = False
+                    self._pending_alerts.popleft()
+                except asyncio.CancelledError:
+                    raise
                 except Exception as exc:
+                    self._pending_alerts.popleft()
                     all_ok = False
                     logger.error("Unexpected error delivering alert %s: %s", alert.alert_id, exc)
             return all_ok
@@ -173,15 +203,30 @@ class AlertBus:
         return False
 
     async def _deliver_alert(self, alert: Alert) -> bool:
-        """Deliver a single alert to all subscribers concurrently with resilience."""
+        """Deliver a single alert to all subscribers concurrently with resilience and deduplication."""
         if not any(a.alert_id == alert.alert_id for a in self._alerts):
             self._alerts.append(alert)
         if not self._subscribers:
             return True
 
-        subscribers = list(self._subscribers)
+        if not hasattr(alert, "_delivered_subscriber_ids"):
+            alert._delivered_subscriber_ids = set()
+
+        pending_subs = [
+            sub for sub in self._subscribers
+            if id(sub) not in alert._delivered_subscriber_ids
+        ]
+        if not pending_subs:
+            return True
+
+        async def _deliver_and_track(subscriber: Callable[[Alert], Any]) -> bool:
+            ok = await self._deliver_to_subscriber(subscriber, alert)
+            if ok:
+                alert._delivered_subscriber_ids.add(id(subscriber))
+            return ok
+
         results = await asyncio.gather(
-            *(self._deliver_to_subscriber(sub, alert) for sub in subscribers),
+            *(_deliver_and_track(sub) for sub in pending_subs),
             return_exceptions=False,
         )
         return all(results)

@@ -179,3 +179,54 @@ async def test_alert_history_filtering():
 
     bus.clear()
     assert len(bus.get_alerts()) == 0
+
+
+@pytest.mark.asyncio
+async def test_alert_bus_shutdown_drains_pending_alerts():
+    """Verify AlertBus cleanly drains pending alerts upon stop()."""
+    bus = AlertBus(batch_size=10, flush_interval_seconds=60.0)
+    received = []
+
+    bus.subscribe(lambda a: received.append(a))
+    await bus.start()
+
+    alert1 = create_sample_alert()
+    alert2 = create_sample_alert()
+    await bus.publish(alert1)
+    await bus.publish(alert2)
+
+    assert len(received) == 0
+
+    await bus.stop()
+    assert len(received) == 2
+    assert {r.alert_id for r in received} == {alert1.alert_id, alert2.alert_id}
+
+
+@pytest.mark.asyncio
+async def test_alert_bus_deduplicates_and_retains_on_cancellation():
+    """Verify AlertBus retains pending alert on delivery cancellation and deduplicates deliveries."""
+    bus = AlertBus(batch_size=10, flush_interval_seconds=60.0)
+    call_counts = {"sub1": 0, "sub2": 0}
+
+    def sub1(alert: Alert):
+        call_counts["sub1"] += 1
+
+    def sub2(alert: Alert):
+        call_counts["sub2"] += 1
+
+    bus.subscribe(sub1)
+    bus.subscribe(sub2)
+
+    alert = create_sample_alert()
+    await bus.publish(alert)
+
+    # Deliver once
+    await bus.flush()
+    assert call_counts["sub1"] == 1
+    assert call_counts["sub2"] == 1
+
+    # Attempt re-deliver of same alert object
+    await bus._deliver_alert(alert)
+    # Subscribers already tracked should not receive duplicate delivery
+    assert call_counts["sub1"] == 1
+    assert call_counts["sub2"] == 1
