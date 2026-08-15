@@ -165,10 +165,22 @@ def create_evaluation_dataset(
 
     logger.info("Loaded %d benchmark scenario rows for dataset '%s'.", len(rows), name)
 
-    # Attempt Weave native Dataset creation
+    # Prepare sanitized export rows for Weave cloud dataset export (Requirement 16.17, 16.20)
+    weave_rows = [
+        {
+            **row,
+            "events": [
+                WeaveTraceSerializer.serialize_event(e) if isinstance(e, dict) else e
+                for e in row.get("events", [])
+            ],
+        }
+        for row in rows
+    ]
+
+    # Attempt Weave native Dataset creation with sanitized export rows
     if should_enable_weave() and weave is not None and hasattr(weave, "Dataset"):
         try:
-            return weave.Dataset(name=name, rows=rows)
+            return weave.Dataset(name=name, rows=weave_rows)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "Failed to instantiate weave.Dataset for '%s': %s. Falling back to local dataset.",

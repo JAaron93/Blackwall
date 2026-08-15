@@ -94,7 +94,12 @@ events:
   - event_id: "00000000-0000-0000-0000-000000000004"
     timestamp: "2026-08-15T12:00:00Z"
     source: "kernel_syscall"
+    agent_id: "agent-eval-4"
+    action: "file_write"
+    target: "/etc/shadow"
     risk_score: 0.7
+    metadata:
+      token: "secret-token"
 expected_detections: []
 """
     (tmp_path / "valid.yaml").write_text(yaml_content)
@@ -117,3 +122,12 @@ expected_detections: []
         res = create_evaluation_dataset(str(tmp_path), name="mock-dataset")
         assert res["name"] == "mock-dataset"
         assert len(res["rows"]) == 1
+        exported_event = res["rows"][0]["events"][0]
+        # Invariant: Action, target, and metadata are stripped when exported to weave.Dataset
+        assert "action" not in exported_event
+        assert "target" not in exported_event
+        assert "metadata" not in exported_event
+        assert exported_event["event_id"] == "00000000-0000-0000-0000-000000000004"
+        assert exported_event["agent_id"] == "agent-eval-4"
+        assert exported_event["source"] == "kernel_syscall"
+        assert exported_event["risk_score"] == 0.7
