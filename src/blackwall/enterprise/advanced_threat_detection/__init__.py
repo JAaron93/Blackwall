@@ -14,6 +14,9 @@ from blackwall.enterprise.advanced_threat_detection.c2 import (
 from blackwall.enterprise.advanced_threat_detection.collector import (
     EventStreamCollector,
 )
+from blackwall.enterprise.advanced_threat_detection.config import (
+    AdvancedThreatDetectionConfig,
+)
 from blackwall.enterprise.advanced_threat_detection.correlator import PathCorrelator
 from blackwall.enterprise.advanced_threat_detection.enums import (
     AlertSeverity,
@@ -43,6 +46,9 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     RegistryThreatEvidence,
     SwarmEvidence,
 )
+from blackwall.enterprise.advanced_threat_detection.orchestrator import (
+    AdvancedThreatDetection,
+)
 from blackwall.enterprise.advanced_threat_detection.registry import (
     PackageRegistryMonitor,
 )
@@ -61,6 +67,8 @@ logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection")
 __all__ = [
     "AILMEvidence",
     "AILMTracker",
+    "AdvancedThreatDetection",
+    "AdvancedThreatDetectionConfig",
     "AgentSwarmDetector",
     "Alert",
     "AlertBus",
