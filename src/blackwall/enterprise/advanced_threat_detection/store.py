@@ -965,10 +965,41 @@ class AttackGraphStore:
                         )
                 return p_count, p_ids, e_ids_to_rem
 
-            purged_count, purged_ids, edge_ids_to_remove = await self._execute_with_retry(_db_purge)
+            try:
+                purged_count, purged_ids, edge_ids_to_remove = await self._execute_with_retry(_db_purge)
+            except Exception:
+                self._sync_in_memory_purge(
+                    cutoff_time=cutoff_time,
+                    to_delete_candidates=to_delete_candidates,
+                    edge_ids_to_remove=[],
+                    purged_ids=[],
+                )
+                raise
 
-        # Synchronize and purge process-local memory/cache state
-        purged_id_set = set(purged_ids) | to_delete_candidates
+            return self._sync_in_memory_purge(
+                cutoff_time=cutoff_time,
+                to_delete_candidates=to_delete_candidates,
+                edge_ids_to_remove=edge_ids_to_remove,
+                purged_ids=purged_ids,
+                db_purged_count=purged_count,
+            )
+
+        return self._sync_in_memory_purge(
+            cutoff_time=cutoff_time,
+            to_delete_candidates=to_delete_candidates,
+            edge_ids_to_remove=[],
+        )
+
+    def _sync_in_memory_purge(
+        self,
+        cutoff_time: datetime,
+        to_delete_candidates: set[str],
+        edge_ids_to_remove: list[str],
+        purged_ids: list[str] | None = None,
+        db_purged_count: int | None = None,
+    ) -> int:
+        """Synchronize and purge process-local memory/cache state after purge operation."""
+        purged_id_set = set(purged_ids or []) | to_delete_candidates
         to_delete = [
             nid
             for nid in list(self._nodes.keys())
@@ -1008,7 +1039,9 @@ class AttackGraphStore:
             and str(e.get("edge_id", "")) not in removed_edge_ids
         ]
         self._path_cache.clear()
-        return purged_count if self._pool else len(to_delete)
+        if self._pool and db_purged_count is not None:
+            return db_purged_count
+        return len(to_delete)
 
 
 

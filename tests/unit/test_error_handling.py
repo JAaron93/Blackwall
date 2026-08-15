@@ -248,7 +248,26 @@ async def test_database_failure_handling(caplog: pytest.LogCaptureFixture) -> No
     assert ev_a.event_id not in store_link._nodes
     assert ev_b.event_id not in store_link._nodes
 
-    # 4. Query timeout returning partial results
+    # 4. purge_events_before cache sync on retry exhaustion
+    store_purge = AttackGraphStore(pool=mock_pool_fail, max_retries=3, retry_backoff_base=0.01)
+    ev_old = NormalizedEvent(
+        event_id="00000000-0000-4000-8000-000000000031",
+        timestamp=datetime(2026, 8, 15, 8, 0, 0, tzinfo=UTC),
+        source=EventSource.KERNEL_SYSCALL,
+        agent_id="agent-purge-test",
+        action="read",
+        target="/tmp/old",
+        risk_score=0.1,
+    )
+    store_purge._nodes[ev_old.event_id] = AttackNode(node_id=ev_old.event_id, event=ev_old)
+    
+    with pytest.raises(RuntimeError, match="permanently broken"):
+        await store_purge.purge_events_before(datetime(2026, 8, 15, 9, 0, 0, tzinfo=UTC))
+    
+    # Old node must be purged from in-memory cache
+    assert ev_old.event_id not in store_purge._nodes
+
+    # 5. Query timeout returning partial results
     in_memory_store = AttackGraphStore(in_memory=True)
     
     ev1 = NormalizedEvent(
