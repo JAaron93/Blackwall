@@ -114,18 +114,6 @@ def op_generic_trace(op_name: str, inputs: dict[str, Any], outputs: Any) -> dict
     return {"op": op_name, "inputs": inputs, "outputs": outputs}
 
 
-def _publish_weave_trace(op_name: str, payload: dict[str, Any]) -> None:
-    """Publish sanitized operation trace to Weave if enabled."""
-    if should_enable_weave() and weave is not None:
-        try:
-            if hasattr(weave, "log"):
-                weave.log({op_name: payload})
-            elif hasattr(weave, "publish"):
-                weave.publish(payload)
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Failed to emit Weave op %s: %s", op_name, exc)
-
-
 def _emit_sanitized_weave_op(
     op_name: str,
     args: tuple[Any, ...],
@@ -146,10 +134,6 @@ def _emit_sanitized_weave_op(
         op_name,
         {"args": sanitized_args, "kwargs": sanitized_kwargs},
         sanitized_result,
-    )
-    _publish_weave_trace(
-        op_name,
-        {"inputs": {"args": sanitized_args, "kwargs": sanitized_kwargs}, "outputs": sanitized_result},
     )
 
 
@@ -197,10 +181,6 @@ class WeaveTracedPathCorrelator(PathCorrelator):
             if should_enable_weave():
                 sanitized_paths = [WeaveTraceSerializer.serialize_path(p) for p in paths]
                 op_correlate_attack_paths(str(agent_id), len(sanitized_paths), sanitized_paths)
-                _publish_weave_trace(
-                    "correlate_attack_paths",
-                    {"agent_id": agent_id, "paths": sanitized_paths, "count": len(sanitized_paths)},
-                )
                 logger.debug(
                     "Weave trace for correlate_attack_paths: agent=%s -> %d paths",
                     agent_id,
@@ -224,10 +204,6 @@ class WeaveTracedAgentSwarmDetector(AgentSwarmDetector):
             if should_enable_weave():
                 sanitized_swarms = [WeaveTraceSerializer.serialize_swarm(s) for s in swarms]
                 op_detect_swarms(len(sanitized_swarms), sanitized_swarms)
-                _publish_weave_trace(
-                    "detect_swarms",
-                    {"swarms": sanitized_swarms, "count": len(sanitized_swarms)},
-                )
                 logger.debug(
                     "Weave trace for detect_swarms: %d swarms",
                     len(sanitized_swarms),
@@ -250,15 +226,6 @@ class WeaveTracedAILMTracker(AILMTracker):
                     str(grant.granted_by),
                     str(grant.scope),
                 )
-                _publish_weave_trace(
-                    "track_permission_grant",
-                    {
-                        "permission": grant.permission,
-                        "granted_to": grant.granted_to,
-                        "granted_by": grant.granted_by,
-                        "scope": grant.scope,
-                    },
-                )
                 logger.debug(
                     "Weave trace for track_permission_grant: agent=%s",
                     grant.granted_to,
@@ -275,13 +242,6 @@ class WeaveTracedAILMTracker(AILMTracker):
         try:
             if should_enable_weave():
                 op_detect_permission_composition(str(agent_id), len(evidences))
-                _publish_weave_trace(
-                    "detect_permission_composition",
-                    {
-                        "agent_id": agent_id,
-                        "evidences_count": len(evidences),
-                    },
-                )
                 logger.debug(
                     "Weave trace for detect_permission_composition: agent=%s -> %d evidences",
                     agent_id,
@@ -305,13 +265,6 @@ class WeaveTracedExploitChainAnalyzer(ExploitChainAnalyzer):
         try:
             if should_enable_weave():
                 op_detect_chains(str(agent_id), len(chains))
-                _publish_weave_trace(
-                    "detect_chains",
-                    {
-                        "agent_id": agent_id,
-                        "chains_count": len(chains),
-                    },
-                )
                 logger.debug(
                     "Weave trace for detect_chains: agent=%s -> %d chains",
                     agent_id,
@@ -334,16 +287,9 @@ class WeaveTracedC2InfrastructureDetector(C2InfrastructureDetector):
             if should_enable_weave():
                 sanitized_event = WeaveTraceSerializer.serialize_event(event)
                 op_analyze_c2_event(sanitized_event, len(findings))
-                _publish_weave_trace(
-                    "analyze_c2_event",
-                    {
-                        "event": sanitized_event,
-                        "findings_count": len(findings),
-                    },
-                )
                 logger.debug(
                     "Weave trace for C2 analyze_event: %s -> %d findings",
-                    sanitized_event["event_id"],
+                    sanitized_event.get("event_id", ""),
                     len(findings),
                 )
         except Exception as exc:  # noqa: BLE001
