@@ -96,8 +96,14 @@ def assert_metadata_redacted(bdd_context: dict) -> None:
     assert masked["normal"] == "ok"
 
 
-@given(parsers.parse("a scenario evaluation with {tp:d} true positives {fp:d} false positives and {fn:d} false negatives"))
-def record_evaluation_confusion_matrix(bdd_context: dict, tp: int, fp: int, fn: int) -> None:
+@given(
+    parsers.parse(
+        "a scenario evaluation with {tp:d} true positives {fp:d} false positives and {fn:d} false negatives"
+    )
+)
+def record_evaluation_confusion_matrix(
+    bdd_context: dict, tp: int, fp: int, fn: int
+) -> None:
     collector = WeaveMetricsCollector()
     scenario = "bdd-scenario"
     for _ in range(tp):

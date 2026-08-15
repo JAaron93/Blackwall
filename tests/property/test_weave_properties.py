@@ -35,7 +35,9 @@ from blackwall.enterprise.advanced_threat_detection.weave_serializer import (
     project_name=st.text(min_size=1, max_size=50).filter(lambda s: bool(s.strip())),
     disabled=st.booleans(),
 )
-def test_property_82_weave_initialization_fallback(project_name: str, disabled: bool) -> None:
+def test_property_82_weave_initialization_fallback(
+    project_name: str, disabled: bool
+) -> None:
     """Property 82: init_weave gracefully returns False or True without raising exceptions."""
     with patch(
         "blackwall.enterprise.advanced_threat_detection.weave_config.should_enable_weave",
@@ -60,7 +62,9 @@ def test_property_83_weave_offline_mode_compliance(has_api_key: bool) -> None:
     import os
 
     # When WEAVE_DISABLED is true, should_enable_weave() is always False
-    with patch.dict(os.environ, {"WEAVE_DISABLED": "true", "WEAVE_OFFLINE": "true"}, clear=False):
+    with patch.dict(
+        os.environ, {"WEAVE_DISABLED": "true", "WEAVE_OFFLINE": "true"}, clear=False
+    ):
         assert should_enable_weave() is False
 
     # When WEAVE_DISABLED is unset and WEAVE_OFFLINE is true

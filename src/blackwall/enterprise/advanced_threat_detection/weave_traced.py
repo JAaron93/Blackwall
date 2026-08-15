@@ -64,7 +64,9 @@ def _sanitize_value(val: Any) -> Any:
         sanitized_dict: dict[str, Any] = {}
         for k, v in val.items():
             k_lower = str(k).lower()
-            if any(pat in k_lower for pat in WeaveTraceSerializer.SENSITIVE_KEY_PATTERNS):
+            if any(
+                pat in k_lower for pat in WeaveTraceSerializer.SENSITIVE_KEY_PATTERNS
+            ):
                 sanitized_dict[str(k)] = "**REDACTED**"
             else:
                 sanitized_dict[str(k)] = _sanitize_value(v)
@@ -72,7 +74,9 @@ def _sanitize_value(val: Any) -> Any:
     if isinstance(val, (list, tuple, set)):
         sanitized = [_sanitize_value(item) for item in val]
         return type(val)(sanitized) if not isinstance(val, set) else sanitized
-    if hasattr(val, "__class__") and not isinstance(val, (int, float, str, bool, type(None))):
+    if hasattr(val, "__class__") and not isinstance(
+        val, (int, float, str, bool, type(None))
+    ):
         return val.__class__.__name__
     return val
 
@@ -83,14 +87,20 @@ def _wrap_op(fn: F) -> F:
         try:
             return weave.op()(fn)  # type: ignore[return-value]
         except Exception as exc:  # noqa: BLE001
-            logger.debug("Failed to apply weave.op to %s: %s", getattr(fn, "__name__", str(fn)), exc)
+            logger.debug(
+                "Failed to apply weave.op to %s: %s",
+                getattr(fn, "__name__", str(fn)),
+                exc,
+            )
             return fn
     return fn
 
 
 # Dedicated Weave operations accepting strictly pre-sanitized payloads
 @_wrap_op
-def op_correlate_attack_paths(agent_id: str, count: int, paths: list[dict[str, Any]]) -> dict[str, Any]:
+def op_correlate_attack_paths(
+    agent_id: str, count: int, paths: list[dict[str, Any]]
+) -> dict[str, Any]:
     return {"agent_id": agent_id, "count": count, "paths": paths}
 
 
@@ -100,12 +110,21 @@ def op_detect_swarms(count: int, swarms: list[dict[str, Any]]) -> dict[str, Any]
 
 
 @_wrap_op
-def op_track_permission_grant(permission: str, granted_to: str, granted_by: str, scope: str) -> dict[str, Any]:
-    return {"permission": permission, "granted_to": granted_to, "granted_by": granted_by, "scope": scope}
+def op_track_permission_grant(
+    permission: str, granted_to: str, granted_by: str, scope: str
+) -> dict[str, Any]:
+    return {
+        "permission": permission,
+        "granted_to": granted_to,
+        "granted_by": granted_by,
+        "scope": scope,
+    }
 
 
 @_wrap_op
-def op_detect_permission_composition(agent_id: str, evidences_count: int) -> dict[str, Any]:
+def op_detect_permission_composition(
+    agent_id: str, evidences_count: int
+) -> dict[str, Any]:
     return {"agent_id": agent_id, "evidences_count": evidences_count}
 
 
@@ -115,12 +134,16 @@ def op_detect_chains(agent_id: str, chains_count: int) -> dict[str, Any]:
 
 
 @_wrap_op
-def op_analyze_c2_event(sanitized_event: dict[str, Any], findings_count: int) -> dict[str, Any]:
+def op_analyze_c2_event(
+    sanitized_event: dict[str, Any], findings_count: int
+) -> dict[str, Any]:
     return {"event": sanitized_event, "findings_count": findings_count}
 
 
 @_wrap_op
-def op_generic_trace(op_name: str, inputs: dict[str, Any], outputs: Any) -> dict[str, Any]:
+def op_generic_trace(
+    op_name: str, inputs: dict[str, Any], outputs: Any
+) -> dict[str, Any]:
     return {"op": op_name, "inputs": inputs, "outputs": outputs}
 
 
@@ -133,7 +156,9 @@ def _emit_sanitized_weave_op(
     """Emit sanitized Weave operation without leaking raw NormalizedEvents or credentials."""
     call_args = (
         args[1:]
-        if len(args) > 0 and hasattr(args[0], "__class__") and not isinstance(args[0], (int, float, str, bool, dict, list, tuple, set))
+        if len(args) > 0
+        and hasattr(args[0], "__class__")
+        and not isinstance(args[0], (int, float, str, bool, dict, list, tuple, set))
         else args
     )
     sanitized_args = [_sanitize_value(a) for a in call_args]
@@ -152,6 +177,7 @@ def weave_traced(fn: F) -> F:
     op_name = getattr(fn, "__name__", "traced_operation")
 
     if inspect.iscoroutinefunction(fn):
+
         @functools.wraps(fn)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
             result = await fn(*args, **kwargs)
@@ -189,8 +215,12 @@ class WeaveTracedPathCorrelator(PathCorrelator):
         paths = await super().correlate_attack_paths(agent_id, time_window, **kwargs)
         try:
             if should_enable_weave():
-                sanitized_paths = [WeaveTraceSerializer.serialize_path(p) for p in paths]
-                op_correlate_attack_paths(str(agent_id), len(sanitized_paths), sanitized_paths)
+                sanitized_paths = [
+                    WeaveTraceSerializer.serialize_path(p) for p in paths
+                ]
+                op_correlate_attack_paths(
+                    str(agent_id), len(sanitized_paths), sanitized_paths
+                )
                 logger.debug(
                     "Weave trace for correlate_attack_paths: agent=%s -> %d paths",
                     agent_id,
@@ -212,7 +242,9 @@ class WeaveTracedAgentSwarmDetector(AgentSwarmDetector):
         swarms = await super().detect_swarms(time_window, **kwargs)
         try:
             if should_enable_weave():
-                sanitized_swarms = [WeaveTraceSerializer.serialize_swarm(s) for s in swarms]
+                sanitized_swarms = [
+                    WeaveTraceSerializer.serialize_swarm(s) for s in swarms
+                ]
                 op_detect_swarms(len(sanitized_swarms), sanitized_swarms)
                 logger.debug(
                     "Weave trace for detect_swarms: %d swarms",
@@ -258,7 +290,9 @@ class WeaveTracedAILMTracker(AILMTracker):
                     len(evidences),
                 )
         except Exception as exc:  # noqa: BLE001
-            logger.debug("Weave tracing error in detect_permission_composition: %s", exc)
+            logger.debug(
+                "Weave tracing error in detect_permission_composition: %s", exc
+            )
         return evidences
 
 

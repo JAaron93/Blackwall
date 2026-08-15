@@ -56,7 +56,9 @@ class WeaveTraceSerializer:
             else:
                 ts = datetime.now(UTC)
             source_raw = event.get("source", "")
-            source_val = source_raw.value if hasattr(source_raw, "value") else str(source_raw)
+            source_val = (
+                source_raw.value if hasattr(source_raw, "value") else str(source_raw)
+            )
             risk_score = float(event.get("risk_score", 0.0))
             payload: dict[str, Any] = {
                 "event_id": event_id,
@@ -67,7 +69,9 @@ class WeaveTraceSerializer:
             }
             return cls.enforce_size(payload)
 
-        source_val = event.source.value if hasattr(event.source, "value") else str(event.source)
+        source_val = (
+            event.source.value if hasattr(event.source, "value") else str(event.source)
+        )
         payload = {
             "event_id": str(event.event_id),
             "agent_id": str(event.agent_id),
@@ -81,8 +85,7 @@ class WeaveTraceSerializer:
     def serialize_path(cls, path: AttackPath) -> dict[str, Any]:
         """Sanitize an AttackPath, replacing node payloads with node count."""
         stages = [
-            s.value if hasattr(s, "value") else str(s)
-            for s in path.attack_stages
+            s.value if hasattr(s, "value") else str(s) for s in path.attack_stages
         ]
         payload: dict[str, Any] = {
             "path_id": str(path.path_id),
@@ -120,7 +123,9 @@ class WeaveTraceSerializer:
                     masked_dict[k] = "**REDACTED**"
                 elif isinstance(v, (dict, list, tuple)):
                     masked_dict[k] = cls.mask_metadata(v)
-                elif hasattr(v, "__class__") and not isinstance(v, (int, float, str, bool, type(None))):
+                elif hasattr(v, "__class__") and not isinstance(
+                    v, (int, float, str, bool, type(None))
+                ):
                     if hasattr(v, "event_id") and hasattr(v, "risk_score"):
                         masked_dict[k] = cls.serialize_event(v)
                     elif hasattr(v, "path_id") and hasattr(v, "attack_stages"):

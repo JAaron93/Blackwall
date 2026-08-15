@@ -35,9 +35,13 @@ class WeaveEvaluationHarness:
         if should_enable_weave():
             self.enabled = weave_config.init_weave(self.config)
         else:
-            logger.info("Weave tracking is disabled. Operating in local-only fallback mode.")
+            logger.info(
+                "Weave tracking is disabled. Operating in local-only fallback mode."
+            )
 
-    def track_detection_metrics(self, dataset_name: str, metrics: dict[str, Any]) -> None:
+    def track_detection_metrics(
+        self, dataset_name: str, metrics: dict[str, Any]
+    ) -> None:
         """Track aggregated threat detection metrics in Weave."""
         if not self.enabled or weave is None:
             return
@@ -52,7 +56,9 @@ class WeaveEvaluationHarness:
                 weave.publish(payload)
             elif hasattr(weave, "log"):
                 weave.log(payload)
-            logger.debug("Published detection metrics to Weave for dataset '%s'", dataset_name)
+            logger.debug(
+                "Published detection metrics to Weave for dataset '%s'", dataset_name
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "Failed to publish metrics to Weave for dataset '%s': %s",
@@ -114,7 +120,9 @@ class WeaveEvaluationHarness:
                 row_scores: dict[str, Any] = {}
                 for scorer in scorers:
                     try:
-                        s_name = getattr(scorer, "__name__", f"scorer_{len(row_scores)}")
+                        s_name = getattr(
+                            scorer, "__name__", f"scorer_{len(row_scores)}"
+                        )
                         if inspect.iscoroutinefunction(scorer):
                             score_val = await scorer(row, output)
                         else:
@@ -123,7 +131,9 @@ class WeaveEvaluationHarness:
                     except Exception as s_exc:  # noqa: BLE001
                         logger.debug("Scorer %s error: %s", scorer, s_exc)
 
-                results.append({"index": idx, "input": row, "output": output, "scores": row_scores})
+                results.append(
+                    {"index": idx, "input": row, "output": output, "scores": row_scores}
+                )
             except Exception as row_exc:  # noqa: BLE001
                 logger.warning("Error evaluating row %d: %s", idx, row_exc)
                 results.append({"index": idx, "input": row, "error": str(row_exc)})

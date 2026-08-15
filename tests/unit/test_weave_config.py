@@ -59,7 +59,9 @@ def test_should_enable_weave_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     assert should_enable_weave() is True
 
 
-def test_should_enable_weave_credentials_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_should_enable_weave_credentials_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("WEAVE_DISABLED", raising=False)
     monkeypatch.delenv("WEAVE_OFFLINE", raising=False)
     monkeypatch.delenv("WANDB_API_KEY", raising=False)
@@ -77,7 +79,9 @@ def test_should_enable_weave_credentials_fallback(monkeypatch: pytest.MonkeyPatc
         assert should_enable_weave() is False
 
 
-def test_has_wandb_credentials_netrc(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_has_wandb_credentials_netrc(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("WANDB_API_KEY", raising=False)
     mock_netrc_content = "machine api.wandb.ai login user password test-netrc-key\n"
     netrc_file = tmp_path / ".netrc"
@@ -85,7 +89,11 @@ def test_has_wandb_credentials_netrc(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     with patch("netrc.netrc") as mock_netrc:
         mock_instance = MagicMock()
-        mock_instance.authenticators.return_value = ("user", "account", "test-netrc-key")
+        mock_instance.authenticators.return_value = (
+            "user",
+            "account",
+            "test-netrc-key",
+        )
         mock_netrc.return_value = mock_instance
         assert has_wandb_credentials() is True
 

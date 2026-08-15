@@ -115,7 +115,9 @@ class WeaveMetricsCollector:
         per_detector_acc: dict[str, float] = {}
         for det_name, det_records in per_detector.items():
             correct = sum(1 for r in det_records if r.actual == r.predicted)
-            per_detector_acc[det_name] = correct / len(det_records) if det_records else 0.0
+            per_detector_acc[det_name] = (
+                correct / len(det_records) if det_records else 0.0
+            )
 
         return ThreatDetectionMetrics(
             scenario_id=scenario_id,

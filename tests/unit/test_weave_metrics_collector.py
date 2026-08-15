@@ -24,14 +24,36 @@ def test_metrics_collector_empty() -> None:
 def test_metrics_collector_confusion_matrix() -> None:
     collector = WeaveMetricsCollector()
     # 2 TP
-    collector.record_result("sc-1", "detector_a", actual_threat=True, predicted_threat=True, latency_ms=10.0)
-    collector.record_result("sc-1", "detector_a", actual_threat=True, predicted_threat=True, latency_ms=20.0)
+    collector.record_result(
+        "sc-1", "detector_a", actual_threat=True, predicted_threat=True, latency_ms=10.0
+    )
+    collector.record_result(
+        "sc-1", "detector_a", actual_threat=True, predicted_threat=True, latency_ms=20.0
+    )
     # 1 FP
-    collector.record_result("sc-1", "detector_a", actual_threat=False, predicted_threat=True, latency_ms=15.0)
+    collector.record_result(
+        "sc-1",
+        "detector_a",
+        actual_threat=False,
+        predicted_threat=True,
+        latency_ms=15.0,
+    )
     # 1 FN
-    collector.record_result("sc-1", "detector_b", actual_threat=True, predicted_threat=False, latency_ms=25.0)
+    collector.record_result(
+        "sc-1",
+        "detector_b",
+        actual_threat=True,
+        predicted_threat=False,
+        latency_ms=25.0,
+    )
     # 1 TN
-    collector.record_result("sc-1", "detector_b", actual_threat=False, predicted_threat=False, latency_ms=30.0)
+    collector.record_result(
+        "sc-1",
+        "detector_b",
+        actual_threat=False,
+        predicted_threat=False,
+        latency_ms=30.0,
+    )
 
     metrics = collector.compute_metrics("sc-1")
     # TP=2, FP=1, FN=1, TN=1
@@ -55,7 +77,9 @@ def test_metrics_collector_confusion_matrix() -> None:
 
 def test_publish_metrics_with_harness() -> None:
     collector = WeaveMetricsCollector()
-    collector.record_result("sc-pub", "det_1", actual_threat=True, predicted_threat=True, latency_ms=5.0)
+    collector.record_result(
+        "sc-pub", "det_1", actual_threat=True, predicted_threat=True, latency_ms=5.0
+    )
 
     mock_harness = MagicMock()
     res = collector.publish_metrics("sc-pub", harness=mock_harness)

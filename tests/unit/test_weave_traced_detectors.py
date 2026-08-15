@@ -90,7 +90,9 @@ async def test_weave_traced_ailm_tracker() -> None:
         scope="kernel_space",
     )
     await wrapper.track_permission_grant(grant)
-    evidences = await wrapper.detect_permission_composition(str(grant.granted_to), (now, now))
+    evidences = await wrapper.detect_permission_composition(
+        str(grant.granted_to), (now, now)
+    )
     assert isinstance(evidences, list)
 
 
@@ -160,12 +162,15 @@ async def test_weave_traced_c2_analyze_event_multi_event_and_single_trace() -> N
         risk_score=0.9,
     )
 
-    with patch(
-        "blackwall.enterprise.advanced_threat_detection.weave_traced.should_enable_weave",
-        return_value=True,
-    ), patch(
-        "blackwall.enterprise.advanced_threat_detection.weave_traced.op_analyze_c2_event"
-    ) as mock_op:
+    with (
+        patch(
+            "blackwall.enterprise.advanced_threat_detection.weave_traced.should_enable_weave",
+            return_value=True,
+        ),
+        patch(
+            "blackwall.enterprise.advanced_threat_detection.weave_traced.op_analyze_c2_event"
+        ) as mock_op,
+    ):
         await wrapper.analyze_event(e1)
         assert mock_op.call_count == 1
 

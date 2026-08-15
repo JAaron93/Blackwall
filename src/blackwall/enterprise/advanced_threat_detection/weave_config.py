@@ -41,7 +41,9 @@ def has_wandb_credentials() -> bool:
     # Check ~/.netrc or netrc
     try:
         netrc_auth = netrc.netrc()
-        if netrc_auth.authenticators("api.wandb.ai") or netrc_auth.authenticators("wandb.ai"):
+        if netrc_auth.authenticators("api.wandb.ai") or netrc_auth.authenticators(
+            "wandb.ai"
+        ):
             return True
     except Exception:  # noqa: BLE001, S110
         pass
@@ -120,7 +122,9 @@ def load_weave_config(config_path: str | None = None) -> WeaveConfig:
         return WeaveConfig(
             project_name=weave_data.get("project_name", default_config.project_name),
             entity=weave_data.get("entity", default_config.entity),
-            offline_mode=bool(weave_data.get("offline_mode", default_config.offline_mode)),
+            offline_mode=bool(
+                weave_data.get("offline_mode", default_config.offline_mode)
+            ),
             parallelism=int(weave_data.get("parallelism", default_config.parallelism)),
             tags=list(weave_data.get("tags", default_config.tags)),
         )
@@ -162,7 +166,9 @@ def init_weave(config: WeaveConfig | None = None) -> bool:
             init_kwargs["entity"] = config.entity
 
         weave.init(**init_kwargs)
-        logger.info("Weave initialized successfully for project '%s'.", config.project_name)
+        logger.info(
+            "Weave initialized successfully for project '%s'.", config.project_name
+        )
         return True
     except Exception as exc:  # noqa: BLE001
         logger.error("Failed to initialize Weave: %s", exc)

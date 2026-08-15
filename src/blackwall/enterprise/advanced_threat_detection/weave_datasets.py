@@ -49,28 +49,10 @@ class LocalEvaluationDataset:
 def _sanitize_scenario_event(event_dict: dict[str, Any]) -> dict[str, Any]:
     """Sanitize raw scenario event dictionary for dataset rows.
 
-    Preserves structured event attributes (event_id, agent_id, timestamp, source, action,
-    target, risk_score) required for evaluation models to reconstruct NormalizedEvent instances,
-    while recursively masking sensitive metadata values via WeaveTraceSerializer.mask_metadata.
+    Routes event dictionaries through WeaveTraceSerializer.serialize_event to strip
+    action, target, and metadata before export to Weave (Requirement 16.17, 16.20).
     """
-    safe_event: dict[str, Any] = {
-        "event_id": str(event_dict.get("event_id", "")),
-        "agent_id": str(event_dict.get("agent_id", "")),
-        "timestamp": str(event_dict.get("timestamp", "")),
-        "source": str(event_dict.get("source", "")),
-        "action": str(event_dict.get("action", "")),
-        "target": str(event_dict.get("target", "")),
-    }
-    if "risk_score" in event_dict:
-        try:
-            safe_event["risk_score"] = float(event_dict["risk_score"])
-        except (ValueError, TypeError):
-            safe_event["risk_score"] = 0.0
-    if "metadata" in event_dict and isinstance(event_dict["metadata"], dict):
-        safe_event["metadata"] = WeaveTraceSerializer.mask_metadata(event_dict["metadata"])
-    elif "metadata" in event_dict:
-        safe_event["metadata"] = {}
-    return safe_event
+    return WeaveTraceSerializer.serialize_event(event_dict)
 
 
 def _load_scenario_file(file_path: Path) -> list[dict[str, Any]]:
@@ -80,13 +62,17 @@ def _load_scenario_file(file_path: Path) -> list[dict[str, Any]]:
             data = yaml.safe_load(f)
 
         if not isinstance(data, dict):
-            logger.warning("Scenario file '%s' did not parse to a dictionary. Skipping.", file_path)
+            logger.warning(
+                "Scenario file '%s' did not parse to a dictionary. Skipping.", file_path
+            )
             return []
 
         # Validate name
         name = data.get("name")
         if not name or not isinstance(name, str) or not name.strip():
-            logger.warning("Scenario in '%s' missing valid 'name'. Skipping.", file_path)
+            logger.warning(
+                "Scenario in '%s' missing valid 'name'. Skipping.", file_path
+            )
             return []
 
         # Validate description (Requirement 21: skip if missing, non-string, or whitespace-only)
@@ -102,7 +88,9 @@ def _load_scenario_file(file_path: Path) -> list[dict[str, Any]]:
         # Validate events
         raw_events = data.get("events", [])
         if not isinstance(raw_events, list):
-            logger.warning("Scenario '%s' in '%s' has non-list events. Skipping.", name, file_path)
+            logger.warning(
+                "Scenario '%s' in '%s' has non-list events. Skipping.", name, file_path
+            )
             return []
 
         sanitized_events = [

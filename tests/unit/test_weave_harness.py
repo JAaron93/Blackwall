@@ -33,7 +33,9 @@ async def test_weave_harness_init_enabled(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 @pytest.mark.asyncio
-async def test_weave_harness_track_detection_metrics_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_weave_harness_track_detection_metrics_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("WEAVE_DISABLED", "true")
     harness = WeaveEvaluationHarness()
     # Should be a safe no-op
@@ -41,27 +43,36 @@ async def test_weave_harness_track_detection_metrics_disabled(monkeypatch: pytes
 
 
 @pytest.mark.asyncio
-async def test_weave_harness_track_detection_metrics_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_weave_harness_track_detection_metrics_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("WEAVE_DISABLED", raising=False)
     monkeypatch.setenv("WEAVE_OFFLINE", "true")
 
     mock_weave = MagicMock()
-    with patch(
-        "blackwall.enterprise.advanced_threat_detection.weave_config.init_weave",
-        return_value=True,
-    ), patch(
-        "blackwall.enterprise.advanced_threat_detection.weave_harness.weave",
-        mock_weave,
+    with (
+        patch(
+            "blackwall.enterprise.advanced_threat_detection.weave_config.init_weave",
+            return_value=True,
+        ),
+        patch(
+            "blackwall.enterprise.advanced_threat_detection.weave_harness.weave",
+            mock_weave,
+        ),
     ):
         harness = WeaveEvaluationHarness(WeaveConfig(project_name="test-eval"))
         assert harness.enabled is True
         harness.track_detection_metrics("test-ds", {"precision": 0.95, "recall": 0.92})
         # If weave.publish or weave.log is used
-        assert mock_weave.publish.called or mock_weave.log.called or mock_weave.init.called
+        assert (
+            mock_weave.publish.called or mock_weave.log.called or mock_weave.init.called
+        )
 
 
 @pytest.mark.asyncio
-async def test_weave_harness_run_evaluation_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_weave_harness_run_evaluation_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("WEAVE_DISABLED", "true")
     harness = WeaveEvaluationHarness()
 

@@ -39,16 +39,15 @@ expected_detections:
     assert row["name"] == "c2_beaconing_attack"
     assert row["description"] == "Scenario testing C2 periodic beaconing detection"
     assert len(row["events"]) == 1
-    # Check that events in row preserve functional fields while masking sensitive metadata
+    # Check that events in row strip action, target, and metadata per WeaveTraceSerializer
     evt = row["events"][0]
     assert evt["event_id"] == "00000000-0000-0000-0000-000000000001"
     assert evt["agent_id"] == "agent-eval-1"
     assert evt["source"] == "kernel_syscall"
-    assert evt["action"] == "network_connect"
-    assert evt["target"] == "webhook.site/test"
+    assert "action" not in evt
+    assert "target" not in evt
+    assert "metadata" not in evt
     assert evt["risk_score"] == 0.85
-    assert evt["metadata"]["api_key"] == "**REDACTED**"
-    assert evt["metadata"]["safe_param"] == "value"
 
 
 def test_create_evaluation_dataset_missing_description_skipped(tmp_path: Path) -> None:
@@ -100,14 +99,19 @@ expected_detections: []
     (tmp_path / "valid.yaml").write_text(yaml_content)
 
     mock_weave = MagicMock()
-    mock_weave.Dataset = MagicMock(side_effect=lambda name, rows: {"name": name, "rows": rows})
+    mock_weave.Dataset = MagicMock(
+        side_effect=lambda name, rows: {"name": name, "rows": rows}
+    )
 
-    with patch(
-        "blackwall.enterprise.advanced_threat_detection.weave_datasets.weave",
-        mock_weave,
-    ), patch(
-        "blackwall.enterprise.advanced_threat_detection.weave_config.should_enable_weave",
-        return_value=True,
+    with (
+        patch(
+            "blackwall.enterprise.advanced_threat_detection.weave_datasets.weave",
+            mock_weave,
+        ),
+        patch(
+            "blackwall.enterprise.advanced_threat_detection.weave_config.should_enable_weave",
+            return_value=True,
+        ),
     ):
         res = create_evaluation_dataset(str(tmp_path), name="mock-dataset")
         assert res["name"] == "mock-dataset"
