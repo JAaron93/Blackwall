@@ -474,6 +474,9 @@ async def test_retained_graph_store_rejects_writes_after_environment_closure():
     with pytest.raises(RuntimeError, match="graph store is closed and cannot accept writes"):
         await store.purge_events_before(datetime.now(UTC))
 
+    with pytest.raises(RuntimeError, match="graph store is closed and cannot accept writes"):
+        await store.initialize()
+
 
 @pytest.mark.asyncio
 async def test_direct_store_insertion_enforces_evaluation_labeling_and_containment():

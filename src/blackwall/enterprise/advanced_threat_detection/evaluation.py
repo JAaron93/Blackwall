@@ -46,6 +46,13 @@ class EvaluationAttackGraphStore(AttackGraphStore):
                 f"EvaluationEnvironment '{self._env.env_id}' graph store is closed and cannot accept writes."
             )
 
+    async def initialize(self) -> None:
+        """Initialize database connection pool under environment lock and lifecycle guard."""
+        async with self._env._lock:
+            self._check_store_open()
+            if not self._initialized:
+                await super().initialize()
+
     async def insert_event(self, event: NormalizedEvent) -> AttackNode:
         async with self._env._lock:
             self._check_store_open()
@@ -315,17 +322,11 @@ class EvaluationEnvironment:
                 f"EvaluationEnvironment '{self.env_id}' is closed and cannot accept operations."
             )
 
-    async def _initialize_locked(self) -> None:
-        """Internal initialization while self._lock is held."""
-        self._check_not_closed()
-        if not self._initialized:
-            await self.store.initialize()
-            self._initialized = True
-
     async def initialize(self) -> None:
         """Initialize the isolated graph store."""
-        async with self._lock:
-            await self._initialize_locked()
+        self._check_not_closed()
+        await self.store.initialize()
+        self._initialized = True
 
     def label_event(self, event: NormalizedEvent) -> NormalizedEvent:
         """Stamp a NormalizedEvent with this evaluation environment's metadata and isolated identifier."""
