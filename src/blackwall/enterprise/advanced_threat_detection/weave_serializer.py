@@ -38,12 +38,35 @@ class WeaveTraceSerializer:
 
     @classmethod
     def serialize_event(cls, event: Any) -> dict[str, Any]:
-        """Sanitize a NormalizedEvent (or event object) to export ONLY safe metadata.
+        """Sanitize a NormalizedEvent (or event object/dict) to export ONLY safe metadata.
 
         Drops action, target, metadata, and prompt payloads.
         """
+        if isinstance(event, dict):
+            event_id = str(event.get("event_id", ""))
+            ts = event.get("timestamp")
+            if isinstance(ts, str):
+                try:
+                    ts = datetime.fromisoformat(ts)
+                except Exception:  # noqa: BLE001
+                    ts = datetime.now(UTC)
+            elif isinstance(ts, datetime):
+                pass
+            else:
+                ts = datetime.now(UTC)
+            source_raw = event.get("source", "")
+            source_val = source_raw.value if hasattr(source_raw, "value") else str(source_raw)
+            risk_score = float(event.get("risk_score", 0.0))
+            payload: dict[str, Any] = {
+                "event_id": event_id,
+                "timestamp": cls._format_timestamp(ts),
+                "source": source_val,
+                "risk_score": risk_score,
+            }
+            return cls.enforce_size(payload)
+
         source_val = event.source.value if hasattr(event.source, "value") else str(event.source)
-        payload: dict[str, Any] = {
+        payload = {
             "event_id": str(event.event_id),
             "timestamp": cls._format_timestamp(event.timestamp),
             "source": source_val,

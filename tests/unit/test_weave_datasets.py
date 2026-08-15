@@ -36,11 +36,12 @@ expected_detections:
     assert row["name"] == "c2_beaconing_attack"
     assert row["description"] == "Scenario testing C2 periodic beaconing detection"
     assert len(row["events"]) == 1
-    # Check that events in row are preserved for detector consumption while sanitized
+    # Check that events in row are sanitized according to Requirement 16.17 (action/target stripped)
     evt = row["events"][0]
     assert evt["event_id"] == "00000000-0000-0000-0000-000000000001"
-    assert evt["action"] == "network_connect"
-    assert evt["target"] == "webhook.site/test"
+    assert "action" not in evt
+    assert "target" not in evt
+    assert "metadata" not in evt
 
 
 def test_create_evaluation_dataset_missing_description_skipped(tmp_path: Path) -> None:
