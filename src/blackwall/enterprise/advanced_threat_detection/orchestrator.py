@@ -4,10 +4,13 @@ Wires EventStreamCollector, AttackGraphStore, AlertBus, SafeDetectionRunner,
 ResourceThrottler, and all detection engines into a unified system entry point.
 """
 
+from __future__ import annotations
+
 import asyncio
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 import logging
-from typing import Any, Callable, List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
 import uuid
 
 from blackwall.enterprise.advanced_threat_detection.ailm import AILMTracker
@@ -372,7 +375,8 @@ class AdvancedThreatDetection:
 
         # 1. Multi-Stage Attack Path Correlation
         if self.path_correlator is not None:
-            max_d = self.throttler.get_analysis_depth(base_depth=10)
+            mem_mb = _get_current_memory_mb()
+            max_d = self.throttler.get_analysis_depth(base_depth=10, current_memory_mb=mem_mb)
             paths: List[AttackPath] = await self.runner.run_safe(
                 detector_name="path_correlator",
                 coro=self.path_correlator.correlate_attack_paths(

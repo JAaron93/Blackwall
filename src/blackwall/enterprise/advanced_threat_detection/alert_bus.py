@@ -174,12 +174,22 @@ class AlertBus:
         return all_success
 
     async def publish(self, alert: Alert) -> bool:
-        """Publish an alert to all registered subscribers with retry resilience."""
+        """Publish an alert to all registered subscribers or buffer if batching is active."""
+        if self._running and self.batch_size > 1 and self.flush_interval_seconds > 0:
+            self._pending_alerts.append(alert)
+            if len(self._pending_alerts) >= self.batch_size:
+                return await self.flush()
+            return True
         return await self._deliver_alert(alert)
 
     async def publish_batch(self, alerts: list[Alert]) -> bool:
         """Publish a batch of alerts in bounded chunk sizes up to batch_size."""
         if not alerts:
+            return True
+        if self._running and self.batch_size > 1 and self.flush_interval_seconds > 0:
+            self._pending_alerts.extend(alerts)
+            if len(self._pending_alerts) >= self.batch_size:
+                return await self.flush()
             return True
         all_ok = True
         for i in range(0, len(alerts), self.batch_size):

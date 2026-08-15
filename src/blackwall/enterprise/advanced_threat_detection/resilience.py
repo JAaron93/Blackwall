@@ -150,9 +150,12 @@ class ResourceThrottler:
         return False
 
     def get_analysis_depth(
-        self, base_depth: int = 5, current_queue_size: int = 0
+        self,
+        base_depth: int = 5,
+        current_queue_size: int = 0,
+        current_memory_mb: float = 0.0,
     ) -> int:
-        """Calculate dynamic analysis depth based on current queue load and event rate."""
+        """Calculate dynamic analysis depth based on current queue load, event rate, and memory usage."""
         if base_depth <= 0:
             raise ValueError("base_depth must be positive")
 
@@ -160,6 +163,7 @@ class ResourceThrottler:
         is_severe = (
             current_queue_size >= self.max_queue_size
             or rate >= (self.max_events_per_second * 1.5)
+            or (current_memory_mb > 0 and current_memory_mb >= self.max_memory_mb)
         )
         if is_severe:
             return max(1, base_depth // 3)
@@ -167,6 +171,7 @@ class ResourceThrottler:
         is_moderate = (
             current_queue_size >= (self.max_queue_size * 0.7)
             or rate >= (self.max_events_per_second * 0.9)
+            or (current_memory_mb > 0 and current_memory_mb >= (self.max_memory_mb * 0.8))
         )
         if is_moderate:
             return max(1, base_depth // 2)

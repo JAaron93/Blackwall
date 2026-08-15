@@ -148,6 +148,9 @@ async def test_end_to_end_full_detection_cycle():
         alerts = await atd.correlate_agent_threats(agent_id=agent_id)
         assert len(alerts) > 0
 
+        # Flush alert bus to deliver buffered batch to subscribers
+        await atd.alert_bus.flush()
+
         # Verify alert bus received alerts
         assert len(collected_alerts) > 0
         path_alert = next((a for a in collected_alerts if a.threat_type == "attack_path"), None)
