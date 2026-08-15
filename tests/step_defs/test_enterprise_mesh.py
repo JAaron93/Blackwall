@@ -593,3 +593,46 @@ def verify_mesh_graphml_xml(state):
     assert graph_elem is not None
     assert graph_elem.attrib.get("edgedefault") == "directed"
 
+
+# --- Scenario: Pillar 6 Advanced Threat Detection error recovery and load throttling ---
+
+
+@given("an ATD subsystem configured with SafeDetectionRunner and ResourceThrottler")
+def init_mesh_resilience_subsystem(state):
+    from blackwall.enterprise.advanced_threat_detection.resilience import (
+        ResourceThrottler,
+        SafeDetectionRunner,
+    )
+
+    state.mesh_safe_runner = SafeDetectionRunner(default_timeout_seconds=0.1)
+    state.mesh_throttler = ResourceThrottler(
+        max_events_per_second=20,
+        max_queue_size=10,
+    )
+    for _ in range(30):
+        state.mesh_throttler.record_event()
+
+
+@when("detector exceptions occur or stream volume surges")
+def trigger_mesh_detector_exception(state):
+    async def faulty_detector():
+        raise RuntimeError("Mesh detector error")
+
+    async def _run():
+        return await state.mesh_safe_runner.run_safe(
+            detector_name="mesh_detector",
+            coro=faulty_detector(),
+            fallback={"mesh_status": "isolated"},
+        )
+
+    state.mesh_safe_result = run_async(_run())
+    state.mesh_adjusted_depth = state.mesh_throttler.get_analysis_depth(
+        base_depth=6, current_queue_size=12
+    )
+
+
+@then("errors are isolated and analysis depth is dynamically adjusted")
+def verify_mesh_error_isolation_and_depth(state):
+    assert state.mesh_safe_result == {"mesh_status": "isolated"}
+    assert state.mesh_adjusted_depth <= 3
+

@@ -49,3 +49,9 @@ Feature: Blackwall Advanced Threat Detection Pillar Data Validation
     Then retrospective attack paths are identified across the multi-day window
     And the exported graph outputs match standard JSON and GraphML schemas
 
+  Scenario: Error Handling and Resilience engine crash isolation and resource throttling
+    Given an Advanced Threat Detection resilience runner and resource throttler
+    When a detector encounters an unhandled exception or pipeline load exceeds thresholds
+    Then the SafeDetectionRunner captures the error without crashing the pipeline
+    And the ResourceThrottler degrades analysis depth to preserve real-time throughput
+

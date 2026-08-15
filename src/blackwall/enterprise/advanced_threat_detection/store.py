@@ -426,7 +426,8 @@ class AttackGraphStore:
                 await conn.execute(
                     """
                     INSERT INTO causal_edges (edge_id, from_node, to_node, relationship, created_at)
-                    VALUES ($1, $2, $3, $4, $5);
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (edge_id) DO NOTHING;
                     """,
                     edge_id_str,
                     from_node_str,
@@ -904,6 +905,10 @@ class AttackGraphStore:
                         p_count = len(p_ids)
 
                     if e_ids_to_rem:
+                        await conn.execute(
+                            "DELETE FROM causal_edges WHERE edge_id = ANY($1::text[]);",
+                            e_ids_to_rem,
+                        )
                         await conn.execute(
                             """
                             UPDATE event_nodes
