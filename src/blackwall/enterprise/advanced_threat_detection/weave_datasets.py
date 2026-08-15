@@ -47,8 +47,11 @@ class LocalEvaluationDataset:
 
 
 def _sanitize_scenario_event(event_dict: dict[str, Any]) -> dict[str, Any]:
-    """Sanitize raw scenario event dictionary for inclusion in dataset row."""
-    return WeaveTraceSerializer.serialize_event(event_dict)
+    """Sanitize raw scenario event dictionary for inclusion in dataset row while preserving detector inputs."""
+    sanitized = dict(event_dict)
+    if "metadata" in sanitized:
+        sanitized["metadata"] = WeaveTraceSerializer.mask_metadata(sanitized["metadata"])
+    return sanitized
 
 
 def _load_scenario_file(file_path: Path) -> list[dict[str, Any]]:

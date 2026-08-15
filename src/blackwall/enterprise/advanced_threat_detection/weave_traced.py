@@ -186,7 +186,6 @@ def weave_traced(fn: F) -> F:
 class WeaveTracedPathCorrelator(PathCorrelator):
     """PathCorrelator wrapped with Weave tracing and data sanitization."""
 
-    @weave_traced
     async def correlate_attack_paths(
         self,
         agent_id: str,
@@ -215,7 +214,6 @@ class WeaveTracedPathCorrelator(PathCorrelator):
 class WeaveTracedAgentSwarmDetector(AgentSwarmDetector):
     """AgentSwarmDetector wrapped with Weave tracing and data sanitization."""
 
-    @weave_traced
     async def detect_swarms(
         self,
         time_window: Any,
@@ -242,7 +240,6 @@ class WeaveTracedAgentSwarmDetector(AgentSwarmDetector):
 class WeaveTracedAILMTracker(AILMTracker):
     """AILMTracker wrapped with Weave tracing."""
 
-    @weave_traced
     async def track_permission_grant(self, grant: PermissionGrant) -> None:
         await super().track_permission_grant(grant)
         try:
@@ -269,7 +266,6 @@ class WeaveTracedAILMTracker(AILMTracker):
         except Exception as exc:  # noqa: BLE001
             logger.debug("Weave tracing error in track_permission_grant: %s", exc)
 
-    @weave_traced
     async def detect_permission_composition(
         self,
         agent_id: str,
@@ -299,7 +295,6 @@ class WeaveTracedAILMTracker(AILMTracker):
 class WeaveTracedExploitChainAnalyzer(ExploitChainAnalyzer):
     """ExploitChainAnalyzer wrapped with Weave tracing."""
 
-    @weave_traced
     async def detect_chains(
         self,
         agent_id: str,
@@ -330,7 +325,6 @@ class WeaveTracedExploitChainAnalyzer(ExploitChainAnalyzer):
 class WeaveTracedC2InfrastructureDetector(C2InfrastructureDetector):
     """C2InfrastructureDetector wrapped with Weave tracing."""
 
-    @weave_traced
     async def analyze_event(self, event: NormalizedEvent) -> list[C2Evidence]:
         if hasattr(super(), "analyze_event"):
             findings = await super().analyze_event(event)
