@@ -57,8 +57,17 @@ def _sanitize_value(val: Any) -> Any:
             "granted_by": str(val.granted_by),
             "scope": str(val.scope),
         }
+    if isinstance(val, (AILMEvidence, ExploitChainEvidence, C2Evidence)):
+        return val.model_dump(mode="json") if hasattr(val, "model_dump") else str(val)
     if isinstance(val, dict):
-        return WeaveTraceSerializer.mask_metadata(val)
+        sanitized_dict: dict[str, Any] = {}
+        for k, v in val.items():
+            k_lower = str(k).lower()
+            if any(pat in k_lower for pat in WeaveTraceSerializer.SENSITIVE_KEY_PATTERNS):
+                sanitized_dict[str(k)] = "**REDACTED**"
+            else:
+                sanitized_dict[str(k)] = _sanitize_value(v)
+        return sanitized_dict
     if isinstance(val, (list, tuple, set)):
         sanitized = [_sanitize_value(item) for item in val]
         return type(val)(sanitized) if not isinstance(val, set) else sanitized

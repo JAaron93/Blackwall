@@ -115,8 +115,19 @@ class WeaveTraceSerializer:
                 k_lower = str(k).lower()
                 if any(pat in k_lower for pat in cls.SENSITIVE_KEY_PATTERNS):
                     masked_dict[k] = "**REDACTED**"
-                else:
+                elif isinstance(v, (dict, list, tuple)):
                     masked_dict[k] = cls.mask_metadata(v)
+                elif hasattr(v, "__class__") and not isinstance(v, (int, float, str, bool, type(None))):
+                    if hasattr(v, "event_id") and hasattr(v, "risk_score"):
+                        masked_dict[k] = cls.serialize_event(v)
+                    elif hasattr(v, "path_id") and hasattr(v, "attack_stages"):
+                        masked_dict[k] = cls.serialize_path(v)
+                    elif hasattr(v, "swarm_id") and hasattr(v, "coordination_score"):
+                        masked_dict[k] = cls.serialize_swarm(v)
+                    else:
+                        masked_dict[k] = str(v)
+                else:
+                    masked_dict[k] = v
             return masked_dict
 
         if isinstance(metadata, list):

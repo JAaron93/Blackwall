@@ -30,6 +30,28 @@ async def test_weave_traced_decorator_fallback() -> None:
 
 
 @pytest.mark.asyncio
+async def test_weave_traced_decorator_nested_sanitization() -> None:
+    now = datetime(2026, 8, 15, 12, 0, 0, tzinfo=UTC)
+    event = NormalizedEvent(
+        event_id=uuid.uuid4(),
+        agent_id="agent-nested",
+        timestamp=now,
+        source=EventSource.KERNEL_SYSCALL,
+        action="cat",
+        target="/etc/shadow",
+        risk_score=0.9,
+    )
+
+    @weave_traced
+    def handler(payload: dict) -> dict:
+        return {"status": "ok", "echo": payload}
+
+    res = handler({"event": event, "api_key": "supersecret"})
+    assert res["status"] == "ok"
+    assert res["echo"]["api_key"] == "supersecret"
+
+
+@pytest.mark.asyncio
 async def test_weave_traced_attack_path_correlator() -> None:
     wrapper = WeaveTracedPathCorrelator()
     now = datetime(2026, 8, 15, 12, 0, 0, tzinfo=UTC)

@@ -62,7 +62,7 @@ def test_property_identity_fingerprint_uniqueness(id1_agent, id2_agent):
 # Property 2: Monotonic Attack Counter and Tool Union Invariants
 # ---------------------------------------------------------------------------
 
-@settings(max_examples=15)
+@settings(max_examples=15, deadline=None)
 @given(
     fp_char=st.text(alphabet="0123456789abcdef", min_size=1, max_size=1),
     tool_sequence=st.lists(

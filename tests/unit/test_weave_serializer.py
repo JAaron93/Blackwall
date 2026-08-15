@@ -114,9 +114,21 @@ def test_serialize_swarm_sanitization() -> None:
 
 
 def test_mask_metadata_sensitive_keys() -> None:
+    now = datetime(2026, 8, 15, 12, 0, 0, tzinfo=UTC)
+    nested_event = NormalizedEvent(
+        event_id=uuid.uuid4(),
+        agent_id="nested-agent",
+        timestamp=now,
+        source=EventSource.KERNEL_SYSCALL,
+        action="raw_nested_exec",
+        target="/raw/nested/path",
+        risk_score=0.99,
+        metadata={"inner_token": "secret"},
+    )
     data = {
         "user": "alice",
         "api_key": "sk-12345678",
+        "nested_event_payload": nested_event,
         "nested": {
             "password": "supersecret",
             "auth_token": "token-xyz",
@@ -139,6 +151,11 @@ def test_mask_metadata_sensitive_keys() -> None:
     assert masked["nested"]["items"][0]["secret_data"] == "**REDACTED**"
     assert masked["nested"]["items"][1]["credential_id"] == "**REDACTED**"
     assert masked["nested"]["items"][1]["id"] == 1
+    # Check nested event is properly sanitized into safe metadata dict without raw action/target
+    assert isinstance(masked["nested_event_payload"], dict)
+    assert masked["nested_event_payload"]["risk_score"] == 0.99
+    assert "action" not in masked["nested_event_payload"]
+    assert "target" not in masked["nested_event_payload"]
 
 
 def test_enforce_size_limit() -> None:
