@@ -594,8 +594,11 @@ class AdvancedThreatDetection:
                 ),
                 fallback=[],
             )
-            for reg in reg_evidences:
-                if len(reg.exploit_indicators) >= self.config.registry_min_probing_events or reg.cve_candidates:
+            # Threshold matches on total probing events count or known CVE detections
+            if len(reg_evidences) >= self.config.registry_min_probing_events or any(
+                r.cve_candidates for r in reg_evidences
+            ):
+                for reg in reg_evidences:
                     conf = 0.85 if reg.cve_candidates else 0.5
                     sev = self.alert_bus.map_registry_severity(reg, exploit_confidence=conf)
                     alert = Alert(

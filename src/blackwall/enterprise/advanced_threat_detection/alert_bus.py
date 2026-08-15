@@ -115,10 +115,19 @@ class AlertBus:
                 delivered_count = 0
                 try:
                     for i, alert in enumerate(chunk):
-                        ok = await self._deliver_alert(alert)
-                        if not ok:
-                            all_ok = False
-                        delivered_count = i + 1
+                        delivery_coro = self._deliver_alert(alert)
+                        try:
+                            ok = await asyncio.shield(delivery_coro)
+                            if not ok:
+                                all_ok = False
+                            delivered_count = i + 1
+                        except asyncio.CancelledError:
+                            try:
+                                await delivery_coro
+                            except Exception:
+                                pass
+                            delivered_count = i + 1
+                            raise
                 except (asyncio.CancelledError, Exception):
                     # Re-queue any undelivered alerts back to the front of _pending_alerts
                     undelivered = chunk[delivered_count:]
@@ -139,7 +148,8 @@ class AlertBus:
 
     async def _deliver_alert(self, alert: Alert) -> bool:
         """Deliver a single alert to subscribers with retry resilience."""
-        self._alerts.append(alert)
+        if not any(a.alert_id == alert.alert_id for a in self._alerts):
+            self._alerts.append(alert)
         if not self._subscribers:
             return True
 
