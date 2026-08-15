@@ -100,6 +100,7 @@ class ResourceThrottler:
         max_events_per_second: int = 1000,
         max_queue_size: int = 10000,
         sliding_window_seconds: float = 1.0,
+        max_memory_mb: int = 512,
     ) -> None:
         if max_events_per_second <= 0:
             raise ValueError("max_events_per_second must be positive")
@@ -107,10 +108,13 @@ class ResourceThrottler:
             raise ValueError("max_queue_size must be positive")
         if sliding_window_seconds <= 0:
             raise ValueError("sliding_window_seconds must be positive")
+        if max_memory_mb <= 0:
+            raise ValueError("max_memory_mb must be positive")
 
         self.max_events_per_second = max_events_per_second
         self.max_queue_size = max_queue_size
         self.sliding_window_seconds = sliding_window_seconds
+        self.max_memory_mb = max_memory_mb
         self._timestamps: deque[float] = deque()
 
     def record_event(self) -> None:
@@ -131,11 +135,17 @@ class ResourceThrottler:
             return 0.0
         return len(self._timestamps) / self.sliding_window_seconds
 
-    def should_throttle(self, current_queue_size: int = 0) -> bool:
+    def should_throttle(
+        self,
+        current_queue_size: int = 0,
+        current_memory_mb: float = 0.0,
+    ) -> bool:
         """Check whether incoming events or analysis should be throttled."""
         if current_queue_size >= self.max_queue_size:
             return True
         if self.current_rate() >= self.max_events_per_second:
+            return True
+        if current_memory_mb > 0 and current_memory_mb >= self.max_memory_mb:
             return True
         return False
 

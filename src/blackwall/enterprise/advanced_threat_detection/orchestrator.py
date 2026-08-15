@@ -74,6 +74,8 @@ class AdvancedThreatDetection:
         )
         self.alert_bus = AlertBus(
             history_capacity=self.config.event_buffer_size,
+            batch_size=self.config.alert_batch_size,
+            flush_interval_seconds=self.config.alert_flush_interval_seconds,
         )
         self.runner = SafeDetectionRunner(
             default_timeout_seconds=self.config.safe_execution_timeout,
@@ -81,6 +83,7 @@ class AdvancedThreatDetection:
         self.throttler = ResourceThrottler(
             max_events_per_second=self.config.max_events_per_second,
             max_queue_size=self.config.event_buffer_size,
+            max_memory_mb=self.config.max_memory_mb,
         )
 
         # Detection engines (wired conditionally per configuration)
@@ -140,10 +143,18 @@ class AdvancedThreatDetection:
         """Register a pillar event stream factory for automatic background collection."""
         self._stream_factories[source] = stream_factory
         if self._running:
-            # Cancel any existing active task for this source before starting a new one
-            if source in self._stream_tasks and not self._stream_tasks[source].done():
-                self._stream_tasks[source].cancel()
-            task = asyncio.create_task(self._run_pillar_stream(source, stream_factory))
+            old_task = self._stream_tasks.get(source)
+
+            async def _replace_and_run() -> None:
+                if old_task and not old_task.done():
+                    old_task.cancel()
+                    try:
+                        await old_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                await self._run_pillar_stream(source, stream_factory)
+
+            task = asyncio.create_task(_replace_and_run())
             self._stream_tasks[source] = task
 
     async def _run_pillar_stream(
@@ -411,6 +422,7 @@ class AdvancedThreatDetection:
                 coro=self.c2_detector.detect_c2_establishment(
                     agent_id=agent_id,
                     time_window=(win_start, win_end),
+                    beaconing_threshold=self.config.c2_beaconing_threshold,
                 ),
                 fallback=[],
             )

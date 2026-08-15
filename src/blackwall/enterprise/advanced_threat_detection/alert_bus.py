@@ -32,14 +32,22 @@ class AlertBus:
         max_retries: int = 5,
         retry_delay: float = 0.01,
         history_capacity: int = 1000,
+        batch_size: int = 100,
+        flush_interval_seconds: float = 1.0,
     ) -> None:
         if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries <= 0:
             raise ValueError("max_retries must be a strictly positive integer")
         if isinstance(history_capacity, bool) or not isinstance(history_capacity, int) or history_capacity <= 0:
             raise ValueError("history_capacity must be a strictly positive integer")
+        if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size <= 0:
+            raise ValueError("batch_size must be a strictly positive integer")
+        if flush_interval_seconds <= 0:
+            raise ValueError("flush_interval_seconds must be positive")
 
         self.max_retries = max_retries
         self.retry_delay = retry_delay
+        self.batch_size = batch_size
+        self.flush_interval_seconds = flush_interval_seconds
         self._subscribers: list[Callable[[Alert], Any]] = []
         self._alerts: deque[Alert] = deque(maxlen=history_capacity)
         self._persistent_failures: list[dict[str, Any]] = []
@@ -109,6 +117,19 @@ class AlertBus:
                 )
 
         return all_success
+
+    async def publish_batch(self, alerts: list[Alert]) -> bool:
+        """Publish a batch of alerts in bounded chunk sizes up to batch_size."""
+        if not alerts:
+            return True
+        all_ok = True
+        for i in range(0, len(alerts), self.batch_size):
+            chunk = alerts[i : i + self.batch_size]
+            for alert in chunk:
+                ok = await self.publish(alert)
+                if not ok:
+                    all_ok = False
+        return all_ok
 
     def get_alerts(
         self,
