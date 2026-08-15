@@ -115,15 +115,15 @@ class AlertBus:
                 delivered_count = 0
                 try:
                     for i, alert in enumerate(chunk):
-                        delivery_coro = self._deliver_alert(alert)
+                        delivery_task = asyncio.create_task(self._deliver_alert(alert))
                         try:
-                            ok = await asyncio.shield(delivery_coro)
+                            ok = await asyncio.shield(delivery_task)
                             if not ok:
                                 all_ok = False
                             delivered_count = i + 1
                         except asyncio.CancelledError:
                             try:
-                                await delivery_coro
+                                await delivery_task
                             except Exception:
                                 pass
                             delivered_count = i + 1

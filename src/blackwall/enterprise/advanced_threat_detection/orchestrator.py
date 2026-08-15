@@ -10,6 +10,7 @@ import asyncio
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 import logging
+import re
 from typing import Any, List, Optional, Tuple, Union
 import uuid
 
@@ -594,8 +595,19 @@ class AdvancedThreatDetection:
                 ),
                 fallback=[],
             )
+            total_probing_events = 0
+            for r in reg_evidences:
+                evidence_probes = 0
+                for ind in r.exploit_indicators:
+                    m = re.search(r"(\d+)\s+consecutive\s+404\s+responses", ind)
+                    if m:
+                        evidence_probes += int(m.group(1))
+                    else:
+                        evidence_probes += 1
+                total_probing_events += max(evidence_probes, 1)
+
             # Threshold matches on total probing events count or known CVE detections
-            if len(reg_evidences) >= self.config.registry_min_probing_events or any(
+            if total_probing_events >= self.config.registry_min_probing_events or any(
                 r.cve_candidates for r in reg_evidences
             ):
                 for reg in reg_evidences:
