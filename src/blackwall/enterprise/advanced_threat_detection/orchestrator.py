@@ -59,7 +59,7 @@ class AdvancedThreatDetection:
         self._running = False
         self._lock = asyncio.Lock()
         self._stream_factories: dict[EventSource, Callable[[], Any]] = dict(stream_factories or {})
-        self._stream_tasks: List[asyncio.Task[Any]] = []
+        self._stream_tasks: dict[EventSource, asyncio.Task[Any]] = {}
 
         # Core subsystem infrastructure configured per runtime config
         self.store = AttackGraphStore(
@@ -140,8 +140,11 @@ class AdvancedThreatDetection:
         """Register a pillar event stream factory for automatic background collection."""
         self._stream_factories[source] = stream_factory
         if self._running:
+            # Cancel any existing active task for this source before starting a new one
+            if source in self._stream_tasks and not self._stream_tasks[source].done():
+                self._stream_tasks[source].cancel()
             task = asyncio.create_task(self._run_pillar_stream(source, stream_factory))
-            self._stream_tasks.append(task)
+            self._stream_tasks[source] = task
 
     async def _run_pillar_stream(
         self, source: EventSource, stream_factory: Callable[[], Any]
@@ -161,13 +164,20 @@ class AdvancedThreatDetection:
                 exc,
             )
 
+    async def enforce_retention(self) -> int:
+        """Purge events older than configured retention_period_days from attack graph store."""
+        if self.config.retention_period_days <= 0:
+            return 0
+        cutoff = utc_now() - timedelta(days=self.config.retention_period_days)
+        return await self.store.purge_events_before(cutoff)
+
     @property
     def is_running(self) -> bool:
         """Return boolean indicating if the orchestrator is currently running."""
         return self._running
 
     async def start(self) -> None:
-        """Initialize store, start components, and verify connections."""
+        """Initialize store, start components, enforce retention, and start pillar collection."""
         async with self._lock:
             if self._running:
                 return
@@ -187,12 +197,21 @@ class AdvancedThreatDetection:
             else:
                 await self.store.initialize()
 
+            # Enforce data retention policy upon startup
+            if self.config.retention_period_days > 0:
+                try:
+                    await self.enforce_retention()
+                except Exception as ret_exc:
+                    logger.warning("Failed to enforce retention during startup: %s", ret_exc)
+
             self._running = True
 
             # Start background collection tasks for all registered pillar streams
             for source, factory in self._stream_factories.items():
+                if source in self._stream_tasks and not self._stream_tasks[source].done():
+                    self._stream_tasks[source].cancel()
                 task = asyncio.create_task(self._run_pillar_stream(source, factory))
-                self._stream_tasks.append(task)
+                self._stream_tasks[source] = task
 
             logger.info("AdvancedThreatDetection orchestrator started successfully")
 
@@ -205,11 +224,11 @@ class AdvancedThreatDetection:
             self._running = False
 
             # Cancel and await all active pillar collection streams
-            for task in self._stream_tasks:
+            for task in self._stream_tasks.values():
                 if not task.done():
                     task.cancel()
             if self._stream_tasks:
-                await asyncio.gather(*self._stream_tasks, return_exceptions=True)
+                await asyncio.gather(*self._stream_tasks.values(), return_exceptions=True)
             self._stream_tasks.clear()
 
             await self.store.close()
@@ -415,15 +434,26 @@ class AdvancedThreatDetection:
 
         # 5. Kubernetes Container Defense Layer
         if self.k8s_defense is not None:
-            k8s_evidences = await self.runner.run_safe(
-                detector_name="k8s_defense",
+            # Token theft
+            token_theft_evidences = await self.runner.run_safe(
+                detector_name="k8s_defense_token_theft",
                 coro=self.k8s_defense.detect_pod_token_theft(
                     agent_id=agent_id,
                     time_window=(win_start, win_end),
                 ),
                 fallback=[],
             )
-            for k8s in k8s_evidences:
+            # Secrets exfiltration
+            secrets_evidences = await self.runner.run_safe(
+                detector_name="k8s_defense_secrets_exfiltration",
+                coro=self.k8s_defense.detect_secrets_exfiltration(
+                    agent_id=agent_id,
+                    time_window=(win_start, win_end),
+                    min_secret_reads=self.config.k8s_min_exfiltration_events,
+                ),
+                fallback=[],
+            )
+            for k8s in token_theft_evidences + secrets_evidences:
                 sev = self.alert_bus.map_k8s_severity(k8s)
                 alert = Alert(
                     alert_id=uuid.uuid4(),
@@ -481,24 +511,25 @@ class AdvancedThreatDetection:
                 fallback=[],
             )
             for reg in reg_evidences:
-                conf = 0.85 if reg.cve_candidates else 0.5
-                sev = self.alert_bus.map_registry_severity(reg, exploit_confidence=conf)
-                alert = Alert(
-                    alert_id=uuid.uuid4(),
-                    timestamp=utc_now(),
-                    severity=sev,
-                    threat_type="registry_threat",
-                    title=f"Package Registry Exploit Probing Detected ({reg.registry_type})",
-                    description=f"Package registry exploit probing detected for agent {agent_id} on {reg.package_name}",
-                    agent_id=agent_id,
-                    evidence={
-                        "registry_type": reg.registry_type,
-                        "package_name": reg.package_name,
-                        "exploit_indicators": reg.exploit_indicators,
-                        "cve_candidates": reg.cve_candidates,
-                    },
-                )
-                await self._publish_alert(alert, new_alerts)
+                if len(reg.exploit_indicators) >= self.config.registry_min_probing_events or reg.cve_candidates:
+                    conf = 0.85 if reg.cve_candidates else 0.5
+                    sev = self.alert_bus.map_registry_severity(reg, exploit_confidence=conf)
+                    alert = Alert(
+                        alert_id=uuid.uuid4(),
+                        timestamp=utc_now(),
+                        severity=sev,
+                        threat_type="registry_threat",
+                        title=f"Package Registry Exploit Probing Detected ({reg.registry_type})",
+                        description=f"Package registry exploit probing detected for agent {agent_id} on {reg.package_name}",
+                        agent_id=agent_id,
+                        evidence={
+                            "registry_type": reg.registry_type,
+                            "package_name": reg.package_name,
+                            "exploit_indicators": reg.exploit_indicators,
+                            "cve_candidates": reg.cve_candidates,
+                        },
+                    )
+                    await self._publish_alert(alert, new_alerts)
 
         return new_alerts
 

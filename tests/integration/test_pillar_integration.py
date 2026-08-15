@@ -1,7 +1,7 @@
 """Integration tests for all 5 pillar stream subscriptions into ATD (Task 21.2)."""
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, AsyncIterator
 import uuid
 import pytest
@@ -10,6 +10,7 @@ from blackwall.enterprise.advanced_threat_detection.config import (
     AdvancedThreatDetectionConfig,
 )
 from blackwall.enterprise.advanced_threat_detection.enums import EventSource
+from blackwall.enterprise.advanced_threat_detection.models import NormalizedEvent
 from blackwall.enterprise.advanced_threat_detection.orchestrator import (
     AdvancedThreatDetection,
 )
@@ -193,3 +194,80 @@ async def test_multi_pillar_concurrent_streaming():
 
         nodes = await atd.get_attack_graph(agent_id="agent-multi")
         assert len(nodes) == 10
+
+
+@pytest.mark.asyncio
+async def test_pillar_stream_registration_replaces_active_task():
+    """Verify that re-registering an active pillar stream cancels the existing task."""
+    config = AdvancedThreatDetectionConfig(in_memory=True)
+    async with AdvancedThreatDetection(config=config) as atd:
+        async def _neverending_stream_1():
+            while True:
+                yield {
+                    "event_id": str(uuid.uuid4()),
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "agent_id": "agent-stream-replace",
+                    "action": "action_1",
+                    "target": "target_1",
+                }
+                await asyncio.sleep(0.05)
+
+        async def _neverending_stream_2():
+            while True:
+                yield {
+                    "event_id": str(uuid.uuid4()),
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "agent_id": "agent-stream-replace",
+                    "action": "action_2",
+                    "target": "target_2",
+                }
+                await asyncio.sleep(0.05)
+
+        atd.register_pillar_stream(EventSource.KERNEL_SYSCALL, _neverending_stream_1)
+        initial_task = atd._stream_tasks[EventSource.KERNEL_SYSCALL]
+        assert not initial_task.done()
+
+        # Re-register with second stream factory
+        atd.register_pillar_stream(EventSource.KERNEL_SYSCALL, _neverending_stream_2)
+        new_task = atd._stream_tasks[EventSource.KERNEL_SYSCALL]
+        assert new_task is not initial_task
+        await asyncio.sleep(0.01)
+        assert initial_task.cancelled() or initial_task.done()
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_retention_enforcement():
+    """Verify that enforce_retention deletes events older than retention_period_days."""
+    config = AdvancedThreatDetectionConfig(in_memory=True, retention_period_days=7)
+    async with AdvancedThreatDetection(config=config) as atd:
+        old_time = datetime.now(UTC) - timedelta(days=10)
+        recent_time = datetime.now(UTC) - timedelta(days=2)
+
+        old_event = NormalizedEvent(
+            event_id=uuid.uuid4(),
+            timestamp=old_time,
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id="agent-retention",
+            action="old_action",
+            target="target_old",
+            risk_score=0.5,
+        )
+        recent_event = NormalizedEvent(
+            event_id=uuid.uuid4(),
+            timestamp=recent_time,
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id="agent-retention",
+            action="recent_action",
+            target="target_recent",
+            risk_score=0.5,
+        )
+
+        await atd.store.insert_event(old_event)
+        await atd.store.insert_event(recent_event)
+
+        purged_count = await atd.enforce_retention()
+        assert purged_count == 1
+
+        remaining = await atd.get_attack_graph(agent_id="agent-retention")
+        assert len(remaining) == 1
+        assert remaining[0].event.event_id == recent_event.event_id
