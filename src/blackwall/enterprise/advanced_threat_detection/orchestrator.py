@@ -236,6 +236,9 @@ class AdvancedThreatDetection:
 
             self._running = True
 
+            # Start background alert bus flushing loop
+            await self.alert_bus.start()
+
             # Start background collection tasks for all registered pillar streams
             for source, factory in self._stream_factories.items():
                 if source in self._stream_tasks and not self._stream_tasks[source].done():
@@ -254,13 +257,23 @@ class AdvancedThreatDetection:
             self._running = False
 
             # Cancel and await all active pillar collection streams
-            for task in self._stream_tasks.values():
-                if not task.done():
+            tasks_to_cancel = [t for t in self._stream_tasks.values() if not t.done()]
+            for task in tasks_to_cancel:
+                try:
                     task.cancel()
-            if self._stream_tasks:
-                await asyncio.gather(*self._stream_tasks.values(), return_exceptions=True)
+                except RuntimeError:
+                    pass
+            if tasks_to_cancel:
+                try:
+                    await asyncio.gather(
+                        *[t for t in tasks_to_cancel if not t.get_loop().is_closed()],
+                        return_exceptions=True,
+                    )
+                except Exception:
+                    pass
             self._stream_tasks.clear()
 
+            await self.alert_bus.stop()
             await self.store.close()
             logger.info("AdvancedThreatDetection orchestrator stopped")
 
@@ -294,10 +307,12 @@ class AdvancedThreatDetection:
         mem_mb = _get_current_memory_mb()
         if self.throttler.should_throttle(current_memory_mb=mem_mb):
             logger.warning(
-                "AdvancedThreatDetection throttling active (rate=%.1f/s, memory=%.1fMB)",
+                "AdvancedThreatDetection throttling active (rate=%.1f/s, memory=%.1fMB); applying load shedding",
                 self.throttler.current_rate(),
                 mem_mb,
             )
+            # Enforce overload protection: shed auxiliary processing under throttle condition
+            return normalized
 
         # Persist event in attack graph store
         await self.store.insert_event(normalized)
@@ -315,8 +330,10 @@ class AdvancedThreatDetection:
 
         return normalized
 
-    async def _publish_alert(self, alert: Alert, target_list: List[Alert]) -> None:
-        """Publish alert if it meets minimum severity threshold."""
+    async def _publish_alerts(
+        self, alerts: Sequence[Alert], target_list: List[Alert]
+    ) -> List[Alert]:
+        """Publish alerts matching minimum severity threshold via batch alert delivery."""
         sev_order = {
             AlertSeverity.LOW: 1,
             AlertSeverity.MEDIUM: 2,
@@ -324,10 +341,17 @@ class AdvancedThreatDetection:
             AlertSeverity.CRITICAL: 4,
         }
         min_threshold = sev_order.get(self.config.alert_min_severity, 1)
-        alert_level = sev_order.get(alert.severity, 1)
-        if alert_level >= min_threshold:
-            await self.alert_bus.publish(alert)
-            target_list.append(alert)
+        qualifying = [
+            a for a in alerts if sev_order.get(a.severity, 1) >= min_threshold
+        ]
+        if qualifying:
+            await self.alert_bus.publish_batch(qualifying)
+            target_list.extend(qualifying)
+        return qualifying
+
+    async def _publish_alert(self, alert: Alert, target_list: List[Alert]) -> None:
+        """Publish alert if it meets minimum severity threshold."""
+        await self._publish_alerts([alert], target_list)
 
     async def correlate_agent_threats(
         self,

@@ -50,12 +50,71 @@ class AlertBus:
         self.flush_interval_seconds = flush_interval_seconds
         self._subscribers: list[Callable[[Alert], Any]] = []
         self._alerts: deque[Alert] = deque(maxlen=history_capacity)
+        self._pending_alerts: deque[Alert] = deque()
         self._persistent_failures: list[dict[str, Any]] = []
+        self._flush_task: asyncio.Task[Any] | None = None
+        self._running = False
+        self._lock = asyncio.Lock()
 
     @property
     def persistent_failures(self) -> list[dict[str, Any]]:
         """Return recorded persistent alert delivery failures."""
         return list(self._persistent_failures)
+
+    async def start(self) -> None:
+        """Start background periodic flush timer if not already running."""
+        async with self._lock:
+            if self._running:
+                return
+            self._running = True
+            if self.flush_interval_seconds > 0:
+                self._flush_task = asyncio.create_task(self._periodic_flush_loop())
+
+    async def stop(self) -> None:
+        """Stop background flush task and flush all remaining pending alerts."""
+        self._running = False
+        task = self._flush_task
+        self._flush_task = None
+        if task is not None and not task.done():
+            try:
+                task.cancel()
+            except RuntimeError:
+                pass
+            try:
+                if not task.get_loop().is_closed():
+                    await task
+            except (asyncio.CancelledError, RuntimeError, Exception):
+                pass
+        await self._flush_pending()
+
+    async def _periodic_flush_loop(self) -> None:
+        """Periodically flush buffered alerts at flush_interval_seconds."""
+        try:
+            while self._running:
+                await asyncio.sleep(self.flush_interval_seconds)
+                await self.flush()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
+
+    async def flush(self) -> bool:
+        """Flush all pending alerts to subscribers in bounded batch chunks."""
+        return await self._flush_pending()
+
+    async def _flush_pending(self) -> bool:
+        if not self._pending_alerts:
+            return True
+        all_ok = True
+        while self._pending_alerts:
+            chunk = []
+            while self._pending_alerts and len(chunk) < self.batch_size:
+                chunk.append(self._pending_alerts.popleft())
+            for alert in chunk:
+                ok = await self._deliver_alert(alert)
+                if not ok:
+                    all_ok = False
+        return all_ok
 
     def subscribe(self, handler: Callable[[Alert], Any]) -> None:
         """Register a synchronous or asynchronous alert subscriber handler."""
@@ -67,12 +126,8 @@ class AlertBus:
         if handler in self._subscribers:
             self._subscribers.remove(handler)
 
-    async def publish(self, alert: Alert) -> bool:
-        """Publish an alert to all registered subscribers with retry resilience.
-
-        Retries delivery up to max_retries times upon failure. If all retries are
-        exhausted, records the persistent failure and logs a critical error.
-        """
+    async def _deliver_alert(self, alert: Alert) -> bool:
+        """Deliver a single alert to subscribers with retry resilience."""
         self._alerts.append(alert)
         if not self._subscribers:
             return True
@@ -118,6 +173,10 @@ class AlertBus:
 
         return all_success
 
+    async def publish(self, alert: Alert) -> bool:
+        """Publish an alert to all registered subscribers with retry resilience."""
+        return await self._deliver_alert(alert)
+
     async def publish_batch(self, alerts: list[Alert]) -> bool:
         """Publish a batch of alerts in bounded chunk sizes up to batch_size."""
         if not alerts:
@@ -126,7 +185,7 @@ class AlertBus:
         for i in range(0, len(alerts), self.batch_size):
             chunk = alerts[i : i + self.batch_size]
             for alert in chunk:
-                ok = await self.publish(alert)
+                ok = await self._deliver_alert(alert)
                 if not ok:
                     all_ok = False
         return all_ok
@@ -138,7 +197,7 @@ class AlertBus:
         agent_id: str | None = None,
     ) -> list[Alert]:
         """Retrieve stored alerts filtered by severity, threat_type, or agent_id."""
-        filtered = list(self._alerts)
+        filtered = list(self._alerts) + list(self._pending_alerts)
         if severity is not None:
             filtered = [a for a in filtered if a.severity == severity]
         if threat_type is not None:
@@ -153,6 +212,7 @@ class AlertBus:
     def clear(self) -> None:
         """Clear all stored alerts and persistent failures."""
         self._alerts.clear()
+        self._pending_alerts.clear()
         self._persistent_failures.clear()
 
     # ---------------------------------------------------------------------------
