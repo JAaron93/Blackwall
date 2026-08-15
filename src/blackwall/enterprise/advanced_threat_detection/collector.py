@@ -226,14 +226,71 @@ class EventStreamCollector:
                 attempt += 1
                 if attempt > self.reconnect_max_attempts:
                     logger.error(
-                        f"Pillar stream {source} failed after {attempt} attempts: {exc}"
+                        "Pillar stream %s failed after %d attempts: %s",
+                        source,
+                        attempt,
+                        exc,
                     )
                     raise
                 backoff = self.reconnect_backoff_base * (2 ** (attempt - 1))
                 logger.warning(
-                    f"Pillar stream {source} lost ({exc}). Retrying attempt {attempt}/{self.reconnect_max_attempts} in {backoff:.2f}s..."
+                    "Pillar stream %s lost (%s). Retrying attempt %d/%d in %.2fs...",
+                    source,
+                    exc,
+                    attempt,
+                    self.reconnect_max_attempts,
+                    backoff,
                 )
                 await asyncio.sleep(backoff)
+
+    async def collect_all_streams(
+        self,
+        stream_factories: dict[EventSource, Callable[[], Any]],
+    ) -> AsyncIterator[NormalizedEvent]:
+        """Collect events concurrently from multiple pillar streams with fault isolation.
+
+        If any individual pillar stream fails or disconnects permanently, logging diagnostics
+        are emitted and collection continues uninterrupted for all surviving pillars.
+        """
+        if not stream_factories:
+            return
+
+        queue: asyncio.Queue[NormalizedEvent | object] = asyncio.Queue()
+        sentinel = object()
+        active_streams = len(stream_factories)
+
+        async def _stream_worker(src: EventSource, factory: Callable[[], Any]) -> None:
+            nonlocal active_streams
+            try:
+                async for event in self.collect_with_reconnect(src, factory):
+                    await queue.put(event)
+            except Exception as exc:
+                logger.error(
+                    "Pillar stream %s terminated with unrecoverable error: %s",
+                    src,
+                    exc,
+                )
+            finally:
+                active_streams -= 1
+                if active_streams == 0:
+                    await queue.put(sentinel)
+
+        tasks = [
+            asyncio.create_task(_stream_worker(src, factory))
+            for src, factory in stream_factories.items()
+        ]
+
+        try:
+            while True:
+                item = await queue.get()
+                if item is sentinel:
+                    break
+                if isinstance(item, NormalizedEvent):
+                    yield item
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
 
     def process_event_batch(
         self, source: EventSource, raw_events: list[dict[str, Any]]

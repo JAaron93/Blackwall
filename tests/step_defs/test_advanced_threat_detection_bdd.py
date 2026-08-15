@@ -586,3 +586,48 @@ def then_verify_exported_schemas(atd_state):
     tag_clean = root.tag.split("}")[-1] if "}" in root.tag else root.tag
     assert tag_clean == "graphml"
 
+
+# Scenario 8 steps (Error Handling and Resilience)
+@given("an Advanced Threat Detection resilience runner and resource throttler")
+def given_resilience_runner_and_throttler(atd_state):
+    from blackwall.enterprise.advanced_threat_detection.resilience import (
+        ResourceThrottler,
+        SafeDetectionRunner,
+    )
+
+    atd_state.safe_runner = SafeDetectionRunner(default_timeout_seconds=0.1)
+    atd_state.throttler = ResourceThrottler(
+        max_events_per_second=10,
+        max_queue_size=5,
+    )
+    for _ in range(15):
+        atd_state.throttler.record_event()
+
+
+@when("a detector encounters an unhandled exception or pipeline load exceeds thresholds")
+def when_detector_crashes_or_load_high(atd_state):
+    async def faulty_detector():
+        raise RuntimeError("Detector failure")
+
+    async def _run():
+        return await atd_state.safe_runner.run_safe(
+            detector_name="faulty_detector",
+            coro=faulty_detector(),
+            fallback={"status": "fallback"},
+        )
+
+    atd_state.safe_result = run_async(_run())
+    atd_state.dynamic_depth = atd_state.throttler.get_analysis_depth(
+        base_depth=6, current_queue_size=6
+    )
+
+
+@then("the SafeDetectionRunner captures the error without crashing the pipeline")
+def then_safe_runner_isolates(atd_state):
+    assert atd_state.safe_result == {"status": "fallback"}
+
+
+@then("the ResourceThrottler degrades analysis depth to preserve real-time throughput")
+def then_throttler_degrades_depth(atd_state):
+    assert atd_state.dynamic_depth <= 3
+

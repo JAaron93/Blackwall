@@ -63,3 +63,8 @@ Feature: Blackwall Enterprise Security Mesh End-to-End Integration
     Then historical attack paths spanning multi-day windows are reconstructed
     And standard GraphML XML is exported with directed graph attributes
 
+  Scenario: Pillar 6 Advanced Threat Detection error recovery and load throttling
+    Given an ATD subsystem configured with SafeDetectionRunner and ResourceThrottler
+    When detector exceptions occur or stream volume surges
+    Then errors are isolated and analysis depth is dynamically adjusted
+
