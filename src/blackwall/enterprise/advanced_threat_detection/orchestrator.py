@@ -197,9 +197,11 @@ class AdvancedThreatDetection:
                 if not self._running:
                     break
                 # Guard against stale collectors when replacement tasks overlap
-                if self._stream_tasks.get(source) is not curr_task and self._stream_tasks.get(source) is not None:
+                if self._stream_tasks.get(source) is not curr_task:
                     break
                 await self.ingest_event(event)
+                if not self._running or self._stream_tasks.get(source) is not curr_task:
+                    break
         except asyncio.CancelledError:
             pass
         except Exception as exc:
