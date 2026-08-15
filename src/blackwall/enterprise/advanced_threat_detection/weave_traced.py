@@ -9,6 +9,7 @@ import functools
 import inspect
 import logging
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any, TypeVar
 
 from blackwall.enterprise.advanced_threat_detection.ailm import AILMTracker
@@ -287,11 +288,36 @@ class WeaveTracedExploitChainAnalyzer(ExploitChainAnalyzer):
 class WeaveTracedC2InfrastructureDetector(C2InfrastructureDetector):
     """C2InfrastructureDetector wrapped with Weave tracing."""
 
+    async def detect_c2_establishment(
+        self,
+        agent_id: str,
+        time_window: tuple[datetime, datetime],
+        beaconing_threshold: float = 0.25,
+    ) -> list[C2Evidence]:
+        evidences = await super().detect_c2_establishment(
+            agent_id, time_window, beaconing_threshold=beaconing_threshold
+        )
+        try:
+            if should_enable_weave():
+                op_analyze_c2_event({"agent_id": str(agent_id)}, len(evidences))
+                logger.debug(
+                    "Weave trace for detect_c2_establishment: agent=%s -> %d evidences",
+                    agent_id,
+                    len(evidences),
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Weave tracing error in detect_c2_establishment: %s", exc)
+        return evidences
+
     async def analyze_event(self, event: NormalizedEvent) -> list[C2Evidence]:
+        self.record_event(event)
         if hasattr(super(), "analyze_event"):
             findings = await super().analyze_event(event)
         else:
-            findings = []
+            findings = await self.detect_c2_establishment(
+                str(event.agent_id),
+                (event.timestamp, event.timestamp),
+            )
         try:
             if should_enable_weave():
                 sanitized_event = WeaveTraceSerializer.serialize_event(event)
@@ -312,3 +338,4 @@ WeaveTracedSwarmCoordinator = WeaveTracedAgentSwarmDetector
 WeaveTracedAILMDetector = WeaveTracedAILMTracker
 WeaveTracedExploitPayloadAnalyzer = WeaveTracedExploitChainAnalyzer
 WeaveTracedC2ChannelDetector = WeaveTracedC2InfrastructureDetector
+WeaveTracedC2Detector = WeaveTracedC2InfrastructureDetector

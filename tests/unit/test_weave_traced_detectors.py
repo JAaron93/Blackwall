@@ -110,9 +110,15 @@ async def test_weave_traced_c2_detector() -> None:
         agent_id="agent-05",
         timestamp=now,
         source=EventSource.KERNEL_SYSCALL,
-        action="dns_lookup",
-        target="attacker.c2.domain",
+        action="connect",
+        target="webhook.site",
         risk_score=0.88,
     )
     findings = await wrapper.analyze_event(event)
     assert isinstance(findings, list)
+    assert len(findings) == 1
+    assert findings[0].agent_id == "agent-05"
+    assert "webhook.site" in findings[0].c2_endpoints
+
+    evidences = await wrapper.detect_c2_establishment("agent-05", (now, now))
+    assert len(evidences) == 1
