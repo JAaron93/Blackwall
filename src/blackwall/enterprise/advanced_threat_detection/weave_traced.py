@@ -314,10 +314,17 @@ class WeaveTracedC2InfrastructureDetector(C2InfrastructureDetector):
         if hasattr(super(), "analyze_event"):
             findings = await super().analyze_event(event)
         else:
-            findings = await self.detect_c2_establishment(
-                str(event.agent_id),
-                (event.timestamp, event.timestamp),
-            )
+            agent_key = str(event.agent_id)
+            agent_events = self._events_by_agent.get(agent_key, [])
+            if agent_events:
+                min_time = min(e.timestamp for e in agent_events)
+                max_time = max(e.timestamp for e in agent_events)
+                findings = await super().detect_c2_establishment(
+                    agent_key,
+                    (min_time, max_time),
+                )
+            else:
+                findings = []
         try:
             if should_enable_weave():
                 sanitized_event = WeaveTraceSerializer.serialize_event(event)

@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 import pytest
 
@@ -122,3 +123,58 @@ async def test_weave_traced_c2_detector() -> None:
 
     evidences = await wrapper.detect_c2_establishment("agent-05", (now, now))
     assert len(evidences) == 1
+
+
+@pytest.mark.asyncio
+async def test_weave_traced_c2_analyze_event_multi_event_and_single_trace() -> None:
+    wrapper = WeaveTracedC2InfrastructureDetector()
+    t0 = datetime(2026, 8, 15, 12, 0, 0, tzinfo=UTC)
+    t1 = datetime(2026, 8, 15, 12, 0, 10, tzinfo=UTC)
+    t2 = datetime(2026, 8, 15, 12, 0, 20, tzinfo=UTC)
+
+    e1 = NormalizedEvent(
+        event_id=uuid.uuid4(),
+        agent_id="agent-c2-beacon",
+        timestamp=t0,
+        source=EventSource.KERNEL_SYSCALL,
+        action="connect",
+        target="webhook.site",
+        risk_score=0.9,
+    )
+    e2 = NormalizedEvent(
+        event_id=uuid.uuid4(),
+        agent_id="agent-c2-beacon",
+        timestamp=t1,
+        source=EventSource.KERNEL_SYSCALL,
+        action="connect",
+        target="webhook.site",
+        risk_score=0.9,
+    )
+    e3 = NormalizedEvent(
+        event_id=uuid.uuid4(),
+        agent_id="agent-c2-beacon",
+        timestamp=t2,
+        source=EventSource.KERNEL_SYSCALL,
+        action="connect",
+        target="webhook.site",
+        risk_score=0.9,
+    )
+
+    with patch(
+        "blackwall.enterprise.advanced_threat_detection.weave_traced.should_enable_weave",
+        return_value=True,
+    ), patch(
+        "blackwall.enterprise.advanced_threat_detection.weave_traced.op_analyze_c2_event"
+    ) as mock_op:
+        await wrapper.analyze_event(e1)
+        assert mock_op.call_count == 1
+
+        await wrapper.analyze_event(e2)
+        assert mock_op.call_count == 2
+
+        findings = await wrapper.analyze_event(e3)
+        assert mock_op.call_count == 3
+        assert len(findings) >= 1
+        assert findings[0].agent_id == "agent-c2-beacon"
+        assert "webhook.site" in findings[0].c2_endpoints
+        assert findings[0].communication_pattern == "beaconing"
