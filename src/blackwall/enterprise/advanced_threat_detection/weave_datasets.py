@@ -49,10 +49,25 @@ class LocalEvaluationDataset:
 def _sanitize_scenario_event(event_dict: dict[str, Any]) -> dict[str, Any]:
     """Sanitize raw scenario event dictionary for dataset rows.
 
-    Routes event dictionaries through WeaveTraceSerializer.serialize_event to strip
-    action, target, and metadata before export to Weave (Requirement 16.17, 16.20).
+    Preserves required detector input fields (action, target) while recursively masking
+    sensitive metadata keys (Requirements 16.18, 19.2).
     """
-    return WeaveTraceSerializer.serialize_event(event_dict)
+    raw_meta = event_dict.get("metadata", {})
+    masked_meta = (
+        WeaveTraceSerializer.mask_metadata(raw_meta)
+        if isinstance(raw_meta, (dict, list, tuple))
+        else {}
+    )
+    return {
+        "event_id": str(event_dict.get("event_id", "")),
+        "agent_id": str(event_dict.get("agent_id", "")),
+        "timestamp": str(event_dict.get("timestamp", "")),
+        "source": str(event_dict.get("source", "")),
+        "action": str(event_dict.get("action", "")),
+        "target": str(event_dict.get("target", "")),
+        "risk_score": float(event_dict.get("risk_score", 0.0)),
+        "metadata": masked_meta,
+    }
 
 
 def _load_scenario_file(file_path: Path) -> list[dict[str, Any]]:
