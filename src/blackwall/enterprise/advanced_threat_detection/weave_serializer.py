@@ -44,6 +44,7 @@ class WeaveTraceSerializer:
         """
         if isinstance(event, dict):
             event_id = str(event.get("event_id", ""))
+            agent_id = str(event.get("agent_id", ""))
             ts = event.get("timestamp")
             if isinstance(ts, str):
                 try:
@@ -59,6 +60,7 @@ class WeaveTraceSerializer:
             risk_score = float(event.get("risk_score", 0.0))
             payload: dict[str, Any] = {
                 "event_id": event_id,
+                "agent_id": agent_id,
                 "timestamp": cls._format_timestamp(ts),
                 "source": source_val,
                 "risk_score": risk_score,
@@ -68,6 +70,7 @@ class WeaveTraceSerializer:
         source_val = event.source.value if hasattr(event.source, "value") else str(event.source)
         payload = {
             "event_id": str(event.event_id),
+            "agent_id": str(event.agent_id),
             "timestamp": cls._format_timestamp(event.timestamp),
             "source": source_val,
             "risk_score": float(event.risk_score),

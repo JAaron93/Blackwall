@@ -39,15 +39,15 @@ expected_detections:
     assert row["name"] == "c2_beaconing_attack"
     assert row["description"] == "Scenario testing C2 periodic beaconing detection"
     assert len(row["events"]) == 1
-    # Check that events in row preserve functional fields while masking sensitive metadata
+    # Check that events in row preserve sanitized metadata fields and exclude raw action/target/metadata
     evt = row["events"][0]
     assert evt["event_id"] == "00000000-0000-0000-0000-000000000001"
     assert evt["agent_id"] == "agent-eval-1"
-    assert evt["action"] == "network_connect"
-    assert evt["target"] == "webhook.site/test"
+    assert evt["source"] == "kernel_syscall"
     assert evt["risk_score"] == 0.85
-    assert evt["metadata"]["api_key"] == "**REDACTED**"
-    assert evt["metadata"]["safe_param"] == "value"
+    assert "action" not in evt
+    assert "target" not in evt
+    assert "metadata" not in evt
 
 
 def test_create_evaluation_dataset_missing_description_skipped(tmp_path: Path) -> None:

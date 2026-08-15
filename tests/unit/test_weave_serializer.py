@@ -35,6 +35,7 @@ def test_serialize_event_sanitization() -> None:
 
     serialized = WeaveTraceSerializer.serialize_event(event)
     assert serialized["event_id"] == str(event_id)
+    assert serialized["agent_id"] == "agent-007"
     assert serialized["source"] == EventSource.KERNEL_SYSCALL.value
     assert serialized["risk_score"] == 0.95
     assert "2026-08-15" in serialized["timestamp"]
