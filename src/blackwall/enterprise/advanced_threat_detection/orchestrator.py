@@ -174,8 +174,8 @@ class AdvancedThreatDetection:
                 if prev_task and not prev_task.done():
                     prev_task.cancel()
                     try:
-                        await asyncio.shield(prev_task)
-                    except (asyncio.CancelledError, Exception):
+                        await asyncio.wait_for(asyncio.shield(prev_task), timeout=1.0)
+                    except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
                         pass
                 curr = asyncio.current_task()
                 if curr is not None and curr.cancelling():
@@ -595,20 +595,26 @@ class AdvancedThreatDetection:
                 ),
                 fallback=[],
             )
-            total_probing_events = 0
+            unique_event_ids: set[str] = set()
+            untracked_probes = 0
             for r in reg_evidences:
-                count = getattr(r, "probing_event_count", None)
-                if count is not None and count > 0:
-                    total_probing_events += count
+                if getattr(r, "event_ids", None):
+                    unique_event_ids.update(r.event_ids)
                 else:
-                    evidence_probes = 0
-                    for ind in r.exploit_indicators:
-                        m = re.search(r"(\d+)\s+consecutive\s+404\s+responses", ind)
-                        if m:
-                            evidence_probes += int(m.group(1))
-                        else:
-                            evidence_probes += 1
-                    total_probing_events += max(evidence_probes, 1)
+                    count = getattr(r, "probing_event_count", None)
+                    if count is not None and count > 0:
+                        untracked_probes += count
+                    else:
+                        evidence_probes = 0
+                        for ind in r.exploit_indicators:
+                            m = re.search(r"(\d+)\s+consecutive\s+404\s+responses", ind)
+                            if m:
+                                evidence_probes += int(m.group(1))
+                            else:
+                                evidence_probes += 1
+                        untracked_probes += max(evidence_probes, 1)
+
+            total_probing_events = len(unique_event_ids) + untracked_probes
 
             # Threshold matches on total probing events count or known CVE detections
             if total_probing_events >= self.config.registry_min_probing_events or any(

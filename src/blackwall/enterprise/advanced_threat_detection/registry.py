@@ -321,7 +321,7 @@ class PackageRegistryMonitor:
 
         for (reg_type, pkg_name), pkg_events in events_by_pkg.items():
             matched_indicators: List[str] = []
-            matched_events_count = 0
+            matched_event_ids: List[str] = []
             combined_payloads: List[str] = []
             representative_target: str = ""
 
@@ -350,7 +350,7 @@ class PackageRegistryMonitor:
                     ev_matched = True
 
                 if ev_matched:
-                    matched_events_count += 1
+                    matched_event_ids.append(str(ev.event_id))
                     if payload_str:
                         combined_payloads.append(payload_str)
 
@@ -366,7 +366,8 @@ class PackageRegistryMonitor:
                         package_name=pkg_name,
                         exploit_indicators=matched_indicators,
                         cve_candidates=cve_candidates,
-                        probing_event_count=max(matched_events_count, 1),
+                        probing_event_count=max(len(matched_event_ids), 1),
+                        event_ids=matched_event_ids,
                     )
                 )
 
@@ -406,6 +407,7 @@ class PackageRegistryMonitor:
                     f"Unusual scanning activity by agent '{grp_agent}': {len(burst)} consecutive 404 responses on {grp_reg} registry across {len(distinct_pkgs)} distinct packages"
                 ]
                 cves = self.correlate_cve(scanning_indicator, target_str=burst[0].target)
+                burst_event_ids = [str(e.event_id) for e in burst]
                 evidences.append(
                     RegistryThreatEvidence(
                         registry_type=grp_reg,
@@ -413,6 +415,7 @@ class PackageRegistryMonitor:
                         exploit_indicators=scanning_indicator,
                         cve_candidates=cves,
                         probing_event_count=len(burst),
+                        event_ids=burst_event_ids,
                     )
                 )
 
