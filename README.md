@@ -176,12 +176,23 @@ delayed_swarms = await retro_analyzer.correlate_multi_agent_history(
 json_export = await retro_analyzer.export_attack_graph(format="json")
 graphml_export = await retro_analyzer.export_attack_graph(format="graphml")
 
+# Evaluation Environment Support & Containment (Pillar 6 Tasks 18 & 19)
+from blackwall.enterprise.advanced_threat_detection import EvaluationEnvironmentManager
+
+eval_manager = EvaluationEnvironmentManager(in_memory=True)
+eval_env = eval_manager.get_or_create_environment("eval-sandbox-01")
+eval_node = await eval_env.insert_event(event1)
+# Verifies evidence isolation and suppresses production mitigations
+is_eval = await eval_manager.is_evaluation_mode(eval_node.node_id)
+should_suppress = eval_manager.should_suppress_production_reaction(eval_node.event)
+await eval_env.reset()
+
 # Real-Time Alert Bus & Subscription Integration
 alert_bus = AlertBus(max_retries=5)
 alert_bus.subscribe(lambda alert: print(f"[{alert.severity}] {alert.title}: {alert.description}"))
 if swarms:
     await alert_bus.publish_swarm_alert(swarms[0])
-# Detects multi-step zero-day exploit sequences, C2 infrastructure establishment/beaconing, AI-Induced Lateral Movement, Kubernetes cluster attacks, retrospective historical campaigns, and package registry exploit probing (Log4j, Spring4Shell, CVEs)
+# Detects multi-step zero-day exploit sequences, C2 infrastructure establishment/beaconing, AI-Induced Lateral Movement, Kubernetes cluster attacks, retrospective historical campaigns, package registry exploit probing (Log4j, Spring4Shell, CVEs), and isolated evaluation environment containment
 ```
 
 > [!TIP]
