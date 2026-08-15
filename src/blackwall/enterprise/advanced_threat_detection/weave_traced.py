@@ -1,10 +1,12 @@
-"""Weave traced detector wrappers and op decorators.
+"""Weave traced detector wrappers and sanitized op decorators.
 
 Subtask 22.3: Weave Traced Wrappers and WeaveTraceSerializer.
 """
 
 from __future__ import annotations
 
+import functools
+import inspect
 import logging
 from collections.abc import Callable
 from typing import Any, TypeVar
@@ -40,15 +42,76 @@ logger = logging.getLogger(__name__)
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-def weave_traced(fn: F) -> F:
-    """Decorator applying @weave.op() if Weave is enabled, or passing through."""
+def _sanitize_value(val: Any) -> Any:
+    """Sanitize any domain object or data structure before exposing to Weave."""
+    if isinstance(val, NormalizedEvent):
+        return WeaveTraceSerializer.serialize_event(val)
+    if isinstance(val, AttackPath):
+        return WeaveTraceSerializer.serialize_path(val)
+    if isinstance(val, SwarmEvidence):
+        return WeaveTraceSerializer.serialize_swarm(val)
+    if isinstance(val, PermissionGrant):
+        return {
+            "permission": str(val.permission),
+            "granted_to": str(val.granted_to),
+            "granted_by": str(val.granted_by),
+            "scope": str(val.scope),
+        }
+    if isinstance(val, dict):
+        return WeaveTraceSerializer.mask_metadata(val)
+    if isinstance(val, (list, tuple, set)):
+        sanitized = [_sanitize_value(item) for item in val]
+        return type(val)(sanitized) if not isinstance(val, set) else sanitized
+    if hasattr(val, "__class__") and not isinstance(val, (int, float, str, bool, type(None))):
+        return val.__class__.__name__
+    return val
+
+
+def _wrap_op(fn: F) -> F:
+    """Helper to apply weave.op() if available."""
     if weave is not None and hasattr(weave, "op"):
         try:
             return weave.op()(fn)  # type: ignore[return-value]
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to apply weave.op to %s: %s", fn, exc)
+            logger.debug("Failed to apply weave.op to %s: %s", getattr(fn, "__name__", str(fn)), exc)
             return fn
     return fn
+
+
+# Dedicated Weave operations accepting strictly pre-sanitized payloads
+@_wrap_op
+def op_correlate_attack_paths(agent_id: str, count: int, paths: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"agent_id": agent_id, "count": count, "paths": paths}
+
+
+@_wrap_op
+def op_detect_swarms(count: int, swarms: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"count": count, "swarms": swarms}
+
+
+@_wrap_op
+def op_track_permission_grant(permission: str, granted_to: str, granted_by: str, scope: str) -> dict[str, Any]:
+    return {"permission": permission, "granted_to": granted_to, "granted_by": granted_by, "scope": scope}
+
+
+@_wrap_op
+def op_detect_permission_composition(agent_id: str, evidences_count: int) -> dict[str, Any]:
+    return {"agent_id": agent_id, "evidences_count": evidences_count}
+
+
+@_wrap_op
+def op_detect_chains(agent_id: str, chains_count: int) -> dict[str, Any]:
+    return {"agent_id": agent_id, "chains_count": chains_count}
+
+
+@_wrap_op
+def op_analyze_c2_event(sanitized_event: dict[str, Any], findings_count: int) -> dict[str, Any]:
+    return {"event": sanitized_event, "findings_count": findings_count}
+
+
+@_wrap_op
+def op_generic_trace(op_name: str, inputs: dict[str, Any], outputs: Any) -> dict[str, Any]:
+    return {"op": op_name, "inputs": inputs, "outputs": outputs}
 
 
 def _publish_weave_trace(op_name: str, payload: dict[str, Any]) -> None:
@@ -61,6 +124,63 @@ def _publish_weave_trace(op_name: str, payload: dict[str, Any]) -> None:
                 weave.publish(payload)
         except Exception as exc:  # noqa: BLE001
             logger.debug("Failed to emit Weave op %s: %s", op_name, exc)
+
+
+def _emit_sanitized_weave_op(
+    op_name: str,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    result: Any,
+) -> None:
+    """Emit sanitized Weave operation without leaking raw NormalizedEvents or credentials."""
+    call_args = (
+        args[1:]
+        if len(args) > 0 and hasattr(args[0], "__class__") and not isinstance(args[0], (int, float, str, bool, dict, list, tuple, set))
+        else args
+    )
+    sanitized_args = [_sanitize_value(a) for a in call_args]
+    sanitized_kwargs = {k: _sanitize_value(v) for k, v in kwargs.items()}
+    sanitized_result = _sanitize_value(result)
+
+    op_generic_trace(
+        op_name,
+        {"args": sanitized_args, "kwargs": sanitized_kwargs},
+        sanitized_result,
+    )
+    _publish_weave_trace(
+        op_name,
+        {"inputs": {"args": sanitized_args, "kwargs": sanitized_kwargs}, "outputs": sanitized_result},
+    )
+
+
+def weave_traced(fn: F) -> F:
+    """Decorator ensuring Weave operations receive only sanitized inputs/outputs."""
+    op_name = getattr(fn, "__name__", "traced_operation")
+
+    if inspect.iscoroutinefunction(fn):
+        @functools.wraps(fn)
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+            result = await fn(*args, **kwargs)
+            if should_enable_weave():
+                try:
+                    _emit_sanitized_weave_op(op_name, args, kwargs, result)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Weave tracing error in %s: %s", op_name, exc)
+            return result
+
+        return async_wrapper  # type: ignore[return-value]
+
+    @functools.wraps(fn)
+    def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+        result = fn(*args, **kwargs)
+        if should_enable_weave():
+            try:
+                _emit_sanitized_weave_op(op_name, args, kwargs, result)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Weave tracing error in %s: %s", op_name, exc)
+        return result
+
+    return sync_wrapper  # type: ignore[return-value]
 
 
 class WeaveTracedPathCorrelator(PathCorrelator):
@@ -77,6 +197,7 @@ class WeaveTracedPathCorrelator(PathCorrelator):
         try:
             if should_enable_weave():
                 sanitized_paths = [WeaveTraceSerializer.serialize_path(p) for p in paths]
+                op_correlate_attack_paths(str(agent_id), len(sanitized_paths), sanitized_paths)
                 _publish_weave_trace(
                     "correlate_attack_paths",
                     {"agent_id": agent_id, "paths": sanitized_paths, "count": len(sanitized_paths)},
@@ -104,6 +225,7 @@ class WeaveTracedAgentSwarmDetector(AgentSwarmDetector):
         try:
             if should_enable_weave():
                 sanitized_swarms = [WeaveTraceSerializer.serialize_swarm(s) for s in swarms]
+                op_detect_swarms(len(sanitized_swarms), sanitized_swarms)
                 _publish_weave_trace(
                     "detect_swarms",
                     {"swarms": sanitized_swarms, "count": len(sanitized_swarms)},
@@ -125,6 +247,12 @@ class WeaveTracedAILMTracker(AILMTracker):
         await super().track_permission_grant(grant)
         try:
             if should_enable_weave():
+                op_track_permission_grant(
+                    str(grant.permission),
+                    str(grant.granted_to),
+                    str(grant.granted_by),
+                    str(grant.scope),
+                )
                 _publish_weave_trace(
                     "track_permission_grant",
                     {
@@ -150,6 +278,7 @@ class WeaveTracedAILMTracker(AILMTracker):
         evidences = await super().detect_permission_composition(agent_id, time_window)
         try:
             if should_enable_weave():
+                op_detect_permission_composition(str(agent_id), len(evidences))
                 _publish_weave_trace(
                     "detect_permission_composition",
                     {
@@ -180,6 +309,7 @@ class WeaveTracedExploitChainAnalyzer(ExploitChainAnalyzer):
         chains = await super().detect_chains(agent_id, time_window, **kwargs)
         try:
             if should_enable_weave():
+                op_detect_chains(str(agent_id), len(chains))
                 _publish_weave_trace(
                     "detect_chains",
                     {
@@ -209,6 +339,7 @@ class WeaveTracedC2InfrastructureDetector(C2InfrastructureDetector):
         try:
             if should_enable_weave():
                 sanitized_event = WeaveTraceSerializer.serialize_event(event)
+                op_analyze_c2_event(sanitized_event, len(findings))
                 _publish_weave_trace(
                     "analyze_c2_event",
                     {
