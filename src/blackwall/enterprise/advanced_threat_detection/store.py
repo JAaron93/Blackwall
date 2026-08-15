@@ -1,10 +1,12 @@
 """Attack Graph Store component for Blackwall Advanced Threat Detection (Pillar 6)."""
 
+import asyncio
 import json
 import logging
 import uuid
+from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TypeVar
 
 import asyncpg
 
@@ -18,6 +20,8 @@ from blackwall.validators import validate_uuid_v4_format
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.store")
 
+T = TypeVar("T")
+
 
 class AttackGraphStore:
     """Persistent temporal graph database store for security events and multi-hop attack path queries."""
@@ -29,15 +33,19 @@ class AttackGraphStore:
         in_memory: bool = False,
         min_pool_size: int = 1,
         max_pool_size: int = 10,
+        max_retries: int = 3,
+        retry_backoff_base: float = 0.05,
     ) -> None:
         self.dsn = dsn
         self._external_pool = pool
-        self._pool: asyncpg.Pool | None = None
+        self._pool: asyncpg.Pool | None = pool
         self.in_memory = in_memory or (
             dsn is not None and (dsn.startswith("sqlite") or dsn == ":memory:")
         )
         self.min_pool_size = min_pool_size
         self.max_pool_size = max_pool_size
+        self.max_retries = max_retries
+        self.retry_backoff_base = retry_backoff_base
 
         # In-memory backing structures (used when in_memory=True or as local cache/fallback)
         self._nodes: dict[uuid.UUID, AttackNode] = {}
@@ -147,6 +155,45 @@ class AttackGraphStore:
             for k in keys_to_del:
                 self._path_cache.pop(k, None)
 
+    async def _execute_with_retry(
+        self,
+        operation: Callable[[Any], Coroutine[Any, Any, T]],
+    ) -> T:
+        """Execute database operation within a transaction with retry logic and exponential backoff."""
+        if not self._pool:
+            raise RuntimeError("Database connection pool is not available")
+
+        last_exc: Exception | None = None
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                async with self._pool.acquire() as conn:
+                    async with conn.transaction():
+                        return await operation(conn)
+            except (TypeError, ValueError, KeyError):
+                # Never retry or mask parameter / typing validation errors
+                raise
+            except Exception as exc:
+                last_exc = exc
+                if attempt < self.max_retries:
+                    delay = self.retry_backoff_base * (2 ** (attempt - 1))
+                    logger.warning(
+                        "Database transaction failed (attempt %d/%d), retrying in %.3fs: %s",
+                        attempt,
+                        self.max_retries,
+                        delay,
+                        exc,
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(
+                        "Database transaction failed permanently after %d attempts: %s",
+                        self.max_retries,
+                        exc,
+                    )
+        if last_exc:
+            raise last_exc
+        raise RuntimeError("Database retry loop exited unexpectedly")
+
     async def insert_event(self, event: NormalizedEvent) -> AttackNode:
         """Insert event as node in attack graph, preserving temporal ordering."""
         node_id = event.event_id
@@ -156,59 +203,60 @@ class AttackGraphStore:
             return self._nodes[node_id]
 
         if self._pool:
-            committed_node: AttackNode | None = None
-            async with self._pool.acquire() as conn:
-                async with conn.transaction():
-                    await conn.execute(
-                        """
-                        INSERT INTO event_nodes (
-                            node_id, event_id, timestamp, source, agent_id, action, target, metadata, risk_score, incoming_edges, outgoing_edges
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10::jsonb, $11::jsonb)
-                        ON CONFLICT (node_id) DO NOTHING;
-                        """,
-                        str(node_id),
-                        str(event.event_id),
-                        event.timestamp,
-                        (
-                            event.source.value
-                            if hasattr(event.source, "value")
-                            else str(event.source)
+            async def _db_insert(conn: Any) -> AttackNode | None:
+                await conn.execute(
+                    """
+                    INSERT INTO event_nodes (
+                        node_id, event_id, timestamp, source, agent_id, action, target, metadata, risk_score, incoming_edges, outgoing_edges
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10::jsonb, $11::jsonb)
+                    ON CONFLICT (node_id) DO NOTHING;
+                    """,
+                    str(node_id),
+                    str(event.event_id),
+                    event.timestamp,
+                    (
+                        event.source.value
+                        if hasattr(event.source, "value")
+                        else str(event.source)
+                    ),
+                    event.agent_id,
+                    event.action,
+                    event.target,
+                    json.dumps(event.metadata),
+                    event.risk_score,
+                    json.dumps([]),
+                    json.dumps([]),
+                )
+                # Fetch authoritative row from DB to handle conflict-skipped rows
+                row = await conn.fetchrow(
+                    "SELECT * FROM event_nodes WHERE node_id = $1;", str(node_id)
+                )
+                if row:
+                    ev_parsed = NormalizedEvent(
+                        event_id=row["event_id"],
+                        timestamp=row["timestamp"],
+                        source=EventSource(row["source"]),
+                        agent_id=row["agent_id"],
+                        action=row["action"],
+                        target=row["target"],
+                        metadata=(
+                            json.loads(row["metadata"])
+                            if isinstance(row["metadata"], str)
+                            else row["metadata"]
                         ),
-                        event.agent_id,
-                        event.action,
-                        event.target,
-                        json.dumps(event.metadata),
-                        event.risk_score,
-                        json.dumps([]),
-                        json.dumps([]),
+                        risk_score=row["risk_score"],
                     )
-                    # Fetch authoritative row from DB to handle conflict-skipped rows
-                    row = await conn.fetchrow(
-                        "SELECT * FROM event_nodes WHERE node_id = $1;", str(node_id)
+                    inc = self._parse_edge_uuids(row["incoming_edges"])
+                    out = self._parse_edge_uuids(row["outgoing_edges"])
+                    return AttackNode(
+                        node_id=node_id,
+                        event=ev_parsed,
+                        incoming_edges=inc,
+                        outgoing_edges=out,
                     )
-                    if row:
-                        ev_parsed = NormalizedEvent(
-                            event_id=row["event_id"],
-                            timestamp=row["timestamp"],
-                            source=EventSource(row["source"]),
-                            agent_id=row["agent_id"],
-                            action=row["action"],
-                            target=row["target"],
-                            metadata=(
-                                json.loads(row["metadata"])
-                                if isinstance(row["metadata"], str)
-                                else row["metadata"]
-                            ),
-                            risk_score=row["risk_score"],
-                        )
-                        inc = self._parse_edge_uuids(row["incoming_edges"])
-                        out = self._parse_edge_uuids(row["outgoing_edges"])
-                        committed_node = AttackNode(
-                            node_id=node_id,
-                            event=ev_parsed,
-                            incoming_edges=inc,
-                            outgoing_edges=out,
-                        )
+                return None
+
+            committed_node = await self._execute_with_retry(_db_insert)
 
             # Mutate cache only after successful commit
             if committed_node:
@@ -262,68 +310,70 @@ class AttackGraphStore:
 
         # 1. Database persistence inside atomic transaction FIRST
         if self._pool and nodes_to_insert_db:
-            committed_nodes: list[AttackNode] = []
-            async with self._pool.acquire() as conn:
-                async with conn.transaction():
-                    insert_tuples = [
+            async def _db_batch_insert(conn: Any) -> list[AttackNode]:
+                insert_tuples = [
+                    (
+                        str(ev.event_id),
+                        str(ev.event_id),
+                        ev.timestamp,
                         (
-                            str(ev.event_id),
-                            str(ev.event_id),
-                            ev.timestamp,
-                            (
-                                ev.source.value
-                                if hasattr(ev.source, "value")
-                                else str(ev.source)
-                            ),
-                            ev.agent_id,
-                            ev.action,
-                            ev.target,
-                            json.dumps(ev.metadata),
-                            ev.risk_score,
-                            json.dumps([]),
-                            json.dumps([]),
-                        )
-                        for ev in nodes_to_insert_db
-                    ]
-                    await conn.executemany(
-                        """
-                        INSERT INTO event_nodes (
-                            node_id, event_id, timestamp, source, agent_id, action, target, metadata, risk_score, incoming_edges, outgoing_edges
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10::jsonb, $11::jsonb)
-                        ON CONFLICT (node_id) DO NOTHING;
-                        """,
-                        insert_tuples,
+                            ev.source.value
+                            if hasattr(ev.source, "value")
+                            else str(ev.source)
+                        ),
+                        ev.agent_id,
+                        ev.action,
+                        ev.target,
+                        json.dumps(ev.metadata),
+                        ev.risk_score,
+                        json.dumps([]),
+                        json.dumps([]),
                     )
-                    # Fetch authoritative DB rows for all inserted/conflicted IDs to maintain cache consistency
-                    db_rows = await conn.fetch(
-                        "SELECT * FROM event_nodes WHERE node_id = ANY($1::text[]);",
-                        [str(ev.event_id) for ev in nodes_to_insert_db],
+                    for ev in nodes_to_insert_db
+                ]
+                await conn.executemany(
+                    """
+                    INSERT INTO event_nodes (
+                        node_id, event_id, timestamp, source, agent_id, action, target, metadata, risk_score, incoming_edges, outgoing_edges
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10::jsonb, $11::jsonb)
+                    ON CONFLICT (node_id) DO NOTHING;
+                    """,
+                    insert_tuples,
+                )
+                # Fetch authoritative DB rows for all inserted/conflicted IDs to maintain cache consistency
+                db_rows = await conn.fetch(
+                    "SELECT * FROM event_nodes WHERE node_id = ANY($1::text[]);",
+                    [str(ev.event_id) for ev in nodes_to_insert_db],
+                )
+                res_nodes: list[AttackNode] = []
+                for row in db_rows:
+                    n_uuid = validate_uuid_v4_format(row["node_id"])
+                    ev_parsed = NormalizedEvent(
+                        event_id=row["event_id"],
+                        timestamp=row["timestamp"],
+                        source=EventSource(row["source"]),
+                        agent_id=row["agent_id"],
+                        action=row["action"],
+                        target=row["target"],
+                        metadata=(
+                            json.loads(row["metadata"])
+                            if isinstance(row["metadata"], str)
+                            else row["metadata"]
+                        ),
+                        risk_score=row["risk_score"],
                     )
-                    for row in db_rows:
-                        n_uuid = validate_uuid_v4_format(row["node_id"])
-                        ev_parsed = NormalizedEvent(
-                            event_id=row["event_id"],
-                            timestamp=row["timestamp"],
-                            source=EventSource(row["source"]),
-                            agent_id=row["agent_id"],
-                            action=row["action"],
-                            target=row["target"],
-                            metadata=(
-                                json.loads(row["metadata"])
-                                if isinstance(row["metadata"], str)
-                                else row["metadata"]
-                            ),
-                            risk_score=row["risk_score"],
-                        )
-                        inc = self._parse_edge_uuids(row["incoming_edges"])
-                        out = self._parse_edge_uuids(row["outgoing_edges"])
-                        db_node = AttackNode(
-                            node_id=n_uuid,
-                            event=ev_parsed,
-                            incoming_edges=inc,
-                            outgoing_edges=out,
-                        )
-                        committed_nodes.append(db_node)
+                    inc = self._parse_edge_uuids(row["incoming_edges"])
+                    out = self._parse_edge_uuids(row["outgoing_edges"])
+                    db_node = AttackNode(
+                        node_id=n_uuid,
+                        event=ev_parsed,
+                        incoming_edges=inc,
+                        outgoing_edges=out,
+                    )
+                    res_nodes.append(db_node)
+                return res_nodes
+
+            committed_nodes = await self._execute_with_retry(_db_batch_insert)
 
             # Transaction has committed successfully: mutate in-memory cache now
             for node in committed_nodes:
@@ -372,29 +422,30 @@ class AttackGraphStore:
 
         # Database persistence inside atomic transaction first
         if self._pool:
-            async with self._pool.acquire() as conn:
-                async with conn.transaction():
-                    await conn.execute(
-                        """
-                        INSERT INTO causal_edges (edge_id, from_node, to_node, relationship, created_at)
-                        VALUES ($1, $2, $3, $4, $5);
-                        """,
-                        edge_id_str,
-                        from_node_str,
-                        to_node_str,
-                        relationship,
-                        created_at,
-                    )
-                    await conn.execute(
-                        "UPDATE event_nodes SET outgoing_edges = outgoing_edges || $1::jsonb WHERE node_id = $2;",
-                        json.dumps([edge_id_str]),
-                        from_node_str,
-                    )
-                    await conn.execute(
-                        "UPDATE event_nodes SET incoming_edges = incoming_edges || $1::jsonb WHERE node_id = $2;",
-                        json.dumps([edge_id_str]),
-                        to_node_str,
-                    )
+            async def _db_link(conn: Any) -> None:
+                await conn.execute(
+                    """
+                    INSERT INTO causal_edges (edge_id, from_node, to_node, relationship, created_at)
+                    VALUES ($1, $2, $3, $4, $5);
+                    """,
+                    edge_id_str,
+                    from_node_str,
+                    to_node_str,
+                    relationship,
+                    created_at,
+                )
+                await conn.execute(
+                    "UPDATE event_nodes SET outgoing_edges = outgoing_edges || $1::jsonb WHERE node_id = $2;",
+                    json.dumps([edge_id_str]),
+                    from_node_str,
+                )
+                await conn.execute(
+                    "UPDATE event_nodes SET incoming_edges = incoming_edges || $1::jsonb WHERE node_id = $2;",
+                    json.dumps([edge_id_str]),
+                    to_node_str,
+                )
+
+            await self._execute_with_retry(_db_link)
 
         # Update in-memory node structures only after DB write succeeds (or in in-memory mode)
         src_node = self._nodes[from_uuid]
@@ -481,6 +532,7 @@ class AttackGraphStore:
         limit: int | None = None,
         offset: int | None = None,
         after_cursor: tuple[datetime, uuid.UUID | str] | None = None,
+        timeout_seconds: float | None = None,
     ) -> list[AttackNode]:
         """Fetch all AttackNodes for an agent (or all agents if agent_id is None) within the specified time window."""
         if limit is not None and limit <= 0:
@@ -488,114 +540,133 @@ class AttackGraphStore:
         if offset is not None and offset < 0:
             raise ValueError("offset must be non-negative")
 
-        start_time_win, end_time_win = time_window
+        async def _do_query_nodes() -> list[AttackNode]:
+            start_time_win, end_time_win = time_window
 
-        if self._pool:
-            async with self._pool.acquire() as conn:
-                where_clauses = ["timestamp >= $1", "timestamp <= $2"]
-                params: list[Any] = [start_time_win, end_time_win]
+            if self._pool:
+                async with self._pool.acquire() as conn:
+                    where_clauses = ["timestamp >= $1", "timestamp <= $2"]
+                    params: list[Any] = [start_time_win, end_time_win]
 
-                if agent_id is not None:
-                    params.append(agent_id)
-                    where_clauses.insert(0, f"agent_id = ${len(params)}")
+                    if agent_id is not None:
+                        params.append(agent_id)
+                        where_clauses.insert(0, f"agent_id = ${len(params)}")
 
-                if after_cursor is not None:
-                    cursor_ts, cursor_nid = after_cursor
-                    params.append(cursor_ts)
-                    idx_ts = len(params)
-                    params.append(str(cursor_nid))
-                    idx_nid = len(params)
-                    where_clauses.append(
-                        f"(timestamp > ${idx_ts} OR (timestamp = ${idx_ts} AND node_id > ${idx_nid}))"
+                    if after_cursor is not None:
+                        cursor_ts, cursor_nid = after_cursor
+                        params.append(cursor_ts)
+                        idx_ts = len(params)
+                        params.append(str(cursor_nid))
+                        idx_nid = len(params)
+                        where_clauses.append(
+                            f"(timestamp > ${idx_ts} OR (timestamp = ${idx_ts} AND node_id > ${idx_nid}))"
+                        )
+
+                    query = f"""
+                        SELECT * FROM event_nodes
+                        WHERE {' AND '.join(where_clauses)}
+                        ORDER BY timestamp ASC, node_id ASC
+                    """
+
+                    if limit is not None:
+                        query += f" LIMIT {int(limit)}"
+                    if offset is not None:
+                        query += f" OFFSET {int(offset)}"
+                    query += ";"
+
+                    rows = await conn.fetch(
+                        query,
+                        *params,
                     )
+                    db_nodes: list[AttackNode] = []
+                    for row in rows:
+                        ev = NormalizedEvent(
+                            event_id=row["event_id"],
+                            timestamp=row["timestamp"],
+                            source=EventSource(row["source"]),
+                            agent_id=row["agent_id"],
+                            action=row["action"],
+                            target=row["target"],
+                            metadata=(
+                                json.loads(row["metadata"])
+                                if isinstance(row["metadata"], str)
+                                else row["metadata"]
+                            ),
+                            risk_score=row["risk_score"],
+                        )
+                        inc = self._parse_edge_uuids(row["incoming_edges"])
+                        out = self._parse_edge_uuids(row["outgoing_edges"])
 
-                query = f"""
-                    SELECT * FROM event_nodes
-                    WHERE {' AND '.join(where_clauses)}
-                    ORDER BY timestamp ASC, node_id ASC
-                """
+                        db_node = AttackNode(
+                            node_id=row["node_id"],
+                            event=ev,
+                            incoming_edges=inc,
+                            outgoing_edges=out,
+                        )
+                        db_nodes.append(db_node)
+                    return db_nodes
 
-                if limit is not None:
-                    query += f" LIMIT {int(limit)}"
-                if offset is not None:
-                    query += f" OFFSET {int(offset)}"
-                query += ";"
+            # In-memory mode (self._pool is None)
+            if agent_id is not None:
+                node_ids = self._agent_nodes_index.get(agent_id, [])
+                candidate_nodes = []
+                for nid in node_ids:
+                    node = self._nodes.get(nid)
+                    if node and start_time_win <= node.event.timestamp <= end_time_win:
+                        candidate_nodes.append(node)
+            else:
+                candidate_nodes = [
+                    node
+                    for node in self._nodes.values()
+                    if start_time_win <= node.event.timestamp <= end_time_win
+                ]
 
-                rows = await conn.fetch(
-                    query,
-                    *params,
+            candidate_nodes.sort(key=lambda n: (n.event.timestamp, str(n.node_id)))
+
+            if after_cursor is not None:
+                cursor_ts, cursor_nid = after_cursor
+                cursor_nid_str = str(cursor_nid)
+                candidate_nodes = [
+                    n
+                    for n in candidate_nodes
+                    if (
+                        n.event.timestamp > cursor_ts
+                        or (
+                            n.event.timestamp == cursor_ts
+                            and str(n.node_id) > cursor_nid_str
+                        )
+                    )
+                ]
+
+            start_idx = offset if offset is not None else 0
+            end_idx = (start_idx + limit) if limit is not None else len(candidate_nodes)
+            return candidate_nodes[start_idx:end_idx]
+
+        if timeout_seconds is not None and timeout_seconds > 0:
+            try:
+                return await asyncio.wait_for(_do_query_nodes(), timeout=timeout_seconds)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "query_nodes query timed out after %.2fs; returning cached in-memory results",
+                    timeout_seconds,
                 )
-                db_nodes: list[AttackNode] = []
-                for row in rows:
-                    ev = NormalizedEvent(
-                        event_id=row["event_id"],
-                        timestamp=row["timestamp"],
-                        source=EventSource(row["source"]),
-                        agent_id=row["agent_id"],
-                        action=row["action"],
-                        target=row["target"],
-                        metadata=(
-                            json.loads(row["metadata"])
-                            if isinstance(row["metadata"], str)
-                            else row["metadata"]
-                        ),
-                        risk_score=row["risk_score"],
-                    )
-                    inc = self._parse_edge_uuids(row["incoming_edges"])
-                    out = self._parse_edge_uuids(row["outgoing_edges"])
+                start_win, end_win = time_window
+                cached = [
+                    n
+                    for n in self._nodes.values()
+                    if (agent_id is None or n.event.agent_id == agent_id)
+                    and start_win <= n.event.timestamp <= end_win
+                ]
+                return cached
 
-                    db_node = AttackNode(
-                        node_id=row["node_id"],
-                        event=ev,
-                        incoming_edges=inc,
-                        outgoing_edges=out,
-                    )
-                    db_nodes.append(db_node)
-                return db_nodes
-
-        # In-memory mode (self._pool is None)
-        if agent_id is not None:
-            node_ids = self._agent_nodes_index.get(agent_id, [])
-            candidate_nodes = []
-            for nid in node_ids:
-                node = self._nodes.get(nid)
-                if node and start_time_win <= node.event.timestamp <= end_time_win:
-                    candidate_nodes.append(node)
-        else:
-            candidate_nodes = [
-                node
-                for node in self._nodes.values()
-                if start_time_win <= node.event.timestamp <= end_time_win
-            ]
-
-        candidate_nodes.sort(key=lambda n: (n.event.timestamp, str(n.node_id)))
-
-        if after_cursor is not None:
-            cursor_ts, cursor_nid = after_cursor
-            cursor_nid_str = str(cursor_nid)
-            candidate_nodes = [
-                n
-                for n in candidate_nodes
-                if (
-                    n.event.timestamp > cursor_ts
-                    or (
-                        n.event.timestamp == cursor_ts
-                        and str(n.node_id) > cursor_nid_str
-                    )
-                )
-            ]
-
-        start_idx = offset if offset is not None else 0
-        end_idx = (start_idx + limit) if limit is not None else len(candidate_nodes)
-        return candidate_nodes[start_idx:end_idx]
-
-
+        return await _do_query_nodes()
 
     async def query_paths(
         self,
         agent_id: str,
         time_window: tuple[datetime, datetime],
         min_path_length: int = 2,
+        timeout_seconds: float | None = None,
     ) -> list[AttackPath]:
         """Query multi-hop attack paths for agent within specified time window."""
         if min_path_length < 2:
@@ -605,39 +676,56 @@ class AttackGraphStore:
         if cache_key in self._path_cache:
             return list(self._path_cache[cache_key])
 
-        candidate_nodes = await self.query_nodes(agent_id, time_window)
-
-        if len(candidate_nodes) < min_path_length:
-            return []
-
-        # Group nodes into contiguous temporal or causally connected paths
-        paths: list[AttackPath] = []
-        current_path_nodes: list[AttackNode] = [candidate_nodes[0]]
-
-        for next_node in candidate_nodes[1:]:
-            prev_node = current_path_nodes[-1]
-            # Link if within 10 minutes or causally linked
-            delta = (
-                next_node.event.timestamp - prev_node.event.timestamp
-            ).total_seconds()
-            is_causal = any(
-                e in prev_node.outgoing_edges for e in next_node.incoming_edges
+        async def _do_query_paths() -> list[AttackPath]:
+            candidate_nodes = await self.query_nodes(
+                agent_id, time_window, timeout_seconds=timeout_seconds
             )
 
-            if delta <= 600 or is_causal:
-                current_path_nodes.append(next_node)
-            else:
-                if len(current_path_nodes) >= min_path_length:
-                    paths.append(self._build_attack_path(agent_id, current_path_nodes))
-                current_path_nodes = [next_node]
+            if len(candidate_nodes) < min_path_length:
+                return []
 
-        if len(current_path_nodes) >= min_path_length:
-            paths.append(self._build_attack_path(agent_id, current_path_nodes))
+            # Group nodes into contiguous temporal or causally connected paths
+            paths: list[AttackPath] = []
+            current_path_nodes: list[AttackNode] = [candidate_nodes[0]]
 
-        # Sort paths by risk_score descending
-        paths.sort(key=lambda p: p.risk_score, reverse=True)
-        self._path_cache[cache_key] = paths
-        return paths
+            for next_node in candidate_nodes[1:]:
+                prev_node = current_path_nodes[-1]
+                # Link if within 10 minutes or causally linked
+                delta = (
+                    next_node.event.timestamp - prev_node.event.timestamp
+                ).total_seconds()
+                is_causal = any(
+                    e in prev_node.outgoing_edges for e in next_node.incoming_edges
+                )
+
+                if delta <= 600 or is_causal:
+                    current_path_nodes.append(next_node)
+                else:
+                    if len(current_path_nodes) >= min_path_length:
+                        paths.append(
+                            self._build_attack_path(agent_id, current_path_nodes)
+                        )
+                    current_path_nodes = [next_node]
+
+            if len(current_path_nodes) >= min_path_length:
+                paths.append(self._build_attack_path(agent_id, current_path_nodes))
+
+            # Sort paths by risk_score descending
+            paths.sort(key=lambda p: p.risk_score, reverse=True)
+            self._path_cache[cache_key] = paths
+            return paths
+
+        if timeout_seconds is not None and timeout_seconds > 0:
+            try:
+                return await asyncio.wait_for(_do_query_paths(), timeout=timeout_seconds)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "query_paths timed out after %.2fs; returning partial/cached results",
+                    timeout_seconds,
+                )
+                return list(self._path_cache.get(cache_key, []))
+
+        return await _do_query_paths()
 
     def _build_attack_path(self, agent_id: str, nodes: list[AttackNode]) -> AttackPath:
         """Helper to create valid AttackPath object from list of nodes."""
@@ -792,46 +880,50 @@ class AttackGraphStore:
         }
 
         if self._pool:
-            async with self._pool.acquire() as conn:
-                async with conn.transaction():
-                    purged_rows = await conn.fetch(
-                        "SELECT node_id FROM event_nodes WHERE timestamp < $1;", cutoff_time
+            async def _db_purge(conn: Any) -> tuple[int, list[str], list[str]]:
+                p_rows = await conn.fetch(
+                    "SELECT node_id FROM event_nodes WHERE timestamp < $1;", cutoff_time
+                )
+                p_ids = [str(r["node_id"]) for r in p_rows]
+                all_p_ids = list(set(p_ids) | to_delete_candidates)
+                e_ids_to_rem: list[str] = []
+                p_count = 0
+                if all_p_ids:
+                    edge_rows = await conn.fetch(
+                        "SELECT edge_id FROM causal_edges WHERE from_node = ANY($1::text[]) OR to_node = ANY($1::text[]);",
+                        all_p_ids,
                     )
-                    purged_ids = [str(r["node_id"]) for r in purged_rows]
-                    all_purge_ids = list(set(purged_ids) | to_delete_candidates)
-                    if all_purge_ids:
-                        edge_rows = await conn.fetch(
-                            "SELECT edge_id FROM causal_edges WHERE from_node = ANY($1::text[]) OR to_node = ANY($1::text[]);",
-                            all_purge_ids,
-                        )
-                        edge_ids_to_remove = [str(r["edge_id"]) for r in edge_rows]
+                    e_ids_to_rem = [str(r["edge_id"]) for r in edge_rows]
 
-                        result = await conn.execute(
-                            "DELETE FROM event_nodes WHERE timestamp < $1;", cutoff_time
-                        )
-                        try:
-                            purged_count = int(result.split()[-1])
-                        except (ValueError, IndexError):
-                            purged_count = len(purged_ids)
+                    result = await conn.execute(
+                        "DELETE FROM event_nodes WHERE timestamp < $1;", cutoff_time
+                    )
+                    try:
+                        p_count = int(result.split()[-1])
+                    except (ValueError, IndexError):
+                        p_count = len(p_ids)
 
-                        if edge_ids_to_remove:
-                            await conn.execute(
-                                """
-                                UPDATE event_nodes
-                                SET incoming_edges = (
-                                    SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
-                                    FROM jsonb_array_elements_text(incoming_edges) AS elem
-                                    WHERE elem != ALL($1)
-                                ),
-                                outgoing_edges = (
-                                    SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
-                                    FROM jsonb_array_elements_text(outgoing_edges) AS elem
-                                    WHERE elem != ALL($1)
-                                )
-                                WHERE incoming_edges ?| $1::text[] OR outgoing_edges ?| $1::text[];
-                                """,
-                                edge_ids_to_remove,
+                    if e_ids_to_rem:
+                        await conn.execute(
+                            """
+                            UPDATE event_nodes
+                            SET incoming_edges = (
+                                SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+                                FROM jsonb_array_elements_text(incoming_edges) AS elem
+                                WHERE elem != ALL($1)
+                            ),
+                            outgoing_edges = (
+                                SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+                                FROM jsonb_array_elements_text(outgoing_edges) AS elem
+                                WHERE elem != ALL($1)
                             )
+                            WHERE incoming_edges ?| $1::text[] OR outgoing_edges ?| $1::text[];
+                            """,
+                            e_ids_to_rem,
+                        )
+                return p_count, p_ids, e_ids_to_rem
+
+            purged_count, purged_ids, edge_ids_to_remove = await self._execute_with_retry(_db_purge)
 
         # Synchronize and purge process-local memory/cache state
         purged_id_set = set(purged_ids) | to_delete_candidates

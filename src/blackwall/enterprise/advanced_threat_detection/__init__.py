@@ -46,6 +46,10 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 from blackwall.enterprise.advanced_threat_detection.registry import (
     PackageRegistryMonitor,
 )
+from blackwall.enterprise.advanced_threat_detection.resilience import (
+    ResourceThrottler,
+    SafeDetectionRunner,
+)
 from blackwall.enterprise.advanced_threat_detection.retrospective import (
     RetrospectiveAnalyzer,
 )
@@ -82,7 +86,9 @@ __all__ = [
     "PathCorrelator",
     "PermissionGrant",
     "RegistryThreatEvidence",
+    "ResourceThrottler",
     "RetrospectiveAnalyzer",
+    "SafeDetectionRunner",
     "SwarmEvidence",
     "logger",
 ]
