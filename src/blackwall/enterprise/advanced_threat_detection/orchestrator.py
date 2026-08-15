@@ -307,12 +307,10 @@ class AdvancedThreatDetection:
         mem_mb = _get_current_memory_mb()
         if self.throttler.should_throttle(current_memory_mb=mem_mb):
             logger.warning(
-                "AdvancedThreatDetection throttling active (rate=%.1f/s, memory=%.1fMB); applying load shedding",
+                "AdvancedThreatDetection throttling active (rate=%.1f/s, memory=%.1fMB); dynamic analysis depth degradation will apply during correlation",
                 self.throttler.current_rate(),
                 mem_mb,
             )
-            # Enforce overload protection: shed auxiliary processing under throttle condition
-            return normalized
 
         # Persist event in attack graph store
         await self.store.insert_event(normalized)
