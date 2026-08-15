@@ -55,6 +55,7 @@ class AlertBus:
         self._flush_task: asyncio.Task[Any] | None = None
         self._running = False
         self._lock = asyncio.Lock()
+        self._flush_lock = asyncio.Lock()
 
     @property
     def persistent_failures(self) -> list[dict[str, Any]]:
@@ -103,18 +104,28 @@ class AlertBus:
         return await self._flush_pending()
 
     async def _flush_pending(self) -> bool:
-        if not self._pending_alerts:
-            return True
-        all_ok = True
-        while self._pending_alerts:
-            chunk = []
-            while self._pending_alerts and len(chunk) < self.batch_size:
-                chunk.append(self._pending_alerts.popleft())
-            for alert in chunk:
-                ok = await self._deliver_alert(alert)
-                if not ok:
-                    all_ok = False
-        return all_ok
+        async with self._flush_lock:
+            if not self._pending_alerts:
+                return True
+            all_ok = True
+            while self._pending_alerts:
+                chunk = []
+                while self._pending_alerts and len(chunk) < self.batch_size:
+                    chunk.append(self._pending_alerts.popleft())
+                delivered_count = 0
+                try:
+                    for i, alert in enumerate(chunk):
+                        ok = await self._deliver_alert(alert)
+                        if not ok:
+                            all_ok = False
+                        delivered_count = i + 1
+                except (asyncio.CancelledError, Exception):
+                    # Re-queue any undelivered alerts back to the front of _pending_alerts
+                    undelivered = chunk[delivered_count:]
+                    for alert_item in reversed(undelivered):
+                        self._pending_alerts.appendleft(alert_item)
+                    raise
+            return all_ok
 
     def subscribe(self, handler: Callable[[Alert], Any]) -> None:
         """Register a synchronous or asynchronous alert subscriber handler."""

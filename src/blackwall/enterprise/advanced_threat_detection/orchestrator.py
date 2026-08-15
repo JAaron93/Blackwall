@@ -166,26 +166,37 @@ class AdvancedThreatDetection:
         if self._running:
             old_task = self._stream_tasks.get(source)
 
-            async def _replace_and_run() -> None:
-                if old_task and not old_task.done():
-                    old_task.cancel()
-                    await asyncio.gather(old_task, return_exceptions=True)
-                    # If this replacement task was itself cancelled, do not start stream
-                    curr = asyncio.current_task()
-                    if curr is not None and curr.cancelling():
-                        raise asyncio.CancelledError()
-                await self._run_pillar_stream(source, stream_factory)
+            async def _replace_and_run(
+                factory: Callable[[], Any],
+                prev_task: Optional[asyncio.Task[Any]],
+            ) -> None:
+                if prev_task and not prev_task.done():
+                    prev_task.cancel()
+                    try:
+                        await asyncio.shield(prev_task)
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                curr = asyncio.current_task()
+                if curr is not None and curr.cancelling():
+                    raise asyncio.CancelledError()
+                if not self._running or self._stream_tasks.get(source) is not curr:
+                    return
+                await self._run_pillar_stream(source, factory)
 
-            task = asyncio.create_task(_replace_and_run())
+            task = asyncio.create_task(_replace_and_run(stream_factory, old_task))
             self._stream_tasks[source] = task
 
     async def _run_pillar_stream(
         self, source: EventSource, stream_factory: Callable[[], Any]
     ) -> None:
         """Continuously collect and ingest events from a registered pillar stream."""
+        curr_task = asyncio.current_task()
         try:
             async for event in self.collector.collect_with_reconnect(source, stream_factory):
                 if not self._running:
+                    break
+                # Guard against stale collectors when replacement tasks overlap
+                if self._stream_tasks.get(source) is not curr_task and self._stream_tasks.get(source) is not None:
                     break
                 await self.ingest_event(event)
         except asyncio.CancelledError:
@@ -371,17 +382,26 @@ class AdvancedThreatDetection:
             win_end = utc_now()
             win_start = win_end - timedelta(seconds=self.config.temporal_window_seconds)
 
+        mem_mb = _get_current_memory_mb()
+        is_throttled = self.throttler.should_throttle(current_memory_mb=mem_mb)
+
+        # When under severe resource pressure, adaptively degrade analysis window
+        # for detection queries if no explicit time window was specified
+        effective_start = win_start
+        if is_throttled and time_window is None:
+            degraded_secs = max(1.0, self.config.temporal_window_seconds * 0.5)
+            effective_start = win_end - timedelta(seconds=degraded_secs)
+
         new_alerts: List[Alert] = []
 
         # 1. Multi-Stage Attack Path Correlation
         if self.path_correlator is not None:
-            mem_mb = _get_current_memory_mb()
             max_d = self.throttler.get_analysis_depth(base_depth=10, current_memory_mb=mem_mb)
             paths: List[AttackPath] = await self.runner.run_safe(
                 detector_name="path_correlator",
                 coro=self.path_correlator.correlate_attack_paths(
                     agent_id=agent_id,
-                    time_window=(win_start, win_end),
+                    time_window=(effective_start, win_end),
                     min_path_length=self.config.min_path_length,
                     max_depth=max_d,
                 ),
@@ -414,7 +434,7 @@ class AdvancedThreatDetection:
                 detector_name="exploit_analyzer",
                 coro=self.exploit_analyzer.detect_chains(
                     agent_id=agent_id,
-                    time_window=(win_start, win_end),
+                    time_window=(effective_start, win_end),
                 ),
                 fallback=[],
             )
@@ -444,7 +464,7 @@ class AdvancedThreatDetection:
                 detector_name="ailm_tracker",
                 coro=self.ailm_tracker.detect_permission_composition(
                     agent_id=agent_id,
-                    time_window=(win_start, win_end),
+                    time_window=(effective_start, win_end),
                 ),
                 fallback=[],
             )
@@ -473,7 +493,7 @@ class AdvancedThreatDetection:
                 detector_name="c2_detector",
                 coro=self.c2_detector.detect_c2_establishment(
                     agent_id=agent_id,
-                    time_window=(win_start, win_end),
+                    time_window=(effective_start, win_end),
                     beaconing_threshold=self.config.c2_beaconing_threshold,
                 ),
                 fallback=[],
@@ -503,7 +523,7 @@ class AdvancedThreatDetection:
                 detector_name="k8s_defense_token_theft",
                 coro=self.k8s_defense.detect_pod_token_theft(
                     agent_id=agent_id,
-                    time_window=(win_start, win_end),
+                    time_window=(effective_start, win_end),
                 ),
                 fallback=[],
             )
@@ -512,7 +532,7 @@ class AdvancedThreatDetection:
                 detector_name="k8s_defense_secrets_exfiltration",
                 coro=self.k8s_defense.detect_secrets_exfiltration(
                     agent_id=agent_id,
-                    time_window=(win_start, win_end),
+                    time_window=(effective_start, win_end),
                     min_secret_reads=self.config.k8s_min_exfiltration_events,
                 ),
                 fallback=[],
@@ -536,7 +556,7 @@ class AdvancedThreatDetection:
             swarms: List[SwarmEvidence] = await self.runner.run_safe(
                 detector_name="swarm_detector",
                 coro=self.swarm_detector.detect_swarms(
-                    time_window=(win_start, win_end),
+                    time_window=(effective_start, win_end),
                     min_agents=self.config.swarm_min_agents,
                     correlation_threshold=self.config.swarm_correlation_threshold,
                 ),
@@ -570,7 +590,7 @@ class AdvancedThreatDetection:
                 detector_name="registry_monitor",
                 coro=self.registry_monitor.detect_exploit_probing(
                     agent_id=agent_id,
-                    time_window=(win_start, win_end),
+                    time_window=(effective_start, win_end),
                 ),
                 fallback=[],
             )
