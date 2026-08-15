@@ -72,7 +72,7 @@ class AlertBus:
                 self._flush_task = asyncio.create_task(self._periodic_flush_loop())
 
     async def stop(self) -> None:
-        """Stop background flush task and flush all remaining pending alerts."""
+        """Stop background flush task and flush remaining pending alerts within a bounded timeout."""
         self._running = False
         task = self._flush_task
         self._flush_task = None
@@ -86,7 +86,10 @@ class AlertBus:
                     await task
             except (asyncio.CancelledError, RuntimeError, Exception):
                 pass
-        await self._flush_pending()
+        try:
+            await asyncio.wait_for(self._flush_pending(), timeout=5.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError, Exception) as exc:
+            logger.warning("AlertBus shutdown flush terminated or timed out: %s", exc)
 
     async def _periodic_flush_loop(self) -> None:
         """Periodically flush buffered alerts at flush_interval_seconds."""
@@ -116,9 +119,6 @@ class AlertBus:
                     ok = await self._deliver_alert(alert)
                     if not ok:
                         all_ok = False
-                except asyncio.CancelledError:
-                    self._pending_alerts.appendleft(alert)
-                    raise
                 except Exception as exc:
                     all_ok = False
                     logger.error("Unexpected error delivering alert %s: %s", alert.alert_id, exc)
@@ -134,53 +134,57 @@ class AlertBus:
         if handler in self._subscribers:
             self._subscribers.remove(handler)
 
+    async def _deliver_to_subscriber(
+        self, subscriber: Callable[[Alert], Any], alert: Alert
+    ) -> bool:
+        """Deliver an alert to a single subscriber with retry resilience and per-attempt timeout."""
+        last_error: Exception | None = None
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                if inspect.iscoroutinefunction(subscriber):
+                    await asyncio.wait_for(subscriber(alert), timeout=2.0)
+                else:
+                    result = subscriber(alert)
+                    if inspect.iscoroutine(result):
+                        await asyncio.wait_for(result, timeout=2.0)
+                return True
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                if attempt < self.max_retries and self.retry_delay > 0:
+                    await asyncio.sleep(self.retry_delay)
+
+        error_msg = str(last_error) if last_error else "Unknown delivery failure"
+        failure_record = {
+            "alert_id": str(alert.alert_id),
+            "error": error_msg,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "subscriber": getattr(subscriber, "__name__", str(subscriber)),
+        }
+        self._persistent_failures.append(failure_record)
+        logger.critical(
+            "Persistent alert delivery failure for alert %s to subscriber %s after %d retries: %s",
+            alert.alert_id,
+            subscriber,
+            self.max_retries,
+            error_msg,
+        )
+        return False
+
     async def _deliver_alert(self, alert: Alert) -> bool:
-        """Deliver a single alert to subscribers with retry resilience."""
+        """Deliver a single alert to all subscribers concurrently with resilience."""
         if not any(a.alert_id == alert.alert_id for a in self._alerts):
             self._alerts.append(alert)
         if not self._subscribers:
             return True
 
-        all_success = True
-
-        for subscriber in list(self._subscribers):
-            delivered = False
-            last_error: Exception | None = None
-
-            for attempt in range(1, self.max_retries + 1):
-                try:
-                    if inspect.iscoroutinefunction(subscriber):
-                        await asyncio.wait_for(subscriber(alert), timeout=5.0)
-                    else:
-                        result = subscriber(alert)
-                        if inspect.iscoroutine(result):
-                            await asyncio.wait_for(result, timeout=5.0)
-                    delivered = True
-                    break
-                except Exception as exc:  # noqa: BLE001
-                    last_error = exc
-                    if attempt < self.max_retries and self.retry_delay > 0:
-                        await asyncio.sleep(self.retry_delay)
-
-            if not delivered:
-                all_success = False
-                error_msg = str(last_error) if last_error else "Unknown delivery failure"
-                failure_record = {
-                    "alert_id": str(alert.alert_id),
-                    "error": error_msg,
-                    "timestamp": datetime.now(UTC).isoformat(),
-                    "subscriber": getattr(subscriber, "__name__", str(subscriber)),
-                }
-                self._persistent_failures.append(failure_record)
-                logger.critical(
-                    "Persistent alert delivery failure for alert %s to subscriber %s after %d retries: %s",
-                    alert.alert_id,
-                    subscriber,
-                    self.max_retries,
-                    error_msg,
-                )
-
-        return all_success
+        subscribers = list(self._subscribers)
+        results = await asyncio.gather(
+            *(self._deliver_to_subscriber(sub, alert) for sub in subscribers),
+            return_exceptions=False,
+        )
+        return all(results)
 
     async def publish(self, alert: Alert) -> bool:
         """Publish an alert to all registered subscribers or buffer if batching is active."""

@@ -166,29 +166,12 @@ class AdvancedThreatDetection:
         """Register a pillar event stream factory for automatic background collection."""
         self._stream_factories[source] = stream_factory
         if self._running:
+            old_task = self._stream_tasks.get(source)
             self._stream_generations[source] = self._stream_generations.get(source, 0) + 1
             gen = self._stream_generations[source]
-            old_task = self._stream_tasks.get(source)
-
-            async def _replace_and_run(
-                factory: Callable[[], Any],
-                prev_task: Optional[asyncio.Task[Any]],
-                expected_gen: int,
-            ) -> None:
-                if prev_task and not prev_task.done():
-                    prev_task.cancel()
-                    try:
-                        await asyncio.wait_for(prev_task, timeout=1.0)
-                    except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
-                        pass
-                curr = asyncio.current_task()
-                if curr is not None and curr.cancelling():
-                    raise asyncio.CancelledError()
-                if not self._running or self._stream_generations.get(source) != expected_gen:
-                    return
-                await self._run_pillar_stream(source, factory, expected_gen)
-
-            task = asyncio.create_task(_replace_and_run(stream_factory, old_task, gen))
+            if old_task and not old_task.done():
+                old_task.cancel()
+            task = asyncio.create_task(self._run_pillar_stream(source, stream_factory, gen))
             self._stream_tasks[source] = task
 
     async def _run_pillar_stream(
@@ -198,15 +181,11 @@ class AdvancedThreatDetection:
         generation: int,
     ) -> None:
         """Continuously collect and ingest events from a registered pillar stream."""
-        curr_task = asyncio.current_task()
         try:
             async for event in self.collector.collect_with_reconnect(source, stream_factory):
                 if not self._running or self._stream_generations.get(source) != generation:
                     break
-                # Guard against stale collectors when replacement tasks overlap
-                if self._stream_tasks.get(source) is not curr_task:
-                    break
-                await self.ingest_event(event)
+                await self.ingest_event(event, source_generation=generation)
                 if not self._running or self._stream_generations.get(source) != generation:
                     break
         except asyncio.CancelledError:
@@ -319,6 +298,7 @@ class AdvancedThreatDetection:
         self,
         source_or_event: Union[EventSource, NormalizedEvent],
         raw_event: Optional[dict[str, Any]] = None,
+        source_generation: Optional[int] = None,
     ) -> NormalizedEvent:
         """Ingest security event passively and non-blockingly into graph store and pipeline.
 
@@ -330,6 +310,13 @@ class AdvancedThreatDetection:
             if raw_event is None:
                 raise ValueError("raw_event dictionary must be provided when source is EventSource")
             normalized = self.collector.normalize_event(source_or_event, raw_event)
+
+        # Check generation ownership to prevent stale or superseded stream tasks from mutating state
+        if source_generation is not None and (
+            not self._running
+            or self._stream_generations.get(normalized.source) != source_generation
+        ):
+            return normalized
 
         # Record throughput and evaluate resource throttling
         self.throttler.record_event()
@@ -344,7 +331,13 @@ class AdvancedThreatDetection:
         # Persist event in attack graph store
         await self.store.insert_event(normalized)
 
-        # Feed auxiliary stateful detectors
+        # Feed auxiliary stateful detectors only if stream generation remains current
+        if source_generation is not None and (
+            not self._running
+            or self._stream_generations.get(normalized.source) != source_generation
+        ):
+            return normalized
+
         if self.c2_detector is not None:
             if normalized.agent_id not in self.c2_detector._events_by_agent:
                 self.c2_detector._events_by_agent[normalized.agent_id] = []
