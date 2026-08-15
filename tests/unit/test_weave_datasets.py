@@ -22,6 +22,9 @@ events:
     action: "network_connect"
     target: "webhook.site/test"
     risk_score: 0.85
+    metadata:
+      api_key: "secret123"
+      safe_param: "value"
 expected_detections:
   - detector: "c2_detector"
     threat_detected: true
@@ -36,12 +39,13 @@ expected_detections:
     assert row["name"] == "c2_beaconing_attack"
     assert row["description"] == "Scenario testing C2 periodic beaconing detection"
     assert len(row["events"]) == 1
-    # Check that events in row are sanitized according to Requirement 16.17 (action/target stripped)
+    # Check that events in row preserve detector input fields with masked metadata
     evt = row["events"][0]
     assert evt["event_id"] == "00000000-0000-0000-0000-000000000001"
-    assert "action" not in evt
-    assert "target" not in evt
-    assert "metadata" not in evt
+    assert evt["action"] == "network_connect"
+    assert evt["target"] == "webhook.site/test"
+    assert evt["metadata"]["api_key"] == "**REDACTED**"
+    assert evt["metadata"]["safe_param"] == "value"
 
 
 def test_create_evaluation_dataset_missing_description_skipped(tmp_path: Path) -> None:
