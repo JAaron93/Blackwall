@@ -46,28 +46,42 @@ class EvaluationAttackGraphStore(AttackGraphStore):
                 f"EvaluationEnvironment '{self._env.env_id}' graph store is closed and cannot accept writes."
             )
 
+    async def _initialize_locked(self) -> None:
+        """Initialize database connection pool while self._env._lock is held."""
+        self._check_store_open()
+        if not self._initialized:
+            await super().initialize()
+
     async def initialize(self) -> None:
         """Initialize database connection pool under environment lock and lifecycle guard."""
         async with self._env._lock:
-            self._check_store_open()
-            if not self._initialized:
-                await super().initialize()
+            await self._initialize_locked()
+
+    async def _insert_event_locked(self, event: NormalizedEvent) -> AttackNode:
+        self._check_store_open()
+        labeled = self._env.label_event(event)
+        return await super().insert_event(labeled)
 
     async def insert_event(self, event: NormalizedEvent) -> AttackNode:
         async with self._env._lock:
-            self._check_store_open()
-            labeled = self._env.label_event(event)
-            return await super().insert_event(labeled)
+            await self._initialize_locked()
+            return await self._insert_event_locked(event)
+
+    async def _insert_events_batch_locked(
+        self, events: list[NormalizedEvent]
+    ) -> list[AttackNode]:
+        self._check_store_open()
+        labeled_events = [self._env.label_event(e) for e in events]
+        return await super().insert_events_batch(labeled_events)
 
     async def insert_events_batch(
         self, events: list[NormalizedEvent]
     ) -> list[AttackNode]:
         async with self._env._lock:
-            self._check_store_open()
-            labeled_events = [self._env.label_event(e) for e in events]
-            return await super().insert_events_batch(labeled_events)
+            await self._initialize_locked()
+            return await self._insert_events_batch_locked(events)
 
-    async def get_node(self, node_id: uuid.UUID | str) -> AttackNode | None:
+    async def _get_node_locked(self, node_id: uuid.UUID | str) -> AttackNode | None:
         clean_uuid = validate_uuid_v4_format(node_id)
         # Fast path: check in-memory cache for clean_uuid (if already scoped node_id)
         if clean_uuid in self._nodes:
@@ -98,7 +112,12 @@ class EvaluationAttackGraphStore(AttackGraphStore):
 
         return None
 
-    async def _resolve_eval_node_id(self, node_ref: uuid.UUID | str) -> uuid.UUID:
+    async def get_node(self, node_id: uuid.UUID | str) -> AttackNode | None:
+        async with self._env._lock:
+            self._check_store_open()
+            return await self._get_node_locked(node_id)
+
+    async def _resolve_eval_node_id_locked(self, node_ref: uuid.UUID | str) -> uuid.UUID:
         clean_uuid = validate_uuid_v4_format(node_ref)
         # Check environment-derived scoped UUID first
         derived = self._env.derive_evaluation_event_id(clean_uuid)
@@ -111,6 +130,20 @@ class EvaluationAttackGraphStore(AttackGraphStore):
             return clean_uuid
         return derived
 
+    async def _link_events_locked(
+        self,
+        from_node: uuid.UUID | str,
+        to_node: uuid.UUID | str,
+        relationship: str = "caused",
+    ) -> None:
+        self._check_store_open()
+        from_uuid = await self._resolve_eval_node_id_locked(from_node)
+        to_uuid = await self._resolve_eval_node_id_locked(to_node)
+
+        await super().link_events(
+            from_node=from_uuid, to_node=to_uuid, relationship=relationship
+        )
+
     async def link_events(
         self,
         from_node: uuid.UUID | str,
@@ -118,12 +151,8 @@ class EvaluationAttackGraphStore(AttackGraphStore):
         relationship: str = "caused",
     ) -> None:
         async with self._env._lock:
-            self._check_store_open()
-            from_uuid = await self._resolve_eval_node_id(from_node)
-            to_uuid = await self._resolve_eval_node_id(to_node)
-
-            await super().link_events(
-                from_node=from_uuid, to_node=to_uuid, relationship=relationship
+            await self._link_events_locked(
+                from_node=from_node, to_node=to_node, relationship=relationship
             )
 
     async def query_nodes(
@@ -133,25 +162,29 @@ class EvaluationAttackGraphStore(AttackGraphStore):
         risk_threshold: float = 0.0,
         limit: int = 100,
     ) -> list[AttackNode]:
-        nodes = await super().query_nodes(
-            agent_id=agent_id,
-            time_range=time_range,
-            risk_threshold=risk_threshold,
-            limit=limit,
-        )
-        return [
-            n
-            for n in nodes
-            if n.event.metadata.get("evaluation_env_id") == self._env.env_id
-        ]
+        async with self._env._lock:
+            self._check_store_open()
+            nodes = await super().query_nodes(
+                agent_id=agent_id,
+                time_range=time_range,
+                risk_threshold=risk_threshold,
+                limit=limit,
+            )
+            return [
+                n
+                for n in nodes
+                if n.event.metadata.get("evaluation_env_id") == self._env.env_id
+            ]
 
     async def get_all_nodes(self) -> list[AttackNode]:
-        nodes = await super().get_all_nodes()
-        return [
-            n
-            for n in nodes
-            if n.event.metadata.get("evaluation_env_id") == self._env.env_id
-        ]
+        async with self._env._lock:
+            self._check_store_open()
+            nodes = await super().get_all_nodes()
+            return [
+                n
+                for n in nodes
+                if n.event.metadata.get("evaluation_env_id") == self._env.env_id
+            ]
 
     async def purge_events_before(self, cutoff_time: datetime) -> int:
         """Purge only this evaluation environment's events older than cutoff_time."""
@@ -280,10 +313,17 @@ class EvaluationAttackGraphStore(AttackGraphStore):
 
             return purged_count
 
+    async def reset(self) -> None:
+        """Reset the evaluation environment state."""
+        await self._env.reset()
+
+    async def _close_locked(self) -> None:
+        self._store_closed = True
+        await super().close()
+
     async def close(self) -> None:
         async with self._env._lock:
-            self._store_closed = True
-            await super().close()
+            await self._close_locked()
 
 
 class EvaluationEnvironment:
@@ -301,11 +341,11 @@ class EvaluationEnvironment:
         self.in_memory = in_memory
         self.created_at = datetime.now(UTC)
         self.metadata: dict[str, Any] = dict(metadata) if metadata else {}
+        self._lock = asyncio.Lock()
+        self._closed = False
+        self._initialized = False
         self.store = EvaluationAttackGraphStore(env=self, dsn=dsn, in_memory=in_memory)
         self.alert_bus = AlertBus()
-        self._initialized = False
-        self._closed = False
-        self._lock = asyncio.Lock()
 
     def derive_evaluation_event_id(self, event_id: uuid.UUID | str) -> uuid.UUID:
         """Deterministically derive an environment-isolated UUIDv4 to prevent collisions in shared databases."""
@@ -322,11 +362,16 @@ class EvaluationEnvironment:
                 f"EvaluationEnvironment '{self.env_id}' is closed and cannot accept operations."
             )
 
+    async def _initialize_locked(self) -> None:
+        """Internal initialization while self._lock is held."""
+        self._check_not_closed()
+        await self.store._initialize_locked()
+        self._initialized = self.store._initialized
+
     async def initialize(self) -> None:
         """Initialize the isolated graph store."""
-        self._check_not_closed()
-        await self.store.initialize()
-        self._initialized = True
+        async with self._lock:
+            await self._initialize_locked()
 
     def label_event(self, event: NormalizedEvent) -> NormalizedEvent:
         """Stamp a NormalizedEvent with this evaluation environment's metadata and isolated identifier."""
@@ -361,27 +406,25 @@ class EvaluationEnvironment:
 
     async def insert_event(self, event: NormalizedEvent) -> AttackNode:
         """Label and insert an event into this environment's isolated attack graph."""
-        await self.initialize()
-        return await self.store.insert_event(event)
+        async with self._lock:
+            self._check_not_closed()
+            await self.store._initialize_locked()
+            return await self.store._insert_event_locked(event)
 
     async def insert_events_batch(
         self, events: list[NormalizedEvent]
     ) -> list[AttackNode]:
         """Label and batch-insert events into this environment's isolated attack graph."""
-        await self.initialize()
-        return await self.store.insert_events_batch(events)
+        async with self._lock:
+            self._check_not_closed()
+            await self.store._initialize_locked()
+            return await self.store._insert_events_batch_locked(events)
 
     async def get_node(self, node_id: uuid.UUID | str) -> AttackNode | None:
         """Retrieve a node from this environment's graph, ensuring it belongs to this evaluation environment."""
-        self._check_not_closed()
-        node = await self.store.get_node(node_id)
-        if node is not None:
-            meta = node.event.metadata
-            if meta.get("evaluation_env_id") == self.env_id and (
-                meta.get("is_evaluation") is True or meta.get("eval_mode") is True
-            ):
-                return node
-        return None
+        async with self._lock:
+            self._check_not_closed()
+            return await self.store._get_node_locked(node_id)
 
     async def publish_alert(self, alert: Alert) -> bool:
         """Label and publish an alert to this environment's isolated alert bus."""
@@ -451,9 +494,11 @@ class EvaluationEnvironment:
 
     async def close(self) -> None:
         """Close graph store connection pool and transition to closed state."""
-        self._closed = True
-        self._initialized = False
-        await self.store.close()
+        async with self._lock:
+            if not self._closed:
+                self._closed = True
+                self._initialized = False
+                await self.store._close_locked()
 
     def is_production_action_suppressed(self) -> bool:
         """All mitigations from evaluation environments must be suppressed from production."""

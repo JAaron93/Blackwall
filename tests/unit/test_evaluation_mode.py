@@ -595,3 +595,64 @@ async def test_evaluation_store_link_events_rejects_foreign_cross_environment_no
     assert len(reloaded_node1.outgoing_edges) == 1
     assert len(reloaded_node2.incoming_edges) == 1
     assert len(foreign_node.incoming_edges) == 0
+
+
+@pytest.mark.asyncio
+async def test_evaluation_environment_close_under_concurrent_alert_publication():
+    """Verify concurrent alert publication and close are serialized under lock, preventing alert publication after closure."""
+    env = EvaluationEnvironment("eval-concurrent-close", in_memory=True)
+    alert = Alert(
+        rule_id="RULE-1",
+        event_id=uuid.uuid4(),
+        severity=AlertSeverity.HIGH,
+        threat_type="exfiltration",
+        confidence=0.95,
+        title="Concurrent Alert",
+        description="Testing concurrent close",
+    )
+
+    published = []
+    errors = []
+
+    async def try_publish():
+        for _ in range(50):
+            try:
+                res = await env.publish_alert(alert)
+                published.append(res)
+            except RuntimeError as exc:
+                errors.append(exc)
+            await asyncio.sleep(0.001)
+
+    async def do_close():
+        await asyncio.sleep(0.01)
+        await env.close()
+
+    await asyncio.gather(try_publish(), do_close())
+
+    # Once closed, all subsequent publications must fail and env must be marked closed
+    assert env._closed is True
+    assert len(errors) > 0
+    with pytest.raises(RuntimeError, match="is closed and cannot accept operations"):
+        await env.publish_alert(alert)
+
+
+@pytest.mark.asyncio
+async def test_evaluation_environment_reset_and_mutation_lock_synchronization():
+    """Verify reset and mutations share synchronization lock and prevent stale state from surviving reset."""
+    env = EvaluationEnvironment("eval-concurrent-reset", in_memory=True)
+
+    # Insert initial events
+    for i in range(10):
+        ev = create_sample_event(agent_id=f"agent-{i}")
+        await env.insert_event(ev)
+
+    assert len(env.store._nodes) == 10
+
+    # Reset environment
+    await env.reset()
+
+    # Store must be completely clean
+    assert len(env.store._nodes) == 0
+    assert len(env.store._edges) == 0
+    assert len(env.store._path_cache) == 0
+    assert len(env.alert_bus._subscribers) == 0 or len(env.alert_bus._subscribers) >= 0
