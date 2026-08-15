@@ -436,14 +436,30 @@ class AttackGraphStore:
                     created_at,
                 )
                 await conn.execute(
-                    "UPDATE event_nodes SET outgoing_edges = outgoing_edges || $1::jsonb WHERE node_id = $2;",
+                    """
+                    UPDATE event_nodes
+                    SET outgoing_edges = CASE
+                        WHEN outgoing_edges ? $3 THEN outgoing_edges
+                        ELSE outgoing_edges || $1::jsonb
+                    END
+                    WHERE node_id = $2;
+                    """,
                     json.dumps([edge_id_str]),
                     from_node_str,
+                    edge_id_str,
                 )
                 await conn.execute(
-                    "UPDATE event_nodes SET incoming_edges = incoming_edges || $1::jsonb WHERE node_id = $2;",
+                    """
+                    UPDATE event_nodes
+                    SET incoming_edges = CASE
+                        WHEN incoming_edges ? $3 THEN incoming_edges
+                        ELSE incoming_edges || $1::jsonb
+                    END
+                    WHERE node_id = $2;
+                    """,
                     json.dumps([edge_id_str]),
                     to_node_str,
+                    edge_id_str,
                 )
 
             await self._execute_with_retry(_db_link)
