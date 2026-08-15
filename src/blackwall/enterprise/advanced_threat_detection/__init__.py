@@ -61,6 +61,41 @@ from blackwall.enterprise.advanced_threat_detection.retrospective import (
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from blackwall.enterprise.advanced_threat_detection.swarm import AgentSwarmDetector
+from blackwall.enterprise.advanced_threat_detection.weave_config import (
+    WeaveConfig,
+    has_wandb_credentials,
+    init_weave,
+    load_weave_config,
+    should_enable_weave,
+)
+from blackwall.enterprise.advanced_threat_detection.weave_datasets import (
+    LocalEvaluationDataset,
+    create_evaluation_dataset,
+)
+from blackwall.enterprise.advanced_threat_detection.weave_harness import (
+    WeaveEvaluationHarness,
+)
+from blackwall.enterprise.advanced_threat_detection.weave_metrics import (
+    ThreatDetectionMetrics,
+    WeaveMetricsCollector,
+)
+from blackwall.enterprise.advanced_threat_detection.weave_serializer import (
+    WeaveTraceSerializer,
+)
+from blackwall.enterprise.advanced_threat_detection.weave_traced import (
+    WeaveTracedAgentSwarmDetector,
+    WeaveTracedAILMDetector,
+    WeaveTracedAILMTracker,
+    WeaveTracedAttackPathCorrelator,
+    WeaveTracedC2ChannelDetector,
+    WeaveTracedC2Detector,
+    WeaveTracedC2InfrastructureDetector,
+    WeaveTracedExploitChainAnalyzer,
+    WeaveTracedExploitPayloadAnalyzer,
+    WeaveTracedPathCorrelator,
+    WeaveTracedSwarmCoordinator,
+    weave_traced,
+)
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection")
 
@@ -89,6 +124,7 @@ __all__ = [
     "ExploitChainEvidence",
     "K8sThreatEvidence",
     "KubernetesDefenseLayer",
+    "LocalEvaluationDataset",
     "NormalizedEvent",
     "PackageRegistryMonitor",
     "PathCorrelator",
@@ -98,7 +134,29 @@ __all__ = [
     "RetrospectiveAnalyzer",
     "SafeDetectionRunner",
     "SwarmEvidence",
+    "ThreatDetectionMetrics",
+    "WeaveConfig",
+    "WeaveEvaluationHarness",
+    "WeaveMetricsCollector",
+    "WeaveTraceSerializer",
+    "WeaveTracedAILMDetector",
+    "WeaveTracedAILMTracker",
+    "WeaveTracedAgentSwarmDetector",
+    "WeaveTracedAttackPathCorrelator",
+    "WeaveTracedC2ChannelDetector",
+    "WeaveTracedC2Detector",
+    "WeaveTracedC2InfrastructureDetector",
+    "WeaveTracedExploitChainAnalyzer",
+    "WeaveTracedExploitPayloadAnalyzer",
+    "WeaveTracedPathCorrelator",
+    "WeaveTracedSwarmCoordinator",
+    "create_evaluation_dataset",
+    "has_wandb_credentials",
+    "init_weave",
+    "load_weave_config",
     "logger",
+    "should_enable_weave",
+    "weave_traced",
 ]
 
 

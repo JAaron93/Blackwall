@@ -732,7 +732,7 @@ The implementation follows a test-driven development approach with property-base
     - _Verification: `pytest tests/step_defs/test_system_integration_bdd.py -v`_
 
 - [ ] 22. Implement Weave Evaluation Tracking Integration
-  - [ ] 22.1 Create Weave configuration and initialization infrastructure
+  - [x] 22.1 Create Weave configuration and initialization infrastructure
     - Add `weave>=0.50.0` and `wandb>=0.16.0` as optional dependencies under the `[weave]` extras group in `pyproject.toml` (install with `pip install -e ".[weave]"`); omit for non-Weave environments — satisfies Req 21.1 and 21.3
     - Register `@pytest.mark.weave` under `[tool.pytest.ini_options].markers` in `pyproject.toml` with a human-readable description to prevent `PytestUnknownMarkWarning` (testing rule 9) — satisfies Req 21.2 and 21.4
     - Implement `WeaveConfig` dataclass with `project_name`, `entity`, `offline_mode`, `parallelism`, `tags`
@@ -747,14 +747,14 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 16.1, 16.2, 16.13, 16.14, 18.1, 18.2, 18.3, 18.4, 18.6, 18.8, 21.1, 21.2, 21.3, 21.4_
     - _Verification: `pytest tests/unit/test_weave_config.py -v --strict-markers`_
 
-  - [ ] 22.2 Implement WeaveEvaluationHarness class
+  - [x] 22.2 Implement WeaveEvaluationHarness class
     - Create initialization with WeaveConfig, handling offline mode and parallelism
     - Implement `run_evaluation()` with `@weave.op()` decorator creating Weave runs with scenario name, timestamp, and tags
     - Implement `track_detection_metrics(detection_type, true_positives, false_positives, false_negatives, true_negatives, detection_latency_ms)` — all four confusion-matrix counts required so FPR = FP / (FP + TN) can be computed alongside precision, recall, and F1
     - _Requirements: 16.3, 16.8, 17.1, 17.2, 17.3, 17.4, 17.5, 19.5_
     - _Verification: `pytest tests/unit/test_weave_harness.py -v`_
 
-  - [ ] 22.3 Implement Weave traced wrappers and WeaveTraceSerializer
+  - [x] 22.3 Implement Weave traced wrappers and WeaveTraceSerializer
     - Implement `WeaveTraceSerializer` in `src/blackwall/enterprise/advanced_threat_detection/weave_serializer.py`:
       - `serialize_event()` exports only `_SAFE_EVENT_FIELDS` (`event_id`, `timestamp`, `source`, `risk_score`); drops `action`, `target`, and `metadata` entirely (Req 16.17)
       - `serialize_path()` exports `_SAFE_PATH_FIELDS` and replaces node list with a `node_count` scalar
@@ -775,7 +775,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 16.4, 16.5, 16.9, 16.10, 16.11, 16.17, 16.18, 16.19, 16.20_
     - _Verification: `pytest tests/unit/test_weave_traced_detectors.py tests/unit/test_weave_serializer.py tests/integration/test_weave_trace_sanitization.py -v`_
 
-  - [ ] 22.4 Implement WeaveMetricsCollector for aggregated metrics
+  - [x] 22.4 Implement WeaveMetricsCollector for aggregated metrics
     - Create `ThreatDetectionMetrics` dataclass with precision, recall, F1, FPR, latency, TP, FP, TN, FN, timestamp, detection_type
     - Implement `compute_detection_metrics()` computing precision, recall, F1, FPR
     - Implement `compute_path_correlation_metrics()` with path_correlation_accuracy and latency
@@ -786,7 +786,7 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7, 17.8, 17.9, 17.10_
     - _Verification: `pytest tests/unit/test_weave_metrics_collector.py -v`_
 
-  - [ ] 22.5 Implement Weave Dataset creation from YAML evaluation scenarios
+  - [x] 22.5 Implement Weave Dataset creation from YAML evaluation scenarios
     - Create `create_evaluation_dataset()` loading YAML files from the configured scenarios directory
     - Parse all four required fields: `name`, `description`, `events`, `expected_detections`; each Dataset row must contain all four
     - Skip and log a warning for any scenario with missing, non-string, or whitespace-only `description`; other valid scenarios must still load
