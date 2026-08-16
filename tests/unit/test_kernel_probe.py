@@ -71,6 +71,32 @@ def test_targetless_socket_drop_returns_false():
     assert len(linux_driver._active_ebpf_drop_maps) == 0
 
 
+def test_user_space_audit_driver_pid_drop_interception():
+    """Verify UserSpaceAuditDriver intercepts execution and socket operations from dropped PIDs."""
+    import os
+    from blackwall.enterprise.kernel.probe import UserSpaceAuditDriver
+
+    driver = UserSpaceAuditDriver()
+    driver.start_tracing()
+
+    curr_pid = os.getpid()
+    applied = driver.inject_socket_drop(pid=curr_pid)
+    assert applied is True
+    assert driver.is_dropped(pid=curr_pid) is True
+
+    # Intercepts subprocess/exec
+    with pytest.raises(PermissionError) as exc_info:
+        driver.audit_event_handler("subprocess.Popen", ("ls",))
+    assert "Execution from dropped PID" in str(exc_info.value)
+
+    # Intercepts socket ops
+    with pytest.raises(PermissionError) as exc_info:
+        driver.audit_event_handler("socket.connect", ("<socket>", ("1.1.1.1", 80)))
+    assert "Socket operation from dropped PID" in str(exc_info.value)
+
+    driver.stop_tracing()
+
+
 def test_linux_ebpf_driver_socket_drop_and_tracing():
     """Verify LinuxeBPFDriver records drop maps and manages tracing lifecycle."""
     from blackwall.enterprise.kernel.probe import LinuxeBPFDriver

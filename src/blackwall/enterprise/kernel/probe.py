@@ -42,6 +42,14 @@ class KernelProbeDriver(ABC):
         """Remove executable pattern from block list."""
         self._blocked_patterns.discard(pattern)
 
+    def is_dropped(self, pid: Optional[int] = None, ip: Optional[str] = None) -> bool:
+        """Check whether a PID or IP has an active drop rule."""
+        if pid is not None and pid in self._dropped_pids:
+            return True
+        if ip is not None and ip in self._dropped_sockets:
+            return True
+        return False
+
     def inject_socket_drop(
         self, pid: Optional[int] = None, ip: Optional[str] = None
     ) -> bool:
@@ -73,7 +81,30 @@ class UserSpaceAuditDriver(KernelProbeDriver):
         if not self._is_active:
             return
 
-        if event in ("subprocess.Popen", "os.system", "os.exec", "os.spawn"):
+        import os
+        current_pid = os.getpid()
+
+        if event in ("subprocess.Popen", "os.system", "os.exec", "os.spawn", "os.kill", "os.posix_spawn"):
+            if current_pid in self._dropped_pids:
+                logger.warning(
+                    "UserSpaceAuditDriver blocked process execution from dropped PID",
+                    extra={"event": event, "pid": current_pid},
+                )
+                raise PermissionError(
+                    f"Execution from dropped PID '{current_pid}' intercepted by Blackwall UserSpaceAuditDriver"
+                )
+
+            if event == "os.kill" and args:
+                target_pid = args[0]
+                if target_pid in self._dropped_pids:
+                    logger.warning(
+                        "UserSpaceAuditDriver blocked operation targeting dropped PID",
+                        extra={"event": event, "pid": target_pid},
+                    )
+                    raise PermissionError(
+                        f"Process operation on dropped PID '{target_pid}' intercepted by Blackwall UserSpaceAuditDriver"
+                    )
+
             cmd_str = str(args[0]) if args else ""
             for pattern in self._blocked_patterns:
                 if pattern in cmd_str:
@@ -86,6 +117,15 @@ class UserSpaceAuditDriver(KernelProbeDriver):
                     )
 
         if event.startswith("socket."):
+            if current_pid in self._dropped_pids:
+                logger.warning(
+                    "UserSpaceAuditDriver blocked socket operation from dropped PID",
+                    extra={"event": event, "pid": current_pid},
+                )
+                raise PermissionError(
+                    f"Socket operation from dropped PID '{current_pid}' intercepted by Blackwall UserSpaceAuditDriver"
+                )
+
             arg_str = str(args)
             for dropped_ip in self._dropped_sockets:
                 if dropped_ip in arg_str:
