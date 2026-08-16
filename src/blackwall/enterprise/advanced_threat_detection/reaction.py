@@ -437,10 +437,10 @@ class ActiveReactionEngine:
                                 tokens_to_revoke.append(t_id)
 
             if tokens_to_revoke and hasattr(adapter, "revoke_token"):
+                all_tokens_successful = True
                 for t_id in tokens_to_revoke:
                     if hasattr(adapter, "_issued_tokens") and t_id in adapter._issued_tokens:
                         if adapter._issued_tokens[t_id].get("status") == "REVOKED":
-                            token_revoked = True
                             revocation_record.setdefault("revoked_token_ids", []).append(t_id)
                             revocation_record["revoked_token_id"] = t_id
                             continue
@@ -448,21 +448,26 @@ class ActiveReactionEngine:
                     if asyncio.iscoroutine(res):
                         res = await res
                     if res is not False and res is not None:
-                        token_revoked = True
                         revocation_record.setdefault("revoked_token_ids", []).append(t_id)
                         revocation_record["revoked_token_id"] = t_id
                     else:
                         logger.error("Vault adapter rejected revocation of token: %s", t_id)
+                        all_tokens_successful = False
+
+                if all_tokens_successful and len(revocation_record.get("revoked_token_ids", [])) == len(tokens_to_revoke):
+                    token_revoked = True
+                else:
+                    token_revoked = False
 
             is_honeytoken_target = bool(
                 payload.metadata.get("is_honeytoken")
                 or (isinstance(token_id, str) and token_id.startswith("BW_SYNTHETIC_"))
             )
 
-            if token_revoked or (is_honeytoken_target and honeytoken_rotated):
-                mitigated = True
+            if tokens_to_revoke:
+                mitigated = token_revoked
             else:
-                mitigated = False
+                mitigated = is_honeytoken_target and honeytoken_rotated
 
         except Exception as exc:
             logger.error("Error revoking identity credentials via Vault: %s", exc)

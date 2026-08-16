@@ -1040,3 +1040,47 @@ async def test_idempotent_revocation_of_already_revoked_token_succeeds():
     success = await engine.revoke_identity_session(payload)
     assert success is True
     assert payload.status == "SUCCESS"
+
+
+@pytest.mark.asyncio
+async def test_mixed_already_revoked_and_failed_active_token_revocation_fails():
+    """Verify that an already-revoked token does NOT mask failures when revoking active tokens."""
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+    ev_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=ev_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.IDENTITY_ACCESS,
+            agent_id="mixed-agent",
+            action="token_theft",
+            target="vault",
+            metadata={"is_evaluation": False},
+            risk_score=0.9,
+        )
+    )
+
+    vault = VaultMCPAdapter()
+    await vault.connect()
+    token_revoked = await vault.issue_jit_token(role="worker", agent_id="mixed-agent", ttl_seconds=600)
+    await vault.revoke_token(token_revoked["token_id"])
+    assert vault._issued_tokens[token_revoked["token_id"]]["status"] == "REVOKED"
+
+    # Mock vault.revoke_token to reject any subsequent active token revocations
+    async def mock_failing_revoke(t_id: str) -> bool:
+        return False
+
+    vault.revoke_token = mock_failing_revoke  # type: ignore
+
+    engine = ActiveReactionEngine(vault_adapter=vault, graph_store=graph_store)
+
+    payload = ActiveReactionPayload(
+        trigger_evidence_id=ev_id,
+        target_agent_id="mixed-agent",
+        action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
+        metadata={"token_ids": [token_revoked["token_id"], "bw_jit_active_failed_token"]},
+    )
+    success = await engine.revoke_identity_session(payload)
+    assert success is False
+    assert payload.status == "FAILED"
