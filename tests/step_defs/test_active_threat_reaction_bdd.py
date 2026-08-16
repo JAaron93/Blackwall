@@ -67,8 +67,10 @@ def state() -> ActiveReactionBDDState:
 
 @given("an ActiveReactionEngine configured with Pillar 1 Kernel Probe Driver")
 def setup_engine_with_kernel(state: ActiveReactionBDDState) -> None:
+    state.graph_store = AttackGraphStore(in_memory=True)
+    run_async(state.graph_store.initialize())
     state.kernel_driver = UserSpaceAuditDriver()
-    state.engine = ActiveReactionEngine(kernel_driver=state.kernel_driver)
+    state.engine = ActiveReactionEngine(kernel_driver=state.kernel_driver, graph_store=state.graph_store)
 
 
 @when(
@@ -79,8 +81,23 @@ def setup_engine_with_kernel(state: ActiveReactionBDDState) -> None:
 def dispatch_ebpf_reaction(
     state: ActiveReactionBDDState, action_str: str, pid: int, ip: str
 ) -> None:
+    trigger_id = uuid.uuid4()
+    run_async(
+        state.graph_store.insert_event(
+            NormalizedEvent(
+                event_id=trigger_id,
+                timestamp=datetime.now(UTC),
+                source=EventSource.KERNEL_SYSCALL,
+                agent_id="rce-attacker",
+                action="execve",
+                target=str(pid),
+                metadata={"is_evaluation": False},
+                risk_score=0.95,
+            )
+        )
+    )
     payload = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
+        trigger_evidence_id=trigger_id,
         target_agent_id="rce-attacker",
         target_pid=pid,
         target_ip=ip,
@@ -125,8 +142,10 @@ def verify_reaction_sla(
 
 @given("an ActiveReactionEngine configured with Pillar 2 Threat Mesh Broadcaster")
 def setup_engine_with_mesh(state: ActiveReactionBDDState) -> None:
+    state.graph_store = AttackGraphStore(in_memory=True)
+    run_async(state.graph_store.initialize())
     state.mesh_broadcaster = MockBDDMeshBroadcaster()
-    state.engine = ActiveReactionEngine(mesh_broadcaster=state.mesh_broadcaster)
+    state.engine = ActiveReactionEngine(mesh_broadcaster=state.mesh_broadcaster, graph_store=state.graph_store)
 
 
 @when(
@@ -137,8 +156,23 @@ def setup_engine_with_mesh(state: ActiveReactionBDDState) -> None:
 def dispatch_mesh_reaction(
     state: ActiveReactionBDDState, action_str: str, agent_id: str
 ) -> None:
+    trigger_id = uuid.uuid4()
+    run_async(
+        state.graph_store.insert_event(
+            NormalizedEvent(
+                event_id=trigger_id,
+                timestamp=datetime.now(UTC),
+                source=EventSource.KERNEL_SYSCALL,
+                agent_id=agent_id,
+                action="connect",
+                target="peer_node",
+                metadata={"is_evaluation": False},
+                risk_score=0.95,
+            )
+        )
+    )
     payload = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
+        trigger_evidence_id=trigger_id,
         target_agent_id=agent_id,
         action_type=ReactionActionType(action_str),
     )
@@ -178,16 +212,18 @@ def verify_broadcast_sla(
     "an ActiveReactionEngine configured with Pillar 3 Ephemeral Identity Sidecar and Vault MCP"
 )
 def setup_engine_with_vault(state: ActiveReactionBDDState) -> None:
+    state.graph_store = AttackGraphStore(in_memory=True)
+    run_async(state.graph_store.initialize())
     state.vault_adapter = VaultMCPAdapter()
     run_async(state.vault_adapter.connect())
-    state.engine = ActiveReactionEngine(vault_adapter=state.vault_adapter)
+    state.engine = ActiveReactionEngine(vault_adapter=state.vault_adapter, graph_store=state.graph_store)
 
 
 @given(parsers.parse('an active JIT credential issued for agent "{agent_id}"'))
 def issue_jit_credential(state: ActiveReactionBDDState, agent_id: str) -> None:
     assert state.vault_adapter is not None
     state.jit_token = run_async(
-        state.vault_adapter.issue_jit_token(role="agent_role", ttl_seconds=900)
+        state.vault_adapter.issue_jit_token(role="agent_role", agent_id=agent_id, ttl_seconds=900)
     )
     assert state.jit_token["status"] == "ACTIVE"
 
@@ -201,8 +237,23 @@ def dispatch_vault_revocation(
     state: ActiveReactionBDDState, action_str: str, agent_id: str
 ) -> None:
     assert state.jit_token is not None
+    trigger_id = uuid.uuid4()
+    run_async(
+        state.graph_store.insert_event(
+            NormalizedEvent(
+                event_id=trigger_id,
+                timestamp=datetime.now(UTC),
+                source=EventSource.IDENTITY_ACCESS,
+                agent_id=agent_id,
+                action="token_theft",
+                target="vault",
+                metadata={"is_evaluation": False},
+                risk_score=0.95,
+            )
+        )
+    )
     payload = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
+        trigger_evidence_id=trigger_id,
         target_agent_id=agent_id,
         action_type=ReactionActionType(action_str),
         metadata={"token_id": state.jit_token["token_id"]},

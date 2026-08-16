@@ -165,6 +165,15 @@ class ActiveReactionEngine:
                 )
                 return True
 
+        if self.eval_manager is None and self.graph_store is None:
+            # When both resolvers are absent, evidence provenance cannot be verified against
+            # either evaluation isolation or the production graph store. Fail closed to contain.
+            logger.warning(
+                "Neither evaluation manager nor graph store configured to verify provenance for evidence %s; failing closed to contain.",
+                clean_evidence_uuid,
+            )
+            return True
+
         return False
 
     def _is_payload_eval_flagged(self, payload: ActiveReactionPayload) -> bool:
@@ -443,12 +452,19 @@ class ActiveReactionEngine:
             if hasattr(adapter, "_issued_tokens"):
                 for t_id, t_info in list(adapter._issued_tokens.items()):
                     if t_info.get("status") == "ACTIVE":
-                        if (
+                        agent_matches = (
                             t_info.get("agent_id") == payload.target_agent_id
                             or t_info.get("principal_id") == payload.target_agent_id
-                            or t_info.get("role") == payload.target_agent_id
+                            or t_info.get("metadata", {}).get("agent_id") == payload.target_agent_id
+                            or t_info.get("metadata", {}).get("principal_id") == payload.target_agent_id
                             or t_id == payload.target_agent_id
-                        ):
+                            or (
+                                t_info.get("agent_id") is None
+                                and t_info.get("principal_id") is None
+                                and t_info.get("role") == payload.target_agent_id
+                            )
+                        )
+                        if agent_matches:
                             if t_id not in tokens_to_revoke:
                                 tokens_to_revoke.append(t_id)
 
@@ -657,12 +673,19 @@ class ActiveReactionEngine:
                 if hasattr(adapter, "_issued_tokens"):
                     for t_id, t_info in list(adapter._issued_tokens.items()):
                         if t_info.get("status") == "ACTIVE":
-                            if (
+                            agent_matches = (
                                 t_info.get("agent_id") == target_agent
                                 or t_info.get("principal_id") == target_agent
-                                or t_info.get("role") == target_agent
+                                or t_info.get("metadata", {}).get("agent_id") == target_agent
+                                or t_info.get("metadata", {}).get("principal_id") == target_agent
                                 or t_id == target_agent
-                            ):
+                                or (
+                                    t_info.get("agent_id") is None
+                                    and t_info.get("principal_id") is None
+                                    and t_info.get("role") == target_agent
+                                )
+                            )
+                            if agent_matches:
                                 if t_id not in matching_tokens:
                                     matching_tokens.append(t_id)
 

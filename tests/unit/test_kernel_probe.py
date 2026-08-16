@@ -101,11 +101,14 @@ def test_user_space_audit_driver_pid_drop_interception():
 
 
 def test_linux_ebpf_driver_socket_drop_and_tracing():
-    """Verify LinuxeBPFDriver records drop maps and manages tracing lifecycle."""
+    """Verify LinuxeBPFDriver records drop maps, manages tracing lifecycle, and enforces syscall drops."""
     from blackwall.enterprise.kernel.probe import LinuxeBPFDriver
 
     driver = LinuxeBPFDriver()
     driver.start_tracing()
+    assert driver.is_active is True
+    assert "sys_enter_execve" in driver._attached_probes
+    assert "sys_enter_connect" in driver._attached_probes
 
     applied = driver.inject_socket_drop(pid=5432, ip="10.10.10.10")
     assert applied is True
@@ -114,5 +117,20 @@ def test_linux_ebpf_driver_socket_drop_and_tracing():
     assert "pid:5432" in driver._blocked_patterns
     assert "ip:10.10.10.10" in driver._blocked_patterns
 
+    # Syscall enforcement on dropped PID
+    with pytest.raises(PermissionError) as exc_info:
+        driver.enforce_syscall_event("sys_enter_execve", pid=5432)
+    assert "dropped PID '5432'" in str(exc_info.value)
+
+    # Syscall enforcement on dropped IP
+    with pytest.raises(PermissionError) as exc_info:
+        driver.enforce_syscall_event("sys_enter_connect", ip="10.10.10.10")
+    assert "dropped IP '10.10.10.10'" in str(exc_info.value)
+
+    # Allowed syscalls
+    driver.enforce_syscall_event("sys_enter_execve", pid=9999)
+    driver.enforce_syscall_event("sys_enter_connect", ip="192.168.1.1")
+
     driver.stop_tracing()
     assert driver.is_active is False
+    assert len(driver._attached_probes) == 0

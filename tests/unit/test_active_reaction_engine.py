@@ -147,11 +147,27 @@ def test_active_reaction_payload_rejections():
 @pytest.mark.asyncio
 async def test_ebpf_socket_drop_production():
     """Verify eBPF socket drop in production mode executes within 50ms (Requirement 22.1)."""
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+    trigger_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=trigger_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id="agent-rce-01",
+            action="execve",
+            target="/bin/bash",
+            metadata={"is_evaluation": False},
+            risk_score=0.9,
+        )
+    )
+
     driver = UserSpaceAuditDriver()
-    engine = ActiveReactionEngine(kernel_driver=driver)
+    engine = ActiveReactionEngine(kernel_driver=driver, graph_store=graph_store)
 
     payload = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
+        trigger_evidence_id=trigger_id,
         target_agent_id="agent-rce-01",
         target_pid=4412,
         target_ip="10.0.0.99",
@@ -199,11 +215,27 @@ async def test_ebpf_socket_drop_evaluation_suppressed():
 @pytest.mark.asyncio
 async def test_mesh_signature_broadcast_production():
     """Verify Threat Mesh signature broadcast in production executes within 15ms (Requirement 22.2)."""
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+    trigger_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=trigger_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id="agent-c2-01",
+            action="connect",
+            target="198.51.100.23",
+            metadata={"is_evaluation": False},
+            risk_score=0.9,
+        )
+    )
+
     broadcaster = MockMeshBroadcaster()
-    engine = ActiveReactionEngine(mesh_broadcaster=broadcaster)
+    engine = ActiveReactionEngine(mesh_broadcaster=broadcaster, graph_store=graph_store)
 
     payload = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
+        trigger_evidence_id=trigger_id,
         target_agent_id="agent-c2-01",
         target_ip="198.51.100.23",
         action_type=ReactionActionType.MESH_SIGNATURE_BROADCAST,
@@ -247,14 +279,30 @@ async def test_mesh_signature_broadcast_evaluation_suppressed():
 @pytest.mark.asyncio
 async def test_identity_session_revocation_production():
     """Verify Identity token revocation and honey-token rotation in production (Requirement 22.3)."""
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+    trigger_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=trigger_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.IDENTITY_ACCESS,
+            agent_id="agent-ailm-01",
+            action="token_access",
+            target="vault",
+            metadata={"is_evaluation": False},
+            risk_score=0.9,
+        )
+    )
+
     vault_adapter = VaultMCPAdapter()
     await vault_adapter.connect()
-    token = await vault_adapter.issue_jit_token(role="worker", ttl_seconds=900)
+    token = await vault_adapter.issue_jit_token(role="worker", agent_id="agent-ailm-01", ttl_seconds=900)
 
-    engine = ActiveReactionEngine(vault_adapter=vault_adapter)
+    engine = ActiveReactionEngine(vault_adapter=vault_adapter, graph_store=graph_store)
 
     payload = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
+        trigger_evidence_id=trigger_id,
         target_agent_id="agent-ailm-01",
         action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
         metadata={"token_id": token["token_id"]},
@@ -432,6 +480,37 @@ async def test_dispatch_logging_to_attack_graph_and_alert_bus():
 @pytest.mark.asyncio
 async def test_react_to_alert_c2_and_swarm():
     """Verify react_to_alert synthesizes appropriate reaction payloads for CRITICAL alerts."""
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+
+    c2_ev_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=c2_ev_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id="c2-agent",
+            action="connect",
+            target="203.0.113.5",
+            metadata={"is_evaluation": False},
+            risk_score=0.95,
+        )
+    )
+
+    swarm_ev_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=swarm_ev_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.IDENTITY_ACCESS,
+            agent_id="swarm-leader",
+            action="token_access",
+            target="vault",
+            metadata={"is_evaluation": False},
+            risk_score=0.95,
+        )
+    )
+
     driver = UserSpaceAuditDriver()
     broadcaster = MockMeshBroadcaster()
     vault = VaultMCPAdapter()
@@ -441,6 +520,7 @@ async def test_react_to_alert_c2_and_swarm():
         kernel_driver=driver,
         mesh_broadcaster=broadcaster,
         vault_adapter=vault,
+        graph_store=graph_store,
     )
 
     # C2 Alert -> eBPF drop + Mesh broadcast
@@ -450,7 +530,7 @@ async def test_react_to_alert_c2_and_swarm():
         threat_type="c2_infrastructure",
         title="C2 Channel Detected",
         description="Active beaconing observed",
-        evidence_id=uuid.uuid4(),
+        evidence_id=c2_ev_id,
         agent_id="c2-agent",
         evidence={"pid": 1122, "ip": "203.0.113.5"},
     )
@@ -463,14 +543,14 @@ async def test_react_to_alert_c2_and_swarm():
     assert all(r.status == "SUCCESS" for r in c2_reactions)
 
     # Swarm Alert -> Token revocation
-    swarm_token = await vault.issue_jit_token(role="swarm-leader", ttl_seconds=900)
+    swarm_token = await vault.issue_jit_token(role="swarm_role", agent_id="swarm-leader", ttl_seconds=900)
     swarm_alert = Alert(
         alert_id=uuid.uuid4(),
         severity=AlertSeverity.CRITICAL,
         threat_type="agent_swarm",
         title="Agent Swarm Activity",
         description="Coordinated swarm detected",
-        evidence_id=uuid.uuid4(),
+        evidence_id=swarm_ev_id,
         agent_id="swarm-leader",
         metadata={"token_id": swarm_token["token_id"]},
     )
@@ -500,11 +580,27 @@ async def test_react_to_alert_c2_and_swarm():
 @pytest.mark.asyncio
 async def test_adapter_absence_and_rejection_marks_failed():
     """Verify that absent adapters or rejected operations set status to FAILED."""
-    # Engine with no adapters configured
-    empty_engine = ActiveReactionEngine()
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+    trigger_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=trigger_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id="agent-01",
+            action="execve",
+            target="/bin/bash",
+            metadata={"is_evaluation": False},
+            risk_score=0.9,
+        )
+    )
+
+    # Engine with no adapters configured but valid production graph store
+    empty_engine = ActiveReactionEngine(graph_store=graph_store)
 
     payload_ebpf = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
+        trigger_evidence_id=trigger_id,
         target_agent_id="agent-01",
         target_pid=1234,
         action_type=ReactionActionType.EBPF_DROP,
@@ -513,7 +609,7 @@ async def test_adapter_absence_and_rejection_marks_failed():
     assert payload_ebpf.status == "FAILED"
 
     payload_mesh = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
+        trigger_evidence_id=trigger_id,
         target_agent_id="agent-01",
         action_type=ReactionActionType.MESH_SIGNATURE_BROADCAST,
     )
@@ -521,7 +617,7 @@ async def test_adapter_absence_and_rejection_marks_failed():
     assert payload_mesh.status == "FAILED"
 
     payload_vault = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
+        trigger_evidence_id=trigger_id,
         target_agent_id="agent-01",
         action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
     )
@@ -558,15 +654,31 @@ async def test_evaluation_lookup_exception_fails_closed():
 @pytest.mark.asyncio
 async def test_honeytoken_rotation_does_not_mask_failed_token_revocation():
     """Verify that honeytoken rotation alone does not mark REVOKE_IDENTITY_TOKENS as SUCCESS if token revocation fails."""
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+    trigger_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=trigger_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.IDENTITY_ACCESS,
+            agent_id="non-existent-agent",
+            action="token_access",
+            target="vault",
+            metadata={"is_evaluation": False},
+            risk_score=0.9,
+        )
+    )
+
     vault = VaultMCPAdapter()
     await vault.connect()
     # Note: no tokens issued for "non-existent-agent"
 
-    engine = ActiveReactionEngine(vault_adapter=vault)
+    engine = ActiveReactionEngine(vault_adapter=vault, graph_store=graph_store)
 
     # Attempt to revoke non-existent token for an unknown agent
     payload = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
+        trigger_evidence_id=trigger_id,
         target_agent_id="non-existent-agent",
         action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
         metadata={"token_id": "bw_jit_nonexistent123"},
@@ -609,14 +721,30 @@ async def test_unresolved_evidence_with_eval_manager_fails_closed():
 @pytest.mark.asyncio
 async def test_unsupported_kernel_driver_fails_socket_drop():
     """Verify that a kernel driver without inject_socket_drop or drop_socket fails execution."""
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+    trigger_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=trigger_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id="target-agent",
+            action="execve",
+            target="/bin/bash",
+            metadata={"is_evaluation": False},
+            risk_score=0.9,
+        )
+    )
+
     class DummyDriverWithoutDrop:
         def start_tracing(self): pass
         def stop_tracing(self): pass
 
-    engine = ActiveReactionEngine(kernel_driver=DummyDriverWithoutDrop())
+    engine = ActiveReactionEngine(kernel_driver=DummyDriverWithoutDrop(), graph_store=graph_store)
 
     payload = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
+        trigger_evidence_id=trigger_id,
         target_agent_id="target-agent",
         target_pid=1234,
         action_type=ReactionActionType.EBPF_DROP,
@@ -652,24 +780,40 @@ async def test_evaluation_containment_eval_manager_without_graph_store():
 
 @pytest.mark.asyncio
 async def test_revoke_identity_session_exact_role_matching_no_substring_crossover():
-    """Verify that token revocation matches target role strictly and does not revoke substring-matching roles."""
+    """Verify that token revocation scopes strictly to the target agent_id without cross-revoking sibling agents sharing roles."""
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+    trigger_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=trigger_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.IDENTITY_ACCESS,
+            agent_id="agent-1",
+            action="token_access",
+            target="vault",
+            metadata={"is_evaluation": False},
+            risk_score=0.9,
+        )
+    )
+
     vault = VaultMCPAdapter()
     await vault.connect()
 
-    # Issue token for agent-10
-    token_10 = await vault.issue_jit_token(role="agent-10", ttl_seconds=300)
+    # Issue token for agent-10 sharing role "worker"
+    token_10 = await vault.issue_jit_token(role="worker", agent_id="agent-10", ttl_seconds=300)
     assert token_10 is not None
 
-    engine = ActiveReactionEngine(vault_adapter=vault)
+    engine = ActiveReactionEngine(vault_adapter=vault, graph_store=graph_store)
 
-    # Attempt to revoke for agent-1 (which is a substring of agent-10)
+    # Attempt to revoke for agent-1 (which is a substring of agent-10 and shares "worker" role)
     payload = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
+        trigger_evidence_id=trigger_id,
         target_agent_id="agent-1",
         action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
     )
 
-    # Should fail because agent-1 has no issued token and should NOT revoke agent-10's token
+    # Should fail because agent-1 has no issued token and must NOT revoke agent-10's token
     success = await engine.revoke_identity_session(payload)
     assert success is False
     assert payload.status == "FAILED"
@@ -708,11 +852,27 @@ async def test_unresolved_evidence_in_graph_store_without_eval_manager_fails_clo
 @pytest.mark.asyncio
 async def test_targetless_socket_drop_fails():
     """Verify that an eBPF drop without target PID or IP fails execution."""
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+    trigger_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=trigger_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id="target-agent",
+            action="execve",
+            target="/bin/bash",
+            metadata={"is_evaluation": False},
+            risk_score=0.9,
+        )
+    )
+
     driver = UserSpaceAuditDriver()
-    engine = ActiveReactionEngine(kernel_driver=driver)
+    engine = ActiveReactionEngine(kernel_driver=driver, graph_store=graph_store)
 
     payload = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
+        trigger_evidence_id=trigger_id,
         target_agent_id="target-agent",
         target_pid=None,
         target_ip=None,
@@ -727,16 +887,32 @@ async def test_targetless_socket_drop_fails():
 @pytest.mark.asyncio
 async def test_react_to_alert_revokes_multiple_active_tokens():
     """Verify that react_to_alert discovers and revokes all active tokens for a compromised agent."""
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+    ev_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=ev_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.IDENTITY_ACCESS,
+            agent_id="compromised-agent",
+            action="token_theft",
+            target="vault",
+            metadata={"is_evaluation": False},
+            risk_score=0.9,
+        )
+    )
+
     vault = VaultMCPAdapter()
     await vault.connect()
 
     # Issue multiple active tokens for the compromised agent
-    token1 = await vault.issue_jit_token(role="compromised-agent", ttl_seconds=600)
-    token2 = await vault.issue_jit_token(role="compromised-agent", ttl_seconds=600)
+    token1 = await vault.issue_jit_token(role="worker", agent_id="compromised-agent", ttl_seconds=600)
+    token2 = await vault.issue_jit_token(role="admin", agent_id="compromised-agent", ttl_seconds=600)
     # Issue a token for a different agent that must NOT be revoked
-    other_token = await vault.issue_jit_token(role="innocent-agent", ttl_seconds=600)
+    other_token = await vault.issue_jit_token(role="worker", agent_id="innocent-agent", ttl_seconds=600)
 
-    engine = ActiveReactionEngine(vault_adapter=vault)
+    engine = ActiveReactionEngine(vault_adapter=vault, graph_store=graph_store)
 
     # Trigger credential alert without specifying a single token_id
     alert = Alert(
@@ -745,7 +921,7 @@ async def test_react_to_alert_revokes_multiple_active_tokens():
         threat_type="credential_theft",
         title="Credential harvesting detected",
         description="Multiple credentials compromised",
-        evidence_id=uuid.uuid4(),
+        evidence_id=ev_id,
         agent_id="compromised-agent",
     )
 
@@ -764,16 +940,32 @@ async def test_react_to_alert_revokes_multiple_active_tokens():
 @pytest.mark.asyncio
 async def test_explicit_token_alert_revokes_sibling_active_tokens():
     """Verify that an alert providing one explicit token also revokes all sibling active tokens for that agent."""
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+    ev_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=ev_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.IDENTITY_ACCESS,
+            agent_id="multi-session-agent",
+            action="token_theft",
+            target="vault",
+            metadata={"is_evaluation": False},
+            risk_score=0.9,
+        )
+    )
+
     vault = VaultMCPAdapter()
     await vault.connect()
 
     # Issue multiple active tokens for the target agent
-    primary_token = await vault.issue_jit_token(role="multi-session-agent", ttl_seconds=600)
-    sibling_token1 = await vault.issue_jit_token(role="multi-session-agent", ttl_seconds=600)
-    sibling_token2 = await vault.issue_jit_token(role="multi-session-agent", ttl_seconds=600)
-    unrelated_token = await vault.issue_jit_token(role="other-agent", ttl_seconds=600)
+    primary_token = await vault.issue_jit_token(role="worker", agent_id="multi-session-agent", ttl_seconds=600)
+    sibling_token1 = await vault.issue_jit_token(role="worker", agent_id="multi-session-agent", ttl_seconds=600)
+    sibling_token2 = await vault.issue_jit_token(role="admin", agent_id="multi-session-agent", ttl_seconds=600)
+    unrelated_token = await vault.issue_jit_token(role="worker", agent_id="other-agent", ttl_seconds=600)
 
-    engine = ActiveReactionEngine(vault_adapter=vault)
+    engine = ActiveReactionEngine(vault_adapter=vault, graph_store=graph_store)
 
     # Alert specifies only primary_token["token_id"]
     alert = Alert(
@@ -782,7 +974,7 @@ async def test_explicit_token_alert_revokes_sibling_active_tokens():
         threat_type="token_theft",
         title="Token Compromised",
         description="Explicit token leak",
-        evidence_id=uuid.uuid4(),
+        evidence_id=ev_id,
         agent_id="multi-session-agent",
         metadata={"token_id": primary_token["token_id"]},
     )

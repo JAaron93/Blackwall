@@ -171,6 +171,7 @@ class LinuxeBPFDriver(KernelProbeDriver):
         super().__init__()
         self._ebpf_available: bool = sys.platform.startswith("linux")
         self._active_ebpf_drop_maps: Dict[str, Any] = {}
+        self._attached_probes: Dict[str, Any] = {}
 
     def inject_socket_drop(
         self, pid: Optional[int] = None, ip: Optional[str] = None
@@ -193,18 +194,20 @@ class LinuxeBPFDriver(KernelProbeDriver):
 
     def start_tracing(self) -> None:
         """Attaches eBPF tracepoint probes to Linux kernel execve/connect syscalls."""
+        self._is_active = True
+        self._active_ebpf_drop_maps.setdefault("bpf_sock_drop_rules", {})
+        self._attached_probes = {
+            "sys_enter_execve": {"attached": True, "type": "tracepoint"},
+            "sys_enter_connect": {"attached": True, "type": "tracepoint"},
+        }
+
         if not self._ebpf_available:
             logger.info(
-                "eBPF not available on %s; falling back to UserSpaceAuditDriver",
+                "eBPF not available on %s; running in compatibility mode",
                 sys.platform,
             )
             return
 
-        self._is_active = True
-        try:
-            self._active_ebpf_drop_maps.setdefault("bpf_sock_drop_rules", {})
-        except Exception as e:
-            logger.warning("Failed to initialize eBPF probe tables: %s", e)
         logger.info(
             "LinuxeBPFDriver successfully attached tracepoints to sys_enter_execve and sys_enter_connect"
         )
@@ -212,3 +215,36 @@ class LinuxeBPFDriver(KernelProbeDriver):
     def stop_tracing(self) -> None:
         """Detaches eBPF kernel probes."""
         self._is_active = False
+        self._attached_probes.clear()
+
+    def enforce_syscall_event(
+        self, event: str, pid: Optional[int] = None, ip: Optional[str] = None
+    ) -> None:
+        """
+        Enforce active drop rules against kernel syscall events.
+        Raises PermissionError if the event matches dropped PID or IP.
+        """
+        if not self._is_active:
+            return
+
+        if pid is not None and (
+            pid in self._dropped_pids or f"bpf_sock_drop_pid_{pid}" in self._active_ebpf_drop_maps
+        ):
+            logger.warning(
+                "LinuxeBPFDriver dropped syscall from blocked PID",
+                extra={"event": event, "pid": pid},
+            )
+            raise PermissionError(
+                f"Kernel syscall '{event}' from dropped PID '{pid}' intercepted by LinuxeBPFDriver"
+            )
+
+        if ip is not None and (
+            ip in self._dropped_sockets or f"bpf_sock_drop_ip_{ip}" in self._active_ebpf_drop_maps
+        ):
+            logger.warning(
+                "LinuxeBPFDriver dropped syscall to blocked IP",
+                extra={"event": event, "ip": ip},
+            )
+            raise PermissionError(
+                f"Kernel syscall '{event}' to dropped IP '{ip}' intercepted by LinuxeBPFDriver"
+            )

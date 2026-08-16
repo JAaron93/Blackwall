@@ -80,11 +80,27 @@ async def test_property_89_dynamic_ebpf_socket_drop_injection(
     For any CRITICAL threat evidence, the ActiveReactionEngine SHALL inject an eBPF socket drop
     rule for the offending PID or IP into Pillar 1 within 50 milliseconds.
     """
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+    trigger_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=trigger_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id=agent_id,
+            action="execve",
+            target=str(pid),
+            metadata={"is_evaluation": False},
+            risk_score=0.9,
+        )
+    )
+
     driver = UserSpaceAuditDriver()
-    engine = ActiveReactionEngine(kernel_driver=driver)
+    engine = ActiveReactionEngine(kernel_driver=driver, graph_store=graph_store)
 
     payload = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
+        trigger_evidence_id=trigger_id,
         target_agent_id=agent_id,
         target_pid=pid,
         target_ip=ip,
@@ -121,11 +137,27 @@ async def test_property_90_zero_latency_threat_mesh_broadcast(
     For any CRITICAL threat evidence, the ActiveReactionEngine SHALL broadcast a block signature
     to Pillar 2 Threat Mesh in less than 15 milliseconds.
     """
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+    trigger_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=trigger_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id=agent_id,
+            action="connect",
+            target=ip,
+            metadata={"is_evaluation": False},
+            risk_score=0.9,
+        )
+    )
+
     broadcaster = MockPropertyBroadcaster()
-    engine = ActiveReactionEngine(mesh_broadcaster=broadcaster)
+    engine = ActiveReactionEngine(mesh_broadcaster=broadcaster, graph_store=graph_store)
 
     payload = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
+        trigger_evidence_id=trigger_id,
         target_agent_id=agent_id,
         target_ip=ip,
         action_type=ReactionActionType.MESH_SIGNATURE_BROADCAST,
@@ -157,14 +189,30 @@ async def test_property_91_identity_credential_invalidation(agent_id: str):
     For any detected AILM breach or credential theft event, the ActiveReactionEngine SHALL
     trigger Pillar 3 Vault sidecar to invalidate JIT credentials for the compromised agent.
     """
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+    trigger_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=trigger_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.IDENTITY_ACCESS,
+            agent_id=agent_id,
+            action="token_access",
+            target="vault",
+            metadata={"is_evaluation": False},
+            risk_score=0.9,
+        )
+    )
+
     vault = VaultMCPAdapter()
     await vault.connect()
-    token = await vault.issue_jit_token(role="worker", ttl_seconds=900)
+    token = await vault.issue_jit_token(role="worker", agent_id=agent_id, ttl_seconds=900)
 
-    engine = ActiveReactionEngine(vault_adapter=vault)
+    engine = ActiveReactionEngine(vault_adapter=vault, graph_store=graph_store)
 
     payload = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
+        trigger_evidence_id=trigger_id,
         target_agent_id=agent_id,
         action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
         metadata={"token_id": token["token_id"]},
