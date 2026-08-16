@@ -57,7 +57,7 @@ class VaultMCPAdapter:
         now = time.time()
         expires_at = now + ttl_seconds
 
-        effective_agent_id = agent_id or role
+        effective_agent_id = agent_id
         effective_principal_id = principal_id or effective_agent_id
 
         token_info = {

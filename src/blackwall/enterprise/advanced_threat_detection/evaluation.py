@@ -341,6 +341,7 @@ class EvaluationEnvironment:
         self.in_memory = in_memory
         self.created_at = datetime.now(UTC)
         self.metadata: dict[str, Any] = dict(metadata) if metadata else {}
+        self._known_evidence_ids: set[uuid.UUID] = set()
         self._lock = asyncio.Lock()
         self._closed = False
         self._initialized = False
@@ -353,7 +354,10 @@ class EvaluationEnvironment:
         digest = hashlib.sha256(
             f"blackwall://eval/{self.env_id}/{clean_uuid}".encode()
         ).digest()
-        return uuid.UUID(bytes=digest[:16], version=4)
+        derived = uuid.UUID(bytes=digest[:16], version=4)
+        self._known_evidence_ids.add(clean_uuid)
+        self._known_evidence_ids.add(derived)
+        return derived
 
     def _check_not_closed(self) -> None:
         """Raise RuntimeError if this evaluation environment has been closed."""
@@ -516,6 +520,7 @@ class EvaluationEnvironmentManager:
         self.default_dsn = default_dsn
         self.in_memory = in_memory
         self._environments: dict[str, EvaluationEnvironment] = {}
+        self._known_evaluation_evidence_ids: set[uuid.UUID] = set()
         self._lock = asyncio.Lock()
 
     def get_or_create_environment(
@@ -562,6 +567,7 @@ class EvaluationEnvironmentManager:
         meta["evaluation_env_id"] = clean_id
         meta["is_evaluation"] = True
         meta["eval_mode"] = True
+        self._known_evaluation_evidence_ids.add(event.event_id)
         return event.model_copy(update={"metadata": meta})
 
     def label_raw_event(self, raw_event: dict[str, Any], env_id: str) -> dict[str, Any]:
@@ -582,6 +588,8 @@ class EvaluationEnvironmentManager:
         meta["evaluation_env_id"] = clean_id
         meta["is_evaluation"] = True
         meta["eval_mode"] = True
+        if alert.evidence_id:
+            self._known_evaluation_evidence_ids.add(alert.evidence_id)
         return alert.model_copy(update={"metadata": meta})
 
     def is_evaluation_event(self, event: NormalizedEvent | dict[str, Any]) -> bool:
@@ -665,9 +673,14 @@ class EvaluationEnvironmentManager:
         else:
             return False
 
+        if clean_node_id in self._known_evaluation_evidence_ids:
+            return True
+
         if env_id:
             env = self.get_environment(env_id)
             if env:
+                if clean_node_id in getattr(env, "_known_evidence_ids", set()):
+                    return True
                 try:
                     node = await env.get_node(clean_node_id)
                     if (
@@ -678,17 +691,19 @@ class EvaluationEnvironmentManager:
                         return True
                 except (OSError, RuntimeError) as exc:
                     logger.debug("Error checking evaluation mode for env %s: %s", env_id, exc)
-                    return False
-            return False
+                    return True
+            return True
 
         for env in list(self._environments.values()):
+            if clean_node_id in getattr(env, "_known_evidence_ids", set()):
+                return True
             try:
                 node = await env.get_node(clean_node_id)
                 if node is not None and self.is_evaluation_event(node.event):
                     return True
             except (OSError, RuntimeError) as exc:
                 logger.debug("Error checking evaluation mode in env %s: %s", env.env_id, exc)
-                continue
+                return True
 
         return False
 

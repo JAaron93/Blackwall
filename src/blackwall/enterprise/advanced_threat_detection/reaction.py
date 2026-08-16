@@ -112,7 +112,11 @@ class ActiveReactionEngine:
             try:
                 if await self.eval_manager.is_evaluation_mode(clean_evidence_uuid, env_id=env_id):
                     return True
+                if clean_evidence_uuid in getattr(self.eval_manager, "_known_evaluation_evidence_ids", set()):
+                    return True
                 for env in list(self.eval_manager._environments.values()):
+                    if clean_evidence_uuid in getattr(env, "_known_evidence_ids", set()):
+                        return True
                     try:
                         env_node = await env.store.get_node(clean_evidence_uuid)
                         if env_node is not None:
@@ -431,11 +435,10 @@ class ActiveReactionEngine:
                 for t_id, t_info in list(adapter._issued_tokens.items()):
                     if t_info.get("status") == "ACTIVE":
                         agent_matches = (
-                            t_info.get("agent_id") == payload.target_agent_id
-                            or t_info.get("principal_id") == payload.target_agent_id
-                            or t_info.get("role") == payload.target_agent_id
-                            or t_info.get("metadata", {}).get("agent_id") == payload.target_agent_id
-                            or t_info.get("metadata", {}).get("principal_id") == payload.target_agent_id
+                            (t_info.get("agent_id") is not None and t_info.get("agent_id") == payload.target_agent_id)
+                            or (t_info.get("principal_id") is not None and t_info.get("principal_id") == payload.target_agent_id)
+                            or (t_info.get("metadata", {}).get("agent_id") == payload.target_agent_id)
+                            or (t_info.get("metadata", {}).get("principal_id") == payload.target_agent_id)
                             or t_id == payload.target_agent_id
                         )
                         if agent_matches:
@@ -666,11 +669,10 @@ class ActiveReactionEngine:
                         for t_id, t_info in list(adapter._issued_tokens.items()):
                             if t_info.get("status") == "ACTIVE":
                                 agent_matches = (
-                                    t_info.get("agent_id") == target_agent
-                                    or t_info.get("principal_id") == target_agent
-                                    or t_info.get("role") == target_agent
-                                    or t_info.get("metadata", {}).get("agent_id") == target_agent
-                                    or t_info.get("metadata", {}).get("principal_id") == target_agent
+                                    (t_info.get("agent_id") is not None and t_info.get("agent_id") == target_agent)
+                                    or (t_info.get("principal_id") is not None and t_info.get("principal_id") == target_agent)
+                                    or (t_info.get("metadata", {}).get("agent_id") == target_agent)
+                                    or (t_info.get("metadata", {}).get("principal_id") == target_agent)
                                     or t_id == target_agent
                                 )
                                 if agent_matches:
