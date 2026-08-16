@@ -1134,17 +1134,18 @@ async def test_mixed_already_revoked_and_failed_active_token_revocation_fails():
 
 
 @pytest.mark.asyncio
-async def test_unresolvable_evidence_missing_from_graph_store_fails_closed_eval_mode():
-    """Verify that unresolvable evidence not present in graph store fails closed to eval mode."""
+async def test_fresh_production_evidence_missing_from_graph_store_permits_reaction():
+    """Verify that fresh production evidence not present in graph store is permitted and not falsely suppressed."""
+    driver = UserSpaceAuditDriver()
     engine = ActiveReactionEngine(
-        kernel_driver=UserSpaceAuditDriver(),
+        kernel_driver=driver,
         eval_manager=None,
         graph_store=None,
     )
 
     ev_id = uuid.uuid4()
     is_eval = await engine.is_evaluation_mode(ev_id)
-    assert is_eval is True
+    assert is_eval is False
 
     payload = ActiveReactionPayload(
         trigger_evidence_id=ev_id,
@@ -1153,8 +1154,9 @@ async def test_unresolvable_evidence_missing_from_graph_store_fails_closed_eval_
         action_type=ReactionActionType.EBPF_DROP,
     )
     res = await engine.execute_ebpf_socket_drop(payload)
-    assert res is False
-    assert payload.status == "SUPPRESSED"
+    assert res is True
+    assert payload.status == "SUCCESS"
+    assert len(engine.ebpf_drop_rules) == 1
 
 
 @pytest.mark.asyncio

@@ -88,13 +88,12 @@ class ActiveReactionEngine:
         Queries the evaluation environment manager and/or graph store to verify whether
         the trigger evidence originated in an evaluation environment.
 
-        Fail-Safe Boundary: If an error or exception occurs during evaluation resolution,
-        or if evidence provenance cannot be established in configured stores, the check
-        fails closed (returns True) to prevent unintended execution of production
-        mitigations against unverified evaluation workloads.
+        Fail-Safe Boundary: If evidence or environment is explicitly marked as evaluation,
+        or is found within an evaluation environment graph, the check returns True to
+        contain the reaction and prevent unintended production side effects.
         """
         if not evidence_id:
-            return True
+            return False
 
         if env_id and env_id.strip():
             return True
@@ -107,9 +106,7 @@ class ActiveReactionEngine:
         try:
             clean_evidence_uuid = validate_uuid_v4_format(evidence_id, field_name="evidence_id")
         except (ValueError, TypeError):
-            return True
-
-        found_in_store = False
+            return False
 
         if self.eval_manager is not None:
             try:
@@ -119,7 +116,13 @@ class ActiveReactionEngine:
                     try:
                         env_node = await env.store.get_node(clean_evidence_uuid)
                         if env_node is not None:
-                            return True
+                            meta = env_node.event.metadata
+                            if (
+                                meta.get("is_evaluation") is True
+                                or meta.get("eval_mode") is True
+                                or (isinstance(meta.get("evaluation_env_id"), str) and meta["evaluation_env_id"].strip())
+                            ):
+                                return True
                     except Exception:
                         return True
             except Exception as exc:
@@ -134,7 +137,6 @@ class ActiveReactionEngine:
             try:
                 node = await self.graph_store.get_node(clean_evidence_uuid)
                 if node is not None:
-                    found_in_store = True
                     meta = node.event.metadata
                     if (
                         meta.get("is_evaluation") is True
@@ -142,7 +144,6 @@ class ActiveReactionEngine:
                         or (isinstance(meta.get("evaluation_env_id"), str) and meta["evaluation_env_id"].strip())
                     ):
                         return True
-                    return False
             except Exception as exc:
                 logger.warning(
                     "Error querying graph store for evaluation evidence %s; failing closed to contain: %s",
@@ -150,9 +151,6 @@ class ActiveReactionEngine:
                     exc,
                 )
                 return True
-
-        if not found_in_store:
-            return True
 
         return False
 
@@ -435,7 +433,6 @@ class ActiveReactionEngine:
                         agent_matches = (
                             t_info.get("agent_id") == payload.target_agent_id
                             or t_info.get("principal_id") == payload.target_agent_id
-                            or t_info.get("role") == payload.target_agent_id
                             or t_info.get("metadata", {}).get("agent_id") == payload.target_agent_id
                             or t_info.get("metadata", {}).get("principal_id") == payload.target_agent_id
                             or t_id == payload.target_agent_id
@@ -670,7 +667,6 @@ class ActiveReactionEngine:
                                 agent_matches = (
                                     t_info.get("agent_id") == target_agent
                                     or t_info.get("principal_id") == target_agent
-                                    or t_info.get("role") == target_agent
                                     or t_info.get("metadata", {}).get("agent_id") == target_agent
                                     or t_info.get("metadata", {}).get("principal_id") == target_agent
                                     or t_id == target_agent
