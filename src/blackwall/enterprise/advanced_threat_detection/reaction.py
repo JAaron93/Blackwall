@@ -430,6 +430,15 @@ class ActiveReactionEngine:
                     if tid and tid not in tokens_to_revoke:
                         tokens_to_revoke.append(tid)
 
+            if payload.target_agent_id and hasattr(adapter, "revoke_agent_tokens"):
+                res_agent_tokens = adapter.revoke_agent_tokens(payload.target_agent_id)
+                if asyncio.iscoroutine(res_agent_tokens):
+                    res_agent_tokens = await res_agent_tokens
+                if isinstance(res_agent_tokens, list):
+                    for r_tid in res_agent_tokens:
+                        if r_tid not in tokens_to_revoke:
+                            tokens_to_revoke.append(r_tid)
+
             # Discover and include all active tokens belonging to the target agent
             if hasattr(adapter, "_issued_tokens"):
                 for t_id, t_info in list(adapter._issued_tokens.items()):

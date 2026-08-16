@@ -390,6 +390,11 @@ class EvaluationEnvironment:
         meta["eval_mode"] = True
         meta["original_event_id"] = str(event.event_id)
         eval_id = self.derive_evaluation_event_id(event.event_id)
+        self._known_evidence_ids.add(event.event_id)
+        self._known_evidence_ids.add(eval_id)
+        if self.manager is not None:
+            self.manager._known_evaluation_evidence_ids.add(event.event_id)
+            self.manager._known_evaluation_evidence_ids.add(eval_id)
         return event.model_copy(update={"event_id": eval_id, "metadata": meta})
 
     def label_raw_event(self, raw_event: dict[str, Any]) -> dict[str, Any]:
@@ -403,6 +408,16 @@ class EvaluationEnvironment:
             meta["original_event_id"] = str(stamped["event_id"])
             stamped["event_id"] = str(self.derive_evaluation_event_id(stamped["event_id"]))
         stamped["metadata"] = meta
+        for key in ("event_id", "id", "evidence_id", "node_id", "original_event_id"):
+            val = stamped.get(key) or meta.get(key)
+            if val:
+                try:
+                    ev_uuid = uuid.UUID(str(val))
+                    self._known_evidence_ids.add(ev_uuid)
+                    if self.manager is not None:
+                        self.manager._known_evaluation_evidence_ids.add(ev_uuid)
+                except (ValueError, TypeError, AttributeError):
+                    pass
         return stamped
 
     def label_alert(self, alert: Alert) -> Alert:
@@ -411,12 +426,23 @@ class EvaluationEnvironment:
         meta["evaluation_env_id"] = self.env_id
         meta["is_evaluation"] = True
         meta["eval_mode"] = True
+        if alert.evidence_id:
+            self._known_evidence_ids.add(alert.evidence_id)
+            if self.manager is not None:
+                self.manager._known_evaluation_evidence_ids.add(alert.evidence_id)
+        if alert.alert_id:
+            self._known_evidence_ids.add(alert.alert_id)
+            if self.manager is not None:
+                self.manager._known_evaluation_evidence_ids.add(alert.alert_id)
         return alert.model_copy(update={"metadata": meta})
 
     async def insert_event(self, event: NormalizedEvent) -> AttackNode:
         """Label and insert an event into this environment's isolated attack graph."""
         async with self._lock:
             self._check_not_closed()
+            self._known_evidence_ids.add(event.event_id)
+            if self.manager is not None:
+                self.manager._known_evaluation_evidence_ids.add(event.event_id)
             await self.store._initialize_locked()
             return await self.store._insert_event_locked(event)
 
@@ -426,6 +452,10 @@ class EvaluationEnvironment:
         """Label and batch-insert events into this environment's isolated attack graph."""
         async with self._lock:
             self._check_not_closed()
+            for ev in events:
+                self._known_evidence_ids.add(ev.event_id)
+                if self.manager is not None:
+                    self.manager._known_evaluation_evidence_ids.add(ev.event_id)
             await self.store._initialize_locked()
             return await self.store._insert_events_batch_locked(events)
 
@@ -433,7 +463,20 @@ class EvaluationEnvironment:
         """Retrieve a node from this environment's graph, ensuring it belongs to this evaluation environment."""
         async with self._lock:
             self._check_not_closed()
-            return await self.store._get_node_locked(node_id)
+            clean_uuid: uuid.UUID | str = node_id
+            try:
+                clean_uuid = validate_uuid_v4_format(node_id)
+            except (ValueError, TypeError):
+                pass
+            node = await self.store._get_node_locked(clean_uuid)
+            if node is None and isinstance(clean_uuid, uuid.UUID):
+                derived_uuid = self.derive_evaluation_event_id(clean_uuid)
+                node = await self.store._get_node_locked(derived_uuid)
+            if node is None or not self.manager.is_evaluation_event(node.event):
+                return None
+            if node.event.metadata.get("evaluation_env_id") != self.env_id:
+                return None
+            return node
 
     async def publish_alert(self, alert: Alert) -> bool:
         """Label and publish an alert to this environment's isolated alert bus."""
@@ -494,6 +537,7 @@ class EvaluationEnvironment:
                     ) from exc
 
             # Clear in-memory structures and alert bus once DB deletion succeeds
+            self._known_evidence_ids.clear()
             self.store._nodes.clear()
             self.store._agent_nodes_index.clear()
             self.store._path_cache.clear()
@@ -585,6 +629,14 @@ class EvaluationEnvironmentManager:
         meta["is_evaluation"] = True
         meta["eval_mode"] = True
         stamped["metadata"] = meta
+        for key in ("event_id", "id", "evidence_id", "node_id", "original_event_id"):
+            val = stamped.get(key) or meta.get(key)
+            if val:
+                try:
+                    ev_uuid = uuid.UUID(str(val))
+                    self._known_evaluation_evidence_ids.add(ev_uuid)
+                except (ValueError, TypeError, AttributeError):
+                    pass
         return stamped
 
     def label_alert(self, alert: Alert, env_id: str) -> Alert:
@@ -596,6 +648,8 @@ class EvaluationEnvironmentManager:
         meta["eval_mode"] = True
         if alert.evidence_id:
             self._known_evaluation_evidence_ids.add(alert.evidence_id)
+        if alert.alert_id:
+            self._known_evaluation_evidence_ids.add(alert.alert_id)
         return alert.model_copy(update={"metadata": meta})
 
     def is_evaluation_event(self, event: NormalizedEvent | dict[str, Any]) -> bool:
@@ -679,14 +733,9 @@ class EvaluationEnvironmentManager:
         else:
             return False
 
-        if clean_node_id in self._known_evaluation_evidence_ids:
-            return True
-
         if env_id:
             env = self.get_environment(env_id)
             if env:
-                if clean_node_id in getattr(env, "_known_evidence_ids", set()):
-                    return True
                 try:
                     node = await env.get_node(clean_node_id)
                     if (
@@ -698,6 +747,10 @@ class EvaluationEnvironmentManager:
                 except (OSError, RuntimeError) as exc:
                     logger.debug("Error checking evaluation mode for env %s: %s", env_id, exc)
                     return True
+                return False
+            return False
+
+        if clean_node_id in self._known_evaluation_evidence_ids:
             return True
 
         for env in list(self._environments.values()):

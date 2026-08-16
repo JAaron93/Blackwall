@@ -199,6 +199,7 @@ class LinuxeBPFDriver(KernelProbeDriver):
         #include <net/sock.h>
         #include <bcc/proto.h>
         #include <linux/in.h>
+        #include <linux/errno.h>
 
         BPF_HASH(dropped_pids, u32, u8);
         BPF_HASH(dropped_ips, u32, u8);
@@ -208,6 +209,7 @@ class LinuxeBPFDriver(KernelProbeDriver):
             u8 *drop_pid = dropped_pids.lookup(&pid);
             if (drop_pid) {
                 bpf_send_signal(9); // Terminate process attempting connection from dropped PID
+                bpf_override_return(ctx, -EPERM);
                 return 0;
             }
             if (addr != NULL) {
@@ -218,6 +220,7 @@ class LinuxeBPFDriver(KernelProbeDriver):
                         u8 *drop_ip = dropped_ips.lookup(&daddr);
                         if (drop_ip) {
                             bpf_send_signal(9); // Terminate process attempting connection to dropped IP
+                            bpf_override_return(ctx, -EPERM);
                             return 0;
                         }
                     }
@@ -231,6 +234,7 @@ class LinuxeBPFDriver(KernelProbeDriver):
             u8 *drop_pid = dropped_pids.lookup(&pid);
             if (drop_pid) {
                 bpf_send_signal(9); // Terminate process attempting unauthorized execution
+                bpf_override_return(ctx, -EPERM);
                 return 0;
             }
             return 0;
