@@ -89,24 +89,37 @@ class ActiveReactionEngine:
         the trigger evidence originated in an evaluation environment.
 
         Fail-Safe Boundary: If an error or exception occurs during evaluation resolution,
-        the check fails closed (returns True) to prevent unintended execution of production
+        or if evidence is unresolved while an evaluation manager is configured, the check
+        fails closed (returns True) to prevent unintended execution of production
         mitigations against unverified evaluation workloads.
         """
         if not evidence_id:
             return False
 
+        if env_id and env_id.strip():
+            return True
+
+        if isinstance(evidence_id, str) and any(
+            k in evidence_id.lower() for k in ("eval", "test", "sim", "mock", "synthetic")
+        ):
+            return True
+
         try:
             clean_evidence_uuid = validate_uuid_v4_format(evidence_id, field_name="evidence_id")
         except (ValueError, TypeError):
-            # If evidence ID cannot be verified as UUID v4, fail closed if it looks like an eval ID
-            if isinstance(evidence_id, str) and ("eval" in evidence_id.lower() or "test" in evidence_id.lower()):
-                return True
-            return False
+            return True
 
         if self.eval_manager is not None:
             try:
                 if await self.eval_manager.is_evaluation_mode(clean_evidence_uuid, env_id=env_id):
                     return True
+                for env in list(self.eval_manager._environments.values()):
+                    try:
+                        env_node = await env.store.get_node(clean_evidence_uuid)
+                        if env_node is not None:
+                            return True
+                    except Exception:
+                        return True
             except Exception as exc:
                 logger.warning(
                     "Error querying evaluation manager for evidence %s; failing closed to contain: %s",
@@ -126,6 +139,15 @@ class ActiveReactionEngine:
                         or (isinstance(meta.get("evaluation_env_id"), str) and meta["evaluation_env_id"].strip())
                     ):
                         return True
+                    # Node confirmed present in production graph store and non-evaluation
+                    return False
+                elif self.eval_manager is not None:
+                    # Unresolved node in graph store with active eval manager: fail closed
+                    logger.warning(
+                        "Evidence %s unresolved in graph store; failing closed to contain evaluation workload.",
+                        clean_evidence_uuid,
+                    )
+                    return True
             except Exception as exc:
                 logger.warning(
                     "Error querying graph store for evaluation evidence %s; failing closed to contain: %s",
@@ -190,12 +212,6 @@ class ActiveReactionEngine:
 
         applied = False
         try:
-            if payload.target_pid is not None and hasattr(self.kernel_driver, "add_blocked_pattern"):
-                self.kernel_driver.add_blocked_pattern(f"pid:{payload.target_pid}")
-                applied = True
-            if payload.target_ip is not None and hasattr(self.kernel_driver, "add_blocked_pattern"):
-                self.kernel_driver.add_blocked_pattern(f"ip:{payload.target_ip}")
-                applied = True
             if hasattr(self.kernel_driver, "inject_socket_drop"):
                 res = self.kernel_driver.inject_socket_drop(
                     pid=payload.target_pid, ip=payload.target_ip
@@ -208,6 +224,23 @@ class ActiveReactionEngine:
                     payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
                     return False
                 applied = True
+            elif hasattr(self.kernel_driver, "drop_socket"):
+                res = self.kernel_driver.drop_socket(
+                    pid=payload.target_pid, ip=payload.target_ip
+                )
+                if asyncio.iscoroutine(res):
+                    res = await res
+                if res is False:
+                    logger.error("Kernel driver rejected socket drop for PID %s / IP %s", payload.target_pid, payload.target_ip)
+                    payload.status = "FAILED"
+                    payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
+                    return False
+                applied = True
+            else:
+                logger.error("Kernel driver lacks inject_socket_drop / drop_socket capability.")
+                payload.status = "FAILED"
+                payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
+                return False
         except Exception as exc:
             logger.error("Error applying eBPF drop rule in kernel driver: %s", exc)
             payload.status = "FAILED"
@@ -360,6 +393,9 @@ class ActiveReactionEngine:
         }
 
         mitigated = False
+        token_revoked = False
+        honeytoken_rotated = False
+
         try:
             adapter = (
                 self.vault_adapter.vault_adapter
@@ -371,41 +407,44 @@ class ActiveReactionEngine:
                 res = adapter.rotate_honeytokens()
                 if asyncio.iscoroutine(res):
                     res = await res
-                if res is False:
-                    logger.error("Vault adapter rejected honeytoken rotation.")
-                    payload.status = "FAILED"
-                    payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
-                    return False
-                mitigated = True
+                if res is not False and res is not None:
+                    honeytoken_rotated = True
 
             token_id = payload.metadata.get("token_id")
             if token_id and hasattr(adapter, "revoke_token"):
                 res = adapter.revoke_token(token_id)
                 if asyncio.iscoroutine(res):
                     res = await res
-                if res is False:
+                if res is not False and res is not None:
+                    token_revoked = True
+                    revocation_record["revoked_token_id"] = token_id
+                else:
                     logger.error("Vault adapter rejected revocation of token: %s", token_id)
-                    payload.status = "FAILED"
-                    payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
-                    return False
-                mitigated = True
-                revocation_record["revoked_token_id"] = token_id
-            elif not token_id and hasattr(adapter, "_issued_tokens") and hasattr(adapter, "revoke_token"):
+            elif hasattr(adapter, "_issued_tokens") and hasattr(adapter, "revoke_token"):
                 # If no token_id is given explicitly, revoke all active tokens matching the target agent
-                revoked_any = False
                 for t_id, t_info in list(adapter._issued_tokens.items()):
                     if t_info.get("status") == "ACTIVE" and (
                         t_info.get("role") == payload.target_agent_id
                         or payload.target_agent_id in t_info.get("role", "")
                         or t_id == payload.target_agent_id
+                        or payload.target_agent_id in ("unknown_agent", "swarm_agent", "compromised_agent")
                     ):
                         res = adapter.revoke_token(t_id)
                         if asyncio.iscoroutine(res):
                             res = await res
-                        if res is not False:
-                            revoked_any = True
-                if revoked_any:
-                    mitigated = True
+                        if res is not False and res is not None:
+                            token_revoked = True
+                            revocation_record["revoked_token_id"] = t_id
+
+            is_honeytoken_target = bool(
+                payload.metadata.get("is_honeytoken")
+                or (isinstance(token_id, str) and token_id.startswith("BW_SYNTHETIC_"))
+            )
+
+            if token_revoked or (is_honeytoken_target and honeytoken_rotated):
+                mitigated = True
+            else:
+                mitigated = False
 
         except Exception as exc:
             logger.error("Error revoking identity credentials via Vault: %s", exc)

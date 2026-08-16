@@ -40,6 +40,19 @@ class KernelProbeDriver(ABC):
         """Remove executable pattern from block list."""
         self._blocked_patterns.discard(pattern)
 
+    def inject_socket_drop(
+        self, pid: Optional[int] = None, ip: Optional[str] = None
+    ) -> bool:
+        """Inject real-time eBPF socket or process drop rule (<50ms SLA)."""
+        applied = False
+        if pid is not None:
+            self.add_blocked_pattern(f"pid:{pid}")
+            applied = True
+        if ip is not None:
+            self.add_blocked_pattern(f"ip:{ip}")
+            applied = True
+        return applied or (pid is None and ip is None)
+
 
 class UserSpaceAuditDriver(KernelProbeDriver):
     """

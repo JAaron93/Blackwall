@@ -208,6 +208,7 @@ async def test_property_92_reaction_execution_logging(
     broadcaster = MockPropertyBroadcaster()
     vault = VaultMCPAdapter()
     await vault.connect()
+    token = await vault.issue_jit_token(role=agent_id, ttl_seconds=900)
 
     engine = ActiveReactionEngine(
         kernel_driver=driver,
@@ -222,6 +223,7 @@ async def test_property_92_reaction_execution_logging(
         target_agent_id=agent_id,
         target_pid=1024,
         action_type=action_type,
+        metadata={"token_id": token["token_id"]} if action_type == ReactionActionType.REVOKE_IDENTITY_TOKENS else {},
     )
 
     dispatched = await engine.dispatch_reaction(payload)

@@ -540,3 +540,74 @@ async def test_evaluation_lookup_exception_fails_closed():
     success = await engine.execute_ebpf_socket_drop(payload)
     assert success is False
     assert payload.status == "SUPPRESSED"
+
+
+@pytest.mark.asyncio
+async def test_honeytoken_rotation_does_not_mask_failed_token_revocation():
+    """Verify that honeytoken rotation alone does not mark REVOKE_IDENTITY_TOKENS as SUCCESS if token revocation fails."""
+    vault = VaultMCPAdapter()
+    await vault.connect()
+    # Note: no tokens issued for "non-existent-agent"
+
+    engine = ActiveReactionEngine(vault_adapter=vault)
+
+    # Attempt to revoke non-existent token for an unknown agent
+    payload = ActiveReactionPayload(
+        trigger_evidence_id=uuid.uuid4(),
+        target_agent_id="non-existent-agent",
+        action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
+        metadata={"token_id": "bw_jit_nonexistent123"},
+    )
+
+    success = await engine.revoke_identity_session(payload)
+    assert success is False
+    assert payload.status == "FAILED"
+
+
+@pytest.mark.asyncio
+async def test_unresolved_evidence_with_eval_manager_fails_closed():
+    """Verify that unresolved evidence in graph store fails closed when eval manager is configured."""
+    eval_manager = EvaluationEnvironmentManager(in_memory=True)
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+
+    engine = ActiveReactionEngine(
+        kernel_driver=UserSpaceAuditDriver(),
+        eval_manager=eval_manager,
+        graph_store=graph_store,
+    )
+
+    # An evidence ID not present in production graph_store
+    missing_evidence_id = uuid.uuid4()
+    is_eval = await engine.is_evaluation_mode(missing_evidence_id)
+    assert is_eval is True
+
+    payload = ActiveReactionPayload(
+        trigger_evidence_id=missing_evidence_id,
+        target_agent_id="unresolved-agent",
+        target_pid=9999,
+        action_type=ReactionActionType.EBPF_DROP,
+    )
+    success = await engine.execute_ebpf_socket_drop(payload)
+    assert success is False
+    assert payload.status == "SUPPRESSED"
+
+
+@pytest.mark.asyncio
+async def test_unsupported_kernel_driver_fails_socket_drop():
+    """Verify that a kernel driver without inject_socket_drop or drop_socket fails execution."""
+    class DummyDriverWithoutDrop:
+        def start_tracing(self): pass
+        def stop_tracing(self): pass
+
+    engine = ActiveReactionEngine(kernel_driver=DummyDriverWithoutDrop())
+
+    payload = ActiveReactionPayload(
+        trigger_evidence_id=uuid.uuid4(),
+        target_agent_id="target-agent",
+        target_pid=1234,
+        action_type=ReactionActionType.EBPF_DROP,
+    )
+    success = await engine.execute_ebpf_socket_drop(payload)
+    assert success is False
+    assert payload.status == "FAILED"
