@@ -442,12 +442,15 @@ class ActiveReactionEngine:
             # Discover and include all active tokens belonging to the target agent
             if hasattr(adapter, "_issued_tokens"):
                 for t_id, t_info in list(adapter._issued_tokens.items()):
-                    if t_info.get("status") == "ACTIVE" and (
-                        t_info.get("role") == payload.target_agent_id
-                        or t_id == payload.target_agent_id
-                    ):
-                        if t_id not in tokens_to_revoke:
-                            tokens_to_revoke.append(t_id)
+                    if t_info.get("status") == "ACTIVE":
+                        if (
+                            t_info.get("agent_id") == payload.target_agent_id
+                            or t_info.get("principal_id") == payload.target_agent_id
+                            or t_info.get("role") == payload.target_agent_id
+                            or t_id == payload.target_agent_id
+                        ):
+                            if t_id not in tokens_to_revoke:
+                                tokens_to_revoke.append(t_id)
 
             if tokens_to_revoke and hasattr(adapter, "revoke_token"):
                 for t_id in tokens_to_revoke:
@@ -627,6 +630,7 @@ class ActiveReactionEngine:
                 or meta.get("target_token")
                 or meta.get("credential_id")
             )
+            token_ids = meta.get("token_ids")
             if not token_id and isinstance(alert.evidence, dict):
                 token_id = (
                     alert.evidence.get("token_id")
@@ -634,10 +638,16 @@ class ActiveReactionEngine:
                     or alert.evidence.get("target_token")
                     or alert.evidence.get("credential_id")
                 )
+                if not token_ids:
+                    token_ids = alert.evidence.get("token_ids")
 
             matching_tokens: list[str] = []
             if token_id:
                 matching_tokens.append(token_id)
+            if isinstance(token_ids, list):
+                for tid in token_ids:
+                    if tid and tid not in matching_tokens:
+                        matching_tokens.append(tid)
             if self.vault_adapter is not None:
                 adapter = (
                     self.vault_adapter.vault_adapter
@@ -646,12 +656,15 @@ class ActiveReactionEngine:
                 )
                 if hasattr(adapter, "_issued_tokens"):
                     for t_id, t_info in list(adapter._issued_tokens.items()):
-                        if t_info.get("status") == "ACTIVE" and (
-                            t_info.get("role") == target_agent
-                            or t_id == target_agent
-                        ):
-                            if t_id not in matching_tokens:
-                                matching_tokens.append(t_id)
+                        if t_info.get("status") == "ACTIVE":
+                            if (
+                                t_info.get("agent_id") == target_agent
+                                or t_info.get("principal_id") == target_agent
+                                or t_info.get("role") == target_agent
+                                or t_id == target_agent
+                            ):
+                                if t_id not in matching_tokens:
+                                    matching_tokens.append(t_id)
 
             if matching_tokens:
                 for m_token_id in matching_tokens:

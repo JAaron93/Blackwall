@@ -126,9 +126,16 @@ class UserSpaceAuditDriver(KernelProbeDriver):
                     f"Socket operation from dropped PID '{current_pid}' intercepted by Blackwall UserSpaceAuditDriver"
                 )
 
-            arg_str = str(args)
+            # Extract exact host/IP from socket args to avoid substring match collisions
+            extracted_ips: set[str] = set()
+            for arg in args:
+                if isinstance(arg, tuple) and len(arg) >= 1 and isinstance(arg[0], str):
+                    extracted_ips.add(arg[0])
+                elif isinstance(arg, str):
+                    extracted_ips.add(arg)
+
             for dropped_ip in self._dropped_sockets:
-                if dropped_ip in arg_str:
+                if dropped_ip in extracted_ips:
                     logger.warning(
                         "UserSpaceAuditDriver blocked socket connection to dropped IP",
                         extra={"event": event, "ip": dropped_ip},
