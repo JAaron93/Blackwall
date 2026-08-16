@@ -439,8 +439,24 @@ class ActiveReactionEngine:
                     if tid and tid not in tokens_to_revoke:
                         tokens_to_revoke.append(tid)
 
+            # Discover and include all active tokens belonging to the target agent
+            if hasattr(adapter, "_issued_tokens"):
+                for t_id, t_info in list(adapter._issued_tokens.items()):
+                    if t_info.get("status") == "ACTIVE" and (
+                        t_info.get("role") == payload.target_agent_id
+                        or t_id == payload.target_agent_id
+                    ):
+                        if t_id not in tokens_to_revoke:
+                            tokens_to_revoke.append(t_id)
+
             if tokens_to_revoke and hasattr(adapter, "revoke_token"):
                 for t_id in tokens_to_revoke:
+                    if hasattr(adapter, "_issued_tokens") and t_id in adapter._issued_tokens:
+                        if adapter._issued_tokens[t_id].get("status") == "REVOKED":
+                            token_revoked = True
+                            revocation_record.setdefault("revoked_token_ids", []).append(t_id)
+                            revocation_record["revoked_token_id"] = t_id
+                            continue
                     res = adapter.revoke_token(t_id)
                     if asyncio.iscoroutine(res):
                         res = await res
@@ -450,20 +466,6 @@ class ActiveReactionEngine:
                         revocation_record["revoked_token_id"] = t_id
                     else:
                         logger.error("Vault adapter rejected revocation of token: %s", t_id)
-            elif hasattr(adapter, "_issued_tokens") and hasattr(adapter, "revoke_token"):
-                # If no token_id is given explicitly, revoke all active tokens strictly matching the target agent
-                for t_id, t_info in list(adapter._issued_tokens.items()):
-                    if t_info.get("status") == "ACTIVE" and (
-                        t_info.get("role") == payload.target_agent_id
-                        or t_id == payload.target_agent_id
-                    ):
-                        res = adapter.revoke_token(t_id)
-                        if asyncio.iscoroutine(res):
-                            res = await res
-                        if res is not False and res is not None:
-                            token_revoked = True
-                            revocation_record.setdefault("revoked_token_ids", []).append(t_id)
-                            revocation_record["revoked_token_id"] = t_id
 
             is_honeytoken_target = bool(
                 payload.metadata.get("is_honeytoken")
@@ -636,7 +638,7 @@ class ActiveReactionEngine:
             matching_tokens: list[str] = []
             if token_id:
                 matching_tokens.append(token_id)
-            elif self.vault_adapter is not None:
+            if self.vault_adapter is not None:
                 adapter = (
                     self.vault_adapter.vault_adapter
                     if hasattr(self.vault_adapter, "vault_adapter")
@@ -648,7 +650,8 @@ class ActiveReactionEngine:
                             t_info.get("role") == target_agent
                             or t_id == target_agent
                         ):
-                            matching_tokens.append(t_id)
+                            if t_id not in matching_tokens:
+                                matching_tokens.append(t_id)
 
             if matching_tokens:
                 for m_token_id in matching_tokens:

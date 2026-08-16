@@ -759,3 +759,42 @@ async def test_react_to_alert_revokes_multiple_active_tokens():
     assert vault._issued_tokens[token2["token_id"]]["status"] == "REVOKED"
     # Verify innocent agent token is still active
     assert vault._issued_tokens[other_token["token_id"]]["status"] == "ACTIVE"
+
+
+@pytest.mark.asyncio
+async def test_explicit_token_alert_revokes_sibling_active_tokens():
+    """Verify that an alert providing one explicit token also revokes all sibling active tokens for that agent."""
+    vault = VaultMCPAdapter()
+    await vault.connect()
+
+    # Issue multiple active tokens for the target agent
+    primary_token = await vault.issue_jit_token(role="multi-session-agent", ttl_seconds=600)
+    sibling_token1 = await vault.issue_jit_token(role="multi-session-agent", ttl_seconds=600)
+    sibling_token2 = await vault.issue_jit_token(role="multi-session-agent", ttl_seconds=600)
+    unrelated_token = await vault.issue_jit_token(role="other-agent", ttl_seconds=600)
+
+    engine = ActiveReactionEngine(vault_adapter=vault)
+
+    # Alert specifies only primary_token["token_id"]
+    alert = Alert(
+        alert_id=uuid.uuid4(),
+        severity=AlertSeverity.CRITICAL,
+        threat_type="token_theft",
+        title="Token Compromised",
+        description="Explicit token leak",
+        evidence_id=uuid.uuid4(),
+        agent_id="multi-session-agent",
+        metadata={"token_id": primary_token["token_id"]},
+    )
+
+    reactions = await engine.react_to_alert(alert)
+    assert len(reactions) == 3
+    assert all(r.action_type == ReactionActionType.REVOKE_IDENTITY_TOKENS for r in reactions)
+    assert all(r.status == "SUCCESS" for r in reactions)
+
+    # Verify primary and all sibling tokens were revoked
+    assert vault._issued_tokens[primary_token["token_id"]]["status"] == "REVOKED"
+    assert vault._issued_tokens[sibling_token1["token_id"]]["status"] == "REVOKED"
+    assert vault._issued_tokens[sibling_token2["token_id"]]["status"] == "REVOKED"
+    # Verify unrelated agent token is still active
+    assert vault._issued_tokens[unrelated_token["token_id"]]["status"] == "ACTIVE"
