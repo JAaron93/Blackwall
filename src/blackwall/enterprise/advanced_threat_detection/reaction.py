@@ -431,11 +431,6 @@ class ActiveReactionEngine:
                             or t_info.get("metadata", {}).get("agent_id") == payload.target_agent_id
                             or t_info.get("metadata", {}).get("principal_id") == payload.target_agent_id
                             or t_id == payload.target_agent_id
-                            or (
-                                t_info.get("agent_id") is None
-                                and t_info.get("principal_id") is None
-                                and t_info.get("role") == payload.target_agent_id
-                            )
                         )
                         if agent_matches:
                             if t_id not in tokens_to_revoke:
@@ -445,6 +440,9 @@ class ActiveReactionEngine:
                 for t_id in tokens_to_revoke:
                     if hasattr(adapter, "_issued_tokens") and t_id in adapter._issued_tokens:
                         if adapter._issued_tokens[t_id].get("status") == "REVOKED":
+                            token_revoked = True
+                            revocation_record.setdefault("revoked_token_ids", []).append(t_id)
+                            revocation_record["revoked_token_id"] = t_id
                             continue
                     res = adapter.revoke_token(t_id)
                     if asyncio.iscoroutine(res):
@@ -649,11 +647,6 @@ class ActiveReactionEngine:
                                 or t_info.get("metadata", {}).get("agent_id") == target_agent
                                 or t_info.get("metadata", {}).get("principal_id") == target_agent
                                 or t_id == target_agent
-                                or (
-                                    t_info.get("agent_id") is None
-                                    and t_info.get("principal_id") is None
-                                    and t_info.get("role") == target_agent
-                                )
                             )
                             if agent_matches:
                                 if t_id not in matching_tokens:

@@ -997,3 +997,46 @@ async def test_explicit_token_alert_revokes_sibling_active_tokens():
     assert vault._issued_tokens[sibling_token2["token_id"]]["status"] == "REVOKED"
     # Verify unrelated agent token is still active
     assert vault._issued_tokens[unrelated_token["token_id"]]["status"] == "ACTIVE"
+
+
+@pytest.mark.asyncio
+async def test_idempotent_revocation_of_already_revoked_token_succeeds():
+    """Verify that a reaction attempting to revoke an already-revoked token succeeds idempotently."""
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+    ev_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=ev_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.IDENTITY_ACCESS,
+            agent_id="idempotent-agent",
+            action="token_theft",
+            target="vault",
+            metadata={"is_evaluation": False},
+            risk_score=0.9,
+        )
+    )
+
+    vault = VaultMCPAdapter()
+    await vault.connect()
+    token = await vault.issue_jit_token(role="worker", agent_id="idempotent-agent", ttl_seconds=600)
+    assert token is not None
+
+    # Revoke it once
+    res1 = await vault.revoke_token(token["token_id"])
+    assert res1 is True
+    assert vault._issued_tokens[token["token_id"]]["status"] == "REVOKED"
+
+    engine = ActiveReactionEngine(vault_adapter=vault, graph_store=graph_store)
+
+    # Dispatch reaction targeting the already-revoked token
+    payload = ActiveReactionPayload(
+        trigger_evidence_id=ev_id,
+        target_agent_id="idempotent-agent",
+        action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
+        metadata={"token_id": token["token_id"]},
+    )
+    success = await engine.revoke_identity_session(payload)
+    assert success is True
+    assert payload.status == "SUCCESS"
