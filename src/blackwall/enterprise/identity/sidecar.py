@@ -32,8 +32,15 @@ SENSITIVE_KEYWORDS = (
 class SecretVaultSidecar:
     """Ephemeral Identity Sidecar for credential masking & honey-token exfiltration detection."""
 
-    def __init__(self, vault_adapter: Optional[VaultMCPAdapter] = None) -> None:
+    def __init__(
+        self,
+        vault_adapter: Optional[VaultMCPAdapter] = None,
+        agent_id: Optional[str] = None,
+        principal_id: Optional[str] = None,
+    ) -> None:
         self.vault_adapter: VaultMCPAdapter = vault_adapter or VaultMCPAdapter()
+        self.agent_id: Optional[str] = agent_id
+        self.principal_id: Optional[str] = principal_id or agent_id
         self._honeytoken_map: Dict[str, Dict[str, str]] = {}
         self._sterilized_env: Dict[str, str] = {}
 
@@ -113,12 +120,24 @@ class SecretVaultSidecar:
         }
 
     async def get_jit_credential(
-        self, role: str = "default", ttl_seconds: int = 900
+        self,
+        role: str = "default",
+        ttl_seconds: int = 900,
+        agent_id: Optional[str] = None,
+        principal_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Obtain short-lived (15 min TTL) real STS/Vault credential via hashicorp-vault-mcp."""
         if not self.vault_adapter.is_connected:
             await self.vault_adapter.connect()
 
+        effective_agent_id = agent_id or self.agent_id or role
+        effective_principal_id = principal_id or self.principal_id or effective_agent_id
+
         return await self.vault_adapter.issue_jit_token(
-            role=role, ttl_seconds=ttl_seconds
+            role=role,
+            ttl_seconds=ttl_seconds,
+            agent_id=effective_agent_id,
+            principal_id=effective_principal_id,
+            metadata=metadata,
         )

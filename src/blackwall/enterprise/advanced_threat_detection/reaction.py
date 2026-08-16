@@ -134,6 +134,7 @@ class ActiveReactionEngine:
             try:
                 node = await self.graph_store.get_node(clean_evidence_uuid)
                 if node is not None:
+                    found_in_store = True
                     meta = node.event.metadata
                     if (
                         meta.get("is_evaluation") is True
@@ -149,6 +150,9 @@ class ActiveReactionEngine:
                     exc,
                 )
                 return True
+
+        if not found_in_store:
+            return True
 
         return False
 
@@ -431,6 +435,7 @@ class ActiveReactionEngine:
                         agent_matches = (
                             t_info.get("agent_id") == payload.target_agent_id
                             or t_info.get("principal_id") == payload.target_agent_id
+                            or t_info.get("role") == payload.target_agent_id
                             or t_info.get("metadata", {}).get("agent_id") == payload.target_agent_id
                             or t_info.get("metadata", {}).get("principal_id") == payload.target_agent_id
                             or t_id == payload.target_agent_id
