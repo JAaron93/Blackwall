@@ -884,31 +884,17 @@ async def test_production_alert_with_aggregate_evidence_id_succeeds():
 
 
 @pytest.mark.asyncio
-async def test_unresolved_evidence_in_configured_graph_store_fails_closed():
-    """Verify that evidence ID missing from configured graph store fails closed (returns True) to prevent unverified execution."""
-    graph_store = AttackGraphStore(in_memory=True)
-    await graph_store.initialize()
+async def test_linux_ebpf_driver_unloaded_bpf_fails_socket_drop():
+    """Verify that if LinuxeBPFDriver has _ebpf_available=True but _bpf_instance is None, inject_socket_drop returns False."""
+    from blackwall.enterprise.kernel.probe import LinuxeBPFDriver
 
-    driver = UserSpaceAuditDriver()
-    engine = ActiveReactionEngine(
-        kernel_driver=driver,
-        graph_store=graph_store,
-    )
+    driver = LinuxeBPFDriver()
+    driver._ebpf_available = True
+    driver._bpf_instance = None
 
-    unresolved_ev_id = uuid.uuid4()
-    is_eval = await engine.is_evaluation_mode(unresolved_ev_id)
-    assert is_eval is True
-
-    payload = ActiveReactionPayload(
-        trigger_evidence_id=unresolved_ev_id,
-        target_agent_id="unknown-agent",
-        target_pid=1234,
-        target_ip="192.168.1.1",
-        action_type=ReactionActionType.EBPF_DROP,
-    )
-    res = await engine.execute_ebpf_socket_drop(payload)
+    # Injection must return False rather than reporting false containment
+    res = driver.inject_socket_drop(pid=1234, ip="10.0.0.1")
     assert res is False
-    assert payload.status == "SUPPRESSED"
 
 
 @pytest.mark.asyncio
@@ -1148,8 +1134,8 @@ async def test_mixed_already_revoked_and_failed_active_token_revocation_fails():
 
 
 @pytest.mark.asyncio
-async def test_missing_graph_store_and_eval_manager_fails_closed():
-    """Verify that when no graph store or eval manager is configured, is_evaluation_mode fails closed to contain."""
+async def test_production_evidence_missing_from_graph_store_allows_mitigation():
+    """Verify that production evidence not yet in graph store is treated as production traffic."""
     engine = ActiveReactionEngine(
         kernel_driver=UserSpaceAuditDriver(),
         eval_manager=None,
@@ -1158,14 +1144,14 @@ async def test_missing_graph_store_and_eval_manager_fails_closed():
 
     ev_id = uuid.uuid4()
     is_eval = await engine.is_evaluation_mode(ev_id)
-    assert is_eval is True
+    assert is_eval is False
 
     payload = ActiveReactionPayload(
         trigger_evidence_id=ev_id,
-        target_agent_id="unverified-agent",
+        target_agent_id="prod-agent",
         target_pid=9999,
         action_type=ReactionActionType.EBPF_DROP,
     )
     res = await engine.execute_ebpf_socket_drop(payload)
-    assert res is False
-    assert payload.status == "SUPPRESSED"
+    assert res is True
+    assert payload.status == "SUCCESS"

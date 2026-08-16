@@ -179,6 +179,7 @@ class LinuxeBPFDriver(KernelProbeDriver):
         self._hook_fn: Optional[Callable] = None
         self._bpf_program: Optional[Dict[str, Any]] = None
         self._bpf_instance: Optional[Any] = None
+        self._bpf_load_error: Optional[Exception] = None
 
     def _load_bpf_program(self) -> None:
         """Compiles and loads eBPF C program bytecode and maps into the kernel enforcement engine."""
@@ -242,15 +243,17 @@ class LinuxeBPFDriver(KernelProbeDriver):
                 self._bpf_instance.attach_tracepoint(
                     tp="syscalls:sys_enter_connect", fn_name="trace_sys_enter_connect"
                 )
+                self._bpf_load_error = None
                 logger.info(
                     "LinuxeBPFDriver compiled and loaded kernel BPF program into kernel space"
                 )
             except Exception as exc:
-                logger.debug(
+                logger.warning(
                     "BCC kernel program attachment fallback (simulated/userspace): %s",
                     exc,
                 )
                 self._bpf_instance = None
+                self._bpf_load_error = exc
 
     def inject_socket_drop(
         self, pid: Optional[int] = None, ip: Optional[str] = None
@@ -258,6 +261,12 @@ class LinuxeBPFDriver(KernelProbeDriver):
         """Inject real-time eBPF socket or process drop rule (<50ms SLA)."""
         applied = super().inject_socket_drop(pid=pid, ip=ip)
         if not applied:
+            return False
+
+        if self._ebpf_available and self._bpf_instance is None:
+            logger.error(
+                "LinuxeBPFDriver kernel eBPF program not loaded; cannot enforce kernel drop."
+            )
             return False
         if pid is not None:
             self._active_ebpf_drop_maps[f"bpf_sock_drop_pid_{pid}"] = {

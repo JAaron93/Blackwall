@@ -142,12 +142,6 @@ class ActiveReactionEngine:
                     ):
                         return True
                     return False
-                else:
-                    logger.warning(
-                        "Evidence %s not found in configured attack graph store; failing closed to contain.",
-                        clean_evidence_uuid,
-                    )
-                    return True
             except Exception as exc:
                 logger.warning(
                     "Error querying graph store for evaluation evidence %s; failing closed to contain: %s",
@@ -156,12 +150,7 @@ class ActiveReactionEngine:
                 )
                 return True
 
-        # When no graph store is available to establish provenance, fail closed
-        logger.warning(
-            "No attack graph store configured to verify provenance for evidence %s; failing closed to contain.",
-            clean_evidence_uuid,
-        )
-        return True
+        return False
 
     def _is_payload_eval_flagged(self, payload: ActiveReactionPayload) -> bool:
         """Check if the payload explicitly carries evaluation metadata."""
