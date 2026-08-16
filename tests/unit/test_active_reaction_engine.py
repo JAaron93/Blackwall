@@ -1145,3 +1145,27 @@ async def test_mixed_already_revoked_and_failed_active_token_revocation_fails():
     success = await engine.revoke_identity_session(payload)
     assert success is False
     assert payload.status == "FAILED"
+
+
+@pytest.mark.asyncio
+async def test_missing_graph_store_and_eval_manager_fails_closed():
+    """Verify that when no graph store or eval manager is configured, is_evaluation_mode fails closed to contain."""
+    engine = ActiveReactionEngine(
+        kernel_driver=UserSpaceAuditDriver(),
+        eval_manager=None,
+        graph_store=None,
+    )
+
+    ev_id = uuid.uuid4()
+    is_eval = await engine.is_evaluation_mode(ev_id)
+    assert is_eval is True
+
+    payload = ActiveReactionPayload(
+        trigger_evidence_id=ev_id,
+        target_agent_id="unverified-agent",
+        target_pid=9999,
+        action_type=ReactionActionType.EBPF_DROP,
+    )
+    res = await engine.execute_ebpf_socket_drop(payload)
+    assert res is False
+    assert payload.status == "SUPPRESSED"

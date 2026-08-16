@@ -156,7 +156,12 @@ class ActiveReactionEngine:
                 )
                 return True
 
-        return False
+        # When no graph store is available to establish provenance, fail closed
+        logger.warning(
+            "No attack graph store configured to verify provenance for evidence %s; failing closed to contain.",
+            clean_evidence_uuid,
+        )
+        return True
 
     def _is_payload_eval_flagged(self, payload: ActiveReactionPayload) -> bool:
         """Check if the payload explicitly carries evaluation metadata."""

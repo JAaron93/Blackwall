@@ -186,15 +186,30 @@ class LinuxeBPFDriver(KernelProbeDriver):
         #include <uapi/linux/ptrace.h>
         #include <net/sock.h>
         #include <bcc/proto.h>
+        #include <linux/in.h>
 
         BPF_HASH(dropped_pids, u32, u8);
         BPF_HASH(dropped_ips, u32, u8);
 
-        int trace_sys_enter_connect(struct pt_regs *ctx, int sockfd, struct sockaddr *addr, int addrlen) {
+        int trace_sys_enter_connect(struct pt_regs *ctx, int sockfd, struct sockaddr __user *addr, int addrlen) {
             u32 pid = bpf_get_current_pid_tgid() >> 32;
             u8 *drop_pid = dropped_pids.lookup(&pid);
             if (drop_pid) {
-                return -1; // Drop connection from dropped PID
+                bpf_send_signal(9); // Terminate process attempting connection from dropped PID
+                return 0;
+            }
+            if (addr != NULL) {
+                struct sockaddr_in in_addr;
+                if (bpf_probe_read_user(&in_addr, sizeof(in_addr), addr) == 0) {
+                    if (in_addr.sin_family == AF_INET) {
+                        u32 daddr = in_addr.sin_addr.s_addr;
+                        u8 *drop_ip = dropped_ips.lookup(&daddr);
+                        if (drop_ip) {
+                            bpf_send_signal(9); // Terminate process attempting connection to dropped IP
+                            return 0;
+                        }
+                    }
+                }
             }
             return 0;
         }
@@ -203,7 +218,8 @@ class LinuxeBPFDriver(KernelProbeDriver):
             u32 pid = bpf_get_current_pid_tgid() >> 32;
             u8 *drop_pid = dropped_pids.lookup(&pid);
             if (drop_pid) {
-                return -1; // Drop process execution
+                bpf_send_signal(9); // Terminate process attempting unauthorized execution
+                return 0;
             }
             return 0;
         }
