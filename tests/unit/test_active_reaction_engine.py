@@ -450,6 +450,7 @@ async def test_react_to_alert_c2_and_swarm():
     assert all(r.status == "SUCCESS" for r in c2_reactions)
 
     # Swarm Alert -> Token revocation
+    swarm_token = await vault.issue_jit_token(role="swarm-leader", ttl_seconds=900)
     swarm_alert = Alert(
         alert_id=uuid.uuid4(),
         severity=AlertSeverity.CRITICAL,
@@ -458,11 +459,14 @@ async def test_react_to_alert_c2_and_swarm():
         description="Coordinated swarm detected",
         evidence_id=uuid.uuid4(),
         agent_id="swarm-leader",
+        metadata={"token_id": swarm_token["token_id"]},
     )
     swarm_reactions = await engine.react_to_alert(swarm_alert)
     assert len(swarm_reactions) == 1
     assert swarm_reactions[0].action_type == ReactionActionType.REVOKE_IDENTITY_TOKENS
     assert swarm_reactions[0].status == "SUCCESS"
+    assert swarm_reactions[0].metadata.get("token_id") == swarm_token["token_id"]
+    assert vault._issued_tokens[swarm_token["token_id"]]["status"] == "REVOKED"
 
     # Non-critical alert -> No reactions dispatched
     low_alert = Alert(
@@ -473,3 +477,66 @@ async def test_react_to_alert_c2_and_swarm():
     )
     low_reactions = await engine.react_to_alert(low_alert)
     assert len(low_reactions) == 0
+
+
+# ============================================================================
+# 8. Robustness & Error Handling: Adapter Failure and Fail-Closed Containment
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_adapter_absence_and_rejection_marks_failed():
+    """Verify that absent adapters or rejected operations set status to FAILED."""
+    # Engine with no adapters configured
+    empty_engine = ActiveReactionEngine()
+
+    payload_ebpf = ActiveReactionPayload(
+        trigger_evidence_id=uuid.uuid4(),
+        target_agent_id="agent-01",
+        target_pid=1234,
+        action_type=ReactionActionType.EBPF_DROP,
+    )
+    assert await empty_engine.execute_ebpf_socket_drop(payload_ebpf) is False
+    assert payload_ebpf.status == "FAILED"
+
+    payload_mesh = ActiveReactionPayload(
+        trigger_evidence_id=uuid.uuid4(),
+        target_agent_id="agent-01",
+        action_type=ReactionActionType.MESH_SIGNATURE_BROADCAST,
+    )
+    assert await empty_engine.broadcast_fleet_signature(payload_mesh) is False
+    assert payload_mesh.status == "FAILED"
+
+    payload_vault = ActiveReactionPayload(
+        trigger_evidence_id=uuid.uuid4(),
+        target_agent_id="agent-01",
+        action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
+    )
+    assert await empty_engine.revoke_identity_session(payload_vault) is False
+    assert payload_vault.status == "FAILED"
+
+
+@pytest.mark.asyncio
+async def test_evaluation_lookup_exception_fails_closed():
+    """Verify that evaluation lookup exceptions fail closed to contain mitigations."""
+    class FailingEvalManager:
+        async def is_evaluation_mode(self, evidence_id, env_id=None):
+            raise RuntimeError("Database connection lost")
+
+    engine = ActiveReactionEngine(
+        kernel_driver=UserSpaceAuditDriver(),
+        eval_manager=FailingEvalManager(),
+    )
+
+    is_eval = await engine.is_evaluation_mode(uuid.uuid4())
+    assert is_eval is True
+
+    payload = ActiveReactionPayload(
+        trigger_evidence_id=uuid.uuid4(),
+        target_agent_id="agent-eval-fail",
+        target_pid=5555,
+        action_type=ReactionActionType.EBPF_DROP,
+    )
+    success = await engine.execute_ebpf_socket_drop(payload)
+    assert success is False
+    assert payload.status == "SUPPRESSED"

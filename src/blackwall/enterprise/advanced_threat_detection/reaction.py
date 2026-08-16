@@ -87,6 +87,10 @@ class ActiveReactionEngine:
 
         Queries the evaluation environment manager and/or graph store to verify whether
         the trigger evidence originated in an evaluation environment.
+
+        Fail-Safe Boundary: If an error or exception occurs during evaluation resolution,
+        the check fails closed (returns True) to prevent unintended execution of production
+        mitigations against unverified evaluation workloads.
         """
         if not evidence_id:
             return False
@@ -94,10 +98,21 @@ class ActiveReactionEngine:
         try:
             clean_evidence_uuid = validate_uuid_v4_format(evidence_id, field_name="evidence_id")
         except (ValueError, TypeError):
+            # If evidence ID cannot be verified as UUID v4, fail closed if it looks like an eval ID
+            if isinstance(evidence_id, str) and ("eval" in evidence_id.lower() or "test" in evidence_id.lower()):
+                return True
             return False
 
         if self.eval_manager is not None:
-            if await self.eval_manager.is_evaluation_mode(clean_evidence_uuid, env_id=env_id):
+            try:
+                if await self.eval_manager.is_evaluation_mode(clean_evidence_uuid, env_id=env_id):
+                    return True
+            except Exception as exc:
+                logger.warning(
+                    "Error querying evaluation manager for evidence %s; failing closed to contain: %s",
+                    clean_evidence_uuid,
+                    exc,
+                )
                 return True
 
         if self.graph_store is not None:
@@ -112,7 +127,12 @@ class ActiveReactionEngine:
                     ):
                         return True
             except Exception as exc:
-                logger.debug("Error checking evaluation mode in graph store: %s", exc)
+                logger.warning(
+                    "Error querying graph store for evaluation evidence %s; failing closed to contain: %s",
+                    clean_evidence_uuid,
+                    exc,
+                )
+                return True
 
         return False
 
@@ -148,6 +168,16 @@ class ActiveReactionEngine:
             )
             return False
 
+        # If kernel driver adapter is absent, fail immediately rather than falsely reporting success
+        if self.kernel_driver is None:
+            payload.status = "FAILED"
+            payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
+            logger.error(
+                "Kernel driver adapter is absent; cannot inject eBPF socket drop for reaction %s.",
+                payload.reaction_id,
+            )
+            return False
+
         # Production execution path
         drop_rule = {
             "reaction_id": str(payload.reaction_id),
@@ -158,23 +188,37 @@ class ActiveReactionEngine:
             "status": "ACTIVE",
         }
 
-        if self.kernel_driver is not None:
-            try:
-                if payload.target_pid is not None:
-                    self.kernel_driver.add_blocked_pattern(f"pid:{payload.target_pid}")
-                if payload.target_ip is not None:
-                    self.kernel_driver.add_blocked_pattern(f"ip:{payload.target_ip}")
-                if hasattr(self.kernel_driver, "inject_socket_drop"):
-                    res = self.kernel_driver.inject_socket_drop(
-                        pid=payload.target_pid, ip=payload.target_ip
-                    )
-                    if asyncio.iscoroutine(res):
-                        await res
-            except Exception as exc:
-                logger.error("Error applying eBPF drop rule in kernel driver: %s", exc)
-                payload.status = "FAILED"
-                payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
-                return False
+        applied = False
+        try:
+            if payload.target_pid is not None and hasattr(self.kernel_driver, "add_blocked_pattern"):
+                self.kernel_driver.add_blocked_pattern(f"pid:{payload.target_pid}")
+                applied = True
+            if payload.target_ip is not None and hasattr(self.kernel_driver, "add_blocked_pattern"):
+                self.kernel_driver.add_blocked_pattern(f"ip:{payload.target_ip}")
+                applied = True
+            if hasattr(self.kernel_driver, "inject_socket_drop"):
+                res = self.kernel_driver.inject_socket_drop(
+                    pid=payload.target_pid, ip=payload.target_ip
+                )
+                if asyncio.iscoroutine(res):
+                    res = await res
+                if res is False:
+                    logger.error("Kernel driver rejected socket drop injection for PID %s / IP %s", payload.target_pid, payload.target_ip)
+                    payload.status = "FAILED"
+                    payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
+                    return False
+                applied = True
+        except Exception as exc:
+            logger.error("Error applying eBPF drop rule in kernel driver: %s", exc)
+            payload.status = "FAILED"
+            payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
+            return False
+
+        if not applied:
+            payload.status = "FAILED"
+            payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
+            logger.error("Kernel driver has no supported methods for drop injection.")
+            return False
 
         async with self._lock:
             self._ebpf_drop_rules.append(drop_rule)
@@ -209,6 +253,16 @@ class ActiveReactionEngine:
             )
             return False
 
+        # If mesh broadcaster adapter is absent, fail immediately rather than falsely reporting success
+        if self.mesh_broadcaster is None:
+            payload.status = "FAILED"
+            payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
+            logger.error(
+                "Threat Mesh broadcaster adapter is absent; cannot broadcast signature for reaction %s.",
+                payload.reaction_id,
+            )
+            return False
+
         # Production signature construction
         sig_id = f"sig_atd_{payload.target_agent_id}_{str(payload.reaction_id)[:8]}"
         signature = {
@@ -222,21 +276,39 @@ class ActiveReactionEngine:
             "timestamp": time.time(),
         }
 
-        if self.mesh_broadcaster is not None:
-            try:
-                if hasattr(self.mesh_broadcaster, "broadcast_signature"):
-                    res = self.mesh_broadcaster.broadcast_signature(signature)
-                    if asyncio.iscoroutine(res):
-                        await res
-                elif hasattr(self.mesh_broadcaster, "broadcast"):
-                    res = self.mesh_broadcaster.broadcast(signature)
-                    if asyncio.iscoroutine(res):
-                        await res
-            except Exception as exc:
-                logger.error("Error broadcasting signature over Threat Mesh: %s", exc)
-                payload.status = "FAILED"
-                payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
-                return False
+        broadcasted = False
+        try:
+            if hasattr(self.mesh_broadcaster, "broadcast_signature"):
+                res = self.mesh_broadcaster.broadcast_signature(signature)
+                if asyncio.iscoroutine(res):
+                    res = await res
+                if res is False:
+                    logger.error("Threat Mesh broadcaster rejected signature %s", sig_id)
+                    payload.status = "FAILED"
+                    payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
+                    return False
+                broadcasted = True
+            elif hasattr(self.mesh_broadcaster, "broadcast"):
+                res = self.mesh_broadcaster.broadcast(signature)
+                if asyncio.iscoroutine(res):
+                    res = await res
+                if res is False:
+                    logger.error("Threat Mesh broadcaster rejected signature %s", sig_id)
+                    payload.status = "FAILED"
+                    payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
+                    return False
+                broadcasted = True
+        except Exception as exc:
+            logger.error("Error broadcasting signature over Threat Mesh: %s", exc)
+            payload.status = "FAILED"
+            payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
+            return False
+
+        if not broadcasted:
+            payload.status = "FAILED"
+            payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
+            logger.error("Threat Mesh broadcaster has no supported broadcast methods.")
+            return False
 
         async with self._lock:
             self._broadcasted_signatures.append(signature)
@@ -270,6 +342,16 @@ class ActiveReactionEngine:
             )
             return False
 
+        # If vault adapter is absent, fail immediately rather than falsely reporting success
+        if self.vault_adapter is None:
+            payload.status = "FAILED"
+            payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
+            logger.error(
+                "Vault MCP adapter is absent; cannot revoke credentials for reaction %s.",
+                payload.reaction_id,
+            )
+            return False
+
         revocation_record = {
             "reaction_id": str(payload.reaction_id),
             "target_agent_id": payload.target_agent_id,
@@ -277,28 +359,65 @@ class ActiveReactionEngine:
             "status": "REVOKED",
         }
 
-        if self.vault_adapter is not None:
-            try:
-                adapter = (
-                    self.vault_adapter.vault_adapter
-                    if hasattr(self.vault_adapter, "vault_adapter")
-                    else self.vault_adapter
-                )
-                if hasattr(adapter, "rotate_honeytokens"):
-                    res = adapter.rotate_honeytokens()
-                    if asyncio.iscoroutine(res):
-                        await res
-                if hasattr(adapter, "revoke_token"):
-                    token_id = payload.metadata.get("token_id")
-                    if token_id:
-                        res = adapter.revoke_token(token_id)
+        mitigated = False
+        try:
+            adapter = (
+                self.vault_adapter.vault_adapter
+                if hasattr(self.vault_adapter, "vault_adapter")
+                else self.vault_adapter
+            )
+
+            if hasattr(adapter, "rotate_honeytokens"):
+                res = adapter.rotate_honeytokens()
+                if asyncio.iscoroutine(res):
+                    res = await res
+                if res is False:
+                    logger.error("Vault adapter rejected honeytoken rotation.")
+                    payload.status = "FAILED"
+                    payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
+                    return False
+                mitigated = True
+
+            token_id = payload.metadata.get("token_id")
+            if token_id and hasattr(adapter, "revoke_token"):
+                res = adapter.revoke_token(token_id)
+                if asyncio.iscoroutine(res):
+                    res = await res
+                if res is False:
+                    logger.error("Vault adapter rejected revocation of token: %s", token_id)
+                    payload.status = "FAILED"
+                    payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
+                    return False
+                mitigated = True
+                revocation_record["revoked_token_id"] = token_id
+            elif not token_id and hasattr(adapter, "_issued_tokens") and hasattr(adapter, "revoke_token"):
+                # If no token_id is given explicitly, revoke all active tokens matching the target agent
+                revoked_any = False
+                for t_id, t_info in list(adapter._issued_tokens.items()):
+                    if t_info.get("status") == "ACTIVE" and (
+                        t_info.get("role") == payload.target_agent_id
+                        or payload.target_agent_id in t_info.get("role", "")
+                        or t_id == payload.target_agent_id
+                    ):
+                        res = adapter.revoke_token(t_id)
                         if asyncio.iscoroutine(res):
-                            await res
-            except Exception as exc:
-                logger.error("Error revoking identity credentials via Vault: %s", exc)
-                payload.status = "FAILED"
-                payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
-                return False
+                            res = await res
+                        if res is not False:
+                            revoked_any = True
+                if revoked_any:
+                    mitigated = True
+
+        except Exception as exc:
+            logger.error("Error revoking identity credentials via Vault: %s", exc)
+            payload.status = "FAILED"
+            payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
+            return False
+
+        if not mitigated:
+            payload.status = "FAILED"
+            payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
+            logger.error("Vault adapter has no supported methods for identity revocation.")
+            return False
 
         async with self._lock:
             self._revoked_identities.append(revocation_record)
@@ -431,6 +550,38 @@ class ActiveReactionEngine:
 
         # Agent swarm, AI-induced lateral movement (AILM), or credential theft -> Revoke identity tokens
         if "swarm" in threat_type or "ailm" in threat_type or "credential" in threat_type or "token" in threat_type:
+            meta = dict(alert.metadata) if alert.metadata else {}
+            token_id = (
+                meta.get("token_id")
+                or meta.get("token")
+                or meta.get("target_token")
+                or meta.get("credential_id")
+            )
+            if not token_id and isinstance(alert.evidence, dict):
+                token_id = (
+                    alert.evidence.get("token_id")
+                    or alert.evidence.get("token")
+                    or alert.evidence.get("target_token")
+                    or alert.evidence.get("credential_id")
+                )
+            if token_id:
+                meta["token_id"] = token_id
+            elif self.vault_adapter is not None:
+                adapter = (
+                    self.vault_adapter.vault_adapter
+                    if hasattr(self.vault_adapter, "vault_adapter")
+                    else self.vault_adapter
+                )
+                if hasattr(adapter, "_issued_tokens"):
+                    for t_id, t_info in list(adapter._issued_tokens.items()):
+                        if t_info.get("status") == "ACTIVE" and (
+                            t_info.get("role") == target_agent
+                            or target_agent in t_info.get("role", "")
+                            or t_id == target_agent
+                        ):
+                            meta["token_id"] = t_id
+                            break
+
             payloads.append(
                 ActiveReactionPayload(
                     reaction_id=uuid.uuid4(),
@@ -438,6 +589,7 @@ class ActiveReactionEngine:
                     target_agent_id=target_agent,
                     action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
                     evaluation_env_id=eval_env_id,
+                    metadata=meta,
                 )
             )
 
