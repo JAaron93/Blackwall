@@ -172,6 +172,7 @@ class LinuxeBPFDriver(KernelProbeDriver):
         self._ebpf_available: bool = sys.platform.startswith("linux")
         self._active_ebpf_drop_maps: Dict[str, Any] = {}
         self._attached_probes: Dict[str, Any] = {}
+        self._hook_fn: Optional[Callable] = None
 
     def inject_socket_drop(
         self, pid: Optional[int] = None, ip: Optional[str] = None
@@ -192,6 +193,73 @@ class LinuxeBPFDriver(KernelProbeDriver):
             }
         return applied
 
+    def audit_event_handler(self, event: str, args: tuple) -> None:
+        """Audit hook handler for eBPF tracepoint compatibility and userspace enforcement."""
+        if not self._is_active:
+            return
+
+        import os
+        current_pid = os.getpid()
+
+        if event in ("subprocess.Popen", "os.system", "os.exec", "os.spawn", "os.kill", "os.posix_spawn"):
+            if current_pid in self._dropped_pids or f"bpf_sock_drop_pid_{current_pid}" in self._active_ebpf_drop_maps:
+                logger.warning(
+                    "LinuxeBPFDriver blocked process execution from dropped PID",
+                    extra={"event": event, "pid": current_pid},
+                )
+                raise PermissionError(
+                    f"Execution from dropped PID '{current_pid}' intercepted by Blackwall LinuxeBPFDriver"
+                )
+
+            if event == "os.kill" and args:
+                target_pid = args[0]
+                if target_pid in self._dropped_pids or f"bpf_sock_drop_pid_{target_pid}" in self._active_ebpf_drop_maps:
+                    logger.warning(
+                        "LinuxeBPFDriver blocked operation targeting dropped PID",
+                        extra={"event": event, "pid": target_pid},
+                    )
+                    raise PermissionError(
+                        f"Process operation on dropped PID '{target_pid}' intercepted by Blackwall LinuxeBPFDriver"
+                    )
+
+            cmd_str = str(args[0]) if args else ""
+            for pattern in self._blocked_patterns:
+                if pattern in cmd_str:
+                    logger.warning(
+                        "LinuxeBPFDriver blocked unauthorized command execution",
+                        extra={"event": event, "cmd": cmd_str, "pattern": pattern},
+                    )
+                    raise PermissionError(
+                        f"Execution of '{cmd_str}' intercepted by Blackwall LinuxeBPFDriver (pattern: {pattern})"
+                    )
+
+        if event.startswith("socket."):
+            if current_pid in self._dropped_pids or f"bpf_sock_drop_pid_{current_pid}" in self._active_ebpf_drop_maps:
+                logger.warning(
+                    "LinuxeBPFDriver blocked socket operation from dropped PID",
+                    extra={"event": event, "pid": current_pid},
+                )
+                raise PermissionError(
+                    f"Socket operation from dropped PID '{current_pid}' intercepted by Blackwall LinuxeBPFDriver"
+                )
+
+            extracted_ips: set[str] = set()
+            for arg in args:
+                if isinstance(arg, tuple) and len(arg) >= 1 and isinstance(arg[0], str):
+                    extracted_ips.add(arg[0])
+                elif isinstance(arg, str):
+                    extracted_ips.add(arg)
+
+            for dropped_ip in self._dropped_sockets:
+                if dropped_ip in extracted_ips:
+                    logger.warning(
+                        "LinuxeBPFDriver blocked socket connection to dropped IP",
+                        extra={"event": event, "ip": dropped_ip},
+                    )
+                    raise PermissionError(
+                        f"Socket operation to '{dropped_ip}' intercepted by Blackwall LinuxeBPFDriver"
+                    )
+
     def start_tracing(self) -> None:
         """Attaches eBPF tracepoint probes to Linux kernel execve/connect syscalls."""
         self._is_active = True
@@ -200,6 +268,13 @@ class LinuxeBPFDriver(KernelProbeDriver):
             "sys_enter_execve": {"attached": True, "type": "tracepoint"},
             "sys_enter_connect": {"attached": True, "type": "tracepoint"},
         }
+
+        if self._hook_fn is None:
+            self._hook_fn = self.audit_event_handler
+            try:
+                sys.addaudithook(self._hook_fn)
+            except Exception as e:
+                logger.debug("sys.addaudithook notice in LinuxeBPFDriver: %s", e)
 
         if not self._ebpf_available:
             logger.info(
