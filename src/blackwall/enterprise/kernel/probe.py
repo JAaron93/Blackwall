@@ -50,6 +50,17 @@ class KernelProbeDriver(ABC):
             return True
         return False
 
+    def remove_socket_drop(
+        self, pid: Optional[int] = None, ip: Optional[str] = None
+    ) -> None:
+        """Removes a previously injected PID or IP drop rule from userspace tracking."""
+        if pid is not None:
+            self._dropped_pids.discard(pid)
+            self._blocked_patterns.discard(f"pid:{pid}")
+        if ip is not None:
+            self._dropped_sockets.discard(ip)
+            self._blocked_patterns.discard(f"ip:{ip}")
+
     def inject_socket_drop(
         self, pid: Optional[int] = None, ip: Optional[str] = None
     ) -> bool:
@@ -255,6 +266,41 @@ class LinuxeBPFDriver(KernelProbeDriver):
                 self._bpf_instance = None
                 self._bpf_load_error = exc
 
+    def remove_socket_drop(
+        self, pid: Optional[int] = None, ip: Optional[str] = None
+    ) -> None:
+        """Removes a previously injected drop rule from BPF maps and userspace tracking."""
+        super().remove_socket_drop(pid=pid, ip=ip)
+        if pid is not None:
+            self._active_ebpf_drop_maps.pop(f"bpf_sock_drop_pid_{pid}", None)
+            if self._bpf_program and "maps" in self._bpf_program:
+                self._bpf_program["maps"]["dropped_pids"].pop(pid, None)
+            if self._bpf_instance is not None:
+                try:
+                    import ctypes
+                    key = ctypes.c_uint32(pid)
+                    self._bpf_instance["dropped_pids"].pop(key, None)
+                except Exception:
+                    try:
+                        self._bpf_instance["dropped_pids"].pop(pid, None)
+                    except Exception:
+                        pass
+        if ip is not None:
+            self._active_ebpf_drop_maps.pop(f"bpf_sock_drop_ip_{ip}", None)
+            if self._bpf_program and "maps" in self._bpf_program:
+                self._bpf_program["maps"]["dropped_ips"].pop(ip, None)
+            if self._bpf_instance is not None:
+                try:
+                    import ctypes
+                    import socket
+                    key = ctypes.c_uint32.from_buffer_copy(socket.inet_aton(ip))
+                    self._bpf_instance["dropped_ips"].pop(key, None)
+                except Exception:
+                    try:
+                        self._bpf_instance["dropped_ips"].pop(ip, None)
+                    except Exception:
+                        pass
+
     def inject_socket_drop(
         self, pid: Optional[int] = None, ip: Optional[str] = None
     ) -> bool:
@@ -267,6 +313,7 @@ class LinuxeBPFDriver(KernelProbeDriver):
             logger.error(
                 "LinuxeBPFDriver kernel eBPF program not loaded; cannot enforce kernel drop."
             )
+            self.remove_socket_drop(pid=pid, ip=ip)
             return False
         if pid is not None:
             self._active_ebpf_drop_maps[f"bpf_sock_drop_pid_{pid}"] = {
@@ -287,6 +334,7 @@ class LinuxeBPFDriver(KernelProbeDriver):
                         self._bpf_instance["dropped_pids"][pid] = 1
                 except Exception as exc:
                     logger.error("Failed updating BCC dropped_pids map: %s", exc)
+                    self.remove_socket_drop(pid=pid, ip=ip)
                     return False
         if ip is not None:
             self._active_ebpf_drop_maps[f"bpf_sock_drop_ip_{ip}"] = {
@@ -309,9 +357,11 @@ class LinuxeBPFDriver(KernelProbeDriver):
                             self._bpf_instance["dropped_ips"][key.value] = 1
                     except Exception as exc:
                         logger.error("Failed packing IP for BCC dropped_ips map: %s", exc)
+                        self.remove_socket_drop(pid=pid, ip=ip)
                         return False
                 except Exception as exc:
                     logger.error("Failed updating BCC dropped_ips map: %s", exc)
+                    self.remove_socket_drop(pid=pid, ip=ip)
                     return False
         return applied
 

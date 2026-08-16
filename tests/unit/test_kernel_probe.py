@@ -170,3 +170,25 @@ def test_linux_ebpf_driver_bpf_map_ip_endianness():
     # Verify that the key stored in BCC map matches expected native value
     stored_keys = [k.value if hasattr(k, "value") else k for k in driver._bpf_instance["dropped_ips"].keys()]
     assert expected_key in stored_keys
+
+
+def test_linux_ebpf_driver_rollback_on_failed_injection():
+    """Verify LinuxeBPFDriver cleans up userspace and drop maps if BPF map update fails."""
+    from blackwall.enterprise.kernel.probe import LinuxeBPFDriver
+
+    driver = LinuxeBPFDriver()
+    class FailingMap:
+        def __setitem__(self, k, v):
+            raise RuntimeError("Map update error")
+        def pop(self, k, default=None):
+            pass
+
+    driver._bpf_instance = {"dropped_ips": FailingMap(), "dropped_pids": FailingMap()}
+    applied = driver.inject_socket_drop(pid=8888, ip="172.16.0.1")
+    assert applied is False
+    assert 8888 not in driver._dropped_pids
+    assert "172.16.0.1" not in driver._dropped_sockets
+    assert "pid:8888" not in driver._blocked_patterns
+    assert "ip:172.16.0.1" not in driver._blocked_patterns
+    assert "bpf_sock_drop_pid_8888" not in driver._active_ebpf_drop_maps
+    assert "bpf_sock_drop_ip_172.16.0.1" not in driver._active_ebpf_drop_maps
