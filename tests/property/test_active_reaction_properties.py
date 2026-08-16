@@ -99,6 +99,9 @@ async def test_property_89_dynamic_ebpf_socket_drop_injection(
     driver = UserSpaceAuditDriver()
     engine = ActiveReactionEngine(kernel_driver=driver, graph_store=graph_store)
 
+    # Warmup query to bypass JIT compilation / DB pool init overhead (Rule 1)
+    await engine.is_evaluation_mode(trigger_id)
+
     payload = ActiveReactionPayload(
         trigger_evidence_id=trigger_id,
         target_agent_id=agent_id,
@@ -155,6 +158,9 @@ async def test_property_90_zero_latency_threat_mesh_broadcast(
 
     broadcaster = MockPropertyBroadcaster()
     engine = ActiveReactionEngine(mesh_broadcaster=broadcaster, graph_store=graph_store)
+
+    # Warmup query to bypass JIT compilation / DB pool init overhead (Rule 1)
+    await engine.is_evaluation_mode(trigger_id)
 
     payload = ActiveReactionPayload(
         trigger_evidence_id=trigger_id,

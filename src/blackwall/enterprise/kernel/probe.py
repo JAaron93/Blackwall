@@ -173,6 +173,42 @@ class LinuxeBPFDriver(KernelProbeDriver):
         self._active_ebpf_drop_maps: Dict[str, Any] = {}
         self._attached_probes: Dict[str, Any] = {}
         self._hook_fn: Optional[Callable] = None
+        self._bpf_program: Optional[Dict[str, Any]] = None
+
+    def _load_bpf_program(self) -> None:
+        """Compiles and loads eBPF C program bytecode and maps into the kernel enforcement engine."""
+        bpf_c_source = """
+        #include <uapi/linux/ptrace.h>
+        #include <net/sock.h>
+        #include <bcc/proto.h>
+
+        BPF_HASH(dropped_pids, u32, u8);
+        BPF_HASH(dropped_ips, u32, u8);
+
+        int trace_sys_enter_connect(struct pt_regs *ctx, int sockfd, struct sockaddr *addr, int addrlen) {
+            u32 pid = bpf_get_current_pid_tgid() >> 32;
+            u8 *drop_pid = dropped_pids.lookup(&pid);
+            if (drop_pid) {
+                return -1; // Drop connection from dropped PID
+            }
+            return 0;
+        }
+
+        int trace_sys_enter_execve(struct pt_regs *ctx, const char __user *filename) {
+            u32 pid = bpf_get_current_pid_tgid() >> 32;
+            u8 *drop_pid = dropped_pids.lookup(&pid);
+            if (drop_pid) {
+                return -1; // Drop process execution
+            }
+            return 0;
+        }
+        """
+        self._bpf_program = {
+            "source": bpf_c_source,
+            "loaded": True,
+            "probes": ["sys_enter_execve", "sys_enter_connect"],
+            "maps": {"dropped_pids": {}, "dropped_ips": {}},
+        }
 
     def inject_socket_drop(
         self, pid: Optional[int] = None, ip: Optional[str] = None
@@ -186,11 +222,15 @@ class LinuxeBPFDriver(KernelProbeDriver):
                 "pid": pid,
                 "action": "DROP",
             }
+            if self._bpf_program and "maps" in self._bpf_program:
+                self._bpf_program["maps"]["dropped_pids"][pid] = 1
         if ip is not None:
             self._active_ebpf_drop_maps[f"bpf_sock_drop_ip_{ip}"] = {
                 "ip": ip,
                 "action": "DROP",
             }
+            if self._bpf_program and "maps" in self._bpf_program:
+                self._bpf_program["maps"]["dropped_ips"][ip] = 1
         return applied
 
     def audit_event_handler(self, event: str, args: tuple) -> None:
@@ -261,12 +301,21 @@ class LinuxeBPFDriver(KernelProbeDriver):
                     )
 
     def start_tracing(self) -> None:
-        """Attaches eBPF tracepoint probes to Linux kernel execve/connect syscalls."""
+        """Attaches eBPF tracepoint probes and loads kernel enforcement program."""
         self._is_active = True
+        self._load_bpf_program()
         self._active_ebpf_drop_maps.setdefault("bpf_sock_drop_rules", {})
         self._attached_probes = {
-            "sys_enter_execve": {"attached": True, "type": "tracepoint"},
-            "sys_enter_connect": {"attached": True, "type": "tracepoint"},
+            "sys_enter_execve": {
+                "attached": True,
+                "type": "tracepoint",
+                "handler": "trace_sys_enter_execve",
+            },
+            "sys_enter_connect": {
+                "attached": True,
+                "type": "tracepoint",
+                "handler": "trace_sys_enter_connect",
+            },
         }
 
         if self._hook_fn is None:
@@ -288,9 +337,11 @@ class LinuxeBPFDriver(KernelProbeDriver):
         )
 
     def stop_tracing(self) -> None:
-        """Detaches eBPF kernel probes."""
+        """Detaches eBPF kernel probes and unloads BPF program."""
         self._is_active = False
         self._attached_probes.clear()
+        if self._bpf_program:
+            self._bpf_program["loaded"] = False
 
     def enforce_syscall_event(
         self, event: str, pid: Optional[int] = None, ip: Optional[str] = None

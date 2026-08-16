@@ -690,8 +690,8 @@ async def test_honeytoken_rotation_does_not_mask_failed_token_revocation():
 
 
 @pytest.mark.asyncio
-async def test_unresolved_evidence_with_eval_manager_defaults_to_production():
-    """Verify that evidence not found in eval manager defaults to production to avoid suppressing alerts."""
+async def test_unresolved_evidence_with_eval_manager_fails_closed():
+    """Verify that unresolved evidence provenance fails closed (returns True) to prevent unintended execution."""
     eval_manager = EvaluationEnvironmentManager(in_memory=True)
     graph_store = AttackGraphStore(in_memory=True)
     await graph_store.initialize()
@@ -702,10 +702,10 @@ async def test_unresolved_evidence_with_eval_manager_defaults_to_production():
         graph_store=graph_store,
     )
 
-    # An evidence ID not present in evaluation environments is production traffic
+    # An evidence ID not resolvable in stores fails closed to contain
     missing_evidence_id = uuid.uuid4()
     is_eval = await engine.is_evaluation_mode(missing_evidence_id)
-    assert is_eval is False
+    assert is_eval is True
 
     payload = ActiveReactionPayload(
         trigger_evidence_id=missing_evidence_id,
@@ -714,8 +714,8 @@ async def test_unresolved_evidence_with_eval_manager_defaults_to_production():
         action_type=ReactionActionType.EBPF_DROP,
     )
     success = await engine.execute_ebpf_socket_drop(payload)
-    assert success is True
-    assert payload.status == "SUCCESS"
+    assert success is False
+    assert payload.status == "SUPPRESSED"
 
 
 @pytest.mark.asyncio
@@ -756,7 +756,7 @@ async def test_unsupported_kernel_driver_fails_socket_drop():
 
 @pytest.mark.asyncio
 async def test_evaluation_containment_eval_manager_without_graph_store():
-    """Verify that when eval manager is configured without graph store, uncontained evidence defaults to production."""
+    """Verify that when eval manager is configured without graph store, unresolvable evidence fails closed."""
     eval_manager = EvaluationEnvironmentManager(in_memory=True)
     engine = ActiveReactionEngine(
         kernel_driver=UserSpaceAuditDriver(),
@@ -766,7 +766,7 @@ async def test_evaluation_containment_eval_manager_without_graph_store():
 
     ev_id = uuid.uuid4()
     is_eval = await engine.is_evaluation_mode(ev_id)
-    assert is_eval is False
+    assert is_eval is True
 
     payload = ActiveReactionPayload(
         trigger_evidence_id=ev_id,
@@ -775,8 +775,8 @@ async def test_evaluation_containment_eval_manager_without_graph_store():
         action_type=ReactionActionType.EBPF_DROP,
     )
     res = await engine.execute_ebpf_socket_drop(payload)
-    assert res is True
-    assert payload.status == "SUCCESS"
+    assert res is False
+    assert payload.status == "SUPPRESSED"
 
 
 @pytest.mark.asyncio
@@ -824,8 +824,8 @@ async def test_revoke_identity_session_exact_role_matching_no_substring_crossove
 
 
 @pytest.mark.asyncio
-async def test_unresolved_evidence_in_graph_store_without_eval_manager_defaults_to_production():
-    """Verify that evidence absent from graph store defaults to production when no evaluation markers exist."""
+async def test_unresolved_evidence_in_graph_store_without_eval_manager_fails_closed():
+    """Verify that evidence absent from graph store fails closed when provenance cannot be established."""
     graph_store = AttackGraphStore(in_memory=True)
     await graph_store.initialize()
 
@@ -837,7 +837,7 @@ async def test_unresolved_evidence_in_graph_store_without_eval_manager_defaults_
 
     missing_ev = uuid.uuid4()
     is_eval = await engine.is_evaluation_mode(missing_ev)
-    assert is_eval is False
+    assert is_eval is True
 
     payload = ActiveReactionPayload(
         trigger_evidence_id=missing_ev,
@@ -846,8 +846,8 @@ async def test_unresolved_evidence_in_graph_store_without_eval_manager_defaults_
         action_type=ReactionActionType.EBPF_DROP,
     )
     res = await engine.execute_ebpf_socket_drop(payload)
-    assert res is True
-    assert payload.status == "SUCCESS"
+    assert res is False
+    assert payload.status == "SUPPRESSED"
 
 
 @pytest.mark.asyncio
