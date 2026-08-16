@@ -722,3 +722,40 @@ async def test_targetless_socket_drop_fails():
     assert res is False
     assert payload.status == "FAILED"
     assert len(engine.ebpf_drop_rules) == 0
+
+
+@pytest.mark.asyncio
+async def test_react_to_alert_revokes_multiple_active_tokens():
+    """Verify that react_to_alert discovers and revokes all active tokens for a compromised agent."""
+    vault = VaultMCPAdapter()
+    await vault.connect()
+
+    # Issue multiple active tokens for the compromised agent
+    token1 = await vault.issue_jit_token(role="compromised-agent", ttl_seconds=600)
+    token2 = await vault.issue_jit_token(role="compromised-agent", ttl_seconds=600)
+    # Issue a token for a different agent that must NOT be revoked
+    other_token = await vault.issue_jit_token(role="innocent-agent", ttl_seconds=600)
+
+    engine = ActiveReactionEngine(vault_adapter=vault)
+
+    # Trigger credential alert without specifying a single token_id
+    alert = Alert(
+        alert_id=uuid.uuid4(),
+        severity=AlertSeverity.CRITICAL,
+        threat_type="credential_theft",
+        title="Credential harvesting detected",
+        description="Multiple credentials compromised",
+        evidence_id=uuid.uuid4(),
+        agent_id="compromised-agent",
+    )
+
+    reactions = await engine.react_to_alert(alert)
+    assert len(reactions) == 2
+    assert all(r.action_type == ReactionActionType.REVOKE_IDENTITY_TOKENS for r in reactions)
+    assert all(r.status == "SUCCESS" for r in reactions)
+
+    # Verify both compromised tokens were revoked
+    assert vault._issued_tokens[token1["token_id"]]["status"] == "REVOKED"
+    assert vault._issued_tokens[token2["token_id"]]["status"] == "REVOKED"
+    # Verify innocent agent token is still active
+    assert vault._issued_tokens[other_token["token_id"]]["status"] == "ACTIVE"

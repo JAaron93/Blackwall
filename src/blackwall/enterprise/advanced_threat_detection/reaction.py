@@ -430,15 +430,26 @@ class ActiveReactionEngine:
                     honeytoken_rotated = True
 
             token_id = payload.metadata.get("token_id")
-            if token_id and hasattr(adapter, "revoke_token"):
-                res = adapter.revoke_token(token_id)
-                if asyncio.iscoroutine(res):
-                    res = await res
-                if res is not False and res is not None:
-                    token_revoked = True
-                    revocation_record["revoked_token_id"] = token_id
-                else:
-                    logger.error("Vault adapter rejected revocation of token: %s", token_id)
+            token_ids = payload.metadata.get("token_ids")
+            tokens_to_revoke: list[str] = []
+            if token_id:
+                tokens_to_revoke.append(token_id)
+            if isinstance(token_ids, list):
+                for tid in token_ids:
+                    if tid and tid not in tokens_to_revoke:
+                        tokens_to_revoke.append(tid)
+
+            if tokens_to_revoke and hasattr(adapter, "revoke_token"):
+                for t_id in tokens_to_revoke:
+                    res = adapter.revoke_token(t_id)
+                    if asyncio.iscoroutine(res):
+                        res = await res
+                    if res is not False and res is not None:
+                        token_revoked = True
+                        revocation_record.setdefault("revoked_token_ids", []).append(t_id)
+                        revocation_record["revoked_token_id"] = t_id
+                    else:
+                        logger.error("Vault adapter rejected revocation of token: %s", t_id)
             elif hasattr(adapter, "_issued_tokens") and hasattr(adapter, "revoke_token"):
                 # If no token_id is given explicitly, revoke all active tokens strictly matching the target agent
                 for t_id, t_info in list(adapter._issued_tokens.items()):
@@ -451,6 +462,7 @@ class ActiveReactionEngine:
                             res = await res
                         if res is not False and res is not None:
                             token_revoked = True
+                            revocation_record.setdefault("revoked_token_ids", []).append(t_id)
                             revocation_record["revoked_token_id"] = t_id
 
             is_honeytoken_target = bool(
@@ -620,8 +632,10 @@ class ActiveReactionEngine:
                     or alert.evidence.get("target_token")
                     or alert.evidence.get("credential_id")
                 )
+
+            matching_tokens: list[str] = []
             if token_id:
-                meta["token_id"] = token_id
+                matching_tokens.append(token_id)
             elif self.vault_adapter is not None:
                 adapter = (
                     self.vault_adapter.vault_adapter
@@ -634,19 +648,33 @@ class ActiveReactionEngine:
                             t_info.get("role") == target_agent
                             or t_id == target_agent
                         ):
-                            meta["token_id"] = t_id
-                            break
+                            matching_tokens.append(t_id)
 
-            payloads.append(
-                ActiveReactionPayload(
-                    reaction_id=uuid.uuid4(),
-                    trigger_evidence_id=evidence_id,
-                    target_agent_id=target_agent,
-                    action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
-                    evaluation_env_id=eval_env_id,
-                    metadata=meta,
+            if matching_tokens:
+                for m_token_id in matching_tokens:
+                    tok_meta = dict(meta)
+                    tok_meta["token_id"] = m_token_id
+                    payloads.append(
+                        ActiveReactionPayload(
+                            reaction_id=uuid.uuid4(),
+                            trigger_evidence_id=evidence_id,
+                            target_agent_id=target_agent,
+                            action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
+                            evaluation_env_id=eval_env_id,
+                            metadata=tok_meta,
+                        )
+                    )
+            else:
+                payloads.append(
+                    ActiveReactionPayload(
+                        reaction_id=uuid.uuid4(),
+                        trigger_evidence_id=evidence_id,
+                        target_agent_id=target_agent,
+                        action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
+                        evaluation_env_id=eval_env_id,
+                        metadata=meta,
+                    )
                 )
-            )
 
         executed: list[ActiveReactionPayload] = []
         for p in payloads:
