@@ -10,6 +10,7 @@ from blackwall.enterprise.advanced_threat_detection.enums import (
     AlertSeverity,
     EventSource,
     ExploitCategory,
+    ReactionActionType,
 )
 from blackwall.validators import (
     validate_min_items,
@@ -248,4 +249,54 @@ class Alert(BaseModel):
     def validate_non_empty_fields(cls, v: str, info: Any) -> str:
         """Validate required string fields are not empty or whitespace only."""
         return validate_non_empty_string(v, field_name=info.field_name)
+
+
+class ActiveReactionPayload(BaseModel):
+    """Payload model for automated active threat reactions (Feedback loop to Pillars 1, 2, 3)."""
+
+    reaction_id: UUID4 = Field(default_factory=uuid4)
+    trigger_evidence_id: UUID4
+    target_agent_id: str = Field(..., min_length=1)
+    target_pid: int | None = Field(default=None, gt=0)
+    target_ip: str | None = Field(default=None)
+    action_type: ReactionActionType
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    evaluation_env_id: str | None = Field(
+        default=None, min_length=1, pattern=r"^[a-zA-Z0-9_-]+$"
+    )
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    status: str = Field(default="PENDING")
+    execution_duration_ms: float = Field(default=0.0, ge=0.0)
+
+    @field_validator("reaction_id", "trigger_evidence_id")
+    @classmethod
+    def validate_uuid_v4_fields(cls, v: Any, info: Any) -> UUID:
+        """Validate reaction_id and trigger_evidence_id are valid UUID v4."""
+        return validate_uuid_v4_format(v, field_name=info.field_name)
+
+    @field_validator("timestamp")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        """Validate timestamp is timezone-aware with UTC timezone."""
+        return validate_utc_datetime(v)
+
+    @field_validator("target_agent_id")
+    @classmethod
+    def validate_non_empty_agent_id(cls, v: str) -> str:
+        """Validate target_agent_id is not empty or whitespace only."""
+        return validate_non_empty_string(v, field_name="target_agent_id")
+
+    @field_validator("target_ip")
+    @classmethod
+    def validate_target_ip(cls, v: str | None) -> str | None:
+        """Validate target_ip is a valid IPv4 or IPv6 address when provided."""
+        if v is None:
+            return None
+        import ipaddress
+
+        try:
+            ipaddress.ip_address(v)
+        except ValueError as exc:
+            raise ValueError(f"target_ip must be a valid IPv4 or IPv6 address: {v}") from exc
+        return v
 
