@@ -611,3 +611,55 @@ async def test_unsupported_kernel_driver_fails_socket_drop():
     success = await engine.execute_ebpf_socket_drop(payload)
     assert success is False
     assert payload.status == "FAILED"
+
+
+@pytest.mark.asyncio
+async def test_evaluation_containment_eval_manager_without_graph_store():
+    """Verify that when eval manager is configured without graph store, unconfirmed evidence fails closed."""
+    eval_manager = EvaluationEnvironmentManager(in_memory=True)
+    engine = ActiveReactionEngine(
+        kernel_driver=UserSpaceAuditDriver(),
+        eval_manager=eval_manager,
+        graph_store=None,
+    )
+
+    ev_id = uuid.uuid4()
+    is_eval = await engine.is_evaluation_mode(ev_id)
+    assert is_eval is True
+
+    payload = ActiveReactionPayload(
+        trigger_evidence_id=ev_id,
+        target_agent_id="agent-01",
+        action_type=ReactionActionType.EBPF_DROP,
+    )
+    res = await engine.execute_ebpf_socket_drop(payload)
+    assert res is False
+    assert payload.status == "SUPPRESSED"
+
+
+@pytest.mark.asyncio
+async def test_revoke_identity_session_exact_role_matching_no_substring_crossover():
+    """Verify that token revocation matches target role strictly and does not revoke substring-matching roles."""
+    vault = VaultMCPAdapter()
+    await vault.connect()
+
+    # Issue token for agent-10
+    token_10 = await vault.issue_jit_token(role="agent-10", ttl_seconds=300)
+    assert token_10 is not None
+
+    engine = ActiveReactionEngine(vault_adapter=vault)
+
+    # Attempt to revoke for agent-1 (which is a substring of agent-10)
+    payload = ActiveReactionPayload(
+        trigger_evidence_id=uuid.uuid4(),
+        target_agent_id="agent-1",
+        action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
+    )
+
+    # Should fail because agent-1 has no issued token and should NOT revoke agent-10's token
+    success = await engine.revoke_identity_session(payload)
+    assert success is False
+    assert payload.status == "FAILED"
+
+    # Verify agent-10's token is still ACTIVE in Vault
+    assert vault._issued_tokens[token_10["token_id"]]["status"] == "ACTIVE"

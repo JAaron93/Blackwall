@@ -128,6 +128,15 @@ class ActiveReactionEngine:
                 )
                 return True
 
+            # When an evaluation manager is configured without a graph store to confirm production status,
+            # fail closed so that evidence from reset/deleted/unresolved evaluation environments remains contained.
+            if self.graph_store is None:
+                logger.warning(
+                    "Evaluation manager configured without graph store to verify production status for evidence %s; failing closed to contain.",
+                    clean_evidence_uuid,
+                )
+                return True
+
         if self.graph_store is not None:
             try:
                 node = await self.graph_store.get_node(clean_evidence_uuid)
@@ -421,13 +430,11 @@ class ActiveReactionEngine:
                 else:
                     logger.error("Vault adapter rejected revocation of token: %s", token_id)
             elif hasattr(adapter, "_issued_tokens") and hasattr(adapter, "revoke_token"):
-                # If no token_id is given explicitly, revoke all active tokens matching the target agent
+                # If no token_id is given explicitly, revoke all active tokens strictly matching the target agent
                 for t_id, t_info in list(adapter._issued_tokens.items()):
                     if t_info.get("status") == "ACTIVE" and (
                         t_info.get("role") == payload.target_agent_id
-                        or payload.target_agent_id in t_info.get("role", "")
                         or t_id == payload.target_agent_id
-                        or payload.target_agent_id in ("unknown_agent", "swarm_agent", "compromised_agent")
                     ):
                         res = adapter.revoke_token(t_id)
                         if asyncio.iscoroutine(res):
@@ -615,7 +622,6 @@ class ActiveReactionEngine:
                     for t_id, t_info in list(adapter._issued_tokens.items()):
                         if t_info.get("status") == "ACTIVE" and (
                             t_info.get("role") == target_agent
-                            or target_agent in t_info.get("role", "")
                             or t_id == target_agent
                         ):
                             meta["token_id"] = t_id

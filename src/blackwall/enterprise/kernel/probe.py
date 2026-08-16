@@ -6,7 +6,7 @@ Provides Linux eBPF probe driver and macOS/Windows user-space audit hook driver.
 import sys
 import logging
 from abc import ABC, abstractmethod
-from typing import Callable, Optional, Set
+from typing import Any, Callable, Dict, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,8 @@ class KernelProbeDriver(ABC):
     def __init__(self) -> None:
         self._is_active: bool = False
         self._blocked_patterns: Set[str] = set()
+        self._dropped_sockets: Set[str] = set()
+        self._dropped_pids: Set[int] = set()
 
     @property
     def is_active(self) -> bool:
@@ -46,9 +48,11 @@ class KernelProbeDriver(ABC):
         """Inject real-time eBPF socket or process drop rule (<50ms SLA)."""
         applied = False
         if pid is not None:
+            self._dropped_pids.add(pid)
             self.add_blocked_pattern(f"pid:{pid}")
             applied = True
         if ip is not None:
+            self._dropped_sockets.add(ip)
             self.add_blocked_pattern(f"ip:{ip}")
             applied = True
         return applied or (pid is None and ip is None)
@@ -56,7 +60,7 @@ class KernelProbeDriver(ABC):
 
 class UserSpaceAuditDriver(KernelProbeDriver):
     """
-    User-space process interception fallback using Python sys.addaudithook.
+    User-space process and socket interception fallback using Python sys.addaudithook.
     Active on macOS, Windows, or Linux systems without eBPF kernel support.
     """
 
@@ -65,7 +69,7 @@ class UserSpaceAuditDriver(KernelProbeDriver):
         self._hook_fn: Optional[Callable] = None
 
     def audit_event_handler(self, event: str, args: tuple) -> None:
-        """Audit hook handler intercepting process execution events."""
+        """Audit hook handler intercepting process execution and socket communication events."""
         if not self._is_active:
             return
 
@@ -79,6 +83,18 @@ class UserSpaceAuditDriver(KernelProbeDriver):
                     )
                     raise PermissionError(
                         f"Execution of '{cmd_str}' intercepted by Blackwall UserSpaceAuditDriver (pattern: {pattern})"
+                    )
+
+        if event.startswith("socket."):
+            arg_str = str(args)
+            for dropped_ip in self._dropped_sockets:
+                if dropped_ip in arg_str:
+                    logger.warning(
+                        "UserSpaceAuditDriver blocked socket connection to dropped IP",
+                        extra={"event": event, "ip": dropped_ip},
+                    )
+                    raise PermissionError(
+                        f"Socket operation to '{dropped_ip}' intercepted by Blackwall UserSpaceAuditDriver"
                     )
 
     def start_tracing(self) -> None:
@@ -100,13 +116,31 @@ class UserSpaceAuditDriver(KernelProbeDriver):
 
 class LinuxeBPFDriver(KernelProbeDriver):
     """
-    Linux eBPF kernel probe driver using bcc / ebpf-py tracepoints on sys_enter_execve.
+    Linux eBPF kernel probe driver using bcc / ebpf-py tracepoints on sys_enter_execve and sys_enter_connect.
     Requires Linux kernel 5.4+ with BPF syscall enabled.
     """
 
     def __init__(self) -> None:
         super().__init__()
         self._ebpf_available: bool = sys.platform.startswith("linux")
+        self._active_ebpf_drop_maps: Dict[str, Any] = {}
+
+    def inject_socket_drop(
+        self, pid: Optional[int] = None, ip: Optional[str] = None
+    ) -> bool:
+        """Inject real-time eBPF socket or process drop rule (<50ms SLA)."""
+        applied = super().inject_socket_drop(pid=pid, ip=ip)
+        if pid is not None:
+            self._active_ebpf_drop_maps[f"bpf_sock_drop_pid_{pid}"] = {
+                "pid": pid,
+                "action": "DROP",
+            }
+        if ip is not None:
+            self._active_ebpf_drop_maps[f"bpf_sock_drop_ip_{ip}"] = {
+                "ip": ip,
+                "action": "DROP",
+            }
+        return applied
 
     def start_tracing(self) -> None:
         """Attaches eBPF tracepoint probes to Linux kernel execve/connect syscalls."""
@@ -119,7 +153,7 @@ class LinuxeBPFDriver(KernelProbeDriver):
 
         self._is_active = True
         logger.info(
-            "LinuxeBPFDriver successfully attached tracepoints to sys_enter_execve"
+            "LinuxeBPFDriver successfully attached tracepoints to sys_enter_execve and sys_enter_connect"
         )
 
     def stop_tracing(self) -> None:
