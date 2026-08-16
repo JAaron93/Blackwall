@@ -192,3 +192,28 @@ def test_linux_ebpf_driver_rollback_on_failed_injection():
     assert "ip:172.16.0.1" not in driver._blocked_patterns
     assert "bpf_sock_drop_pid_8888" not in driver._active_ebpf_drop_maps
     assert "bpf_sock_drop_ip_172.16.0.1" not in driver._active_ebpf_drop_maps
+
+
+def test_linux_ebpf_driver_drop_rules_restored_on_restart():
+    """Verify LinuxeBPFDriver restores retained drop rules into newly loaded BPF maps on restart."""
+    import socket
+    import ctypes
+    from blackwall.enterprise.kernel.probe import LinuxeBPFDriver
+
+    driver = LinuxeBPFDriver()
+    driver.inject_socket_drop(pid=9999, ip="192.168.10.50")
+    assert driver.is_dropped(pid=9999) is True
+    assert driver.is_dropped(ip="192.168.10.50") is True
+
+    # Stop tracing (simulating driver restart or probe detach)
+    driver.stop_tracing()
+    assert driver.is_active is False
+
+    # Restart tracing
+    driver.start_tracing()
+    assert driver.is_active is True
+    assert driver._bpf_program is not None
+    assert 9999 in driver._bpf_program["maps"]["dropped_pids"]
+    assert "192.168.10.50" in driver._bpf_program["maps"]["dropped_ips"]
+    assert "bpf_sock_drop_pid_9999" in driver._active_ebpf_drop_maps
+    assert "bpf_sock_drop_ip_192.168.10.50" in driver._active_ebpf_drop_maps

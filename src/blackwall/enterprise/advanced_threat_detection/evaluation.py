@@ -335,10 +335,12 @@ class EvaluationEnvironment:
         dsn: str | None = None,
         in_memory: bool = True,
         metadata: dict[str, Any] | None = None,
+        manager: Optional["EvaluationEnvironmentManager"] = None,
     ) -> None:
         self.env_id = validate_non_empty_string(env_id, field_name="env_id")
         self.dsn = dsn
         self.in_memory = in_memory
+        self.manager = manager
         self.created_at = datetime.now(UTC)
         self.metadata: dict[str, Any] = dict(metadata) if metadata else {}
         self._known_evidence_ids: set[uuid.UUID] = set()
@@ -357,6 +359,9 @@ class EvaluationEnvironment:
         derived = uuid.UUID(bytes=digest[:16], version=4)
         self._known_evidence_ids.add(clean_uuid)
         self._known_evidence_ids.add(derived)
+        if self.manager is not None:
+            self.manager._known_evaluation_evidence_ids.add(clean_uuid)
+            self.manager._known_evaluation_evidence_ids.add(derived)
         return derived
 
     def _check_not_closed(self) -> None:
@@ -540,6 +545,7 @@ class EvaluationEnvironmentManager:
                 dsn=env_dsn,
                 in_memory=env_in_memory,
                 metadata=metadata,
+                manager=self,
             )
             logger.info("Created isolated evaluation environment %s", clean_id)
         return self._environments[clean_id]
@@ -726,23 +732,28 @@ class EvaluationEnvironmentManager:
         return list(self._environments.keys())
 
     async def delete_environment(self, env_id: str) -> None:
-        """Remove and close an evaluation environment, ensuring pool closure on failure."""
+        """Remove and close an evaluation environment, preserving historical provenance IDs."""
         async with self._lock:
             clean_id = str(env_id).strip() if env_id else ""
             if clean_id in self._environments:
                 env = self._environments.get(clean_id)
+                if env is not None:
+                    self._known_evaluation_evidence_ids.update(getattr(env, "_known_evidence_ids", set()))
                 try:
-                    await env.reset()
+                    if env is not None:
+                        await env.reset()
                 finally:
                     try:
-                        await env.close()
+                        if env is not None:
+                            await env.close()
                     finally:
                         self._environments.pop(clean_id, None)
                 logger.info("Deleted evaluation environment %s", clean_id)
 
     async def close_all(self) -> None:
-        """Close all managed evaluation environments."""
+        """Close all managed evaluation environments, preserving historical provenance IDs."""
         async with self._lock:
             for env in list(self._environments.values()):
+                self._known_evaluation_evidence_ids.update(getattr(env, "_known_evidence_ids", set()))
                 await env.close()
             self._environments.clear()
