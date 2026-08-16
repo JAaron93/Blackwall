@@ -134,7 +134,6 @@ class ActiveReactionEngine:
             try:
                 node = await self.graph_store.get_node(clean_evidence_uuid)
                 if node is not None:
-                    found_in_store = True
                     meta = node.event.metadata
                     if (
                         meta.get("is_evaluation") is True
@@ -149,14 +148,6 @@ class ActiveReactionEngine:
                     exc,
                 )
                 return True
-
-        # If graph_store or eval_manager is configured but the evidence could not be resolved, fail closed
-        if (self.graph_store is not None or self.eval_manager is not None) and not found_in_store:
-            logger.info(
-                "Evidence %s unresolved in stores; failing closed (evaluation containment).",
-                clean_evidence_uuid,
-            )
-            return True
 
         return False
 

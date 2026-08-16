@@ -174,6 +174,7 @@ class LinuxeBPFDriver(KernelProbeDriver):
         self._attached_probes: Dict[str, Any] = {}
         self._hook_fn: Optional[Callable] = None
         self._bpf_program: Optional[Dict[str, Any]] = None
+        self._bpf_instance: Optional[Any] = None
 
     def _load_bpf_program(self) -> None:
         """Compiles and loads eBPF C program bytecode and maps into the kernel enforcement engine."""
@@ -210,6 +211,27 @@ class LinuxeBPFDriver(KernelProbeDriver):
             "maps": {"dropped_pids": {}, "dropped_ips": {}},
         }
 
+        if self._ebpf_available:
+            try:
+                from bcc import BPF  # type: ignore
+
+                self._bpf_instance = BPF(text=bpf_c_source)
+                self._bpf_instance.attach_tracepoint(
+                    tp="syscalls:sys_enter_execve", fn_name="trace_sys_enter_execve"
+                )
+                self._bpf_instance.attach_tracepoint(
+                    tp="syscalls:sys_enter_connect", fn_name="trace_sys_enter_connect"
+                )
+                logger.info(
+                    "LinuxeBPFDriver compiled and loaded kernel BPF program into kernel space"
+                )
+            except Exception as exc:
+                logger.debug(
+                    "BCC kernel program attachment fallback (simulated/userspace): %s",
+                    exc,
+                )
+                self._bpf_instance = None
+
     def inject_socket_drop(
         self, pid: Optional[int] = None, ip: Optional[str] = None
     ) -> bool:
@@ -224,6 +246,15 @@ class LinuxeBPFDriver(KernelProbeDriver):
             }
             if self._bpf_program and "maps" in self._bpf_program:
                 self._bpf_program["maps"]["dropped_pids"][pid] = 1
+            if self._bpf_instance is not None:
+                try:
+                    import ctypes
+
+                    self._bpf_instance["dropped_pids"][ctypes.c_uint32(pid)] = (
+                        ctypes.c_uint8(1)
+                    )
+                except Exception as exc:
+                    logger.debug("Failed updating BCC dropped_pids map: %s", exc)
         if ip is not None:
             self._active_ebpf_drop_maps[f"bpf_sock_drop_ip_{ip}"] = {
                 "ip": ip,
@@ -231,6 +262,21 @@ class LinuxeBPFDriver(KernelProbeDriver):
             }
             if self._bpf_program and "maps" in self._bpf_program:
                 self._bpf_program["maps"]["dropped_ips"][ip] = 1
+            if self._bpf_instance is not None:
+                try:
+                    import ctypes
+                    import socket
+                    import struct
+
+                    try:
+                        packed_ip = struct.unpack("!I", socket.inet_aton(ip))[0]
+                        self._bpf_instance["dropped_ips"][ctypes.c_uint32(packed_ip)] = (
+                            ctypes.c_uint8(1)
+                        )
+                    except Exception:
+                        pass
+                except Exception as exc:
+                    logger.debug("Failed updating BCC dropped_ips map: %s", exc)
         return applied
 
     def audit_event_handler(self, event: str, args: tuple) -> None:
@@ -342,6 +388,12 @@ class LinuxeBPFDriver(KernelProbeDriver):
         self._attached_probes.clear()
         if self._bpf_program:
             self._bpf_program["loaded"] = False
+        if self._bpf_instance is not None:
+            try:
+                self._bpf_instance.cleanup()
+            except Exception:
+                pass
+            self._bpf_instance = None
 
     def enforce_syscall_event(
         self, event: str, pid: Optional[int] = None, ip: Optional[str] = None

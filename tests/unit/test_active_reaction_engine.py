@@ -690,8 +690,8 @@ async def test_honeytoken_rotation_does_not_mask_failed_token_revocation():
 
 
 @pytest.mark.asyncio
-async def test_unresolved_evidence_with_eval_manager_fails_closed():
-    """Verify that unresolved evidence provenance fails closed (returns True) to prevent unintended execution."""
+async def test_unresolved_evidence_with_eval_markers_fails_closed():
+    """Verify that unresolvable evidence containing evaluation markers fails closed (returns True) to prevent unintended execution."""
     eval_manager = EvaluationEnvironmentManager(in_memory=True)
     graph_store = AttackGraphStore(in_memory=True)
     await graph_store.initialize()
@@ -702,16 +702,17 @@ async def test_unresolved_evidence_with_eval_manager_fails_closed():
         graph_store=graph_store,
     )
 
-    # An evidence ID not resolvable in stores fails closed to contain
-    missing_evidence_id = uuid.uuid4()
-    is_eval = await engine.is_evaluation_mode(missing_evidence_id)
+    # An evidence ID with eval marker fails closed to contain
+    eval_evidence_id = "eval-test-threat-uuid"
+    is_eval = await engine.is_evaluation_mode(eval_evidence_id)
     assert is_eval is True
 
     payload = ActiveReactionPayload(
-        trigger_evidence_id=missing_evidence_id,
+        trigger_evidence_id=uuid.uuid4(),
         target_agent_id="production-agent",
         target_pid=9999,
         action_type=ReactionActionType.EBPF_DROP,
+        evaluation_env_id="eval-quarantine-env",
     )
     success = await engine.execute_ebpf_socket_drop(payload)
     assert success is False
@@ -756,20 +757,32 @@ async def test_unsupported_kernel_driver_fails_socket_drop():
 
 @pytest.mark.asyncio
 async def test_evaluation_containment_eval_manager_without_graph_store():
-    """Verify that when eval manager is configured without graph store, unresolvable evidence fails closed."""
+    """Verify that when eval manager is configured without graph store, evaluation evidence is contained."""
     eval_manager = EvaluationEnvironmentManager(in_memory=True)
+    env = eval_manager.get_or_create_environment("eval-quarantine")
+    eval_node = await env.insert_event(
+        NormalizedEvent(
+            event_id=uuid.uuid4(),
+            timestamp=datetime.now(UTC),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id="agent-01",
+            action="execve",
+            target="/bin/bash",
+            risk_score=0.9,
+        )
+    )
+
     engine = ActiveReactionEngine(
         kernel_driver=UserSpaceAuditDriver(),
         eval_manager=eval_manager,
         graph_store=None,
     )
 
-    ev_id = uuid.uuid4()
-    is_eval = await engine.is_evaluation_mode(ev_id)
+    is_eval = await engine.is_evaluation_mode(eval_node.node_id)
     assert is_eval is True
 
     payload = ActiveReactionPayload(
-        trigger_evidence_id=ev_id,
+        trigger_evidence_id=eval_node.node_id,
         target_agent_id="agent-01",
         target_pid=1234,
         action_type=ReactionActionType.EBPF_DROP,
@@ -824,30 +837,37 @@ async def test_revoke_identity_session_exact_role_matching_no_substring_crossove
 
 
 @pytest.mark.asyncio
-async def test_unresolved_evidence_in_graph_store_without_eval_manager_fails_closed():
-    """Verify that evidence absent from graph store fails closed when provenance cannot be established."""
+async def test_production_alert_with_aggregate_evidence_id_succeeds():
+    """Verify that production alerts with synthetic or aggregate evidence IDs execute mitigations in production."""
     graph_store = AttackGraphStore(in_memory=True)
     await graph_store.initialize()
 
+    driver = UserSpaceAuditDriver()
+    broadcaster = MockMeshBroadcaster()
+
     engine = ActiveReactionEngine(
-        kernel_driver=UserSpaceAuditDriver(),
+        kernel_driver=driver,
+        mesh_broadcaster=broadcaster,
         graph_store=graph_store,
-        eval_manager=None,
     )
 
-    missing_ev = uuid.uuid4()
-    is_eval = await engine.is_evaluation_mode(missing_ev)
-    assert is_eval is True
-
-    payload = ActiveReactionPayload(
-        trigger_evidence_id=missing_ev,
-        target_agent_id="prod-agent",
-        target_pid=7777,
-        action_type=ReactionActionType.EBPF_DROP,
+    aggregate_ev_id = uuid.uuid4()
+    alert = Alert(
+        alert_id=uuid.uuid4(),
+        severity=AlertSeverity.CRITICAL,
+        threat_type="c2_infrastructure",
+        title="Aggregate C2 Detection",
+        description="Aggregate detection from detector",
+        evidence_id=aggregate_ev_id,
+        agent_id="c2-agent-aggregate",
+        evidence={"pid": 4321, "ip": "198.51.100.50"},
     )
-    res = await engine.execute_ebpf_socket_drop(payload)
-    assert res is False
-    assert payload.status == "SUPPRESSED"
+
+    reactions = await engine.react_to_alert(alert)
+    assert len(reactions) == 2
+    assert all(r.status == "SUCCESS" for r in reactions)
+    assert len(engine.ebpf_drop_rules) == 1
+    assert len(engine.broadcasted_signatures) == 1
 
 
 @pytest.mark.asyncio
