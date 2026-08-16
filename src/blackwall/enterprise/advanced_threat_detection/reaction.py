@@ -141,6 +141,13 @@ class ActiveReactionEngine:
                         or (isinstance(meta.get("evaluation_env_id"), str) and meta["evaluation_env_id"].strip())
                     ):
                         return True
+                    return False
+                else:
+                    logger.warning(
+                        "Evidence %s not found in configured attack graph store; failing closed to contain.",
+                        clean_evidence_uuid,
+                    )
+                    return True
             except Exception as exc:
                 logger.warning(
                     "Error querying graph store for evaluation evidence %s; failing closed to contain: %s",

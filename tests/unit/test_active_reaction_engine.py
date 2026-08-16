@@ -842,6 +842,20 @@ async def test_production_alert_with_aggregate_evidence_id_succeeds():
     graph_store = AttackGraphStore(in_memory=True)
     await graph_store.initialize()
 
+    aggregate_ev_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=aggregate_ev_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id="c2-agent-aggregate",
+            action="connect",
+            target="198.51.100.50",
+            metadata={"is_evaluation": False},
+            risk_score=0.95,
+        )
+    )
+
     driver = UserSpaceAuditDriver()
     broadcaster = MockMeshBroadcaster()
 
@@ -851,7 +865,6 @@ async def test_production_alert_with_aggregate_evidence_id_succeeds():
         graph_store=graph_store,
     )
 
-    aggregate_ev_id = uuid.uuid4()
     alert = Alert(
         alert_id=uuid.uuid4(),
         severity=AlertSeverity.CRITICAL,
@@ -868,6 +881,34 @@ async def test_production_alert_with_aggregate_evidence_id_succeeds():
     assert all(r.status == "SUCCESS" for r in reactions)
     assert len(engine.ebpf_drop_rules) == 1
     assert len(engine.broadcasted_signatures) == 1
+
+
+@pytest.mark.asyncio
+async def test_unresolved_evidence_in_configured_graph_store_fails_closed():
+    """Verify that evidence ID missing from configured graph store fails closed (returns True) to prevent unverified execution."""
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+
+    driver = UserSpaceAuditDriver()
+    engine = ActiveReactionEngine(
+        kernel_driver=driver,
+        graph_store=graph_store,
+    )
+
+    unresolved_ev_id = uuid.uuid4()
+    is_eval = await engine.is_evaluation_mode(unresolved_ev_id)
+    assert is_eval is True
+
+    payload = ActiveReactionPayload(
+        trigger_evidence_id=unresolved_ev_id,
+        target_agent_id="unknown-agent",
+        target_pid=1234,
+        target_ip="192.168.1.1",
+        action_type=ReactionActionType.EBPF_DROP,
+    )
+    res = await engine.execute_ebpf_socket_drop(payload)
+    assert res is False
+    assert payload.status == "SUPPRESSED"
 
 
 @pytest.mark.asyncio

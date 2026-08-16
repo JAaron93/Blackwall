@@ -54,6 +54,10 @@ class KernelProbeDriver(ABC):
         self, pid: Optional[int] = None, ip: Optional[str] = None
     ) -> bool:
         """Inject real-time eBPF socket or process drop rule (<50ms SLA)."""
+        if pid is None and ip is None:
+            return False
+        if not self._is_active:
+            self.start_tracing()
         applied = False
         if pid is not None:
             self._dropped_pids.add(pid)
@@ -254,7 +258,8 @@ class LinuxeBPFDriver(KernelProbeDriver):
                         ctypes.c_uint8(1)
                     )
                 except Exception as exc:
-                    logger.debug("Failed updating BCC dropped_pids map: %s", exc)
+                    logger.error("Failed updating BCC dropped_pids map: %s", exc)
+                    return False
         if ip is not None:
             self._active_ebpf_drop_maps[f"bpf_sock_drop_ip_{ip}"] = {
                 "ip": ip,
@@ -273,10 +278,12 @@ class LinuxeBPFDriver(KernelProbeDriver):
                         self._bpf_instance["dropped_ips"][ctypes.c_uint32(packed_ip)] = (
                             ctypes.c_uint8(1)
                         )
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.error("Failed packing IP for BCC dropped_ips map: %s", exc)
+                        return False
                 except Exception as exc:
-                    logger.debug("Failed updating BCC dropped_ips map: %s", exc)
+                    logger.error("Failed updating BCC dropped_ips map: %s", exc)
+                    return False
         return applied
 
     def audit_event_handler(self, event: str, args: tuple) -> None:

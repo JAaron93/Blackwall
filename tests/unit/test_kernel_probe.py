@@ -134,3 +134,22 @@ def test_linux_ebpf_driver_socket_drop_and_tracing():
     driver.stop_tracing()
     assert driver.is_active is False
     assert len(driver._attached_probes) == 0
+
+
+def test_kernel_probe_auto_starts_tracing_on_inject_socket_drop():
+    """Verify that inject_socket_drop auto-starts tracing if not already active."""
+    from blackwall.enterprise.kernel.probe import UserSpaceAuditDriver, LinuxeBPFDriver
+
+    user_driver = UserSpaceAuditDriver()
+    assert user_driver.is_active is False
+    applied = user_driver.inject_socket_drop(pid=1234)
+    assert applied is True
+    assert user_driver.is_active is True
+    user_driver.stop_tracing()
+
+    linux_driver = LinuxeBPFDriver()
+    assert linux_driver.is_active is False
+    applied = linux_driver.inject_socket_drop(ip="10.0.0.1")
+    assert applied is True
+    assert linux_driver.is_active is True
+    linux_driver.stop_tracing()
