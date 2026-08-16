@@ -356,13 +356,7 @@ class EvaluationEnvironment:
         digest = hashlib.sha256(
             f"blackwall://eval/{self.env_id}/{clean_uuid}".encode()
         ).digest()
-        derived = uuid.UUID(bytes=digest[:16], version=4)
-        self._known_evidence_ids.add(clean_uuid)
-        self._known_evidence_ids.add(derived)
-        if self.manager is not None:
-            self.manager._known_evaluation_evidence_ids.add(clean_uuid)
-            self.manager._known_evaluation_evidence_ids.add(derived)
-        return derived
+        return uuid.UUID(bytes=digest[:16], version=4)
 
     def _check_not_closed(self) -> None:
         """Raise RuntimeError if this evaluation environment has been closed."""
