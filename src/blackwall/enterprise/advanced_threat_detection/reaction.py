@@ -586,7 +586,16 @@ class ActiveReactionEngine:
             return payloads
 
         evidence_id = alert.evidence_id or alert.alert_id
-        target_agent = alert.agent_id or (alert.agent_ids[0] if alert.agent_ids else "unknown_agent")
+        target_agents: list[str] = []
+        if alert.agent_id:
+            target_agents.append(alert.agent_id)
+        if alert.agent_ids:
+            for aid in alert.agent_ids:
+                if aid and aid not in target_agents:
+                    target_agents.append(aid)
+        if not target_agents:
+            target_agents.append("unknown_agent")
+
         eval_env_id = alert.metadata.get("evaluation_env_id")
         target_pid = alert.evidence.get("pid") if isinstance(alert.evidence, dict) else None
         target_ip = alert.evidence.get("ip") or alert.evidence.get("remote_ip") if isinstance(alert.evidence, dict) else None
@@ -595,28 +604,29 @@ class ActiveReactionEngine:
 
         # C2 infrastructure or zero-day exploit chain -> eBPF socket drop + fleet signature broadcast
         if "c2" in threat_type or "exploit_chain" in threat_type or "k8s" in threat_type:
-            payloads.append(
-                ActiveReactionPayload(
-                    reaction_id=uuid.uuid4(),
-                    trigger_evidence_id=evidence_id,
-                    target_agent_id=target_agent,
-                    target_pid=target_pid if isinstance(target_pid, int) and target_pid > 0 else None,
-                    target_ip=str(target_ip) if target_ip else None,
-                    action_type=ReactionActionType.EBPF_DROP,
-                    evaluation_env_id=eval_env_id,
+            for target_agent in target_agents:
+                payloads.append(
+                    ActiveReactionPayload(
+                        reaction_id=uuid.uuid4(),
+                        trigger_evidence_id=evidence_id,
+                        target_agent_id=target_agent,
+                        target_pid=target_pid if isinstance(target_pid, int) and target_pid > 0 else None,
+                        target_ip=str(target_ip) if target_ip else None,
+                        action_type=ReactionActionType.EBPF_DROP,
+                        evaluation_env_id=eval_env_id,
+                    )
                 )
-            )
-            payloads.append(
-                ActiveReactionPayload(
-                    reaction_id=uuid.uuid4(),
-                    trigger_evidence_id=evidence_id,
-                    target_agent_id=target_agent,
-                    target_pid=target_pid if isinstance(target_pid, int) and target_pid > 0 else None,
-                    target_ip=str(target_ip) if target_ip else None,
-                    action_type=ReactionActionType.MESH_SIGNATURE_BROADCAST,
-                    evaluation_env_id=eval_env_id,
+                payloads.append(
+                    ActiveReactionPayload(
+                        reaction_id=uuid.uuid4(),
+                        trigger_evidence_id=evidence_id,
+                        target_agent_id=target_agent,
+                        target_pid=target_pid if isinstance(target_pid, int) and target_pid > 0 else None,
+                        target_ip=str(target_ip) if target_ip else None,
+                        action_type=ReactionActionType.MESH_SIGNATURE_BROADCAST,
+                        evaluation_env_id=eval_env_id,
+                    )
                 )
-            )
 
         # Agent swarm, AI-induced lateral movement (AILM), or credential theft -> Revoke identity tokens
         if "swarm" in threat_type or "ailm" in threat_type or "credential" in threat_type or "token" in threat_type:
@@ -638,48 +648,52 @@ class ActiveReactionEngine:
                 if not token_ids:
                     token_ids = alert.evidence.get("token_ids")
 
-            matching_tokens: list[str] = []
+            alert_tokens: list[str] = []
             if token_id:
-                matching_tokens.append(token_id)
+                alert_tokens.append(token_id)
             if isinstance(token_ids, list):
                 for tid in token_ids:
-                    if tid and tid not in matching_tokens:
-                        matching_tokens.append(tid)
-            if self.vault_adapter is not None:
-                adapter = (
-                    self.vault_adapter.vault_adapter
-                    if hasattr(self.vault_adapter, "vault_adapter")
-                    else self.vault_adapter
-                )
-                if hasattr(adapter, "_issued_tokens"):
-                    for t_id, t_info in list(adapter._issued_tokens.items()):
-                        if t_info.get("status") == "ACTIVE":
-                            agent_matches = (
-                                t_info.get("agent_id") == target_agent
-                                or t_info.get("principal_id") == target_agent
-                                or t_info.get("metadata", {}).get("agent_id") == target_agent
-                                or t_info.get("metadata", {}).get("principal_id") == target_agent
-                                or t_id == target_agent
-                            )
-                            if agent_matches:
-                                if t_id not in matching_tokens:
-                                    matching_tokens.append(t_id)
+                    if tid and tid not in alert_tokens:
+                        alert_tokens.append(tid)
 
-            tok_meta = dict(meta)
-            if matching_tokens:
-                tok_meta["token_ids"] = matching_tokens
-                tok_meta["token_id"] = matching_tokens[0]
+            for target_agent in target_agents:
+                matching_tokens: list[str] = list(alert_tokens)
+                if self.vault_adapter is not None:
+                    adapter = (
+                        self.vault_adapter.vault_adapter
+                        if hasattr(self.vault_adapter, "vault_adapter")
+                        else self.vault_adapter
+                    )
+                    if hasattr(adapter, "_issued_tokens"):
+                        for t_id, t_info in list(adapter._issued_tokens.items()):
+                            if t_info.get("status") == "ACTIVE":
+                                agent_matches = (
+                                    t_info.get("agent_id") == target_agent
+                                    or t_info.get("principal_id") == target_agent
+                                    or t_info.get("role") == target_agent
+                                    or t_info.get("metadata", {}).get("agent_id") == target_agent
+                                    or t_info.get("metadata", {}).get("principal_id") == target_agent
+                                    or t_id == target_agent
+                                )
+                                if agent_matches:
+                                    if t_id not in matching_tokens:
+                                        matching_tokens.append(t_id)
 
-            payloads.append(
-                ActiveReactionPayload(
-                    reaction_id=uuid.uuid4(),
-                    trigger_evidence_id=evidence_id,
-                    target_agent_id=target_agent,
-                    action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
-                    evaluation_env_id=eval_env_id,
-                    metadata=tok_meta,
+                tok_meta = dict(meta)
+                if matching_tokens:
+                    tok_meta["token_ids"] = matching_tokens
+                    tok_meta["token_id"] = matching_tokens[0]
+
+                payloads.append(
+                    ActiveReactionPayload(
+                        reaction_id=uuid.uuid4(),
+                        trigger_evidence_id=evidence_id,
+                        target_agent_id=target_agent,
+                        action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
+                        evaluation_env_id=eval_env_id,
+                        metadata=tok_meta,
+                    )
                 )
-            )
 
         executed: list[ActiveReactionPayload] = []
         for p in payloads:

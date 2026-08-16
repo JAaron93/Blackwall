@@ -1155,3 +1155,56 @@ async def test_unresolvable_evidence_missing_from_graph_store_fails_closed_eval_
     res = await engine.execute_ebpf_socket_drop(payload)
     assert res is False
     assert payload.status == "SUPPRESSED"
+
+
+@pytest.mark.asyncio
+async def test_swarm_alert_with_multiple_agents_revokes_all_agents():
+    """Verify that a swarm alert with multiple agent_ids dispatches revocation for every compromised agent."""
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+    ev_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=ev_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.IDENTITY_ACCESS,
+            agent_id="swarm-leader",
+            action="swarm_coordination",
+            target="vault",
+            metadata={"is_evaluation": False},
+            risk_score=0.95,
+        )
+    )
+
+    vault = VaultMCPAdapter()
+    await vault.connect()
+    token1 = await vault.issue_jit_token(role="worker", agent_id="swarm-agent-1", ttl_seconds=600)
+    token2 = await vault.issue_jit_token(role="worker", agent_id="swarm-agent-2", ttl_seconds=600)
+    token3 = await vault.issue_jit_token(role="worker", agent_id="swarm-agent-3", ttl_seconds=600)
+    unrelated_token = await vault.issue_jit_token(role="worker", agent_id="innocent-agent", ttl_seconds=600)
+
+    engine = ActiveReactionEngine(vault_adapter=vault, graph_store=graph_store)
+
+    swarm_alert = Alert(
+        alert_id=uuid.uuid4(),
+        timestamp=datetime.now(UTC),
+        severity=AlertSeverity.CRITICAL,
+        threat_type="agent_swarm_coordination",
+        title="Agent Swarm Detected",
+        description="Multiple rogue agents coordinating unauthorized action",
+        evidence_id=ev_id,
+        agent_ids=["swarm-agent-1", "swarm-agent-2", "swarm-agent-3"],
+    )
+
+    reactions = await engine.react_to_alert(swarm_alert)
+    assert len(reactions) == 3
+    for r in reactions:
+        assert r.status == "SUCCESS"
+        assert r.action_type == ReactionActionType.REVOKE_IDENTITY_TOKENS
+
+    # Check that all 3 swarm members had their tokens revoked
+    assert vault._issued_tokens[token1["token_id"]]["status"] == "REVOKED"
+    assert vault._issued_tokens[token2["token_id"]]["status"] == "REVOKED"
+    assert vault._issued_tokens[token3["token_id"]]["status"] == "REVOKED"
+    # Innocent agent remains active
+    assert vault._issued_tokens[unrelated_token["token_id"]]["status"] == "ACTIVE"

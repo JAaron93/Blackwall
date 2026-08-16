@@ -158,7 +158,6 @@ def test_kernel_probe_auto_starts_tracing_on_inject_socket_drop():
 def test_linux_ebpf_driver_bpf_map_ip_endianness():
     """Verify LinuxeBPFDriver writes IPv4 drop keys using native byte-matching representation."""
     import socket
-    import struct
     import ctypes
     from blackwall.enterprise.kernel.probe import LinuxeBPFDriver
 
@@ -166,9 +165,8 @@ def test_linux_ebpf_driver_bpf_map_ip_endianness():
     driver._bpf_instance = {"dropped_ips": {}, "dropped_pids": {}}
     driver.inject_socket_drop(ip="192.168.1.100")
 
-    expected_packed = struct.unpack("=I", socket.inet_aton("192.168.1.100"))[0]
-    expected_c_uint32 = ctypes.c_uint32(expected_packed).value
+    expected_key = ctypes.c_uint32.from_buffer_copy(socket.inet_aton("192.168.1.100")).value
 
     # Verify that the key stored in BCC map matches expected native value
     stored_keys = [k.value if hasattr(k, "value") else k for k in driver._bpf_instance["dropped_ips"].keys()]
-    assert expected_c_uint32 in stored_keys
+    assert expected_key in stored_keys

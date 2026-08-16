@@ -299,16 +299,14 @@ class LinuxeBPFDriver(KernelProbeDriver):
                 try:
                     import ctypes
                     import socket
-                    import struct
 
                     try:
-                        packed_ip = struct.unpack("=I", socket.inet_aton(ip))[0]
-                        key = ctypes.c_uint32(packed_ip)
+                        key = ctypes.c_uint32.from_buffer_copy(socket.inet_aton(ip))
                         val = ctypes.c_uint8(1)
                         try:
                             self._bpf_instance["dropped_ips"][key] = val
                         except TypeError:
-                            self._bpf_instance["dropped_ips"][packed_ip] = 1
+                            self._bpf_instance["dropped_ips"][key.value] = 1
                     except Exception as exc:
                         logger.error("Failed packing IP for BCC dropped_ips map: %s", exc)
                         return False
