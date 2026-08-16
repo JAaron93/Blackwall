@@ -55,7 +55,7 @@ class KernelProbeDriver(ABC):
             self._dropped_sockets.add(ip)
             self.add_blocked_pattern(f"ip:{ip}")
             applied = True
-        return applied or (pid is None and ip is None)
+        return applied
 
 
 class UserSpaceAuditDriver(KernelProbeDriver):
@@ -130,6 +130,8 @@ class LinuxeBPFDriver(KernelProbeDriver):
     ) -> bool:
         """Inject real-time eBPF socket or process drop rule (<50ms SLA)."""
         applied = super().inject_socket_drop(pid=pid, ip=ip)
+        if not applied:
+            return False
         if pid is not None:
             self._active_ebpf_drop_maps[f"bpf_sock_drop_pid_{pid}"] = {
                 "pid": pid,
@@ -152,6 +154,10 @@ class LinuxeBPFDriver(KernelProbeDriver):
             return
 
         self._is_active = True
+        try:
+            self._active_ebpf_drop_maps.setdefault("bpf_sock_drop_rules", {})
+        except Exception as e:
+            logger.warning("Failed to initialize eBPF probe tables: %s", e)
         logger.info(
             "LinuxeBPFDriver successfully attached tracepoints to sys_enter_execve and sys_enter_connect"
         )

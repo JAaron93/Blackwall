@@ -56,3 +56,34 @@ def test_user_space_audit_driver_socket_drop_interception():
     assert "Socket operation to '198.51.100.25' intercepted" in str(exc_info.value)
 
     driver.stop_tracing()
+
+
+def test_targetless_socket_drop_returns_false():
+    """Verify that inject_socket_drop without PID and IP returns False."""
+    from blackwall.enterprise.kernel.probe import UserSpaceAuditDriver, LinuxeBPFDriver
+
+    user_driver = UserSpaceAuditDriver()
+    assert user_driver.inject_socket_drop(pid=None, ip=None) is False
+    assert len(user_driver._blocked_patterns) == 0
+
+    linux_driver = LinuxeBPFDriver()
+    assert linux_driver.inject_socket_drop(pid=None, ip=None) is False
+    assert len(linux_driver._active_ebpf_drop_maps) == 0
+
+
+def test_linux_ebpf_driver_socket_drop_and_tracing():
+    """Verify LinuxeBPFDriver records drop maps and manages tracing lifecycle."""
+    from blackwall.enterprise.kernel.probe import LinuxeBPFDriver
+
+    driver = LinuxeBPFDriver()
+    driver.start_tracing()
+
+    applied = driver.inject_socket_drop(pid=5432, ip="10.10.10.10")
+    assert applied is True
+    assert "bpf_sock_drop_pid_5432" in driver._active_ebpf_drop_maps
+    assert "bpf_sock_drop_ip_10.10.10.10" in driver._active_ebpf_drop_maps
+    assert "pid:5432" in driver._blocked_patterns
+    assert "ip:10.10.10.10" in driver._blocked_patterns
+
+    driver.stop_tracing()
+    assert driver.is_active is False

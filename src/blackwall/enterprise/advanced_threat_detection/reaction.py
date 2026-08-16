@@ -150,8 +150,8 @@ class ActiveReactionEngine:
                         return True
                     # Node confirmed present in production graph store and non-evaluation
                     return False
-                elif self.eval_manager is not None:
-                    # Unresolved node in graph store with active eval manager: fail closed
+                else:
+                    # Unresolved node in graph store: fail closed to contain
                     logger.warning(
                         "Evidence %s unresolved in graph store; failing closed to contain evaluation workload.",
                         clean_evidence_uuid,
@@ -205,6 +205,16 @@ class ActiveReactionEngine:
             payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
             logger.error(
                 "Kernel driver adapter is absent; cannot inject eBPF socket drop for reaction %s.",
+                payload.reaction_id,
+            )
+            return False
+
+        # If neither PID nor IP target is specified, fail immediately
+        if payload.target_pid is None and payload.target_ip is None:
+            payload.status = "FAILED"
+            payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
+            logger.error(
+                "Cannot inject socket drop for reaction %s: neither target_pid nor target_ip specified.",
                 payload.reaction_id,
             )
             return False

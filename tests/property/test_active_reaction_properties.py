@@ -218,8 +218,21 @@ async def test_property_92_reaction_execution_logging(
         alert_bus=alert_bus,
     )
 
+    trigger_id = uuid.uuid4()
+    trigger_event = NormalizedEvent(
+        event_id=trigger_id,
+        timestamp=datetime.now(UTC),
+        source=EventSource.KERNEL_SYSCALL,
+        agent_id=agent_id,
+        action="property_test_action",
+        target="1024",
+        metadata={"is_evaluation": False},
+        risk_score=0.9,
+    )
+    await graph_store.insert_event(trigger_event)
+
     payload = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
+        trigger_evidence_id=trigger_id,
         target_agent_id=agent_id,
         target_pid=1024,
         action_type=action_type,

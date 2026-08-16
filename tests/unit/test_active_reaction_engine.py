@@ -382,8 +382,21 @@ async def test_dispatch_logging_to_attack_graph_and_alert_bus():
         alert_bus=alert_bus,
     )
 
+    trigger_id = uuid.uuid4()
+    trigger_event = NormalizedEvent(
+        event_id=trigger_id,
+        timestamp=datetime.now(UTC),
+        source=EventSource.KERNEL_SYSCALL,
+        agent_id="malicious-agent-07",
+        action="execve",
+        target="/bin/bash",
+        metadata={"is_evaluation": False},
+        risk_score=0.9,
+    )
+    await graph_store.insert_event(trigger_event)
+
     payload = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
+        trigger_evidence_id=trigger_id,
         target_agent_id="malicious-agent-07",
         target_pid=9001,
         action_type=ReactionActionType.EBPF_DROP,
@@ -663,3 +676,49 @@ async def test_revoke_identity_session_exact_role_matching_no_substring_crossove
 
     # Verify agent-10's token is still ACTIVE in Vault
     assert vault._issued_tokens[token_10["token_id"]]["status"] == "ACTIVE"
+
+
+@pytest.mark.asyncio
+async def test_unresolved_evidence_in_graph_store_without_eval_manager_fails_closed():
+    """Verify that unresolvable evidence in graph store fails closed even without an eval manager."""
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+
+    engine = ActiveReactionEngine(
+        kernel_driver=UserSpaceAuditDriver(),
+        graph_store=graph_store,
+        eval_manager=None,
+    )
+
+    missing_ev = uuid.uuid4()
+    is_eval = await engine.is_evaluation_mode(missing_ev)
+    assert is_eval is True
+
+    payload = ActiveReactionPayload(
+        trigger_evidence_id=missing_ev,
+        target_agent_id="unknown-agent",
+        target_pid=7777,
+        action_type=ReactionActionType.EBPF_DROP,
+    )
+    res = await engine.execute_ebpf_socket_drop(payload)
+    assert res is False
+    assert payload.status == "SUPPRESSED"
+
+
+@pytest.mark.asyncio
+async def test_targetless_socket_drop_fails():
+    """Verify that an eBPF drop without target PID or IP fails execution."""
+    driver = UserSpaceAuditDriver()
+    engine = ActiveReactionEngine(kernel_driver=driver)
+
+    payload = ActiveReactionPayload(
+        trigger_evidence_id=uuid.uuid4(),
+        target_agent_id="target-agent",
+        target_pid=None,
+        target_ip=None,
+        action_type=ReactionActionType.EBPF_DROP,
+    )
+    res = await engine.execute_ebpf_socket_drop(payload)
+    assert res is False
+    assert payload.status == "FAILED"
+    assert len(engine.ebpf_drop_rules) == 0

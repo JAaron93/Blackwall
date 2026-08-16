@@ -327,8 +327,22 @@ def setup_engine_with_store_and_bus(state: ActiveReactionBDDState) -> None:
 def dispatch_logged_reaction(
     state: ActiveReactionBDDState, agent_id: str
 ) -> None:
+    trigger_id = uuid.uuid4()
+    trigger_event = NormalizedEvent(
+        event_id=trigger_id,
+        timestamp=datetime.now(UTC),
+        source=EventSource.KERNEL_SYSCALL,
+        agent_id=agent_id,
+        action="execve",
+        target="/bin/compromised_script",
+        metadata={"is_evaluation": False},
+        risk_score=0.9,
+    )
+    assert state.graph_store is not None
+    run_async(state.graph_store.insert_event(trigger_event))
+
     payload = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
+        trigger_evidence_id=trigger_id,
         target_agent_id=agent_id,
         target_pid=8899,
         action_type=ReactionActionType.EBPF_DROP,
