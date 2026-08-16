@@ -433,6 +433,7 @@ class ActiveReactionEngine:
                         agent_matches = (
                             t_info.get("agent_id") == payload.target_agent_id
                             or t_info.get("principal_id") == payload.target_agent_id
+                            or t_info.get("role") == payload.target_agent_id
                             or t_info.get("metadata", {}).get("agent_id") == payload.target_agent_id
                             or t_info.get("metadata", {}).get("principal_id") == payload.target_agent_id
                             or t_id == payload.target_agent_id
@@ -667,6 +668,7 @@ class ActiveReactionEngine:
                                 agent_matches = (
                                     t_info.get("agent_id") == target_agent
                                     or t_info.get("principal_id") == target_agent
+                                    or t_info.get("role") == target_agent
                                     or t_info.get("metadata", {}).get("agent_id") == target_agent
                                     or t_info.get("metadata", {}).get("principal_id") == target_agent
                                     or t_id == target_agent

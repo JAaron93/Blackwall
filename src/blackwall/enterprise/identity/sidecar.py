@@ -131,7 +131,7 @@ class SecretVaultSidecar:
         if not self.vault_adapter.is_connected:
             await self.vault_adapter.connect()
 
-        effective_agent_id = agent_id or self.agent_id
+        effective_agent_id = agent_id or self.agent_id or role
         effective_principal_id = principal_id or self.principal_id or effective_agent_id
 
         return await self.vault_adapter.issue_jit_token(
