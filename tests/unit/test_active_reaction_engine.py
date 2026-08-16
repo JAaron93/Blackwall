@@ -690,8 +690,8 @@ async def test_honeytoken_rotation_does_not_mask_failed_token_revocation():
 
 
 @pytest.mark.asyncio
-async def test_unresolved_evidence_with_eval_manager_fails_closed():
-    """Verify that unresolved evidence in graph store fails closed when eval manager is configured."""
+async def test_unresolved_evidence_with_eval_manager_defaults_to_production():
+    """Verify that evidence not found in eval manager defaults to production to avoid suppressing alerts."""
     eval_manager = EvaluationEnvironmentManager(in_memory=True)
     graph_store = AttackGraphStore(in_memory=True)
     await graph_store.initialize()
@@ -702,20 +702,20 @@ async def test_unresolved_evidence_with_eval_manager_fails_closed():
         graph_store=graph_store,
     )
 
-    # An evidence ID not present in production graph_store
+    # An evidence ID not present in evaluation environments is production traffic
     missing_evidence_id = uuid.uuid4()
     is_eval = await engine.is_evaluation_mode(missing_evidence_id)
-    assert is_eval is True
+    assert is_eval is False
 
     payload = ActiveReactionPayload(
         trigger_evidence_id=missing_evidence_id,
-        target_agent_id="unresolved-agent",
+        target_agent_id="production-agent",
         target_pid=9999,
         action_type=ReactionActionType.EBPF_DROP,
     )
     success = await engine.execute_ebpf_socket_drop(payload)
-    assert success is False
-    assert payload.status == "SUPPRESSED"
+    assert success is True
+    assert payload.status == "SUCCESS"
 
 
 @pytest.mark.asyncio
@@ -756,7 +756,7 @@ async def test_unsupported_kernel_driver_fails_socket_drop():
 
 @pytest.mark.asyncio
 async def test_evaluation_containment_eval_manager_without_graph_store():
-    """Verify that when eval manager is configured without graph store, unconfirmed evidence fails closed."""
+    """Verify that when eval manager is configured without graph store, uncontained evidence defaults to production."""
     eval_manager = EvaluationEnvironmentManager(in_memory=True)
     engine = ActiveReactionEngine(
         kernel_driver=UserSpaceAuditDriver(),
@@ -766,16 +766,17 @@ async def test_evaluation_containment_eval_manager_without_graph_store():
 
     ev_id = uuid.uuid4()
     is_eval = await engine.is_evaluation_mode(ev_id)
-    assert is_eval is True
+    assert is_eval is False
 
     payload = ActiveReactionPayload(
         trigger_evidence_id=ev_id,
         target_agent_id="agent-01",
+        target_pid=1234,
         action_type=ReactionActionType.EBPF_DROP,
     )
     res = await engine.execute_ebpf_socket_drop(payload)
-    assert res is False
-    assert payload.status == "SUPPRESSED"
+    assert res is True
+    assert payload.status == "SUCCESS"
 
 
 @pytest.mark.asyncio
@@ -823,8 +824,8 @@ async def test_revoke_identity_session_exact_role_matching_no_substring_crossove
 
 
 @pytest.mark.asyncio
-async def test_unresolved_evidence_in_graph_store_without_eval_manager_fails_closed():
-    """Verify that unresolvable evidence in graph store fails closed even without an eval manager."""
+async def test_unresolved_evidence_in_graph_store_without_eval_manager_defaults_to_production():
+    """Verify that evidence absent from graph store defaults to production when no evaluation markers exist."""
     graph_store = AttackGraphStore(in_memory=True)
     await graph_store.initialize()
 
@@ -836,17 +837,17 @@ async def test_unresolved_evidence_in_graph_store_without_eval_manager_fails_clo
 
     missing_ev = uuid.uuid4()
     is_eval = await engine.is_evaluation_mode(missing_ev)
-    assert is_eval is True
+    assert is_eval is False
 
     payload = ActiveReactionPayload(
         trigger_evidence_id=missing_ev,
-        target_agent_id="unknown-agent",
+        target_agent_id="prod-agent",
         target_pid=7777,
         action_type=ReactionActionType.EBPF_DROP,
     )
     res = await engine.execute_ebpf_socket_drop(payload)
-    assert res is False
-    assert payload.status == "SUPPRESSED"
+    assert res is True
+    assert payload.status == "SUCCESS"
 
 
 @pytest.mark.asyncio
@@ -926,9 +927,10 @@ async def test_react_to_alert_revokes_multiple_active_tokens():
     )
 
     reactions = await engine.react_to_alert(alert)
-    assert len(reactions) == 2
-    assert all(r.action_type == ReactionActionType.REVOKE_IDENTITY_TOKENS for r in reactions)
-    assert all(r.status == "SUCCESS" for r in reactions)
+    assert len(reactions) == 1
+    assert reactions[0].action_type == ReactionActionType.REVOKE_IDENTITY_TOKENS
+    assert reactions[0].status == "SUCCESS"
+    assert reactions[0].metadata.get("token_ids") == [token1["token_id"], token2["token_id"]]
 
     # Verify both compromised tokens were revoked
     assert vault._issued_tokens[token1["token_id"]]["status"] == "REVOKED"
@@ -980,9 +982,14 @@ async def test_explicit_token_alert_revokes_sibling_active_tokens():
     )
 
     reactions = await engine.react_to_alert(alert)
-    assert len(reactions) == 3
-    assert all(r.action_type == ReactionActionType.REVOKE_IDENTITY_TOKENS for r in reactions)
-    assert all(r.status == "SUCCESS" for r in reactions)
+    assert len(reactions) == 1
+    assert reactions[0].action_type == ReactionActionType.REVOKE_IDENTITY_TOKENS
+    assert reactions[0].status == "SUCCESS"
+    assert set(reactions[0].metadata.get("token_ids", [])) == {
+        primary_token["token_id"],
+        sibling_token1["token_id"],
+        sibling_token2["token_id"],
+    }
 
     # Verify primary and all sibling tokens were revoked
     assert vault._issued_tokens[primary_token["token_id"]]["status"] == "REVOKED"

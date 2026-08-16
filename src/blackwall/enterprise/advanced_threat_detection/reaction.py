@@ -128,15 +128,6 @@ class ActiveReactionEngine:
                 )
                 return True
 
-            # When an evaluation manager is configured without a graph store to confirm production status,
-            # fail closed so that evidence from reset/deleted/unresolved evaluation environments remains contained.
-            if self.graph_store is None:
-                logger.warning(
-                    "Evaluation manager configured without graph store to verify production status for evidence %s; failing closed to contain.",
-                    clean_evidence_uuid,
-                )
-                return True
-
         if self.graph_store is not None:
             try:
                 node = await self.graph_store.get_node(clean_evidence_uuid)
@@ -148,15 +139,6 @@ class ActiveReactionEngine:
                         or (isinstance(meta.get("evaluation_env_id"), str) and meta["evaluation_env_id"].strip())
                     ):
                         return True
-                    # Node confirmed present in production graph store and non-evaluation
-                    return False
-                else:
-                    # Unresolved node in graph store: fail closed to contain
-                    logger.warning(
-                        "Evidence %s unresolved in graph store; failing closed to contain evaluation workload.",
-                        clean_evidence_uuid,
-                    )
-                    return True
             except Exception as exc:
                 logger.warning(
                     "Error querying graph store for evaluation evidence %s; failing closed to contain: %s",
@@ -164,15 +146,6 @@ class ActiveReactionEngine:
                     exc,
                 )
                 return True
-
-        if self.eval_manager is None and self.graph_store is None:
-            # When both resolvers are absent, evidence provenance cannot be verified against
-            # either evaluation isolation or the production graph store. Fail closed to contain.
-            logger.warning(
-                "Neither evaluation manager nor graph store configured to verify provenance for evidence %s; failing closed to contain.",
-                clean_evidence_uuid,
-            )
-            return True
 
         return False
 
@@ -472,9 +445,6 @@ class ActiveReactionEngine:
                 for t_id in tokens_to_revoke:
                     if hasattr(adapter, "_issued_tokens") and t_id in adapter._issued_tokens:
                         if adapter._issued_tokens[t_id].get("status") == "REVOKED":
-                            token_revoked = True
-                            revocation_record.setdefault("revoked_token_ids", []).append(t_id)
-                            revocation_record["revoked_token_id"] = t_id
                             continue
                     res = adapter.revoke_token(t_id)
                     if asyncio.iscoroutine(res):
@@ -689,31 +659,21 @@ class ActiveReactionEngine:
                                 if t_id not in matching_tokens:
                                     matching_tokens.append(t_id)
 
+            tok_meta = dict(meta)
             if matching_tokens:
-                for m_token_id in matching_tokens:
-                    tok_meta = dict(meta)
-                    tok_meta["token_id"] = m_token_id
-                    payloads.append(
-                        ActiveReactionPayload(
-                            reaction_id=uuid.uuid4(),
-                            trigger_evidence_id=evidence_id,
-                            target_agent_id=target_agent,
-                            action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
-                            evaluation_env_id=eval_env_id,
-                            metadata=tok_meta,
-                        )
-                    )
-            else:
-                payloads.append(
-                    ActiveReactionPayload(
-                        reaction_id=uuid.uuid4(),
-                        trigger_evidence_id=evidence_id,
-                        target_agent_id=target_agent,
-                        action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
-                        evaluation_env_id=eval_env_id,
-                        metadata=meta,
-                    )
+                tok_meta["token_ids"] = matching_tokens
+                tok_meta["token_id"] = matching_tokens[0]
+
+            payloads.append(
+                ActiveReactionPayload(
+                    reaction_id=uuid.uuid4(),
+                    trigger_evidence_id=evidence_id,
+                    target_agent_id=target_agent,
+                    action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
+                    evaluation_env_id=eval_env_id,
+                    metadata=tok_meta,
                 )
+            )
 
         executed: list[ActiveReactionPayload] = []
         for p in payloads:
