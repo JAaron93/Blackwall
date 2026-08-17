@@ -451,49 +451,52 @@ class LinuxeBPFDriver(KernelProbeDriver):
         }
 
         # Restore retained drop rules into newly loaded BPF maps across restart
-        for pid in list(self._dropped_pids):
-            self._active_ebpf_drop_maps[f"bpf_sock_drop_pid_{pid}"] = {
-                "pid": pid,
-                "action": "DROP",
-            }
-            if self._bpf_program and "maps" in self._bpf_program:
-                self._bpf_program["maps"]["dropped_pids"][pid] = 1
-            if self._bpf_instance is not None:
-                try:
-                    import ctypes
-
-                    key = ctypes.c_uint32(pid)
-                    val = ctypes.c_uint8(1)
+        if not self._ebpf_available or self._bpf_instance is not None:
+            for pid in list(self._dropped_pids):
+                self._active_ebpf_drop_maps[f"bpf_sock_drop_pid_{pid}"] = {
+                    "pid": pid,
+                    "action": "DROP",
+                }
+                if self._bpf_program and "maps" in self._bpf_program:
+                    self._bpf_program["maps"]["dropped_pids"][pid] = 1
+                if self._bpf_instance is not None:
                     try:
-                        self._bpf_instance["dropped_pids"][key] = val
-                    except TypeError:
-                        self._bpf_instance["dropped_pids"][pid] = 1
-                except Exception as exc:
-                    logger.error("Failed restoring BCC dropped_pids map: %s", exc)
+                        import ctypes
 
-        for ip in list(self._dropped_sockets):
-            self._active_ebpf_drop_maps[f"bpf_sock_drop_ip_{ip}"] = {
-                "ip": ip,
-                "action": "DROP",
-            }
-            if self._bpf_program and "maps" in self._bpf_program:
-                self._bpf_program["maps"]["dropped_ips"][ip] = 1
-            if self._bpf_instance is not None:
-                try:
-                    import ctypes
-                    import socket
-
-                    try:
-                        key = ctypes.c_uint32.from_buffer_copy(socket.inet_aton(ip))
+                        key = ctypes.c_uint32(pid)
                         val = ctypes.c_uint8(1)
                         try:
-                            self._bpf_instance["dropped_ips"][key] = val
+                            self._bpf_instance["dropped_pids"][key] = val
                         except TypeError:
-                            self._bpf_instance["dropped_ips"][key.value] = 1
+                            self._bpf_instance["dropped_pids"][pid] = 1
                     except Exception as exc:
-                        logger.error("Failed packing IP for BCC dropped_ips map: %s", exc)
-                except Exception as exc:
-                    logger.error("Failed restoring BCC dropped_ips map: %s", exc)
+                        logger.error("Failed restoring BCC dropped_pids map: %s", exc)
+
+            for ip in list(self._dropped_sockets):
+                self._active_ebpf_drop_maps[f"bpf_sock_drop_ip_{ip}"] = {
+                    "ip": ip,
+                    "action": "DROP",
+                }
+                if self._bpf_program and "maps" in self._bpf_program:
+                    self._bpf_program["maps"]["dropped_ips"][ip] = 1
+                if self._bpf_instance is not None:
+                    try:
+                        import ctypes
+                        import socket
+
+                        try:
+                            key = ctypes.c_uint32.from_buffer_copy(socket.inet_aton(ip))
+                            val = ctypes.c_uint8(1)
+                            try:
+                                self._bpf_instance["dropped_ips"][key] = val
+                            except TypeError:
+                                self._bpf_instance["dropped_ips"][key.value] = 1
+                        except Exception as exc:
+                            logger.error("Failed packing IP for BCC dropped_ips map: %s", exc)
+                    except Exception as exc:
+                        logger.error("Failed restoring BCC dropped_ips map: %s", exc)
+        else:
+            self._active_ebpf_drop_maps.clear()
 
         if self._hook_fn is None:
             self._hook_fn = self.audit_event_handler

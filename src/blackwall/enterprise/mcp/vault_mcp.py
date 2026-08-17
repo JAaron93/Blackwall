@@ -106,7 +106,7 @@ class VaultMCPAdapter:
         return False
 
     async def revoke_agent_tokens(self, agent_id: str) -> list[str]:
-        """Revoke all active JIT tokens belonging to a specific agent, principal, or role."""
+        """Revoke all active JIT tokens belonging to a specific agent or principal."""
         revoked: list[str] = []
         if not agent_id:
             return revoked
@@ -115,15 +115,13 @@ class VaultMCPAdapter:
                 if (
                     (info.get("agent_id") is not None and info.get("agent_id") == agent_id)
                     or (info.get("principal_id") is not None and info.get("principal_id") == agent_id)
-                    or (info.get("role") is not None and info.get("role") == agent_id)
                     or (isinstance(info.get("metadata"), dict) and info["metadata"].get("agent_id") == agent_id)
                     or (isinstance(info.get("metadata"), dict) and info["metadata"].get("principal_id") == agent_id)
-                    or (isinstance(info.get("metadata"), dict) and info["metadata"].get("role") == agent_id)
                     or token_id == agent_id
                 ):
                     info["status"] = "REVOKED"
                     revoked.append(token_id)
-                    logger.info("VaultMCPAdapter revoked token %s for agent/role %s", token_id, agent_id)
+                    logger.info("VaultMCPAdapter revoked token %s for agent %s", token_id, agent_id)
         return revoked
 
     async def rotate_honeytokens(self) -> Dict[str, Any]:
