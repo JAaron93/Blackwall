@@ -199,9 +199,11 @@ class LinuxeBPFDriver(KernelProbeDriver):
         #include <net/sock.h>
         #include <bcc/proto.h>
         #include <linux/in.h>
+        #include <linux/in6.h>
 
         BPF_HASH(dropped_pids, u32, u8);
         BPF_HASH(dropped_ips, u32, u8);
+        BPF_HASH(dropped_ip6s, unsigned __int128, u8);
 
         int trace_sys_enter_connect(struct pt_regs *ctx, int sockfd, struct sockaddr __user *addr, int addrlen) {
             u32 pid = bpf_get_current_pid_tgid() >> 32;
@@ -219,6 +221,17 @@ class LinuxeBPFDriver(KernelProbeDriver):
                         if (drop_ip) {
                             bpf_send_signal(9); // Terminate process attempting connection to dropped IP
                             return 0;
+                        }
+                    } else if (in_addr.sin_family == AF_INET6) {
+                        struct sockaddr_in6 in6_addr;
+                        if (bpf_probe_read_user(&in6_addr, sizeof(in6_addr), addr) == 0) {
+                            unsigned __int128 daddr6;
+                            __builtin_memcpy(&daddr6, &in6_addr.sin6_addr, sizeof(daddr6));
+                            u8 *drop_ip6 = dropped_ip6s.lookup(&daddr6);
+                            if (drop_ip6) {
+                                bpf_send_signal(9); // Terminate process attempting connection to dropped IPv6
+                                return 0;
+                            }
                         }
                     }
                 }
@@ -240,7 +253,7 @@ class LinuxeBPFDriver(KernelProbeDriver):
             "source": bpf_c_source,
             "loaded": True,
             "probes": ["sys_enter_execve", "sys_enter_connect"],
-            "maps": {"dropped_pids": {}, "dropped_ips": {}},
+            "maps": {"dropped_pids": {}, "dropped_ips": {}, "dropped_ip6s": {}},
         }
 
         if self._ebpf_available:
@@ -289,15 +302,22 @@ class LinuxeBPFDriver(KernelProbeDriver):
             self._active_ebpf_drop_maps.pop(f"bpf_sock_drop_ip_{ip}", None)
             if self._bpf_program and "maps" in self._bpf_program:
                 self._bpf_program["maps"]["dropped_ips"].pop(ip, None)
+                self._bpf_program["maps"].get("dropped_ip6s", {}).pop(ip, None)
             if self._bpf_instance is not None:
                 try:
                     import ctypes
                     import socket
-                    key = ctypes.c_uint32.from_buffer_copy(socket.inet_aton(ip))
-                    self._bpf_instance["dropped_ips"].pop(key, None)
+                    if ":" in ip:
+                        raw_bytes = socket.inet_pton(socket.AF_INET6, ip)
+                        key = (ctypes.c_uint8 * 16).from_buffer_copy(raw_bytes)
+                        self._bpf_instance["dropped_ip6s"].pop(key, None)
+                    else:
+                        key = ctypes.c_uint32.from_buffer_copy(socket.inet_aton(ip))
+                        self._bpf_instance["dropped_ips"].pop(key, None)
                 except Exception:
                     try:
                         self._bpf_instance["dropped_ips"].pop(ip, None)
+                        self._bpf_instance["dropped_ip6s"].pop(ip, None)
                     except Exception:
                         pass
 
@@ -343,21 +363,27 @@ class LinuxeBPFDriver(KernelProbeDriver):
             }
             if self._bpf_program and "maps" in self._bpf_program:
                 self._bpf_program["maps"]["dropped_ips"][ip] = 1
+                self._bpf_program["maps"].setdefault("dropped_ip6s", {})[ip] = 1
             if self._bpf_instance is not None:
                 try:
                     import ctypes
                     import socket
 
-                    try:
+                    if ":" in ip:
+                        raw_bytes = socket.inet_pton(socket.AF_INET6, ip)
+                        key = (ctypes.c_uint8 * 16).from_buffer_copy(raw_bytes)
+                        val = ctypes.c_uint8(1)
+                        try:
+                            self._bpf_instance["dropped_ip6s"][key] = val
+                        except Exception:
+                            self._bpf_instance["dropped_ip6s"][ip] = 1
+                    else:
                         key = ctypes.c_uint32.from_buffer_copy(socket.inet_aton(ip))
                         val = ctypes.c_uint8(1)
                         try:
                             self._bpf_instance["dropped_ips"][key] = val
                         except TypeError:
                             self._bpf_instance["dropped_ips"][key.value] = 1
-                    except (OSError, ValueError):
-                        # IPv6 or non-IPv4 format is safely tracked in userspace audit driver maps
-                        pass
                 except Exception as exc:
                     logger.error("Failed updating BCC dropped_ips map: %s", exc)
                     self.remove_socket_drop(pid=pid, ip=ip)
@@ -478,20 +504,27 @@ class LinuxeBPFDriver(KernelProbeDriver):
                 }
                 if self._bpf_program and "maps" in self._bpf_program:
                     self._bpf_program["maps"]["dropped_ips"][ip] = 1
+                    self._bpf_program["maps"].setdefault("dropped_ip6s", {})[ip] = 1
                 if self._bpf_instance is not None:
                     try:
                         import ctypes
                         import socket
 
-                        try:
+                        if ":" in ip:
+                            raw_bytes = socket.inet_pton(socket.AF_INET6, ip)
+                            key = (ctypes.c_uint8 * 16).from_buffer_copy(raw_bytes)
+                            val = ctypes.c_uint8(1)
+                            try:
+                                self._bpf_instance["dropped_ip6s"][key] = val
+                            except Exception:
+                                self._bpf_instance["dropped_ip6s"][ip] = 1
+                        else:
                             key = ctypes.c_uint32.from_buffer_copy(socket.inet_aton(ip))
                             val = ctypes.c_uint8(1)
                             try:
                                 self._bpf_instance["dropped_ips"][key] = val
                             except TypeError:
                                 self._bpf_instance["dropped_ips"][key.value] = 1
-                        except (OSError, ValueError):
-                            pass
                     except Exception as exc:
                         logger.error("Failed restoring BCC dropped_ips map: %s", exc)
         else:
