@@ -416,14 +416,14 @@ class EvaluationEnvironment:
         meta["evaluation_env_id"] = self.env_id
         meta["is_evaluation"] = True
         meta["eval_mode"] = True
-        if alert.evidence_id:
-            self._known_evidence_ids.add(alert.evidence_id)
-            if self.manager is not None:
-                self.manager._known_evaluation_evidence_ids.add(alert.evidence_id)
         if alert.alert_id:
-            self._known_evidence_ids.add(alert.alert_id)
-            if self.manager is not None:
-                self.manager._known_evaluation_evidence_ids.add(alert.alert_id)
+            try:
+                eval_alert_id = self.derive_evaluation_event_id(alert.alert_id)
+                self._known_evidence_ids.add(eval_alert_id)
+                if self.manager is not None:
+                    self.manager._known_evaluation_evidence_ids.add(eval_alert_id)
+            except (ValueError, TypeError):
+                pass
         return alert.model_copy(update={"metadata": meta})
 
     async def insert_event(self, event: NormalizedEvent) -> AttackNode:
@@ -455,9 +455,19 @@ class EvaluationEnvironment:
             if node is None and isinstance(clean_uuid, uuid.UUID):
                 derived_uuid = self.derive_evaluation_event_id(clean_uuid)
                 node = await self.store._get_node_locked(derived_uuid)
-            if node is None or not self.manager.is_evaluation_event(node.event):
+            if node is None:
                 return None
-            if node.event.metadata.get("evaluation_env_id") != self.env_id:
+            meta = node.event.metadata
+            if not (
+                meta.get("is_evaluation") is True
+                or meta.get("eval_mode") is True
+                or (
+                    isinstance(meta.get("evaluation_env_id"), str)
+                    and meta["evaluation_env_id"].strip()
+                )
+            ):
+                return None
+            if meta.get("evaluation_env_id") != self.env_id:
                 return None
             return node
 
@@ -644,14 +654,23 @@ class EvaluationEnvironmentManager:
     def label_alert(self, alert: Alert, env_id: str) -> Alert:
         """Label an alert with the given evaluation environment ID."""
         clean_id = validate_non_empty_string(env_id, field_name="env_id")
+        env = self.get_environment(clean_id)
+        if env is not None:
+            return env.label_alert(alert)
         meta = dict(alert.metadata)
         meta["evaluation_env_id"] = clean_id
         meta["is_evaluation"] = True
         meta["eval_mode"] = True
-        if alert.evidence_id:
-            self._known_evaluation_evidence_ids.add(alert.evidence_id)
         if alert.alert_id:
-            self._known_evaluation_evidence_ids.add(alert.alert_id)
+            try:
+                clean_uuid = validate_uuid_v4_format(alert.alert_id)
+                digest = hashlib.sha256(
+                    f"blackwall://eval/{clean_id}/{clean_uuid}".encode()
+                ).digest()
+                eval_id = uuid.UUID(bytes=digest[:16], version=4)
+                self._known_evaluation_evidence_ids.add(eval_id)
+            except (ValueError, TypeError):
+                pass
         return alert.model_copy(update={"metadata": meta})
 
     def is_evaluation_event(self, event: NormalizedEvent | dict[str, Any]) -> bool:
