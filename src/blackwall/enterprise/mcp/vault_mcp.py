@@ -5,6 +5,7 @@ Developer Cost: $0.00 (100% Free & Open Source)
 """
 
 import logging
+import os
 import time
 import uuid
 from typing import Any, Dict
@@ -60,10 +61,14 @@ class VaultMCPAdapter:
         effective_agent_id = (
             agent_id
             or (metadata.get("agent_id") if isinstance(metadata, dict) else None)
+            or os.environ.get("BLACKWALL_AGENT_ID")
+            or os.environ.get("AGENT_ID")
         )
         effective_principal_id = (
             principal_id
             or (metadata.get("principal_id") if isinstance(metadata, dict) else None)
+            or os.environ.get("BLACKWALL_PRINCIPAL_ID")
+            or os.environ.get("PRINCIPAL_ID")
             or effective_agent_id
         )
 

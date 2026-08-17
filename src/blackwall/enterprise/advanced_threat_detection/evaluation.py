@@ -430,9 +430,6 @@ class EvaluationEnvironment:
         """Label and insert an event into this environment's isolated attack graph."""
         async with self._lock:
             self._check_not_closed()
-            self._known_evidence_ids.add(event.event_id)
-            if self.manager is not None:
-                self.manager._known_evaluation_evidence_ids.add(event.event_id)
             await self.store._initialize_locked()
             return await self.store._insert_event_locked(event)
 
@@ -442,10 +439,6 @@ class EvaluationEnvironment:
         """Label and batch-insert events into this environment's isolated attack graph."""
         async with self._lock:
             self._check_not_closed()
-            for ev in events:
-                self._known_evidence_ids.add(ev.event_id)
-                if self.manager is not None:
-                    self.manager._known_evaluation_evidence_ids.add(ev.event_id)
             await self.store._initialize_locked()
             return await self.store._insert_events_batch_locked(events)
 
@@ -801,6 +794,7 @@ class EvaluationEnvironmentManager:
                 env = self._environments.get(clean_id)
                 if env is not None:
                     self._known_evaluation_evidence_ids.update(getattr(env, "_known_evidence_ids", set()))
+                    self._known_evaluation_evidence_ids.update(getattr(env, "_historical_evidence_ids", set()))
                 try:
                     if env is not None:
                         await env.reset()
@@ -817,5 +811,6 @@ class EvaluationEnvironmentManager:
         async with self._lock:
             for env in list(self._environments.values()):
                 self._known_evaluation_evidence_ids.update(getattr(env, "_known_evidence_ids", set()))
+                self._known_evaluation_evidence_ids.update(getattr(env, "_historical_evidence_ids", set()))
                 await env.close()
             self._environments.clear()
