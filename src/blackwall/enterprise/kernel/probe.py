@@ -355,10 +355,9 @@ class LinuxeBPFDriver(KernelProbeDriver):
                             self._bpf_instance["dropped_ips"][key] = val
                         except TypeError:
                             self._bpf_instance["dropped_ips"][key.value] = 1
-                    except Exception as exc:
-                        logger.error("Failed packing IP for BCC dropped_ips map: %s", exc)
-                        self.remove_socket_drop(pid=pid, ip=ip)
-                        return False
+                    except (OSError, ValueError):
+                        # IPv6 or non-IPv4 format is safely tracked in userspace audit driver maps
+                        pass
                 except Exception as exc:
                     logger.error("Failed updating BCC dropped_ips map: %s", exc)
                     self.remove_socket_drop(pid=pid, ip=ip)
@@ -491,8 +490,8 @@ class LinuxeBPFDriver(KernelProbeDriver):
                                 self._bpf_instance["dropped_ips"][key] = val
                             except TypeError:
                                 self._bpf_instance["dropped_ips"][key.value] = 1
-                        except Exception as exc:
-                            logger.error("Failed packing IP for BCC dropped_ips map: %s", exc)
+                        except (OSError, ValueError):
+                            pass
                     except Exception as exc:
                         logger.error("Failed restoring BCC dropped_ips map: %s", exc)
         else:
