@@ -95,6 +95,10 @@ class ActiveReactionEngine:
         if not evidence_id:
             return False
 
+        if self.eval_manager is None and self.graph_store is None:
+            if env_id and env_id.strip():
+                return True
+
         if isinstance(evidence_id, str) and any(
             k in evidence_id.lower() for k in ("eval", "test", "sim", "mock", "synthetic")
         ):
@@ -185,7 +189,9 @@ class ActiveReactionEngine:
         quashed immediately if evaluation mode is detected (Requirement 22.1 & 22.5).
         """
         start_time = time.perf_counter()
-        is_eval = await self.is_evaluation_mode(payload.trigger_evidence_id)
+        is_eval = await self.is_evaluation_mode(
+            payload.trigger_evidence_id, env_id=payload.evaluation_env_id
+        )
         if is_eval or self._is_payload_eval_flagged(payload):
             payload.status = "SUPPRESSED"
             payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
@@ -291,7 +297,9 @@ class ActiveReactionEngine:
         quashed immediately if evaluation mode is detected (Requirement 22.2 & 22.5).
         """
         start_time = time.perf_counter()
-        is_eval = await self.is_evaluation_mode(payload.trigger_evidence_id)
+        is_eval = await self.is_evaluation_mode(
+            payload.trigger_evidence_id, env_id=payload.evaluation_env_id
+        )
         if is_eval or self._is_payload_eval_flagged(payload):
             payload.status = "SUPPRESSED"
             payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
@@ -380,7 +388,9 @@ class ActiveReactionEngine:
         quashed immediately if evaluation mode is detected (Requirement 22.3 & 22.5).
         """
         start_time = time.perf_counter()
-        is_eval = await self.is_evaluation_mode(payload.trigger_evidence_id)
+        is_eval = await self.is_evaluation_mode(
+            payload.trigger_evidence_id, env_id=payload.evaluation_env_id
+        )
         if is_eval or self._is_payload_eval_flagged(payload):
             payload.status = "SUPPRESSED"
             payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
