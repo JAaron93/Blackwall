@@ -457,9 +457,30 @@ class ActiveReactionEngine:
                             if t_id not in tokens_to_revoke:
                                 tokens_to_revoke.append(t_id)
 
-            if tokens_to_revoke and hasattr(adapter, "revoke_token"):
+            valid_tokens_to_revoke: list[str] = []
+            for t_id in tokens_to_revoke:
+                if hasattr(adapter, "_issued_tokens") and t_id in adapter._issued_tokens:
+                    t_info = adapter._issued_tokens[t_id]
+                    if payload.target_agent_id and payload.target_agent_id != "unknown_agent":
+                        agent_matches = (
+                            (t_info.get("agent_id") is not None and t_info.get("agent_id") == payload.target_agent_id)
+                            or (t_info.get("principal_id") is not None and t_info.get("principal_id") == payload.target_agent_id)
+                            or (t_info.get("metadata", {}).get("agent_id") == payload.target_agent_id)
+                            or (t_info.get("metadata", {}).get("principal_id") == payload.target_agent_id)
+                            or t_id == payload.target_agent_id
+                        )
+                        if not agent_matches:
+                            logger.warning(
+                                "Token %s does not belong to target agent %s; skipping revocation.",
+                                t_id,
+                                payload.target_agent_id,
+                            )
+                            continue
+                valid_tokens_to_revoke.append(t_id)
+
+            if valid_tokens_to_revoke and hasattr(adapter, "revoke_token"):
                 all_tokens_successful = True
-                for t_id in tokens_to_revoke:
+                for t_id in valid_tokens_to_revoke:
                     if hasattr(adapter, "_issued_tokens") and t_id in adapter._issued_tokens:
                         if adapter._issued_tokens[t_id].get("status") == "REVOKED":
                             revocation_record.setdefault("revoked_token_ids", []).append(t_id)
@@ -475,7 +496,7 @@ class ActiveReactionEngine:
                         logger.error("Vault adapter rejected revocation of token: %s", t_id)
                         all_tokens_successful = False
 
-                if all_tokens_successful and len(revocation_record.get("revoked_token_ids", [])) == len(tokens_to_revoke):
+                if all_tokens_successful and len(revocation_record.get("revoked_token_ids", [])) == len(valid_tokens_to_revoke):
                     token_revoked = True
                 else:
                     token_revoked = False
@@ -485,7 +506,7 @@ class ActiveReactionEngine:
                 or (isinstance(token_id, str) and token_id.startswith("BW_SYNTHETIC_"))
             )
 
-            if tokens_to_revoke:
+            if valid_tokens_to_revoke:
                 mitigated = token_revoked
             else:
                 mitigated = is_honeytoken_target and honeytoken_rotated
@@ -670,7 +691,7 @@ class ActiveReactionEngine:
                         alert_tokens.append(tid)
 
             for target_agent in target_agents:
-                matching_tokens: list[str] = list(alert_tokens)
+                matching_tokens: list[str] = []
                 if self.vault_adapter is not None:
                     adapter = (
                         self.vault_adapter.vault_adapter
@@ -678,6 +699,23 @@ class ActiveReactionEngine:
                         else self.vault_adapter
                     )
                     if hasattr(adapter, "_issued_tokens"):
+                        for t_id in alert_tokens:
+                            if t_id in adapter._issued_tokens:
+                                t_info = adapter._issued_tokens[t_id]
+                                agent_matches = (
+                                    (t_info.get("agent_id") is not None and t_info.get("agent_id") == target_agent)
+                                    or (t_info.get("principal_id") is not None and t_info.get("principal_id") == target_agent)
+                                    or (t_info.get("metadata", {}).get("agent_id") == target_agent)
+                                    or (t_info.get("metadata", {}).get("principal_id") == target_agent)
+                                    or t_id == target_agent
+                                    or target_agent == "unknown_agent"
+                                )
+                                if agent_matches and t_id not in matching_tokens:
+                                    matching_tokens.append(t_id)
+                            else:
+                                if t_id not in matching_tokens:
+                                    matching_tokens.append(t_id)
+
                         for t_id, t_info in list(adapter._issued_tokens.items()):
                             if t_info.get("status") == "ACTIVE":
                                 agent_matches = (
@@ -690,6 +728,10 @@ class ActiveReactionEngine:
                                 if agent_matches:
                                     if t_id not in matching_tokens:
                                         matching_tokens.append(t_id)
+                    else:
+                        matching_tokens = list(alert_tokens)
+                else:
+                    matching_tokens = list(alert_tokens)
 
                 tok_meta = dict(meta)
                 if matching_tokens:

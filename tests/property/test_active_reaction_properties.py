@@ -262,7 +262,7 @@ async def test_property_92_reaction_execution_logging(
     broadcaster = MockPropertyBroadcaster()
     vault = VaultMCPAdapter()
     await vault.connect()
-    token = await vault.issue_jit_token(role=agent_id, ttl_seconds=900)
+    token = await vault.issue_jit_token(role="worker", agent_id=agent_id, ttl_seconds=900)
 
     engine = ActiveReactionEngine(
         kernel_driver=driver,
