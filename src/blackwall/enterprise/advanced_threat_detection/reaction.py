@@ -95,9 +95,6 @@ class ActiveReactionEngine:
         if not evidence_id:
             return False
 
-        if env_id and env_id.strip():
-            return True
-
         if isinstance(evidence_id, str) and any(
             k in evidence_id.lower() for k in ("eval", "test", "sim", "mock", "synthetic")
         ):
@@ -695,6 +692,28 @@ class ActiveReactionEngine:
                     if tid and tid not in alert_tokens:
                         alert_tokens.append(tid)
 
+            if target_agents == ["unknown_agent"] and alert_tokens and self.vault_adapter is not None:
+                adapter = (
+                    self.vault_adapter.vault_adapter
+                    if hasattr(self.vault_adapter, "vault_adapter")
+                    else self.vault_adapter
+                )
+                if hasattr(adapter, "_issued_tokens"):
+                    discovered_agents: list[str] = []
+                    for t_id in alert_tokens:
+                        if t_id in adapter._issued_tokens:
+                            t_info = adapter._issued_tokens[t_id]
+                            owner = (
+                                t_info.get("agent_id")
+                                or t_info.get("principal_id")
+                                or (t_info.get("metadata", {}).get("agent_id") if isinstance(t_info.get("metadata"), dict) else None)
+                                or (t_info.get("metadata", {}).get("principal_id") if isinstance(t_info.get("metadata"), dict) else None)
+                            )
+                            if owner and owner not in discovered_agents:
+                                discovered_agents.append(str(owner))
+                    if discovered_agents:
+                        target_agents = discovered_agents
+
             for target_agent in target_agents:
                 matching_tokens: list[str] = []
                 if self.vault_adapter is not None:
@@ -708,7 +727,8 @@ class ActiveReactionEngine:
                             if t_id in adapter._issued_tokens:
                                 t_info = adapter._issued_tokens[t_id]
                                 agent_matches = (
-                                    (t_info.get("agent_id") is not None and t_info.get("agent_id") == target_agent)
+                                    target_agent == "unknown_agent"
+                                    or (t_info.get("agent_id") is not None and t_info.get("agent_id") == target_agent)
                                     or (t_info.get("principal_id") is not None and t_info.get("principal_id") == target_agent)
                                     or (t_info.get("metadata", {}).get("agent_id") == target_agent)
                                     or (t_info.get("metadata", {}).get("principal_id") == target_agent)

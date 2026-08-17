@@ -1210,3 +1210,79 @@ async def test_swarm_alert_with_multiple_agents_revokes_all_agents():
     assert vault._issued_tokens[token3["token_id"]]["status"] == "REVOKED"
     # Innocent agent remains active
     assert vault._issued_tokens[unrelated_token["token_id"]]["status"] == "ACTIVE"
+
+
+@pytest.mark.asyncio
+async def test_alert_with_token_id_but_no_agent_id_discovers_owner_and_revokes():
+    """Verify that an alert specifying token_id without agent_id discovers token owner and revokes it."""
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+    ev_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=ev_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.IDENTITY_ACCESS,
+            agent_id="credential-thief",
+            action="token_theft",
+            target="vault",
+            metadata={"is_evaluation": False},
+            risk_score=0.95,
+        )
+    )
+
+    vault = VaultMCPAdapter()
+    await vault.connect()
+    token = await vault.issue_jit_token(role="worker", agent_id="target-principal", ttl_seconds=600)
+
+    engine = ActiveReactionEngine(vault_adapter=vault, graph_store=graph_store)
+
+    alert = Alert(
+        alert_id=uuid.uuid4(),
+        timestamp=datetime.now(UTC),
+        severity=AlertSeverity.CRITICAL,
+        threat_type="credential_theft",
+        title="Credential Compromise",
+        description="Leaked token observed",
+        evidence_id=ev_id,
+        metadata={"token_id": token["token_id"]},
+    )
+
+    reactions = await engine.react_to_alert(alert)
+    assert len(reactions) == 1
+    assert reactions[0].status == "SUCCESS"
+    assert reactions[0].target_agent_id == "target-principal"
+    assert vault._issued_tokens[token["token_id"]]["status"] == "REVOKED"
+
+
+@pytest.mark.asyncio
+async def test_production_evidence_with_stale_env_id_not_suppressed_if_not_in_eval_manager():
+    """Verify production evidence carrying stale env_id is not misclassified as evaluation."""
+    manager = EvaluationEnvironmentManager(in_memory=True)
+    eval_env = manager.get_or_create_environment("eval-active-env")
+
+    graph_store = AttackGraphStore(in_memory=True)
+    await graph_store.initialize()
+    prod_ev_id = uuid.uuid4()
+    await graph_store.insert_event(
+        NormalizedEvent(
+            event_id=prod_ev_id,
+            timestamp=datetime.now(UTC),
+            source=EventSource.KERNEL_SYSCALL,
+            agent_id="prod-agent",
+            action="execve",
+            target="/bin/sh",
+            metadata={"is_evaluation": False},
+            risk_score=0.9,
+        )
+    )
+
+    engine = ActiveReactionEngine(
+        eval_manager=manager,
+        graph_store=graph_store,
+    )
+
+    # Calling is_evaluation_mode with stale env_id must verify against manager/store and return False
+    is_eval = await engine.is_evaluation_mode(prod_ev_id, env_id="eval-active-env")
+    assert is_eval is False
+
