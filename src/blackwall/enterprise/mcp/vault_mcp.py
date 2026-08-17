@@ -38,10 +38,15 @@ class VaultMCPAdapter:
         logger.info("VaultMCPAdapter disconnected from endpoint: %s", self.endpoint)
 
     async def issue_jit_token(
-        self, role: str = "default", ttl_seconds: int = 900
+        self,
+        role: str = "default",
+        ttl_seconds: int = 900,
+        agent_id: str | None = None,
+        principal_id: str | None = None,
+        metadata: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         """
-        Issue Just-In-Time (JIT) ephemeral STS token for an authorized role.
+        Issue Just-In-Time (JIT) ephemeral STS token for an authorized role or agent.
         Default TTL: 900 seconds (15 minutes).
         """
         if not self._is_connected:
@@ -55,19 +60,23 @@ class VaultMCPAdapter:
         token_info = {
             "token_id": token_id,
             "role": role,
+            "agent_id": agent_id,
+            "principal_id": principal_id or agent_id,
             "ttl_seconds": ttl_seconds,
             "issued_at": now,
             "expires_at": expires_at,
             "synthetic_token": f"BW_SYNTHETIC_MOCK_SECRET_{token_uid[:8]}",
             "status": "ACTIVE",
             "endpoint": self.endpoint,
+            "metadata": dict(metadata) if metadata else {},
         }
 
         self._issued_tokens[token_id] = token_info
         logger.debug(
-            "VaultMCPAdapter issued JIT token %s for role %s (TTL: %ds)",
+            "VaultMCPAdapter issued JIT token %s for role %s / agent %s (TTL: %ds)",
             token_id,
             role,
+            agent_id,
             ttl_seconds,
         )
         return dict(token_info)
@@ -85,6 +94,31 @@ class VaultMCPAdapter:
             "VaultMCPAdapter revoke requested for non-active token: %s", token_id
         )
         return False
+
+    async def revoke_agent_tokens(self, agent_id: str) -> list[str]:
+        """Revoke all active JIT tokens belonging to a specific agent or principal."""
+        revoked: list[str] = []
+        if not agent_id:
+            return revoked
+
+        for token_id, info in self._issued_tokens.items():
+            if info.get("status") == "ACTIVE":
+                matches = (
+                    info.get("agent_id") == agent_id
+                    or info.get("principal_id") == agent_id
+                    or info.get("metadata", {}).get("agent_id") == agent_id
+                    or info.get("metadata", {}).get("principal_id") == agent_id
+                )
+                if matches:
+                    info["status"] = "REVOKED"
+                    revoked.append(token_id)
+                    logger.info(
+                        "VaultMCPAdapter revoked token %s for agent %s",
+                        token_id,
+                        agent_id,
+                    )
+        return revoked
+
 
     async def rotate_honeytokens(self) -> Dict[str, Any]:
         """Trigger dynamic rotation of synthetic honey-tokens across host environment."""

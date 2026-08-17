@@ -31,3 +31,12 @@ class AlertSeverity(str, Enum):
     HIGH = "HIGH"
     CRITICAL = "CRITICAL"
 
+
+class ReactionActionType(str, Enum):
+    """Action types for automated mitigation by Active Reaction Engine."""
+
+    EBPF_DROP = "EBPF_DROP"
+    MESH_SIGNATURE_BROADCAST = "MESH_SIGNATURE_BROADCAST"
+    REVOKE_IDENTITY_TOKENS = "REVOKE_IDENTITY_TOKENS"
+
+

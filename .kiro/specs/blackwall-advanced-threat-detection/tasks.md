@@ -917,30 +917,30 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 4.2, 4.3, 5.2, 5.4, 5.5, 6.2, 6.3, 6.5, 7.2, 7.3, 7.5, 8.1, 8.2, 10.1, 10.2, 10.3, 10.5, 10.6, 16.3, 17.7, 17.8, 17.9_
     - _Verification: `pytest tests/step_defs/test_red_team_scenarios_bdd.py -v -m weave`_
 
-- [ ] 24. Implement Active Threat Reaction Engine (Feedback Loop to Pillars 1, 2, 3)
-  - [ ] 24.1 Create `ActiveReactionEngine` class
+- [x] 24. Implement Active Threat Reaction Engine (Feedback Loop to Pillars 1, 2, 3)
+  - [x] 24.1 Create `ActiveReactionEngine` class
     - Convert CRITICAL threat evidence into dynamic mitigation actions
     - Implement `ActiveReactionPayload` model logging with Pydantic v2 validation and `evaluation_env_id` tracking
     - Implement evaluation containment check that mandatorily queries `is_evaluation_mode(payload.trigger_evidence_id)` and suppresses production mitigation actions whenever the underlying evidence originated in evaluation mode, regardless of whether `evaluation_env_id` is populated
     - _Requirements: 22.4, 22.5, 14.5, 15.10_
     - _Verification: `pytest tests/unit/test_active_reaction_engine.py::test_payload_creation -v`_
 
-  - [ ] 24.2 Implement dynamic eBPF socket drop rule injection
+  - [x] 24.2 Implement dynamic eBPF socket drop rule injection
     - Inject eBPF PID/socket drop rules into Pillar 1 (`LinuxeBPFDriver`) within 50ms (production mode only)
     - _Requirements: 22.1, 22.5_
     - _Verification: `pytest tests/unit/test_active_reaction_engine.py::test_ebpf_socket_drop -v`_
 
-  - [ ] 24.3 Implement fleet-wide ZeroMQ threat signature broadcast
+  - [x] 24.3 Implement fleet-wide ZeroMQ threat signature broadcast
     - Publish zero-latency block signatures to Pillar 2 Threat Mesh (<15ms) (production mode only)
     - _Requirements: 22.2, 22.5_
     - _Verification: `pytest tests/unit/test_active_reaction_engine.py::test_mesh_broadcast -v`_
 
-  - [ ] 24.4 Implement Vault JIT credential invalidation
+  - [x] 24.4 Implement Vault JIT credential invalidation
     - Trigger Pillar 3 Vault Sidecar session revocation for compromised agents (production mode only)
     - _Requirements: 22.3, 22.5_
     - _Verification: `pytest tests/unit/test_active_reaction_engine.py::test_credential_invalidation -v`_
 
-  - [ ] 24.5 Write property tests for Active Threat Reaction Engine
+  - [x] 24.5 Write property tests for Active Threat Reaction Engine
     - **Property 89: Dynamic eBPF Socket Drop Injection**
     - **Property 90: Zero-Latency Threat Mesh Broadcast**
     - **Property 91: Identity Credential Invalidation**
@@ -949,7 +949,7 @@ The implementation follows a test-driven development approach with property-base
     - **Validates: Requirements 22.1, 22.2, 22.3, 22.4, 22.5, 14.5**
     - _Verification: `pytest tests/property/test_active_reaction_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 24.6 Write BDD feature tests for Active Threat Reaction Engine
+  - [x] 24.6 Write BDD feature tests for Active Threat Reaction Engine
     - Create `tests/features/active_threat_reaction.feature` with Gherkin scenarios
     - Scenario: CRITICAL swarm detection injects eBPF socket drop rule into Pillar 1 within 50ms
     - Scenario: CRITICAL exploit chain broadcasts ZeroMQ signature across Threat Mesh in <15ms

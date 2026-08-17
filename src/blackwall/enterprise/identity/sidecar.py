@@ -113,12 +113,22 @@ class SecretVaultSidecar:
         }
 
     async def get_jit_credential(
-        self, role: str = "default", ttl_seconds: int = 900
+        self,
+        role: str = "default",
+        ttl_seconds: int = 900,
+        agent_id: Optional[str] = None,
+        principal_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Obtain short-lived (15 min TTL) real STS/Vault credential via hashicorp-vault-mcp."""
         if not self.vault_adapter.is_connected:
             await self.vault_adapter.connect()
 
         return await self.vault_adapter.issue_jit_token(
-            role=role, ttl_seconds=ttl_seconds
+            role=role,
+            ttl_seconds=ttl_seconds,
+            agent_id=agent_id,
+            principal_id=principal_id,
+            metadata=metadata,
         )
+

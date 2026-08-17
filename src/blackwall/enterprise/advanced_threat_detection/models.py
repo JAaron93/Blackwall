@@ -10,6 +10,7 @@ from blackwall.enterprise.advanced_threat_detection.enums import (
     AlertSeverity,
     EventSource,
     ExploitCategory,
+    ReactionActionType,
 )
 from blackwall.validators import (
     validate_min_items,
@@ -248,4 +249,75 @@ class Alert(BaseModel):
     def validate_non_empty_fields(cls, v: str, info: Any) -> str:
         """Validate required string fields are not empty or whitespace only."""
         return validate_non_empty_string(v, field_name=info.field_name)
+
+
+class ActiveReactionPayload(BaseModel):
+    """Model representing an automated threat mitigation action dispatched across Pillars 1, 2, and 3."""
+
+    reaction_id: UUID4 = Field(default_factory=uuid4)
+    trigger_evidence_id: UUID4
+    target_agent_id: str
+    target_pid: int | None = Field(default=None, gt=0)
+    target_ip: str | None = None
+    action_type: ReactionActionType
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    evaluation_env_id: str | None = None
+    status: str = "PENDING"
+    execution_duration_ms: float = 0.0
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("reaction_id", "trigger_evidence_id")
+    @classmethod
+    def validate_uuid_v4_fields(cls, v: Any, info: Any) -> Any:
+        """Validate reaction_id and trigger_evidence_id are valid UUID v4."""
+        return validate_uuid_v4_format(v, field_name=info.field_name)
+
+    @field_validator("timestamp")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        """Validate timestamp is timezone-aware and set to UTC."""
+        return validate_utc_datetime(v)
+
+    @field_validator("target_agent_id")
+    @classmethod
+    def validate_target_agent_id(cls, v: str) -> str:
+        """Validate target_agent_id is not empty or whitespace only."""
+        return validate_non_empty_string(v, field_name="target_agent_id")
+
+    @field_validator("target_pid")
+    @classmethod
+    def validate_target_pid(cls, v: int | None) -> int | None:
+        """Validate target_pid is positive if provided."""
+        if v is not None and v <= 0:
+            raise ValueError("target_pid must be greater than 0")
+        return v
+
+    @field_validator("target_ip")
+    @classmethod
+    def validate_target_ip(cls, v: str | None) -> str | None:
+        """Validate target_ip is a valid IPv4 or IPv6 address if provided."""
+        if v is not None:
+            clean = v.strip()
+            if not clean:
+                raise ValueError("target_ip must not be empty if specified")
+            import ipaddress
+            try:
+                ipaddress.ip_address(clean)
+            except ValueError as exc:
+                raise ValueError(f"Invalid IP address format: {v}") from exc
+            return clean
+        return None
+
+    @field_validator("evaluation_env_id")
+    @classmethod
+    def validate_evaluation_env_id(cls, v: str | None) -> str | None:
+        """Validate evaluation_env_id matches format if provided."""
+        if v is not None:
+            import re
+            clean = validate_non_empty_string(v, field_name="evaluation_env_id")
+            if not re.match(r"^[a-zA-Z0-9_-]+$", clean):
+                raise ValueError(f"evaluation_env_id must match ^[a-zA-Z0-9_-]+$: {v}")
+            return clean
+        return None
+
 
