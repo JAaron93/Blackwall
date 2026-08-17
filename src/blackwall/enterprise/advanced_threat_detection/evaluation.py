@@ -416,6 +416,14 @@ class EvaluationEnvironment:
         meta["evaluation_env_id"] = self.env_id
         meta["is_evaluation"] = True
         meta["eval_mode"] = True
+        if alert.evidence_id:
+            try:
+                eval_ev_id = self.derive_evaluation_event_id(alert.evidence_id)
+                self._known_evidence_ids.add(eval_ev_id)
+                if self.manager is not None:
+                    self.manager._known_evaluation_evidence_ids.add(eval_ev_id)
+            except (ValueError, TypeError):
+                pass
         if alert.alert_id:
             try:
                 eval_alert_id = self.derive_evaluation_event_id(alert.alert_id)
@@ -661,6 +669,16 @@ class EvaluationEnvironmentManager:
         meta["evaluation_env_id"] = clean_id
         meta["is_evaluation"] = True
         meta["eval_mode"] = True
+        if alert.evidence_id:
+            try:
+                clean_uuid = validate_uuid_v4_format(alert.evidence_id)
+                digest = hashlib.sha256(
+                    f"blackwall://eval/{clean_id}/{clean_uuid}".encode()
+                ).digest()
+                eval_id = uuid.UUID(bytes=digest[:16], version=4)
+                self._known_evaluation_evidence_ids.add(eval_id)
+            except (ValueError, TypeError):
+                pass
         if alert.alert_id:
             try:
                 clean_uuid = validate_uuid_v4_format(alert.alert_id)
