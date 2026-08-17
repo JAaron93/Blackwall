@@ -385,10 +385,8 @@ class EvaluationEnvironment:
         meta["eval_mode"] = True
         meta["original_event_id"] = str(event.event_id)
         eval_id = self.derive_evaluation_event_id(event.event_id)
-        self._known_evidence_ids.add(event.event_id)
         self._known_evidence_ids.add(eval_id)
         if self.manager is not None:
-            self.manager._known_evaluation_evidence_ids.add(event.event_id)
             self.manager._known_evaluation_evidence_ids.add(eval_id)
         return event.model_copy(update={"event_id": eval_id, "metadata": meta})
 
@@ -400,19 +398,16 @@ class EvaluationEnvironment:
         meta["is_evaluation"] = True
         meta["eval_mode"] = True
         if stamped.get("event_id"):
-            meta["original_event_id"] = str(stamped["event_id"])
-            stamped["event_id"] = str(self.derive_evaluation_event_id(stamped["event_id"]))
+            try:
+                meta["original_event_id"] = str(stamped["event_id"])
+                eval_id = self.derive_evaluation_event_id(stamped["event_id"])
+                stamped["event_id"] = str(eval_id)
+                self._known_evidence_ids.add(eval_id)
+                if self.manager is not None:
+                    self.manager._known_evaluation_evidence_ids.add(eval_id)
+            except (ValueError, TypeError):
+                pass
         stamped["metadata"] = meta
-        for key in ("event_id", "id", "evidence_id", "node_id", "original_event_id"):
-            val = stamped.get(key) or meta.get(key)
-            if val:
-                try:
-                    ev_uuid = uuid.UUID(str(val))
-                    self._known_evidence_ids.add(ev_uuid)
-                    if self.manager is not None:
-                        self.manager._known_evaluation_evidence_ids.add(ev_uuid)
-                except (ValueError, TypeError, AttributeError):
-                    pass
         return stamped
 
     def label_alert(self, alert: Alert) -> Alert:
@@ -611,30 +606,46 @@ class EvaluationEnvironmentManager:
     def label_event(self, event: NormalizedEvent, env_id: str) -> NormalizedEvent:
         """Label an event with the given evaluation environment ID."""
         clean_id = validate_non_empty_string(env_id, field_name="env_id")
+        env = self.get_environment(clean_id)
+        if env is not None:
+            return env.label_event(event)
         meta = dict(event.metadata)
         meta["evaluation_env_id"] = clean_id
         meta["is_evaluation"] = True
         meta["eval_mode"] = True
-        self._known_evaluation_evidence_ids.add(event.event_id)
-        return event.model_copy(update={"metadata": meta})
+        meta["original_event_id"] = str(event.event_id)
+        clean_uuid = validate_uuid_v4_format(event.event_id)
+        digest = hashlib.sha256(
+            f"blackwall://eval/{clean_id}/{clean_uuid}".encode()
+        ).digest()
+        eval_id = uuid.UUID(bytes=digest[:16], version=4)
+        self._known_evaluation_evidence_ids.add(eval_id)
+        return event.model_copy(update={"event_id": eval_id, "metadata": meta})
 
     def label_raw_event(self, raw_event: dict[str, Any], env_id: str) -> dict[str, Any]:
         """Label a raw event dictionary with the given evaluation environment ID."""
         clean_id = validate_non_empty_string(env_id, field_name="env_id")
+        env = self.get_environment(clean_id)
+        if env is not None:
+            return env.label_raw_event(raw_event)
         stamped = dict(raw_event)
         meta = dict(stamped.get("metadata", {})) if isinstance(stamped.get("metadata"), dict) else {}
         meta["evaluation_env_id"] = clean_id
         meta["is_evaluation"] = True
         meta["eval_mode"] = True
+        if stamped.get("event_id"):
+            try:
+                clean_uuid = validate_uuid_v4_format(stamped["event_id"])
+                digest = hashlib.sha256(
+                    f"blackwall://eval/{clean_id}/{clean_uuid}".encode()
+                ).digest()
+                eval_id = uuid.UUID(bytes=digest[:16], version=4)
+                meta["original_event_id"] = str(stamped["event_id"])
+                stamped["event_id"] = str(eval_id)
+                self._known_evaluation_evidence_ids.add(eval_id)
+            except (ValueError, TypeError):
+                pass
         stamped["metadata"] = meta
-        for key in ("event_id", "id", "evidence_id", "node_id", "original_event_id"):
-            val = stamped.get(key) or meta.get(key)
-            if val:
-                try:
-                    ev_uuid = uuid.UUID(str(val))
-                    self._known_evaluation_evidence_ids.add(ev_uuid)
-                except (ValueError, TypeError, AttributeError):
-                    pass
         return stamped
 
     def label_alert(self, alert: Alert, env_id: str) -> Alert:

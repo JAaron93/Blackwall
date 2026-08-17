@@ -60,7 +60,6 @@ class VaultMCPAdapter:
         effective_agent_id = (
             agent_id
             or (metadata.get("agent_id") if isinstance(metadata, dict) else None)
-            or f"agent-{role}"
         )
         effective_principal_id = (
             principal_id

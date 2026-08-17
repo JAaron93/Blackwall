@@ -668,13 +668,11 @@ async def test_evaluation_provenance_preserved_across_reset():
     labeled_ev = env.label_event(ev)
     await env.insert_event(labeled_ev)
 
-    assert await manager.is_evaluation_mode(ev.event_id) is True
     assert await manager.is_evaluation_mode(labeled_ev.event_id) is True
 
     # Reset environment
     await env.reset()
 
-    # Even after reset, provenance IDs must still be classified as evaluation mode
-    assert await manager.is_evaluation_mode(ev.event_id) is True
+    # Even after reset, derived evaluation provenance IDs must still be classified as evaluation mode
     assert await manager.is_evaluation_mode(labeled_ev.event_id) is True
 
