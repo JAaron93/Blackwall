@@ -49,7 +49,27 @@ Blackwall is divided into two distinct product tiers:
 
 ---
 
-## 4. Testing Hygiene & TDD Standards
+## 5. Active Threat Reaction, Kernel Semantics, & Evaluation Invariants
+
+### Pillar 1 (Kernel Interception Scope & Semantics)
+- **Tracepoint Enforcement**: `LinuxeBPFDriver` uses eBPF tracepoints (`sys_enter_connect`, `sys_enter_execve`) with BPF map lookup tables (`dropped_pids`, `dropped_ips`, `dropped_ip6s`). Enforcement operates via portable `bpf_send_signal(9)` (`SIGKILL`) upon intercepted syscall entry. Tracepoint probes do not perform synchronous inline packet rewriting or `bpf_override_return` (which requires error-injection kprobes).
+- **Userspace Compatibility Fallback**: On non-Linux or development hosts without BCC/eBPF, `UserSpaceAuditDriver` enforces process/socket restrictions via Python runtime audit hooks (`sys.addaudithook`).
+- **Atomic Drop Management**: Injections of PID, IPv4, or IPv6 socket drops must update BPF maps and roll back local userspace bookkeeping if driver insertion fails.
+
+### Evaluation Containment & Provenance Invariants
+- **Deterministic Evaluation Boundary**: Evaluation containment is envelope and namespace driven. An alert or reaction payload is classified as evaluation mode if:
+  1. The payload/alert envelope carries explicit evaluation metadata (`evaluation_env_id`, `is_evaluation=True`, or `eval_mode=True`), OR
+  2. The trigger evidence ID matches an active or historical evaluation identifier recorded in `EvaluationEnvironmentManager`, OR
+  3. The trigger evidence ID matches the deterministic SHA-256 evaluation namespace derivation.
+- **Production Resolution**: For standard production alerts where evaluation stores confirm no matching evaluation session, absence of evaluation provenance resolves cleanly to production execution.
+
+### Pillar 3 Identity Revocation & Principal Anchoring
+- **Principal Binding**: JIT STS credentials issued by `VaultMCPAdapter` and `SecretVaultSidecar` are bound to a verified `agent_id` / `principal_id` at issuance.
+- **Revocation Scoping**: `ActiveReactionEngine` revokes active sessions belonging to the compromised target agent. If an alert provides a compromised `token_id` without an explicit `agent_id`, the engine discovers the owning principal from the active token registry before executing revocation.
+
+---
+
+## 6. Testing Hygiene & TDD Standards
 
 - **TDD Requirement**: Source code modifications must include corresponding unit/integration tests under `tests/` and property-based tests under `tests/property/`.
 - **BDD Verification**: End-to-end security scenarios must pass using `pytest-bdd` under `tests/features/`.
