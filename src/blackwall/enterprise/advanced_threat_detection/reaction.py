@@ -115,13 +115,18 @@ class ActiveReactionEngine:
                 if clean_evidence_uuid in getattr(self.eval_manager, "_known_evaluation_evidence_ids", set()):
                     return True
                 for env in list(self.eval_manager._environments.values()):
+                    derived = env.derive_evaluation_event_id(clean_evidence_uuid)
                     if (
                         clean_evidence_uuid in getattr(env, "_known_evidence_ids", set())
                         or clean_evidence_uuid in getattr(env, "_historical_evidence_ids", set())
+                        or derived in getattr(env, "_known_evidence_ids", set())
+                        or derived in getattr(env, "_historical_evidence_ids", set())
                     ):
                         return True
                     try:
                         env_node = await env.store.get_node(clean_evidence_uuid)
+                        if env_node is None:
+                            env_node = await env.store.get_node(derived)
                         if env_node is not None:
                             meta = env_node.event.metadata
                             if (
@@ -708,7 +713,6 @@ class ActiveReactionEngine:
                                     or (t_info.get("metadata", {}).get("agent_id") == target_agent)
                                     or (t_info.get("metadata", {}).get("principal_id") == target_agent)
                                     or t_id == target_agent
-                                    or target_agent == "unknown_agent"
                                 )
                                 if agent_matches and t_id not in matching_tokens:
                                     matching_tokens.append(t_id)

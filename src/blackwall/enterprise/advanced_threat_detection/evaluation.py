@@ -775,7 +775,13 @@ class EvaluationEnvironmentManager:
             return True
 
         for env in list(self._environments.values()):
-            if clean_node_id in getattr(env, "_known_evidence_ids", set()) or clean_node_id in getattr(env, "_historical_evidence_ids", set()):
+            derived = env.derive_evaluation_event_id(clean_node_id)
+            if (
+                clean_node_id in getattr(env, "_known_evidence_ids", set())
+                or clean_node_id in getattr(env, "_historical_evidence_ids", set())
+                or derived in getattr(env, "_known_evidence_ids", set())
+                or derived in getattr(env, "_historical_evidence_ids", set())
+            ):
                 return True
             try:
                 node = await env.get_node(clean_node_id)
