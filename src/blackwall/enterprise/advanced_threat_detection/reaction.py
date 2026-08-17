@@ -115,7 +115,10 @@ class ActiveReactionEngine:
                 if clean_evidence_uuid in getattr(self.eval_manager, "_known_evaluation_evidence_ids", set()):
                     return True
                 for env in list(self.eval_manager._environments.values()):
-                    if clean_evidence_uuid in getattr(env, "_known_evidence_ids", set()):
+                    if (
+                        clean_evidence_uuid in getattr(env, "_known_evidence_ids", set())
+                        or clean_evidence_uuid in getattr(env, "_historical_evidence_ids", set())
+                    ):
                         return True
                     try:
                         env_node = await env.store.get_node(clean_evidence_uuid)

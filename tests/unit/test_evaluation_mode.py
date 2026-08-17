@@ -656,3 +656,25 @@ async def test_evaluation_environment_reset_and_mutation_lock_synchronization():
     assert len(env.store._edges) == 0
     assert len(env.store._path_cache) == 0
     assert len(env.alert_bus._subscribers) == 0 or len(env.alert_bus._subscribers) >= 0
+
+
+@pytest.mark.asyncio
+async def test_evaluation_provenance_preserved_across_reset():
+    """Verify evaluation evidence provenance is retained across environment resets to prevent fail-open production actions."""
+    manager = EvaluationEnvironmentManager(in_memory=True)
+    env = manager.get_or_create_environment("eval-provenance-test")
+
+    ev = create_sample_event(agent_id="agent-eval-prev")
+    labeled_ev = env.label_event(ev)
+    await env.insert_event(labeled_ev)
+
+    assert await manager.is_evaluation_mode(ev.event_id) is True
+    assert await manager.is_evaluation_mode(labeled_ev.event_id) is True
+
+    # Reset environment
+    await env.reset()
+
+    # Even after reset, provenance IDs must still be classified as evaluation mode
+    assert await manager.is_evaluation_mode(ev.event_id) is True
+    assert await manager.is_evaluation_mode(labeled_ev.event_id) is True
+

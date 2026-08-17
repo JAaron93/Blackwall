@@ -344,6 +344,7 @@ class EvaluationEnvironment:
         self.created_at = datetime.now(UTC)
         self.metadata: dict[str, Any] = dict(metadata) if metadata else {}
         self._known_evidence_ids: set[uuid.UUID] = set()
+        self._historical_evidence_ids: set[uuid.UUID] = set()
         self._lock = asyncio.Lock()
         self._closed = False
         self._initialized = False
@@ -530,7 +531,10 @@ class EvaluationEnvironment:
                         f"Failed to reset evaluation environment '{self.env_id}'."
                     ) from exc
 
-            # Clear in-memory structures and alert bus once DB deletion succeeds
+            # Clear in-memory structures and alert bus once DB deletion succeeds, preserving provenance history
+            self._historical_evidence_ids.update(self._known_evidence_ids)
+            if self.manager is not None:
+                self.manager._known_evaluation_evidence_ids.update(self._known_evidence_ids)
             self._known_evidence_ids.clear()
             self.store._nodes.clear()
             self.store._agent_nodes_index.clear()
@@ -748,7 +752,7 @@ class EvaluationEnvironmentManager:
             return True
 
         for env in list(self._environments.values()):
-            if clean_node_id in getattr(env, "_known_evidence_ids", set()):
+            if clean_node_id in getattr(env, "_known_evidence_ids", set()) or clean_node_id in getattr(env, "_historical_evidence_ids", set()):
                 return True
             try:
                 node = await env.get_node(clean_node_id)
