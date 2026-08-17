@@ -418,7 +418,9 @@ class EvaluationEnvironment:
         meta["eval_mode"] = True
         if alert.evidence_id:
             try:
-                eval_ev_id = self.derive_evaluation_event_id(alert.evidence_id)
+                clean_ev_id = validate_uuid_v4_format(alert.evidence_id)
+                meta["original_evidence_id"] = str(clean_ev_id)
+                eval_ev_id = self.derive_evaluation_event_id(clean_ev_id)
                 self._known_evidence_ids.add(eval_ev_id)
                 if self.manager is not None:
                     self.manager._known_evaluation_evidence_ids.add(eval_ev_id)
@@ -426,13 +428,21 @@ class EvaluationEnvironment:
                 pass
         if alert.alert_id:
             try:
-                eval_alert_id = self.derive_evaluation_event_id(alert.alert_id)
+                clean_alert_id = validate_uuid_v4_format(alert.alert_id)
+                meta["original_alert_id"] = str(clean_alert_id)
+                eval_alert_id = self.derive_evaluation_event_id(clean_alert_id)
                 self._known_evidence_ids.add(eval_alert_id)
                 if self.manager is not None:
                     self.manager._known_evaluation_evidence_ids.add(eval_alert_id)
             except (ValueError, TypeError):
                 pass
-        return alert.model_copy(update={"metadata": meta})
+        return alert.model_copy(
+            update={
+                "evidence_id": eval_ev_id if alert.evidence_id and "eval_ev_id" in locals() else alert.evidence_id,
+                "alert_id": eval_alert_id if alert.alert_id and "eval_alert_id" in locals() else alert.alert_id,
+                "metadata": meta,
+            }
+        )
 
     async def insert_event(self, event: NormalizedEvent) -> AttackNode:
         """Label and insert an event into this environment's isolated attack graph."""
@@ -669,27 +679,37 @@ class EvaluationEnvironmentManager:
         meta["evaluation_env_id"] = clean_id
         meta["is_evaluation"] = True
         meta["eval_mode"] = True
+        eval_ev_id = None
+        eval_alert_id = None
         if alert.evidence_id:
             try:
                 clean_uuid = validate_uuid_v4_format(alert.evidence_id)
+                meta["original_evidence_id"] = str(clean_uuid)
                 digest = hashlib.sha256(
                     f"blackwall://eval/{clean_id}/{clean_uuid}".encode()
                 ).digest()
-                eval_id = uuid.UUID(bytes=digest[:16], version=4)
-                self._known_evaluation_evidence_ids.add(eval_id)
+                eval_ev_id = uuid.UUID(bytes=digest[:16], version=4)
+                self._known_evaluation_evidence_ids.add(eval_ev_id)
             except (ValueError, TypeError):
                 pass
         if alert.alert_id:
             try:
                 clean_uuid = validate_uuid_v4_format(alert.alert_id)
+                meta["original_alert_id"] = str(clean_uuid)
                 digest = hashlib.sha256(
                     f"blackwall://eval/{clean_id}/{clean_uuid}".encode()
                 ).digest()
-                eval_id = uuid.UUID(bytes=digest[:16], version=4)
-                self._known_evaluation_evidence_ids.add(eval_id)
+                eval_alert_id = uuid.UUID(bytes=digest[:16], version=4)
+                self._known_evaluation_evidence_ids.add(eval_alert_id)
             except (ValueError, TypeError):
                 pass
-        return alert.model_copy(update={"metadata": meta})
+        return alert.model_copy(
+            update={
+                "evidence_id": eval_ev_id if eval_ev_id is not None else alert.evidence_id,
+                "alert_id": eval_alert_id if eval_alert_id is not None else alert.alert_id,
+                "metadata": meta,
+            }
+        )
 
     def is_evaluation_event(self, event: NormalizedEvent | dict[str, Any]) -> bool:
         """Check if an event carries evaluation environment labeling."""
