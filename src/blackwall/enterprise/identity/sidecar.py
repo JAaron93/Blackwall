@@ -39,8 +39,8 @@ class SecretVaultSidecar:
         principal_id: Optional[str] = None,
     ) -> None:
         self.vault_adapter: VaultMCPAdapter = vault_adapter or VaultMCPAdapter()
-        self.agent_id: str = agent_id or f"agent-sidecar-{uuid.uuid4().hex[:8]}"
-        self.principal_id: str = principal_id or self.agent_id
+        self.agent_id: Optional[str] = agent_id
+        self.principal_id: Optional[str] = principal_id or agent_id
         self._honeytoken_map: Dict[str, Dict[str, str]] = {}
         self._sterilized_env: Dict[str, str] = {}
 
