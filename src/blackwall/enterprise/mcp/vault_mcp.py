@@ -63,6 +63,9 @@ class VaultMCPAdapter:
             or (metadata.get("agent_id") if isinstance(metadata, dict) else None)
             or os.environ.get("BLACKWALL_AGENT_ID")
             or os.environ.get("AGENT_ID")
+            or principal_id
+            or (metadata.get("principal_id") if isinstance(metadata, dict) else None)
+            or "default-agent"
         )
         effective_principal_id = (
             principal_id

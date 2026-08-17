@@ -137,6 +137,9 @@ class SecretVaultSidecar:
             or os.environ.get("BLACKWALL_AGENT_ID")
             or os.environ.get("AGENT_ID")
             or (metadata.get("agent_id") if isinstance(metadata, dict) else None)
+            or principal_id
+            or self.principal_id
+            or "default-agent"
         )
         effective_principal_id = (
             principal_id
