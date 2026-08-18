@@ -103,3 +103,33 @@ async def test_ownership_less_token_binding_and_revocation(vault_adapter):
     revoked3 = await vault_adapter.revoke_agent_tokens("principal-special-01")
     assert token_id3 in revoked3
     assert vault_adapter._issued_tokens[token_id3]["status"] == "REVOKED"
+
+
+@pytest.mark.asyncio
+async def test_secret_vault_sidecar_revocation_and_rotation():
+    """Verify SecretVaultSidecar exposes and delegates revocation and rotation."""
+    from blackwall.enterprise.identity.sidecar import SecretVaultSidecar
+
+    sidecar = SecretVaultSidecar()
+    cred = await sidecar.get_jit_credential(role="worker", agent_id="agent-sidecar-01")
+    token_id = cred["token_id"]
+
+    assert token_id in sidecar._issued_tokens
+    assert sidecar._issued_tokens[token_id]["status"] == "ACTIVE"
+
+    # Revoke by agent_id
+    revoked = await sidecar.revoke_agent_tokens("agent-sidecar-01")
+    assert token_id in revoked
+    assert sidecar._issued_tokens[token_id]["status"] == "REVOKED"
+
+    # Revoke another token directly by token_id
+    cred2 = await sidecar.get_jit_credential(role="worker-2", agent_id="agent-sidecar-02")
+    token_id2 = cred2["token_id"]
+    revoked_token = await sidecar.revoke_token(token_id2)
+    assert revoked_token is True
+    assert sidecar._issued_tokens[token_id2]["status"] == "REVOKED"
+
+    # Rotate honeytokens
+    rotation = await sidecar.rotate_honeytokens()
+    assert rotation["status"] == "ROTATED"
+

@@ -112,6 +112,11 @@ class SecretVaultSidecar:
             "value": value,
         }
 
+    @property
+    def _issued_tokens(self) -> Dict[str, Dict[str, Any]]:
+        """Access issued JIT tokens from internal vault adapter."""
+        return getattr(self.vault_adapter, "_issued_tokens", {})
+
     async def get_jit_credential(
         self,
         role: str = "default",
@@ -131,4 +136,27 @@ class SecretVaultSidecar:
             principal_id=principal_id,
             metadata=metadata,
         )
+
+    async def revoke_agent_tokens(self, agent_id: str) -> list[str]:
+        """Revoke all active JIT tokens belonging to a specific agent or principal."""
+        if not self.vault_adapter.is_connected:
+            await self.vault_adapter.connect()
+        return await self.vault_adapter.revoke_agent_tokens(agent_id)
+
+    async def revoke_token(self, token_id: str) -> bool:
+        """Revoke a specific active JIT token immediately."""
+        if not self.vault_adapter.is_connected:
+            await self.vault_adapter.connect()
+        return await self.vault_adapter.revoke_token(token_id)
+
+    async def rotate_honeytokens(self) -> Dict[str, Any]:
+        """Rotate synthetic honey-tokens and update active environment sterilization."""
+        if not self.vault_adapter.is_connected:
+            await self.vault_adapter.connect()
+        res = await self.vault_adapter.rotate_honeytokens()
+        self._honeytoken_map.clear()
+        if self._sterilized_env:
+            self.sterilize_environment()
+        return res
+
 

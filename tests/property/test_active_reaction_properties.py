@@ -27,8 +27,10 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 from blackwall.enterprise.advanced_threat_detection.reaction import (
     ActiveReactionEngine,
 )
+from blackwall.enterprise.identity.sidecar import SecretVaultSidecar
 from blackwall.enterprise.kernel.probe import LinuxeBPFDriver, UserSpaceAuditDriver
 from blackwall.enterprise.mcp.vault_mcp import VaultMCPAdapter
+
 
 
 @st.composite
@@ -106,6 +108,7 @@ def test_property_91_identity_credential_invalidation(payload: ActiveReactionPay
     For all compromised agents, Vault sidecar revokes JIT tokens matching the target agent ID.
     """
     async def _run() -> None:
+        # Test VaultMCPAdapter
         vault_adapter = VaultMCPAdapter()
         await vault_adapter.issue_jit_token(role="worker", agent_id=payload.target_agent_id)
         alert_bus = AlertBus()
@@ -119,6 +122,25 @@ def test_property_91_identity_credential_invalidation(payload: ActiveReactionPay
             if t.get("agent_id") == payload.target_agent_id and t.get("status") == "ACTIVE"
         ]
         assert len(active_tokens) == 0
+
+        # Test SecretVaultSidecar
+        sidecar = SecretVaultSidecar()
+        await sidecar.get_jit_credential(role="worker", agent_id=payload.target_agent_id)
+        sidecar_engine = ActiveReactionEngine(vault_adapter=sidecar, alert_bus=alert_bus)
+
+        payload_sidecar = ActiveReactionPayload(
+            trigger_evidence_id=uuid.uuid4(),
+            target_agent_id=payload.target_agent_id,
+            action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
+        )
+        res_sidecar = await sidecar_engine.revoke_identity_session(payload_sidecar)
+        assert res_sidecar is True
+        assert payload_sidecar.status == "COMPLETED"
+        active_sidecar_tokens = [
+            t for t in sidecar._issued_tokens.values()
+            if t.get("agent_id") == payload.target_agent_id and t.get("status") == "ACTIVE"
+        ]
+        assert len(active_sidecar_tokens) == 0
 
     asyncio.run(_run())
 

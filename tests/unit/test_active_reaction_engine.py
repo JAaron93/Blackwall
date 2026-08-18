@@ -354,3 +354,40 @@ async def test_deterministic_evaluation_namespace_containment() -> None:
     res = await engine.execute_ebpf_socket_drop(payload_uri)
     assert res is False
     assert payload_uri.status == "SUPPRESSED_EVALUATION"
+
+
+async def test_sidecar_delegation_revocation_in_active_reaction_engine() -> None:
+    """Verify ActiveReactionEngine successfully revokes credentials when configured with SecretVaultSidecar."""
+    from blackwall.enterprise.identity.sidecar import SecretVaultSidecar
+
+    sidecar = SecretVaultSidecar()
+    cred = await sidecar.get_jit_credential(role="worker", agent_id="agent-breached-sidecar")
+    token_id = cred["token_id"]
+
+    assert sidecar._issued_tokens[token_id]["status"] == "ACTIVE"
+
+    engine = ActiveReactionEngine(vault_adapter=sidecar)
+    payload = ActiveReactionPayload(
+        trigger_evidence_id=uuid.uuid4(),
+        target_agent_id="agent-breached-sidecar",
+        action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
+    )
+    res = await engine.revoke_identity_session(payload)
+    assert res is True
+    assert payload.status == "COMPLETED"
+    assert sidecar._issued_tokens[token_id]["status"] == "REVOKED"
+
+
+async def test_unsupported_vault_adapter_fails_closed() -> None:
+    """Verify ActiveReactionEngine fails closed when vault adapter has no revocation capabilities."""
+    dummy_adapter = object()
+    engine = ActiveReactionEngine(vault_adapter=dummy_adapter)
+    payload = ActiveReactionPayload(
+        trigger_evidence_id=uuid.uuid4(),
+        target_agent_id="agent-breached-dummy",
+        action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
+    )
+    res = await engine.revoke_identity_session(payload)
+    assert res is False
+    assert payload.status == "FAILED"
+

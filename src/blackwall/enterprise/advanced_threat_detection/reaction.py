@@ -281,6 +281,12 @@ class ActiveReactionEngine:
                         await self.vault_adapter.revoke_agent_tokens(target_to_revoke)
                 elif hasattr(self.vault_adapter, "rotate_honeytokens"):
                     await self.vault_adapter.rotate_honeytokens()
+                else:
+                    logger.warning(
+                        "Configured vault_adapter %s does not support token revocation or honeytoken rotation",
+                        type(self.vault_adapter).__name__,
+                    )
+                    success = False
             except Exception as exc:
                 logger.error("Failed to revoke identity tokens: %s", exc)
                 success = False
