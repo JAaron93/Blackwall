@@ -67,39 +67,30 @@ class ActiveReactionEngine:
         metadata envelope markers, or attack graph store to prevent evaluation artifacts
         from triggering production mitigations.
         """
-        # 1. Envelope environment ID
-        if env_id is not None and str(env_id).strip():
-            return True
-
-        # 2. Envelope metadata markers
-        if metadata and isinstance(metadata, dict):
-            if (
-                metadata.get("is_evaluation") is True
-                or metadata.get("eval_mode") is True
-                or (isinstance(metadata.get("evaluation_env_id"), str) and metadata["evaluation_env_id"].strip())
-                or (isinstance(metadata.get("evaluation_uri"), str) and "/eval/" in metadata["evaluation_uri"])
-                or any(
-                    isinstance(v, str) and (v.startswith("blackwall://eval/") or "/eval/" in v)
-                    for v in metadata.values()
-                )
-            ):
-                return True
-
-        # 3. Deterministic evaluation namespace URI
+        # 1. Deterministic evaluation namespace URI
         if isinstance(evidence_id, str):
-            if (
-                evidence_id.startswith("blackwall://eval/")
-                or evidence_id.startswith("blackwall://evaluation/")
-                or "/eval/" in evidence_id
+            if evidence_id.startswith("blackwall://eval/") or evidence_id.startswith("blackwall://evaluation/"):
+                return True
+
+        # 2. Envelope metadata explicit flags & deterministic URI prefixes
+        if metadata and isinstance(metadata, dict):
+            if metadata.get("is_evaluation") is True or metadata.get("eval_mode") is True:
+                return True
+            eval_uri = metadata.get("evaluation_uri")
+            if isinstance(eval_uri, str) and (
+                eval_uri.startswith("blackwall://eval/") or eval_uri.startswith("blackwall://evaluation/")
             ):
                 return True
 
-        # 4. Evaluation Environment Manager
+        # 3. Evaluation Environment Manager (verified against registered environment)
         if self.eval_manager is not None:
+            if env_id and self.eval_manager.get_environment(env_id) is not None:
+                return True
             if await self.eval_manager.is_evaluation_mode(evidence_id, env_id=env_id):
                 return True
 
-        # 5. Attack Graph Store
+
+        # 4. Attack Graph Store (verified node provenance)
         if self.attack_graph is not None:
             clean_id: uuid.UUID | None = None
             if isinstance(evidence_id, str):
@@ -124,7 +115,7 @@ class ActiveReactionEngine:
                     if (
                         meta.get("is_evaluation") is True
                         or meta.get("eval_mode") is True
-                        or (isinstance(meta.get("evaluation_env_id"), str) and meta["evaluation_env_id"].strip())
+                        or (isinstance(meta.get("evaluation_env_id"), str) and meta["evaluation_env_id"] == env_id)
                     ):
                         return True
 
@@ -145,7 +136,7 @@ class ActiveReactionEngine:
             env_id=payload.evaluation_env_id,
             metadata=payload.metadata,
         )
-        if is_eval or payload.evaluation_env_id is not None:
+        if is_eval:
             logger.info(
                 "Evaluation containment: suppressing eBPF socket drop for evidence %s",
                 payload.trigger_evidence_id,
@@ -190,7 +181,7 @@ class ActiveReactionEngine:
             env_id=payload.evaluation_env_id,
             metadata=payload.metadata,
         )
-        if is_eval or payload.evaluation_env_id is not None:
+        if is_eval:
             logger.info(
                 "Evaluation containment: suppressing Threat Mesh broadcast for evidence %s",
                 payload.trigger_evidence_id,
@@ -245,7 +236,7 @@ class ActiveReactionEngine:
             env_id=payload.evaluation_env_id,
             metadata=payload.metadata,
         )
-        if is_eval or payload.evaluation_env_id is not None:
+        if is_eval:
             logger.info(
                 "Evaluation containment: suppressing Vault token revocation for evidence %s",
                 payload.trigger_evidence_id,

@@ -3,9 +3,11 @@
 Validates Requirements 22.1 - 22.5, 14.5.
 """
 
+import os
 import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
+
 
 import pytest
 from pydantic import ValidationError
@@ -248,18 +250,63 @@ async def test_envelope_metadata_evaluation_suppression() -> None:
     assert payload_mesh.status == "SUPPRESSED_EVALUATION"
     assert not broadcast_mock.called
 
-    # 3. Test evaluation_env_id in metadata
+    # 3. Test evaluation_uri in metadata
+    raw_id = uuid.uuid4()
     payload_vault = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
+        trigger_evidence_id=raw_id,
         target_agent_id="eval-agent-metadata",
         action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
-        metadata={"evaluation_env_id": "meta-eval-env-9"},
+        metadata={"evaluation_uri": f"blackwall://eval/meta-env/{raw_id}"},
     )
     res_vault = await engine.revoke_identity_session(payload_vault)
     assert res_vault is False
     assert payload_vault.status == "SUPPRESSED_EVALUATION"
     active_tokens = [t for t in vault_adapter._issued_tokens.values() if t.get("status") == "ACTIVE"]
     assert len(active_tokens) == 1
+
+
+@pytest.mark.asyncio
+async def test_unverified_metadata_url_does_not_suppress_production_mitigation() -> None:
+    """Verify ordinary metadata strings like /eval/status or forged unverified env_id do not suppress production actions."""
+    driver = UserSpaceAuditDriver()
+    engine = ActiveReactionEngine(kernel_driver=driver)
+
+    # 1. Ordinary metadata containing /eval/ in an arbitrary URL
+    payload_ordinary = ActiveReactionPayload(
+        trigger_evidence_id=uuid.uuid4(),
+        target_agent_id="production-agent-01",
+        target_pid=os.getpid(),
+        action_type=ReactionActionType.EBPF_DROP,
+        metadata={"target_url": "https://service/eval/status"},
+    )
+    is_eval = await engine.is_evaluation_mode(
+        payload_ordinary.trigger_evidence_id,
+        metadata=payload_ordinary.metadata,
+    )
+    assert is_eval is False
+    res = await engine.execute_ebpf_socket_drop(payload_ordinary)
+    assert res is True
+    assert payload_ordinary.status == "COMPLETED"
+
+    # 2. Forged evaluation_env_id without registered manager/store
+    eval_mgr = EvaluationEnvironmentManager()
+    engine_with_mgr = ActiveReactionEngine(kernel_driver=driver, eval_manager=eval_mgr)
+    payload_forged = ActiveReactionPayload(
+        trigger_evidence_id=uuid.uuid4(),
+        target_agent_id="production-agent-02",
+        target_pid=os.getpid(),
+        action_type=ReactionActionType.EBPF_DROP,
+        evaluation_env_id="forged-nonexistent-env",
+    )
+    is_eval_forged = await engine_with_mgr.is_evaluation_mode(
+        payload_forged.trigger_evidence_id,
+        env_id=payload_forged.evaluation_env_id,
+    )
+    assert is_eval_forged is False
+    res_forged = await engine_with_mgr.execute_ebpf_socket_drop(payload_forged)
+    assert res_forged is True
+    assert payload_forged.status == "COMPLETED"
+
 
 
 @pytest.mark.asyncio
