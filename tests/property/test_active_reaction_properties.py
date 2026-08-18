@@ -27,7 +27,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 from blackwall.enterprise.advanced_threat_detection.reaction import (
     ActiveReactionEngine,
 )
-from blackwall.enterprise.kernel.probe import UserSpaceAuditDriver
+from blackwall.enterprise.kernel.probe import LinuxeBPFDriver, UserSpaceAuditDriver
 from blackwall.enterprise.mcp.vault_mcp import VaultMCPAdapter
 
 
@@ -55,7 +55,12 @@ def test_property_89_dynamic_ebpf_socket_drop_injection(payload: ActiveReactionP
     and updates driver dropped filters.
     """
     async def _run() -> None:
-        driver = UserSpaceAuditDriver()
+        driver = LinuxeBPFDriver()
+        driver._bpf_instance = {
+            "dropped_pids": {},
+            "dropped_ips": {},
+            "dropped_ip6s": {},
+        }
         alert_bus = AlertBus()
         engine = ActiveReactionEngine(kernel_driver=driver, alert_bus=alert_bus)
 

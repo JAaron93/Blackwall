@@ -95,6 +95,7 @@ class UserSpaceAuditDriver(KernelProbeDriver):
         For external PIDs outside this interpreter in fallback mode, delivers SIGKILL to enforce process termination.
         For in-process execution, registers audit hook enforcement.
         """
+        self.start_tracing()
         applied = super().inject_socket_drop(pid=pid, ip=ip)
         if not applied:
             return False
@@ -108,11 +109,15 @@ class UserSpaceAuditDriver(KernelProbeDriver):
             except ProcessLookupError:
                 logger.debug("External PID %d already terminated", pid)
             except PermissionError as exc:
-                logger.debug(
-                    "Permission denied delivering signal to external PID %d (unprivileged mode): %s", pid, exc
+                logger.warning(
+                    "Permission denied terminating external PID %d: %s", pid, exc
                 )
+                self.remove_socket_drop(pid=pid, ip=ip)
+                return False
             except Exception as exc:
-                logger.debug("Signal delivery to external PID %d: %s", pid, exc)
+                logger.warning("Signal delivery to external PID %d failed: %s", pid, exc)
+                self.remove_socket_drop(pid=pid, ip=ip)
+                return False
 
         return True
 
