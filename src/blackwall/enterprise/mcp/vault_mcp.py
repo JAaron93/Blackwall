@@ -122,7 +122,6 @@ class VaultMCPAdapter:
                     token_id == agent_id
                     or info.get("agent_id") == agent_id
                     or info.get("principal_id") == agent_id
-                    or info.get("role") == agent_id
                     or info.get("metadata", {}).get("agent_id") == agent_id
                     or info.get("metadata", {}).get("principal_id") == agent_id
                 )
