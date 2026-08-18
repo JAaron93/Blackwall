@@ -87,7 +87,7 @@ class UserSpaceAuditDriver(KernelProbeDriver):
         self._hook_fn: Optional[Callable] = None
 
     def audit_event_handler(self, event: str, args: tuple) -> None:
-        """Audit hook handler intercepting process execution events."""
+        """Audit hook handler intercepting process execution and socket connection events."""
         if not self._is_active:
             return
 
@@ -101,6 +101,27 @@ class UserSpaceAuditDriver(KernelProbeDriver):
                     )
                     raise PermissionError(
                         f"Execution of '{cmd_str}' intercepted by Blackwall UserSpaceAuditDriver (pattern: {pattern})"
+                    )
+            if os.getpid() in self._dropped_pids or f"pid:{os.getpid()}" in self._blocked_patterns:
+                logger.warning(
+                    "UserSpaceAuditDriver blocked execution from dropped PID",
+                    extra={"event": event, "pid": os.getpid()},
+                )
+                raise PermissionError(
+                    f"Execution intercepted by Blackwall UserSpaceAuditDriver (PID {os.getpid()} dropped)"
+                )
+
+        if event in ("socket.connect", "socket.connect_ex", "socket.sendto"):
+            if len(args) > 1 and args[1] is not None:
+                addr = args[1]
+                host = str(addr[0]) if isinstance(addr, (tuple, list)) else str(addr)
+                if host in self._dropped_sockets or f"ip:{host}" in self._blocked_patterns:
+                    logger.warning(
+                        "UserSpaceAuditDriver blocked connection to dropped socket",
+                        extra={"event": event, "host": host},
+                    )
+                    raise PermissionError(
+                        f"Socket connection to '{host}' intercepted by Blackwall UserSpaceAuditDriver"
                     )
 
     def start_tracing(self) -> None:
@@ -120,10 +141,11 @@ class UserSpaceAuditDriver(KernelProbeDriver):
         self._is_active = False
 
 
-class LinuxeBPFDriver(KernelProbeDriver):
+class LinuxeBPFDriver(UserSpaceAuditDriver):
     """
     Linux eBPF kernel probe driver using bcc / ebpf-py tracepoints on sys_enter_execve and sys_enter_connect.
     Requires Linux kernel 5.4+ with BPF syscall enabled.
+    Falls back to UserSpaceAuditDriver (sys.addaudithook) if BCC/eBPF is unavailable.
     """
 
     def __init__(self) -> None:
@@ -215,9 +237,11 @@ class LinuxeBPFDriver(KernelProbeDriver):
                 )
             except Exception as e:
                 logger.warning(
-                    "BCC initialization failed on Linux host (%s); falling back to tracepoint metadata mode",
+                    "BCC initialization failed on Linux host (%s); activating UserSpaceAuditDriver fallback",
                     e,
                 )
+                self._bpf_instance = None
+                super().start_tracing()
 
     def inject_socket_drop(
         self, pid: Optional[int] = None, ip: Optional[str] = None
@@ -333,7 +357,7 @@ class LinuxeBPFDriver(KernelProbeDriver):
                 self._bpf_program["maps"].get("dropped_ip6s", {}).pop(ip, None)
 
     def start_tracing(self) -> None:
-        """Attaches eBPF tracepoint probes to Linux kernel execve/connect syscalls."""
+        """Attaches eBPF tracepoint probes to Linux kernel execve/connect syscalls with userspace fallback."""
         self._is_active = True
         self._load_bpf_program()
         self._active_ebpf_drop_maps.setdefault("bpf_sock_drop_rules", {})
@@ -350,11 +374,12 @@ class LinuxeBPFDriver(KernelProbeDriver):
             },
         }
 
-        if not self._ebpf_available:
+        if self._bpf_instance is None or not self._ebpf_available:
             logger.info(
-                "eBPF not available on %s; falling back to UserSpaceAuditDriver",
+                "eBPF kernel probe unavailable on %s; activating UserSpaceAuditDriver fallback",
                 sys.platform,
             )
+            super().start_tracing()
             return
 
         logger.info(
@@ -362,8 +387,8 @@ class LinuxeBPFDriver(KernelProbeDriver):
         )
 
     def stop_tracing(self) -> None:
-        """Detaches eBPF kernel probes."""
-        self._is_active = False
+        """Detaches eBPF kernel probes and deactivates userspace audit fallback."""
+        super().stop_tracing()
         self._attached_probes.clear()
         if self._bpf_program:
             self._bpf_program["loaded"] = False

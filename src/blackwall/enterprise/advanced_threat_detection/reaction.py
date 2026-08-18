@@ -214,7 +214,7 @@ class ActiveReactionEngine:
     ) -> bool:
         """Trigger Pillar 3 Vault sidecar to invalidate JIT credentials (Production mode only).
 
-        Satisfies Requirement 22.3.
+        Satisfies Requirement 22.3 and Architecture Rule 39.
         """
         start_time = time.perf_counter()
 
@@ -237,7 +237,23 @@ class ActiveReactionEngine:
         if self.vault_adapter is not None:
             try:
                 if hasattr(self.vault_adapter, "revoke_agent_tokens"):
-                    await self.vault_adapter.revoke_agent_tokens(payload.target_agent_id)
+                    target = payload.target_agent_id
+                    adapter_tokens = getattr(self.vault_adapter, "_issued_tokens", None)
+                    if isinstance(adapter_tokens, dict):
+                        if target in adapter_tokens:
+                            t_info = adapter_tokens[target]
+                            resolved_owner = t_info.get("agent_id") or t_info.get("principal_id")
+                            if resolved_owner:
+                                await self.vault_adapter.revoke_agent_tokens(resolved_owner)
+                        elif payload.metadata and isinstance(payload.metadata, dict) and "token_id" in payload.metadata:
+                            tid = payload.metadata["token_id"]
+                            if tid in adapter_tokens:
+                                t_info = adapter_tokens[tid]
+                                resolved_owner = t_info.get("agent_id") or t_info.get("principal_id")
+                                if resolved_owner:
+                                    await self.vault_adapter.revoke_agent_tokens(resolved_owner)
+
+                    await self.vault_adapter.revoke_agent_tokens(target)
                 elif hasattr(self.vault_adapter, "rotate_honeytokens"):
                     await self.vault_adapter.rotate_honeytokens()
             except Exception as exc:

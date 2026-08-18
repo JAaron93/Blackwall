@@ -57,9 +57,20 @@ class VaultMCPAdapter:
         now = time.time()
         expires_at = now + ttl_seconds
 
-        # Ensure explicit principal and agent binding (Architecture Rule 39)
-        resolved_agent_id = agent_id or principal_id or f"agent-{role}"
-        resolved_principal_id = principal_id or agent_id or f"principal-{role}"
+        # Resolve explicit agent and principal identifiers without synthetic placeholder prefixes
+        meta_dict = dict(metadata) if metadata else {}
+        resolved_agent_id = (
+            agent_id
+            or principal_id
+            or meta_dict.get("agent_id")
+            or meta_dict.get("principal_id")
+        )
+        resolved_principal_id = (
+            principal_id
+            or agent_id
+            or meta_dict.get("principal_id")
+            or meta_dict.get("agent_id")
+        )
 
         token_info = {
             "token_id": token_id,
@@ -72,7 +83,7 @@ class VaultMCPAdapter:
             "synthetic_token": f"BW_SYNTHETIC_MOCK_SECRET_{token_uid[:8]}",
             "status": "ACTIVE",
             "endpoint": self.endpoint,
-            "metadata": dict(metadata) if metadata else {},
+            "metadata": meta_dict,
         }
 
         self._issued_tokens[token_id] = token_info

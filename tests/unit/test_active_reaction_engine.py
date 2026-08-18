@@ -260,3 +260,44 @@ async def test_envelope_metadata_evaluation_suppression() -> None:
     assert payload_vault.status == "SUPPRESSED_EVALUATION"
     active_tokens = [t for t in vault_adapter._issued_tokens.values() if t.get("status") == "ACTIVE"]
     assert len(active_tokens) == 1
+
+
+@pytest.mark.asyncio
+async def test_token_id_principal_resolution_revocation() -> None:
+    """Verify revoking by token_id or metadata token_id resolves owner and revokes tokens (Rule 39)."""
+    vault_adapter = VaultMCPAdapter()
+    token_info = await vault_adapter.issue_jit_token(
+        role="data-loader",
+        agent_id="agent-rogue-principal-01",
+    )
+    token_id = token_info["token_id"]
+    assert vault_adapter._issued_tokens[token_id]["status"] == "ACTIVE"
+
+    engine = ActiveReactionEngine(vault_adapter=vault_adapter)
+
+    # 1. Supply token_id directly as target_agent_id
+    payload_direct = ActiveReactionPayload(
+        trigger_evidence_id=uuid.uuid4(),
+        target_agent_id=token_id,
+        action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
+    )
+    res = await engine.revoke_identity_session(payload_direct)
+    assert res is True
+    assert vault_adapter._issued_tokens[token_id]["status"] == "REVOKED"
+
+    # 2. Issue a new token, supply metadata token_id
+    token_info2 = await vault_adapter.issue_jit_token(
+        role="data-loader",
+        agent_id="agent-rogue-principal-02",
+    )
+    token_id2 = token_info2["token_id"]
+
+    payload_meta = ActiveReactionPayload(
+        trigger_evidence_id=uuid.uuid4(),
+        target_agent_id="generic-agent-ref",
+        action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
+        metadata={"token_id": token_id2},
+    )
+    res2 = await engine.revoke_identity_session(payload_meta)
+    assert res2 is True
+    assert vault_adapter._issued_tokens[token_id2]["status"] == "REVOKED"
