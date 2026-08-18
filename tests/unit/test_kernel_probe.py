@@ -144,3 +144,34 @@ def test_user_space_audit_driver_external_pid_termination(monkeypatch):
     res_ext = driver.inject_socket_drop(pid=99999)
     assert res_ext is True
     assert (99999, signal.SIGKILL) in killed_pids
+
+
+def test_linux_ebpf_driver_unstarted_injection_initializes_tracing_and_enforcement():
+    """Verify inject_socket_drop on unstarted LinuxeBPFDriver initializes tracing and updates maps."""
+    from blackwall.enterprise.kernel.probe import LinuxeBPFDriver
+
+    driver = LinuxeBPFDriver()
+    assert driver.is_active is False
+
+    # Simulate mock BPF environment during start_tracing
+    pids_map = {}
+    ips_map = {}
+
+    def mock_load_bpf():
+        driver._bpf_instance = {
+            "dropped_pids": pids_map,
+            "dropped_ips": ips_map,
+            "dropped_ip6s": {},
+        }
+        driver._bpf_program = {"maps": {"dropped_pids": {}, "dropped_ips": {}}}
+
+    driver._load_bpf_program = mock_load_bpf
+
+    res = driver.inject_socket_drop(pid=1234, ip="10.0.0.5")
+    assert res is True
+    assert driver.is_active is True
+    assert 1234 in driver._dropped_pids
+    assert "10.0.0.5" in driver._dropped_sockets
+    # Verify BPF maps were populated
+    assert len(pids_map) > 0
+    assert len(ips_map) > 0

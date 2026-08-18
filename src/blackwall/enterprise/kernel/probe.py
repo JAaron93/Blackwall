@@ -282,6 +282,9 @@ class LinuxeBPFDriver(UserSpaceAuditDriver):
         self, pid: Optional[int] = None, ip: Optional[str] = None
     ) -> bool:
         """Inject real-time eBPF socket or process drop rule (<50ms SLA)."""
+        if not self._is_active:
+            self.start_tracing()
+
         if self._bpf_instance is None:
             return super().inject_socket_drop(pid=pid, ip=ip)
 
