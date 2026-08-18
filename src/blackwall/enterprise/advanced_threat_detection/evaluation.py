@@ -654,6 +654,14 @@ class EvaluationEnvironmentManager:
         if not evidence_id:
             return False
 
+        if isinstance(evidence_id, str):
+            if (
+                evidence_id.startswith("blackwall://eval/")
+                or evidence_id.startswith("blackwall://evaluation/")
+                or "/eval/" in evidence_id
+            ):
+                return True
+
         clean_node_id: uuid.UUID
         if isinstance(evidence_id, str):
             try:

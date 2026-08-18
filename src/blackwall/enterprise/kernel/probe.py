@@ -7,6 +7,7 @@ import ctypes
 import ipaddress
 import logging
 import os
+import signal
 import socket
 import struct
 import sys
@@ -85,6 +86,35 @@ class UserSpaceAuditDriver(KernelProbeDriver):
     def __init__(self) -> None:
         super().__init__()
         self._hook_fn: Optional[Callable] = None
+
+    def inject_socket_drop(
+        self, pid: Optional[int] = None, ip: Optional[str] = None
+    ) -> bool:
+        """Inject real-time socket or process drop rule (<50ms SLA).
+
+        For external PIDs outside this interpreter in fallback mode, delivers SIGKILL to enforce process termination.
+        For in-process execution, registers audit hook enforcement.
+        """
+        applied = super().inject_socket_drop(pid=pid, ip=ip)
+        if not applied:
+            return False
+
+        if pid is not None and pid != os.getpid():
+            try:
+                os.kill(pid, signal.SIGKILL)
+                logger.info(
+                    "UserSpaceAuditDriver terminated external target PID %d via SIGKILL", pid
+                )
+            except ProcessLookupError:
+                logger.debug("External PID %d already terminated", pid)
+            except PermissionError as exc:
+                logger.debug(
+                    "Permission denied delivering signal to external PID %d (unprivileged mode): %s", pid, exc
+                )
+            except Exception as exc:
+                logger.debug("Signal delivery to external PID %d: %s", pid, exc)
+
+        return True
 
     def audit_event_handler(self, event: str, args: tuple) -> None:
         """Audit hook handler intercepting process execution and socket connection events."""
@@ -247,7 +277,10 @@ class LinuxeBPFDriver(UserSpaceAuditDriver):
         self, pid: Optional[int] = None, ip: Optional[str] = None
     ) -> bool:
         """Inject real-time eBPF socket or process drop rule (<50ms SLA)."""
-        applied = super().inject_socket_drop(pid=pid, ip=ip)
+        if self._bpf_instance is None:
+            return super().inject_socket_drop(pid=pid, ip=ip)
+
+        applied = KernelProbeDriver.inject_socket_drop(self, pid=pid, ip=ip)
         if not applied:
             return False
 

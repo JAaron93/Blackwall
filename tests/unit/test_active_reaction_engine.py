@@ -326,3 +326,31 @@ async def test_no_double_scoped_revocation_when_explicit_target_differs_from_met
     assert vault_adapter._issued_tokens[tid_b]["status"] == "REVOKED"
     # principal-A's token must remain ACTIVE (no double-scoped revocation)
     assert vault_adapter._issued_tokens[tid_a]["status"] == "ACTIVE"
+
+
+async def test_deterministic_evaluation_namespace_containment() -> None:
+    """Verify eval namespace URIs and derived event IDs are suppressed from production reaction."""
+    engine = ActiveReactionEngine()
+
+    # 1. Direct blackwall://eval/ URI to is_evaluation_mode
+    is_eval = await engine.is_evaluation_mode(
+        "blackwall://eval/cyber-env-01/12345678-1234-5678-1234-567812345678"
+    )
+    assert is_eval is True
+
+    # 2. Payload with evaluation URI in metadata
+    raw_id = uuid.uuid4()
+    payload_uri = ActiveReactionPayload(
+        trigger_evidence_id=raw_id,
+        target_agent_id="agent-eval-01",
+        target_pid=4444,
+        action_type=ReactionActionType.EBPF_DROP,
+        metadata={"evaluation_uri": f"blackwall://eval/cyber-env-01/{raw_id}"},
+    )
+    is_eval2 = await engine.is_evaluation_mode(
+        payload_uri.trigger_evidence_id, metadata=payload_uri.metadata
+    )
+    assert is_eval2 is True
+    res = await engine.execute_ebpf_socket_drop(payload_uri)
+    assert res is False
+    assert payload_uri.status == "SUPPRESSED_EVALUATION"

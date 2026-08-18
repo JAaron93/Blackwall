@@ -119,3 +119,28 @@ def test_linux_ebpf_driver_atomic_rollback_on_ip_failure_after_pid_success():
     assert "192.168.1.50" not in driver._dropped_sockets
     # Verify PID was removed from kernel map during rollback
     assert len(pids_map) == 0
+
+
+def test_user_space_audit_driver_external_pid_termination(monkeypatch):
+    """Verify UserSpaceAuditDriver delivers SIGKILL to external PIDs."""
+    import os
+    import signal
+    from blackwall.enterprise.kernel.probe import UserSpaceAuditDriver
+
+    driver = UserSpaceAuditDriver()
+    killed_pids = []
+
+    def mock_kill(pid, sig):
+        killed_pids.append((pid, sig))
+
+    monkeypatch.setattr("os.kill", mock_kill)
+
+    # In-process PID (no os.kill)
+    res = driver.inject_socket_drop(pid=os.getpid())
+    assert res is True
+    assert len(killed_pids) == 0
+
+    # External PID (calls os.kill with SIGKILL)
+    res_ext = driver.inject_socket_drop(pid=99999)
+    assert res_ext is True
+    assert (99999, signal.SIGKILL) in killed_pids

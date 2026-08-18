@@ -7,6 +7,7 @@ with mandatory evidence-derived evaluation containment.
 """
 
 import asyncio
+import hashlib
 import logging
 import time
 import uuid
@@ -76,15 +77,29 @@ class ActiveReactionEngine:
                 metadata.get("is_evaluation") is True
                 or metadata.get("eval_mode") is True
                 or (isinstance(metadata.get("evaluation_env_id"), str) and metadata["evaluation_env_id"].strip())
+                or (isinstance(metadata.get("evaluation_uri"), str) and "/eval/" in metadata["evaluation_uri"])
+                or any(
+                    isinstance(v, str) and (v.startswith("blackwall://eval/") or "/eval/" in v)
+                    for v in metadata.values()
+                )
             ):
                 return True
 
-        # 3. Evaluation Environment Manager
+        # 3. Deterministic evaluation namespace URI
+        if isinstance(evidence_id, str):
+            if (
+                evidence_id.startswith("blackwall://eval/")
+                or evidence_id.startswith("blackwall://evaluation/")
+                or "/eval/" in evidence_id
+            ):
+                return True
+
+        # 4. Evaluation Environment Manager
         if self.eval_manager is not None:
             if await self.eval_manager.is_evaluation_mode(evidence_id, env_id=env_id):
                 return True
 
-        # 4. Attack Graph Store
+        # 5. Attack Graph Store
         if self.attack_graph is not None:
             clean_id: uuid.UUID | None = None
             if isinstance(evidence_id, str):
@@ -97,6 +112,13 @@ class ActiveReactionEngine:
 
             if clean_id is not None:
                 node = await self.attack_graph.get_node(clean_id)
+                if node is None and env_id:
+                    digest = hashlib.sha256(
+                        f"blackwall://eval/{env_id}/{clean_id}".encode()
+                    ).digest()
+                    derived_id = uuid.UUID(bytes=digest[:16], version=4)
+                    node = await self.attack_graph.get_node(derived_id)
+
                 if node is not None:
                     meta = node.event.metadata
                     if (
