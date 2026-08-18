@@ -83,7 +83,6 @@ async def test_ownership_less_token_binding_and_revocation(vault_adapter):
     # 2. Issue another token without explicit agent_id, revoke by token_id
     token_info2 = await vault_adapter.issue_jit_token(role="worker-node", ttl_seconds=300)
     token_id2 = token_info2["token_id"]
-    assert token_info2["agent_id"] is not None
 
     revoked2 = await vault_adapter.revoke_agent_tokens(token_id2)
     assert token_id2 in revoked2

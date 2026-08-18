@@ -64,14 +64,12 @@ class VaultMCPAdapter:
             or principal_id
             or meta_dict.get("agent_id")
             or meta_dict.get("principal_id")
-            or f"agent-{token_uid}"
         )
         resolved_principal_id = (
             principal_id
             or agent_id
             or meta_dict.get("principal_id")
             or meta_dict.get("agent_id")
-            or f"principal-{token_uid}"
         )
 
         token_info = {
