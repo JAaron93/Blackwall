@@ -161,15 +161,15 @@ class UserSpaceAuditDriver(KernelProbeDriver):
 
     def start_tracing(self) -> None:
         """Enables audit hook tracing."""
-        if not self._is_active:
-            self._is_active = True
-            # Hook function registered conditionally
-            if self._hook_fn is None:
-                self._hook_fn = self.audit_event_handler
-                try:
-                    sys.addaudithook(self._hook_fn)
-                except Exception as e:
-                    logger.debug("sys.addaudithook notice: %s", e)
+        self._is_active = True
+        # Hook function registered conditionally
+        if self._hook_fn is None:
+            self._hook_fn = self.audit_event_handler
+            try:
+                sys.addaudithook(self._hook_fn)
+            except Exception as e:
+                logger.debug("sys.addaudithook notice: %s", e)
+
 
     def stop_tracing(self) -> None:
         """Disables active audit hook tracing."""
@@ -399,7 +399,6 @@ class LinuxeBPFDriver(UserSpaceAuditDriver):
 
     def start_tracing(self) -> None:
         """Attaches eBPF tracepoint probes to Linux kernel execve/connect syscalls with userspace fallback."""
-        self._is_active = True
         self._load_bpf_program()
         self._active_ebpf_drop_maps.setdefault("bpf_sock_drop_rules", {})
         self._attached_probes = {
@@ -423,9 +422,11 @@ class LinuxeBPFDriver(UserSpaceAuditDriver):
             super().start_tracing()
             return
 
+        self._is_active = True
         logger.info(
             "LinuxeBPFDriver successfully attached tracepoints to sys_enter_execve and sys_enter_connect"
         )
+
 
     def stop_tracing(self) -> None:
         """Detaches eBPF kernel probes and deactivates userspace audit fallback."""

@@ -175,3 +175,17 @@ def test_linux_ebpf_driver_unstarted_injection_initializes_tracing_and_enforceme
     # Verify BPF maps were populated
     assert len(pids_map) > 0
     assert len(ips_map) > 0
+
+
+def test_linux_ebpf_driver_fallback_registers_audit_hook():
+    """Verify LinuxeBPFDriver fallback to UserSpaceAuditDriver registers _hook_fn."""
+    from blackwall.enterprise.kernel.probe import LinuxeBPFDriver
+
+    driver = LinuxeBPFDriver()
+    driver._ebpf_available = False
+    driver.start_tracing()
+
+    assert driver.is_active is True
+    assert driver._hook_fn is not None
+    assert driver._hook_fn == driver.audit_event_handler
+
