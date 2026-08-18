@@ -3,8 +3,13 @@ Kernel Interception Engine & Audit Driver Abstraction (`blackwall.enterprise.ker
 Provides Linux eBPF probe driver and macOS/Windows user-space audit hook driver.
 """
 
-import sys
+import ctypes
+import ipaddress
 import logging
+import os
+import socket
+import struct
+import sys
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Optional, Set
 
@@ -222,6 +227,50 @@ class LinuxeBPFDriver(KernelProbeDriver):
         if not applied:
             return False
 
+        # Prepare helper for BPF map population
+        def _set_bpf(bpf_map: Any, c_key: Any, raw_key: Any, c_val: Any, raw_val: Any = 1) -> None:
+            try:
+                bpf_map[c_key] = c_val
+            except (TypeError, AttributeError):
+                bpf_map[raw_key] = raw_val
+
+        # Populate kernel BPF maps if BCC instance or map mocks are loaded
+        try:
+            if self._bpf_instance is not None:
+                if pid is not None and "dropped_pids" in self._bpf_instance:
+                    _set_bpf(
+                        self._bpf_instance["dropped_pids"],
+                        ctypes.c_uint32(pid),
+                        pid,
+                        ctypes.c_uint8(1),
+                        1,
+                    )
+                if ip is not None:
+                    ip_obj = ipaddress.ip_address(ip)
+                    if ip_obj.version == 4 and "dropped_ips" in self._bpf_instance:
+                        ip_int = struct.unpack("=I", socket.inet_aton(ip))[0]
+                        _set_bpf(
+                            self._bpf_instance["dropped_ips"],
+                            ctypes.c_uint32(ip_int),
+                            ip,
+                            ctypes.c_uint8(1),
+                            1,
+                        )
+                    elif ip_obj.version == 6 and "dropped_ip6s" in self._bpf_instance:
+                        ip6_bytes = socket.inet_pton(socket.AF_INET6, ip)
+                        c_buf = (ctypes.c_uint8 * 16).from_buffer_copy(ip6_bytes)
+                        _set_bpf(
+                            self._bpf_instance["dropped_ip6s"],
+                            c_buf,
+                            ip,
+                            ctypes.c_uint8(1),
+                            1,
+                        )
+        except Exception as exc:
+            logger.error("Failed to populate kernel BPF drop map: %s; rolling back", exc)
+            super().remove_socket_drop(pid=pid, ip=ip)
+            return False
+
         if pid is not None:
             self._active_ebpf_drop_maps[f"bpf_sock_drop_pid_{pid}"] = {
                 "pid": pid,
@@ -246,6 +295,32 @@ class LinuxeBPFDriver(KernelProbeDriver):
     ) -> None:
         """Remove active socket or process drop rule."""
         super().remove_socket_drop(pid=pid, ip=ip)
+
+        def _del_bpf(bpf_map: Any, c_key: Any, raw_key: Any) -> None:
+            try:
+                del bpf_map[c_key]
+            except (KeyError, TypeError, AttributeError):
+                try:
+                    del bpf_map[raw_key]
+                except (KeyError, TypeError, AttributeError):
+                    pass
+
+        if self._bpf_instance is not None:
+            if pid is not None and "dropped_pids" in self._bpf_instance:
+                _del_bpf(self._bpf_instance["dropped_pids"], ctypes.c_uint32(pid), pid)
+            if ip is not None:
+                try:
+                    ip_obj = ipaddress.ip_address(ip)
+                    if ip_obj.version == 4 and "dropped_ips" in self._bpf_instance:
+                        ip_int = struct.unpack("=I", socket.inet_aton(ip))[0]
+                        _del_bpf(self._bpf_instance["dropped_ips"], ctypes.c_uint32(ip_int), ip)
+                    elif ip_obj.version == 6 and "dropped_ip6s" in self._bpf_instance:
+                        ip6_bytes = socket.inet_pton(socket.AF_INET6, ip)
+                        c_buf = (ctypes.c_uint8 * 16).from_buffer_copy(ip6_bytes)
+                        _del_bpf(self._bpf_instance["dropped_ip6s"], c_buf, ip)
+                except Exception:
+                    pass
+
         if pid is not None:
             self._active_ebpf_drop_maps.pop(f"bpf_sock_drop_pid_{pid}", None)
             if self._bpf_program and "maps" in self._bpf_program:

@@ -207,3 +207,56 @@ async def test_evaluation_mode_suppression() -> None:
     assert payload_vault.status == "SUPPRESSED_EVALUATION"
     active_tokens = [t for t in vault_adapter._issued_tokens.values() if t.get("status") == "ACTIVE"]
     assert len(active_tokens) == 1
+
+
+@pytest.mark.asyncio
+async def test_envelope_metadata_evaluation_suppression() -> None:
+    """Test suppression when payload carries is_evaluation / eval_mode in metadata without store provenance."""
+    driver = UserSpaceAuditDriver()
+    broadcast_mock = AsyncMock(return_value=True)
+    vault_adapter = VaultMCPAdapter()
+    await vault_adapter.issue_jit_token(role="worker", agent_id="eval-agent-metadata")
+
+    engine = ActiveReactionEngine(
+        kernel_driver=driver,
+        mesh_broadcaster=broadcast_mock,
+        vault_adapter=vault_adapter,
+    )
+
+    # 1. Test is_evaluation=True in metadata
+    payload_ebpf = ActiveReactionPayload(
+        trigger_evidence_id=uuid.uuid4(),
+        target_agent_id="eval-agent-metadata",
+        target_pid=7777,
+        action_type=ReactionActionType.EBPF_DROP,
+        metadata={"is_evaluation": True},
+    )
+    res_ebpf = await engine.execute_ebpf_socket_drop(payload_ebpf)
+    assert res_ebpf is False
+    assert payload_ebpf.status == "SUPPRESSED_EVALUATION"
+    assert 7777 not in driver._dropped_pids
+
+    # 2. Test eval_mode=True in metadata
+    payload_mesh = ActiveReactionPayload(
+        trigger_evidence_id=uuid.uuid4(),
+        target_agent_id="eval-agent-metadata",
+        action_type=ReactionActionType.MESH_SIGNATURE_BROADCAST,
+        metadata={"eval_mode": True},
+    )
+    res_mesh = await engine.broadcast_fleet_signature(payload_mesh)
+    assert res_mesh is False
+    assert payload_mesh.status == "SUPPRESSED_EVALUATION"
+    assert not broadcast_mock.called
+
+    # 3. Test evaluation_env_id in metadata
+    payload_vault = ActiveReactionPayload(
+        trigger_evidence_id=uuid.uuid4(),
+        target_agent_id="eval-agent-metadata",
+        action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
+        metadata={"evaluation_env_id": "meta-eval-env-9"},
+    )
+    res_vault = await engine.revoke_identity_session(payload_vault)
+    assert res_vault is False
+    assert payload_vault.status == "SUPPRESSED_EVALUATION"
+    active_tokens = [t for t in vault_adapter._issued_tokens.values() if t.get("status") == "ACTIVE"]
+    assert len(active_tokens) == 1

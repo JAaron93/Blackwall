@@ -57,11 +57,15 @@ class VaultMCPAdapter:
         now = time.time()
         expires_at = now + ttl_seconds
 
+        # Ensure explicit principal and agent binding (Architecture Rule 39)
+        resolved_agent_id = agent_id or principal_id or f"agent-{role}"
+        resolved_principal_id = principal_id or agent_id or f"principal-{role}"
+
         token_info = {
             "token_id": token_id,
             "role": role,
-            "agent_id": agent_id,
-            "principal_id": principal_id or agent_id,
+            "agent_id": resolved_agent_id,
+            "principal_id": resolved_principal_id,
             "ttl_seconds": ttl_seconds,
             "issued_at": now,
             "expires_at": expires_at,
@@ -76,7 +80,7 @@ class VaultMCPAdapter:
             "VaultMCPAdapter issued JIT token %s for role %s / agent %s (TTL: %ds)",
             token_id,
             role,
-            agent_id,
+            resolved_agent_id,
             ttl_seconds,
         )
         return dict(token_info)
@@ -96,7 +100,7 @@ class VaultMCPAdapter:
         return False
 
     async def revoke_agent_tokens(self, agent_id: str) -> list[str]:
-        """Revoke all active JIT tokens belonging to a specific agent or principal."""
+        """Revoke all active JIT tokens belonging to a specific agent, principal, role, or token_id."""
         revoked: list[str] = []
         if not agent_id:
             return revoked
@@ -104,8 +108,10 @@ class VaultMCPAdapter:
         for token_id, info in self._issued_tokens.items():
             if info.get("status") == "ACTIVE":
                 matches = (
-                    info.get("agent_id") == agent_id
+                    token_id == agent_id
+                    or info.get("agent_id") == agent_id
                     or info.get("principal_id") == agent_id
+                    or info.get("role") == agent_id
                     or info.get("metadata", {}).get("agent_id") == agent_id
                     or info.get("metadata", {}).get("principal_id") == agent_id
                 )
@@ -113,7 +119,7 @@ class VaultMCPAdapter:
                     info["status"] = "REVOKED"
                     revoked.append(token_id)
                     logger.info(
-                        "VaultMCPAdapter revoked token %s for agent %s",
+                        "VaultMCPAdapter revoked token %s for agent/principal %s",
                         token_id,
                         agent_id,
                     )

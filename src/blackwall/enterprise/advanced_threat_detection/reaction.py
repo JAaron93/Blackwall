@@ -58,19 +58,33 @@ class ActiveReactionEngine:
         self,
         evidence_id: uuid.UUID | str,
         env_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Check if trigger evidence originated from an evaluation environment.
 
-        Mandatory Evidence-Derived Containment Gate: queries evaluation environment manager
-        or attack graph store to prevent evaluation artifacts from triggering production mitigations.
+        Mandatory Evidence-Derived Containment Gate: queries evaluation environment manager,
+        metadata envelope markers, or attack graph store to prevent evaluation artifacts
+        from triggering production mitigations.
         """
+        # 1. Envelope environment ID
         if env_id is not None and str(env_id).strip():
             return True
 
+        # 2. Envelope metadata markers
+        if metadata and isinstance(metadata, dict):
+            if (
+                metadata.get("is_evaluation") is True
+                or metadata.get("eval_mode") is True
+                or (isinstance(metadata.get("evaluation_env_id"), str) and metadata["evaluation_env_id"].strip())
+            ):
+                return True
+
+        # 3. Evaluation Environment Manager
         if self.eval_manager is not None:
             if await self.eval_manager.is_evaluation_mode(evidence_id, env_id=env_id):
                 return True
 
+        # 4. Attack Graph Store
         if self.attack_graph is not None:
             clean_id: uuid.UUID | None = None
             if isinstance(evidence_id, str):
@@ -107,6 +121,7 @@ class ActiveReactionEngine:
         is_eval = await self.is_evaluation_mode(
             payload.trigger_evidence_id,
             env_id=payload.evaluation_env_id,
+            metadata=payload.metadata,
         )
         if is_eval or payload.evaluation_env_id is not None:
             logger.info(
@@ -151,6 +166,7 @@ class ActiveReactionEngine:
         is_eval = await self.is_evaluation_mode(
             payload.trigger_evidence_id,
             env_id=payload.evaluation_env_id,
+            metadata=payload.metadata,
         )
         if is_eval or payload.evaluation_env_id is not None:
             logger.info(
@@ -205,6 +221,7 @@ class ActiveReactionEngine:
         is_eval = await self.is_evaluation_mode(
             payload.trigger_evidence_id,
             env_id=payload.evaluation_env_id,
+            metadata=payload.metadata,
         )
         if is_eval or payload.evaluation_env_id is not None:
             logger.info(

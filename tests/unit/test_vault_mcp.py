@@ -62,3 +62,29 @@ async def test_rotate_honeytokens(vault_adapter):
     assert "rotation_timestamp" in rotation
     assert "status" in rotation
     assert rotation["status"] == "ROTATED"
+
+
+@pytest.mark.asyncio
+async def test_ownership_less_token_binding_and_revocation(vault_adapter):
+    """Verify tokens issued without explicit agent_id/principal_id bind non-None principals and can be revoked."""
+    await vault_adapter.connect()
+    # Issue token with no explicit agent_id/principal_id
+    token_info = await vault_adapter.issue_jit_token(role="worker-node", ttl_seconds=300)
+    assert token_info["agent_id"] is not None
+    assert token_info["principal_id"] is not None
+    token_id = token_info["token_id"]
+
+    # Revoking by token_id via revoke_agent_tokens
+    revoked = await vault_adapter.revoke_agent_tokens(token_id)
+    assert token_id in revoked
+    assert vault_adapter._issued_tokens[token_id]["status"] == "REVOKED"
+
+    # Issue another token without explicit agent_id
+    token_info2 = await vault_adapter.issue_jit_token(role="worker-node", ttl_seconds=300)
+    token_id2 = token_info2["token_id"]
+    bound_principal = token_info2["principal_id"]
+
+    # Revoking by bound principal / role
+    revoked2 = await vault_adapter.revoke_agent_tokens(bound_principal)
+    assert token_id2 in revoked2
+    assert vault_adapter._issued_tokens[token_id2]["status"] == "REVOKED"
