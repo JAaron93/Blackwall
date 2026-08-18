@@ -270,6 +270,9 @@ class ActiveReactionEngine:
 
                     if target_to_revoke:
                         await self.vault_adapter.revoke_agent_tokens(target_to_revoke)
+                    else:
+                        logger.warning("No target agent or token identifier provided for revocation")
+                        success = False
                 elif hasattr(self.vault_adapter, "rotate_honeytokens"):
                     await self.vault_adapter.rotate_honeytokens()
                 else:
