@@ -239,21 +239,24 @@ class ActiveReactionEngine:
                 if hasattr(self.vault_adapter, "revoke_agent_tokens"):
                     target = payload.target_agent_id
                     adapter_tokens = getattr(self.vault_adapter, "_issued_tokens", None)
+                    target_to_revoke = target
+
                     if isinstance(adapter_tokens, dict):
-                        if target in adapter_tokens:
+                        if target and target in adapter_tokens:
                             t_info = adapter_tokens[target]
                             resolved_owner = t_info.get("agent_id") or t_info.get("principal_id")
                             if resolved_owner:
-                                await self.vault_adapter.revoke_agent_tokens(resolved_owner)
+                                target_to_revoke = resolved_owner
                         elif payload.metadata and isinstance(payload.metadata, dict) and "token_id" in payload.metadata:
                             tid = payload.metadata["token_id"]
                             if tid in adapter_tokens:
                                 t_info = adapter_tokens[tid]
                                 resolved_owner = t_info.get("agent_id") or t_info.get("principal_id")
-                                if resolved_owner:
-                                    await self.vault_adapter.revoke_agent_tokens(resolved_owner)
+                                if resolved_owner and (not target or target in (tid, "generic-agent-ref", "unknown", "default")):
+                                    target_to_revoke = resolved_owner
 
-                    await self.vault_adapter.revoke_agent_tokens(target)
+                    if target_to_revoke:
+                        await self.vault_adapter.revoke_agent_tokens(target_to_revoke)
                 elif hasattr(self.vault_adapter, "rotate_honeytokens"):
                     await self.vault_adapter.rotate_honeytokens()
             except Exception as exc:

@@ -96,3 +96,26 @@ def test_linux_ebpf_driver_atomic_rollback_on_failure():
     assert res is False
     assert 5555 not in driver._dropped_pids
     assert "bpf_sock_drop_pid_5555" not in driver._active_ebpf_drop_maps
+
+
+def test_linux_ebpf_driver_atomic_rollback_on_ip_failure_after_pid_success():
+    """Verify LinuxeBPFDriver cleans up PID from kernel map if subsequent IP map insert fails."""
+    from blackwall.enterprise.kernel.probe import LinuxeBPFDriver
+
+    driver = LinuxeBPFDriver()
+    pids_map = {}
+    failing_ips_map = MagicMock()
+    failing_ips_map.__setitem__.side_effect = RuntimeError("IP BPF map failure")
+
+    driver._bpf_instance = {
+        "dropped_pids": pids_map,
+        "dropped_ips": failing_ips_map,
+        "dropped_ip6s": {},
+    }
+
+    res = driver.inject_socket_drop(pid=7777, ip="192.168.1.50")
+    assert res is False
+    assert 7777 not in driver._dropped_pids
+    assert "192.168.1.50" not in driver._dropped_sockets
+    # Verify PID was removed from kernel map during rollback
+    assert len(pids_map) == 0

@@ -66,7 +66,7 @@ async def test_rotate_honeytokens(vault_adapter):
 
 @pytest.mark.asyncio
 async def test_ownership_less_token_binding_and_revocation(vault_adapter):
-    """Verify tokens can be revoked by token_id, metadata agent_id, or role."""
+    """Verify tokens can be revoked by token_id, metadata agent_id, or principal_id without role broadening."""
     await vault_adapter.connect()
     # 1. Issue token with metadata agent_id
     token_info = await vault_adapter.issue_jit_token(
@@ -83,15 +83,24 @@ async def test_ownership_less_token_binding_and_revocation(vault_adapter):
     # 2. Issue another token without explicit agent_id, revoke by token_id
     token_info2 = await vault_adapter.issue_jit_token(role="worker-node", ttl_seconds=300)
     token_id2 = token_info2["token_id"]
+    assert token_info2["agent_id"] is not None
 
     revoked2 = await vault_adapter.revoke_agent_tokens(token_id2)
     assert token_id2 in revoked2
     assert vault_adapter._issued_tokens[token_id2]["status"] == "REVOKED"
 
-    # 3. Issue third token, revoke by role
-    token_info3 = await vault_adapter.issue_jit_token(role="special-role", ttl_seconds=300)
+    # 3. Issue third token with principal_id, verify role string does not revoke it
+    token_info3 = await vault_adapter.issue_jit_token(
+        role="special-role", ttl_seconds=300, principal_id="principal-special-01"
+    )
     token_id3 = token_info3["token_id"]
 
-    revoked3 = await vault_adapter.revoke_agent_tokens("special-role")
+    # Role matching must not revoke
+    revoked_role = await vault_adapter.revoke_agent_tokens("special-role")
+    assert len(revoked_role) == 0
+    assert vault_adapter._issued_tokens[token_id3]["status"] == "ACTIVE"
+
+    # Revoking by principal_id succeeds
+    revoked3 = await vault_adapter.revoke_agent_tokens("principal-special-01")
     assert token_id3 in revoked3
     assert vault_adapter._issued_tokens[token_id3]["status"] == "REVOKED"

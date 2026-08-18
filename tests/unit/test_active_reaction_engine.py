@@ -301,3 +301,28 @@ async def test_token_id_principal_resolution_revocation() -> None:
     res2 = await engine.revoke_identity_session(payload_meta)
     assert res2 is True
     assert vault_adapter._issued_tokens[token_id2]["status"] == "REVOKED"
+
+
+async def test_no_double_scoped_revocation_when_explicit_target_differs_from_metadata_token_owner() -> None:
+    """Verify explicit target_agent_id prevents cross-revoking metadata token owner (Rule 39)."""
+    vault_adapter = VaultMCPAdapter()
+    token_a = await vault_adapter.issue_jit_token(role="worker", agent_id="principal-A")
+    token_b = await vault_adapter.issue_jit_token(role="worker", agent_id="principal-B")
+
+    tid_a = token_a["token_id"]
+    tid_b = token_b["token_id"]
+
+    engine = ActiveReactionEngine(vault_adapter=vault_adapter)
+
+    # Explicit target is principal-B, metadata has token of principal-A
+    payload = ActiveReactionPayload(
+        trigger_evidence_id=uuid.uuid4(),
+        target_agent_id="principal-B",
+        action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
+        metadata={"token_id": tid_a},
+    )
+    res = await engine.revoke_identity_session(payload)
+    assert res is True
+    assert vault_adapter._issued_tokens[tid_b]["status"] == "REVOKED"
+    # principal-A's token must remain ACTIVE (no double-scoped revocation)
+    assert vault_adapter._issued_tokens[tid_a]["status"] == "ACTIVE"

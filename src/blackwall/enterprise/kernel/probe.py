@@ -292,7 +292,7 @@ class LinuxeBPFDriver(UserSpaceAuditDriver):
                         )
         except Exception as exc:
             logger.error("Failed to populate kernel BPF drop map: %s; rolling back", exc)
-            super().remove_socket_drop(pid=pid, ip=ip)
+            self.remove_socket_drop(pid=pid, ip=ip)
             return False
 
         if pid is not None:
