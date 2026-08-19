@@ -60,12 +60,14 @@ class GCPCloudTraceExporter:
         )
         disable_cloud_trace = os.getenv("BLACKWALL_DISABLE_CLOUD_TRACE", "false").lower() in ("true", "1", "yes")
         export_env = os.getenv("BLACKWALL_EXPORT_CLOUD_TRACE")
-        if export_to_cloud is not None:
+        if disable_cloud_trace:
+            self._export_to_cloud = False
+        elif export_to_cloud is not None:
             self._export_to_cloud = export_to_cloud
         elif export_env is not None:
             self._export_to_cloud = export_env.lower() in ("true", "1", "yes")
         else:
-            self._export_to_cloud = not disable_cloud_trace
+            self._export_to_cloud = True
         self._exported_spans: List[GCPTraceSpan] = []
         self._is_cloud_trace_available = False
         self._tracer_provider = None

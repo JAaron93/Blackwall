@@ -72,8 +72,9 @@ def test_gcp_cloud_trace_exporter_error_recording():
 
 
 def test_gcp_cloud_trace_exporter_disable_flag(monkeypatch):
-    """Verify trace exporter respects BLACKWALL_DISABLE_CLOUD_TRACE environment variable."""
+    """Verify trace exporter respects BLACKWALL_DISABLE_CLOUD_TRACE and gives it precedence over export flag."""
     monkeypatch.setenv("BLACKWALL_DISABLE_CLOUD_TRACE", "true")
+    monkeypatch.setenv("BLACKWALL_EXPORT_CLOUD_TRACE", "true")
     exporter = GCPCloudTraceExporter(project_id="unit-test-proj")
     assert exporter._export_to_cloud is False
     assert exporter.is_cloud_trace_available is False

@@ -471,12 +471,27 @@ class GCPVertexAIEvaluationHarness:
         # Local fallback execution (only when explicitly permitted via allow_fallback=True)
         total = len(dataset) if hasattr(dataset, "__len__") else 1
         if span is not None:
-            self._trace_exporter.record_evaluation_result(
-                span=span,
-                score=1.0,
-                verdict="LOCAL_FALLBACK",
-            )
-            self._trace_exporter.flush()
+            if span.end_time_ns is not None:
+                # Primary cloud evaluation span already captured error telemetry; emit a dedicated fallback span
+                fallback_span = self._trace_exporter.start_span(
+                    name="vertex_eval.local_fallback",
+                    model=target_model,
+                    metric_name=",".join(metric_names),
+                    attributes={"experiment": self.config.experiment_name, "reason": "cloud_eval_fallback"},
+                )
+                self._trace_exporter.record_evaluation_result(
+                    span=fallback_span,
+                    score=1.0,
+                    verdict="LOCAL_FALLBACK",
+                )
+                self._trace_exporter.flush()
+            else:
+                self._trace_exporter.record_evaluation_result(
+                    span=span,
+                    score=1.0,
+                    verdict="LOCAL_FALLBACK",
+                )
+                self._trace_exporter.flush()
 
         return {
             "status": "LOCAL_FALLBACK",
