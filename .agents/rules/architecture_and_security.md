@@ -190,12 +190,25 @@
 * **Rule (Dual-Tiered Evaluation Strategy):**
   1. **Tier 1 (Fast CI/CD & Functional Firewalls)**: Security evaluation for Blackwall Core MUST use the Google Cloud Agent Platform / ADK Adversarial Harness in 100% GCP Vertex AI Mode (`before_tool_callback`, Gemini models in Vertex AI mode via Application Default Credentials).
   2. **Tier 2 (Enterprise Kernel & Multi-Stage Attack Simulations)**: Deep penetration testing and multi-stage exploit simulations (swarms, C2 beaconing, kernel escalation, pipeline poisoning) MUST execute inside containerized environments (such as Cybench / CyberGym) hosted on Google Cloud Run or GKE Sandbox backed by gVisor microVM kernel isolation.
+* **Rule (Deterministic Evaluation Provenance Gate):** Evaluation containment membranes MUST never rely on loose substring checks (e.g. `"/eval/" in path`) to classify events. They MUST require verified URI schemes (`blackwall://eval/`, `blackwall://evaluation/`) or registered evaluation store lookups to prevent synthetic evaluation spoofing from suppressing production mitigations.
 * **Rule (Zero-SaaS Evaluation Invariant & Weave Deprecation):**
   - Legacy Weights & Biases (Weave) workflows are fully deprecated.
   - All threat detection evaluations MUST use the cloud-native **GCP Vertex AI Gen AI Evaluation Service (`vertexai.preview.evaluation` / `EvalTask`)** with `PointwiseMetric`, `PairwiseMetric`, and trajectory evaluation metrics.
   - Evaluation telemetry MUST be exported directly to Google Cloud Trace (`opentelemetry-exporter-gcp-trace`) and Google Cloud Logging.
   - Evaluation harnesses MUST authenticate strictly via Application Default Credentials (ADC) without requiring third-party SaaS API keys (`WANDB_API_KEY`, AI Studio keys).
 * **Rationale:** Eliminates external third-party credential dependencies, prevents data exfiltration to non-compliant SaaS platforms, optimizes GCP enterprise credit utilization, and guarantees that kernel containment tests run within secure microVM sandbox boundaries.
+
+## 41. Principal-Scoped JIT Credential Binding & Token Revocation
+* **Rule (Strict Principal Scoping):** When issuing JIT credentials (`issue_jit_token`, `get_jit_credential`), the token must bind strictly to the requesting agent's explicit `agent_id` or `principal_id`.
+* **Rule (No Role Substitution):** The system MUST NOT substitute a shared role name (e.g. `"devops"`, `"analytics"`) as the principal or agent identifier. Unspecified callers must receive a unique, isolated instance identifier (`token_id` or unique instance UUID) to guarantee that agent-scoped revocation (`revoke_agent_tokens`) never causes cross-agent collateral invalidation or containment evasion.
+* **Rationale:** Prevents multi-tenant credentials from escaping scoped revocations and stops rogue agents sharing a role from invalidating benign sibling workloads.
+
+## 42. Production LLM Model Standards (Gemini 3.X Generation)
+* **Rule (Main Interception & Rapid Triage Model):** MUST default to `gemini-3.5-flash-lite` for sub-100ms synchronous anomaly classification, structural policy escalation, and tool interception.
+* **Rule (Deep Reasoning & Forensic Attribution Model):** MUST default to `gemini-3.7-flash` for frontier semantic reasoning, attack path decompilation, and threat signature synthesis.
+* **Rule (Embeddings Model):** MUST default to `gemini-embedding-001` (768 dimensions).
+* **Rule (Deprecated Models Deny List):** All legacy model identifiers (`gemini-1.5-*`, `gemini-2.0-*`, `gemini-2.5-*`, and `gemini-3.1-pro-preview`) are strictly deprecated and prohibited in production and test configurations.
+* **Rationale:** `gemini-3.5-flash-lite` provides sub-100ms SLA compliance for the hot synchronous path, while `gemini-3.7-flash` delivers frontier reasoning speed and depth without the latency penalties of legacy preview models.
 
 
 

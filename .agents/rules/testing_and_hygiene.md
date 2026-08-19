@@ -91,5 +91,10 @@
 * **Rule:** When generating synthetic multi-day historical events for testing retention boundaries (e.g. `<= 30` day retention), test fixtures MUST ensure event timestamps stay strictly within the active retention window (`now - timedelta(days=29)`) rather than spanning beyond the cutoff horizon (`days=30, hours=2`), preventing false assertions during retention purge tests.
 * **Rationale:** Generating events at or beyond the exact boundary creates subtle sub-day discrepancies where events are legitimately purged as expired, causing test failures on valid retention invariants.
 
+## 25. Greptile PR Review Filter & Severity Governance
+* **Rule (P0 & P1 Enforcement Only):** Automated PR code reviews MUST be configured to comment exclusively on **P0** (critical security vulnerabilities, architectural boundary violations) and **P1** (functional logic errors, data integrity failures).
+* **Rule (Comment Type Scope):** `.greptile/config.json` MUST maintain `commentTypes: ["logic", "syntax"]`, strictly omitting `"style"` and `"info"` to prevent noisy stylistic nits from delaying PR review and merge cycles.
+* **Rationale:** Focusing AI review automation on high-severity security, architecture, and correctness invariants eliminates review fatigue on cosmetic details and maintains high development velocity.
+
 
 
