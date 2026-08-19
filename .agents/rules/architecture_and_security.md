@@ -210,6 +210,18 @@
 * **Rule (Deprecated Models Deny List):** All legacy model identifiers (`gemini-1.5-*`, `gemini-2.0-*`, `gemini-2.5-*`, and `gemini-3.1-pro-preview`) are strictly deprecated and prohibited in production and test configurations.
 * **Rationale:** `gemini-3.5-flash-lite` provides sub-100ms SLA compliance for the hot synchronous path, while `gemini-3.7-flash` delivers frontier reasoning speed and depth without the latency penalties of legacy preview models.
 
+## 43. GCP Vertex AI EvalTask Failure Escalation & Cloud Trace Telemetry Invariants
+* **Rule (Explicit EvalTask Failure Escalation):**
+  - `GCPVertexAIEvaluationHarness` MUST NOT silently swallow Vertex AI initialization errors, ADC authentication failures, or runtime `EvalTask` execution exceptions as successful `LOCAL_FALLBACK` results unless `allow_fallback=True` is explicitly enabled in `GCPVertexEvalConfig`.
+  - Default configuration (`allow_fallback=False`) MUST return `status="FAILED"` with the root cause error or raise `RuntimeError` on failure to prevent masking cloud evaluation defects in CI/CD pipelines.
+* **Rule (Cloud Trace Default Instrumentation & Span Flushing):**
+  - `GCPCloudTraceExporter` MUST attach `CloudTraceSpanExporter` and `BatchSpanProcessor` by default whenever OpenTelemetry Cloud Trace SDK packages are installed (unless explicitly disabled via `BLACKWALL_DISABLE_CLOUD_TRACE=true` or `export_to_cloud=False`).
+  - Evaluation harness execution methods (`run_eval_task`) MUST start an evaluation span, record evaluation metrics/verdicts, and flush the span upon completion or error.
+* **Rule (Curated Dataset Dependency Hygiene):**
+  - Dataset utilities providing tabular outputs (`as_dataframe=True`) MUST gracefully handle missing optional dependencies (`pandas`) with safe `ImportError` fallback to standard dictionaries, without referencing uninitialized loggers.
+* **Rationale:** Enforces deterministic evaluation reporting in Vertex AI mode, guarantees end-to-end telemetry capture in Google Cloud Trace, and prevents silent false positives during security harness runs.
+
+
 
 
 
