@@ -108,10 +108,26 @@ def test_gcp_vertex_eval_autorater_builders():
 
 
 def test_gcp_vertex_eval_run_eval_task_local_fallback():
-    """Verify EvalTask execution handles local fallback gracefully."""
-    harness = GCPVertexAIEvaluationHarness()
+    """Verify EvalTask execution handles local fallback gracefully when explicitly permitted."""
+    harness = GCPVertexAIEvaluationHarness(
+        config=GCPVertexEvalConfig(allow_fallback=True)
+    )
     dataset = [{"prompt": "test", "response": "test"}]
     metrics = ["threat_interception_accuracy"]
     result = harness.run_eval_task(dataset=dataset, metrics=metrics)
     assert result["status"] in ("COMPLETED", "LOCAL_FALLBACK")
     assert result["model"] == "gemini-3.7-flash"
+
+
+def test_gcp_vertex_eval_run_eval_task_explicit_failure_when_no_fallback():
+    """Verify EvalTask fails explicitly when Vertex AI fails and allow_fallback is False."""
+    harness = GCPVertexAIEvaluationHarness(
+        config=GCPVertexEvalConfig(project_id="nonexistent-proj", allow_fallback=False)
+    )
+    harness._init_error = "Project not found"
+    harness._vertex_eval_available = False
+    dataset = [{"prompt": "test", "response": "test"}]
+    metrics = ["threat_interception_accuracy"]
+    result = harness.run_eval_task(dataset=dataset, metrics=metrics)
+    assert result["status"] == "FAILED"
+    assert "Vertex AI Evaluation Service unavailable" in result["error"]

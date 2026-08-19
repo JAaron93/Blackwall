@@ -52,6 +52,10 @@ class GCPVertexEvalConfig(BaseModel):
         default="blackwall-threat-evaluation",
         description="Vertex AI experiment name for logging evaluation runs.",
     )
+    allow_fallback: bool = Field(
+        default=False,
+        description="Allow local fallback execution when Vertex AI Evaluation Service is unavailable.",
+    )
 
     @field_validator("project_id", "location", "main_model", "reasoner_model")
     @classmethod
@@ -169,6 +173,7 @@ class GCPVertexAIEvaluationHarness:
         self.config = config or GCPVertexEvalConfig()
         self._is_initialized = False
         self._vertex_eval_available = False
+        self._init_error: Optional[str] = None
         self._metrics = GCPVertexEvalMetrics()
         if trace_exporter is not None:
             self._trace_exporter = trace_exporter
@@ -193,20 +198,23 @@ class GCPVertexAIEvaluationHarness:
                 from vertexai.preview.evaluation import EvalTask  # noqa: F401
 
                 self._vertex_eval_available = True
-            except ImportError:
+                self._init_error = None
+            except ImportError as ie:
                 self._vertex_eval_available = False
+                self._init_error = f"vertexai.preview.evaluation SDK missing: {ie}"
             logger.info(
                 "GCP Vertex AI Evaluation Harness initialized successfully",
                 extra={"project": self.config.project_id, "location": self.config.location},
             )
             return True
         except Exception as e:
+            self._is_initialized = False
+            self._vertex_eval_available = False
+            self._init_error = str(e)
             logger.warning(
                 "GCP Vertex AI SDK not available or ADC unconfigured, operating in mock evaluation mode",
                 extra={"error": str(e)},
             )
-            self._is_initialized = False
-            self._vertex_eval_available = False
             return False
 
     @property
@@ -436,7 +444,24 @@ class GCPVertexAIEvaluationHarness:
                     "metrics": [m if isinstance(m, str) else getattr(m, "metric", "custom") for m in metrics],
                 }
 
-        # Local fallback execution (only when Vertex AI Eval SDK preview is offline or uninstalled)
+        # If Vertex AI failed initialization and fallback is not allowed, fail explicitly
+        if self._init_error and not self.config.allow_fallback:
+            err_msg = f"Vertex AI Evaluation Service unavailable: {self._init_error}"
+            logger.error(err_msg)
+            if span is not None:
+                span.attributes["error"] = err_msg
+                span.finish(status="ERROR")
+                self._trace_exporter.flush()
+            if raise_on_error:
+                raise RuntimeError(err_msg)
+            return {
+                "status": "FAILED",
+                "error": err_msg,
+                "model": target_model,
+                "metrics": [m if isinstance(m, str) else getattr(m, "metric", "custom") for m in metrics],
+            }
+
+        # Local fallback execution (only when explicitly permitted via allow_fallback=True)
         total = len(dataset) if hasattr(dataset, "__len__") else 1
         if span is not None:
             self._trace_exporter.record_evaluation_result(

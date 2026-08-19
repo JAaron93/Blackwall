@@ -54,11 +54,7 @@ class GCPCloudTraceExporter:
         if export_to_cloud is not None:
             self._export_to_cloud = export_to_cloud
         else:
-            self._export_to_cloud = (
-                os.getenv("BLACKWALL_EXPORT_CLOUD_TRACE", "false").lower() == "true"
-                and bool(os.getenv("GCP_PROJECT"))
-                and not self.project_id.startswith(("test-", "dummy-", "tier1-", "blackwall-cloud-"))
-            )
+            self._export_to_cloud = os.getenv("BLACKWALL_DISABLE_CLOUD_TRACE", "false").lower() != "true"
         self._exported_spans: List[GCPTraceSpan] = []
         self._is_cloud_trace_available = False
         self._tracer_provider: Any = None
@@ -75,10 +71,13 @@ class GCPCloudTraceExporter:
             from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
             self._tracer_provider = TracerProvider()
-            if self._export_to_cloud and self.project_id and not self.project_id.startswith(("test-", "dummy-", "tier1-", "blackwall-cloud-")):
-                self._cloud_trace_exporter = CloudTraceSpanExporter(project_id=self.project_id)
-                self._span_processor = BatchSpanProcessor(self._cloud_trace_exporter)
-                self._tracer_provider.add_span_processor(self._span_processor)
+            if self._export_to_cloud:
+                try:
+                    self._cloud_trace_exporter = CloudTraceSpanExporter(project_id=self.project_id)
+                    self._span_processor = BatchSpanProcessor(self._cloud_trace_exporter)
+                    self._tracer_provider.add_span_processor(self._span_processor)
+                except Exception as exc:
+                    logger.debug("Could not attach CloudTraceSpanExporter (%s); using in-memory tracer", exc)
             self._tracer = self._tracer_provider.get_tracer("blackwall.evaluation")
 
             self._is_cloud_trace_available = True
