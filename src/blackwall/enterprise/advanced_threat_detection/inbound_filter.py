@@ -180,14 +180,11 @@ class InboundProtocolFilter:
                 if not (1 <= port <= 65535):
                     return False
             clean = clean[1:close_idx]
-        elif ":" in clean and not (clean.startswith("::") or "::" in clean):
+        elif clean.count(":") == 1:
             # Potential ipv4:port or host:port (single colon)
             parts = clean.split(":")
-            if len(parts) == 2:
-                if parts[1].isdigit() and (1 <= int(parts[1]) <= 65535):
-                    clean = parts[0]
-                else:
-                    return False
+            if parts[1].isdigit() and (1 <= int(parts[1]) <= 65535):
+                clean = parts[0]
             else:
                 return False
 
@@ -199,7 +196,7 @@ class InboundProtocolFilter:
                 return True
         except ValueError:
             # Check IPv4 loopback prefix in mapped strings
-            if clean.lower().startswith("::ffff:127."):
+            if clean.lower().startswith("::ffff:127.") or clean.lower().startswith("0:0:0:0:0:ffff:127."):
                 return True
             return False
 
@@ -273,9 +270,9 @@ class InboundProtocolFilter:
             return False
 
         # Non-bracketed host
-        if ":" in clean_host and not (clean_host.startswith("::") or "::" in clean_host):
+        if clean_host.count(":") == 1:
             parts = clean_host.split(":")
-            if len(parts) == 2 and parts[1].isdigit() and (1 <= int(parts[1]) <= 65535):
+            if parts[1].isdigit() and (1 <= int(parts[1]) <= 65535):
                 hostname = parts[0]
             else:
                 return False
