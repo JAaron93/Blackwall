@@ -214,12 +214,19 @@
 * **Rule (Explicit EvalTask Failure Escalation):**
   - `GCPVertexAIEvaluationHarness` MUST NOT silently swallow Vertex AI initialization errors, ADC authentication failures, or runtime `EvalTask` execution exceptions as successful `LOCAL_FALLBACK` results unless `allow_fallback=True` is explicitly enabled in `GCPVertexEvalConfig`.
   - Default configuration (`allow_fallback=False`) MUST return `status="FAILED"` with the root cause error or raise `RuntimeError` on failure to prevent masking cloud evaluation defects in CI/CD pipelines.
-* **Rule (Cloud Trace Default Instrumentation & Span Flushing):**
-  - `GCPCloudTraceExporter` MUST attach `CloudTraceSpanExporter` and `BatchSpanProcessor` by default whenever OpenTelemetry Cloud Trace SDK packages are installed (unless explicitly disabled via `BLACKWALL_DISABLE_CLOUD_TRACE=true` or `export_to_cloud=False`).
-  - Evaluation harness execution methods (`run_eval_task`) MUST start an evaluation span, record evaluation metrics/verdicts, and flush the span upon completion or error.
+* **Rule (Fallback Span Lifecycle & Telemetry Preservation):**
+  - When `allow_fallback=True` and `EvalTask.evaluate()` raises an exception, the failure MUST be recorded as an error on the primary evaluation span with `record_evaluation_error(span, error=e, status="ERROR")` and flushed to Cloud Trace.
+  - The subsequent local fallback aggregation MUST be emitted on a dedicated, separate `vertex_eval.local_fallback` span. The harness MUST NEVER overwrite the error status on an already-ended span or invoke `.finish()` / `.end()` on an OpenTelemetry span multiple times.
+* **Rule (Cloud Trace Default Instrumentation & Disable Precedence):**
+  - `GCPCloudTraceExporter` MUST attach `CloudTraceSpanExporter` and `BatchSpanProcessor` by default whenever OpenTelemetry Cloud Trace SDK packages are installed.
+  - `BLACKWALL_DISABLE_CLOUD_TRACE=true` MUST take strict precedence over `BLACKWALL_EXPORT_CLOUD_TRACE=true` or initialization arguments to guarantee absolute opt-out in local/offline environments.
+* **Rule (Span Latency & Lifecycle Tracking):**
+  - Evaluation spans MUST be created at the beginning of the operation via `start_span()` and passed into execution handlers, ensuring that duration metrics in Google Cloud Trace accurately measure the full evaluation runtime.
+* **Rule (Hermetic Evaluation Threat Graph Isolation):**
+  - All red-team evaluations, swarm simulations, exploit chain tests, and BDD scenarios MUST instantiate an isolated `AttackGraphStore(in_memory=True)` and inject it into detectors to prevent synthetic test events from polluting persistent databases.
 * **Rule (Curated Dataset Dependency Hygiene):**
   - Dataset utilities providing tabular outputs (`as_dataframe=True`) MUST gracefully handle missing optional dependencies (`pandas`) with safe `ImportError` fallback to standard dictionaries, without referencing uninitialized loggers.
-* **Rationale:** Enforces deterministic evaluation reporting in Vertex AI mode, guarantees end-to-end telemetry capture in Google Cloud Trace, and prevents silent false positives during security harness runs.
+* **Rationale:** Enforces deterministic evaluation reporting in Vertex AI mode, guarantees end-to-end telemetry capture in Google Cloud Trace, prevents silent false positives during security harness runs, and preserves pristine isolation between evaluation artifacts and persistent threat graphs.
 
 
 
