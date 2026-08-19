@@ -127,9 +127,21 @@ async def test_header_validation() -> None:
     headers_bad_origin = {"Host": "localhost:8000", "Origin": "https://malicious-attacker.io"}
     assert await filter_engine.validate_headers_and_origin(headers_bad_origin, remote_addr="127.0.0.1") is False
 
-    # 4. Disallowed Host header
+    # 4. Disallowed and Malformed Host headers
     headers_bad_host = {"Host": "attacker.com", "Origin": "http://localhost:8000"}
     assert await filter_engine.validate_headers_and_origin(headers_bad_host, remote_addr="127.0.0.1") is False
+
+    headers_malformed_bracket1 = {"Host": "[::1]evil", "Origin": "http://localhost:8000"}
+    assert await filter_engine.validate_headers_and_origin(headers_malformed_bracket1, remote_addr="127.0.0.1") is False
+
+    headers_malformed_bracket2 = {"Host": "[::ffff:127.0.0.1].attacker", "Origin": "http://localhost:8000"}
+    assert await filter_engine.validate_headers_and_origin(headers_malformed_bracket2, remote_addr="127.0.0.1") is False
+
+    headers_malformed_port = {"Host": "localhost:evil", "Origin": "http://localhost:8000"}
+    assert await filter_engine.validate_headers_and_origin(headers_malformed_port, remote_addr="127.0.0.1") is False
+
+    headers_malformed_bracket_port = {"Host": "[::1]:8000evil", "Origin": "http://localhost:8000"}
+    assert await filter_engine.validate_headers_and_origin(headers_malformed_bracket_port, remote_addr="127.0.0.1") is False
 
     # 5. Remote unauthenticated request (non-loopback remote_addr) rejected when loopback enforced
     headers_remote = {"Host": "localhost:8000", "Origin": "http://localhost:8000"}

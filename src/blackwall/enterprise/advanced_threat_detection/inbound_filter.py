@@ -167,14 +167,29 @@ class InboundProtocolFilter:
         if clean.lower() == "localhost":
             return True
 
-        # Handle bracketed IPv6 with or without port (e.g. [::1] or [::1]:8000)
-        if clean.startswith("[") and "]" in clean:
-            clean = clean[1:clean.index("]")]
+        # Handle bracketed IPv6 with optional port (e.g. [::1] or [::1]:8000)
+        if clean.startswith("["):
+            if "]" not in clean:
+                return False
+            close_idx = clean.index("]")
+            suffix = clean[close_idx + 1:]
+            if suffix:
+                if not suffix.startswith(":") or not suffix[1:].isdigit():
+                    return False
+                port = int(suffix[1:])
+                if not (1 <= port <= 65535):
+                    return False
+            clean = clean[1:close_idx]
         elif ":" in clean and not (clean.startswith("::") or "::" in clean):
-            # Potential ipv4:port or host:port
+            # Potential ipv4:port or host:port (single colon)
             parts = clean.split(":")
-            if len(parts) == 2 and parts[1].isdigit():
-                clean = parts[0]
+            if len(parts) == 2:
+                if parts[1].isdigit() and (1 <= int(parts[1]) <= 65535):
+                    clean = parts[0]
+                else:
+                    return False
+            else:
+                return False
 
         try:
             ip = ipaddress.ip_address(clean)
@@ -195,21 +210,31 @@ class InboundProtocolFilter:
         if not origin:
             return True
 
+        clean_origin = origin.strip()
+        if not clean_origin:
+            return False
+
         if self.allowed_origins is not None:
-            if origin in self.allowed_origins:
+            if clean_origin in self.allowed_origins:
                 return True
             # Check without trailing slash or with port tolerance
-            parsed = urlparse(origin)
-            origin_base = f"{parsed.scheme}://{parsed.netloc}"
-            if origin_base in self.allowed_origins:
-                return True
+            try:
+                parsed = urlparse(clean_origin)
+                origin_base = f"{parsed.scheme}://{parsed.netloc}"
+                if origin_base in self.allowed_origins:
+                    return True
+            except Exception:
+                return False
 
         # Check loopback origin tolerance if loopback enforced
         if self.enforce_loopback:
-            parsed = urlparse(origin)
-            hostname = parsed.hostname or ""
-            if self._is_loopback(hostname):
-                return True
+            try:
+                parsed = urlparse(clean_origin)
+                hostname = parsed.hostname or ""
+                if hostname and self._is_loopback(hostname):
+                    return True
+            except Exception:
+                return False
 
         return False
 
@@ -219,25 +244,49 @@ class InboundProtocolFilter:
             return True
 
         clean_host = host.strip()
-        if self.allowed_hosts is not None:
-            if clean_host in self.allowed_hosts:
-                return True
-            # Extract hostname without port
-            if clean_host.startswith("[") and "]" in clean_host:
-                hostname = clean_host[1:clean_host.index("]")]
-                bracketed_hostname = clean_host[:clean_host.index("]") + 1]
-            else:
-                hostname = clean_host.split(":")[0] if ":" in clean_host else clean_host
-                bracketed_hostname = hostname
+        if not clean_host:
+            return False
 
-            if hostname in self.allowed_hosts or bracketed_hostname in self.allowed_hosts:
+        if clean_host.startswith("["):
+            if "]" not in clean_host:
+                return False
+            close_idx = clean_host.index("]")
+            ip_str = clean_host[1:close_idx]
+            bracketed_ip = clean_host[:close_idx + 1]
+            suffix = clean_host[close_idx + 1:]
+            if suffix:
+                if not suffix.startswith(":") or not suffix[1:].isdigit() or not (1 <= int(suffix[1:]) <= 65535):
+                    return False
+
+            if self.allowed_hosts is not None:
+                if (
+                    clean_host in self.allowed_hosts
+                    or ip_str in self.allowed_hosts
+                    or bracketed_ip in self.allowed_hosts
+                ):
+                    return True
+
+            if self.enforce_loopback:
+                if self._is_loopback(ip_str):
+                    return True
+
+            return False
+
+        # Non-bracketed host
+        if ":" in clean_host and not (clean_host.startswith("::") or "::" in clean_host):
+            parts = clean_host.split(":")
+            if len(parts) == 2 and parts[1].isdigit() and (1 <= int(parts[1]) <= 65535):
+                hostname = parts[0]
+            else:
+                return False
+        else:
+            hostname = clean_host
+
+        if self.allowed_hosts is not None:
+            if clean_host in self.allowed_hosts or hostname in self.allowed_hosts:
                 return True
 
         if self.enforce_loopback:
-            if clean_host.startswith("[") and "]" in clean_host:
-                hostname = clean_host[1:clean_host.index("]")]
-            else:
-                hostname = clean_host.split(":")[0] if ":" in clean_host else clean_host
             if self._is_loopback(hostname):
                 return True
 
