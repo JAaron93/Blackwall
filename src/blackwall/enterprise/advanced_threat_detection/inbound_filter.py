@@ -167,12 +167,10 @@ class InboundProtocolFilter:
         if clean.lower() == "localhost":
             return True
 
-        # Handle bracketed IPv6 strings (e.g. [::1])
-        if clean.startswith("[") and clean.endswith("]"):
-            clean = clean[1:-1]
-
-        # Strip port if present in IPv4 host:port
-        if ":" in clean and not (clean.startswith("::") or "::" in clean):
+        # Handle bracketed IPv6 with or without port (e.g. [::1] or [::1]:8000)
+        if clean.startswith("[") and "]" in clean:
+            clean = clean[1:clean.index("]")]
+        elif ":" in clean and not (clean.startswith("::") or "::" in clean):
             # Potential ipv4:port or host:port
             parts = clean.split(":")
             if len(parts) == 2 and parts[1].isdigit():
@@ -224,13 +222,22 @@ class InboundProtocolFilter:
         if self.allowed_hosts is not None:
             if clean_host in self.allowed_hosts:
                 return True
-            # Check hostname without port
-            hostname = clean_host.split(":")[0] if ":" in clean_host and not clean_host.startswith("[") else clean_host
-            if hostname in self.allowed_hosts:
+            # Extract hostname without port
+            if clean_host.startswith("[") and "]" in clean_host:
+                hostname = clean_host[1:clean_host.index("]")]
+                bracketed_hostname = clean_host[:clean_host.index("]") + 1]
+            else:
+                hostname = clean_host.split(":")[0] if ":" in clean_host else clean_host
+                bracketed_hostname = hostname
+
+            if hostname in self.allowed_hosts or bracketed_hostname in self.allowed_hosts:
                 return True
 
         if self.enforce_loopback:
-            hostname = clean_host.split(":")[0] if ":" in clean_host and not clean_host.startswith("[") else clean_host
+            if clean_host.startswith("[") and "]" in clean_host:
+                hostname = clean_host[1:clean_host.index("]")]
+            else:
+                hostname = clean_host.split(":")[0] if ":" in clean_host else clean_host
             if self._is_loopback(hostname):
                 return True
 

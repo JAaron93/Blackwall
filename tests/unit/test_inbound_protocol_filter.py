@@ -118,6 +118,11 @@ async def test_header_validation() -> None:
     assert await filter_engine.validate_headers_and_origin(headers_valid, remote_addr="[::1]") is True
     assert await filter_engine.validate_headers_and_origin(headers_valid, remote_addr="::ffff:127.0.0.1") is True
 
+    headers_ipv6 = {"Host": "[::1]:8000", "Origin": "http://[::1]:8000"}
+    assert await filter_engine.validate_headers_and_origin(headers_ipv6, remote_addr="::1") is True
+    assert await filter_engine.validate_headers_and_origin(headers_ipv6, remote_addr="[::1]") is True
+    assert await filter_engine.validate_headers_and_origin(headers_ipv6, remote_addr="127.0.0.1") is True
+
     # 3. Invalid/Disallowed Origin from external attacker
     headers_bad_origin = {"Host": "localhost:8000", "Origin": "https://malicious-attacker.io"}
     assert await filter_engine.validate_headers_and_origin(headers_bad_origin, remote_addr="127.0.0.1") is False
