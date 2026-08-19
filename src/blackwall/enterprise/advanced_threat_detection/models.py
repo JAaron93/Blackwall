@@ -10,6 +10,8 @@ from blackwall.enterprise.advanced_threat_detection.enums import (
     AlertSeverity,
     EventSource,
     ExploitCategory,
+    InboundMethodType,
+    InboundProtocolType,
     ReactionActionType,
 )
 from blackwall.validators import (
@@ -319,5 +321,44 @@ class ActiveReactionPayload(BaseModel):
                 raise ValueError(f"evaluation_env_id must match ^[a-zA-Z0-9_-]+$: {v}")
             return clean
         return None
+
+
+class InboundProtocolMessage(BaseModel):
+    """Model representing an incoming A2A or MCP JSON-RPC protocol message."""
+
+    message_id: UUID4 = Field(default_factory=uuid4)
+    sender_id: str = Field(..., min_length=1)
+    recipient_agent_id: str = Field(..., min_length=1)
+    protocol: InboundProtocolType
+    method: InboundMethodType
+    payload: dict[str, Any] = Field(..., min_length=1)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @field_validator("message_id")
+    @classmethod
+    def validate_uuid_v4(cls, v: Any, info: Any) -> UUID:
+        """Validate message_id is a valid UUID v4."""
+        return validate_uuid_v4_format(v, field_name=info.field_name)
+
+    @field_validator("timestamp")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        """Validate timestamp is timezone-aware and set to UTC."""
+        return validate_utc_datetime(v)
+
+    @field_validator("sender_id", "recipient_agent_id")
+    @classmethod
+    def validate_non_empty_ids(cls, v: str, info: Any) -> str:
+        """Validate string identifiers are not empty or whitespace only."""
+        return validate_non_empty_string(v, field_name=info.field_name)
+
+    @field_validator("payload")
+    @classmethod
+    def validate_non_empty_payload(cls, v: dict[str, Any]) -> dict[str, Any]:
+        """Validate payload is a non-empty dictionary."""
+        if not v or not isinstance(v, dict):
+            raise ValueError("payload must be a non-empty dictionary")
+        return v
+
 
 

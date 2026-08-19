@@ -877,28 +877,28 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 22.1, 22.2, 22.3, 22.4, 22.5, 14.5_
     - _Verification: `pytest tests/step_defs/test_active_threat_reaction_bdd.py -v`_
 
-- [ ] 25. Implement Inbound Protocol Interception and Cross-Agent Inspection
-  - [ ] 25.1 Create `InboundProtocolFilter` class
+- [x] 25. Implement Inbound Protocol Interception and Cross-Agent Inspection
+  - [x] 25.1 Create `InboundProtocolFilter` class
     - Implement ingress RPC message parsing and `InboundProtocolMessage` validation
     - _Requirements: 23.4, 15.11_
     - _Verification: `pytest tests/unit/test_inbound_protocol_filter.py::test_message_parsing -v`_
 
-  - [ ] 25.2 Implement Origin/Host header validation
+  - [x] 25.2 Implement Origin/Host header validation
     - Enforce origin checks for HTTP/SSE MCP and A2A endpoints; reject unauthenticated remote connections
     - _Requirements: 23.1_
     - _Verification: `pytest tests/unit/test_inbound_protocol_filter.py::test_header_validation -v`_
 
-  - [ ] 25.3 Implement sliding-window inbound rate-limiting
+  - [x] 25.3 Implement sliding-window inbound rate-limiting
     - Limit incoming cross-agent request volume per sender identity
     - _Requirements: 23.2_
     - _Verification: `pytest tests/unit/test_inbound_protocol_filter.py::test_rate_limiting -v`_
 
-  - [ ] 25.4 Implement JSON-RPC payload sanitization
+  - [x] 25.4 Implement JSON-RPC payload sanitization
     - Extract and sanitize `tools/call` parameters before host agent execution
     - _Requirements: 23.3_
     - _Verification: `pytest tests/unit/test_inbound_protocol_filter.py::test_rpc_sanitization -v`_
 
-  - [ ] 25.5 Write property tests for Inbound Protocol Filter
+  - [x] 25.5 Write property tests for Inbound Protocol Filter
     - **Property 93: Inbound Header and Origin Enforcement**
     - **Property 94: Inbound Rate Limit Boundary**
     - **Property 95: Inbound JSON-RPC Sanitization**
@@ -906,7 +906,7 @@ The implementation follows a test-driven development approach with property-base
     - **Validates: Requirements 23.1, 23.2, 23.3, 23.4**
     - _Verification: `pytest tests/property/test_inbound_filter_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 25.6 Write BDD feature tests for Inbound Protocol Filter
+  - [x] 25.6 Write BDD feature tests for Inbound Protocol Filter
     - Create `tests/features/inbound_protocol_filter.feature` with Gherkin scenarios
     - Scenario: incoming RPC request with invalid Origin header is rejected
     - Scenario: request surge exceeding sliding-window limit drops additional messages
