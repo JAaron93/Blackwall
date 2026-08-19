@@ -531,7 +531,7 @@ class SyncResolver:
             response = await asyncio.wait_for(
                 asyncio.to_thread(
                     self.client.models.generate_content,
-                    model="gemini-2.0-flash-lite",
+                    model="gemini-3.1-flash-lite",
                     contents=prompt,
                 ),
                 timeout=30.0,
