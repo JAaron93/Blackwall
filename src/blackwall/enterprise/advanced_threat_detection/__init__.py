@@ -66,6 +66,18 @@ from blackwall.enterprise.advanced_threat_detection.retrospective import (
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from blackwall.enterprise.advanced_threat_detection.swarm import AgentSwarmDetector
+from blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval import (
+    GCPVertexAIEvaluationHarness,
+    GCPVertexEvalConfig,
+    GCPVertexEvalMetrics,
+)
+from blackwall.enterprise.advanced_threat_detection.gcp_trace_exporter import (
+    GCPCloudTraceExporter,
+    GCPTraceSpan,
+)
+from blackwall.enterprise.advanced_threat_detection.gcp_eval_datasets import (
+    load_gcp_eval_datasets,
+)
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection")
 
@@ -94,6 +106,11 @@ __all__ = [
     "ExploitCategory",
     "ExploitChainAnalyzer",
     "ExploitChainEvidence",
+    "GCPCloudTraceExporter",
+    "GCPTraceSpan",
+    "GCPVertexAIEvaluationHarness",
+    "GCPVertexEvalConfig",
+    "GCPVertexEvalMetrics",
     "K8sThreatEvidence",
     "KubernetesDefenseLayer",
     "NormalizedEvent",
@@ -106,6 +123,7 @@ __all__ = [
     "RetrospectiveAnalyzer",
     "SafeDetectionRunner",
     "SwarmEvidence",
+    "load_gcp_eval_datasets",
     "logger",
 ]
 
