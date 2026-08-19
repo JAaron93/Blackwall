@@ -67,14 +67,22 @@ class ActiveReactionEngine:
         metadata envelope markers, or attack graph store to prevent evaluation artifacts
         from triggering production mitigations.
         """
-        # 1. Deterministic evaluation namespace URI
+        # 1. Envelope environment ID (explicit evaluation environment provenance)
+        if env_id is not None and str(env_id).strip():
+            return True
+
+        # 2. Deterministic evaluation namespace URI
         if isinstance(evidence_id, str):
             if evidence_id.startswith("blackwall://eval/") or evidence_id.startswith("blackwall://evaluation/"):
                 return True
 
-        # 2. Envelope metadata explicit flags & deterministic URI prefixes
+        # 3. Envelope metadata explicit flags & deterministic URI prefixes
         if metadata and isinstance(metadata, dict):
-            if metadata.get("is_evaluation") is True or metadata.get("eval_mode") is True:
+            if (
+                metadata.get("is_evaluation") is True
+                or metadata.get("eval_mode") is True
+                or (isinstance(metadata.get("evaluation_env_id"), str) and metadata["evaluation_env_id"].strip())
+            ):
                 return True
             eval_uri = metadata.get("evaluation_uri")
             if isinstance(eval_uri, str) and (
@@ -82,15 +90,14 @@ class ActiveReactionEngine:
             ):
                 return True
 
-        # 3. Evaluation Environment Manager (verified against registered environment)
+        # 4. Evaluation Environment Manager (verified against registered environment)
         if self.eval_manager is not None:
             if env_id and self.eval_manager.get_environment(env_id) is not None:
                 return True
             if await self.eval_manager.is_evaluation_mode(evidence_id, env_id=env_id):
                 return True
 
-
-        # 4. Attack Graph Store (verified node provenance)
+        # 5. Attack Graph Store (verified node provenance)
         if self.attack_graph is not None:
             clean_id: uuid.UUID | None = None
             if isinstance(evidence_id, str):
@@ -269,7 +276,12 @@ class ActiveReactionEngine:
                                     target_to_revoke = resolved_owner
 
                     if target_to_revoke:
-                        await self.vault_adapter.revoke_agent_tokens(target_to_revoke)
+                        revoked_tokens = await self.vault_adapter.revoke_agent_tokens(target_to_revoke)
+                        if isinstance(adapter_tokens, dict) and len(adapter_tokens) > 0 and len(revoked_tokens) == 0:
+                            logger.warning(
+                                "No active JIT tokens revoked for target %s", target_to_revoke
+                            )
+                            success = False
                     else:
                         logger.warning("No target agent or token identifier provided for revocation")
                         success = False

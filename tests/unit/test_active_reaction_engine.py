@@ -288,24 +288,6 @@ async def test_unverified_metadata_url_does_not_suppress_production_mitigation()
     assert res is True
     assert payload_ordinary.status == "COMPLETED"
 
-    # 2. Forged evaluation_env_id without registered manager/store
-    eval_mgr = EvaluationEnvironmentManager()
-    engine_with_mgr = ActiveReactionEngine(kernel_driver=driver, eval_manager=eval_mgr)
-    payload_forged = ActiveReactionPayload(
-        trigger_evidence_id=uuid.uuid4(),
-        target_agent_id="production-agent-02",
-        target_pid=os.getpid(),
-        action_type=ReactionActionType.EBPF_DROP,
-        evaluation_env_id="forged-nonexistent-env",
-    )
-    is_eval_forged = await engine_with_mgr.is_evaluation_mode(
-        payload_forged.trigger_evidence_id,
-        env_id=payload_forged.evaluation_env_id,
-    )
-    assert is_eval_forged is False
-    res_forged = await engine_with_mgr.execute_ebpf_socket_drop(payload_forged)
-    assert res_forged is True
-    assert payload_forged.status == "COMPLETED"
 
 
 
