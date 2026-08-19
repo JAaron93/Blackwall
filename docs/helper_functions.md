@@ -31,7 +31,7 @@ Module Location: [`tests/step_defs/async_utils.py`](../tests/step_defs/async_uti
 
 | Function | Signature | Description / Purpose | Use Cases & Applied Locations |
 | :--- | :--- | :--- | :--- |
-| `run_async` | `(coro: Coroutine) -> Any` | Safely executes an asynchronous coroutine synchronously inside `pytest-bdd` step definitions using an isolated event loop. | `test_advanced_threat_detection_bdd.py`, `test_agent_swarm_detector_bdd.py`, `test_exploit_chain_analyzer_bdd.py`, `test_ailm_tracker_bdd.py`, `test_c2_infrastructure_detector_bdd.py`, `test_kubernetes_defense_bdd.py`, `test_package_registry_monitor_bdd.py`, `test_batch_resolver_bdd.py`, `test_enterprise_mesh.py`. |
+| `run_async` | `(coro: Coroutine) -> Any` | Safely executes an asynchronous coroutine synchronously inside `pytest-bdd` step definitions using an isolated event loop. | `test_advanced_threat_detection_bdd.py`, `test_agent_swarm_detector_bdd.py`, `test_exploit_chain_analyzer_bdd.py`, `test_ailm_tracker_bdd.py`, `test_c2_infrastructure_detector_bdd.py`, `test_kubernetes_defense_bdd.py`, `test_package_registry_monitor_bdd.py`, `test_inbound_protocol_filter_bdd.py`, `test_batch_resolver_bdd.py`, `test_enterprise_mesh.py`. |
 
 
 ---
