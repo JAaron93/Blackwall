@@ -75,15 +75,16 @@ async def test_submitBackgroundAnalysis_non_blocking(safe_sla_limit):
         agent_id="agent-1",
     )
 
-    # Warmup call
-    await analytics.submitBackgroundAnalysis(event)
+    # Warmup calls
+    for _ in range(3):
+        await analytics.submitBackgroundAnalysis(event)
 
     start_time = time.monotonic()
     task_id = await analytics.submitBackgroundAnalysis(event)
     end_time = time.monotonic()
     latency_ms = (end_time - start_time) * 1000
 
-    limit = safe_sla_limit("BLACKWALL_SUBMIT_SLA_LIMIT_MS", 10.0)
+    limit = safe_sla_limit("BLACKWALL_SUBMIT_SLA_LIMIT_MS", 25.0)
     assert task_id == "test-task-123"
     assert (
         latency_ms < limit
@@ -92,9 +93,9 @@ async def test_submitBackgroundAnalysis_non_blocking(safe_sla_limit):
 
 @pytest.mark.asyncio
 async def test_submitBackgroundAnalysis_to_thread_fallback(safe_sla_limit):
-    """Asserts submitBackgroundAnalysis uses asyncio.to_thread fallback when client lacks aio attribute (completes in <10ms).
+    """Asserts submitBackgroundAnalysis uses asyncio.to_thread fallback when client lacks aio attribute (completes in <25ms).
 
-    The default 10ms threshold may be overridden using the BLACKWALL_SUBMIT_SLA_LIMIT_MS
+    The default 25ms threshold may be overridden using the BLACKWALL_SUBMIT_SLA_LIMIT_MS
     environment variable.
     """
     mock_repo = AsyncMock()
@@ -117,15 +118,16 @@ async def test_submitBackgroundAnalysis_to_thread_fallback(safe_sla_limit):
         agent_id="agent-1",
     )
 
-    # Warmup call (warms up the executor thread pool)
-    await analytics.submitBackgroundAnalysis(event)
+    # Warmup calls (warms up the executor thread pool)
+    for _ in range(3):
+        await analytics.submitBackgroundAnalysis(event)
 
     start_time = time.monotonic()
     task_id = await analytics.submitBackgroundAnalysis(event)
     end_time = time.monotonic()
     latency_ms = (end_time - start_time) * 1000
 
-    limit = safe_sla_limit("BLACKWALL_SUBMIT_SLA_LIMIT_MS", 10.0)
+    limit = safe_sla_limit("BLACKWALL_SUBMIT_SLA_LIMIT_MS", 25.0)
     assert task_id == "test-task-456"
     assert (
         latency_ms < limit

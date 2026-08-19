@@ -634,7 +634,7 @@ VirusTotal free tier: 4 queries/minute
 
 **Architecture**: Hybrid structural + semantic gating with self-learning threat signature graph  
 **Platform**: 100% GCP Vertex AI Mode (Gemini Enterprise Agent Platform)  
-**Models**: Gemini 3.5 Flash-Lite (rapid triage), Gemini 3.1 Pro-Preview (deep reasoning)  
+**Models**: Gemini 3.5 Flash-Lite (rapid triage), Gemini 3.7 Flash (deep reasoning)  
 **Evaluation**: 120-case suite with sub-10% FRR and evasion rates on reference-based dataset  
 **Code**: Python 3.11+, asyncio, SQLite WAL, eBPF probes, ZeroMQ threat mesh  
 **Repository**: [GitHub - Blackwall](https://github.com/JAaron93/Blackwall)

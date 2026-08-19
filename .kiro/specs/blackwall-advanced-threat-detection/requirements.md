@@ -20,9 +20,8 @@ The system operates as a cross-cutting analysis plane above the existing five Bl
 - **Temporal_Correlation**: Time-based pattern matching to identify coordinated behaviors
 - **Zero_Day_Pattern**: Previously unseen exploit chain pattern indicating potential zero-day vulnerability chaining
 - **Kubernetes_Defense**: Kubernetes-specific threat detection for pod token theft, fleet spawning, and secrets exfiltration
-- **Registry_Monitor**: Package registry proxy monitor for detecting zero-day exploitation patterns
-- **Weave_Trace_Serializer**: Component responsible for sanitizing all data before export to Weave, enforcing field exclusions, metadata masking, and payload size limits
-- **Weave_Traced_Detectors**: Weave-instrumented wrappers around detection components constructed only when @pytest.mark.weave is present and should_enable_weave() returns True
+- **GCP_Vertex_AI_Evaluation_Engine**: Cloud-native evaluation service orchestrating `EvalTask`, `PointwiseMetric`, `PairwiseMetric`, and autorater scoring via Google Cloud Vertex AI
+- **GCP_Cloud_Trace_Exporter**: OpenTelemetry exporter streaming GenAI spans and evaluation traces directly to Google Cloud Trace
 
 ## Requirements
 

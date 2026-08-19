@@ -11,6 +11,7 @@ import signal
 import socket
 import struct
 import sys
+import weakref
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Optional, Set
 
@@ -20,11 +21,23 @@ logger = logging.getLogger(__name__)
 class KernelProbeDriver(ABC):
     """Abstract Base Class for low-level system call and process interception drivers."""
 
+    _active_instances: "weakref.WeakSet[KernelProbeDriver]" = weakref.WeakSet()
+
     def __init__(self) -> None:
         self._is_active: bool = False
         self._blocked_patterns: Set[str] = set()
         self._dropped_pids: Set[int] = set()
         self._dropped_sockets: Set[str] = set()
+        KernelProbeDriver._active_instances.add(self)
+
+    @classmethod
+    def reset_all_active_instances(cls) -> None:
+        """Reset and deactivate all active probe driver instances (ensuring clean test isolation)."""
+        for instance in list(cls._active_instances):
+            try:
+                instance.stop_tracing()
+            except Exception:
+                pass
 
     @property
     def is_active(self) -> bool:

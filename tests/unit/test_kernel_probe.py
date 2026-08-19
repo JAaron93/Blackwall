@@ -135,15 +135,18 @@ def test_user_space_audit_driver_external_pid_termination(monkeypatch):
 
     monkeypatch.setattr("os.kill", mock_kill)
 
-    # In-process PID (no os.kill)
-    res = driver.inject_socket_drop(pid=os.getpid())
-    assert res is True
-    assert len(killed_pids) == 0
+    try:
+        # In-process PID (no os.kill)
+        res = driver.inject_socket_drop(pid=os.getpid())
+        assert res is True
+        assert len(killed_pids) == 0
 
-    # External PID (calls os.kill with SIGKILL)
-    res_ext = driver.inject_socket_drop(pid=99999)
-    assert res_ext is True
-    assert (99999, signal.SIGKILL) in killed_pids
+        # External PID (calls os.kill with SIGKILL)
+        res_ext = driver.inject_socket_drop(pid=99999)
+        assert res_ext is True
+        assert (99999, signal.SIGKILL) in killed_pids
+    finally:
+        driver.stop_tracing()
 
 
 def test_linux_ebpf_driver_unstarted_injection_initializes_tracing_and_enforcement():
@@ -167,14 +170,17 @@ def test_linux_ebpf_driver_unstarted_injection_initializes_tracing_and_enforceme
 
     driver._load_bpf_program = mock_load_bpf
 
-    res = driver.inject_socket_drop(pid=1234, ip="10.0.0.5")
-    assert res is True
-    assert driver.is_active is True
-    assert 1234 in driver._dropped_pids
-    assert "10.0.0.5" in driver._dropped_sockets
-    # Verify BPF maps were populated
-    assert len(pids_map) > 0
-    assert len(ips_map) > 0
+    try:
+        res = driver.inject_socket_drop(pid=1234, ip="10.0.0.5")
+        assert res is True
+        assert driver.is_active is True
+        assert 1234 in driver._dropped_pids
+        assert "10.0.0.5" in driver._dropped_sockets
+        # Verify BPF maps were populated
+        assert len(pids_map) > 0
+        assert len(ips_map) > 0
+    finally:
+        driver.stop_tracing()
 
 
 def test_linux_ebpf_driver_fallback_registers_audit_hook():
@@ -183,9 +189,12 @@ def test_linux_ebpf_driver_fallback_registers_audit_hook():
 
     driver = LinuxeBPFDriver()
     driver._ebpf_available = False
-    driver.start_tracing()
+    try:
+        driver.start_tracing()
 
-    assert driver.is_active is True
-    assert driver._hook_fn is not None
-    assert driver._hook_fn == driver.audit_event_handler
+        assert driver.is_active is True
+        assert driver._hook_fn is not None
+        assert driver._hook_fn == driver.audit_event_handler
+    finally:
+        driver.stop_tracing()
 

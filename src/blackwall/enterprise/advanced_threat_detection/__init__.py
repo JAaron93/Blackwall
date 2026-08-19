@@ -66,40 +66,17 @@ from blackwall.enterprise.advanced_threat_detection.retrospective import (
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from blackwall.enterprise.advanced_threat_detection.swarm import AgentSwarmDetector
-from blackwall.enterprise.advanced_threat_detection.weave_config import (
-    WeaveConfig,
-    has_wandb_credentials,
-    init_weave,
-    load_weave_config,
-    should_enable_weave,
+from blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval import (
+    GCPVertexAIEvaluationHarness,
+    GCPVertexEvalConfig,
+    GCPVertexEvalMetrics,
 )
-from blackwall.enterprise.advanced_threat_detection.weave_datasets import (
-    LocalEvaluationDataset,
-    create_evaluation_dataset,
+from blackwall.enterprise.advanced_threat_detection.gcp_trace_exporter import (
+    GCPCloudTraceExporter,
+    GCPTraceSpan,
 )
-from blackwall.enterprise.advanced_threat_detection.weave_harness import (
-    WeaveEvaluationHarness,
-)
-from blackwall.enterprise.advanced_threat_detection.weave_metrics import (
-    ThreatDetectionMetrics,
-    WeaveMetricsCollector,
-)
-from blackwall.enterprise.advanced_threat_detection.weave_serializer import (
-    WeaveTraceSerializer,
-)
-from blackwall.enterprise.advanced_threat_detection.weave_traced import (
-    WeaveTracedAgentSwarmDetector,
-    WeaveTracedAILMDetector,
-    WeaveTracedAILMTracker,
-    WeaveTracedAttackPathCorrelator,
-    WeaveTracedC2ChannelDetector,
-    WeaveTracedC2Detector,
-    WeaveTracedC2InfrastructureDetector,
-    WeaveTracedExploitChainAnalyzer,
-    WeaveTracedExploitPayloadAnalyzer,
-    WeaveTracedPathCorrelator,
-    WeaveTracedSwarmCoordinator,
-    weave_traced,
+from blackwall.enterprise.advanced_threat_detection.gcp_eval_datasets import (
+    load_gcp_eval_datasets,
 )
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection")
@@ -129,9 +106,13 @@ __all__ = [
     "ExploitCategory",
     "ExploitChainAnalyzer",
     "ExploitChainEvidence",
+    "GCPCloudTraceExporter",
+    "GCPTraceSpan",
+    "GCPVertexAIEvaluationHarness",
+    "GCPVertexEvalConfig",
+    "GCPVertexEvalMetrics",
     "K8sThreatEvidence",
     "KubernetesDefenseLayer",
-    "LocalEvaluationDataset",
     "NormalizedEvent",
     "PackageRegistryMonitor",
     "PathCorrelator",
@@ -142,29 +123,8 @@ __all__ = [
     "RetrospectiveAnalyzer",
     "SafeDetectionRunner",
     "SwarmEvidence",
-    "ThreatDetectionMetrics",
-    "WeaveConfig",
-    "WeaveEvaluationHarness",
-    "WeaveMetricsCollector",
-    "WeaveTraceSerializer",
-    "WeaveTracedAILMDetector",
-    "WeaveTracedAILMTracker",
-    "WeaveTracedAgentSwarmDetector",
-    "WeaveTracedAttackPathCorrelator",
-    "WeaveTracedC2ChannelDetector",
-    "WeaveTracedC2Detector",
-    "WeaveTracedC2InfrastructureDetector",
-    "WeaveTracedExploitChainAnalyzer",
-    "WeaveTracedExploitPayloadAnalyzer",
-    "WeaveTracedPathCorrelator",
-    "WeaveTracedSwarmCoordinator",
-    "create_evaluation_dataset",
-    "has_wandb_credentials",
-    "init_weave",
-    "load_weave_config",
+    "load_gcp_eval_datasets",
     "logger",
-    "should_enable_weave",
-    "weave_traced",
 ]
 
 
