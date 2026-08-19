@@ -72,13 +72,38 @@ def given_prompt_injection_dataset(bdd_state: BDDState):
     bdd_state.harness = GCPVertexAIEvaluationHarness()
 
 
+import sys
+from unittest.mock import MagicMock
+
+
 @when("the evaluation harness runs an EvalTask with threat accuracy autoraters")
 def when_runs_eval_task(bdd_state: BDDState):
     autorater = bdd_state.harness.build_threat_accuracy_autorater()
-    bdd_state.eval_result = bdd_state.harness.run_eval_task(
-        dataset=bdd_state.dataset,
-        metrics=[autorater],
+    bdd_state.harness._vertex_eval_available = True
+    bdd_state.harness._init_error = None
+    mock_eval_module = MagicMock()
+    mock_eval_task = MagicMock()
+    mock_task_instance = MagicMock()
+    mock_task_instance.evaluate.return_value = MagicMock(
+        metrics_table=None,
+        summary_metrics={"precision": 1.0, "recall": 1.0},
     )
+    mock_eval_task.return_value = mock_task_instance
+    mock_eval_module.EvalTask = mock_eval_task
+    mock_eval_module.AutoraterConfig = MagicMock()
+
+    orig_mod = sys.modules.get("vertexai.preview.evaluation")
+    sys.modules["vertexai.preview.evaluation"] = mock_eval_module
+    try:
+        bdd_state.eval_result = bdd_state.harness.run_eval_task(
+            dataset=bdd_state.dataset,
+            metrics=[autorater],
+        )
+    finally:
+        if orig_mod is not None:
+            sys.modules["vertexai.preview.evaluation"] = orig_mod
+        else:
+            sys.modules.pop("vertexai.preview.evaluation", None)
     # Record synthetic verdicts for summary aggregation check
     for item in bdd_state.dataset:
         bdd_state.harness.metrics.record_verdict(
@@ -90,7 +115,7 @@ def when_runs_eval_task(bdd_state: BDDState):
 @then("the evaluation run completes and aggregates precision and recall metrics")
 def then_eval_aggregates_metrics(bdd_state: BDDState):
     assert bdd_state.eval_result is not None
-    assert "status" in bdd_state.eval_result
+    assert bdd_state.eval_result["status"] == "COMPLETED"
     summary = bdd_state.harness.metrics.summary()
     assert summary["total_events"] == len(bdd_state.dataset)
     assert 0.0 <= summary["precision"] <= 1.0
