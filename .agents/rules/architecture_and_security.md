@@ -186,6 +186,17 @@
 * **Rule (JIT Identity Binding & Revocation Scoping):** STS credentials issued by `VaultMCPAdapter` and `SecretVaultSidecar` MUST bind explicit `agent_id` and `principal_id` ownership fields. `ActiveReactionEngine` token revocation MUST scope strictly to tokens owned by the target agent/principal. When an alert supplies a compromised `token_id` without an explicit `agent_id`, the engine MUST resolve the owning principal from the active token registry prior to dispatching revocation.
 * **Rationale:** Prevents contradictory review expectations between tracepoint signal delivery vs. inline firewalling, protects multi-tenant credentials from cross-principal revocation, and ensures atomic consistency across kernel enforcement maps.
 
+## 40. GCP-Native Evaluation Service & Dual-Tiered Sandbox Architecture
+* **Rule (Dual-Tiered Evaluation Strategy):**
+  1. **Tier 1 (Fast CI/CD & Functional Firewalls)**: Security evaluation for Blackwall Core MUST use the Google Cloud Agent Platform / ADK Adversarial Harness in 100% GCP Vertex AI Mode (`before_tool_callback`, Gemini models in Vertex AI mode via Application Default Credentials).
+  2. **Tier 2 (Enterprise Kernel & Multi-Stage Attack Simulations)**: Deep penetration testing and multi-stage exploit simulations (swarms, C2 beaconing, kernel escalation, pipeline poisoning) MUST execute inside containerized environments (such as Cybench / CyberGym) hosted on Google Cloud Run or GKE Sandbox backed by gVisor microVM kernel isolation.
+* **Rule (Zero-SaaS Evaluation Invariant & Weave Deprecation):**
+  - Legacy Weights & Biases (Weave) workflows are fully deprecated.
+  - All threat detection evaluations MUST use the cloud-native **GCP Vertex AI Gen AI Evaluation Service (`vertexai.preview.evaluation` / `EvalTask`)** with `PointwiseMetric`, `PairwiseMetric`, and trajectory evaluation metrics.
+  - Evaluation telemetry MUST be exported directly to Google Cloud Trace (`opentelemetry-exporter-gcp-trace`) and Google Cloud Logging.
+  - Evaluation harnesses MUST authenticate strictly via Application Default Credentials (ADC) without requiring third-party SaaS API keys (`WANDB_API_KEY`, AI Studio keys).
+* **Rationale:** Eliminates external third-party credential dependencies, prevents data exfiltration to non-compliant SaaS platforms, optimizes GCP enterprise credit utilization, and guarantees that kernel containment tests run within secure microVM sandbox boundaries.
+
 
 
 

@@ -77,6 +77,11 @@
       "severity": "low"
     },
     {
+      "id": "gcp-evaluation-zero-saas",
+      "rule": "Dual-Tiered GCP Evaluation Architecture & Zero-SaaS Invariants: Threat evaluation pipelines must use Tier 1 (ADK Adversarial Harness in 100% GCP Vertex AI mode) or Tier 2 (Cybench on Cloud Run with gVisor microVMs) with Google Cloud Vertex AI Gen AI Evaluation Service (EvalTask) and Google Cloud Trace. Third-party SaaS evaluation tokens (WANDB_API_KEY) and Weave dependencies are deprecated and prohibited.",
+      "severity": "high"
+    },
+    {
       "id": "performance-async-safety",
       "rule": "Performance & Async Safety: Focus code suggestions strictly on performance bottlenecks, thread safety, async coroutine safety, and security vulnerabilities. Ensure suggestions conform to Python 3.11+ async patterns and avoid deprecated decorators like @unittest_run_loop.",
       "severity": "medium"

@@ -67,6 +67,12 @@ Blackwall is divided into two distinct product tiers:
 - **Principal Binding**: JIT STS credentials issued by `VaultMCPAdapter` and `SecretVaultSidecar` are bound to a verified `agent_id` / `principal_id` at issuance.
 - **Revocation Scoping**: `ActiveReactionEngine` revokes active sessions belonging to the compromised target agent. If an alert provides a compromised `token_id` without an explicit `agent_id`, the engine discovers the owning principal from the active token registry before executing revocation.
 
+### Dual-Tiered GCP Evaluation Architecture & Zero-SaaS Invariants
+- **Dual-Tiered Red-Teaming & Evaluation Strategy**:
+  - **Tier 1 (Core & Fast CI/CD)**: Google Cloud Agent Platform / ADK Adversarial Harness in 100% GCP Vertex AI Mode (`before_tool_callback`, Gemini in Vertex AI mode via Application Default Credentials).
+  - **Tier 2 (Enterprise Kernel & Multi-Stage Attack Simulations)**: Cybench / CyberGym on GCP Cloud Run with gVisor container sandbox isolation for testing eBPF socket drops, ZeroMQ signature broadcast, and Vault token invalidation.
+- **Weave Deprecation & Zero-SaaS Standard**: Weights & Biases (Weave) is deprecated and replaced by Google Cloud Vertex AI Gen AI Evaluation Service (`vertexai.preview.evaluation` / `EvalTask`) and Google Cloud Trace (`opentelemetry-exporter-gcp-trace`). Evaluation pipelines MUST NOT require third-party SaaS credentials (`WANDB_API_KEY`, AI Studio keys) and must authenticate exclusively via GCP Application Default Credentials (ADC).
+
 ---
 
 ## 6. Testing Hygiene & TDD Standards
@@ -76,3 +82,4 @@ Blackwall is divided into two distinct product tiers:
 - **Audit Hook Isolation**: Registrations of `sys.addaudithook` in tests MUST be scoped inside isolated test functions (never module-level).
 - **Process Group Cleanup**: Background test processes MUST clean up process groups using `os.killpg(os.getpgid(pid), signal.SIGTERM)`.
 - **Secret Scanner Hygiene**: Synthetic test credentials MUST NOT match live cloud provider key formats (e.g. `AWS_KEY_<digits>`).
+

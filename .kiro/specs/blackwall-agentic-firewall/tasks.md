@@ -1107,7 +1107,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
 - **Async Timeout Behavior:** `asyncio.wait_for()` raises `TimeoutError` to the caller (not `CancelledError`). The wrapped coroutine is cancelled internally, but the `TimeoutError` is what must be caught at the call site.
 - **Thread-Safe Concurrency:** All concurrent access to SQLite, InterceptionQueue, and Context Hygiene uses asyncio locks or connection pooling to prevent race conditions.
 - **Checkpoint Tasks:** Tasks 12 and 18 are checkpoints for validation. Pause at these points to verify system functionality before proceeding.
-- **100% GCP Vertex AI Mode:** Tasks 20-27 operate exclusively on GCP Vertex AI Mode (Paid Tier via Gemini Enterprise Agent Platform) with 300+ RPM quota.
+- **100% GCP Vertex AI Mode:** Tasks 20-27 operate exclusively on GCP Vertex AI Mode (Tier 1 ADK Adversarial Harness & Gemini Enterprise Agent Platform via Application Default Credentials) with 300+ RPM quota.
 
 - **12 Correctness Properties:** The design document defines 12 formal correctness properties with explicit requirements traceability. Property tests in this task list validate these properties.
 - **28 Requirements with EARS Criteria:** All 28 requirements from requirements.md have EARS-compliant acceptance criteria (WHEN/IF/WHILE/WHERE/FOR ANY conditions with THE system SHALL actions).

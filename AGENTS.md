@@ -57,6 +57,10 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
   - `@blackwall.guard_pipeline` decorator and AST parser protecting dataset loaders, pickle parsers, and microVM container sandboxes.
 * **Pillar 5: Native Local Forensic Triage Engine (`blackwall.enterprise.forensics`) & `opentelemetry-mcp`**
   - Dual-mode out-of-band telemetry log analyzer (local Ollama LLM with AST/regex fallback) and OpenTelemetry exporter.
+* **Pillar 6: Advanced Threat Detection & Evaluation (`blackwall.enterprise.advanced_threat_detection`)**
+  - Cross-pillar swarm, exploit chain, AILM, and C2 detection with `ActiveReactionEngine`.
+  - **Dual-Tiered Evaluation Strategy**: Tier 1 (ADK Adversarial Harness in 100% GCP Vertex AI Mode) + Tier 2 (Cybench on Cloud Run with gVisor container isolation).
+  - **100% Cloud-Native GCP Evaluation**: Zero-SaaS evaluation using GCP Vertex AI Gen AI Evaluation Service (`vertexai.preview.evaluation` / `EvalTask`) and Google Cloud Trace, fully replacing legacy Weights & Biases (Weave).
 
 ---
 
