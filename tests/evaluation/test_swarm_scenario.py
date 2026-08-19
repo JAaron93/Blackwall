@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 
 from blackwall.enterprise.advanced_threat_detection.swarm import AgentSwarmDetector
+from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval import GCPVertexAIEvaluationHarness
 from blackwall.enterprise.advanced_threat_detection.models import NormalizedEvent, EventSource
 
@@ -14,7 +15,9 @@ from blackwall.enterprise.advanced_threat_detection.models import NormalizedEven
 @pytest.mark.asyncio
 async def test_swarm_attack_scenario_vertex_evaluation():
     """Simulate coordinated multi-agent attack and evaluate swarm detection trajectory."""
-    detector = AgentSwarmDetector()
+    # Ensure hermetic store isolation within the evaluation environment boundary
+    eval_store = AttackGraphStore(in_memory=True)
+    detector = AgentSwarmDetector(store=eval_store)
     harness = GCPVertexAIEvaluationHarness()
 
     now = datetime.now(timezone.utc)

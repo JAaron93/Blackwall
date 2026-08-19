@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from blackwall.enterprise.advanced_threat_detection.k8s import KubernetesDefenseLayer
+from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval import GCPVertexAIEvaluationHarness
 from blackwall.enterprise.advanced_threat_detection.models import NormalizedEvent, EventSource
 
@@ -14,7 +15,9 @@ from blackwall.enterprise.advanced_threat_detection.models import NormalizedEven
 @pytest.mark.asyncio
 async def test_k8s_pod_token_theft_scenario_vertex_evaluation():
     """Simulate K8s service account token theft followed by rapid pod creation."""
-    k8s = KubernetesDefenseLayer()
+    # Ensure hermetic store isolation within the evaluation environment boundary
+    eval_store = AttackGraphStore(in_memory=True)
+    k8s = KubernetesDefenseLayer(store=eval_store)
     harness = GCPVertexAIEvaluationHarness()
     now = datetime.now(timezone.utc)
 

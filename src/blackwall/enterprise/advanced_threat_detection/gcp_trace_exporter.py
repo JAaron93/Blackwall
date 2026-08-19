@@ -72,17 +72,16 @@ class GCPCloudTraceExporter:
 
             self._tracer_provider = TracerProvider()
             if self._export_to_cloud:
-                try:
-                    self._cloud_trace_exporter = CloudTraceSpanExporter(project_id=self.project_id)
-                    self._span_processor = BatchSpanProcessor(self._cloud_trace_exporter)
-                    self._tracer_provider.add_span_processor(self._span_processor)
-                except Exception as exc:
-                    logger.debug("Could not attach CloudTraceSpanExporter (%s); using in-memory tracer", exc)
+                self._cloud_trace_exporter = CloudTraceSpanExporter(project_id=self.project_id)
+                self._span_processor = BatchSpanProcessor(self._cloud_trace_exporter)
+                self._tracer_provider.add_span_processor(self._span_processor)
+                self._is_cloud_trace_available = True
+                logger.info("Google Cloud Trace OpenTelemetry exporter available and configured for project %s", self.project_id)
+            else:
+                self._is_cloud_trace_available = False
+                logger.info("Google Cloud Trace export disabled; operating in in-memory mode")
             self._tracer = self._tracer_provider.get_tracer("blackwall.evaluation")
-
-            self._is_cloud_trace_available = True
-            logger.info("Google Cloud Trace OpenTelemetry exporter available and configured for project %s", self.project_id)
-            return True
+            return self._is_cloud_trace_available
         except (ImportError, Exception) as exc:
             self._is_cloud_trace_available = False
             self._tracer_provider = None
