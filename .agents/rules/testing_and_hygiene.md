@@ -44,8 +44,10 @@
 
 
 
-## 15. Weave Marker Collection-Time Skip and Detector Suite Contract
-* **Rule:** The `@pytest.mark.weave` marker MUST be registered in `pyproject.toml` under `[tool.pytest.ini_options].markers` with a human-readable description referencing the conftest skip hook. The `pytest_collection_modifyitems` hook in `tests/conftest.py` MUST auto-skip every item carrying this marker (via `item.add_marker(pytest.mark.skip(...))`) when `_weave_available()` returns False — checked by probing `WEAVE_DISABLED`, `WEAVE_OFFLINE`, `WANDB_API_KEY`, and importability of the `weave` package — so that `@pytest.mark.weave` tests produce a clean skip rather than an `ImportError`. When Weave is available, the `detector_suite` pytest fixture MUST use `request.node.get_closest_marker("weave") is not None` to determine `force_traced`, and pass that value to `build_detector_suite()`. The factory MUST perform no internal marker detection; marker state flows in exclusively through `force_traced`. Tests without `@pytest.mark.weave` MUST receive bare, undecorated detector components with zero Weave overhead regardless of environment variables.
+## 15. Google Cloud Trace & GCP Vertex AI Evaluation Testing Standards
+* **Rule (Zero-SaaS Evaluation Invariant):** Evaluation test suites MUST NOT import or depend on Weights & Biases (`weave`, `wandb`) or require `WANDB_API_KEY`. All evaluation tests MUST authenticate exclusively via Application Default Credentials (ADC) in 100% GCP Vertex AI mode.
+* **Rule (EvalTask & Cloud Trace Integration):** Offline and online evaluation tests targeting `GCPVertexAIEvaluationHarness` MUST validate execution using `vertexai.preview.evaluation.EvalTask`, `PointwiseMetric`, `PairwiseMetric`, and OpenTelemetry trace spans exported to Google Cloud Trace (`opentelemetry-exporter-gcp-trace`).
+* **Rule (Containment Scoping):** Synthetic evaluation events generated in tests MUST carry explicit evaluation markers (`is_evaluation=True`, `evaluation_env_id`) and route to isolated evaluation stores to guarantee zero pollution of production threat graphs.
 
 ## 16. Technical Specification BDD Subtask Matrix Alignment
 * **Rule:** All technical specification task matrices (`tasks.md`) MUST include explicit Gherkin BDD subtasks (`tests/features/*.feature` and `tests/step_defs/test_*_steps.py`) alongside unit test subtasks for every execution track. Submitting PRs with unit test coverage alone is insufficient to satisfy Greptile PR compliance guardrails.

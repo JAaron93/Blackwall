@@ -146,29 +146,29 @@ graph TD
 
 ---
 
-## Track 7: W&B Weave Evaluation Suite (`tests/evals/`)
+## Track 7: GCP Vertex AI Evaluation & Cybench Suite (`tests/evaluation/`)
 
-### TASK-V01: W&B Weave Track 1 Eval (Kernel Interception Accuracy)
+### TASK-V01: GCP Vertex AI Track 1 Eval (Kernel Interception Accuracy)
 - **Status**: Pending
-- **Description**: Implement `eval_kernel_interception` evaluating system call interception accuracy across eBPF and Audit Hook drivers.
-- **Verification Command**: `python -m pytest tests/evals/test_enterprise_weave_evals.py -k test_eval_kernel_interception`
+- **Description**: Implement `test_eval_kernel_interception` evaluating system call interception accuracy across eBPF and Audit Hook drivers via `EvalTask`.
+- **Verification Command**: `pytest tests/evaluation/test_tier1_adk_harness.py -k test_eval_kernel_interception`
 
-### TASK-V02: W&B Weave Track 2 Eval (Threat Mesh Sync Latency)
+### TASK-V02: GCP Vertex AI Track 2 Eval (Threat Mesh Sync Latency)
 - **Status**: Pending
-- **Description**: Implement `eval_mesh_sync_latency` benchmarking multi-node signature broadcast and SQLite ingestion speed against the `< 15 ms` SLA.
-- **Verification Command**: `python -m pytest tests/evals/test_enterprise_weave_evals.py -k test_eval_mesh_sync_latency`
+- **Description**: Implement `test_eval_mesh_sync_latency` benchmarking multi-node signature broadcast and SQLite ingestion speed against the `< 15 ms` SLA.
+- **Verification Command**: `pytest tests/evaluation/test_tier1_adk_harness.py -k test_eval_mesh_sync_latency`
 
-### TASK-V03: W&B Weave Track 3 Eval (Honey-Token & Secret Vault Exchange)
+### TASK-V03: GCP Vertex AI Track 3 Eval (Honey-Token & Secret Vault Exchange)
 - **Status**: Pending
-- **Description**: Implement `eval_identity_honeytoken` evaluating synthetic credential exfiltration detection rate (100%) and JIT token swap accuracy.
-- **Verification Command**: `python -m pytest tests/evals/test_enterprise_weave_evals.py -k test_eval_identity_honeytoken`
+- **Description**: Implement `test_eval_identity_honeytoken` evaluating synthetic credential exfiltration detection rate (100%) and JIT token swap accuracy.
+- **Verification Command**: `pytest tests/evaluation/test_tier1_adk_harness.py -k test_eval_identity_honeytoken`
 
-### TASK-V04: W&B Weave Track 4 Eval (Pipeline Micro-Sandbox Containment)
+### TASK-V04: Cybench Track 4 Eval (Pipeline Micro-Sandbox Containment)
 - **Status**: Pending
-- **Description**: Implement `eval_pipeline_containment` evaluating dataset loader RCE and Jinja template injection neutralization score.
-- **Verification Command**: `python -m pytest tests/evals/test_enterprise_weave_evals.py -k test_eval_pipeline_containment`
+- **Description**: Implement `test_eval_pipeline_containment` evaluating dataset loader RCE and Jinja template injection neutralization score in gVisor microVM sandbox.
+- **Verification Command**: `pytest tests/evaluation/test_tier2_gvisor_scenarios.py -k test_eval_pipeline_containment`
 
-### TASK-V05: W&B Weave Track 5 Eval (Dual-Mode Local Forensic Triage)
+### TASK-V05: GCP Vertex AI Track 5 Eval (Dual-Mode Local Forensic Triage)
 - **Status**: Pending
-- **Description**: Implement `eval_forensics_dual_mode` evaluating log triage accuracy across Primary Ollama LLM and Standalone Fallback modes with 0% safety refusal.
-- **Verification Command**: `python -m pytest tests/evals/test_enterprise_weave_evals.py -k test_eval_forensics_dual_mode`
+- **Description**: Implement `test_eval_forensics_dual_mode` evaluating log triage accuracy across Primary Ollama LLM and Standalone Fallback modes with 0% safety refusal.
+- **Verification Command**: `pytest tests/evaluation/test_tier1_adk_harness.py -k test_eval_forensics_dual_mode`

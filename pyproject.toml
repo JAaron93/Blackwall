@@ -42,9 +42,10 @@ dev = [
     "mypy>=1.9.0",
     "pre-commit>=3.7.0"
 ]
-weave = [
-    "weave>=0.50.0",
-    "wandb>=0.16.0",
+evaluation = [
+    "pandas>=2.0.0",
+    "google-cloud-trace>=1.11.0",
+    "opentelemetry-exporter-gcp-trace>=1.6.0",
 ]
 
 
@@ -61,8 +62,8 @@ markers = [
     "advanced_threat_detection: Advanced threat detection test scenarios",
     "retrospective: Retrospective analysis and historical query test scenarios",
     "evaluation: Evaluation environment and containment test scenarios",
+    "vertex_evaluation: Mark tests that run Vertex AI Evaluation Service tasks",
     "asyncio: Mark async tests to run with pytest-asyncio",
-    "weave: Mark evaluation tests that require Weights & Biases Weave tracing. Run selectively with: pytest -m weave. Auto-skipped at collection time when _weave_available() returns False (see tests/conftest.py). Conditions that enable Weave (checked in order): WEAVE_DISABLED=true disables entirely; WEAVE_OFFLINE=true enables local tracing without credentials; WANDB_API_KEY set enables cloud sync; ~/.netrc api.wandb.ai entry or ~/.config/wandb/settings api_key enables cloud sync via stored credentials. All paths also require the weave package to be importable (pip install -e '.[weave]').",
 ]
 
 
