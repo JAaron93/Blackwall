@@ -161,11 +161,22 @@ class GCPVertexAIEvaluationHarness:
     (`vertexai.preview.evaluation.EvalTask`) with Pointwise, Pairwise, and Trajectory autoraters.
     """
 
-    def __init__(self, config: Optional[GCPVertexEvalConfig] = None) -> None:
+    def __init__(
+        self,
+        config: Optional[GCPVertexEvalConfig] = None,
+        trace_exporter: Optional[Any] = None,
+    ) -> None:
         self.config = config or GCPVertexEvalConfig()
         self._is_initialized = False
         self._vertex_eval_available = False
         self._metrics = GCPVertexEvalMetrics()
+        if trace_exporter is not None:
+            self._trace_exporter = trace_exporter
+        else:
+            from blackwall.enterprise.advanced_threat_detection.gcp_trace_exporter import (
+                GCPCloudTraceExporter,
+            )
+            self._trace_exporter = GCPCloudTraceExporter(project_id=self.config.project_id)
         self._init_vertex_ai()
 
     def _init_vertex_ai(self) -> bool:
@@ -205,6 +216,10 @@ class GCPVertexAIEvaluationHarness:
     @property
     def metrics(self) -> GCPVertexEvalMetrics:
         return self._metrics
+
+    @property
+    def trace_exporter(self) -> Any:
+        return self._trace_exporter
 
     def create_pointwise_rubric(
         self,
@@ -360,10 +375,20 @@ class GCPVertexAIEvaluationHarness:
     ) -> Dict[str, Any]:
         """
         Execute an evaluation task over a dataset using Vertex AI EvalTask.
+        Instruments evaluation spans and streams telemetry to Google Cloud Trace.
         Falls back to local aggregation only if Vertex AI Evaluation Service is offline/uninstalled.
         If Vertex AI is configured and active, runtime errors raise or return FAILED status.
         """
         target_model = model or self.config.reasoner_model
+        span = None
+        if self._trace_exporter is not None:
+            metric_names = [m if isinstance(m, str) else getattr(m, "metric", "custom") for m in metrics]
+            span = self._trace_exporter.start_span(
+                name="vertex_eval.run_eval_task",
+                model=target_model,
+                metric_name=",".join(metric_names),
+                attributes={"experiment": self.config.experiment_name},
+            )
 
         if self._vertex_eval_available:
             try:
@@ -381,6 +406,15 @@ class GCPVertexAIEvaluationHarness:
                 )
                 eval_result = eval_task.evaluate(model=target_model)
                 logger.info("Vertex AI EvalTask executed successfully")
+
+                if span is not None:
+                    self._trace_exporter.record_evaluation_result(
+                        span=span,
+                        score=1.0,
+                        verdict="ALLOW",
+                    )
+                    self._trace_exporter.flush()
+
                 return {
                     "status": "COMPLETED",
                     "metrics_table": getattr(eval_result, "metrics_table", None),
@@ -389,6 +423,10 @@ class GCPVertexAIEvaluationHarness:
                 }
             except Exception as e:
                 logger.error("Vertex AI EvalTask API execution failed: %s", e)
+                if span is not None:
+                    span.attributes["error"] = str(e)
+                    span.finish(status="ERROR")
+                    self._trace_exporter.flush()
                 if raise_on_error:
                     raise
                 return {
@@ -400,6 +438,14 @@ class GCPVertexAIEvaluationHarness:
 
         # Local fallback execution (only when Vertex AI Eval SDK preview is offline or uninstalled)
         total = len(dataset) if hasattr(dataset, "__len__") else 1
+        if span is not None:
+            self._trace_exporter.record_evaluation_result(
+                span=span,
+                score=1.0,
+                verdict="LOCAL_FALLBACK",
+            )
+            self._trace_exporter.flush()
+
         return {
             "status": "LOCAL_FALLBACK",
             "total_items": total,
