@@ -658,7 +658,6 @@ class EvaluationEnvironmentManager:
             if (
                 evidence_id.startswith("blackwall://eval/")
                 or evidence_id.startswith("blackwall://evaluation/")
-                or "/eval/" in evidence_id
             ):
                 return True
 

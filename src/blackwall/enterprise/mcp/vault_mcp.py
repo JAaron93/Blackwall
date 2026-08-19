@@ -57,23 +57,16 @@ class VaultMCPAdapter:
         now = time.time()
         expires_at = now + ttl_seconds
 
-        # Resolve explicit agent and principal identifiers, binding to role or token_id if none provided
+        # Resolve explicit agent and principal identifiers without falling back to shared roles
         meta_dict = dict(metadata) if metadata else {}
         resolved_agent_id = (
             agent_id
-            or principal_id
             or meta_dict.get("agent_id")
-            or meta_dict.get("principal_id")
-            or role
-            or token_id
         )
         resolved_principal_id = (
             principal_id
-            or agent_id
             or meta_dict.get("principal_id")
-            or meta_dict.get("agent_id")
-            or role
-            or token_id
+            or resolved_agent_id
         )
 
         token_info = {
