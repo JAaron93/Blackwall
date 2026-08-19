@@ -1,7 +1,7 @@
 {
   "version": "1",
   "strictness": 2,
-  "commentTypes": ["logic", "syntax", "style", "info"],
+  "commentTypes": ["logic", "syntax"],
   "triggerOnUpdates": true,
   "statusCheck": true,
   "instructions": "Blackwall is an autonomous Agentic Security Firewall designed to intercept execution flows at machine speed before rogue AI agents can perform unauthorized OS/network actions. Verify architecture invariants across Blackwall Core (single-host daemon) and Blackwall Enterprise Mesh (multi-host security mesh under src/blackwall/enterprise/). Ensure strict Pydantic v2 validation, 100% GCP Vertex AI mode compliance, and TDD/BDD test coverage.",
