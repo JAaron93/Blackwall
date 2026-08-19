@@ -192,7 +192,26 @@ alert_bus = AlertBus(max_retries=5)
 alert_bus.subscribe(lambda alert: print(f"[{alert.severity}] {alert.title}: {alert.description}"))
 if swarms:
     await alert_bus.publish_swarm_alert(swarms[0])
-# Detects multi-step zero-day exploit sequences, C2 infrastructure establishment/beaconing, AI-Induced Lateral Movement, Kubernetes cluster attacks, retrospective historical campaigns, package registry exploit probing (Log4j, Spring4Shell, CVEs), and isolated evaluation environment containment
+
+# Inbound Protocol Interception & Cross-Agent Inspection (Pillar 6 Task 25)
+from blackwall.enterprise.advanced_threat_detection import (
+    InboundProtocolFilter, InboundProtocolType, InboundMethodType
+)
+
+inbound_filter = InboundProtocolFilter(alert_bus=alert_bus, enforce_loopback=True)
+is_valid_origin = await inbound_filter.validate_headers_and_origin(
+    headers={"Host": "localhost:8000", "Origin": "http://localhost:8000"},
+    remote_addr="127.0.0.1",
+)
+message, error = await inbound_filter.parse_and_validate_rpc(
+    raw_data={"jsonrpc": "2.0", "id": "req-1", "method": "tools/call", "params": {"name": "read_data", "arguments": {"token": "secret"}}},
+    sender_id="sender-agent",
+    recipient_agent_id="host-agent",
+    protocol=InboundProtocolType.MCP_SSE,
+)
+if message:
+    sanitized = await inbound_filter.sanitize_incoming_rpc(message)
+# Detects multi-step zero-day exploit sequences, C2 infrastructure establishment/beaconing, AI-Induced Lateral Movement, Kubernetes cluster attacks, retrospective historical campaigns, package registry exploit probing (Log4j, Spring4Shell, CVEs), isolated evaluation environment containment, and cross-agent ingress protocol inspection
 ```
 
 > [!TIP]

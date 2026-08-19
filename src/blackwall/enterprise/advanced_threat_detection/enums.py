@@ -40,3 +40,19 @@ class ReactionActionType(str, Enum):
     REVOKE_IDENTITY_TOKENS = "REVOKE_IDENTITY_TOKENS"
 
 
+class InboundProtocolType(str, Enum):
+    """Protocol types for incoming agent-to-agent and MCP communication."""
+
+    MCP_SSE = "MCP_SSE"
+    MCP_STDIO = "MCP_STDIO"
+    A2A_REST = "A2A_REST"
+
+
+class InboundMethodType(str, Enum):
+    """RPC method types for incoming protocol requests."""
+
+    TOOLS_CALL = "tools/call"
+    PROMPT_SUBMIT = "prompt/submit"
+
+
+

@@ -98,5 +98,10 @@
 * **Rule (Comment Type Scope):** `.greptile/config.json` MUST maintain `commentTypes: ["logic", "syntax"]`, strictly omitting `"style"` and `"info"` to prevent noisy stylistic nits from delaying PR review and merge cycles.
 * **Rationale:** Focusing AI review automation on high-severity security, architecture, and correctness invariants eliminates review fatigue on cosmetic details and maintains high development velocity.
 
+## 26. AlertBus Query Interface & Test Inspection Invariants
+* **Rule:** Unit, property, and BDD test suites querying stored alerts from `AlertBus` MUST call `alert_bus.get_alerts(severity=..., threat_type=..., agent_id=...)`. Tests MUST NOT invoke non-existent or deprecated method names (such as `get_recent_alerts` or `query_alerts`).
+* **Rationale:** `AlertBus` stores and filters in-memory and pending alerts exclusively via `get_alerts()`. Using inconsistent method names causes collection or runtime `AttributeError` exceptions across test suites.
+
+
 
 
