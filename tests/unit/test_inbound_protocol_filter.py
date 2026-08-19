@@ -128,9 +128,18 @@ async def test_header_validation() -> None:
     assert await filter_engine.validate_headers_and_origin(headers_ipv6_full, remote_addr="[::1]") is True
     assert await filter_engine.validate_headers_and_origin(headers_ipv6_full, remote_addr="127.0.0.1") is True
 
-    # 3. Invalid/Disallowed Origin from external attacker
+    # 3. Invalid/Disallowed Origin from external attacker and malformed authorities
     headers_bad_origin = {"Host": "localhost:8000", "Origin": "https://malicious-attacker.io"}
     assert await filter_engine.validate_headers_and_origin(headers_bad_origin, remote_addr="127.0.0.1") is False
+
+    headers_malformed_origin1 = {"Host": "localhost:8000", "Origin": "http://[::1]evil"}
+    assert await filter_engine.validate_headers_and_origin(headers_malformed_origin1, remote_addr="127.0.0.1") is False
+
+    headers_malformed_origin2 = {"Host": "localhost:8000", "Origin": "http://[::ffff:127.0.0.1].attacker"}
+    assert await filter_engine.validate_headers_and_origin(headers_malformed_origin2, remote_addr="127.0.0.1") is False
+
+    headers_malformed_origin3 = {"Host": "localhost:8000", "Origin": "http://localhost:evil"}
+    assert await filter_engine.validate_headers_and_origin(headers_malformed_origin3, remote_addr="127.0.0.1") is False
 
     # 4. Disallowed and Malformed Host headers
     headers_bad_host = {"Host": "attacker.com", "Origin": "http://localhost:8000"}

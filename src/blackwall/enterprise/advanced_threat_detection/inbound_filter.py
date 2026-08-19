@@ -211,27 +211,25 @@ class InboundProtocolFilter:
         if not clean_origin:
             return False
 
+        try:
+            parsed = urlparse(clean_origin)
+            netloc = parsed.netloc
+            if not netloc or not parsed.scheme:
+                return False
+        except Exception:
+            return False
+
         if self.allowed_origins is not None:
             if clean_origin in self.allowed_origins:
                 return True
-            # Check without trailing slash or with port tolerance
-            try:
-                parsed = urlparse(clean_origin)
-                origin_base = f"{parsed.scheme}://{parsed.netloc}"
-                if origin_base in self.allowed_origins:
-                    return True
-            except Exception:
-                return False
+            origin_base = f"{parsed.scheme}://{netloc}"
+            if origin_base in self.allowed_origins:
+                return True
 
         # Check loopback origin tolerance if loopback enforced
         if self.enforce_loopback:
-            try:
-                parsed = urlparse(clean_origin)
-                hostname = parsed.hostname or ""
-                if hostname and self._is_loopback(hostname):
-                    return True
-            except Exception:
-                return False
+            if self._is_allowed_host(netloc):
+                return True
 
         return False
 
