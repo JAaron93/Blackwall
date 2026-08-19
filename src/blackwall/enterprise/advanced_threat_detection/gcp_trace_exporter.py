@@ -144,12 +144,41 @@ class GCPCloudTraceExporter:
 
         if self._tracer is not None:
             try:
+                from opentelemetry.trace import Status, StatusCode
+
                 with self._tracer.start_as_current_span(span.name) as otel_span:
                     for k, v in span.attributes.items():
                         if isinstance(v, (str, bool, int, float)):
                             otel_span.set_attribute(k, v)
+                    otel_span.set_status(Status(StatusCode.OK))
             except Exception as exc:
                 logger.debug("Failed to stream span to CloudTraceSpanExporter: %s", exc)
+
+    def record_evaluation_error(
+        self,
+        span: GCPTraceSpan,
+        error: Any,
+        status: str = "ERROR",
+    ) -> None:
+        """Record evaluation error on an active span and stream error telemetry to Cloud Trace."""
+        err_msg = str(error)
+        span.attributes["error"] = err_msg
+        span.attributes["blackwall.status"] = status
+        span.finish(status=status)
+
+        if self._tracer is not None:
+            try:
+                from opentelemetry.trace import Status, StatusCode
+
+                with self._tracer.start_as_current_span(span.name) as otel_span:
+                    for k, v in span.attributes.items():
+                        if isinstance(v, (str, bool, int, float)):
+                            otel_span.set_attribute(k, v)
+                    otel_span.set_status(Status(StatusCode.ERROR, description=err_msg))
+                    if isinstance(error, Exception):
+                        otel_span.record_exception(error)
+            except Exception as exc:
+                logger.debug("Failed to stream error span to CloudTraceSpanExporter: %s", exc)
 
     def flush(self) -> None:
         """Flush the span processor to send pending spans to Cloud Trace."""

@@ -432,8 +432,11 @@ class GCPVertexAIEvaluationHarness:
             except Exception as e:
                 logger.error("Vertex AI EvalTask API execution failed: %s", e)
                 if span is not None:
-                    span.attributes["error"] = str(e)
-                    span.finish(status="ERROR")
+                    self._trace_exporter.record_evaluation_error(
+                        span=span,
+                        error=e,
+                        status="ERROR",
+                    )
                     self._trace_exporter.flush()
                 if raise_on_error:
                     raise
@@ -449,8 +452,11 @@ class GCPVertexAIEvaluationHarness:
             err_msg = f"Vertex AI Evaluation Service unavailable: {self._init_error}"
             logger.error(err_msg)
             if span is not None:
-                span.attributes["error"] = err_msg
-                span.finish(status="ERROR")
+                self._trace_exporter.record_evaluation_error(
+                    span=span,
+                    error=err_msg,
+                    status="ERROR",
+                )
                 self._trace_exporter.flush()
             if raise_on_error:
                 raise RuntimeError(err_msg)

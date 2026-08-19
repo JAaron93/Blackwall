@@ -50,3 +50,22 @@ def test_gcp_cloud_trace_exporter_span_creation_and_recording():
     assert len(exporter.exported_spans) == 1
     exporter.clear()
     assert len(exporter.exported_spans) == 0
+
+
+def test_gcp_cloud_trace_exporter_error_recording():
+    """Verify trace exporter records error telemetry and OpenTelemetry exception status."""
+    exporter = GCPCloudTraceExporter(project_id="unit-test-proj")
+    span = exporter.start_span(
+        name="vertex_eval.failed_task",
+        model="gemini-3.7-flash",
+    )
+    exporter.record_evaluation_error(
+        span=span,
+        error="Vertex AI Quota Exceeded",
+        status="ERROR",
+    )
+    assert span.attributes["error"] == "Vertex AI Quota Exceeded"
+    assert span.attributes["blackwall.status"] == "ERROR"
+    assert span.status_code == "ERROR"
+    assert span.end_time_ns is not None
+    assert len(exporter.exported_spans) == 1
