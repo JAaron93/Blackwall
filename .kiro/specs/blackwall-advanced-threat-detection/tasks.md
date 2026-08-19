@@ -731,44 +731,44 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7_
     - _Verification: `pytest tests/step_defs/test_system_integration_bdd.py -v`_
 
-- [ ] 22. Implement GCP Vertex AI Evaluation Service Integration
-  - [ ] 22.1 Create GCP Vertex AI configuration and initialization infrastructure
+- [x] 22. Implement GCP Vertex AI Evaluation Service Integration
+  - [x] 22.1 Create GCP Vertex AI configuration and initialization infrastructure
     - Implement `GCPVertexAIEvalConfig` dataclass with `project_id`, `location`, `experiment_name`, `staging_bucket`
     - Initialize Vertex AI via Application Default Credentials (ADC) with `vertexai.init()`
     - Support environment variable overrides: `GCP_PROJECT`, `GOOGLE_GENAI_USE_VERTEXAI="true"`, `GEMINI_TIER="paid"`, `BLACKWALL_TIER="paid"`
     - Enforce zero third-party SaaS credentials (`WANDB_API_KEY`, AI Studio keys)
     - _Requirements: 16.1, 18.1, 18.2, 18.5, 21.1, 21.2_
-    - _Verification: `pytest tests/unit/test_vertex_eval_config.py -v`_
+    - _Verification: `pytest tests/unit/test_gcp_vertex_eval.py -v`_
 
-  - [ ] 22.2 Implement GCPVertexAIEvaluationHarness class
+  - [x] 22.2 Implement GCPVertexAIEvaluationHarness class
     - Create `GCPVertexAIEvaluationHarness` utilizing `vertexai.preview.evaluation.EvalTask`
     - Implement `run_evaluation_task()` executing `EvalTask` across evaluation datasets and metrics
     - Configure evaluation metrics (`PointwiseMetric`, `PairwiseMetric`, custom autorater rubrics)
     - _Requirements: 16.2, 16.3, 17.1_
-    - _Verification: `pytest tests/unit/test_vertex_eval_harness.py -v`_
+    - _Verification: `pytest tests/unit/test_gcp_vertex_eval.py -v`_
 
-  - [ ] 22.3 Implement Google Cloud Trace distributed tracing and telemetry exporter
+  - [x] 22.3 Implement Google Cloud Trace distributed tracing and telemetry exporter
     - Integrate `opentelemetry-exporter-gcp-trace` with `CloudTraceSpanExporter`
     - Instrument evaluation spans with trace IDs, tool call verdicts, latency, and threat scores
     - Export telemetry directly to Google Cloud Trace and Cloud Logging
     - _Requirements: 16.5, 17.3_
-    - _Verification: `pytest tests/unit/test_cloud_trace_instrumentation.py -v`_
+    - _Verification: `pytest tests/unit/test_gcp_trace_exporter.py -v`_
 
-  - [ ] 22.4 Implement Dataset loader from YAML/JSON evaluation scenarios
+  - [x] 22.4 Implement Dataset loader from YAML/JSON evaluation scenarios
     - Parse scenario files extracting `name`, `description`, `events`, and `expected_detections`
     - Convert scenario entries into Vertex AI `EvalTask` dataset format
     - Validate non-empty descriptions and schema compliance
     - _Requirements: 16.6, 17.1_
-    - _Verification: `pytest tests/unit/test_vertex_eval_datasets.py -v`_
+    - _Verification: `pytest tests/unit/test_gcp_eval_datasets.py -v`_
 
-  - [ ] 22.5 Implement evaluation metrics calculation and reporting
+  - [x] 22.5 Implement evaluation metrics calculation and reporting
     - Calculate detection precision (`TP / (TP + FP)`), recall (`TP / (TP + FN)`), F1 score, and false positive rate (`FP / (FP + TN)`)
     - Calculate agent trajectory metrics (`trajectory_precision`, `trajectory_recall`)
     - Validate SLA compliance: `<10ms` TSG, `<5ms` structural gating, `<50ms` active reaction containment
     - _Requirements: 16.3, 16.4, 17.1, 17.2_
-    - _Verification: `pytest tests/unit/test_vertex_eval_metrics.py -v`_
+    - _Verification: `pytest tests/unit/test_gcp_vertex_eval.py -v`_
 
-  - [ ] 22.6 Write property tests for Vertex AI evaluation metrics
+  - [x] 22.6 Write property tests for Vertex AI evaluation metrics
     - **Property 82: Vertex Evaluation Metric Precision Calculation**
     - **Property 83: Vertex Evaluation Metric Recall Calculation**
     - **Property 84: Vertex Evaluation Metric F1 Score Calculation**
@@ -776,7 +776,7 @@ The implementation follows a test-driven development approach with property-base
     - **Validates: Requirements 16.3, 17.1**
     - _Verification: `pytest tests/property/test_vertex_eval_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 22.7 Write BDD feature tests for Vertex AI Evaluation Integration
+  - [x] 22.7 Write BDD feature tests for Vertex AI Evaluation Integration
     - Create `tests/features/vertex_evaluation.feature` with Gherkin scenarios
     - Implement `Given/When/Then` steps in `tests/step_defs/test_vertex_evaluation_bdd.py` using `run_async`
     - Scenario: Vertex AI initializes successfully via Application Default Credentials (ADC)
@@ -786,55 +786,55 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 17.1, 17.2, 18.1, 21.1_
     - _Verification: `pytest tests/step_defs/test_vertex_evaluation_bdd.py -v`_
 
-- [ ] 23. Implement Dual-Tiered Adversarial Red Team Evaluation Scenarios
-  - [ ] 23.1 Implement Tier 1 Google Cloud Agent Platform / ADK Adversarial Harness
+- [x] 23. Implement Dual-Tiered Adversarial Red Team Evaluation Scenarios
+  - [x] 23.1 Implement Tier 1 Google Cloud Agent Platform / ADK Adversarial Harness
     - Build in-process adversarial agent harness testing `before_tool_callback` tool calls
     - Execute fast-turn adversarial scenarios in 100% GCP Vertex AI Mode (`gemini-3.5-flash-lite`, `gemini-3.7-flash`)
     - _Requirements: 18.3, 19.1_
     - _Verification: `pytest tests/evaluation/test_tier1_adk_harness.py -v`_
 
-  - [ ] 23.2 Implement Tier 2 Cybench Cloud Run gVisor Sandbox Scenarios
+  - [x] 23.2 Implement Tier 2 Cybench Cloud Run gVisor Sandbox Scenarios
     - Configure containerized CTF challenge harness targeting GCP Cloud Run / GKE Sandbox (gVisor)
     - Execute multi-stage attack scenarios testing `<50ms` eBPF socket drops, Threat Mesh broadcast, and Vault JIT token revocations
     - _Requirements: 18.4, 19.2, 19.3_
     - _Verification: `pytest tests/evaluation/test_tier2_gvisor_scenarios.py -v`_
 
-  - [ ] 23.3 Create red team scenario: Agent swarm attack with Vertex AI trajectory evaluation
+  - [x] 23.3 Create red team scenario: Agent swarm attack with Vertex AI trajectory evaluation
     - Simulate coordinated multi-agent attack with shared infrastructure
     - Verify swarm detection triggers CRITICAL alert
     - Evaluate temporal_correlation and coordination_score in Vertex AI EvalTask
     - _Requirements: 4.2, 4.3, 10.1, 17.4, 19.1_
     - _Verification: `pytest tests/evaluation/test_swarm_scenario.py -v`_
 
-  - [ ] 23.4 Create red team scenario: Multi-stage exploit chain with Vertex AI trajectory evaluation
+  - [x] 23.4 Create red team scenario: Multi-stage exploit chain with Vertex AI trajectory evaluation
     - Simulate RCE → Privilege Escalation → Credential Theft chain
     - Verify exploit chain detection with appropriate novelty score
     - Evaluate chain sequence and novelty scoring via Vertex AI EvalTask
     - _Requirements: 5.2, 5.4, 5.5, 10.3, 17.6, 19.2_
     - _Verification: `pytest tests/evaluation/test_exploit_chain_scenario.py -v`_
 
-  - [ ] 23.5 Create red team scenario: C2 infrastructure establishment with Vertex AI evaluation
+  - [x] 23.5 Create red team scenario: C2 infrastructure establishment with Vertex AI evaluation
     - Simulate agent establishing RequestBin/Pastebin C2 with beaconing
     - Verify C2 detection triggers CRITICAL alert
     - Evaluate beaconing pattern detection metrics
     - _Requirements: 7.2, 7.3, 7.5, 10.5, 17.1_
     - _Verification: `pytest tests/evaluation/test_c2_scenario.py -v`_
 
-  - [ ] 23.6 Create red team scenario: Kubernetes pod token theft and fleet spawning
+  - [x] 23.6 Create red team scenario: Kubernetes pod token theft and fleet spawning
     - Simulate service account token theft followed by rapid pod creation
     - Verify Kubernetes defense layer detects both threats
     - Evaluate K8s threat detection latency and accuracy
     - _Requirements: 8.1, 8.2, 10.6, 17.1_
     - _Verification: `pytest tests/evaluation/test_k8s_scenario.py -v`_
 
-  - [ ] 23.7 Write BDD feature tests for Dual-Tier Red Team Evaluation Scenarios
-    - Create `tests/features/dual_tier_red_team_scenarios.feature` with Gherkin scenarios
-    - Implement `Given/When/Then` steps in `tests/step_defs/test_dual_tier_red_team_scenarios_bdd.py` using `run_async`
+  - [x] 23.7 Write BDD feature tests for Dual-Tier Red Team Evaluation Scenarios
+    - Create `tests/features/red_team_scenarios.feature` with Gherkin scenarios
+    - Implement `Given/When/Then` steps in `tests/step_defs/test_red_team_scenarios_bdd.py` using `run_async`
     - Scenario: Tier 1 ADK harness intercepts adversarial prompt injection tool calls within 10ms
     - Scenario: Tier 2 gVisor sandbox intercepts multi-stage exploit chain with 50ms eBPF drop
     - Scenario: coordinated swarm attack triggers CRITICAL alert evaluated in Vertex AI EvalTask
     - _Requirements: 19.1, 19.2, 19.3, 19.4, 20.2_
-    - _Verification: `pytest tests/step_defs/test_dual_tier_red_team_scenarios_bdd.py -v`_
+    - _Verification: `pytest tests/step_defs/test_red_team_scenarios_bdd.py -v`_
 
 - [x] 24. Implement Active Threat Reaction Engine (Feedback Loop to Pillars 1, 2, 3)
   - [x] 24.1 Create `ActiveReactionEngine` class

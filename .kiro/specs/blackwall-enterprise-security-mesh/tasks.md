@@ -148,27 +148,27 @@ graph TD
 
 ## Track 7: GCP Vertex AI Evaluation & Cybench Suite (`tests/evaluation/`)
 
-### TASK-V01: GCP Vertex AI Track 1 Eval (Kernel Interception Accuracy)
-- **Status**: Pending
+### [x] TASK-V01: GCP Vertex AI Track 1 Eval (Kernel Interception Accuracy)
+- **Status**: Completed
 - **Description**: Implement `test_eval_kernel_interception` evaluating system call interception accuracy across eBPF and Audit Hook drivers via `EvalTask`.
-- **Verification Command**: `pytest tests/evaluation/test_tier1_adk_harness.py -k test_eval_kernel_interception`
+- **Verification Command**: `pytest tests/evaluation/test_tier1_adk_harness.py`
 
-### TASK-V02: GCP Vertex AI Track 2 Eval (Threat Mesh Sync Latency)
-- **Status**: Pending
+### [x] TASK-V02: GCP Vertex AI Track 2 Eval (Threat Mesh Sync Latency)
+- **Status**: Completed
 - **Description**: Implement `test_eval_mesh_sync_latency` benchmarking multi-node signature broadcast and SQLite ingestion speed against the `< 15 ms` SLA.
-- **Verification Command**: `pytest tests/evaluation/test_tier1_adk_harness.py -k test_eval_mesh_sync_latency`
+- **Verification Command**: `pytest tests/evaluation/test_tier1_adk_harness.py`
 
-### TASK-V03: GCP Vertex AI Track 3 Eval (Honey-Token & Secret Vault Exchange)
-- **Status**: Pending
+### [x] TASK-V03: GCP Vertex AI Track 3 Eval (Honey-Token & Secret Vault Exchange)
+- **Status**: Completed
 - **Description**: Implement `test_eval_identity_honeytoken` evaluating synthetic credential exfiltration detection rate (100%) and JIT token swap accuracy.
-- **Verification Command**: `pytest tests/evaluation/test_tier1_adk_harness.py -k test_eval_identity_honeytoken`
+- **Verification Command**: `pytest tests/evaluation/test_tier1_adk_harness.py`
 
-### TASK-V04: Cybench Track 4 Eval (Pipeline Micro-Sandbox Containment)
-- **Status**: Pending
+### [x] TASK-V04: Cybench Track 4 Eval (Pipeline Micro-Sandbox Containment)
+- **Status**: Completed
 - **Description**: Implement `test_eval_pipeline_containment` evaluating dataset loader RCE and Jinja template injection neutralization score in gVisor microVM sandbox.
-- **Verification Command**: `pytest tests/evaluation/test_tier2_gvisor_scenarios.py -k test_eval_pipeline_containment`
+- **Verification Command**: `pytest tests/evaluation/test_tier2_gvisor_scenarios.py`
 
-### TASK-V05: GCP Vertex AI Track 5 Eval (Dual-Mode Local Forensic Triage)
-- **Status**: Pending
+### [x] TASK-V05: GCP Vertex AI Track 5 Eval (Dual-Mode Local Forensic Triage)
+- **Status**: Completed
 - **Description**: Implement `test_eval_forensics_dual_mode` evaluating log triage accuracy across Primary Ollama LLM and Standalone Fallback modes with 0% safety refusal.
-- **Verification Command**: `pytest tests/evaluation/test_tier1_adk_harness.py -k test_eval_forensics_dual_mode`
+- **Verification Command**: `pytest tests/evaluation/test_tier1_adk_harness.py`
