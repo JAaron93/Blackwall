@@ -125,9 +125,39 @@ def test_gcp_vertex_eval_run_eval_task_explicit_failure_when_no_fallback():
         config=GCPVertexEvalConfig(project_id="nonexistent-proj", allow_fallback=False)
     )
     harness._init_error = "Project not found"
-    harness._vertex_eval_available = False
     dataset = [{"prompt": "test", "response": "test"}]
     metrics = ["threat_interception_accuracy"]
     result = harness.run_eval_task(dataset=dataset, metrics=metrics)
     assert result["status"] == "FAILED"
     assert "Vertex AI Evaluation Service unavailable" in result["error"]
+
+
+def test_gcp_vertex_eval_run_eval_task_runtime_exception_with_fallback():
+    """Verify runtime exception in EvalTask evaluate falls back to LOCAL_FALLBACK when allow_fallback=True."""
+    import sys
+    from unittest.mock import MagicMock
+
+    harness = GCPVertexAIEvaluationHarness(
+        config=GCPVertexEvalConfig(allow_fallback=True)
+    )
+    harness._vertex_eval_available = True
+    mock_eval_module = MagicMock()
+    mock_eval_task = MagicMock()
+    mock_task_instance = MagicMock()
+    mock_task_instance.evaluate.side_effect = RuntimeError("Vertex API quota exhausted")
+    mock_eval_task.return_value = mock_task_instance
+    mock_eval_module.EvalTask = mock_eval_task
+    mock_eval_module.AutoraterConfig = MagicMock()
+
+    orig_mod = sys.modules.get("vertexai.preview.evaluation")
+    sys.modules["vertexai.preview.evaluation"] = mock_eval_module
+    try:
+        dataset = [{"prompt": "test", "response": "test"}]
+        metrics = ["threat_interception_accuracy"]
+        result = harness.run_eval_task(dataset=dataset, metrics=metrics)
+        assert result["status"] == "LOCAL_FALLBACK"
+    finally:
+        if orig_mod is not None:
+            sys.modules["vertexai.preview.evaluation"] = orig_mod
+        else:
+            sys.modules.pop("vertexai.preview.evaluation", None)

@@ -440,12 +440,13 @@ class GCPVertexAIEvaluationHarness:
                     self._trace_exporter.flush()
                 if raise_on_error:
                     raise
-                return {
-                    "status": "FAILED",
-                    "error": str(e),
-                    "model": target_model,
-                    "metrics": [m if isinstance(m, str) else getattr(m, "metric", "custom") for m in metrics],
-                }
+                if not self.config.allow_fallback:
+                    return {
+                        "status": "FAILED",
+                        "error": str(e),
+                        "model": target_model,
+                        "metrics": [m if isinstance(m, str) else getattr(m, "metric", "custom") for m in metrics],
+                    }
 
         # If Vertex AI failed initialization and fallback is not allowed, fail explicitly
         if self._init_error and not self.config.allow_fallback:

@@ -69,3 +69,11 @@ def test_gcp_cloud_trace_exporter_error_recording():
     assert span.status_code == "ERROR"
     assert span.end_time_ns is not None
     assert len(exporter.exported_spans) == 1
+
+
+def test_gcp_cloud_trace_exporter_disable_flag(monkeypatch):
+    """Verify trace exporter respects BLACKWALL_DISABLE_CLOUD_TRACE environment variable."""
+    monkeypatch.setenv("BLACKWALL_DISABLE_CLOUD_TRACE", "true")
+    exporter = GCPCloudTraceExporter(project_id="unit-test-proj")
+    assert exporter._export_to_cloud is False
+    assert exporter.is_cloud_trace_available is False
