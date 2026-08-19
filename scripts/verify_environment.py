@@ -75,7 +75,7 @@ async def verify_environment() -> bool:
             try:
                 res = await asyncio.wait_for(
                     client.aio.models.generate_content(
-                        model="gemini-3.1-flash-lite",
+                        model="gemini-3.5-flash-lite",
                         contents="ping",
                     ),
                     timeout=10.0,

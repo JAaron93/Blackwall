@@ -654,6 +654,13 @@ class EvaluationEnvironmentManager:
         if not evidence_id:
             return False
 
+        if isinstance(evidence_id, str):
+            if (
+                evidence_id.startswith("blackwall://eval/")
+                or evidence_id.startswith("blackwall://evaluation/")
+            ):
+                return True
+
         clean_node_id: uuid.UUID
         if isinstance(evidence_id, str):
             try:
@@ -670,10 +677,12 @@ class EvaluationEnvironmentManager:
             if env:
                 try:
                     node = await env.get_node(clean_node_id)
+                    if node is None:
+                        derived_id = env.derive_evaluation_event_id(clean_node_id)
+                        node = await env.get_node(derived_id)
                     if (
                         node is not None
                         and self.is_evaluation_event(node.event)
-                        and node.event.metadata.get("evaluation_env_id") == env.env_id
                     ):
                         return True
                 except (OSError, RuntimeError) as exc:
@@ -684,6 +693,9 @@ class EvaluationEnvironmentManager:
         for env in list(self._environments.values()):
             try:
                 node = await env.get_node(clean_node_id)
+                if node is None:
+                    derived_id = env.derive_evaluation_event_id(clean_node_id)
+                    node = await env.get_node(derived_id)
                 if node is not None and self.is_evaluation_event(node.event):
                     return True
             except (OSError, RuntimeError) as exc:

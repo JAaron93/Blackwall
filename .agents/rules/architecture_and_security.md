@@ -87,8 +87,8 @@
 * **Rationale:** Aware datetimes with non-UTC offsets (e.g. `EST`, `-05:00`, `+02:00`) have non-null `tzinfo` objects. Checking only for timezone awareness accepts non-UTC offsets, violating the required zero-offset UTC timestamp contract across security event graphs.
 
 ## 20. Mandatory Evidence-Derived Evaluation Containment Gate
-* **Rule:** Security engines executing active mitigation actions (e.g. eBPF socket drops, ZeroMQ Threat Mesh broadcasts, Vault token revocations) MUST require an explicit `ActiveReactionPayload` instance containing `trigger_evidence_id` and mandatorily query `await self.is_evaluation_mode(payload.trigger_evidence_id)` against the evidence graph. Action methods MUST NOT rely on optional caller parameters (e.g. `evaluation_env_id: Optional[str] = None`) or check payload fields in isolation.
-* **Rationale:** Callers converting evaluation evidence into payloads might omit optional fields or default them to `None`. Querying the underlying threat evidence graph directly ensures evaluation containment cannot be bypassed.
+* **Rule:** Security engines executing active mitigation actions (e.g. eBPF socket drops, ZeroMQ Threat Mesh broadcasts, Vault token revocations) MUST require an explicit `ActiveReactionPayload` instance containing `trigger_evidence_id` and mandatorily query `await self.is_evaluation_mode(payload.trigger_evidence_id, env_id=payload.evaluation_env_id)`. Action methods MUST evaluate both the evidence graph / environment manager provenance and envelope metadata (`evaluation_env_id`, `is_evaluation=True`, `eval_mode=True`), quashing actions when evaluation origin is confirmed while permitting standard production execution when evaluation stores confirm no matching evaluation session.
+* **Rationale:** Callers converting evaluation evidence into payloads might omit optional fields, or downstream detection pipelines might serialize alerts asynchronously. Evaluating both deterministic envelope markers and evidence graph provenance guarantees evaluation containment without misclassifying un-indexed production alerts.
 
 ## 21. Explicit Pydantic v2 Field Constraints in Architectural Specifications
 * **Rule:** Interface code blocks and data models in technical design specifications (`design.md`) MUST be declared using explicit Pydantic `BaseModel` schemas with field-level constraints (`UUID4`, `AwareDatetime`, `Field(min_length=1)`, `Field(gt=0)`, `Field(ge=0)`, `Field(ge=0.0, le=1.0)`) and Pydantic String Enums, rather than standard Python `@dataclass` or bare primitive type annotations (`str`, `int`, `datetime`).
@@ -179,6 +179,37 @@
   4. **Scoped PostgreSQL Reset & Edge Cleanup:** Environment state resets (`env.reset()`) MUST scope deletions strictly to `metadata->>'evaluation_env_id' = $1` inside atomic transactions and clean up deleted edge IDs from surviving nodes' `incoming_edges` and `outgoing_edges` JSONB arrays.
   5. **Lifecycle Closure Guards:** Calling `env.close()` or `manager.delete_environment()` MUST transition the underlying store to a closed state. Retained store references MUST reject subsequent writes (`insert_event`, `insert_events_batch`, `link_events`) with `RuntimeError` rather than silently writing to detached in-memory graphs.
 * **Rationale:** Blurring evaluation telemetry with production threat graphs triggers false-positive incident response actions (such as dropping legitimate connections or revoking live infrastructure tokens). In shared database configurations, un-scoped event identifiers cause cross-tenant collision ignores and corrupt evidence provenance.
+
+## 39. Active Threat Reaction, Kernel Tracepoint Semantics, & Identity Revocation Invariants
+* **Rule (Kernel Tracepoint Enforcement Scope):** `LinuxeBPFDriver` uses eBPF tracepoints (`sys_enter_connect`, `sys_enter_execve`) backed by BPF map lookup tables (`dropped_pids`, `dropped_ips`, `dropped_ip6s`). Kernel enforcement operates via portable `bpf_send_signal(9)` (`SIGKILL`) delivered upon intercepted syscall entry. Tracepoint probes MUST NOT be designed or reviewed as inline network packet rewrite filters (`SO_REJECT`/TC-eBPF) or error-injection kprobes (`bpf_override_return`, which requires non-standard kernel error injection builds). `UserSpaceAuditDriver` provides in-process audit hook enforcement via `sys.addaudithook` for development and non-Linux hosts.
+* **Rule (Atomic Kernel Rule Rollback):** When installing PID or IP drop rules, drivers MUST atomically update BPF maps and roll back userspace state bookkeeping if BPF map updates fail.
+* **Rule (JIT Identity Binding & Revocation Scoping):** STS credentials issued by `VaultMCPAdapter` and `SecretVaultSidecar` MUST bind explicit `agent_id` and `principal_id` ownership fields. `ActiveReactionEngine` token revocation MUST scope strictly to tokens owned by the target agent/principal. When an alert supplies a compromised `token_id` without an explicit `agent_id`, the engine MUST resolve the owning principal from the active token registry prior to dispatching revocation.
+* **Rationale:** Prevents contradictory review expectations between tracepoint signal delivery vs. inline firewalling, protects multi-tenant credentials from cross-principal revocation, and ensures atomic consistency across kernel enforcement maps.
+
+## 40. GCP-Native Evaluation Service & Dual-Tiered Sandbox Architecture
+* **Rule (Dual-Tiered Evaluation Strategy):**
+  1. **Tier 1 (Fast CI/CD & Functional Firewalls)**: Security evaluation for Blackwall Core MUST use the Google Cloud Agent Platform / ADK Adversarial Harness in 100% GCP Vertex AI Mode (`before_tool_callback`, Gemini models in Vertex AI mode via Application Default Credentials).
+  2. **Tier 2 (Enterprise Kernel & Multi-Stage Attack Simulations)**: Deep penetration testing and multi-stage exploit simulations (swarms, C2 beaconing, kernel escalation, pipeline poisoning) MUST execute inside containerized environments (such as Cybench / CyberGym) hosted on Google Cloud Run or GKE Sandbox backed by gVisor microVM kernel isolation.
+* **Rule (Deterministic Evaluation Provenance Gate):** Evaluation containment membranes MUST never rely on loose substring checks (e.g. `"/eval/" in path`) to classify events. They MUST require verified URI schemes (`blackwall://eval/`, `blackwall://evaluation/`) or registered evaluation store lookups to prevent synthetic evaluation spoofing from suppressing production mitigations.
+* **Rule (Zero-SaaS Evaluation Invariant & Weave Deprecation):**
+  - Legacy Weights & Biases (Weave) workflows are fully deprecated.
+  - All threat detection evaluations MUST use the cloud-native **GCP Vertex AI Gen AI Evaluation Service (`vertexai.preview.evaluation` / `EvalTask`)** with `PointwiseMetric`, `PairwiseMetric`, and trajectory evaluation metrics.
+  - Evaluation telemetry MUST be exported directly to Google Cloud Trace (`opentelemetry-exporter-gcp-trace`) and Google Cloud Logging.
+  - Evaluation harnesses MUST authenticate strictly via Application Default Credentials (ADC) without requiring third-party SaaS API keys (`WANDB_API_KEY`, AI Studio keys).
+* **Rationale:** Eliminates external third-party credential dependencies, prevents data exfiltration to non-compliant SaaS platforms, optimizes GCP enterprise credit utilization, and guarantees that kernel containment tests run within secure microVM sandbox boundaries.
+
+## 41. Principal-Scoped JIT Credential Binding & Token Revocation
+* **Rule (Strict Principal Scoping):** When issuing JIT credentials (`issue_jit_token`, `get_jit_credential`), the token must bind strictly to the requesting agent's explicit `agent_id` or `principal_id`.
+* **Rule (No Role Substitution):** The system MUST NOT substitute a shared role name (e.g. `"devops"`, `"analytics"`) as the principal or agent identifier. Unspecified callers must receive a unique, isolated instance identifier (`token_id` or unique instance UUID) to guarantee that agent-scoped revocation (`revoke_agent_tokens`) never causes cross-agent collateral invalidation or containment evasion.
+* **Rationale:** Prevents multi-tenant credentials from escaping scoped revocations and stops rogue agents sharing a role from invalidating benign sibling workloads.
+
+## 42. Production LLM Model Standards (Gemini 3.X Generation)
+* **Rule (Main Interception & Rapid Triage Model):** MUST default to `gemini-3.5-flash-lite` for sub-100ms synchronous anomaly classification, structural policy escalation, and tool interception.
+* **Rule (Deep Reasoning & Forensic Attribution Model):** MUST default to `gemini-3.7-flash` for frontier semantic reasoning, attack path decompilation, and threat signature synthesis.
+* **Rule (Embeddings Model):** MUST default to `gemini-embedding-001` (768 dimensions).
+* **Rule (Deprecated Models Deny List):** All legacy model identifiers (`gemini-1.5-*`, `gemini-2.0-*`, `gemini-2.5-*`, and `gemini-3.1-pro-preview`) are strictly deprecated and prohibited in production and test configurations.
+* **Rationale:** `gemini-3.5-flash-lite` provides sub-100ms SLA compliance for the hot synchronous path, while `gemini-3.7-flash` delivers frontier reasoning speed and depth without the latency penalties of legacy preview models.
+
 
 
 

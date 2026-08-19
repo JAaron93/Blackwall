@@ -182,12 +182,12 @@ class AgentBehavioralAnalytics:
                 create_fn = self.client.interactions.create
                 if asyncio.iscoroutinefunction(create_fn):
                     interaction = await create_fn(
-                        model="gemini-3.1-flash-lite",
+                        model="gemini-3.5-flash-lite",
                         input=prompt,
                     )
                 else:
                     interaction = create_fn(
-                        model="gemini-3.1-flash-lite",
+                        model="gemini-3.5-flash-lite",
                         input=prompt,
                     )
                 output_text = getattr(interaction, "output_text", "") or ""
@@ -421,13 +421,13 @@ class AgentBehavioralAnalytics:
                 create_fn = self.client.interactions.create
                 if asyncio.iscoroutinefunction(create_fn):
                     interaction = await asyncio.wait_for(
-                        create_fn(model="gemini-3.1-flash-lite", input=prompt),
+                        create_fn(model="gemini-3.5-flash-lite", input=prompt),
                         timeout=max(0.1, 4.8 - (time.time() - start_time)),
                     )
                 else:
                     interaction = await asyncio.wait_for(
                         asyncio.to_thread(
-                            create_fn, model="gemini-3.1-flash-lite", input=prompt
+                            create_fn, model="gemini-3.5-flash-lite", input=prompt
                         ),
                         timeout=max(0.1, 4.8 - (time.time() - start_time)),
                     )

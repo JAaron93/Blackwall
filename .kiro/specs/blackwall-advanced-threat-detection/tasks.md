@@ -731,216 +731,135 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7_
     - _Verification: `pytest tests/step_defs/test_system_integration_bdd.py -v`_
 
-- [ ] 22. Implement Weave Evaluation Tracking Integration
-  - [x] 22.1 Create Weave configuration and initialization infrastructure
-    - Add `weave>=0.50.0` and `wandb>=0.16.0` as optional dependencies under the `[weave]` extras group in `pyproject.toml` (install with `pip install -e ".[weave]"`); omit for non-Weave environments — satisfies Req 21.1 and 21.3
-    - Register `@pytest.mark.weave` under `[tool.pytest.ini_options].markers` in `pyproject.toml` with a human-readable description to prevent `PytestUnknownMarkWarning` (testing rule 9) — satisfies Req 21.2 and 21.4
-    - Implement `WeaveConfig` dataclass with `project_name`, `entity`, `offline_mode`, `parallelism`, `tags`
-    - Create `should_enable_weave()` with explicit priority order:
-      1. `WEAVE_DISABLED=true` → return False (always highest priority)
-      2. `WEAVE_OFFLINE=true` → return True (local trace storage, no credentials required)
-      3. `WANDB_API_KEY` set → return True (cloud sync with API key)
-      4. netrc / config-file credentials found → return True
-      5. None of the above → return False
-    - Implement graceful fallback (log warning, continue) when Weave credentials unavailable
-    - Create `weave_config.yaml` parser for `.kiro/evals/` directory
-    - _Requirements: 16.1, 16.2, 16.13, 16.14, 18.1, 18.2, 18.3, 18.4, 18.6, 18.8, 21.1, 21.2, 21.3, 21.4_
-    - _Verification: `pytest tests/unit/test_weave_config.py -v --strict-markers`_
+- [ ] 22. Implement GCP Vertex AI Evaluation Service Integration
+  - [ ] 22.1 Create GCP Vertex AI configuration and initialization infrastructure
+    - Implement `GCPVertexAIEvalConfig` dataclass with `project_id`, `location`, `experiment_name`, `staging_bucket`
+    - Initialize Vertex AI via Application Default Credentials (ADC) with `vertexai.init()`
+    - Support environment variable overrides: `GCP_PROJECT`, `GOOGLE_GENAI_USE_VERTEXAI="true"`, `GEMINI_TIER="paid"`, `BLACKWALL_TIER="paid"`
+    - Enforce zero third-party SaaS credentials (`WANDB_API_KEY`, AI Studio keys)
+    - _Requirements: 16.1, 18.1, 18.2, 18.5, 21.1, 21.2_
+    - _Verification: `pytest tests/unit/test_vertex_eval_config.py -v`_
 
-  - [x] 22.2 Implement WeaveEvaluationHarness class
-    - Create initialization with WeaveConfig, handling offline mode and parallelism
-    - Implement `run_evaluation()` with `@weave.op()` decorator creating Weave runs with scenario name, timestamp, and tags
-    - Implement `track_detection_metrics(detection_type, true_positives, false_positives, false_negatives, true_negatives, detection_latency_ms)` — all four confusion-matrix counts required so FPR = FP / (FP + TN) can be computed alongside precision, recall, and F1
-    - _Requirements: 16.3, 16.8, 17.1, 17.2, 17.3, 17.4, 17.5, 19.5_
-    - _Verification: `pytest tests/unit/test_weave_harness.py -v`_
+  - [ ] 22.2 Implement GCPVertexAIEvaluationHarness class
+    - Create `GCPVertexAIEvaluationHarness` utilizing `vertexai.preview.evaluation.EvalTask`
+    - Implement `run_evaluation_task()` executing `EvalTask` across evaluation datasets and metrics
+    - Configure evaluation metrics (`PointwiseMetric`, `PairwiseMetric`, custom autorater rubrics)
+    - _Requirements: 16.2, 16.3, 17.1_
+    - _Verification: `pytest tests/unit/test_vertex_eval_harness.py -v`_
 
-  - [x] 22.3 Implement Weave traced wrappers and WeaveTraceSerializer
-    - Implement `WeaveTraceSerializer` in `src/blackwall/enterprise/advanced_threat_detection/weave_serializer.py`:
-      - `serialize_event()` exports only `_SAFE_EVENT_FIELDS` (`event_id`, `timestamp`, `source`, `risk_score`); drops `action`, `target`, and `metadata` entirely (Req 16.17)
-      - `serialize_path()` exports `_SAFE_PATH_FIELDS` and replaces node list with a `node_count` scalar
-      - `serialize_swarm()` exports `_SAFE_SWARM_FIELDS`
-      - `mask_metadata()` recursively replaces values whose keys match `_SENSITIVE_KEY_PATTERNS` with `"**REDACTED**"` (Req 16.18); descends into nested dicts, lists, and tuples (preserving list vs tuple type)
-      - `_enforce_size()` truncates payloads exceeding `_MAX_PAYLOAD_BYTES` (4096 bytes) and returns `{"_truncated": True, "_original_bytes": N}` (Req 16.19)
-      - Sanitization is transport-independent: offline and cloud modes use the same serializer (Req 16.20)
-    - Create `WeaveTracedPathCorrelator`, `WeaveTracedSwarmDetector`, `WeaveTracedAILMTracker`, `WeaveTracedExploitChainAnalyzer`, `WeaveTracedC2Detector` — each passes inputs/outputs through `WeaveTraceSerializer` before logging; raw event payloads must never reach Weave
-    - Write unit tests asserting:
-      - `event.action`, `event.target`, and `event.metadata` absent from `serialize_event()` output
-      - Top-level sensitive keys (`secret`, `token`, `password`, `key`, etc.) replaced with `"**REDACTED**"`
-      - Nested dict sensitive keys replaced (e.g. `{"outer": {"api_token": "x"}}`)
-      - Sensitive keys inside dicts nested within lists masked
-      - Sensitive keys inside dicts nested within tuples masked; tuple type preserved
-      - Non-sensitive values inside lists/tuples pass through unchanged
-      - Payloads exceeding `_MAX_PAYLOAD_BYTES` return `{"_truncated": True, "_original_bytes": N}`
-    - Write integration test asserting no raw `NormalizedEvent` payload appears in any Weave trace during an evaluation run
-    - _Requirements: 16.4, 16.5, 16.9, 16.10, 16.11, 16.17, 16.18, 16.19, 16.20_
-    - _Verification: `pytest tests/unit/test_weave_traced_detectors.py tests/unit/test_weave_serializer.py tests/integration/test_weave_trace_sanitization.py -v`_
+  - [ ] 22.3 Implement Google Cloud Trace distributed tracing and telemetry exporter
+    - Integrate `opentelemetry-exporter-gcp-trace` with `CloudTraceSpanExporter`
+    - Instrument evaluation spans with trace IDs, tool call verdicts, latency, and threat scores
+    - Export telemetry directly to Google Cloud Trace and Cloud Logging
+    - _Requirements: 16.5, 17.3_
+    - _Verification: `pytest tests/unit/test_cloud_trace_instrumentation.py -v`_
 
-  - [x] 22.4 Implement WeaveMetricsCollector for aggregated metrics
-    - Create `ThreatDetectionMetrics` dataclass with precision, recall, F1, FPR, latency, TP, FP, TN, FN, timestamp, detection_type
-    - Implement `compute_detection_metrics()` computing precision, recall, F1, FPR
-    - Implement `compute_path_correlation_metrics()` with path_correlation_accuracy and latency
-    - Implement `compute_swarm_detection_metrics()` with swarm_detection_accuracy
-    - Implement `compute_ailm_detection_metrics()` with ailm_detection_accuracy and boundary_crossing_accuracy
-    - Implement `compute_exploit_chain_metrics()` with exploit_chain_accuracy and novelty_score_accuracy
-    - Implement `export_metrics_to_weave()` including timestamp, detection_type, and all computed metrics
-    - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7, 17.8, 17.9, 17.10_
-    - _Verification: `pytest tests/unit/test_weave_metrics_collector.py -v`_
+  - [ ] 22.4 Implement Dataset loader from YAML/JSON evaluation scenarios
+    - Parse scenario files extracting `name`, `description`, `events`, and `expected_detections`
+    - Convert scenario entries into Vertex AI `EvalTask` dataset format
+    - Validate non-empty descriptions and schema compliance
+    - _Requirements: 16.6, 17.1_
+    - _Verification: `pytest tests/unit/test_vertex_eval_datasets.py -v`_
 
-  - [x] 22.5 Implement Weave Dataset creation from YAML evaluation scenarios
-    - Create `create_evaluation_dataset()` loading YAML files from the configured scenarios directory
-    - Parse all four required fields: `name`, `description`, `events`, `expected_detections`; each Dataset row must contain all four
-    - Skip and log a warning for any scenario with missing, non-string, or whitespace-only `description`; other valid scenarios must still load
-    - Skip and log for scenarios missing `name`, `events`, or `expected_detections`
-    - Write unit tests asserting: valid scenario produces a full row; missing description skips that row; whitespace-only description skips that row; remaining scenarios still load
-    - Support attack_path, swarm, AILM, exploit_chain, C2, K8s, registry threat expectations
-    - _Requirements: 19.1, 19.2, 19.3, 19.4, 19.5, 19.7, 19.8, 19.9_
-    - _Verification: `pytest tests/unit/test_weave_datasets.py -v`_
+  - [ ] 22.5 Implement evaluation metrics calculation and reporting
+    - Calculate detection precision (`TP / (TP + FP)`), recall (`TP / (TP + FN)`), F1 score, and false positive rate (`FP / (FP + TN)`)
+    - Calculate agent trajectory metrics (`trajectory_precision`, `trajectory_recall`)
+    - Validate SLA compliance: `<10ms` TSG, `<5ms` structural gating, `<50ms` active reaction containment
+    - _Requirements: 16.3, 16.4, 17.1, 17.2_
+    - _Verification: `pytest tests/unit/test_vertex_eval_metrics.py -v`_
 
-  - [ ] 22.6 Implement environment variable and configuration management
-    - Support `WANDB_API_KEY`, `WEAVE_PROJECT_NAME`, `WEAVE_ENTITY`, `WEAVE_OFFLINE`, `WEAVE_PARALLELISM`, `WEAVE_DISABLED`
-    - `WEAVE_DISABLED=true` takes highest priority; `WEAVE_OFFLINE=true` enables local tracing without cloud credentials
-    - Implement config file loading from `.kiro/evals/weave_config.yaml` with per-engine trace_enabled and metrics_enabled flags
-    - Use default values and log a warning on config load failure
-    - _Requirements: 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 18.7, 18.8, 18.9, 18.10_
-    - _Verification: `pytest tests/unit/test_weave_environment.py -v`_
+  - [ ] 22.6 Write property tests for Vertex AI evaluation metrics
+    - **Property 82: Vertex Evaluation Metric Precision Calculation**
+    - **Property 83: Vertex Evaluation Metric Recall Calculation**
+    - **Property 84: Vertex Evaluation Metric F1 Score Calculation**
+    - **Property 85: Vertex Evaluation Metric FPR Calculation**
+    - **Validates: Requirements 16.3, 17.1**
+    - _Verification: `pytest tests/property/test_vertex_eval_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 22.7 Implement Weave integration with AttackGraphStore
-    - Create `WeaveTracedAttackGraphStore` wrapping `AttackGraphStore`
-    - Trace `insert_event()` with serialized event metadata (via WeaveTraceSerializer)
-    - Trace `query_paths()` logging `query_latency_ms` and `paths_found` count
-    - _Requirements: 16.4, 16.5_
-    - _Verification: `pytest tests/unit/test_weave_attack_graph.py -v`_
+  - [ ] 22.7 Write BDD feature tests for Vertex AI Evaluation Integration
+    - Create `tests/features/vertex_evaluation.feature` with Gherkin scenarios
+    - Implement `Given/When/Then` steps in `tests/step_defs/test_vertex_evaluation_bdd.py` using `run_async`
+    - Scenario: Vertex AI initializes successfully via Application Default Credentials (ADC)
+    - Scenario: evaluation run creates an EvalTask experiment and logs metrics
+    - Scenario: telemetry spans are exported to Google Cloud Trace
+    - Scenario: trajectory evaluation asserts before_tool_callback fires before tool execution
+    - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 17.1, 17.2, 18.1, 21.1_
+    - _Verification: `pytest tests/step_defs/test_vertex_evaluation_bdd.py -v`_
 
-  - [ ] 22.8 Implement backward compatibility helpers
-    - Create `weave_op_if_enabled()` decorator applying `@weave.op()` only when `should_enable_weave()` returns True; no-op otherwise (zero overhead)
-    - Verify `WEAVE_OFFLINE=true` enables local tracing without `WANDB_API_KEY`
-    - Verify `WEAVE_DISABLED=true` takes precedence even when `WEAVE_OFFLINE=true` is also set
-    - Verify existing unit, integration, and property tests pass regardless of Weave config
-    - _Requirements: 16.13, 16.15, 16.16, 18.4, 18.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 20.7, 20.8, 20.9, 20.10_
-    - _Verification: `pytest tests/integration/test_weave_backward_compat.py -v`_
+- [ ] 23. Implement Dual-Tiered Adversarial Red Team Evaluation Scenarios
+  - [ ] 23.1 Implement Tier 1 Google Cloud Agent Platform / ADK Adversarial Harness
+    - Build in-process adversarial agent harness testing `before_tool_callback` tool calls
+    - Execute fast-turn adversarial scenarios in 100% GCP Vertex AI Mode (`gemini-3.5-flash-lite`, `gemini-3.7-flash`)
+    - _Requirements: 18.3, 19.1_
+    - _Verification: `pytest tests/evaluation/test_tier1_adk_harness.py -v`_
 
-  - [ ] 22.9 Create Weave evaluation test suite, detector factory, and conftest hooks
-    - Implement `build_detector_suite()` factory in `src/blackwall/enterprise/advanced_threat_detection/weave_factory.py`:
-      - Accept bare component instances + `force_traced: bool = False` flag
-      - Gate traced-wrapper construction on `should_enable_weave() and force_traced`; no internal marker detection
-      - Return a `DetectorSuite` dataclass; this is the **only** code path allowed to instantiate `WeaveTraced*` classes
-    - Add `pytest_collection_modifyitems` hook to `tests/conftest.py`:
-      - Implement `_weave_available()` checking `WEAVE_DISABLED`, `WEAVE_OFFLINE`, `WANDB_API_KEY`, and importability of `weave` package
-      - When `_weave_available()` returns False, add `pytest.mark.skip` with descriptive reason to all items carrying `@pytest.mark.weave`
-    - Add `detector_suite` fixture to `tests/conftest.py`:
-      - `marked = request.node.get_closest_marker("weave") is not None` (pytest public API)
-      - Calls `build_detector_suite(..., force_traced=marked)`
-      - Yields bare components for unmarked tests; yields traced wrappers for `@pytest.mark.weave` tests when `should_enable_weave()` is True
-    - Create `tests/evals/test_atd_weave_evaluations.py` consuming `detector_suite` fixture
-    - Implement evaluation tests for multi-stage attack detection, swarm detection, AILM, and exploit chain novelty scoring
-    - Verify precision >= 0.95, recall >= 0.90, FPR <= 0.05
-    - _Requirements: 16.3, 16.6, 16.7, 16.16, 17.6, 17.7, 17.8, 20.2, 20.8, 20.10, 20.11_
-    - _Verification: `pytest tests/evals/test_atd_weave_evaluations.py -v -m weave`_
+  - [ ] 23.2 Implement Tier 2 Cybench Cloud Run gVisor Sandbox Scenarios
+    - Configure containerized CTF challenge harness targeting GCP Cloud Run / GKE Sandbox (gVisor)
+    - Execute multi-stage attack scenarios testing `<50ms` eBPF socket drops, Threat Mesh broadcast, and Vault JIT token revocations
+    - _Requirements: 18.4, 19.2, 19.3_
+    - _Verification: `pytest tests/evaluation/test_tier2_gvisor_scenarios.py -v`_
 
-  - [ ] 22.10 Write property tests for Weave integration
-    - **Property 82: Weave Initialization Fallback**
-    - **Property 83: Weave Offline Mode Compliance**
-    - **Property 84: Weave Metric Precision Calculation**
-    - **Property 85: Weave Metric Recall Calculation**
-    - **Property 86: Weave Metric F1 Score Calculation**
-    - **Property 87: Weave Metric FPR Calculation**
-    - **Property 88: Weave Trace Parameter Logging**
-    - **Validates: Requirements 16.2, 16.4, 16.5, 16.13, 17.2, 17.3, 17.4, 17.5**
-    - _Verification: `pytest tests/property/test_weave_properties.py --hypothesis-seed=0 -v`_
-
-  - [ ] 22.11 Write BDD feature tests for Weave Evaluation Tracking
-    - Create `tests/features/weave_evaluation.feature` with Gherkin scenarios
-    - Implement `Given/When/Then` steps in `tests/step_defs/test_weave_evaluation_bdd.py` using `run_async`
-    - Scenario: Weave initializes successfully when WANDB_API_KEY is set
-    - Scenario: `WEAVE_DISABLED=true` skips all Weave initialization and tracing with zero overhead
-    - Scenario: `WEAVE_OFFLINE=true` enables local tracing without WANDB_API_KEY
-    - Scenario: evaluation run is tracked with scenario name, timestamp, and tags
-    - Scenario: track_detection_metrics computes correct precision, recall, F1, and FPR from TP/FP/FN/TN
-    - Scenario: `WeaveTraceSerializer` strips `action`, `target`, and `metadata` from all event exports
-    - Scenario: test without `@pytest.mark.weave` executes without any Weave overhead
-    - Scenario: YAML scenario with empty description is skipped and remaining scenarios load normally
-    - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.13, 16.14, 16.15, 16.17, 16.18, 16.19, 16.20, 17.1, 17.2, 17.3, 17.4, 17.5, 18.1, 18.4, 18.6, 19.1, 19.3, 19.4, 20.1, 20.11, 21.1, 21.2, 21.3, 21.4_
-    - _Verification: `pytest tests/step_defs/test_weave_evaluation_bdd.py -v`_
-
-- [ ] 23. Red Team Evaluation Scenarios with Weave Tracking
-  - [ ] 23.1 Create red team scenario: Agent swarm attack with Weave metrics
+  - [ ] 23.3 Create red team scenario: Agent swarm attack with Vertex AI trajectory evaluation
     - Simulate coordinated multi-agent attack with shared infrastructure
     - Verify swarm detection triggers CRITICAL alert
-    - Track temporal_correlation and coordination_score in Weave; measure detection latency
-    - _Requirements: 4.2, 4.3, 10.1, 16.3, 16.10, 17.7_
-    - _Verification: `pytest tests/evaluation/test_swarm_scenario.py -v -m weave`_
+    - Evaluate temporal_correlation and coordination_score in Vertex AI EvalTask
+    - _Requirements: 4.2, 4.3, 10.1, 17.4, 19.1_
+    - _Verification: `pytest tests/evaluation/test_swarm_scenario.py -v`_
 
-  - [ ] 23.2 Create red team scenario: Multi-stage exploit chain with Weave metrics
+  - [ ] 23.4 Create red team scenario: Multi-stage exploit chain with Vertex AI trajectory evaluation
     - Simulate RCE → Privilege Escalation → Credential Theft chain
-    - Verify exploit chain detection with appropriate novelty score; test both known and novel chains
-    - Track novelty_score and chaining_confidence in Weave
-    - _Requirements: 5.2, 5.4, 5.5, 10.3, 16.3, 17.9_
-    - _Verification: `pytest tests/evaluation/test_exploit_chain_scenario.py -v -m weave`_
+    - Verify exploit chain detection with appropriate novelty score
+    - Evaluate chain sequence and novelty scoring via Vertex AI EvalTask
+    - _Requirements: 5.2, 5.4, 5.5, 10.3, 17.6, 19.2_
+    - _Verification: `pytest tests/evaluation/test_exploit_chain_scenario.py -v`_
 
-  - [ ] 23.3 Create red team scenario: C2 infrastructure establishment with Weave metrics
+  - [ ] 23.5 Create red team scenario: C2 infrastructure establishment with Vertex AI evaluation
     - Simulate agent establishing RequestBin/Pastebin C2 with beaconing
-    - Verify C2 detection triggers CRITICAL alert; test persistence indicator detection
-    - Track beaconing pattern detection metrics in Weave
-    - _Requirements: 7.2, 7.3, 7.5, 10.5, 16.3_
-    - _Verification: `pytest tests/evaluation/test_c2_scenario.py -v -m weave`_
+    - Verify C2 detection triggers CRITICAL alert
+    - Evaluate beaconing pattern detection metrics
+    - _Requirements: 7.2, 7.3, 7.5, 10.5, 17.1_
+    - _Verification: `pytest tests/evaluation/test_c2_scenario.py -v`_
 
-  - [ ] 23.4 Create red team scenario: Kubernetes pod token theft with Weave metrics
+  - [ ] 23.6 Create red team scenario: Kubernetes pod token theft and fleet spawning
     - Simulate service account token theft followed by rapid pod creation
     - Verify Kubernetes defense layer detects both threats
-    - Track K8s threat detection latency in Weave
-    - _Requirements: 8.1, 8.2, 10.6, 16.3_
-    - _Verification: `pytest tests/evaluation/test_k8s_scenario.py -v -m weave`_
+    - Evaluate K8s threat detection latency and accuracy
+    - _Requirements: 8.1, 8.2, 10.6, 17.1_
+    - _Verification: `pytest tests/evaluation/test_k8s_scenario.py -v`_
 
-  - [ ] 23.5 Create red team scenario: AILM across trust boundaries with Weave metrics
-    - Simulate permission accumulation spanning multiple boundaries
-    - Verify AILM tracker detects composition and computes correct risk level
-    - Track boundary_crossing_accuracy in Weave
-    - _Requirements: 6.2, 6.3, 6.5, 10.2, 16.3, 16.11, 17.8_
-    - _Verification: `pytest tests/evaluation/test_ailm_scenario.py -v -m weave`_
+  - [ ] 23.7 Write BDD feature tests for Dual-Tier Red Team Evaluation Scenarios
+    - Create `tests/features/dual_tier_red_team_scenarios.feature` with Gherkin scenarios
+    - Implement `Given/When/Then` steps in `tests/step_defs/test_dual_tier_red_team_scenarios_bdd.py` using `run_async`
+    - Scenario: Tier 1 ADK harness intercepts adversarial prompt injection tool calls within 10ms
+    - Scenario: Tier 2 gVisor sandbox intercepts multi-stage exploit chain with 50ms eBPF drop
+    - Scenario: coordinated swarm attack triggers CRITICAL alert evaluated in Vertex AI EvalTask
+    - _Requirements: 19.1, 19.2, 19.3, 19.4, 20.2_
+    - _Verification: `pytest tests/step_defs/test_dual_tier_red_team_scenarios_bdd.py -v`_
 
-  - [ ] 23.6 Create end-to-end Weave evaluation comparing detection algorithms
-    - Run multiple evaluation scenarios with different threshold configurations
-    - Compare precision, recall, F1, FPR across configurations in Weave UI
-    - Generate Weave comparison reports for algorithm tuning
-    - _Requirements: 16.8, 17.10_
-    - _Verification: `pytest tests/evaluation/test_weave_algorithm_comparison.py -v -m weave`_
-
-  - [ ] 23.7 Write BDD feature tests for Red Team Evaluation Scenarios
-    - Create `tests/features/red_team_scenarios.feature` with Gherkin scenarios
-    - Implement `Given/When/Then` steps in `tests/step_defs/test_red_team_scenarios_bdd.py` using `run_async`
-    - Scenario: coordinated multi-agent attack with shared IPs triggers CRITICAL swarm alert tracked in Weave
-    - Scenario: RCE → Privilege Escalation → Credential Theft chain is detected with novelty_score logged to Weave
-    - Scenario: agent establishing C2 beaconing to Pastebin triggers CRITICAL alert; metrics tracked in Weave
-    - Scenario: K8s service account token theft followed by fleet spawning both detected; latency logged to Weave
-    - Scenario: AILM spanning 3 trust boundaries triggers CRITICAL alert; boundary_crossing_accuracy logged
-    - Verify all scenarios meet accuracy thresholds (precision >= 0.95, recall >= 0.90, FPR <= 0.05)
-    - _Requirements: 4.2, 4.3, 5.2, 5.4, 5.5, 6.2, 6.3, 6.5, 7.2, 7.3, 7.5, 8.1, 8.2, 10.1, 10.2, 10.3, 10.5, 10.6, 16.3, 17.7, 17.8, 17.9_
-    - _Verification: `pytest tests/step_defs/test_red_team_scenarios_bdd.py -v -m weave`_
-
-- [ ] 24. Implement Active Threat Reaction Engine (Feedback Loop to Pillars 1, 2, 3)
-  - [ ] 24.1 Create `ActiveReactionEngine` class
+- [x] 24. Implement Active Threat Reaction Engine (Feedback Loop to Pillars 1, 2, 3)
+  - [x] 24.1 Create `ActiveReactionEngine` class
     - Convert CRITICAL threat evidence into dynamic mitigation actions
     - Implement `ActiveReactionPayload` model logging with Pydantic v2 validation and `evaluation_env_id` tracking
     - Implement evaluation containment check that mandatorily queries `is_evaluation_mode(payload.trigger_evidence_id)` and suppresses production mitigation actions whenever the underlying evidence originated in evaluation mode, regardless of whether `evaluation_env_id` is populated
     - _Requirements: 22.4, 22.5, 14.5, 15.10_
     - _Verification: `pytest tests/unit/test_active_reaction_engine.py::test_payload_creation -v`_
 
-  - [ ] 24.2 Implement dynamic eBPF socket drop rule injection
+  - [x] 24.2 Implement dynamic eBPF socket drop rule injection
     - Inject eBPF PID/socket drop rules into Pillar 1 (`LinuxeBPFDriver`) within 50ms (production mode only)
     - _Requirements: 22.1, 22.5_
     - _Verification: `pytest tests/unit/test_active_reaction_engine.py::test_ebpf_socket_drop -v`_
 
-  - [ ] 24.3 Implement fleet-wide ZeroMQ threat signature broadcast
+  - [x] 24.3 Implement fleet-wide ZeroMQ threat signature broadcast
     - Publish zero-latency block signatures to Pillar 2 Threat Mesh (<15ms) (production mode only)
     - _Requirements: 22.2, 22.5_
     - _Verification: `pytest tests/unit/test_active_reaction_engine.py::test_mesh_broadcast -v`_
 
-  - [ ] 24.4 Implement Vault JIT credential invalidation
+  - [x] 24.4 Implement Vault JIT credential invalidation
     - Trigger Pillar 3 Vault Sidecar session revocation for compromised agents (production mode only)
     - _Requirements: 22.3, 22.5_
     - _Verification: `pytest tests/unit/test_active_reaction_engine.py::test_credential_invalidation -v`_
 
-  - [ ] 24.5 Write property tests for Active Threat Reaction Engine
+  - [x] 24.5 Write property tests for Active Threat Reaction Engine
     - **Property 89: Dynamic eBPF Socket Drop Injection**
     - **Property 90: Zero-Latency Threat Mesh Broadcast**
     - **Property 91: Identity Credential Invalidation**
@@ -949,7 +868,7 @@ The implementation follows a test-driven development approach with property-base
     - **Validates: Requirements 22.1, 22.2, 22.3, 22.4, 22.5, 14.5**
     - _Verification: `pytest tests/property/test_active_reaction_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 24.6 Write BDD feature tests for Active Threat Reaction Engine
+  - [x] 24.6 Write BDD feature tests for Active Threat Reaction Engine
     - Create `tests/features/active_threat_reaction.feature` with Gherkin scenarios
     - Scenario: CRITICAL swarm detection injects eBPF socket drop rule into Pillar 1 within 50ms
     - Scenario: CRITICAL exploit chain broadcasts ZeroMQ signature across Threat Mesh in <15ms

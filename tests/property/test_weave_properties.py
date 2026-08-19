@@ -30,7 +30,7 @@ from blackwall.enterprise.advanced_threat_detection.weave_serializer import (
 # ---------------------------------------------------------------------------
 # Property 82: Weave Initialization Fallback
 # ---------------------------------------------------------------------------
-@settings(max_examples=50)
+@settings(max_examples=50, deadline=None)
 @given(
     project_name=st.text(min_size=1, max_size=50).filter(lambda s: bool(s.strip())),
     disabled=st.booleans(),

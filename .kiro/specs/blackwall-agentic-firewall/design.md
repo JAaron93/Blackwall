@@ -70,8 +70,8 @@ graph TB
     end
 
     subgraph "Gemini Interactions API (Dual-Mode)"
-        GEMINI_SYNC["gemini-3.1-flash-lite<br/>Synchronous Calls<br/>(Interception Path)"]
-        GEMINI_BG["gemini-3.1-pro-preview<br/>Background Tasks<br/>(background=True)"]
+        GEMINI_SYNC["gemini-3.5-flash-lite<br/>Synchronous Calls<br/>(Interception Path)"]
+        GEMINI_BG["gemini-3.7-flash<br/>Background Tasks<br/>(background=True)"]
     end
 
     subgraph "Persistent Storage (SQLite WAL)"
@@ -138,13 +138,13 @@ graph TB
 | Execution Layer | API / Model Tier | Invocation Mechanism | Latency Target | State & Delivery |
 | :--- | :--- | :--- | :--- | :--- |
 | **Local Interception** | None (Local SQLite WAL + Regex) | ADK Callbacks & `sys.addaudithook` | `<10ms` | Synchronous ALLOW/BLOCK decision (no GTI queries at this tier) |
-| **Rapid Triage** | `gemini-3.1-flash-lite` | Gemini Interactions API sync call | `<100ms` | Server-side state via `previous_interaction_id` for context caching |
-| **Deep Reasoning** | `gemini-3.1-pro-preview` | Interactions API (`background=True`) | Event-driven | Results pushed via webhook; GTI queries budgeted here |
+| **Rapid Triage** | `gemini-3.5-flash-lite` | Gemini Interactions API sync call | `<100ms` | Server-side state via `previous_interaction_id` for context caching |
+| **Deep Reasoning** | `gemini-3.7-flash` | Interactions API (`background=True`) | Event-driven | Results pushed via webhook; GTI queries budgeted here |
 
 **Execution Model:**
 1. **Local Interception (<10ms)**: SQLiteThreatRepository + Compiled Regex + YAML rules (no external API calls)
-2. **Rapid Triage (<100ms)**: Synchronous Gemini Interactions API call with `gemini-3.1-flash-lite` for high-throughput anomaly classification
-3. **Deep Reasoning (Event-Driven)**: Asynchronous Gemini background task (`background=True`) with `gemini-3.1-pro-preview` model; results delivered via webhook
+2. **Rapid Triage (<100ms)**: Synchronous Gemini Interactions API call with `gemini-3.5-flash-lite` for high-throughput anomaly classification
+3. **Deep Reasoning (Event-Driven)**: Asynchronous Gemini background task (`background=True`) with `gemini-3.7-flash` model; results delivered via webhook
 
 **Critical Constraint:** All state transitions are **event-driven via webhook callbacks**. No background polling loops, no timer-based checks, no status polling threads. Webhook receiver atomically persists threat signatures to SQLiteThreatRepository upon receipt.
 
@@ -395,8 +395,8 @@ END STRUCTURE
 **Purpose**: Orchestrates synchronous batched API calls to Gemini Interactions API for rapid anomaly classification during tool interception, managing the 300 RPM constraint. Also coordinates background task submission for deep reasoning analysis.
 
 **Execution Model**:
-- **Rapid Triage**: Synchronous `interactions.create()` call with `gemini-3.1-flash-lite` model during interception (inline verdict within <100ms)
-- **Deep Reasoning**: Asynchronous `interactions.create(background=True, webhook_config={...})` submission with `gemini-3.1-pro-preview` model; webhook callback delivers thin-payload notification with `interaction_id`
+- **Rapid Triage**: Synchronous `interactions.create()` call with `gemini-3.5-flash-lite` model during interception (inline verdict within <100ms)
+- **Deep Reasoning**: Asynchronous `interactions.create(background=True, webhook_config={...})` submission with `gemini-3.7-flash` model; webhook callback delivers thin-payload notification with `interaction_id`
 
 **Interface**:
 ```pascal
@@ -448,11 +448,11 @@ END STRUCTURE
 - Apply Context Hygiene sanitization before API submission
 - Create BatchPayload with batch ID, timestamp, sanitized contexts, policy snapshot
 - Submit batched JSON payload to **Gemini Interactions API** (`client.interactions.create()`)
-- Use **gemini-3.1-flash-lite** model for high-throughput triage (rapid classification)
+- Use **gemini-3.5-flash-lite** model for high-throughput triage (rapid classification)
 - Leverage server-side context caching via `previous_interaction_id` to reduce token costs on repeated evaluations
 - Return verdict array maintaining exact order correspondence
 - For BLOCK/QUARANTINE verdicts, submit background interactions via Gemini Interactions API with `background=True` and `webhook_config`
-- Use **gemini-3.1-pro-preview** model for background deep reasoning interactions
+- Use **gemini-3.7-flash** model for background deep reasoning interactions
 - Specify publicly reachable webhook callback URI in `webhook_config.uris` (e.g., via ngrok/cloudflared tunnel)
 - Return immediately with `interaction_id` (non-blocking)
 - Implement exponential backoff (100ms, 200ms, 400ms) for API rate limit handling

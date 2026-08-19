@@ -22,6 +22,7 @@ from blackwall.enterprise.advanced_threat_detection.enums import (
     AlertSeverity,
     EventSource,
     ExploitCategory,
+    ReactionActionType,
 )
 from blackwall.enterprise.advanced_threat_detection.evaluation import (
     EvaluationAttackGraphStore,
@@ -35,6 +36,7 @@ from blackwall.enterprise.advanced_threat_detection.graph_export import (
 from blackwall.enterprise.advanced_threat_detection.k8s import KubernetesDefenseLayer
 from blackwall.enterprise.advanced_threat_detection.models import (
     AILMEvidence,
+    ActiveReactionPayload,
     Alert,
     AttackNode,
     AttackPath,
@@ -48,6 +50,9 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 )
 from blackwall.enterprise.advanced_threat_detection.orchestrator import (
     AdvancedThreatDetection,
+)
+from blackwall.enterprise.advanced_threat_detection.reaction import (
+    ActiveReactionEngine,
 )
 from blackwall.enterprise.advanced_threat_detection.registry import (
     PackageRegistryMonitor,
@@ -102,6 +107,8 @@ logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection")
 __all__ = [
     "AILMEvidence",
     "AILMTracker",
+    "ActiveReactionEngine",
+    "ActiveReactionPayload",
     "AdvancedThreatDetection",
     "AdvancedThreatDetectionConfig",
     "AgentSwarmDetector",
@@ -129,6 +136,7 @@ __all__ = [
     "PackageRegistryMonitor",
     "PathCorrelator",
     "PermissionGrant",
+    "ReactionActionType",
     "RegistryThreatEvidence",
     "ResourceThrottler",
     "RetrospectiveAnalyzer",

@@ -252,14 +252,14 @@ Structural Layer (fast path)              Semantic Layer (deep analysis)
 - Verdict: ALLOW (fast-path), BLOCK (immediate reject), or ESCALATE_TO_SEMANTIC
 
 **Tier 2: Rapid Triage** (<100ms @ 99th percentile, Gemini Flash-Lite)
-- Model: `gemini-3.1-flash-lite` (4B parameters, optimized for speed)
+- Model: `gemini-3.5-flash-lite` (optimized for high-throughput speed)
 - Queries: GTI MCP (VirusTotal IOCs) + codebase-memory MCP (AST analysis) in parallel
 - Batched evaluation: Up to 5 interceptions per API call (Paid Tier)
 - Server-side context caching: 50%+ token cost reduction via `previous_interaction_id`
 - Verdict decision: ALLOW/BLOCK/QUARANTINE with threat score
 
-**Tier 3: Deep Reasoning** (background, non-blocking, Gemini Pro-Preview)
-- Model: `gemini-3.1-pro-preview` (much larger, higher-quality analysis)
+**Tier 3: Deep Reasoning** (background, non-blocking, Gemini Flash / Deep Reasoner)
+- Model: `gemini-3.7-flash` (frontier reasoning, higher-quality analysis)
 - Execution: `background=True` submission → webhook callback when analysis complete
 - Triggered after BLOCK/QUARANTINE verdicts in Tier 2
 - Generates detailed threat signatures, behavioral patterns, mitigation recommendations
