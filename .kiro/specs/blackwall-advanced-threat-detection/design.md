@@ -1742,7 +1742,7 @@ class GCPVertexAIEvaluationHarness:
 
 1. **Tier 1 (ADK Adversarial Harness - Fast CI/CD)**:
    - Evaluates single-turn and multi-turn adversarial tool calls in-process via `before_tool_callback`.
-   - Utilizes `gemini-3.5-flash` and `gemini-3.1-pro-preview` in 100% GCP Vertex AI mode (`google-genai`).
+   - Utilizes `gemini-3.5-flash-lite` (main) and `gemini-3.7-flash` (deep reasoner) in 100% GCP Vertex AI mode (`google-genai`).
    - Validates context hygiene, prompt injection resistance, and SLA compliance (<10ms TSG, <5ms structural).
 
 2. **Tier 2 (Cybench on GCP Cloud Run with gVisor MicroVMs - Enterprise Penetration Testing)**:

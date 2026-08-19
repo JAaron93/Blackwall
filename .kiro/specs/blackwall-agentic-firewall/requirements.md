@@ -111,13 +111,13 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 
 **Tier 2: Rapid Triage (<100ms)**
 - Synchronous Gemini Interactions API call
-- Model: `gemini-3.1-flash-lite` (high-throughput)
+- Model: `gemini-3.5-flash-lite` (high-throughput)
 - State: Server-side context caching via `previous_interaction_id` for token efficiency
 - Decision: Inline verdict returned to interception path
 
 **Tier 3: Deep Reasoning (Event-Driven)**
 - Asynchronous Gemini Interactions API (`background=True`)
-- Model: `gemini-3.1-pro-preview` (frontier reasoning capabilities)
+- Model: `gemini-3.7-flash` (frontier reasoning capabilities)
 - Webhook: Gemini delivers thin-payload notification to configured `webhook_config.uris` when interaction completes
 - State: Blackwall fetches full results via `client.interactions.get(interaction_id)` after webhook notification
 - Decision: Threat signature generation and persistent storage
@@ -130,7 +130,7 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 
 #### Acceptance Criteria
 
-1. WHEN the Batch_Resolver receives a tool call batch during interception, THE system SHALL call Gemini Interactions API with `gemini-3.1-flash-lite` model
+1. WHEN the Batch_Resolver receives a tool call batch during interception, THE system SHALL call Gemini Interactions API with `gemini-3.5-flash-lite` model
 2. THE synchronous API call SHALL complete within 100ms at 99th percentile
 3. THE Batch_Resolver SHALL include `previous_interaction_id` in the request payload for server-side context caching
 4. WHEN the API returns cached results (cache hit), THE token consumption SHALL be reduced by at least 50%
@@ -151,7 +151,7 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 #### Acceptance Criteria
 
 1. WHEN a tool call receives a QUARANTINE verdict from Tier 2 (Rapid Triage), THE Agent_Behavioral_Analytics SHALL submit a background interaction to Gemini Interactions API with `background=True`
-2. THE background interaction SHALL use `gemini-3.1-pro-preview` model for deep reasoning
+2. THE background interaction SHALL use `gemini-3.7-flash` model for deep reasoning
 3. THE background interaction request SHALL include: quarantined tool context, Tier 2 verdict data, related threat signatures, GTI IOC enrichment, and CBM dependency chain as the `input` payload
 4. THE background interaction request SHALL include a `webhook_config` object with `uris` set to the publicly reachable webhook callback URL (e.g., `https://<tunnel-host>/webhook/analysis_complete`) — this is the Gemini Dynamic Webhook pattern using per-request `webhook_config`
 5. THE system SHALL return from submitBackgroundAnalysis() immediately with the `interaction_id` from the Gemini response (non-blocking)
@@ -396,8 +396,8 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 11. UPON receiving a webhook callback, THE system SHALL immediately fetch results via `client.interactions.get()` (no queuing delay, <100ms fetch + processing latency)
 12. WHEN analysis results are retrieved, THE system SHALL atomically write new threat signatures to the SQLiteThreatRepository in a single transaction
 13. THE system SHALL NOT implement any polling loops, timer-based checks, or sleep intervals to check background interaction status
-14. **MODEL TIERING:** For synchronous interception evaluation, use `gemini-3.1-flash-lite` (high-throughput triage)
-15. **MODEL TIERING:** For background forensic analysis, use `gemini-3.1-pro-preview` (deep reasoning)
+14. **MODEL TIERING:** For synchronous interception evaluation, use `gemini-3.5-flash-lite` (high-throughput triage)
+15. **MODEL TIERING:** For background forensic analysis, use `gemini-3.7-flash` (deep reasoning)
 16. THE system SHALL handle webhook delivery failures gracefully: if Gemini cannot reach the webhook endpoint after retries (24-hour exponential backoff), the interaction result remains available via `client.interactions.get()` for fallback retrieval
 17. THE system SHALL expose webhook metrics: total callbacks received, average processing latency, failed deliveries, JWT verification failures, and fetch success rate
 

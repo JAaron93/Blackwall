@@ -64,7 +64,7 @@ async def test_burst_worker_live_model_call():
     latency = await burst_worker(1, sem, client=mock_client, is_dummy=False)
     assert latency >= 0.0
     mock_client.aio.models.generate_content.assert_called_once_with(
-        model="gemini-3.1-flash-lite",
+        model="gemini-3.5-flash-lite",
         contents="burst worker 1",
     )
 

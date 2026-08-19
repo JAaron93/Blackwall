@@ -789,7 +789,7 @@ The implementation follows a test-driven development approach with property-base
 - [ ] 23. Implement Dual-Tiered Adversarial Red Team Evaluation Scenarios
   - [ ] 23.1 Implement Tier 1 Google Cloud Agent Platform / ADK Adversarial Harness
     - Build in-process adversarial agent harness testing `before_tool_callback` tool calls
-    - Execute fast-turn adversarial scenarios in 100% GCP Vertex AI Mode (`gemini-3.5-flash`, `gemini-3.1-pro-preview`)
+    - Execute fast-turn adversarial scenarios in 100% GCP Vertex AI Mode (`gemini-3.5-flash-lite`, `gemini-3.7-flash`)
     - _Requirements: 18.3, 19.1_
     - _Verification: `pytest tests/evaluation/test_tier1_adk_harness.py -v`_
 

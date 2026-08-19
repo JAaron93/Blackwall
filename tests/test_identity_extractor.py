@@ -30,7 +30,7 @@ def full_adk_metadata() -> dict:
     return {
         "agent_id": "agent-007",
         "agent_name": "MaliciousScriptAgent",
-        "agent_model": "gemini-3.1-pro-preview",
+        "agent_model": "gemini-3.7-flash",
         "thread_id": "th-991",
     }
 
@@ -55,7 +55,7 @@ class TestADKMetadataExtraction:
         assert isinstance(identity, AttackerIdentity)
         assert identity.agent_id == "agent-007"
         assert identity.agent_name == "MaliciousScriptAgent"
-        assert identity.agent_model == "gemini-3.1-pro-preview"
+        assert identity.agent_model == "gemini-3.7-flash"
         assert identity.thread_id == "th-991"
         assert identity.primary_source == IdentitySource.ADK_METADATA
 

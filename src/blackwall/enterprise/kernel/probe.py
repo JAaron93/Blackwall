@@ -174,6 +174,9 @@ class UserSpaceAuditDriver(KernelProbeDriver):
     def stop_tracing(self) -> None:
         """Disables active audit hook tracing."""
         self._is_active = False
+        self._dropped_pids.clear()
+        self._dropped_sockets.clear()
+        self._blocked_patterns.clear()
 
 
 class LinuxeBPFDriver(UserSpaceAuditDriver):

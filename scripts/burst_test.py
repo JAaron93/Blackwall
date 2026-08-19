@@ -27,7 +27,7 @@ async def burst_worker(
         if not is_dummy:
             await asyncio.wait_for(
                 client.aio.models.generate_content(
-                    model="gemini-3.1-flash-lite",
+                    model="gemini-3.5-flash-lite",
                     contents=f"burst worker {worker_id}",
                 ),
                 timeout=10.0,

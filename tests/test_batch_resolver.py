@@ -164,7 +164,7 @@ async def test_batch_resolver_sync_triage():
     # Verify client was called with correct parameters
     client.interactions.create.assert_called_once()
     call_kwargs = client.interactions.create.call_args[1]
-    assert call_kwargs["model"] == "gemini-3.1-flash-lite"
+    assert call_kwargs["model"] == "gemini-3.5-flash-lite"
     assert call_kwargs["previous_interaction_id"] is None
 
     # Second call should include previous_interaction_id for context caching
@@ -261,7 +261,7 @@ async def test_batch_resolver_background_submission():
     # Verify parameters passed
     client.interactions.create.assert_called_once()
     call_kwargs = client.interactions.create.call_args[1]
-    assert call_kwargs["model"] == "gemini-3.1-pro-preview"
+    assert call_kwargs["model"] == "gemini-3.7-flash"
     assert call_kwargs["background"] is True
     assert call_kwargs["webhook_config"]["uris"] == [
         "http://localhost:9090/webhook/analysis_complete"

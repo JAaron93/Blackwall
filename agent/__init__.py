@@ -210,7 +210,7 @@ if not ADK_AVAILABLE and not (
         "Please install google-adk to run the Blackwall ADK Agent module."
     )
 
-_model = os.getenv("BLACKWALL_MODEL", "gemini-3.1-flash-lite")
+_model = os.getenv("BLACKWALL_MODEL", "gemini-3.5-flash-lite")
 
 root_agent = LlmAgent(
     name="blackwall_target_agent",

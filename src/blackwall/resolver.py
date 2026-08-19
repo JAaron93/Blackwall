@@ -430,7 +430,7 @@ class BatchResolver:
             create_fn = self.client.interactions.create
             if asyncio.iscoroutinefunction(create_fn):
                 interaction = await create_fn(
-                    model="gemini-3.1-flash-lite",
+                    model="gemini-3.5-flash-lite",
                     input=payload_json,
                     previous_interaction_id=payload.previous_interaction_id,
                     timeout=API_CALL_TIMEOUT,
@@ -441,7 +441,7 @@ class BatchResolver:
                 interaction = await loop.run_in_executor(
                     None,
                     lambda: create_fn(
-                        model="gemini-3.1-flash-lite",
+                        model="gemini-3.5-flash-lite",
                         input=payload_json,
                         previous_interaction_id=payload.previous_interaction_id,
                         timeout=API_CALL_TIMEOUT,
@@ -528,7 +528,7 @@ class BatchResolver:
             create_fn = self.client.interactions.create
             if asyncio.iscoroutinefunction(create_fn):
                 interaction = await create_fn(
-                    model="gemini-3.1-pro-preview",
+                    model="gemini-3.7-flash",
                     input=json.dumps(payload_input),
                     background=True,
                     webhook_config=webhook_config,
@@ -540,7 +540,7 @@ class BatchResolver:
                 interaction = await loop.run_in_executor(
                     None,
                     lambda: create_fn(
-                        model="gemini-3.1-pro-preview",
+                        model="gemini-3.7-flash",
                         input=json.dumps(payload_input),
                         background=True,
                         webhook_config=webhook_config,
