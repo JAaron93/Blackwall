@@ -12,7 +12,7 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,7 @@ class GCPTraceSpan(BaseModel):
     end_time_ns: Optional[int] = None
     attributes: Dict[str, Any] = Field(default_factory=dict)
     status_code: str = Field(default="OK")
+    _otel_span: Any = PrivateAttr(default=None)
 
     def finish(self, status: str = "OK") -> None:
         """Mark span as finished with timestamp and status."""
@@ -50,17 +51,25 @@ class GCPCloudTraceExporter:
         project_id: Optional[str] = None,
         export_to_cloud: Optional[bool] = None,
     ) -> None:
-        self.project_id = project_id or os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or "blackwall-cloud-project"
-        if export_to_cloud is not None:
-            self._export_to_cloud = export_to_cloud
-        else:
-            self._export_to_cloud = os.getenv("BLACKWALL_DISABLE_CLOUD_TRACE", "false").lower() != "true"
+        self.project_id = (
+            project_id
+            or os.getenv("GCP_PROJECT")
+            or os.getenv("GOOGLE_CLOUD_PROJECT")
+            or os.getenv("PROJECT_ID")
+            or "blackwall-security-eval"
+        )
+        self._export_to_cloud = (
+            export_to_cloud
+            if export_to_cloud is not None
+            else os.getenv("BLACKWALL_EXPORT_CLOUD_TRACE", "true").lower() in ("true", "1", "yes")
+        )
         self._exported_spans: List[GCPTraceSpan] = []
         self._is_cloud_trace_available = False
-        self._tracer_provider: Any = None
-        self._cloud_trace_exporter: Any = None
-        self._span_processor: Any = None
-        self._tracer: Any = None
+        self._tracer_provider = None
+        self._cloud_trace_exporter = None
+        self._span_processor = None
+        self._tracer = None
+
         self._init_cloud_trace()
 
     def _init_cloud_trace(self) -> bool:
@@ -121,6 +130,20 @@ class GCPCloudTraceExporter:
             span_attrs.update(attributes)
 
         span = GCPTraceSpan(name=name, attributes=span_attrs)
+
+        if self._tracer is not None:
+            try:
+                otel_span = self._tracer.start_span(
+                    name=name,
+                    start_time=span.start_time_ns,
+                )
+                for k, v in span.attributes.items():
+                    if isinstance(v, (str, bool, int, float)):
+                        otel_span.set_attribute(k, v)
+                span._otel_span = otel_span
+            except Exception as exc:
+                logger.debug("Failed to start OpenTelemetry span: %s", exc)
+
         self._exported_spans.append(span)
         return span
 
@@ -141,15 +164,33 @@ class GCPCloudTraceExporter:
             span.attributes["gen_ai.usage.output_tokens"] = output_tokens
         span.finish(status="OK")
 
-        if self._tracer is not None:
+        otel_span = getattr(span, "_otel_span", None)
+        if otel_span is not None:
             try:
                 from opentelemetry.trace import Status, StatusCode
 
-                with self._tracer.start_as_current_span(span.name) as otel_span:
+                otel_span.set_attribute("gen_ai.evaluation.score", score)
+                otel_span.set_attribute("blackwall.verdict", verdict)
+                if input_tokens is not None:
+                    otel_span.set_attribute("gen_ai.usage.input_tokens", input_tokens)
+                if output_tokens is not None:
+                    otel_span.set_attribute("gen_ai.usage.output_tokens", output_tokens)
+                otel_span.set_status(Status(StatusCode.OK))
+                otel_span.end(end_time=span.end_time_ns)
+            except Exception as exc:
+                logger.debug("Failed to end OpenTelemetry span: %s", exc)
+        elif self._tracer is not None:
+            try:
+                from opentelemetry.trace import Status, StatusCode
+
+                with self._tracer.start_as_current_span(
+                    span.name,
+                    start_time=span.start_time_ns,
+                ) as otel_span_fallback:
                     for k, v in span.attributes.items():
                         if isinstance(v, (str, bool, int, float)):
-                            otel_span.set_attribute(k, v)
-                    otel_span.set_status(Status(StatusCode.OK))
+                            otel_span_fallback.set_attribute(k, v)
+                    otel_span_fallback.set_status(Status(StatusCode.OK))
             except Exception as exc:
                 logger.debug("Failed to stream span to CloudTraceSpanExporter: %s", exc)
 
@@ -165,17 +206,33 @@ class GCPCloudTraceExporter:
         span.attributes["blackwall.status"] = status
         span.finish(status=status)
 
-        if self._tracer is not None:
+        otel_span = getattr(span, "_otel_span", None)
+        if otel_span is not None:
             try:
                 from opentelemetry.trace import Status, StatusCode
 
-                with self._tracer.start_as_current_span(span.name) as otel_span:
+                otel_span.set_attribute("error", err_msg)
+                otel_span.set_attribute("blackwall.status", status)
+                otel_span.set_status(Status(StatusCode.ERROR, description=err_msg))
+                if isinstance(error, Exception):
+                    otel_span.record_exception(error)
+                otel_span.end(end_time=span.end_time_ns)
+            except Exception as exc:
+                logger.debug("Failed to end OpenTelemetry error span: %s", exc)
+        elif self._tracer is not None:
+            try:
+                from opentelemetry.trace import Status, StatusCode
+
+                with self._tracer.start_as_current_span(
+                    span.name,
+                    start_time=span.start_time_ns,
+                ) as otel_span_fallback:
                     for k, v in span.attributes.items():
                         if isinstance(v, (str, bool, int, float)):
-                            otel_span.set_attribute(k, v)
-                    otel_span.set_status(Status(StatusCode.ERROR, description=err_msg))
+                            otel_span_fallback.set_attribute(k, v)
+                    otel_span_fallback.set_status(Status(StatusCode.ERROR, description=err_msg))
                     if isinstance(error, Exception):
-                        otel_span.record_exception(error)
+                        otel_span_fallback.record_exception(error)
             except Exception as exc:
                 logger.debug("Failed to stream error span to CloudTraceSpanExporter: %s", exc)
 
