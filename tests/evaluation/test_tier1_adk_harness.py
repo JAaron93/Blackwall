@@ -37,6 +37,7 @@ async def test_tier1_adk_before_tool_callback_interception():
         name="adk.before_tool_callback",
         model=harness.config.main_model,
         metric_name="threat_interception_accuracy",
+        attributes={"is_evaluation": True, "evaluation_env_id": "eval_adk_tier1_01"},
     )
 
     is_threat = True
@@ -68,7 +69,10 @@ async def test_tier1_adk_benign_tool_call_allow():
         "arguments": {"sql": "SELECT id, name FROM users WHERE tenant_id = 42 LIMIT 10"},
     }
 
-    span = exporter.start_span(name="adk.before_tool_callback")
+    span = exporter.start_span(
+        name="adk.before_tool_callback",
+        attributes={"is_evaluation": True, "evaluation_env_id": "eval_adk_tier1_01"},
+    )
     is_threat = False
     blocked = False
     verdict = "ALLOW"

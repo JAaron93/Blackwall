@@ -43,6 +43,7 @@ dev = [
     "pre-commit>=3.7.0"
 ]
 evaluation = [
+    "google-cloud-aiplatform>=1.60.0",
     "pandas>=2.0.0",
     "google-cloud-trace>=1.11.0",
     "opentelemetry-exporter-gcp-trace>=1.6.0",

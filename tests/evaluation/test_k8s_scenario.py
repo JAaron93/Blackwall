@@ -25,7 +25,11 @@ async def test_k8s_pod_token_theft_scenario_vertex_evaluation():
         agent_id="k8s_rogue_pod_agent",
         action="read_file",
         target="/var/run/secrets/kubernetes.io/serviceaccount/token",
-        metadata={"path": "/var/run/secrets/kubernetes.io/serviceaccount/token"},
+        metadata={
+            "path": "/var/run/secrets/kubernetes.io/serviceaccount/token",
+            "is_evaluation": True,
+            "evaluation_env_id": "eval_k8s_env_01",
+        },
         risk_score=0.9,
         timestamp=now,
     )
@@ -36,7 +40,11 @@ async def test_k8s_pod_token_theft_scenario_vertex_evaluation():
         agent_id="k8s_rogue_pod_agent",
         action="create_pod",
         target="pod_spec_miner_fleet",
-        metadata={"spec": "miner_fleet"},
+        metadata={
+            "spec": "miner_fleet",
+            "is_evaluation": True,
+            "evaluation_env_id": "eval_k8s_env_01",
+        },
         risk_score=0.95,
         timestamp=now,
     )

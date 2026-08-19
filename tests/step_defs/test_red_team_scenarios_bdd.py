@@ -153,7 +153,11 @@ def given_swarm_coordination(bdd_state: RedTeamBDDState):
             agent_id=f"swarm_bot_{i}",
             action="exfiltrate_chunk",
             target="192.168.1.55",
-            metadata={"principal_id": "c2_swarm_cluster"},
+            metadata={
+                "principal_id": "c2_swarm_cluster",
+                "is_evaluation": True,
+                "evaluation_env_id": "eval_swarm_bdd_01",
+            },
             risk_score=0.9,
             timestamp=now,
         )

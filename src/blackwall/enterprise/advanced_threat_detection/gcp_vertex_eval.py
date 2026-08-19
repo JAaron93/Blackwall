@@ -356,13 +356,15 @@ class GCPVertexAIEvaluationHarness:
         dataset: Any,
         metrics: Sequence[Any],
         model: Optional[str] = None,
+        raise_on_error: bool = False,
     ) -> Dict[str, Any]:
         """
         Execute an evaluation task over a dataset using Vertex AI EvalTask.
-        Falls back to local aggregation if Vertex AI Evaluation Service is offline.
+        Falls back to local aggregation only if Vertex AI Evaluation Service is offline/uninstalled.
+        If Vertex AI is configured and active, runtime errors raise or return FAILED status.
         """
         target_model = model or self.config.reasoner_model
-        
+
         if self._vertex_eval_available:
             try:
                 from vertexai.preview.evaluation import AutoraterConfig, EvalTask
@@ -386,9 +388,17 @@ class GCPVertexAIEvaluationHarness:
                     "model": target_model,
                 }
             except Exception as e:
-                logger.warning("Vertex AI EvalTask API execution failed, falling back to local: %s", e)
+                logger.error("Vertex AI EvalTask API execution failed: %s", e)
+                if raise_on_error:
+                    raise
+                return {
+                    "status": "FAILED",
+                    "error": str(e),
+                    "model": target_model,
+                    "metrics": [m if isinstance(m, str) else getattr(m, "metric", "custom") for m in metrics],
+                }
 
-        # Local fallback execution
+        # Local fallback execution (only when Vertex AI Eval SDK preview is offline or uninstalled)
         total = len(dataset) if hasattr(dataset, "__len__") else 1
         return {
             "status": "LOCAL_FALLBACK",

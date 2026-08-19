@@ -28,7 +28,11 @@ async def test_c2_beaconing_scenario_vertex_evaluation():
             agent_id="c2_infected_agent",
             action="connect",
             target="https://requestbin.net/r/exfil_channel",
-            metadata={"destination": "https://requestbin.net/r/exfil_channel"},
+            metadata={
+                "destination": "https://requestbin.net/r/exfil_channel",
+                "is_evaluation": True,
+                "evaluation_env_id": "eval_c2_env_01",
+            },
             risk_score=0.9,
             timestamp=now - timedelta(seconds=(4 - i) * 10),
         )

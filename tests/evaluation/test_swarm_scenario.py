@@ -29,7 +29,11 @@ async def test_swarm_attack_scenario_vertex_evaluation():
             agent_id=f"rogue_agent_{i}",
             action="scan_internal_subnet",
             target="10.0.0.1",
-            metadata={"principal_id": "compromised_swarm_team"},
+            metadata={
+                "principal_id": "compromised_swarm_team",
+                "is_evaluation": True,
+                "evaluation_env_id": "eval_swarm_env_01",
+            },
             risk_score=0.85,
             timestamp=now,
         )

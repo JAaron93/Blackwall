@@ -45,25 +45,52 @@ class GCPCloudTraceExporter:
     and exporting GenAI evaluation spans using standard semantic conventions.
     """
 
-    def __init__(self, project_id: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        project_id: Optional[str] = None,
+        export_to_cloud: Optional[bool] = None,
+    ) -> None:
         self.project_id = project_id or os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or "blackwall-cloud-project"
+        if export_to_cloud is not None:
+            self._export_to_cloud = export_to_cloud
+        else:
+            self._export_to_cloud = (
+                os.getenv("BLACKWALL_EXPORT_CLOUD_TRACE", "false").lower() == "true"
+                and bool(os.getenv("GCP_PROJECT"))
+                and not self.project_id.startswith(("test-", "dummy-", "tier1-", "blackwall-cloud-"))
+            )
         self._exported_spans: List[GCPTraceSpan] = []
         self._is_cloud_trace_available = False
+        self._tracer_provider: Any = None
+        self._cloud_trace_exporter: Any = None
+        self._span_processor: Any = None
+        self._tracer: Any = None
         self._init_cloud_trace()
 
     def _init_cloud_trace(self) -> bool:
         """Initialize Google Cloud Trace OpenTelemetry exporter if installed."""
         try:
-            from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter  # noqa: F401
-            from opentelemetry.sdk.trace import TracerProvider  # noqa: F401
-            from opentelemetry.sdk.trace.export import BatchSpanProcessor  # noqa: F401
+            from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
+            from opentelemetry.sdk.trace import TracerProvider
+            from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+            self._tracer_provider = TracerProvider()
+            if self._export_to_cloud and self.project_id and not self.project_id.startswith(("test-", "dummy-", "tier1-", "blackwall-cloud-")):
+                self._cloud_trace_exporter = CloudTraceSpanExporter(project_id=self.project_id)
+                self._span_processor = BatchSpanProcessor(self._cloud_trace_exporter)
+                self._tracer_provider.add_span_processor(self._span_processor)
+            self._tracer = self._tracer_provider.get_tracer("blackwall.evaluation")
 
             self._is_cloud_trace_available = True
-            logger.info("Google Cloud Trace OpenTelemetry exporter available and configured")
+            logger.info("Google Cloud Trace OpenTelemetry exporter available and configured for project %s", self.project_id)
             return True
-        except ImportError:
+        except (ImportError, Exception) as exc:
             self._is_cloud_trace_available = False
-            logger.debug("Google Cloud Trace SDK not installed; operating in buffered in-memory mode")
+            self._tracer_provider = None
+            self._cloud_trace_exporter = None
+            self._span_processor = None
+            self._tracer = None
+            logger.debug("Google Cloud Trace SDK not initialized (%s); operating in buffered in-memory mode", exc)
             return False
 
     @property
@@ -107,7 +134,7 @@ class GCPCloudTraceExporter:
         input_tokens: Optional[int] = None,
         output_tokens: Optional[int] = None,
     ) -> None:
-        """Record evaluation score and token metrics on an active span."""
+        """Record evaluation score and token metrics on an active span and stream to Cloud Trace."""
         span.attributes["gen_ai.evaluation.score"] = score
         span.attributes["blackwall.verdict"] = verdict
         if input_tokens is not None:
@@ -115,6 +142,23 @@ class GCPCloudTraceExporter:
         if output_tokens is not None:
             span.attributes["gen_ai.usage.output_tokens"] = output_tokens
         span.finish(status="OK")
+
+        if self._tracer is not None:
+            try:
+                with self._tracer.start_as_current_span(span.name) as otel_span:
+                    for k, v in span.attributes.items():
+                        if isinstance(v, (str, bool, int, float)):
+                            otel_span.set_attribute(k, v)
+            except Exception as exc:
+                logger.debug("Failed to stream span to CloudTraceSpanExporter: %s", exc)
+
+    def flush(self) -> None:
+        """Flush the span processor to send pending spans to Cloud Trace."""
+        if self._span_processor is not None:
+            try:
+                self._span_processor.force_flush()
+            except Exception as exc:
+                logger.debug("Failed to flush Cloud Trace span processor: %s", exc)
 
     def clear(self) -> None:
         """Clear all in-memory spans."""

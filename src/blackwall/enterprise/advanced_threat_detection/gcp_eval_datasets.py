@@ -7,7 +7,10 @@ and ground-truth benchmarks for autoraters and EvalTask execution.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 def get_adversarial_prompt_injection_samples() -> List[Dict[str, Any]]:
