@@ -220,16 +220,20 @@ class RetrospectiveAnalyzer:
 
             paths_for_agent: list[list[AttackNode]] = []
             for root in start_nodes:
+                root_paths: list[list[AttackNode]] = []
                 self._dfs_retrospective(
                     current_node=root,
                     current_path=[root],
                     adj=adj,
                     min_path_length=min_path_length,
                     visited_in_path={root.node_id},
-                    results=paths_for_agent,
+                    results=root_paths,
                     max_depth=15,
                     max_results=50,
                 )
+                paths_for_agent.extend(root_paths)
+                if len(paths_for_agent) >= 500:
+                    break
 
             for path_nodes in paths_for_agent:
                 sig = tuple(n.node_id for n in path_nodes)

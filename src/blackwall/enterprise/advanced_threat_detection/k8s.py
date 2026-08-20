@@ -35,6 +35,9 @@ POD_CREATE_ACTIONS = {
     "pod_create",
     "pod_created",
     "pod_spawned",
+}
+
+FLEET_SPAWN_ACTIONS = POD_CREATE_ACTIONS | {
     "run_pod",
     "sys_create_pod",
     "sys_clone",
@@ -148,11 +151,7 @@ class KubernetesDefenseLayer:
             if time_window and not (start_w <= event.timestamp <= end_w):
                 continue
             act = (event.action or "").lower()
-            if (
-                act in POD_CREATE_ACTIONS
-                or act in {"run_pod", "sys_create_pod", "sys_clone"}
-                or "create" in act
-            ):
+            if act in FLEET_SPAWN_ACTIONS or "create" in act:
                 spawn_events.append(event)
 
         if not spawn_events:
