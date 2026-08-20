@@ -194,15 +194,24 @@ class RetrospectiveAnalyzer:
 
                     tier_a = SEMANTIC_TIERS.get(n_a.event.source, 1)
                     tier_b = SEMANTIC_TIERS.get(n_b.event.source, 1)
-                    tier_diff = abs(tier_b - tier_a)
 
-                    same_target = 0.2 if n_a.event.target == n_b.event.target else 0.0
-                    decay = compute_exponential_decay(delta, max(300.0, max_time_gap_seconds / 10.0))
-                    w = (0.5 * decay) + (0.3 * (0.5 + 0.1 * tier_diff)) + (0.2 * (0.5 + same_target))
-                    edge_weight = clamp_score(w, 0.0, 1.0, decimals=4)
+                    same_target = bool(n_a.event.target and n_a.event.target == n_b.event.target)
+                    a_has_mitre = any(pat.search(n_a.event.action) or pat.search(n_a.event.target) for pat, _ in MITRE_PATTERNS)
+                    b_has_mitre = any(pat.search(n_b.event.action) or pat.search(n_b.event.target) for pat, _ in MITRE_PATTERNS)
+                    is_strict_tier_escalation = (tier_b > tier_a) and (tier_b - tier_a <= 3) and (a_has_mitre or b_has_mitre)
 
-                    if edge_weight >= 0.4:
-                        adj[n_a.node_id].append((n_b, edge_weight))
+                    if same_target:
+                        decay = compute_exponential_decay(delta, max(300.0, max_time_gap_seconds / 10.0))
+                        weight = clamp_score(0.3 * decay + 0.7 * 0.8, 0.0, 1.0, decimals=4)
+                        adj[n_a.node_id].append((n_b, weight))
+                        in_degree[n_b.node_id] += 1
+                        added_target_ids.add(n_b.node_id)
+
+                    elif is_strict_tier_escalation:
+                        decay = compute_exponential_decay(delta, max(300.0, max_time_gap_seconds / 10.0))
+                        semantic_base = 0.5 + (0.1 * abs(tier_b - tier_a))
+                        weight = clamp_score(0.3 * decay + 0.7 * semantic_base, 0.0, 1.0, decimals=4)
+                        adj[n_a.node_id].append((n_b, weight))
                         in_degree[n_b.node_id] += 1
                         added_target_ids.add(n_b.node_id)
 
