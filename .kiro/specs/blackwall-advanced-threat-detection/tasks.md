@@ -945,30 +945,30 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 24.1, 24.2, 24.3_
     - _Verification: `pytest tests/step_defs/test_prompt_injection_scanner_bdd.py -v`_
 
-- [ ] 27. Implement Agent Fleet Resource and Token Velocity Enforcement (Denial of Wallet Defense)
-  - [ ] 27.1 Create `AgentQuotaEnforcer` class
+- [x] 27. Implement Agent Fleet Resource and Token Velocity Enforcement (Denial of Wallet Defense)
+  - [x] 27.1 Create `AgentQuotaEnforcer` class
     - Track real-time token consumption and rolling burn rate per second with `AgentQuotaUsage` validation
     - _Requirements: 25.1, 15.13_
     - _Verification: `pytest tests/unit/test_agent_quota_enforcer.py::test_token_tracking -v`_
 
-  - [ ] 27.2 Implement velocity limit enforcement and quarantine
+  - [x] 27.2 Implement velocity limit enforcement and quarantine
     - Trigger automated throttling or temporary quarantine when velocity caps exceeded
     - _Requirements: 25.2_
     - _Verification: `pytest tests/unit/test_agent_quota_enforcer.py::test_velocity_enforcement -v`_
 
-  - [ ] 27.3 Implement Denial of Wallet alert generation
+  - [x] 27.3 Implement Denial of Wallet alert generation
     - Publish Denial of Wallet alerts when token burn spikes occur
     - _Requirements: 25.3_
     - _Verification: `pytest tests/unit/test_agent_quota_enforcer.py::test_dow_alerts -v`_
 
-  - [ ] 27.4 Write property tests for Agent Quota Enforcer
+  - [x] 27.4 Write property tests for Agent Quota Enforcer
     - **Property 100: Token Consumption Rate Tracking**
     - **Property 101: Velocity Limit Quarantine Trigger**
     - **Property 102: Quota Violation Alert Mapping**
     - **Validates: Requirements 25.1, 25.2, 25.3**
     - _Verification: `pytest tests/property/test_quota_enforcer_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 27.5 Write BDD feature tests for Agent Quota Enforcer
+  - [x] 27.5 Write BDD feature tests for Agent Quota Enforcer
     - Create `tests/features/agent_quota_enforcer.feature` with Gherkin scenarios
     - Scenario: token burn rate exceeding 500 tokens/sec triggers agent quarantine
     - Scenario: API call velocity surge emits Denial of Wallet alert to Alert Bus

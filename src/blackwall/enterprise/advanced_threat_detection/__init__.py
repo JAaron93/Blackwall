@@ -43,6 +43,7 @@ from blackwall.enterprise.advanced_threat_detection.k8s import KubernetesDefense
 from blackwall.enterprise.advanced_threat_detection.models import (
     AILMEvidence,
     ActiveReactionPayload,
+    AgentQuotaUsage,
     Alert,
     AttackNode,
     AttackPath,
@@ -61,6 +62,9 @@ from blackwall.enterprise.advanced_threat_detection.orchestrator import (
 )
 from blackwall.enterprise.advanced_threat_detection.prompt_injection import (
     PromptInjectionScanner,
+)
+from blackwall.enterprise.advanced_threat_detection.quota_enforcer import (
+    AgentQuotaEnforcer,
 )
 from blackwall.enterprise.advanced_threat_detection.reaction import (
     ActiveReactionEngine,
@@ -99,6 +103,8 @@ __all__ = [
     "ActiveReactionPayload",
     "AdvancedThreatDetection",
     "AdvancedThreatDetectionConfig",
+    "AgentQuotaEnforcer",
+    "AgentQuotaUsage",
     "AgentSwarmDetector",
     "Alert",
     "AlertBus",

@@ -1,6 +1,7 @@
 """Data models for Blackwall Advanced Threat Detection pillar."""
 
 from datetime import UTC, datetime
+import math
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -390,6 +391,46 @@ class PromptInjectionEvidence(BaseModel):
     def validate_sanitized_content(cls, v: str, info: Any) -> str:
         """Validate sanitized_content is not empty or whitespace only."""
         return validate_non_empty_string(v, field_name=info.field_name)
+
+
+class AgentQuotaUsage(BaseModel):
+    """Model tracking real-time token consumption and velocity per agent identity (Pillar 6 Task 27)."""
+
+    agent_id: str = Field(..., min_length=1)
+    time_window_start: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    tokens_consumed: int = Field(..., ge=0)
+    api_call_count: int = Field(..., ge=0)
+    token_burn_rate_per_sec: float = Field(..., ge=0.0)
+    quota_exceeded: bool
+
+    @field_validator("agent_id")
+    @classmethod
+    def validate_non_empty_agent_id(cls, v: str) -> str:
+        """Validate agent_id is not empty or whitespace only."""
+        return validate_non_empty_string(v, field_name="agent_id")
+
+    @field_validator("time_window_start")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        """Validate time_window_start is timezone-aware and set to UTC."""
+        return validate_utc_datetime(v)
+
+    @field_validator("tokens_consumed", "api_call_count")
+    @classmethod
+    def validate_non_negative_counts(cls, v: int, info: Any) -> int:
+        """Validate token and call counts are non-negative integers."""
+        if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+            raise ValueError(f"{info.field_name} must be a non-negative integer")
+        return v
+
+    @field_validator("token_burn_rate_per_sec")
+    @classmethod
+    def validate_non_negative_rate(cls, v: float) -> float:
+        """Validate token burn rate is a finite non-negative float."""
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0.0:
+            raise ValueError("token_burn_rate_per_sec must be a finite non-negative float")
+        return float(v)
+
 
 
 

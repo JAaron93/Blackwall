@@ -238,6 +238,22 @@
   - Passing unescaped replacement strings directly to `re.sub` is strictly prohibited to prevent regex template/group backreference injection (e.g., `\g<0>`, `\1`) from re-inserting malicious payloads or raising syntax errors that leave exploit vectors unredacted in host execution contexts.
 * **Rationale:** Permitting `0.0` threshold values allows benign inputs to satisfy `>= 0.0` comparisons and emit spurious `HIGH`/`CRITICAL` alerts that flood SOC pipelines. Passing unescaped replacement strings to regex engines allows crafted placeholders with backreferences to reconstitute stripped exploit spans, defeating prompt injection and data poisoning containment.
 
+## 45. Non-Finite Numeric Limit Validation & Resource Quota Invariants
+* **Rule (Finite Float Validation on Numeric Thresholds, Rates, and Durations):**
+  - All numeric constructor and method parameters representing security limits, rate caps, sliding windows, timeouts, multipliers, and durations (e.g. `token_burn_rate_limit`, `request_velocity_limit`, `sliding_window_sec`, `quarantine_duration_sec`, `critical_burn_rate_multiplier`, `duration_sec`, `confidence_threshold`) MUST be explicitly validated with `math.isfinite(x)` in addition to type and positivity checks:
+    ```python
+    if (
+        isinstance(x, bool)
+        or not isinstance(x, (int, float))
+        or not math.isfinite(x)
+        or x <= 0.0
+    ):
+        raise ValueError("x must be a finite float greater than 0.0")
+    ```
+  - Relying solely on `x <= 0.0` or `x < 1.0` is strictly prohibited because comparisons with `NaN` (e.g. `float('nan') <= 0.0`) evaluate to `False` in Python, accepting invalid inputs. Similarly, positive infinity (`float('inf')`) passes `> 0.0` checks and breaks enforcement: infinite rate/velocity limits prevent threshold comparisons from triggering, while infinite timeouts and quarantine durations produce holds that never expire automatically.
+* **Rationale:** Accepting `NaN` breaks mathematical comparisons in sliding-window calculations and alert severity evaluation, causing silent security failures. Accepting `+inf` disables throttling and creates unexpiring quarantines, causing denial of service for benign workloads or unmitigated Denial of Wallet (DoW) exposure for adversarial workloads.
+
+
 
 
 
