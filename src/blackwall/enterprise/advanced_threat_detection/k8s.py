@@ -150,7 +150,7 @@ class KubernetesDefenseLayer:
             if time_window and not (start_w <= event.timestamp <= end_w):
                 continue
             act = (event.action or "").lower()
-            if act in FLEET_SPAWN_ACTIONS or "create" in act:
+            if act in FLEET_SPAWN_ACTIONS:
                 spawn_events.append(event)
 
         if not spawn_events:
