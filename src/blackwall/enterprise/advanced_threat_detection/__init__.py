@@ -24,6 +24,7 @@ from blackwall.enterprise.advanced_threat_detection.enums import (
     ExploitCategory,
     InboundMethodType,
     InboundProtocolType,
+    InjectionSourceType,
     ReactionActionType,
 )
 from blackwall.enterprise.advanced_threat_detection.evaluation import (
@@ -51,11 +52,15 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     K8sThreatEvidence,
     NormalizedEvent,
     PermissionGrant,
+    PromptInjectionEvidence,
     RegistryThreatEvidence,
     SwarmEvidence,
 )
 from blackwall.enterprise.advanced_threat_detection.orchestrator import (
     AdvancedThreatDetection,
+)
+from blackwall.enterprise.advanced_threat_detection.prompt_injection import (
+    PromptInjectionScanner,
 )
 from blackwall.enterprise.advanced_threat_detection.reaction import (
     ActiveReactionEngine,
@@ -121,12 +126,15 @@ __all__ = [
     "InboundProtocolFilter",
     "InboundProtocolMessage",
     "InboundProtocolType",
+    "InjectionSourceType",
     "K8sThreatEvidence",
     "KubernetesDefenseLayer",
     "NormalizedEvent",
     "PackageRegistryMonitor",
     "PathCorrelator",
     "PermissionGrant",
+    "PromptInjectionEvidence",
+    "PromptInjectionScanner",
     "ReactionActionType",
     "RegistryThreatEvidence",
     "ResourceThrottler",

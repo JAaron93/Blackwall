@@ -229,6 +229,16 @@
   - Dataset utilities providing tabular outputs (`as_dataframe=True`) MUST gracefully handle missing optional dependencies (`pandas`) with safe `ImportError` fallback to standard dictionaries, without referencing uninitialized loggers.
 * **Rationale:** Enforces deterministic evaluation reporting in Vertex AI mode, guarantees end-to-end telemetry capture in Google Cloud Trace, prevents silent false positives during security harness runs, and preserves pristine isolation between evaluation artifacts and persistent threat graphs.
 
+## 44. Ingress Payload Scanning, Literal Substitution, & Positive Threshold Validation Invariants
+* **Rule (Strictly Positive Confidence Thresholds & Benign Alert Guarding):**
+  - Parameter validators for security confidence thresholds (e.g. `confidence_threshold`, `critical_confidence_threshold`) MUST enforce strictly positive values (`0.0 < threshold <= 1.0`), raising `ValueError` when `0.0` or negative values are provided.
+  - Alert publishing routines MUST explicitly verify that threat indicators were matched (`if matched_patterns and confidence >= self.confidence_threshold:`) before publishing alerts to the `AlertBus`, ensuring benign inputs receiving baseline `0.0` confidence never trigger false-positive security alerts with `NO_INJECTION_DETECTED` evidence.
+* **Rule (Literal Replacement in Regex Sanitization & Redaction):**
+  - When replacing detected malicious payloads or injection vectors via `Pattern.sub` or `re.sub` with configurable user-provided or default placeholders (e.g., `redaction_placeholder`), replacement MUST be performed using a callable (`pattern.sub(lambda _match: self.redaction_placeholder, text)`) or `re.escape`-protected string.
+  - Passing unescaped replacement strings directly to `re.sub` is strictly prohibited to prevent regex template/group backreference injection (e.g., `\g<0>`, `\1`) from re-inserting malicious payloads or raising syntax errors that leave exploit vectors unredacted in host execution contexts.
+* **Rationale:** Permitting `0.0` threshold values allows benign inputs to satisfy `>= 0.0` comparisons and emit spurious `HIGH`/`CRITICAL` alerts that flood SOC pipelines. Passing unescaped replacement strings to regex engines allows crafted placeholders with backreferences to reconstitute stripped exploit spans, defeating prompt injection and data poisoning containment.
+
+
 
 
 

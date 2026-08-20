@@ -55,3 +55,10 @@ Feature: Blackwall Advanced Threat Detection Pillar Data Validation
     Then the SafeDetectionRunner captures the error without crashing the pipeline
     And the ResourceThrottler degrades analysis depth to preserve real-time throughput
 
+  Scenario: Indirect Prompt Injection and Data Poisoning Defense
+    Given a Prompt Injection Scanner instance
+    When an external payload containing a system prompt override is scanned
+    Then the PromptInjectionEvidence confirms detection and returns sanitized text
+    And an alert is emitted to the Alert Bus
+
+
