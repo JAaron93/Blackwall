@@ -40,7 +40,6 @@ POD_CREATE_ACTIONS = {
 FLEET_SPAWN_ACTIONS = POD_CREATE_ACTIONS | {
     "run_pod",
     "sys_create_pod",
-    "sys_clone",
 }
 
 
