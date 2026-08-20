@@ -102,6 +102,13 @@
 * **Rule:** Unit, property, and BDD test suites querying stored alerts from `AlertBus` MUST call `alert_bus.get_alerts(severity=..., threat_type=..., agent_id=...)`. Tests MUST NOT invoke non-existent or deprecated method names (such as `get_recent_alerts` or `query_alerts`).
 * **Rationale:** `AlertBus` stores and filters in-memory and pending alerts exclusively via `get_alerts()`. Using inconsistent method names causes collection or runtime `AttributeError` exceptions across test suites.
 
+## 27. Redaction Placeholder Safety & Zero-Threshold Rejection Test Coverage
+* **Rule:** Unit and property test suites for payload sanitizers, prompt injection scanners, and content redaction engines MUST include explicit test cases verifying:
+  1. **Zero-Threshold Rejection**: Verifying that `confidence_threshold=0.0` is explicitly rejected with `ValueError` during constructor parameter validation.
+  2. **Backreference Safety**: Verifying that replacement placeholders containing regex backreference syntax (e.g., `\g<0>`, `\1`) are inserted literally without re-inserting matched threat spans or raising unhandled `re.error` exceptions.
+* **Rationale:** Example-based tests using simple alphanumeric placeholders fail to catch template injection and backreference re-insertion vulnerabilities in regex substitution engines.
+
+
 
 
 
