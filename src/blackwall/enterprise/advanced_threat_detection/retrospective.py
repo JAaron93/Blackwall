@@ -242,8 +242,6 @@ class RetrospectiveAnalyzer:
                         )
                         root_paths.extend(branch_paths)
                 paths_for_agent.extend(root_paths)
-                if len(paths_for_agent) >= 1000:
-                    break
 
             for path_nodes in paths_for_agent:
                 sig = tuple(n.node_id for n in path_nodes)
