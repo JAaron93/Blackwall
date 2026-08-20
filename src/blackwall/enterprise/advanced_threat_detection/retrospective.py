@@ -201,27 +201,30 @@ class RetrospectiveAnalyzer:
                     is_strict_tier_escalation = (tier_b > tier_a) and (tier_b - tier_a <= 3) and (a_has_mitre or b_has_mitre)
 
                     if same_target:
-                        decay = compute_exponential_decay(delta, max(300.0, max_time_gap_seconds))
-                        weight = clamp_score(0.4 + 0.4 * decay, 0.0, 1.0, decimals=4)
+                        decay = compute_exponential_decay(delta, max(300.0, max_time_gap_seconds / 2.0))
+                        base_score = 0.8 if (a_has_mitre or b_has_mitre) else 0.5
+                        weight = clamp_score(base_score * decay, 0.0, 1.0, decimals=4)
                         if weight >= 0.4:
                             adj[n_a.node_id].append((n_b, weight))
                             in_degree[n_b.node_id] += 1
                             added_target_ids.add(n_b.node_id)
 
                     elif is_strict_tier_escalation:
-                        decay = compute_exponential_decay(delta, max(300.0, max_time_gap_seconds))
-                        semantic_base = 0.4 + (0.1 * abs(tier_b - tier_a))
-                        weight = clamp_score(semantic_base + 0.3 * decay, 0.0, 1.0, decimals=4)
+                        decay = compute_exponential_decay(delta, max(300.0, max_time_gap_seconds / 2.0))
+                        semantic_base = 0.5 + (0.1 * abs(tier_b - tier_a))
+                        weight = clamp_score(semantic_base * decay, 0.0, 1.0, decimals=4)
                         if weight >= 0.4:
                             adj[n_a.node_id].append((n_b, weight))
                             in_degree[n_b.node_id] += 1
                             added_target_ids.add(n_b.node_id)
 
-            # Traverse paths using DFS starting from root nodes (in_degree == 0 or earliest nodes)
-            start_nodes = [n for n in sorted_nodes if in_degree[n.node_id] == 0] or sorted_nodes[:3]
+            # Traverse paths using DFS starting from root nodes (in_degree == 0)
+            root_nodes = [n for n in sorted_nodes if in_degree[n.node_id] == 0]
+            if not root_nodes:
+                root_nodes = sorted_nodes
 
             paths_for_agent: list[list[AttackNode]] = []
-            for root in start_nodes:
+            for root in root_nodes:
                 self._dfs_retrospective(
                     current_node=root,
                     current_path=[root],
@@ -230,7 +233,6 @@ class RetrospectiveAnalyzer:
                     visited_in_path={root.node_id},
                     results=paths_for_agent,
                     max_depth=15,
-                    max_results=5000,
                 )
 
             for path_nodes in paths_for_agent:
@@ -304,7 +306,6 @@ class RetrospectiveAnalyzer:
         visited_in_path: set[uuid.UUID],
         results: list[list[AttackNode]],
         max_depth: int = 15,
-        max_results: int = 5000,
     ) -> None:
         """Depth-first search traversing causal and semantic relationships across extended historical time horizons."""
         if len(current_path) >= min_path_length:
@@ -315,8 +316,6 @@ class RetrospectiveAnalyzer:
 
         neighbors = adj.get(current_node.node_id, [])
         for neighbor, _ in neighbors:
-            if len(results) >= max_results:
-                break
             if neighbor.node_id not in visited_in_path:
                 visited_in_path.add(neighbor.node_id)
                 current_path.append(neighbor)
@@ -328,7 +327,6 @@ class RetrospectiveAnalyzer:
                     visited_in_path,
                     results,
                     max_depth,
-                    max_results,
                 )
                 current_path.pop()
                 visited_in_path.remove(neighbor.node_id)
