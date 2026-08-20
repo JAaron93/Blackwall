@@ -61,4 +61,10 @@ Feature: Blackwall Advanced Threat Detection Pillar Data Validation
     Then the PromptInjectionEvidence confirms detection and returns sanitized text
     And an alert is emitted to the Alert Bus
 
+  Scenario: Agent Fleet Resource and Token Velocity Enforcement
+    Given an Agent Quota Enforcer instance configured with a token burn rate limit of 500
+    When an agent consumes 1000 tokens in 1 second
+    Then the agent is placed into quarantine and a Denial of Wallet alert is dispatched to the Alert Bus
+
+
 

@@ -224,7 +224,14 @@ injection_evidence = await injection_scanner.scan_payload(
     agent_id="worker-agent",
 )
 safe_content = await injection_scanner.redact_injection_vectors(injection_evidence)
-# Detects multi-step zero-day exploit sequences, C2 infrastructure establishment/beaconing, AI-Induced Lateral Movement, Kubernetes cluster attacks, retrospective historical campaigns, package registry exploit probing (Log4j, Spring4Shell, CVEs), isolated evaluation environment containment, cross-agent ingress protocol inspection, and indirect prompt injection vector redaction
+
+# Agent Fleet Resource & Token Velocity Enforcement / Denial of Wallet Defense (Pillar 6 Task 27)
+from blackwall.enterprise.advanced_threat_detection import AgentQuotaEnforcer
+
+quota_enforcer = AgentQuotaEnforcer(alert_bus=alert_bus, token_burn_rate_limit=500.0, quarantine_duration_sec=300.0)
+usage = await quota_enforcer.track_token_consumption(agent_id="worker-agent", tokens_used=1200, api_calls=5)
+is_exceeded = await quota_enforcer.enforce_quota_limits(agent_id="worker-agent", auto_quarantine=True)
+# Detects multi-step zero-day exploit sequences, C2 infrastructure establishment/beaconing, AI-Induced Lateral Movement, Kubernetes cluster attacks, retrospective historical campaigns, package registry exploit probing (Log4j, Spring4Shell, CVEs), isolated evaluation environment containment, cross-agent ingress protocol inspection, indirect prompt injection vector redaction, and fleet-wide Denial of Wallet (DoW) token velocity enforcement
 ```
 
 > [!TIP]

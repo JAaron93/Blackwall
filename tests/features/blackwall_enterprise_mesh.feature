@@ -74,4 +74,10 @@ Feature: Blackwall Enterprise Security Mesh End-to-End Integration
     Then the injection vectors are neutralized before host agent ingestion
     And high confidence alerts are published to the Alert Bus
 
+  Scenario: Pillar 6 Agent Fleet Resource and Denial of Wallet Defense
+    Given an Advanced Threat Detection subsystem with AgentQuotaEnforcer
+    When an agent consumes tokens exceeding the configured velocity limits
+    Then the agent is throttled or quarantined and Denial of Wallet alerts are dispatched
+
+
 

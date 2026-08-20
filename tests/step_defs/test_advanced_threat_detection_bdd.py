@@ -671,3 +671,53 @@ def then_alert_emitted_to_bus(atd_state):
     assert alerts[0].evidence_id == atd_state.injection_evidence.scan_id
 
 
+# Scenario 10 steps (Agent Fleet Resource and Token Velocity Enforcement)
+@given("an Agent Quota Enforcer instance configured with a token burn rate limit of 500")
+def given_agent_quota_enforcer_atd(atd_state):
+    from blackwall.enterprise.advanced_threat_detection.alert_bus import AlertBus
+    from blackwall.enterprise.advanced_threat_detection.quota_enforcer import (
+        AgentQuotaEnforcer,
+    )
+
+    atd_state.alert_bus = AlertBus()
+    atd_state.quota_enforcer = AgentQuotaEnforcer(
+        alert_bus=atd_state.alert_bus,
+        token_burn_rate_limit=500.0,
+        quarantine_duration_sec=300.0,
+    )
+
+
+@when("an agent consumes 1000 tokens in 1 second")
+def when_agent_consumes_1000_tokens_atd(atd_state):
+    agent_id = "agent-atd-quota"
+    atd_state.target_agent_id = agent_id
+    atd_state.quota_usage = run_async(
+        atd_state.quota_enforcer.track_token_consumption(
+            agent_id=agent_id,
+            tokens_used=1000,
+            api_calls=1,
+        )
+    )
+    atd_state.quota_exceeded = run_async(
+        atd_state.quota_enforcer.enforce_quota_limits(
+            agent_id=agent_id,
+            auto_quarantine=True,
+        )
+    )
+
+
+@then("the agent is placed into quarantine and a Denial of Wallet alert is dispatched to the Alert Bus")
+def then_agent_quarantined_and_dow_alert(atd_state):
+    assert atd_state.quota_usage.quota_exceeded is True
+    assert atd_state.quota_exceeded is True
+    assert atd_state.quota_enforcer.is_quarantined(atd_state.target_agent_id) is True
+
+    alerts = atd_state.alert_bus.get_alerts(
+        threat_type="DENIAL_OF_WALLET_SURGE",
+        agent_id=atd_state.target_agent_id,
+    )
+    assert len(alerts) >= 1
+    assert alerts[0].agent_id == atd_state.target_agent_id
+
+
+

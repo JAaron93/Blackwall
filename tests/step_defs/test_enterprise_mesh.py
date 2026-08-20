@@ -700,3 +700,55 @@ def verify_mesh_injection_alerts_published(state):
     assert alerts[0].evidence_id == state.mesh_injection_evidence.scan_id
 
 
+# --- Scenario: Pillar 6 Agent Fleet Resource and Denial of Wallet Defense ---
+
+
+@given("an Advanced Threat Detection subsystem with AgentQuotaEnforcer")
+def init_mesh_agent_quota_enforcer(state):
+    from blackwall.enterprise.advanced_threat_detection.alert_bus import AlertBus
+    from blackwall.enterprise.advanced_threat_detection.quota_enforcer import (
+        AgentQuotaEnforcer,
+    )
+
+    state.mesh_dow_alert_bus = AlertBus()
+    state.mesh_quota_enforcer = AgentQuotaEnforcer(
+        alert_bus=state.mesh_dow_alert_bus,
+        token_burn_rate_limit=500.0,
+        quarantine_duration_sec=300.0,
+    )
+
+
+@when("an agent consumes tokens exceeding the configured velocity limits")
+def mesh_agent_exceeds_token_velocity(state):
+    state.mesh_dow_agent_id = "mesh-rogue-agent-01"
+    state.mesh_quota_usage = run_async(
+        state.mesh_quota_enforcer.track_token_consumption(
+            agent_id=state.mesh_dow_agent_id,
+            tokens_used=1200,
+            api_calls=5,
+        )
+    )
+    state.mesh_quota_exceeded = run_async(
+        state.mesh_quota_enforcer.enforce_quota_limits(
+            agent_id=state.mesh_dow_agent_id,
+            auto_quarantine=True,
+        )
+    )
+
+
+@then("the agent is throttled or quarantined and Denial of Wallet alerts are dispatched")
+def verify_mesh_agent_quarantined_and_dow_alerts(state):
+    assert state.mesh_quota_usage.quota_exceeded is True
+    assert state.mesh_quota_exceeded is True
+    assert state.mesh_quota_enforcer.is_quarantined(state.mesh_dow_agent_id) is True
+
+    alerts = state.mesh_dow_alert_bus.get_alerts(
+        threat_type="DENIAL_OF_WALLET_SURGE",
+        agent_id=state.mesh_dow_agent_id,
+    )
+    assert len(alerts) >= 1
+    assert alerts[0].severity in [AlertSeverity.HIGH, AlertSeverity.CRITICAL]
+    assert alerts[0].agent_id == state.mesh_dow_agent_id
+
+
+
