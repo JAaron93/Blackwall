@@ -130,6 +130,27 @@ def test_property_103_agent_quota_usage_model_rejection(
             quota_exceeded=False,
         )
 
+    # Rejection: non-finite token_burn_rate_per_sec (inf, nan)
+    with pytest.raises(ValidationError):
+        AgentQuotaUsage(
+            agent_id="agent_1",
+            time_window_start=valid_dt,
+            tokens_consumed=100,
+            api_call_count=1,
+            token_burn_rate_per_sec=float("inf"),
+            quota_exceeded=False,
+        )
+
+    with pytest.raises(ValidationError):
+        AgentQuotaUsage(
+            agent_id="agent_1",
+            time_window_start=valid_dt,
+            tokens_consumed=100,
+            api_call_count=1,
+            token_burn_rate_per_sec=float("nan"),
+            quota_exceeded=False,
+        )
+
     # Rejection: naive timestamp (no tzinfo)
     with pytest.raises(ValidationError):
         AgentQuotaUsage(

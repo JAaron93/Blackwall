@@ -241,3 +241,24 @@ async def test_parameter_validation() -> None:
             token_burn_rate_per_sec=10.0,
             quota_exceeded=False,
         )
+
+    with pytest.raises(ValidationError):
+        AgentQuotaUsage(
+            agent_id="agent_1",
+            time_window_start=datetime.now(UTC),
+            tokens_consumed=10,
+            api_call_count=1,
+            token_burn_rate_per_sec=float("inf"),
+            quota_exceeded=False,
+        )
+
+    with pytest.raises(ValidationError):
+        AgentQuotaUsage(
+            agent_id="agent_1",
+            time_window_start=datetime.now(UTC),
+            tokens_consumed=10,
+            api_call_count=1,
+            token_burn_rate_per_sec=float("nan"),
+            quota_exceeded=False,
+        )
+

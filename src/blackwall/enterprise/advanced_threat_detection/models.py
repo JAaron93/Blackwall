@@ -1,6 +1,7 @@
 """Data models for Blackwall Advanced Threat Detection pillar."""
 
 from datetime import UTC, datetime
+import math
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -425,9 +426,9 @@ class AgentQuotaUsage(BaseModel):
     @field_validator("token_burn_rate_per_sec")
     @classmethod
     def validate_non_negative_rate(cls, v: float) -> float:
-        """Validate token burn rate is a non-negative float."""
-        if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0.0:
-            raise ValueError("token_burn_rate_per_sec must be a non-negative float")
+        """Validate token burn rate is a finite non-negative float."""
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0.0:
+            raise ValueError("token_burn_rate_per_sec must be a finite non-negative float")
         return float(v)
 
 
