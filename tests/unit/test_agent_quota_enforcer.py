@@ -148,28 +148,56 @@ async def test_sliding_window_eviction() -> None:
 async def test_parameter_validation() -> None:
     """Test invalid parameter rejection across constructor and methods."""
     # Invalid constructor params
-    with pytest.raises(ValueError, match="token_burn_rate_limit must be a float greater than 0.0"):
+    with pytest.raises(ValueError, match="token_burn_rate_limit must be a finite float greater than 0.0"):
         AgentQuotaEnforcer(token_burn_rate_limit=-10.0)
 
-    with pytest.raises(ValueError, match="token_burn_rate_limit must be a float greater than 0.0"):
+    with pytest.raises(ValueError, match="token_burn_rate_limit must be a finite float greater than 0.0"):
         AgentQuotaEnforcer(token_burn_rate_limit=0.0)
 
-    with pytest.raises(ValueError, match="token_burn_rate_limit must be a float greater than 0.0"):
+    with pytest.raises(ValueError, match="token_burn_rate_limit must be a finite float greater than 0.0"):
+        AgentQuotaEnforcer(token_burn_rate_limit=float("nan"))
+
+    with pytest.raises(ValueError, match="token_burn_rate_limit must be a finite float greater than 0.0"):
+        AgentQuotaEnforcer(token_burn_rate_limit=float("inf"))
+
+    with pytest.raises(ValueError, match="token_burn_rate_limit must be a finite float greater than 0.0"):
         AgentQuotaEnforcer(token_burn_rate_limit=True)  # type: ignore
 
-    with pytest.raises(ValueError, match="request_velocity_limit must be a float greater than 0.0"):
+    with pytest.raises(ValueError, match="request_velocity_limit must be a finite float greater than 0.0"):
         AgentQuotaEnforcer(request_velocity_limit=-1.0)
 
-    with pytest.raises(ValueError, match="sliding_window_sec must be a float greater than 0.0"):
+    with pytest.raises(ValueError, match="request_velocity_limit must be a finite float greater than 0.0"):
+        AgentQuotaEnforcer(request_velocity_limit=float("nan"))
+
+    with pytest.raises(ValueError, match="sliding_window_sec must be a finite float greater than 0.0"):
         AgentQuotaEnforcer(sliding_window_sec=0.0)
 
-    with pytest.raises(ValueError, match="quarantine_duration_sec must be a float greater than 0.0"):
+    with pytest.raises(ValueError, match="sliding_window_sec must be a finite float greater than 0.0"):
+        AgentQuotaEnforcer(sliding_window_sec=float("inf"))
+
+    with pytest.raises(ValueError, match="quarantine_duration_sec must be a finite float greater than 0.0"):
         AgentQuotaEnforcer(quarantine_duration_sec=-5.0)
 
-    with pytest.raises(ValueError, match="critical_burn_rate_multiplier must be a float >= 1.0"):
+    with pytest.raises(ValueError, match="quarantine_duration_sec must be a finite float greater than 0.0"):
+        AgentQuotaEnforcer(quarantine_duration_sec=float("nan"))
+
+    with pytest.raises(ValueError, match="critical_burn_rate_multiplier must be a finite float >= 1.0"):
         AgentQuotaEnforcer(critical_burn_rate_multiplier=0.5)
 
+    with pytest.raises(ValueError, match="critical_burn_rate_multiplier must be a finite float >= 1.0"):
+        AgentQuotaEnforcer(critical_burn_rate_multiplier=float("nan"))
+
     enforcer = AgentQuotaEnforcer()
+
+    # Invalid quarantine_agent duration
+    with pytest.raises(ValueError, match="duration_sec must be a finite float greater than 0.0"):
+        enforcer.quarantine_agent("agent_1", duration_sec=-1.0)
+
+    with pytest.raises(ValueError, match="duration_sec must be a finite float greater than 0.0"):
+        enforcer.quarantine_agent("agent_1", duration_sec=float("nan"))
+
+    with pytest.raises(ValueError, match="duration_sec must be a finite float greater than 0.0"):
+        enforcer.quarantine_agent("agent_1", duration_sec=float("inf"))
 
     # Empty agent ID
     with pytest.raises(ValueError, match="agent_id"):

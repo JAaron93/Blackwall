@@ -6,6 +6,7 @@ API request velocity limit enforcement, automated throttling/quarantine, and Den
 
 import collections
 import logging
+import math
 import time
 from datetime import UTC, datetime
 from typing import Optional
@@ -40,37 +41,42 @@ class AgentQuotaEnforcer:
         if (
             isinstance(token_burn_rate_limit, bool)
             or not isinstance(token_burn_rate_limit, (int, float))
+            or not math.isfinite(token_burn_rate_limit)
             or token_burn_rate_limit <= 0.0
         ):
-            raise ValueError("token_burn_rate_limit must be a float greater than 0.0")
+            raise ValueError("token_burn_rate_limit must be a finite float greater than 0.0")
 
         if (
             isinstance(request_velocity_limit, bool)
             or not isinstance(request_velocity_limit, (int, float))
+            or not math.isfinite(request_velocity_limit)
             or request_velocity_limit <= 0.0
         ):
-            raise ValueError("request_velocity_limit must be a float greater than 0.0")
+            raise ValueError("request_velocity_limit must be a finite float greater than 0.0")
 
         if (
             isinstance(sliding_window_sec, bool)
             or not isinstance(sliding_window_sec, (int, float))
+            or not math.isfinite(sliding_window_sec)
             or sliding_window_sec <= 0.0
         ):
-            raise ValueError("sliding_window_sec must be a float greater than 0.0")
+            raise ValueError("sliding_window_sec must be a finite float greater than 0.0")
 
         if (
             isinstance(quarantine_duration_sec, bool)
             or not isinstance(quarantine_duration_sec, (int, float))
+            or not math.isfinite(quarantine_duration_sec)
             or quarantine_duration_sec <= 0.0
         ):
-            raise ValueError("quarantine_duration_sec must be a float greater than 0.0")
+            raise ValueError("quarantine_duration_sec must be a finite float greater than 0.0")
 
         if (
             isinstance(critical_burn_rate_multiplier, bool)
             or not isinstance(critical_burn_rate_multiplier, (int, float))
+            or not math.isfinite(critical_burn_rate_multiplier)
             or critical_burn_rate_multiplier < 1.0
         ):
-            raise ValueError("critical_burn_rate_multiplier must be a float >= 1.0")
+            raise ValueError("critical_burn_rate_multiplier must be a finite float >= 1.0")
 
         self.alert_bus = alert_bus
         self.token_burn_rate_limit = float(token_burn_rate_limit)
@@ -119,10 +125,16 @@ class AgentQuotaEnforcer:
     ) -> None:
         """Place an agent into temporary quarantine."""
         clean_id = validate_non_empty_string(agent_id, field_name="agent_id")
-        duration = self.quarantine_duration_sec if duration_sec is None else float(duration_sec)
-        if duration <= 0.0:
-            raise ValueError("duration_sec must be positive")
+        raw_duration = self.quarantine_duration_sec if duration_sec is None else duration_sec
+        if (
+            isinstance(raw_duration, bool)
+            or not isinstance(raw_duration, (int, float))
+            or not math.isfinite(raw_duration)
+            or raw_duration <= 0.0
+        ):
+            raise ValueError("duration_sec must be a finite float greater than 0.0")
 
+        duration = float(raw_duration)
         expiry_mono = time.monotonic() + duration
         self._quarantined_agents[clean_id] = (expiry_mono, reason)
         logger.warning(
