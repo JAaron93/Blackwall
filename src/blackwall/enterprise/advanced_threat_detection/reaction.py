@@ -30,6 +30,7 @@ from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStor
 from blackwall.enterprise.identity.sidecar import SecretVaultSidecar
 from blackwall.enterprise.kernel.probe import KernelProbeDriver
 from blackwall.enterprise.mcp.vault_mcp import VaultMCPAdapter
+from blackwall.validators import is_evaluation_metadata
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.reaction")
 
@@ -39,9 +40,9 @@ class ActiveReactionEngine:
 
     def __init__(
         self,
-        kernel_driver: KernelProbeDriver | None = None,
+        kernel_driver: KernelProbeDriver | Any | None = None,
         mesh_broadcaster: Any | None = None,
-        vault_adapter: VaultMCPAdapter | SecretVaultSidecar | None = None,
+        vault_adapter: VaultMCPAdapter | SecretVaultSidecar | Any | None = None,
         alert_bus: AlertBus | None = None,
         attack_graph: AttackGraphStore | None = None,
         eval_manager: EvaluationEnvironmentManager | None = None,
@@ -57,15 +58,14 @@ class ActiveReactionEngine:
 
     async def is_evaluation_mode(
         self,
-        evidence_id: uuid.UUID | str,
+        evidence_id: str | uuid.UUID | None = None,
         env_id: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> bool:
-        """Check if trigger evidence originated from an evaluation environment.
+        """Check if reaction trigger originates from an evaluation context (Requirement 22.5).
 
-        Mandatory Evidence-Derived Containment Gate: queries evaluation environment manager,
-        metadata envelope markers, or attack graph store to prevent evaluation artifacts
-        from triggering production mitigations.
+        Implements multi-source fallback: explicit env_id, deterministic URI scheme,
+        envelope metadata markers, EvaluationEnvironmentManager lookup, and AttackGraphStore node provenance.
         """
         # 1. Envelope environment ID (explicit evaluation environment provenance)
         if env_id is not None and str(env_id).strip():
@@ -77,13 +77,9 @@ class ActiveReactionEngine:
                 return True
 
         # 3. Envelope metadata explicit flags & deterministic URI prefixes
+        if is_evaluation_metadata(metadata):
+            return True
         if metadata and isinstance(metadata, dict):
-            if (
-                metadata.get("is_evaluation") is True
-                or metadata.get("eval_mode") is True
-                or (isinstance(metadata.get("evaluation_env_id"), str) and metadata["evaluation_env_id"].strip())
-            ):
-                return True
             eval_uri = metadata.get("evaluation_uri")
             if isinstance(eval_uri, str) and (
                 eval_uri.startswith("blackwall://eval/") or eval_uri.startswith("blackwall://evaluation/")
@@ -120,12 +116,35 @@ class ActiveReactionEngine:
                 if node is not None:
                     meta = node.event.metadata
                     if (
-                        meta.get("is_evaluation") is True
-                        or meta.get("eval_mode") is True
+                        is_evaluation_metadata(meta)
                         or (isinstance(meta.get("evaluation_env_id"), str) and meta["evaluation_env_id"] == env_id)
                     ):
                         return True
 
+        return False
+
+    async def _handle_evaluation_containment_suppression(
+        self,
+        payload: ActiveReactionPayload,
+        start_time: float,
+        action_name: str,
+    ) -> bool:
+        """Check if action occurs within an evaluation environment and handle containment suppression."""
+        is_eval = await self.is_evaluation_mode(
+            payload.trigger_evidence_id,
+            env_id=payload.evaluation_env_id,
+            metadata=payload.metadata,
+        )
+        if is_eval:
+            logger.info(
+                "Evaluation containment: suppressing %s for evidence %s",
+                action_name,
+                payload.trigger_evidence_id,
+            )
+            payload.status = "SUPPRESSED_EVALUATION"
+            payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
+            await self._record_reaction(payload)
+            return True
         return False
 
     async def execute_ebpf_socket_drop(
@@ -138,19 +157,9 @@ class ActiveReactionEngine:
         """
         start_time = time.perf_counter()
 
-        is_eval = await self.is_evaluation_mode(
-            payload.trigger_evidence_id,
-            env_id=payload.evaluation_env_id,
-            metadata=payload.metadata,
-        )
-        if is_eval:
-            logger.info(
-                "Evaluation containment: suppressing eBPF socket drop for evidence %s",
-                payload.trigger_evidence_id,
-            )
-            payload.status = "SUPPRESSED_EVALUATION"
-            payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
-            await self._record_reaction(payload)
+        if await self._handle_evaluation_containment_suppression(
+            payload, start_time, "eBPF socket drop"
+        ):
             return False
 
         success = True
@@ -160,7 +169,9 @@ class ActiveReactionEngine:
                     pid=payload.target_pid,
                     ip=payload.target_ip,
                 )
-                success = bool(res)
+                if asyncio.iscoroutine(res):
+                    res = await res
+                success = bool(res) if res is not None else True
             except Exception as exc:
                 logger.error("Failed to inject eBPF socket drop: %s", exc)
                 success = False
@@ -170,7 +181,7 @@ class ActiveReactionEngine:
         payload.execution_duration_ms = duration_ms
 
         await self._record_reaction(payload)
-        await self._publish_reaction_alert(payload, "eBPF Socket Drop Injected", AlertSeverity.CRITICAL)
+        await self._publish_reaction_alert(payload, "eBPF Socket Drop Mitigation", AlertSeverity.CRITICAL)
         return success
 
     async def broadcast_fleet_signature(
@@ -183,19 +194,9 @@ class ActiveReactionEngine:
         """
         start_time = time.perf_counter()
 
-        is_eval = await self.is_evaluation_mode(
-            payload.trigger_evidence_id,
-            env_id=payload.evaluation_env_id,
-            metadata=payload.metadata,
-        )
-        if is_eval:
-            logger.info(
-                "Evaluation containment: suppressing Threat Mesh broadcast for evidence %s",
-                payload.trigger_evidence_id,
-            )
-            payload.status = "SUPPRESSED_EVALUATION"
-            payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
-            await self._record_reaction(payload)
+        if await self._handle_evaluation_containment_suppression(
+            payload, start_time, "Threat Mesh broadcast"
+        ):
             return False
 
         success = True
@@ -238,19 +239,9 @@ class ActiveReactionEngine:
         """
         start_time = time.perf_counter()
 
-        is_eval = await self.is_evaluation_mode(
-            payload.trigger_evidence_id,
-            env_id=payload.evaluation_env_id,
-            metadata=payload.metadata,
-        )
-        if is_eval:
-            logger.info(
-                "Evaluation containment: suppressing Vault token revocation for evidence %s",
-                payload.trigger_evidence_id,
-            )
-            payload.status = "SUPPRESSED_EVALUATION"
-            payload.execution_duration_ms = (time.perf_counter() - start_time) * 1000.0
-            await self._record_reaction(payload)
+        if await self._handle_evaluation_containment_suppression(
+            payload, start_time, "Vault token revocation"
+        ):
             return False
 
         success = True

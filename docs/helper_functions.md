@@ -22,10 +22,26 @@ Module Location: [`src/blackwall/validators.py`](../src/blackwall/validators.py)
 | `format_iso_datetime` | `(v: Optional[datetime] = None) -> str` | Formats a timezone-aware UTC datetime (or current UTC time if `None`) to an ISO 8601 string representation. | `SQLiteThreatRepository` ([db/repository.py](../src/blackwall/db/repository.py)), `ReportGenerator` ([eval/report_generator.py](../src/blackwall/eval/report_generator.py)). |
 | `parse_iso_datetime` | `(v: Optional[Union[str, datetime]], default: Optional[datetime] = None) -> Optional[datetime]` | Parses an ISO 8601 string or datetime into a UTC timezone-aware datetime. | `SQLiteThreatRepository` ([db/repository.py](../src/blackwall/db/repository.py)). |
 | `compute_word_intersection_match_quality` | `(query_text: str, candidate_text: str) -> float` | Computes word-level intersection match quality (`len(intersection) / max(min_len, 1)`) for FTS queries and candidate texts. | `SQLiteThreatRepository.find_similar_signatures` ([db/repository.py](../src/blackwall/db/repository.py)). |
+| `normalize_time_window` | `(time_window: Optional[Tuple[datetime, datetime]] = None, default_duration_seconds: float = 300.0) -> Tuple[datetime, datetime]` | Validates and normalizes an optional `(start_time, end_time)` window into timezone-aware UTC datetimes, enforcing temporal ordering. If `None`, defaults to `(now - default_duration, now)`. | `PathCorrelator`, `AgentSwarmDetector`, `ExploitChainAnalyzer`, `AILMTracker`, `C2InfrastructureDetector`, `KubernetesDefenseLayer`, `PackageRegistryMonitor`, `RetrospectiveAnalyzer`, `AdvancedThreatDetection` orchestrator ([enterprise/advanced_threat_detection/](../src/blackwall/enterprise/advanced_threat_detection/)). |
+| `compute_jaccard_similarity` | `(set_a: Union[Set[Any], Sequence[Any]], set_b: Union[Set[Any], Sequence[Any]]) -> float` | Computes the Jaccard similarity coefficient \( \frac{\|A \cap B\|}{\|A \cup B\|} \) between two sets or collections. Returns `1.0` if both empty, `0.0` if one empty. | `AgentSwarmDetector` ([enterprise/advanced_threat_detection/swarm.py](../src/blackwall/enterprise/advanced_threat_detection/swarm.py)), `RetrospectiveAnalyzer` ([enterprise/advanced_threat_detection/retrospective.py](../src/blackwall/enterprise/advanced_threat_detection/retrospective.py)). |
+| `compute_exponential_decay` | `(delta_seconds: float, half_life_seconds: float) -> float` | Computes exponential decay factor \( e^{-\frac{\Delta t}{\tau}} \) for temporal proximity scoring. Returns `1.0` for \( \Delta t \le 0 \). | `PathCorrelator` ([enterprise/advanced_threat_detection/correlator.py](../src/blackwall/enterprise/advanced_threat_detection/correlator.py)), `AgentSwarmDetector` ([enterprise/advanced_threat_detection/swarm.py](../src/blackwall/enterprise/advanced_threat_detection/swarm.py)), `ExploitChainAnalyzer` ([enterprise/advanced_threat_detection/exploit.py](../src/blackwall/enterprise/advanced_threat_detection/exploit.py)), `RetrospectiveAnalyzer` ([enterprise/advanced_threat_detection/retrospective.py](../src/blackwall/enterprise/advanced_threat_detection/retrospective.py)). |
+| `clamp_score` | `(score: float, min_val: float = 0.0, max_val: float = 1.0, decimals: Optional[int] = None) -> float` | Clamps a numeric score within `[min_val, max_val]` bounds and optionally rounds to `decimals` precision. | `PathCorrelator`, `AgentSwarmDetector`, `ExploitChainAnalyzer`, `RetrospectiveAnalyzer` ([enterprise/advanced_threat_detection/](../src/blackwall/enterprise/advanced_threat_detection/)). |
+| `is_evaluation_metadata` | `(metadata: Optional[Dict[str, Any]]) -> bool` | Checks if an event, alert, or payload metadata dictionary carries evaluation environment labeling (`is_evaluation=True`, `eval_mode=True`, or non-empty `evaluation_env_id`). | `EvaluationEnvironmentManager` ([enterprise/advanced_threat_detection/evaluation.py](../src/blackwall/enterprise/advanced_threat_detection/evaluation.py)), `ActiveReactionEngine` ([enterprise/advanced_threat_detection/reaction.py](../src/blackwall/enterprise/advanced_threat_detection/reaction.py)). |
+| `stamp_evaluation_metadata` | `(metadata: Optional[Dict[str, Any]], env_id: str) -> Dict[str, Any]` | Immutably stamps a metadata dictionary with evaluation markers (`evaluation_env_id`, `is_evaluation=True`, `eval_mode=True`). | `EvaluationEnvironmentManager` ([enterprise/advanced_threat_detection/evaluation.py](../src/blackwall/enterprise/advanced_threat_detection/evaluation.py)). |
 
 ---
 
-## 2. Test Step Async Helper (`tests/step_defs/async_utils.py`)
+## 2. Threat Detection Domain Helpers (`src/blackwall/enterprise/advanced_threat_detection/correlator.py`)
+
+Module Location: [`src/blackwall/enterprise/advanced_threat_detection/correlator.py`](../src/blackwall/enterprise/advanced_threat_detection/correlator.py)
+
+| Function | Signature | Description / Purpose | Use Cases & Applied Locations |
+| :--- | :--- | :--- | :--- |
+| `map_mitre_attack_techniques` | `(nodes: Sequence[AttackNode], default_fallback: Optional[str] = "T1059") -> List[str]` | Maps attack graph nodes to MITRE ATT&CK technique codes using precompiled regex patterns across action and target fields without order-dependent duplicates. | `PathCorrelator` ([enterprise/advanced_threat_detection/correlator.py](../src/blackwall/enterprise/advanced_threat_detection/correlator.py)), `RetrospectiveAnalyzer` ([enterprise/advanced_threat_detection/retrospective.py](../src/blackwall/enterprise/advanced_threat_detection/retrospective.py)). |
+
+---
+
+## 3. Test Step Async Helper (`tests/step_defs/async_utils.py`)
 
 Module Location: [`tests/step_defs/async_utils.py`](../tests/step_defs/async_utils.py)
 
@@ -36,7 +52,7 @@ Module Location: [`tests/step_defs/async_utils.py`](../tests/step_defs/async_uti
 
 ---
 
-## 3. BDD Security Contract Helpers (`tests/step_defs/test_security_contract_validators_steps.py`)
+## 4. BDD Security Contract Helpers (`tests/step_defs/test_security_contract_validators_steps.py`)
 
 Module Location: [`tests/step_defs/test_security_contract_validators_steps.py`](../tests/step_defs/test_security_contract_validators_steps.py)
 Feature Location: [`tests/features/security_contract_validators.feature`](../tests/features/security_contract_validators.feature)
@@ -62,7 +78,7 @@ Feature Location: [`tests/features/security_contract_validators.feature`](../tes
 
 ---
 
-## Guidelines for Adding New Helpers
+## 5. Guidelines for Adding New Helpers
 1. Place general domain/validation helpers in `src/blackwall/validators.py` or dedicated sub-package utility modules.
 2. Ensure all helper functions follow the **Single Responsibility Principle**.
 3. Always add unit tests for new helper functions in `tests/unit/test_validators.py`.

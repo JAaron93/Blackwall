@@ -1,6 +1,6 @@
 """Centralized validation and utility helpers for Blackwall."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import json
 import re
 from typing import Any, Collection, Optional, TypeVar, Union
@@ -144,4 +144,104 @@ def compute_word_intersection_match_quality(query_text: str, candidate_text: str
     intersection = query_words & candidate_words
     min_len = min(len(query_words), len(candidate_words))
     return len(intersection) / max(min_len, 1)
+
+
+def normalize_time_window(
+    time_window: Optional[tuple[datetime, datetime]] = None,
+    default_duration_seconds: Optional[float] = None,
+) -> tuple[datetime, datetime]:
+    """Normalize and validate a time window tuple (start_time, end_time).
+
+    If time_window is provided:
+        Validates temporal sequence (end_time >= start_time) and UTC timezone awareness.
+    If time_window is None and default_duration_seconds is provided:
+        Computes (utc_now() - timedelta(seconds=default_duration_seconds), utc_now()).
+    If neither is provided:
+        Raises ValueError.
+    """
+    if time_window is not None:
+        start_raw, end_raw = time_window
+        validate_temporal_sequence(
+            start_raw, end_raw, start_name="start_time", end_name="end_time"
+        )
+        return (validate_utc_datetime(start_raw), validate_utc_datetime(end_raw))
+
+    if default_duration_seconds is not None:
+        if default_duration_seconds <= 0:
+            raise ValueError("default_duration_seconds must be positive")
+        end_win = utc_now()
+        start_win = end_win - timedelta(seconds=default_duration_seconds)
+        return (start_win, end_win)
+
+    raise ValueError("time_window is required when no default duration is specified")
+
+
+def compute_jaccard_similarity(
+    set_a: Collection[Any], set_b: Collection[Any]
+) -> float:
+    """Compute Jaccard similarity coefficient |A ∩ B| / |A ∪ B| between two collections in [0.0, 1.0]."""
+    s_a = set(set_a)
+    s_b = set(set_b)
+    if not s_a and not s_b:
+        return 0.0
+    union_len = len(s_a | s_b)
+    if union_len == 0:
+        return 0.0
+    return len(s_a & s_b) / union_len
+
+
+def compute_exponential_decay(
+    delta_seconds: float, tau: float = 300.0
+) -> float:
+    """Compute exponential decay score exp(-delta / tau) in [0.0, 1.0] with mathematical safety."""
+    import math
+
+    if math.isnan(delta_seconds) or math.isinf(delta_seconds):
+        return 0.0
+    tau_val = tau if not (math.isnan(tau) or math.isinf(tau) or tau <= 0) else 300.0
+    return math.exp(-max(0.0, delta_seconds) / tau_val)
+
+
+def clamp_score(
+    score: float,
+    min_val: float = 0.0,
+    max_val: float = 1.0,
+    decimals: Optional[int] = None,
+) -> float:
+    """Safely clamp a numeric score within [min_val, max_val] and optionally round to decimal places."""
+    import math
+
+    if math.isnan(score) or math.isinf(score):
+        val = min_val
+    else:
+        val = max(min_val, min(max_val, float(score)))
+
+    return round(val, decimals) if decimals is not None else val
+
+
+def is_evaluation_metadata(metadata: Optional[dict[str, Any]]) -> bool:
+    """Check if a metadata dictionary contains evaluation environment markers."""
+    if not metadata or not isinstance(metadata, dict):
+        return False
+    return bool(
+        metadata.get("is_evaluation") is True
+        or metadata.get("eval_mode") is True
+        or (
+            isinstance(metadata.get("evaluation_env_id"), str)
+            and metadata["evaluation_env_id"].strip()
+        )
+    )
+
+
+def stamp_evaluation_metadata(
+    metadata: Optional[dict[str, Any]], env_id: str
+) -> dict[str, Any]:
+    """Stamp a metadata dictionary with evaluation environment provenance markers."""
+    clean_id = validate_non_empty_string(env_id, field_name="env_id")
+    meta = dict(metadata) if isinstance(metadata, dict) else {}
+    meta["evaluation_env_id"] = clean_id
+    meta["is_evaluation"] = True
+    meta["eval_mode"] = True
+    return meta
+
 
