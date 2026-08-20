@@ -22,6 +22,9 @@ from blackwall.enterprise.advanced_threat_detection.enums import (
     AlertSeverity,
     EventSource,
     ExploitCategory,
+    InboundMethodType,
+    InboundProtocolType,
+    InjectionSourceType,
     ReactionActionType,
 )
 from blackwall.enterprise.advanced_threat_detection.evaluation import (
@@ -33,23 +36,35 @@ from blackwall.enterprise.advanced_threat_detection.exploit import ExploitChainA
 from blackwall.enterprise.advanced_threat_detection.graph_export import (
     AttackGraphExporter,
 )
+from blackwall.enterprise.advanced_threat_detection.inbound_filter import (
+    InboundProtocolFilter,
+)
 from blackwall.enterprise.advanced_threat_detection.k8s import KubernetesDefenseLayer
 from blackwall.enterprise.advanced_threat_detection.models import (
     AILMEvidence,
     ActiveReactionPayload,
+    AgentQuotaUsage,
     Alert,
     AttackNode,
     AttackPath,
     C2Evidence,
     ExploitChainEvidence,
+    InboundProtocolMessage,
     K8sThreatEvidence,
     NormalizedEvent,
     PermissionGrant,
+    PromptInjectionEvidence,
     RegistryThreatEvidence,
     SwarmEvidence,
 )
 from blackwall.enterprise.advanced_threat_detection.orchestrator import (
     AdvancedThreatDetection,
+)
+from blackwall.enterprise.advanced_threat_detection.prompt_injection import (
+    PromptInjectionScanner,
+)
+from blackwall.enterprise.advanced_threat_detection.quota_enforcer import (
+    AgentQuotaEnforcer,
 )
 from blackwall.enterprise.advanced_threat_detection.reaction import (
     ActiveReactionEngine,
@@ -88,6 +103,8 @@ __all__ = [
     "ActiveReactionPayload",
     "AdvancedThreatDetection",
     "AdvancedThreatDetectionConfig",
+    "AgentQuotaEnforcer",
+    "AgentQuotaUsage",
     "AgentSwarmDetector",
     "Alert",
     "AlertBus",
@@ -111,12 +128,19 @@ __all__ = [
     "GCPVertexAIEvaluationHarness",
     "GCPVertexEvalConfig",
     "GCPVertexEvalMetrics",
+    "InboundMethodType",
+    "InboundProtocolFilter",
+    "InboundProtocolMessage",
+    "InboundProtocolType",
+    "InjectionSourceType",
     "K8sThreatEvidence",
     "KubernetesDefenseLayer",
     "NormalizedEvent",
     "PackageRegistryMonitor",
     "PathCorrelator",
     "PermissionGrant",
+    "PromptInjectionEvidence",
+    "PromptInjectionScanner",
     "ReactionActionType",
     "RegistryThreatEvidence",
     "ResourceThrottler",

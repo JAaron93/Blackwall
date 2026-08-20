@@ -877,28 +877,28 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 22.1, 22.2, 22.3, 22.4, 22.5, 14.5_
     - _Verification: `pytest tests/step_defs/test_active_threat_reaction_bdd.py -v`_
 
-- [ ] 25. Implement Inbound Protocol Interception and Cross-Agent Inspection
-  - [ ] 25.1 Create `InboundProtocolFilter` class
+- [x] 25. Implement Inbound Protocol Interception and Cross-Agent Inspection
+  - [x] 25.1 Create `InboundProtocolFilter` class
     - Implement ingress RPC message parsing and `InboundProtocolMessage` validation
     - _Requirements: 23.4, 15.11_
     - _Verification: `pytest tests/unit/test_inbound_protocol_filter.py::test_message_parsing -v`_
 
-  - [ ] 25.2 Implement Origin/Host header validation
+  - [x] 25.2 Implement Origin/Host header validation
     - Enforce origin checks for HTTP/SSE MCP and A2A endpoints; reject unauthenticated remote connections
     - _Requirements: 23.1_
     - _Verification: `pytest tests/unit/test_inbound_protocol_filter.py::test_header_validation -v`_
 
-  - [ ] 25.3 Implement sliding-window inbound rate-limiting
+  - [x] 25.3 Implement sliding-window inbound rate-limiting
     - Limit incoming cross-agent request volume per sender identity
     - _Requirements: 23.2_
     - _Verification: `pytest tests/unit/test_inbound_protocol_filter.py::test_rate_limiting -v`_
 
-  - [ ] 25.4 Implement JSON-RPC payload sanitization
+  - [x] 25.4 Implement JSON-RPC payload sanitization
     - Extract and sanitize `tools/call` parameters before host agent execution
     - _Requirements: 23.3_
     - _Verification: `pytest tests/unit/test_inbound_protocol_filter.py::test_rpc_sanitization -v`_
 
-  - [ ] 25.5 Write property tests for Inbound Protocol Filter
+  - [x] 25.5 Write property tests for Inbound Protocol Filter
     - **Property 93: Inbound Header and Origin Enforcement**
     - **Property 94: Inbound Rate Limit Boundary**
     - **Property 95: Inbound JSON-RPC Sanitization**
@@ -906,7 +906,7 @@ The implementation follows a test-driven development approach with property-base
     - **Validates: Requirements 23.1, 23.2, 23.3, 23.4**
     - _Verification: `pytest tests/property/test_inbound_filter_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 25.6 Write BDD feature tests for Inbound Protocol Filter
+  - [x] 25.6 Write BDD feature tests for Inbound Protocol Filter
     - Create `tests/features/inbound_protocol_filter.feature` with Gherkin scenarios
     - Scenario: incoming RPC request with invalid Origin header is rejected
     - Scenario: request surge exceeding sliding-window limit drops additional messages
@@ -914,30 +914,30 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 23.1, 23.2, 23.3, 23.4_
     - _Verification: `pytest tests/step_defs/test_inbound_protocol_filter_bdd.py -v`_
 
-- [ ] 26. Implement Indirect Prompt Injection and Data Poisoning Defense
-  - [ ] 26.1 Create `PromptInjectionScanner` class
+- [x] 26. Implement Indirect Prompt Injection and Data Poisoning Defense
+  - [x] 26.1 Create `PromptInjectionScanner` class
     - Implement pattern matcher for structural jailbreaks and `PromptInjectionEvidence` validation
     - _Requirements: 24.1, 15.12_
     - _Verification: `pytest tests/unit/test_prompt_injection_scanner.py::test_pattern_matching -v`_
 
-  - [ ] 26.2 Implement payload scanning across external data sources
+  - [x] 26.2 Implement payload scanning across external data sources
     - Scan git diffs, web scrapes, and incoming messages before context ingestion
     - _Requirements: 24.1_
     - _Verification: `pytest tests/unit/test_prompt_injection_scanner.py::test_payload_scanning -v`_
 
-  - [ ] 26.3 Implement injection vector redaction
+  - [x] 26.3 Implement injection vector redaction
     - Redact and quash injection vectors before passing data to host agent context
     - _Requirements: 24.2_
     - _Verification: `pytest tests/unit/test_prompt_injection_scanner.py::test_vector_redaction -v`_
 
-  - [ ] 26.4 Write property tests for Prompt Injection Scanner
+  - [x] 26.4 Write property tests for Prompt Injection Scanner
     - **Property 97: Prompt Injection Pattern Detection**
     - **Property 98: Injection Vector Redaction**
     - **Property 99: Injection Alert Generation**
     - **Validates: Requirements 24.1, 24.2, 24.3**
     - _Verification: `pytest tests/property/test_prompt_injection_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 26.5 Write BDD feature tests for Prompt Injection Scanner
+  - [x] 26.5 Write BDD feature tests for Prompt Injection Scanner
     - Create `tests/features/prompt_injection_scanner.feature` with Gherkin scenarios
     - Scenario: git diff containing hidden system prompt override is detected and flagged
     - Scenario: injection vectors are redacted before content enters agent context
@@ -945,30 +945,30 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 24.1, 24.2, 24.3_
     - _Verification: `pytest tests/step_defs/test_prompt_injection_scanner_bdd.py -v`_
 
-- [ ] 27. Implement Agent Fleet Resource and Token Velocity Enforcement (Denial of Wallet Defense)
-  - [ ] 27.1 Create `AgentQuotaEnforcer` class
+- [x] 27. Implement Agent Fleet Resource and Token Velocity Enforcement (Denial of Wallet Defense)
+  - [x] 27.1 Create `AgentQuotaEnforcer` class
     - Track real-time token consumption and rolling burn rate per second with `AgentQuotaUsage` validation
     - _Requirements: 25.1, 15.13_
     - _Verification: `pytest tests/unit/test_agent_quota_enforcer.py::test_token_tracking -v`_
 
-  - [ ] 27.2 Implement velocity limit enforcement and quarantine
+  - [x] 27.2 Implement velocity limit enforcement and quarantine
     - Trigger automated throttling or temporary quarantine when velocity caps exceeded
     - _Requirements: 25.2_
     - _Verification: `pytest tests/unit/test_agent_quota_enforcer.py::test_velocity_enforcement -v`_
 
-  - [ ] 27.3 Implement Denial of Wallet alert generation
+  - [x] 27.3 Implement Denial of Wallet alert generation
     - Publish Denial of Wallet alerts when token burn spikes occur
     - _Requirements: 25.3_
     - _Verification: `pytest tests/unit/test_agent_quota_enforcer.py::test_dow_alerts -v`_
 
-  - [ ] 27.4 Write property tests for Agent Quota Enforcer
+  - [x] 27.4 Write property tests for Agent Quota Enforcer
     - **Property 100: Token Consumption Rate Tracking**
     - **Property 101: Velocity Limit Quarantine Trigger**
     - **Property 102: Quota Violation Alert Mapping**
     - **Validates: Requirements 25.1, 25.2, 25.3**
     - _Verification: `pytest tests/property/test_quota_enforcer_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 27.5 Write BDD feature tests for Agent Quota Enforcer
+  - [x] 27.5 Write BDD feature tests for Agent Quota Enforcer
     - Create `tests/features/agent_quota_enforcer.feature` with Gherkin scenarios
     - Scenario: token burn rate exceeding 500 tokens/sec triggers agent quarantine
     - Scenario: API call velocity surge emits Denial of Wallet alert to Alert Bus

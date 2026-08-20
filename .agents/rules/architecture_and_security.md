@@ -111,10 +111,11 @@
 * **Rationale:** VirusTotal commercial enterprise API subscriptions cost >$1,000/month and are an explicit non-goal. Conflating third-party Threat Intelligence rate limits with Gemini LLM model quotas creates catastrophic financial exposure.
 
 ## 26. Network Security Detector Endpoint Parsing & IPv4/IPv6 Loopback Range Filtering
-* **Rule:** Security detection modules parsing network targets or hostnames (e.g. `C2InfrastructureDetector`, network event correlators) MUST:
+* **Rule:** Security detection modules parsing network targets or hostnames (e.g. `C2InfrastructureDetector`, network event correlators, `InboundProtocolFilter`) MUST:
   1. Enclose unbracketed IPv6 target strings (e.g. `::1`, `::1:8080`) in brackets (`[::1]`, `[::1]:8080`) before passing to URL parsers (`urlparse`) to prevent colons from being split into empty host components.
-  2. Treat the entire `127.0.0.0/8` IPv4 loopback block (e.g. `127.0.0.2`), IPv6 loopback (`::1`, `[::1]`), and IPv4-mapped IPv6 loopback addresses (`::ffff:127.0.0.0/8`, e.g. `[::ffff:127.0.0.1]:8080`) as local loopback endpoints (`_is_local_host` / `_is_local_endpoint`) alongside `localhost`.
-* **Rationale:** Single IP exact-string comparisons (e.g., checking only `"127.0.0.1"` or `"::1"`) allow unbracketed IPv6 ports, alternative IPv4 loopback subnets (`127.0.0.2`), or IPv4-mapped IPv6 loopbacks (`::ffff:127.0.0.1`) to bypass local endpoint filtering, resulting in false cross-pillar persistence indicators and false `C2Evidence`.
+  2. Treat the entire `127.0.0.0/8` IPv4 loopback block (e.g. `127.0.0.2`), IPv6 loopback (`::1`, `[::1]`), and IPv4-mapped IPv6 loopback addresses (`::ffff:127.0.0.0/8`, e.g. `[::ffff:127.0.0.1]:8080`) as local loopback endpoints (`_is_local_host` / `_is_local_endpoint` / `_is_loopback`) alongside `localhost`.
+  3. Extract IP literals from bracketed IPv6 host headers with ports (e.g. `[::1]:8000` -> `::1` or `[::1]`) by parsing bracket delimiters (`clean[1:clean.index("]")]`) before port stripping or IP address parsing. Naive colon splitting (`split(":")[0]`) leaves trailing colons or corrupted IPv6 addresses.
+* **Rationale:** Single IP exact-string comparisons and naive colon splitting allow valid bracketed IPv6 requests with ports (`[::1]:8000`) or alternative loopback subnets (`127.0.0.2`) to be rejected or misclassified as remote traffic.
 
 ## 27. Destination Metadata Extraction Isolation in Security Event Correlation
 * **Rule:** Cross-pillar security correlation components and endpoint classifiers extracting target endpoints from event metadata MUST restrict metadata extraction strictly to explicit, known network destination keys (`DESTINATION_KEYS = {"url", "uri", "endpoint", "domain", "host", "target", "c2_url", "remote_url", "destination", "dest_url", "server"}`) or validated HTTP/HTTPS URLs. Security engines MUST NOT perform loose substring searches (e.g. searching for `"http"`, `"bin"`, or `"paste"`) over arbitrary string metadata values.
@@ -228,17 +229,42 @@
   - Dataset utilities providing tabular outputs (`as_dataframe=True`) MUST gracefully handle missing optional dependencies (`pandas`) with safe `ImportError` fallback to standard dictionaries, without referencing uninitialized loggers.
 * **Rationale:** Enforces deterministic evaluation reporting in Vertex AI mode, guarantees end-to-end telemetry capture in Google Cloud Trace, prevents silent false positives during security harness runs, and preserves pristine isolation between evaluation artifacts and persistent threat graphs.
 
-## 44. Low-Level Syscall vs. Container Orchestrator Lifecycle Separation
+## 44. Ingress Payload Scanning, Literal Substitution, & Positive Threshold Validation Invariants
+* **Rule (Strictly Positive Confidence Thresholds & Benign Alert Guarding):**
+  - Parameter validators for security confidence thresholds (e.g. `confidence_threshold`, `critical_confidence_threshold`) MUST enforce strictly positive values (`0.0 < threshold <= 1.0`), raising `ValueError` when `0.0` or negative values are provided.
+  - Alert publishing routines MUST explicitly verify that threat indicators were matched (`if matched_patterns and confidence >= self.confidence_threshold:`) before publishing alerts to the `AlertBus`, ensuring benign inputs receiving baseline `0.0` confidence never trigger false-positive security alerts with `NO_INJECTION_DETECTED` evidence.
+* **Rule (Literal Replacement in Regex Sanitization & Redaction):**
+  - When replacing detected malicious payloads or injection vectors via `Pattern.sub` or `re.sub` with configurable user-provided or default placeholders (e.g., `redaction_placeholder`), replacement MUST be performed using a callable (`pattern.sub(lambda _match: self.redaction_placeholder, text)`) or `re.escape`-protected string.
+  - Passing unescaped replacement strings directly to `re.sub` is strictly prohibited to prevent regex template/group backreference injection (e.g., `\g<0>`, `\1`) from re-inserting malicious payloads or raising syntax errors that leave exploit vectors unredacted in host execution contexts.
+* **Rationale:** Permitting `0.0` threshold values allows benign inputs to satisfy `>= 0.0` comparisons and emit spurious `HIGH`/`CRITICAL` alerts that flood SOC pipelines. Passing unescaped replacement strings to regex engines allows crafted placeholders with backreferences to reconstitute stripped exploit spans, defeating prompt injection and data poisoning containment.
+
+## 45. Non-Finite Numeric Limit Validation & Resource Quota Invariants
+* **Rule (Finite Float Validation on Numeric Thresholds, Rates, and Durations):**
+  - All numeric constructor and method parameters representing security limits, rate caps, sliding windows, timeouts, multipliers, and durations (e.g. `token_burn_rate_limit`, `request_velocity_limit`, `sliding_window_sec`, `quarantine_duration_sec`, `critical_burn_rate_multiplier`, `duration_sec`, `confidence_threshold`) MUST be explicitly validated with `math.isfinite(x)` in addition to type and positivity checks:
+    ```python
+    if (
+        isinstance(x, bool)
+        or not isinstance(x, (int, float))
+        or not math.isfinite(x)
+        or x <= 0.0
+    ):
+        raise ValueError("x must be a finite float greater than 0.0")
+    ```
+  - Relying solely on `x <= 0.0` or `x < 1.0` is strictly prohibited because comparisons with `NaN` (e.g. `float('nan') <= 0.0`) evaluate to `False` in Python, accepting invalid inputs. Similarly, positive infinity (`float('inf')`) passes `> 0.0` checks and breaks enforcement: infinite rate/velocity limits prevent threshold comparisons from triggering, while infinite timeouts and quarantine durations produce holds that never expire automatically.
+* **Rationale:** Accepting `NaN` breaks mathematical comparisons in sliding-window calculations and alert severity evaluation, causing silent security failures. Accepting `+inf` disables throttling and creates unexpiring quarantines, causing denial of service for benign workloads or unmitigated Denial of Wallet (DoW) exposure for adversarial workloads.
+
+## 46. Low-Level Syscall vs. Container Orchestrator Lifecycle Separation
 * **Rule:** Container and Kubernetes security detectors (`KubernetesDefenseLayer`, container sandbox monitors) MUST strictly separate low-level kernel/process syscall actions (`sys_clone`, `sys_fork`, `clone`) from high-level orchestrator lifecycle actions (`POD_CREATE_ACTIONS`, `POD_TERM_ACTIONS`, `FLEET_SPAWN_ACTIONS`).
 * **Rule:** Low-level process creation syscalls captured via eBPF tracepoints or audit hooks MUST NOT be included in pod creation or pod self-respawn action sets.
 * **Rationale:** Generic process/thread cloning inside sandbox containers (e.g. worker process forks during CyBench executions) shares the same process namespace or container ID. Treating `sys_clone` as pod creation produces false `fleet_spawning` and `self_respawning_pod` threat evidence.
 
-## 45. Multi-Day Retrospective Semantic Edge Decay & MITRE Technique Gating
+## 47. Multi-Day Retrospective Semantic Edge Decay & MITRE Technique Gating
 * **Rule:** Retrospective attack path correlators (`RetrospectiveAnalyzer.reconstruct_causal_graph`) constructing semantic and temporal edges across multi-day analysis windows MUST:
   1. Scale non-causal same-target edge weights strictly by continuous exponential decay ($w = \text{base} \cdot e^{-\Delta t / \tau}$), requiring $w \ge 0.4$ for edge creation without applying artificial constant baselines that keep weights $\ge 0.4$ as $\Delta t \to \infty$.
   2. Gate base edge multipliers on MITRE ATT&CK technique matches (e.g. $\text{base} = 0.8$ for MITRE-matched actions, $\text{base} = 0.5$ for non-MITRE routine actions).
   3. Traverse all identified root nodes without artificial finite result collection caps that terminate DFS early and starve sibling branches.
 * **Rationale:** Constant baseline additions connect unrelated routine actions occurring days apart, while un-gated decay severs multi-stage stealth campaigns. Gating decay on MITRE technique relevance preserves genuine multi-day attack paths while rejecting disconnected benign activity.
+
 
 
 
