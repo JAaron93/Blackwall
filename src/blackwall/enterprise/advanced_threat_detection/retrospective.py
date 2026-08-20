@@ -201,17 +201,17 @@ class RetrospectiveAnalyzer:
                     is_strict_tier_escalation = (tier_b > tier_a) and (tier_b - tier_a <= 3) and (a_has_mitre or b_has_mitre)
 
                     if same_target:
-                        decay = compute_exponential_decay(delta, max(300.0, max_time_gap_seconds / 10.0))
-                        weight = clamp_score(0.8 * decay, 0.0, 1.0, decimals=4)
+                        decay = compute_exponential_decay(delta, max(300.0, max_time_gap_seconds))
+                        weight = clamp_score(0.4 + 0.4 * decay, 0.0, 1.0, decimals=4)
                         if weight >= 0.4:
                             adj[n_a.node_id].append((n_b, weight))
                             in_degree[n_b.node_id] += 1
                             added_target_ids.add(n_b.node_id)
 
                     elif is_strict_tier_escalation:
-                        decay = compute_exponential_decay(delta, max(300.0, max_time_gap_seconds / 10.0))
-                        semantic_base = 0.5 + (0.1 * abs(tier_b - tier_a))
-                        weight = clamp_score(semantic_base * decay, 0.0, 1.0, decimals=4)
+                        decay = compute_exponential_decay(delta, max(300.0, max_time_gap_seconds))
+                        semantic_base = 0.4 + (0.1 * abs(tier_b - tier_a))
+                        weight = clamp_score(semantic_base + 0.3 * decay, 0.0, 1.0, decimals=4)
                         if weight >= 0.4:
                             adj[n_a.node_id].append((n_b, weight))
                             in_degree[n_b.node_id] += 1
