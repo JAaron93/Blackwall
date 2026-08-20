@@ -163,10 +163,10 @@ class PromptInjectionScanner:
         redaction_placeholder: str = "[REDACTED_PROMPT_INJECTION]",
         custom_patterns: list[tuple[str, re.Pattern[str], float]] | None = None,
     ) -> None:
-        if isinstance(confidence_threshold, bool) or not isinstance(confidence_threshold, (int, float)) or not (0.0 <= confidence_threshold <= 1.0):
-            raise ValueError("confidence_threshold must be a float between 0.0 and 1.0")
-        if isinstance(critical_confidence_threshold, bool) or not isinstance(critical_confidence_threshold, (int, float)) or not (0.0 <= critical_confidence_threshold <= 1.0):
-            raise ValueError("critical_confidence_threshold must be a float between 0.0 and 1.0")
+        if isinstance(confidence_threshold, bool) or not isinstance(confidence_threshold, (int, float)) or not (0.0 < confidence_threshold <= 1.0):
+            raise ValueError("confidence_threshold must be a float greater than 0.0 and at most 1.0")
+        if isinstance(critical_confidence_threshold, bool) or not isinstance(critical_confidence_threshold, (int, float)) or not (0.0 < critical_confidence_threshold <= 1.0):
+            raise ValueError("critical_confidence_threshold must be a float greater than 0.0 and at most 1.0")
         if critical_confidence_threshold < confidence_threshold:
             raise ValueError("critical_confidence_threshold must be greater than or equal to confidence_threshold")
 
@@ -229,7 +229,7 @@ class PromptInjectionScanner:
             for name, pattern, _weight in self._patterns:
                 if name in matched_patterns:
                     try:
-                        sanitized = pattern.sub(self.redaction_placeholder, sanitized)
+                        sanitized = pattern.sub(lambda _match: self.redaction_placeholder, sanitized)
                     except re.error as exc:
                         logger.warning("Pattern redaction failed for %s: %s", name, exc)
 
@@ -242,7 +242,7 @@ class PromptInjectionScanner:
         scan_id = uuid4()
 
         # Emit alert if confidence exceeds threshold
-        if confidence >= self.confidence_threshold and self.alert_bus is not None:
+        if matched_patterns and confidence >= self.confidence_threshold and self.alert_bus is not None:
             severity = (
                 AlertSeverity.CRITICAL
                 if confidence >= self.critical_confidence_threshold
