@@ -914,30 +914,30 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 23.1, 23.2, 23.3, 23.4_
     - _Verification: `pytest tests/step_defs/test_inbound_protocol_filter_bdd.py -v`_
 
-- [ ] 26. Implement Indirect Prompt Injection and Data Poisoning Defense
-  - [ ] 26.1 Create `PromptInjectionScanner` class
+- [x] 26. Implement Indirect Prompt Injection and Data Poisoning Defense
+  - [x] 26.1 Create `PromptInjectionScanner` class
     - Implement pattern matcher for structural jailbreaks and `PromptInjectionEvidence` validation
     - _Requirements: 24.1, 15.12_
     - _Verification: `pytest tests/unit/test_prompt_injection_scanner.py::test_pattern_matching -v`_
 
-  - [ ] 26.2 Implement payload scanning across external data sources
+  - [x] 26.2 Implement payload scanning across external data sources
     - Scan git diffs, web scrapes, and incoming messages before context ingestion
     - _Requirements: 24.1_
     - _Verification: `pytest tests/unit/test_prompt_injection_scanner.py::test_payload_scanning -v`_
 
-  - [ ] 26.3 Implement injection vector redaction
+  - [x] 26.3 Implement injection vector redaction
     - Redact and quash injection vectors before passing data to host agent context
     - _Requirements: 24.2_
     - _Verification: `pytest tests/unit/test_prompt_injection_scanner.py::test_vector_redaction -v`_
 
-  - [ ] 26.4 Write property tests for Prompt Injection Scanner
+  - [x] 26.4 Write property tests for Prompt Injection Scanner
     - **Property 97: Prompt Injection Pattern Detection**
     - **Property 98: Injection Vector Redaction**
     - **Property 99: Injection Alert Generation**
     - **Validates: Requirements 24.1, 24.2, 24.3**
     - _Verification: `pytest tests/property/test_prompt_injection_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] 26.5 Write BDD feature tests for Prompt Injection Scanner
+  - [x] 26.5 Write BDD feature tests for Prompt Injection Scanner
     - Create `tests/features/prompt_injection_scanner.feature` with Gherkin scenarios
     - Scenario: git diff containing hidden system prompt override is detected and flagged
     - Scenario: injection vectors are redacted before content enters agent context

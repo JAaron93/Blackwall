@@ -68,3 +68,10 @@ Feature: Blackwall Enterprise Security Mesh End-to-End Integration
     When detector exceptions occur or stream volume surges
     Then errors are isolated and analysis depth is dynamically adjusted
 
+  Scenario: Pillar 6 Indirect Prompt Injection and Data Poisoning Defense
+    Given an Advanced Threat Detection subsystem with PromptInjectionScanner
+    When an incoming message or git diff containing hidden prompt injection is intercepted
+    Then the injection vectors are neutralized before host agent ingestion
+    And high confidence alerts are published to the Alert Bus
+
+

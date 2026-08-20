@@ -12,6 +12,7 @@ from blackwall.enterprise.advanced_threat_detection.enums import (
     ExploitCategory,
     InboundMethodType,
     InboundProtocolType,
+    InjectionSourceType,
     ReactionActionType,
 )
 from blackwall.validators import (
@@ -359,6 +360,37 @@ class InboundProtocolMessage(BaseModel):
         if not v or not isinstance(v, dict):
             raise ValueError("payload must be a non-empty dictionary")
         return v
+
+
+class PromptInjectionEvidence(BaseModel):
+    """Evidence structure for indirect prompt injection and data poisoning attempts."""
+
+    scan_id: UUID4 = Field(default_factory=uuid4)
+    source_context: InjectionSourceType
+    detected_patterns: list[str] = Field(..., min_length=1)
+    injection_confidence: float = Field(..., ge=0.0, le=1.0)
+    sanitized_content: str = Field(..., min_length=1)
+
+    @field_validator("scan_id")
+    @classmethod
+    def validate_uuid_v4(cls, v: Any, info: Any) -> UUID:
+        """Validate scan_id is a valid UUID v4."""
+        return validate_uuid_v4_format(v, field_name=info.field_name)
+
+    @field_validator("detected_patterns")
+    @classmethod
+    def validate_min_patterns(cls, v: list[str]) -> list[str]:
+        """Validate detected_patterns contains at least 1 pattern."""
+        return validate_min_items(
+            v, min_items=1, custom_msg="PromptInjectionEvidence detected_patterns must contain at least 1 pattern"
+        )
+
+    @field_validator("sanitized_content")
+    @classmethod
+    def validate_sanitized_content(cls, v: str, info: Any) -> str:
+        """Validate sanitized_content is not empty or whitespace only."""
+        return validate_non_empty_string(v, field_name=info.field_name)
+
 
 
 

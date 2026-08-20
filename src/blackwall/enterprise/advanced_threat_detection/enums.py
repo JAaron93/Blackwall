@@ -55,4 +55,13 @@ class InboundMethodType(str, Enum):
     PROMPT_SUBMIT = "prompt/submit"
 
 
+class InjectionSourceType(str, Enum):
+    """Source context of content analyzed for indirect prompt injection."""
+
+    GIT_DIFF = "git_diff"
+    WEB_SCRAPE = "web_scrape"
+    INCOMING_A2A_MSG = "incoming_a2a_msg"
+
+
+
 
