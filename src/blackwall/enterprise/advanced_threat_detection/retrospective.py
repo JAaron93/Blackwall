@@ -222,26 +222,16 @@ class RetrospectiveAnalyzer:
 
             paths_for_agent: list[list[AttackNode]] = []
             for root in start_nodes:
-                root_paths: list[list[AttackNode]] = []
-                neighbors = adj.get(root.node_id, [])
-                if not neighbors:
-                    if len([root]) >= min_path_length:
-                        root_paths.append([root])
-                else:
-                    for child, _ in neighbors:
-                        branch_paths: list[list[AttackNode]] = []
-                        self._dfs_retrospective(
-                            current_node=child,
-                            current_path=[root, child],
-                            adj=adj,
-                            min_path_length=min_path_length,
-                            visited_in_path={root.node_id, child.node_id},
-                            results=branch_paths,
-                            max_depth=15,
-                            max_results=100,
-                        )
-                        root_paths.extend(branch_paths)
-                paths_for_agent.extend(root_paths)
+                self._dfs_retrospective(
+                    current_node=root,
+                    current_path=[root],
+                    adj=adj,
+                    min_path_length=min_path_length,
+                    visited_in_path={root.node_id},
+                    results=paths_for_agent,
+                    max_depth=15,
+                    max_results=5000,
+                )
 
             for path_nodes in paths_for_agent:
                 sig = tuple(n.node_id for n in path_nodes)
@@ -314,7 +304,7 @@ class RetrospectiveAnalyzer:
         visited_in_path: set[uuid.UUID],
         results: list[list[AttackNode]],
         max_depth: int = 15,
-        max_results: int = 100,
+        max_results: int = 5000,
     ) -> None:
         """Depth-first search traversing causal and semantic relationships across extended historical time horizons."""
         if len(current_path) >= min_path_length:
