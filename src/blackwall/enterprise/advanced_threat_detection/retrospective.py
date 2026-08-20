@@ -202,18 +202,20 @@ class RetrospectiveAnalyzer:
 
                     if same_target:
                         decay = compute_exponential_decay(delta, max(300.0, max_time_gap_seconds / 10.0))
-                        weight = clamp_score(0.3 * decay + 0.7 * 0.8, 0.0, 1.0, decimals=4)
-                        adj[n_a.node_id].append((n_b, weight))
-                        in_degree[n_b.node_id] += 1
-                        added_target_ids.add(n_b.node_id)
+                        weight = clamp_score(0.8 * decay, 0.0, 1.0, decimals=4)
+                        if weight >= 0.4:
+                            adj[n_a.node_id].append((n_b, weight))
+                            in_degree[n_b.node_id] += 1
+                            added_target_ids.add(n_b.node_id)
 
                     elif is_strict_tier_escalation:
                         decay = compute_exponential_decay(delta, max(300.0, max_time_gap_seconds / 10.0))
                         semantic_base = 0.5 + (0.1 * abs(tier_b - tier_a))
-                        weight = clamp_score(0.3 * decay + 0.7 * semantic_base, 0.0, 1.0, decimals=4)
-                        adj[n_a.node_id].append((n_b, weight))
-                        in_degree[n_b.node_id] += 1
-                        added_target_ids.add(n_b.node_id)
+                        weight = clamp_score(semantic_base * decay, 0.0, 1.0, decimals=4)
+                        if weight >= 0.4:
+                            adj[n_a.node_id].append((n_b, weight))
+                            in_degree[n_b.node_id] += 1
+                            added_target_ids.add(n_b.node_id)
 
             # Traverse paths using DFS starting from root nodes (in_degree == 0 or earliest nodes)
             start_nodes = [n for n in sorted_nodes if in_degree[n.node_id] == 0] or sorted_nodes[:3]
@@ -221,18 +223,26 @@ class RetrospectiveAnalyzer:
             paths_for_agent: list[list[AttackNode]] = []
             for root in start_nodes:
                 root_paths: list[list[AttackNode]] = []
-                self._dfs_retrospective(
-                    current_node=root,
-                    current_path=[root],
-                    adj=adj,
-                    min_path_length=min_path_length,
-                    visited_in_path={root.node_id},
-                    results=root_paths,
-                    max_depth=15,
-                    max_results=50,
-                )
+                neighbors = adj.get(root.node_id, [])
+                if not neighbors:
+                    if len([root]) >= min_path_length:
+                        root_paths.append([root])
+                else:
+                    for child, _ in neighbors:
+                        branch_paths: list[list[AttackNode]] = []
+                        self._dfs_retrospective(
+                            current_node=child,
+                            current_path=[root, child],
+                            adj=adj,
+                            min_path_length=min_path_length,
+                            visited_in_path={root.node_id, child.node_id},
+                            results=branch_paths,
+                            max_depth=15,
+                            max_results=100,
+                        )
+                        root_paths.extend(branch_paths)
                 paths_for_agent.extend(root_paths)
-                if len(paths_for_agent) >= 500:
+                if len(paths_for_agent) >= 1000:
                     break
 
             for path_nodes in paths_for_agent:
@@ -305,23 +315,20 @@ class RetrospectiveAnalyzer:
         min_path_length: int,
         visited_in_path: set[uuid.UUID],
         results: list[list[AttackNode]],
-        max_depth: int,
-        max_results: int,
+        max_depth: int = 15,
+        max_results: int = 100,
     ) -> None:
         """Depth-first search traversing causal and semantic relationships across extended historical time horizons."""
-        if len(results) >= max_results:
-            return
-
         if len(current_path) >= min_path_length:
             results.append(list(current_path))
-            if len(results) >= max_results:
-                return
 
         if len(current_path) >= max_depth:
             return
 
         neighbors = adj.get(current_node.node_id, [])
         for neighbor, _ in neighbors:
+            if len(results) >= max_results:
+                break
             if neighbor.node_id not in visited_in_path:
                 visited_in_path.add(neighbor.node_id)
                 current_path.append(neighbor)
