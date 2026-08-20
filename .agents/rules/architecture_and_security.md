@@ -253,6 +253,18 @@
   - Relying solely on `x <= 0.0` or `x < 1.0` is strictly prohibited because comparisons with `NaN` (e.g. `float('nan') <= 0.0`) evaluate to `False` in Python, accepting invalid inputs. Similarly, positive infinity (`float('inf')`) passes `> 0.0` checks and breaks enforcement: infinite rate/velocity limits prevent threshold comparisons from triggering, while infinite timeouts and quarantine durations produce holds that never expire automatically.
 * **Rationale:** Accepting `NaN` breaks mathematical comparisons in sliding-window calculations and alert severity evaluation, causing silent security failures. Accepting `+inf` disables throttling and creates unexpiring quarantines, causing denial of service for benign workloads or unmitigated Denial of Wallet (DoW) exposure for adversarial workloads.
 
+## 46. Low-Level Syscall vs. Container Orchestrator Lifecycle Separation
+* **Rule:** Container and Kubernetes security detectors (`KubernetesDefenseLayer`, container sandbox monitors) MUST strictly separate low-level kernel/process syscall actions (`sys_clone`, `sys_fork`, `clone`) from high-level orchestrator lifecycle actions (`POD_CREATE_ACTIONS`, `POD_TERM_ACTIONS`, `FLEET_SPAWN_ACTIONS`).
+* **Rule:** Low-level process creation syscalls captured via eBPF tracepoints or audit hooks MUST NOT be included in pod creation or pod self-respawn action sets.
+* **Rationale:** Generic process/thread cloning inside sandbox containers (e.g. worker process forks during CyBench executions) shares the same process namespace or container ID. Treating `sys_clone` as pod creation produces false `fleet_spawning` and `self_respawning_pod` threat evidence.
+
+## 47. Multi-Day Retrospective Semantic Edge Decay & MITRE Technique Gating
+* **Rule:** Retrospective attack path correlators (`RetrospectiveAnalyzer.reconstruct_causal_graph`) constructing semantic and temporal edges across multi-day analysis windows MUST:
+  1. Scale non-causal same-target edge weights strictly by continuous exponential decay ($w = \text{base} \cdot e^{-\Delta t / \tau}$), requiring $w \ge 0.4$ for edge creation without applying artificial constant baselines that keep weights $\ge 0.4$ as $\Delta t \to \infty$.
+  2. Gate base edge multipliers on MITRE ATT&CK technique matches (e.g. $\text{base} = 0.8$ for MITRE-matched actions, $\text{base} = 0.5$ for non-MITRE routine actions).
+  3. Traverse all identified root nodes without artificial finite result collection caps that terminate DFS early and starve sibling branches.
+* **Rationale:** Constant baseline additions connect unrelated routine actions occurring days apart, while un-gated decay severs multi-stage stealth campaigns. Gating decay on MITRE technique relevance preserves genuine multi-day attack paths while rejecting disconnected benign activity.
+
 
 
 

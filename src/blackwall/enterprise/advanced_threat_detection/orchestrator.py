@@ -46,7 +46,7 @@ from blackwall.enterprise.advanced_threat_detection.retrospective import (
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from blackwall.enterprise.advanced_threat_detection.swarm import AgentSwarmDetector
-from blackwall.validators import utc_now, validate_utc_datetime
+from blackwall.validators import normalize_time_window, utc_now, validate_utc_datetime
 
 try:
     import psutil
@@ -382,13 +382,9 @@ class AdvancedThreatDetection:
         if not agent_id or not agent_id.strip():
             raise ValueError("agent_id must not be empty")
 
-        if time_window is not None:
-            win_start, win_end = time_window
-            win_start = validate_utc_datetime(win_start)
-            win_end = validate_utc_datetime(win_end)
-        else:
-            win_end = utc_now()
-            win_start = win_end - timedelta(seconds=self.config.temporal_window_seconds)
+        win_start, win_end = normalize_time_window(
+            time_window, default_duration_seconds=self.config.temporal_window_seconds
+        )
 
         mem_mb = _get_current_memory_mb()
         is_throttled = self.throttler.should_throttle(current_memory_mb=mem_mb)

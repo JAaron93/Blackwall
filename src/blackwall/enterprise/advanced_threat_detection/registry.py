@@ -16,8 +16,8 @@ from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStor
 from blackwall.policy.models import PolicyConfig
 from blackwall.validators import (
     ensure_uuid_v4,
+    normalize_time_window,
     utc_now,
-    validate_temporal_sequence,
     validate_utc_datetime,
 )
 
@@ -229,15 +229,9 @@ class PackageRegistryMonitor:
         time_window: Optional[Tuple[datetime, datetime]] = None,
     ) -> List[RegistryThreatEvidence]:
         """Detect probing for package registry vulnerabilities, malformed requests, and unusual patterns."""
-        start_w = None
-        end_w = None
-        if time_window is not None:
-            start_raw, end_raw = time_window
-            validate_temporal_sequence(
-                start_raw, end_raw, start_name="start_time", end_name="end_time"
-            )
-            start_w = validate_utc_datetime(start_raw)
-            end_w = validate_utc_datetime(end_raw)
+        start_w, end_w = (
+            normalize_time_window(time_window) if time_window is not None else (None, None)
+        )
 
         # Collect events from persistent store and tracked events
         candidate_events: List[NormalizedEvent] = []

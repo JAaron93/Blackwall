@@ -16,8 +16,11 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from blackwall.policy.models import PolicyConfig
 from blackwall.validators import (
+    clamp_score,
+    compute_exponential_decay,
+    compute_jaccard_similarity,
+    normalize_time_window,
     utc_now,
-    validate_temporal_sequence,
     validate_utc_datetime,
 )
 
@@ -176,12 +179,7 @@ class AgentSwarmDetector:
         if not (0.0 <= c_thresh <= 1.0):
             raise ValueError("correlation_threshold must be between 0.0 and 1.0")
 
-        start_raw, end_raw = time_window
-        validate_temporal_sequence(
-            start_raw, end_raw, start_name="start_time", end_name="end_time"
-        )
-        start_win = validate_utc_datetime(start_raw)
-        end_win = validate_utc_datetime(end_raw)
+        start_win, end_win = normalize_time_window(time_window)
 
         # Fetch nodes across all agents within time window
         all_nodes = await self.store.query_nodes(
@@ -261,7 +259,7 @@ class AgentSwarmDetector:
                         pair_corrs.append(all_pairwise_corrs[rev_pair])
 
             avg_corr = sum(pair_corrs) / len(pair_corrs) if pair_corrs else c_thresh
-            temporal_correlation = max(0.0, min(1.0, float(avg_corr)))
+            temporal_correlation = clamp_score(float(avg_corr), 0.0, 1.0)
 
             coord_score = await self.compute_coordination_score(
                 comp_list, (start_win, end_win)
@@ -293,12 +291,7 @@ class AgentSwarmDetector:
         if not agents or len(agents) < 2:
             return 0.0
 
-        start_raw, end_raw = time_window
-        validate_temporal_sequence(
-            start_raw, end_raw, start_name="start_time", end_name="end_time"
-        )
-        start_win = validate_utc_datetime(start_raw)
-        end_win = validate_utc_datetime(end_raw)
+        start_win, end_win = normalize_time_window(time_window)
 
         all_nodes = await self.store.query_nodes(
             agent_id=None, time_window=(start_win, end_win), limit=5000
@@ -326,14 +319,14 @@ class AgentSwarmDetector:
                 avg_diff = (
                     _avg_min_time_diff(ts1, ts2) + _avg_min_time_diff(ts2, ts1)
                 ) / 2.0
-                score_pair = float(math.exp(-avg_diff / 30.0))
+                score_pair = compute_exponential_decay(avg_diff, 30.0)
                 alignment_scores.append(score_pair)
 
         temporal_alignment = (
             sum(alignment_scores) / len(alignment_scores) if alignment_scores else 0.0
         )
 
-        # Sub-score 2: Behavioral similarity (action and target overlap)
+        # Sub-score 2: Behavioral similarity (action and target overlap using Jaccard similarity)
         action_sets = {
             a: {f"{e.action}:{e.target}" for e in events_by_agent[a]}
             for a in active_agents
@@ -344,7 +337,7 @@ class AgentSwarmDetector:
                 s1 = action_sets[active_agents[i]]
                 s2 = action_sets[active_agents[j]]
                 if s1 or s2:
-                    jaccard = len(s1.intersection(s2)) / len(s1.union(s2))
+                    jaccard = compute_jaccard_similarity(s1, s2)
                     jaccards.append(jaccard)
         behavioral_sim = sum(jaccards) / len(jaccards) if jaccards else 0.0
 
@@ -358,7 +351,7 @@ class AgentSwarmDetector:
         raw_score = (
             (0.4 * temporal_alignment) + (0.4 * behavioral_sim) + (0.2 * infra_score)
         )
-        return max(0.0, min(1.0, float(raw_score)))
+        return clamp_score(raw_score, 0.0, 1.0)
 
     def _compute_pairwise_correlation(
         self,
@@ -377,28 +370,21 @@ class AgentSwarmDetector:
         avg_diff1 = _avg_min_time_diff(ts1, ts2)
         avg_diff2 = _avg_min_time_diff(ts2, ts1)
         avg_diff = (avg_diff1 + avg_diff2) / 2.0
-        temporal_score = float(math.exp(-avg_diff / 60.0))
+        temporal_score = compute_exponential_decay(avg_diff, 60.0)
 
-        # 2. Action similarity score
+        # 2. Action similarity score using Jaccard similarity
         actions1 = {e.action for e in events1}
         actions2 = {e.action for e in events2}
-        action_sim = (
-            len(actions1.intersection(actions2)) / len(actions1.union(actions2))
-            if (actions1 or actions2)
-            else 0.0
-        )
+        action_sim = compute_jaccard_similarity(actions1, actions2)
 
-        # 3. Target similarity score
+        # 3. Target similarity score using Jaccard similarity
         targets1 = {e.target for e in events1}
         targets2 = {e.target for e in events2}
-        target_sim = (
-            len(targets1.intersection(targets2)) / len(targets1.union(targets2))
-            if (targets1 or targets2)
-            else 0.0
-        )
+        target_sim = compute_jaccard_similarity(targets1, targets2)
 
         correlation = (0.5 * temporal_score) + (0.25 * action_sim) + (0.25 * target_sim)
-        return max(0.0, min(1.0, float(correlation)))
+        return clamp_score(correlation, 0.0, 1.0)
+
 
     def _extract_shared_infrastructure(
         self,
