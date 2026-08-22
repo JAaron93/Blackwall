@@ -122,11 +122,12 @@ This document defines the functional and non-functional requirements for closing
 #### Acceptance Criteria
 
 1. WHEN invoked, THE pipeline runner SHALL authenticate via Application Default Credentials (ADC) with zero API keys
-2. WHEN loading datasets, THE pipeline runner SHALL consume both ADK-bridged scenarios and GCP-native eval datasets
-3. WHEN scenarios execute, THE pipeline runner SHALL route results to the correct domain judge agent based on scenario metadata
-4. WHEN all judges return, THE pipeline runner SHALL aggregate scores with fallback isolation (exclude `is_fallback=True` from means)
-5. WHEN aggregated, THE pipeline runner SHALL emit a CI pass/fail verdict based on configurable threshold (default: all domains ≥ 3.5/5.0 mean)
-6. WHEN complete, THE pipeline runner SHALL export all evaluation spans to Google Cloud Trace with `gen_ai.evaluation.*` attributes
+2. WHEN invoked, THE pipeline runner SHALL validate that `GEMINI_TIER=paid` and `BLACKWALL_TIER=paid` are set, exiting with a descriptive error if the paid-tier quota contract (300+ RPM) is not configured
+3. WHEN loading datasets, THE pipeline runner SHALL consume both ADK-bridged scenarios and GCP-native eval datasets
+4. WHEN scenarios execute, THE pipeline runner SHALL route results to the correct domain judge agent based on scenario metadata
+5. WHEN all judges return, THE pipeline runner SHALL aggregate scores with fallback isolation (exclude `is_fallback=True` from means)
+6. WHEN aggregated, THE pipeline runner SHALL emit a CI pass/fail verdict based on configurable threshold (default: all domains ≥ 3.5/5.0 mean)
+7. WHEN complete, THE pipeline runner SHALL export all evaluation spans to Google Cloud Trace with `gen_ai.evaluation.*` attributes
 
 ### Requirement 11: ADK-to-EvalTask Dataset Bridge
 
@@ -225,8 +226,8 @@ This document defines the functional and non-functional requirements for closing
 ### NFR-1: Structured Output Determinism
 All judge agents MUST use `response_schema` (Pydantic model) for structured output. Freeform text responses from judges are forbidden. Schema validation failures SHALL trigger retry (up to 3 attempts) before fallback.
 
-### NFR-2: Zero Third-Party SaaS Dependencies
-All evaluation operations MUST authenticate exclusively via GCP Application Default Credentials (ADC). The system SHALL NOT require `WANDB_API_KEY`, `GEMINI_API_KEY`, or any third-party SaaS tokens.
+### NFR-2: Zero Third-Party SaaS Dependencies and Paid-Tier Quota Contract
+All evaluation operations MUST authenticate exclusively via GCP Application Default Credentials (ADC). The system SHALL NOT require `WANDB_API_KEY`, `GEMINI_API_KEY`, or any third-party SaaS tokens. The pipeline MUST validate `GEMINI_TIER=paid` and `BLACKWALL_TIER=paid` at startup to guarantee the 300+ RPM quota contract required for multi-agent judge workloads; if unset or not `paid`, the pipeline SHALL exit with a clear error rather than degrading to free-tier rate limits.
 
 ### NFR-3: Prompt Safety
 All untrusted evaluation inputs MUST be XML-delimited and regex-sanitized before judge agent ingestion. No raw user content or model output may appear outside `<untrusted_input>` boundaries in judge prompts.

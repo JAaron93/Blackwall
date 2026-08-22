@@ -128,9 +128,10 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
 
   - [ ] B.1.3 Implement zero-trust prompt template builder (`src/blackwall/eval/prompt_template.py`)
     - Generate structured prompts with XML boundaries
-    - Place static rubric/instructions at beginning (cache-friendly per NFR-5)
-    - Place per-scenario instance data at end
+    - Place static system instruction and rubric at the beginning (prefix) for Gemini implicit context caching (>32k prefix → 90% input cost discount)
+    - Place per-scenario evaluation context (untrusted inputs, ground truth) at the end (dynamic tail)
     - Enforce `<untrusted_input type="...">` wrappers on all dynamic content
+    - Ordering: `<system_instruction>` → `<rubric>` → `<evaluation_context>` (scenario data)
     - _Requirements: 16.1, 16.5, NFR-3, NFR-5_
     - _Verification: `pytest tests/unit/test_prompt_template.py -v`_
 
@@ -312,12 +313,13 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
 - [ ] D.1 Implement Evaluation Pipeline Runner
   - [ ] D.1.1 Create `scripts/run_gcp_eval.py` orchestrator
     - Authenticate via ADC (zero API keys); exit with error if ADC unavailable
+    - Validate `GEMINI_TIER=paid` and `BLACKWALL_TIER=paid` at startup; exit with descriptive error if the 300+ RPM paid-tier quota contract is not configured
     - Load scenarios from `tests/eval/judge_scenarios/` and GCP native datasets
     - Route each scenario to the correct judge agent based on `domain` field
     - Collect structured rubric results per domain
     - Support `--domains` CLI flag for selective execution
     - Support `--eval-threshold` CLI flag (default 3.5)
-    - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6_
+    - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, NFR-2_
     - _Verification: `pytest tests/unit/test_eval_pipeline_runner.py -v`_
 
   - [ ] D.1.2 Implement results aggregator with fallback isolation
