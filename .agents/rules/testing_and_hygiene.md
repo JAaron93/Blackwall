@@ -93,17 +93,48 @@
 * **Rule:** When generating synthetic multi-day historical events for testing retention boundaries (e.g. `<= 30` day retention), test fixtures MUST ensure event timestamps stay strictly within the active retention window (`now - timedelta(days=29)`) rather than spanning beyond the cutoff horizon (`days=30, hours=2`), preventing false assertions during retention purge tests.
 * **Rationale:** Generating events at or beyond the exact boundary creates subtle sub-day discrepancies where events are legitimately purged as expired, causing test failures on valid retention invariants.
 
-## 25. Greptile PR Review Filter, Status Checks, & Severity Governance
+## 25. Structural Test Coverage Measurement via Knowledge Graph
+
+* **Rule:** When auditing test coverage gaps, agents MUST use `codebase-memory-mcp` TESTS edges as the primary structural metric rather than line-coverage tools. The standard methodology is:
+  1. Query total source symbols: `MATCH (src) WHERE (src:Function OR src:Method OR src:Class) AND src.file_path STARTS WITH 'src/' AND src.is_test = false RETURN src.file_path, count(src) AS total_symbols`
+  2. Query tested symbols: `MATCH (test)-[:TESTS]->(src) WHERE src.file_path STARTS WITH 'src/' RETURN src.file_path, count(DISTINCT src) AS tested_symbols`
+  3. Compute per-file and global coverage ratios.
+  4. Prioritize untested symbols by fan-in (hotspot rank), cyclomatic complexity (`src.complexity`), and security criticality.
+* **Rule:** Coverage remediation tasks MUST reference `.kiro/specs/blackwall-test-coverage-remediation/tasks.md` for the canonical backlog and mark tasks complete as they are implemented.
+* **Rationale:** Line-coverage tools require instrumented test runs and miss structural relationships. Knowledge graph TESTS edges provide instant, zero-overhead structural coverage measurements that identify exactly which functions/methods/classes lack any dedicated test verification.
+
+## 26. Audit Hook Runtime State Cleanup in Test Fixtures
+
+* **Rule (Extension of Rule 4):** Test modules that instantiate `AuditHookManager` and call `manager.start()` MUST call `manager.stop()` in a `finally` block or pytest fixture teardown to remove the instance from the module-level `_active_managers` list. Failure to stop managers causes ordering-dependent flakiness where subsequent test modules trigger audit hook violations from residual manager instances.
+* **Rule:** When testing `AuditHookManager` methods directly (e.g. `_validate_subprocess`, `_validate_open`), prefer calling the method directly on an un-started manager instance rather than invoking `manager.start()` — this avoids registering the permanent `sys.addaudithook` and polluting process state for all subsequent tests.
+* **Rationale:** `sys.addaudithook` is permanent and cannot be unregistered. While Rule 4 prevents import-scope registration, runtime `_active_managers.append(self)` in `start()` creates cross-module state pollution even when hooks are deferred to function scope. Tests that call `start()` without `stop()` leave zombie managers that intercept subsequent test operations (e.g. subprocess spawning in unrelated integration tests).
+
+## 27. Hypothesis Property Tests with Async Operations
+
+* **Rule:** Hypothesis `@given` decorators apply to synchronous functions only. Property tests exercising async code (e.g. `InterceptionQueue.enqueue`, `SyncResolver.evaluate`) MUST use a synchronous `_run()` helper that creates a fresh event loop per test invocation:
+  ```python
+  def _run(coro):
+      loop = asyncio.new_event_loop()
+      try:
+          return loop.run_until_complete(coro)
+      finally:
+          loop.close()
+  ```
+* **Rule:** The `_run()` helper MUST create a new loop each invocation (not reuse a module-level loop) because Hypothesis may call the test function hundreds of times and a closed or errored loop from a previous example would fail subsequent examples.
+* **Rule:** All hypothesis async property tests MUST include `deadline=None` in `@settings()` to prevent Hypothesis from failing tests due to event loop overhead timing.
+* **Rationale:** Using `asyncio.run()` inside Hypothesis tests creates and destroys the default event loop, which conflicts with pytest-asyncio's event loop management. The fresh-loop-per-invocation pattern avoids both loop reuse failures and pytest-asyncio conflicts.
+
+## 28. Greptile PR Review Filter, Status Checks, & Severity Governance
 * **Rule (High Strictness & P0/P1 Enforcement Only):** Automated PR code reviews MUST be configured to `High` strictness level, commenting exclusively on **P0** (critical security vulnerabilities, architectural boundary violations) and **P1** (functional logic errors, data integrity failures) while ignoring P2s.
 * **Rule (Required Confidence Threshold):** GitHub PR status checks for Greptile MUST enforce a passing confidence threshold of **4/5** (scorable at `>= 4/5` or `conclusion == "success"`), preventing pedantic heuristic oscillations on edge cases from blocking valid PR merges.
 * **Rule (Comment Type Scope):** `.greptile/config.json` MUST maintain `commentTypes: ["logic", "syntax"]`, strictly omitting `"style"` and `"info"` to prevent noisy stylistic nits from delaying PR review and merge cycles.
 * **Rationale:** Focusing AI review automation on high-severity security, architecture, and correctness invariants at the 4/5 threshold eliminates review fatigue and pedantic oscillation loops on cosmetic or theoretical bounds while maintaining strict engineering rigor.
 
-## 26. AlertBus Query Interface & Test Inspection Invariants
+## 29. AlertBus Query Interface & Test Inspection Invariants
 * **Rule:** Unit, property, and BDD test suites querying stored alerts from `AlertBus` MUST call `alert_bus.get_alerts(severity=..., threat_type=..., agent_id=...)`. Tests MUST NOT invoke non-existent or deprecated method names (such as `get_recent_alerts` or `query_alerts`).
 * **Rationale:** `AlertBus` stores and filters in-memory and pending alerts exclusively via `get_alerts()`. Using inconsistent method names causes collection or runtime `AttributeError` exceptions across test suites.
 
-## 27. Redaction Placeholder Safety & Zero-Threshold Rejection Test Coverage
+## 30. Redaction Placeholder Safety & Zero-Threshold Rejection Test Coverage
 * **Rule:** Unit and property test suites for payload sanitizers, prompt injection scanners, and content redaction engines MUST include explicit test cases verifying:
   1. **Zero-Threshold Rejection**: Verifying that `confidence_threshold=0.0` is explicitly rejected with `ValueError` during constructor parameter validation.
   2. **Backreference Safety**: Verifying that replacement placeholders containing regex backreference syntax (e.g., `\g<0>`, `\1`) are inserted literally without re-inserting matched threat spans or raising unhandled `re.error` exceptions.
