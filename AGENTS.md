@@ -20,7 +20,7 @@ Blackwall is structured into **two distinct product tiers**:
 All code submitted via pull requests or feature branches must be reviewed against these Greptile agent guardrails:
 
 * **Greptile Review Directives**: Enforce Greptile agent review standards configured in `.greptile/config.json`, `.greptile/rules.md`, and `.greptile/files.json`. Greptile reviews must verify both Core and Enterprise architecture invariants.
-* **Spec-Driven Consistency**: All edits must align with `.kiro/specs/blackwall-enterprise-security-mesh/`, `.kiro/specs/blackwall-advanced-threat-detection/`, `.kiro/specs/blackwall-attacker-attribution/`, and `.kiro/specs/blackwall-test-coverage-remediation/` (`design.md`, `requirements.md`, `tasks.md`).
+* **Spec-Driven Consistency**: All edits must align with `.kiro/specs/blackwall-enterprise-security-mesh/`, `.kiro/specs/blackwall-advanced-threat-detection/`, `.kiro/specs/blackwall-attacker-attribution/`, `.kiro/specs/blackwall-test-coverage-remediation/`, and `.kiro/specs/blackwall-gcp-evaluation-coverage/` (`design.md`, `requirements.md`, `tasks.md`).
 
 * **Behavior-Driven Specifications**: Verify all security behavior contracts using Gherkin syntax via `pytest-bdd` scenarios in `tests/features/`.
 * **Strict Test-Driven Development (TDD)**: Every feature addition or bug fix must include a failing unit test or reproduction script before code changes are staged.
@@ -61,6 +61,7 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
   - Cross-pillar swarm, exploit chain, AILM, and C2 detection with `ActiveReactionEngine`.
   - **Dual-Tiered Evaluation Strategy**: Tier 1 (ADK Adversarial Harness in 100% GCP Vertex AI Mode) + Tier 2 (Cybench on Cloud Run with gVisor container isolation).
   - **100% Cloud-Native GCP Evaluation**: Zero-SaaS evaluation using GCP Vertex AI Gen AI Evaluation Service (`vertexai.preview.evaluation` / `EvalTask`) and Google Cloud Trace, fully replacing legacy Weights & Biases (Weave).
+  - **Agent-as-a-Judge Evaluation Pipeline**: 9 domain-specific autonomous Antigravity SDK judge agents (`google.antigravity.Agent`, `vertex=True`, `AgentBehavior.AUTONOMOUS`) producing structured Pydantic rubric scores under zero-trust XML prompt delimitation. Requires `GEMINI_TIER=paid` for 300+ RPM quota contract.
 
 ---
 
