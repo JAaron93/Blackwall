@@ -149,3 +149,62 @@
 * **Rule (Fallback Isolation in Aggregation):** When a judge agent fails (Vertex AI unavailable, timeout, schema validation failure after 3 retries), the heuristic fallback scorer MUST set `is_fallback=True` on the returned rubric. Aggregate mean score computation MUST filter out `is_fallback=True` rows. If an entire domain consists of fallback rows, report `None`/`NaN` for judge quality metrics — never report heuristic values as genuine judge measurements. Include `fallback_count` and `fallback_rate` in all pipeline summary reports.
 * **Rationale:** The Agent-as-a-Judge pattern provides richer multi-dimensional evaluation than static `PointwiseMetric` templates, but requires strict configuration contracts (paid quota), prompt safety (injection resistance), ordering discipline (cache economics), and fallback transparency (metric integrity) to produce reliable CI quality gates. See `.kiro/specs/blackwall-gcp-evaluation-coverage/` for the governing specification.
 
+## 32. Module-Qualified `asyncio.sleep` Patching in Unit Tests
+
+* **Rule:** When patching `asyncio.sleep` in unit tests that target a class or module which imports `asyncio` at the top level, always use the fully qualified module path as the patch target:
+  ```python
+  with patch("blackwall.mcp.gti_client.asyncio.sleep", new_callable=AsyncMock, side_effect=[None, asyncio.CancelledError()]):
+      ...
+  ```
+  Using `patch("asyncio.sleep")` patches the name in the `asyncio` module itself, which has no effect on code that already holds a module-level reference to the `asyncio` namespace (e.g. `import asyncio` at top of file then calls `asyncio.sleep(...)`). The mock must replace the name as it is *looked up* at call time, not as it is *defined*.
+* **Rationale:** This is a widespread source of silent mock failures in Python unit tests. `patch("asyncio.sleep")` succeeds without error but the target code never sees the mock, causing tests to execute real sleeps, time out, or produce nondeterministic results.
+
+## 33. Background Constructor Task Cancellation Before Direct Coroutine Testing
+
+* **Rule:** When unit-testing classes whose `__init__` auto-starts a background asyncio task (e.g. via an `_ensure_task_started()` pattern calling `loop.create_task(self._some_loop())`), tests that directly `await` the same underlying loop coroutine (e.g. `await tracker._replenish_loop()`) MUST first cancel and clear the constructor-started task:
+  ```python
+  async def test_replenish_loop_increments_tokens(self):
+      tracker = SomeTracker()
+      tracker.close()  # ← cancels constructor's background task before direct invocation
+      with patch("package.module.asyncio.sleep", new_callable=AsyncMock,
+                 side_effect=[None, asyncio.CancelledError()]):
+          await tracker._replenish_loop()
+  ```
+  Omitting the cancellation creates two competing coroutines consuming the same finite `AsyncMock(side_effect=[...])` sequence: the background task exhausts the first side-effect entries, leaving the directly-invoked coroutine with `StopIteration`, nondeterministic assertion outcomes, or unhandled background exceptions surfaced through pytest's asyncio event loop.
+* **Rationale:** Identified during Phase 1 test coverage remediation (PR #91, `test_gti_client_internals.py`) via a Greptile P1 review comment. The constructor-spawned replenishment task races directly-invoked test coroutines when both share a mocked sleep.
+
+## 34. Python 3.14+ Event Loop API Compatibility in Test Classes
+
+* **Rule:** Sync test methods (`def test_*`) inside `unittest.TestCase` subclasses or plain test classes MUST NOT use `asyncio.get_event_loop().run_until_complete(...)` to execute async code. In Python 3.14+, `asyncio.get_event_loop()` raises `RuntimeError('There is no current event loop in thread ...')` when no event loop is bound to the current thread — which is the default under pytest-asyncio's `asyncio_mode = "auto"`.
+* **Rule:** Any test class method that exercises async code MUST be declared `async def` so pytest-asyncio manages the event loop:
+  ```python
+  # ❌ Broken on Python 3.14+
+  def test_close_cancels_task(self):
+      async def _inner():
+          tracker = GTIQueryBudgetTracker()
+          tracker.close()
+          assert tracker._replenish_task is None
+      asyncio.get_event_loop().run_until_complete(_inner())
+
+  # ✅ Correct
+  async def test_close_cancels_task(self):
+      tracker = GTIQueryBudgetTracker()
+      assert tracker._replenish_task is not None
+      tracker.close()
+      assert tracker._replenish_task is None
+  ```
+* **Rationale:** Python 3.12 deprecated the implicit creation of a running event loop in `asyncio.get_event_loop()` and Python 3.14 removed it. Using `asyncio.new_event_loop()` via the Hypothesis helper (Rule 27) is the correct pattern for Hypothesis property tests. For all other async tests, rely on pytest-asyncio's `asyncio_mode = "auto"` to provide the loop automatically.
+
+## 35. Cross-Module Enum Value Mapping Verification in Adapter Tests
+
+* **Rule:** When testing adapter methods that translate between two internally-defined enum types (e.g. `CriticalSinkType` → `SinkType` in `CodebaseMemoryClient.query()`), always verify the actual enum member values at the start of test authoring before asserting on the translated output:
+  ```python
+  # Verify the mapping compiles at dev time — before writing assertions
+  from blackwall.mcp.codebase_memory import CriticalSinkType
+  from blackwall.models import SinkType
+  print([e.value for e in CriticalSinkType])  # SQL_QUERY, COMMAND_EXEC, FILE_WRITE, NETWORK_CALL
+  print([e.value for e in SinkType])           # FILE_SYSTEM, NETWORK, DATABASE, PROCESS
+  ```
+  If the enum values differ (as they do in this codebase — `"SQL_QUERY"` has no matching `SinkType` value), adapters that perform `SinkType(source_enum.value)` will silently catch `ValueError` and produce an empty list. Tests MUST assert the **actual runtime behavior** (e.g. `assert resp.critical_sinks == []`) rather than the idealized semantic intent (e.g. `assert len(resp.critical_sinks) >= 1`).
+* **Rationale:** Asserting idealized intent on a silently-failing enum mapping causes false-passing tests (if the test is skipped by wrong assertion polarity) or persistent false-failing tests (if the assertion expects content that can never be produced). The correct path is to assert the ground truth, then separately file a bug/spec issue for the mapping gap if the semantic intent matters.
+
