@@ -1,76 +1,79 @@
 # Tasks: Blackwall Test Coverage Remediation
 
-## Phase 1: Core MCP & Resolver (P1) — Target: ≥80% symbol coverage
+## Phase 1: Core MCP & Resolver (P1) — Target: ≥80% symbol coverage ✅ COMPLETE
+
+> **Completed:** 2026-08-22 | PR #91 | 227 tests added | 873/873 unit tests passing
+> Greptile review: 5/5 confidence, 0 unresolved comments, MERGEABLE
 
 ### Task 1.1: CodebaseMemory MCP Client Unit Tests
-- [ ] Read `src/blackwall/mcp/codebase_memory.py` to catalog all public/private methods
-- [ ] Create `tests/unit/test_codebase_memory_client.py`
-- [ ] Test `CodebaseMemoryClient.__init__()` with valid and missing config
-- [ ] Test `query()` with mock MCP tool responses (success, empty, error)
-- [ ] Test `identifyCriticalSinks()` with various CriticalSinkType returns
-- [ ] Test `traceDataFlow()` with DataFlowPath results and empty graph
-- [ ] Test `getBlastRadius()` with BlastRadiusReport generation
-- [ ] Test `queryDependencyChain()` with DependencyChain results and circular deps
-- [ ] Test `_safe_execute()` timeout path, exception path, success path
-- [ ] Test `_execute_mcp_tool()` with mock subprocess/network calls
-- [ ] Test `is_graph_stale()` with stale/fresh timestamp comparison
-- [ ] Test `set_mock_data()` for development mode override
-- [ ] Test `get_threat_score_penalty()` based on blast radius severity
-- [ ] Test `get_mitigation_hint()` for known and unknown sink types
-- [ ] Test data class construction: `BlastRadiusReport`, `CriticalSink`, `DataFlowPath`, `DependencyChain`, `BlastRadiusIsolation`
-- [ ] Run: `pytest tests/unit/test_codebase_memory_client.py -q` passes
+- [x] Read `src/blackwall/mcp/codebase_memory.py` to catalog all public/private methods
+- [x] Create `tests/unit/test_codebase_memory_client.py`
+- [x] Test `CodebaseMemoryClient.__init__()` with valid and missing config
+- [x] Test `query()` with mock MCP tool responses (success, empty, error)
+- [x] Test `identifyCriticalSinks()` with various CriticalSinkType returns
+- [x] Test `traceDataFlow()` with DataFlowPath results and empty graph
+- [x] Test `getBlastRadius()` with BlastRadiusReport generation
+- [x] Test `queryDependencyChain()` with DependencyChain results and circular deps
+- [x] Test `_safe_execute()` timeout path, exception path, success path
+- [x] Test `_execute_mcp_tool()` with mock subprocess/network calls
+- [x] Test `is_graph_stale()` with stale/fresh timestamp comparison
+- [x] Test `set_mock_data()` for development mode override
+- [x] Test `get_threat_score_penalty()` based on blast radius severity
+- [x] Test `get_mitigation_hint()` for known and unknown sink types
+- [x] Test data class construction: `BlastRadiusReport`, `CriticalSink`, `DataFlowPath`, `DependencyChain`, `BlastRadiusIsolation`
+- [x] Run: `pytest tests/unit/test_codebase_memory_client.py -q` passes
 
 ### Task 1.2: GTI Client Private Method Tests
-- [ ] Read `src/blackwall/mcp/gti_client.py` focusing on untested private methods
-- [ ] Create `tests/unit/test_gti_client_internals.py`
-- [ ] Test `_calculate_entropy()` with "aaaa" (low), random UUID (high), empty string
-- [ ] Test `_parse_vt_response()` with valid VT API JSON structure
-- [ ] Test `_parse_vt_response()` with malformed JSON and missing `data.attributes`
-- [ ] Test `_is_private_ip()` with 10.x.x.x, 172.16-31.x.x, 192.168.x.x, 127.0.0.1
-- [ ] Test `_is_private_ip()` with public IPs (8.8.8.8, 1.1.1.1)
-- [ ] Test `_handle_failure()` for degraded state transition and error metric
-- [ ] Test `_ensure_task_started()` for idempotent task creation
-- [ ] Test `GTIMCPClient.record_cache_hit()` metric increment
-- [ ] Test `is_degraded()` based on failure count threshold
-- [ ] Test `_replenish_loop()` for token replenishment timing (mock asyncio.sleep)
-- [ ] Run: `pytest tests/unit/test_gti_client_internals.py -q` passes
+- [x] Read `src/blackwall/mcp/gti_client.py` focusing on untested private methods
+- [x] Create `tests/unit/test_gti_client_internals.py`
+- [x] Test `_calculate_entropy()` with "aaaa" (low), random UUID (high), empty string
+- [x] Test `_parse_vt_response()` with valid VT API JSON structure
+- [x] Test `_parse_vt_response()` with malformed JSON and missing `data.attributes`
+- [x] Test `_is_private_ip()` with 10.x.x.x, 172.16-31.x.x, 192.168.x.x, 127.0.0.1
+- [x] Test `_is_private_ip()` with public IPs (8.8.8.8, 1.1.1.1)
+- [x] Test `_handle_failure()` for degraded state transition and error metric
+- [x] Test `_ensure_task_started()` for idempotent task creation
+- [x] Test `GTIMCPClient.record_cache_hit()` metric increment
+- [x] Test `is_degraded()` based on failure count threshold
+- [x] Test `_replenish_loop()` for token replenishment timing (mock asyncio.sleep)
+- [x] Run: `pytest tests/unit/test_gti_client_internals.py -q` passes
 
 ### Task 1.3: SyncResolver Internal Method Tests
-- [ ] Read `src/blackwall/sync_resolver.py` focusing on untested private methods
-- [ ] Create `tests/unit/test_sync_resolver_internals.py`
-- [ ] Test `_build_reasoning()` with high-score, medium-score, and low-score inputs
-- [ ] Test `_emit_sinks()` with each SinkType producing correct telemetry
-- [ ] Test `_extract_indicator()` with IP patterns (IPv4, IPv6)
-- [ ] Test `_extract_indicator()` with domain patterns (TLD, subdomain)
-- [ ] Test `_extract_indicator()` with URL patterns (http, https, custom schemes)
-- [ ] Test `_extract_indicator()` with file hash patterns (MD5, SHA256)
-- [ ] Test `_inline_generate_signature()` for signature structure compliance
-- [ ] Test `_process_attribution()` propagates data to attribution module
-- [ ] Test `_schedule_attribution()` creates background task
-- [ ] Test `_score_argument_novelty()` with seen vs. unseen arguments
-- [ ] Test `_score_tool_name()` with categorized dangerous/safe names
-- [ ] Test `_score_context()` with/without metadata effects
-- [ ] Test `close()` for clean shutdown (no pending tasks, resources released)
-- [ ] Test `get_metrics()` returns accurate counters
-- [ ] Run: `pytest tests/unit/test_sync_resolver_internals.py -q` passes
+- [x] Read `src/blackwall/sync_resolver.py` focusing on untested private methods
+- [x] Create `tests/unit/test_sync_resolver_internals.py`
+- [x] Test `_build_reasoning()` with high-score, medium-score, and low-score inputs
+- [x] Test `_emit_sinks()` with each SinkType producing correct telemetry
+- [x] Test `_extract_indicator()` with IP patterns (IPv4, IPv6)
+- [x] Test `_extract_indicator()` with domain patterns (TLD, subdomain)
+- [x] Test `_extract_indicator()` with URL patterns (http, https, custom schemes)
+- [x] Test `_extract_indicator()` with file hash patterns (MD5, SHA256)
+- [x] Test `_inline_generate_signature()` for signature structure compliance
+- [x] Test `_process_attribution()` propagates data to attribution module
+- [x] Test `_schedule_attribution()` creates background task
+- [x] Test `_score_argument_novelty()` with seen vs. unseen arguments
+- [x] Test `_score_tool_name()` with categorized dangerous/safe names
+- [x] Test `_score_context()` with/without metadata effects
+- [x] Test `close()` for clean shutdown (no pending tasks, resources released)
+- [x] Test `get_metrics()` returns accurate counters
+- [x] Run: `pytest tests/unit/test_sync_resolver_internals.py -q` passes
 
 ### Task 1.4: BatchResolver Private Method Tests
-- [ ] Read `src/blackwall/resolver.py` focusing on untested methods
-- [ ] Create `tests/unit/test_resolver_batch_internals.py`
-- [ ] Test `_parse_verdicts()` with valid Gemini JSON response (N verdicts matching N contexts)
-- [ ] Test `_parse_verdicts()` with partial response (fewer verdicts than contexts)
-- [ ] Test `_parse_verdicts()` with malformed JSON (graceful failure)
-- [ ] Test `_acquire_rate_limit_token()` when tokens available (returns immediately)
-- [ ] Test `_acquire_rate_limit_token()` when tokens exhausted (blocks/fails)
-- [ ] Test `submit_to_gemini_sync()` with mocked successful Gemini response
-- [ ] Test `submit_to_gemini_sync()` with mocked timeout
-- [ ] Test `submit_to_gemini_sync()` with mocked API error
-- [ ] Test `submit_to_gemini_background()` schedules task correctly
-- [ ] Test `track_background_submission()` tracks in-flight task
-- [ ] Test `track_webhook_callback()` registers callback for task_id
-- [ ] Test `TokenBucketRateLimiter.consume()` / refill behavior independently
-- [ ] Test `ContextHygiene.sanitize_value()` with nested dicts, lists, primitives
-- [ ] Run: `pytest tests/unit/test_resolver_batch_internals.py -q` passes
+- [x] Read `src/blackwall/resolver.py` focusing on untested methods
+- [x] Create `tests/unit/test_resolver_batch_internals.py`
+- [x] Test `_parse_verdicts()` with valid Gemini JSON response (N verdicts matching N contexts)
+- [x] Test `_parse_verdicts()` with partial response (fewer verdicts than contexts)
+- [x] Test `_parse_verdicts()` with malformed JSON (graceful failure)
+- [x] Test `_acquire_rate_limit_token()` when tokens available (returns immediately)
+- [x] Test `_acquire_rate_limit_token()` when tokens exhausted (blocks/fails)
+- [x] Test `submit_to_gemini_sync()` with mocked successful Gemini response
+- [x] Test `submit_to_gemini_sync()` with mocked timeout
+- [x] Test `submit_to_gemini_sync()` with mocked API error
+- [x] Test `submit_to_gemini_background()` schedules task correctly
+- [x] Test `track_background_submission()` tracks in-flight task
+- [x] Test `track_webhook_callback()` registers callback for task_id
+- [x] Test `TokenBucketRateLimiter.consume()` / refill behavior independently
+- [x] Test `ContextHygiene.sanitize_value()` with nested dicts, lists, primitives
+- [x] Run: `pytest tests/unit/test_resolver_batch_internals.py -q` passes
 
 ## Phase 2: Evaluation Environment (P1/P2) — Target: ≥80% coverage
 
