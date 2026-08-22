@@ -236,30 +236,34 @@ class TestGTIQueryBudgetTrackerReplenish:
             await tracker.try_acquire()
             assert await tracker.get_available_tokens() == 3
 
-            # Simulate replenishment by calling the internal logic directly
-            with patch("asyncio.sleep", new_callable=AsyncMock, side_effect=[None, asyncio.CancelledError()]):
-                # Manually set tokens below capacity and run one iteration
-                async with tracker.lock:
-                    tracker.tokens = 3.0
-                # Run replenish loop - it will sleep once (mocked), add token, sleep again (CancelledError)
+            # Cancel the constructor's background task before manually invoking
+            # _replenish_loop, so both don't compete for the same mock side-effects.
+            tracker.close()  # cancels _replenish_task, sets it to None
+
+            # Patch the module-level sleep so only our explicit call consumes the sequence
+            with patch("blackwall.mcp.gti_client.asyncio.sleep", new_callable=AsyncMock,
+                       side_effect=[None, asyncio.CancelledError()]):
                 try:
                     await tracker._replenish_loop()
                 except asyncio.CancelledError:
                     pass
-                assert tracker.tokens == 4.0
+            # One iteration ran: drained token was replenished back to 4
+            assert tracker.tokens == 4.0
         finally:
             tracker.close()
 
     async def test_replenish_loop_does_not_exceed_capacity(self):
         tracker = GTIQueryBudgetTracker(capacity=4, replenishment_interval=15.0)
         try:
-            # Tokens are already at capacity
-            with patch("asyncio.sleep", new_callable=AsyncMock, side_effect=[None, asyncio.CancelledError()]):
+            # Cancel background task before direct invocation to avoid competing loops
+            tracker.close()
+            # Tokens already at capacity (4.0) — replenish should not push above it
+            with patch("blackwall.mcp.gti_client.asyncio.sleep", new_callable=AsyncMock,
+                       side_effect=[None, asyncio.CancelledError()]):
                 try:
                     await tracker._replenish_loop()
                 except asyncio.CancelledError:
                     pass
-                # Should not exceed capacity
                 assert tracker.tokens <= tracker.capacity
         finally:
             tracker.close()
@@ -267,8 +271,10 @@ class TestGTIQueryBudgetTrackerReplenish:
     async def test_replenish_loop_cancelled_gracefully(self):
         tracker = GTIQueryBudgetTracker(capacity=4, replenishment_interval=15.0)
         try:
-            with patch("asyncio.sleep", new_callable=AsyncMock, side_effect=asyncio.CancelledError()):
-                # Should not raise - CancelledError is handled internally
+            tracker.close()  # cancel background task before direct invocation
+            with patch("blackwall.mcp.gti_client.asyncio.sleep", new_callable=AsyncMock,
+                       side_effect=asyncio.CancelledError()):
+                # Should not raise — CancelledError is handled internally
                 await tracker._replenish_loop()
         finally:
             tracker.close()
