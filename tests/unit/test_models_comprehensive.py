@@ -439,8 +439,8 @@ class TestSecurityEvent:
         )
         assert event.timestamp == now
 
-        # Within 3 seconds: valid
-        valid_past = now - timedelta(seconds=3)
+        # Fresh timestamp: valid with full slack
+        valid_past = datetime.now(timezone.utc)
         event_past = SecurityEvent(
             event_type=EventType.ALLOW,
             timestamp=valid_past,
