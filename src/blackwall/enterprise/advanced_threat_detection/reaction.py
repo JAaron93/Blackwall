@@ -162,7 +162,8 @@ class ActiveReactionEngine:
         ):
             return False
 
-        success = True
+        # Fail-closed: no driver configured means no enforcement action was taken.
+        success = self.kernel_driver is not None
         if self.kernel_driver is not None:
             try:
                 res = self.kernel_driver.inject_socket_drop(
@@ -199,7 +200,8 @@ class ActiveReactionEngine:
         ):
             return False
 
-        success = True
+        # Fail-closed: no broadcaster configured means no signature was published.
+        success = self.mesh_broadcaster is not None
         if self.mesh_broadcaster is not None:
             try:
                 if callable(self.mesh_broadcaster):
@@ -244,7 +246,8 @@ class ActiveReactionEngine:
         ):
             return False
 
-        success = True
+        # Fail-closed: no vault adapter configured means no tokens were revoked.
+        success = self.vault_adapter is not None
         if self.vault_adapter is not None:
             try:
                 if hasattr(self.vault_adapter, "revoke_agent_tokens"):

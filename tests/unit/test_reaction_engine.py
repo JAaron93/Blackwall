@@ -166,12 +166,18 @@ async def test_broadcast_fleet_signature_with_broadcast_method_on_broadcaster() 
 
 @pytest.mark.asyncio
 async def test_broadcast_fleet_signature_records_to_history() -> None:
-    """broadcast_fleet_signature appends payload to reaction history."""
-    engine = ActiveReactionEngine()
+    """broadcast_fleet_signature appends payload to reaction history even when it fails closed.
+
+    A missing broadcaster means no signature was published (FAILED), but the
+    reaction payload must still be persisted for audit purposes.
+    """
+    engine = ActiveReactionEngine()  # no broadcaster → fails closed
     payload = make_payload(action_type=ReactionActionType.MESH_SIGNATURE_BROADCAST)
 
-    await engine.broadcast_fleet_signature(payload)
+    result = await engine.broadcast_fleet_signature(payload)
 
+    assert result is False
+    assert payload.status == "FAILED"
     history = engine.get_reaction_history()
     assert len(history) == 1
     assert history[0].reaction_id == payload.reaction_id
@@ -216,15 +222,20 @@ async def test_execute_ebpf_socket_drop_kernel_driver_failure_marks_failed() -> 
 
 
 @pytest.mark.asyncio
-async def test_execute_ebpf_socket_drop_no_kernel_driver_succeeds() -> None:
-    """Without a kernel driver, execute_ebpf_socket_drop still returns True (no-op path)."""
+async def test_execute_ebpf_socket_drop_no_kernel_driver_fails_closed() -> None:
+    """Without a kernel driver no socket drop is performed — fail-closed security invariant.
+
+    An unconfigured enforcement engine must never report a successful reaction that
+    never occurred. Returning False / FAILED keeps the audit log honest and ensures
+    that tightening the production code does not regress the suite.
+    """
     engine = ActiveReactionEngine(kernel_driver=None)
     payload = make_payload(action_type=ReactionActionType.EBPF_DROP, target_pid=1000)
 
     result = await engine.execute_ebpf_socket_drop(payload)
 
-    assert result is True
-    assert payload.status == "COMPLETED"
+    assert result is False
+    assert payload.status == "FAILED"
 
 
 # ---------------------------------------------------------------------------
@@ -249,15 +260,19 @@ async def test_revoke_identity_session_with_mock_vault_adapter() -> None:
 
 
 @pytest.mark.asyncio
-async def test_revoke_identity_session_no_vault_adapter_succeeds() -> None:
-    """Without vault adapter configured, revoke_identity_session returns True (no-op)."""
+async def test_revoke_identity_session_no_vault_adapter_fails_closed() -> None:
+    """Without a vault adapter no tokens are revoked — fail-closed security invariant.
+
+    An unconfigured enforcement engine must never report a successful revocation that
+    never occurred.  Returning False / FAILED keeps the audit log honest.
+    """
     engine = ActiveReactionEngine(vault_adapter=None)
     payload = make_payload(action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS)
 
     result = await engine.revoke_identity_session(payload)
 
-    assert result is True
-    assert payload.status == "COMPLETED"
+    assert result is False
+    assert payload.status == "FAILED"
 
 
 # ---------------------------------------------------------------------------
