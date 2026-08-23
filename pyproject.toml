@@ -65,6 +65,12 @@ markers = [
     "evaluation: Evaluation environment and containment test scenarios",
     "vertex_evaluation: Mark tests that run Vertex AI Evaluation Service tasks",
     "asyncio: Mark async tests to run with pytest-asyncio",
+    "gti_rate_limiting: GTI rate limiting BDD scenarios",
+    "jit_credential_privilege: JIT credential privilege BDD scenarios",
+    "codebase_memory_blast_radius: Codebase memory blast radius BDD scenarios",
+    "profile_db: Profile DB test scenarios",
+    "e2e_attribution: E2E attribution test scenarios",
+    "lifecycle: Lifecycle test scenarios",
 ]
 
 
