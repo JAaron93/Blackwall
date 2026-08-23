@@ -181,35 +181,37 @@
 - [x] Test all methods return no-op when `is_evaluation_mode()` is True
 - [x] Run: `pytest tests/unit/test_reaction_engine.py -q` passes
 
-## Phase 4: Data Models & Validators (P2/P3) — Target: ≥70% coverage
+## Phase 4: Data Models & Validators (P2/P3) — Target: ≥70% coverage ✅ COMPLETE
+
+> **Completed:** 2026-08-23 | Branch: test/phase4-data-models-validators | 137 tests added across 2 new files | 1157/1157 unit tests passing
 
 ### Task 4.1: Core Models Comprehensive Tests
-- [ ] Read `src/blackwall/models.py` (all 330 lines)
-- [ ] Create `tests/unit/test_models_comprehensive.py`
-- [ ] Test all enum memberships and `.value` access
-- [ ] Test `Verdict` with boundary confidence_score (0.0, 0.5, 1.0)
-- [ ] Test `Verdict` with out-of-bounds confidence_score (raises ValidationError)
-- [ ] Test `ToolCallContext` with minimal and full fields
-- [ ] Test `CallbackToken` auto-generates unique token_id and timestamp
-- [ ] Test `BatchPayload` with empty and populated sanitized_contexts
-- [ ] Test all remaining models (ThreatSignature, InterceptionEvent, etc.) for valid construction
-- [ ] Test `model_dump()` → reconstruction round-trip for each model
-- [ ] Test all `field_validator` functions with invalid inputs
-- [ ] Run: `pytest tests/unit/test_models_comprehensive.py -q` passes
+- [x] Read `src/blackwall/models.py` (all 330 lines)
+- [x] Create `tests/unit/test_models_comprehensive.py`
+- [x] Test all enum memberships and `.value` access
+- [x] Test `Verdict` with boundary confidence_score (0.0, 0.5, 1.0)
+- [x] Test `Verdict` with out-of-bounds confidence_score (raises ValidationError)
+- [x] Test `ToolCallContext` with minimal and full fields
+- [x] Test `CallbackToken` auto-generates unique token_id and timestamp
+- [x] Test `BatchPayload` with empty and populated sanitized_contexts
+- [x] Test all remaining models (ThreatSignature, InterceptionEvent, etc.) for valid construction
+- [x] Test `model_dump()` → reconstruction round-trip for each model
+- [x] Test all `field_validator` functions with invalid inputs
+- [x] Run: `pytest tests/unit/test_models_comprehensive.py -q` passes
 
 ### Task 4.2: Enterprise ATD Models Validator Tests
-- [ ] Read `src/blackwall/enterprise/advanced_threat_detection/models.py`
-- [ ] Create `tests/unit/test_atd_model_validators.py`
-- [ ] Test `validate_utc_timestamp` with UTC, non-UTC, and naive datetimes
-- [ ] Test `validate_uuid_v4_fields` with valid UUID4, invalid UUID, and empty string
-- [ ] Test `validate_non_empty_fields` with empty and whitespace-only strings
-- [ ] Test `validate_min_nodes` with 0, 1, and threshold-meeting counts
-- [ ] Test `validate_min_agents` with 0, 1, 2 agents
-- [ ] Test `validate_temporal_ordering` with ordered and reversed timestamps
-- [ ] Test `validate_evaluation_env_id` with valid and invalid patterns
-- [ ] Test `validate_target_agent_id`, `validate_target_ip`, `validate_target_pid`
-- [ ] Test cross-field validators that reference multiple fields
-- [ ] Run: `pytest tests/unit/test_atd_model_validators.py -q` passes
+- [x] Read `src/blackwall/enterprise/advanced_threat_detection/models.py`
+- [x] Create `tests/unit/test_atd_model_validators.py`
+- [x] Test `validate_utc_timestamp` with UTC, non-UTC, and naive datetimes
+- [x] Test `validate_uuid_v4_fields` with valid UUID4, invalid UUID, and empty string
+- [x] Test `validate_non_empty_fields` with empty and whitespace-only strings
+- [x] Test `validate_min_nodes` with 0, 1, and threshold-meeting counts
+- [x] Test `validate_min_agents` with 0, 1, 2 agents
+- [x] Test `validate_temporal_ordering` with ordered and reversed timestamps
+- [x] Test `validate_evaluation_env_id` with valid and invalid patterns
+- [x] Test `validate_target_agent_id`, `validate_target_ip`, `validate_target_pid`
+- [x] Test cross-field validators that reference multiple fields
+- [x] Run: `pytest tests/unit/test_atd_model_validators.py -q` passes
 
 ## Phase 5: Property Tests (P2/P3) — Target: all invariants covered
 
