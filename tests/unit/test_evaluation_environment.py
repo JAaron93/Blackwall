@@ -305,6 +305,9 @@ async def test_concurrent_get_or_create_environment_returns_same_instance():
     results: list[EvaluationEnvironment] = []
 
     async def create_env():
+        await asyncio.sleep(0)  # yield to the event loop so all 20 coroutines are
+        # scheduled before any of them calls get_or_create_environment, genuinely
+        # interleaving execution and stressing the idempotency check-then-insert path.
         env = manager.get_or_create_environment(env_id)
         results.append(env)
 
