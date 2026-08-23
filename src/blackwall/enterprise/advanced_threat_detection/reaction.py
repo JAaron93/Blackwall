@@ -162,7 +162,8 @@ class ActiveReactionEngine:
         ):
             return False
 
-        success = True
+        # Fail-closed: no driver configured means no enforcement action was taken.
+        success = self.kernel_driver is not None
         if self.kernel_driver is not None:
             try:
                 res = self.kernel_driver.inject_socket_drop(
@@ -199,24 +200,30 @@ class ActiveReactionEngine:
         ):
             return False
 
-        success = True
+        # Fail-closed: success is only set True by a branch that actually dispatches.
+        # An unsupported broadcaster interface (not callable, no known broadcast method)
+        # falls through all branches without setting success, correctly yielding FAILED.
+        success = False
         if self.mesh_broadcaster is not None:
             try:
                 if callable(self.mesh_broadcaster):
                     res = self.mesh_broadcaster(payload)
                     if asyncio.iscoroutine(res):
-                        await res
+                        res = await res
+                    success = bool(res) if res is not None else True
                 elif "broadcast_threat_signature" in dir(self.mesh_broadcaster):
                     res = self.mesh_broadcaster.broadcast_threat_signature(
                         signature=f"BW-BLOCK-{payload.target_agent_id}",
                         metadata=payload.metadata,
                     )
                     if asyncio.iscoroutine(res):
-                        await res
+                        res = await res
+                    success = bool(res) if res is not None else True
                 elif "broadcast" in dir(self.mesh_broadcaster):
                     res = self.mesh_broadcaster.broadcast(payload.model_dump(mode="json"))
                     if asyncio.iscoroutine(res):
-                        await res
+                        res = await res
+                    success = bool(res) if res is not None else True
             except Exception as exc:
                 logger.error("Failed to broadcast threat signature: %s", exc)
                 success = False
@@ -244,7 +251,8 @@ class ActiveReactionEngine:
         ):
             return False
 
-        success = True
+        # Fail-closed: no vault adapter configured means no tokens were revoked.
+        success = self.vault_adapter is not None
         if self.vault_adapter is not None:
             try:
                 if hasattr(self.vault_adapter, "revoke_agent_tokens"):
@@ -268,7 +276,14 @@ class ActiveReactionEngine:
 
                     if target_to_revoke:
                         revoked_tokens = await self.vault_adapter.revoke_agent_tokens(target_to_revoke)
-                        if isinstance(adapter_tokens, dict) and len(adapter_tokens) > 0 and len(revoked_tokens) == 0:
+                        if len(revoked_tokens) == 0 and not (
+                            isinstance(adapter_tokens, dict) and len(adapter_tokens) == 0
+                        ):
+                            # Zero revocations is a failure unless the local registry is
+                            # confirmed empty (empty dict = no tokens were ever issued,
+                            # so an empty return is correct).  When _issued_tokens is absent
+                            # or non-dict we have no visibility into the registry and must
+                            # treat an empty return as a failure.
                             logger.warning(
                                 "No active JIT tokens revoked for target %s", target_to_revoke
                             )

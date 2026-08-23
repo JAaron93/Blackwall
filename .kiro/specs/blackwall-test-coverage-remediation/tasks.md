@@ -123,59 +123,63 @@
 - [x] Test `close()` makes subsequent operations raise RuntimeError
 - [x] Run: `pytest tests/unit/test_evaluation_environment_ops.py -q` passes
 
-## Phase 3: Enterprise Pillars (P2) — Target: ≥70% coverage
+## Phase 3: Enterprise Pillars (P2) — Target: ≥70% coverage ✅ COMPLETE
+
+> **Completed:** 2026-08-23 | Branch: test/phase3-enterprise-pillars | PR #93 | 28 tests added across 4 new files (67 total new tests including review-cycle additions) | 1020/1020 unit tests passing
+> Production fixes: `reaction.py` fail-closed enforcement contract (Rules 39/48), broadcaster return-value capture, empty-revocation oracle guard
+> Greptile review iterations: 4 rounds → all comments resolved
 
 ### Task 3.1: Forensics OllamaEngine Unit Tests
-- [ ] Read `src/blackwall/enterprise/forensics/ollama_engine.py`
-- [ ] Create `tests/unit/test_ollama_engine.py`
-- [ ] Test `__init__()` with valid config (host, port, model)
-- [ ] Test `is_ollama_online()` with mock HTTP 200 (returns True)
-- [ ] Test `is_ollama_online()` with mock connection error (returns False)
-- [ ] Test `analyze_log_stream()` with sample logs → structured JSON output
-- [ ] Test `analyze_log_stream()` when Ollama offline → fallback behavior
-- [ ] Test `_parse_llm_json_response()` with valid JSON wrapped in text
-- [ ] Test `_parse_llm_json_response()` with completely malformed response
-- [ ] Test `_parse_llm_json_response()` with partial/truncated JSON
-- [ ] Run: `pytest tests/unit/test_ollama_engine.py -q` passes
+- [x] Read `src/blackwall/enterprise/forensics/ollama_engine.py`
+- [x] Create `tests/unit/test_ollama_engine.py`
+- [x] Test `__init__()` with valid config (host, port, model)
+- [x] Test `is_ollama_online()` with mock HTTP 200 (returns True)
+- [x] Test `is_ollama_online()` with mock connection error (returns False)
+- [x] Test `analyze_log_stream()` with sample logs → structured JSON output
+- [x] Test `analyze_log_stream()` when Ollama offline → fallback behavior
+- [x] Test `_parse_llm_json_response()` with valid JSON wrapped in text
+- [x] Test `_parse_llm_json_response()` with completely malformed response
+- [x] Test `_parse_llm_json_response()` with partial/truncated JSON
+- [x] Run: `pytest tests/unit/test_ollama_engine.py -q` passes
 
 ### Task 3.2: OpenTelemetry MCP Adapter Unit Tests
-- [ ] Read `src/blackwall/enterprise/mcp/opentelemetry_mcp.py`
-- [ ] Create `tests/unit/test_opentelemetry_mcp_adapter.py`
-- [ ] Test `connect()` / `disconnect()` lifecycle transitions
-- [ ] Test `is_connected()` state tracking
-- [ ] Test `export_trace_span()` with valid span data structure
-- [ ] Test `ingest_log_event()` with valid log event
-- [ ] Test `get_active_spans()` returns previously exported spans
-- [ ] Test `get_ingested_logs()` returns previously ingested logs
-- [ ] Test `clear_buffers()` empties both span and log buffers
-- [ ] Test operations on disconnected adapter raise appropriate errors
-- [ ] Run: `pytest tests/unit/test_opentelemetry_mcp_adapter.py -q` passes
+- [x] Read `src/blackwall/enterprise/mcp/opentelemetry_mcp.py`
+- [x] Create `tests/unit/test_opentelemetry_mcp_adapter.py`
+- [x] Test `connect()` / `disconnect()` lifecycle transitions
+- [x] Test `is_connected()` state tracking
+- [x] Test `export_trace_span()` with valid span data structure
+- [x] Test `ingest_log_event()` with valid log event
+- [x] Test `get_active_spans()` returns previously exported spans
+- [x] Test `get_ingested_logs()` returns previously ingested logs
+- [x] Test `clear_buffers()` empties both span and log buffers
+- [x] Test operations on disconnected adapter raise appropriate errors
+- [x] Run: `pytest tests/unit/test_opentelemetry_mcp_adapter.py -q` passes
 
 ### Task 3.3: Pipeline Wrapper (inspect_code) Unit Tests
-- [ ] Read `src/blackwall/enterprise/pipeline/wrapper.py`
-- [ ] Create `tests/unit/test_pipeline_inspect_code.py`
-- [ ] Test `inspect_code()` with safe Python code (returns no violations)
-- [ ] Test `inspect_code()` with `pickle.loads()` pattern (detects deserialization risk)
-- [ ] Test `inspect_code()` with `eval()` / `exec()` patterns
-- [ ] Test `inspect_code()` with `os.system()` / `subprocess.Popen()` patterns
-- [ ] Test `inspect_code()` with obfuscated dangerous patterns (base64 encoded, string concat)
-- [ ] Test `inspect_code()` with empty string input
-- [ ] Test `inspect_code()` with syntax errors in input (graceful handling)
-- [ ] Test `@blackwall.guard_pipeline` decorator wraps function execution
-- [ ] Run: `pytest tests/unit/test_pipeline_inspect_code.py -q` passes
+- [x] Read `src/blackwall/enterprise/pipeline/wrapper.py`
+- [x] Create `tests/unit/test_pipeline_inspect_code.py`
+- [x] Test `inspect_code()` with safe Python code (returns no violations)
+- [x] Test `inspect_code()` with `pickle.loads()` pattern (detects deserialization risk)
+- [x] Test `inspect_code()` with `eval()` / `exec()` patterns
+- [x] Test `inspect_code()` with `os.system()` / `subprocess.Popen()` patterns
+- [x] Test `inspect_code()` with obfuscated dangerous patterns (base64 encoded, string concat)
+- [x] Test `inspect_code()` with empty string input
+- [x] Test `inspect_code()` with syntax errors in input (graceful handling)
+- [x] Test `@blackwall.guard_pipeline` decorator wraps function execution
+- [x] Run: `pytest tests/unit/test_pipeline_inspect_code.py -q` passes
 
 ### Task 3.4: Active Reaction Engine Unit Tests
-- [ ] Read `src/blackwall/enterprise/advanced_threat_detection/reaction.py`
-- [ ] Create `tests/unit/test_reaction_engine.py`
-- [ ] Test `is_evaluation_mode()` detection logic
-- [ ] Test `broadcast_fleet_signature()` with mock mesh broadcaster
-- [ ] Test `execute_ebpf_socket_drop()` with mock kernel probe
-- [ ] Test `revoke_identity_session()` with mock identity sidecar
-- [ ] Test `get_reaction_history()` returns stored reactions
-- [ ] Test `_publish_reaction_alert()` publishes to alert bus
-- [ ] Test `_record_reaction()` persists reaction to store
-- [ ] Test all methods return no-op when `is_evaluation_mode()` is True
-- [ ] Run: `pytest tests/unit/test_reaction_engine.py -q` passes
+- [x] Read `src/blackwall/enterprise/advanced_threat_detection/reaction.py`
+- [x] Create `tests/unit/test_reaction_engine.py`
+- [x] Test `is_evaluation_mode()` detection logic
+- [x] Test `broadcast_fleet_signature()` with mock mesh broadcaster
+- [x] Test `execute_ebpf_socket_drop()` with mock kernel probe
+- [x] Test `revoke_identity_session()` with mock identity sidecar
+- [x] Test `get_reaction_history()` returns stored reactions
+- [x] Test `_publish_reaction_alert()` publishes to alert bus
+- [x] Test `_record_reaction()` persists reaction to store
+- [x] Test all methods return no-op when `is_evaluation_mode()` is True
+- [x] Run: `pytest tests/unit/test_reaction_engine.py -q` passes
 
 ## Phase 4: Data Models & Validators (P2/P3) — Target: ≥70% coverage
 
