@@ -298,18 +298,20 @@
 - [ ] Test `config.py` remaining 4 untested symbols for loading and defaults
 - [ ] Run: `pytest tests/unit/test_config_exceptions.py -q` passes
 
-### Task 7.3: Weave Config & Datasets Tests
-- [ ] Create `tests/unit/test_weave_config_coverage.py`
-- [ ] Test `should_enable_weave()` with WEAVE_DISABLED=true → False
-- [ ] Test `should_enable_weave()` with WEAVE_OFFLINE=true → True (when importable)
-- [ ] Test `should_enable_weave()` with WANDB_API_KEY set → True (when importable)
-- [ ] Test `has_wandb_credentials()` with mock netrc present/absent
-- [ ] Test `init_weave()` idempotent behavior
-- [ ] Test `load_weave_config()` with valid and missing files
-- [ ] Test `_sanitize_scenario_event()` removes sensitive fields
-- [ ] Test `_load_scenario_file()` with valid JSON, malformed, and missing
-- [ ] Test `create_evaluation_dataset()` constructs dataset from files
-- [ ] Run: `pytest tests/unit/test_weave_config_coverage.py -q` passes
+### Task 7.3: GCP Vertex AI Evaluation & Telemetry Coverage Tests
+- [ ] Read `src/blackwall/enterprise/advanced_threat_detection/gcp_vertex_eval.py`, `gcp_eval_datasets.py`, `gcp_trace_exporter.py`
+- [ ] Create `tests/unit/test_gcp_vertex_eval_coverage.py`
+- [ ] Test `GCPVertexEvalConfig` defaults and `validate_non_empty` validator
+- [ ] Test `GCPVertexEvalMetrics` edge cases (zero division in precision, recall, f1, fpr, trajectory averages)
+- [ ] Test `GCPVertexAIEvaluationHarness` initialization with custom config and trace exporter
+- [ ] Test `create_pointwise_rubric()` and `create_pairwise_autorater()` fallback dictionary generation
+- [ ] Test `build_threat_accuracy_autorater()` and `build_context_hygiene_autorater()` rubric structures
+- [ ] Test `evaluate_trajectory()` with empty candidate, empty reference, partial match, in-order sub-sequences
+- [ ] Test `run_eval_task()` explicit failure escalation when `allow_fallback=False` and local fallback when `allow_fallback=True`
+- [ ] Test `load_gcp_eval_datasets()` structure, sample counts, and optional DataFrame conversion fallback
+- [ ] Test `GCPTraceSpan` duration calculations, attributes, and finish status
+- [ ] Test `GCPCloudTraceExporter` disable flag precedence (`BLACKWALL_DISABLE_CLOUD_TRACE`), span creation, error recording, and buffer management
+- [ ] Run: `pytest tests/unit/test_gcp_vertex_eval_coverage.py -q` passes
 
 ### Task 7.4: Final Coverage Validation
 - [ ] Run full suite: `pytest tests/unit/ tests/property/ tests/step_defs/ --tb=short -q`

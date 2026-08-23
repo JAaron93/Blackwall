@@ -67,9 +67,9 @@ Coverage was measured using `codebase-memory-mcp` Cypher queries against the pro
 |--------|:---:|:---:|:---:|
 | `evaluation.py` | 53 | 3 | 94% |
 | `models.py` (validators) | 33 | 2 | 94% |
-| `weave_traced.py` | 23 | 7 | 70% |
-| `weave_config.py` | 5 | 0 | 100% |
-| `weave_datasets.py` | 7 | 0 | 100% |
+| `gcp_vertex_eval.py` | 24 | 8 | 67% |
+| `gcp_trace_exporter.py` | 14 | 4 | 71% |
+| `gcp_eval_datasets.py` | 4 | 2 | 50% |
 | `reaction.py` | 8 | 0 (BDD covers some) | ~60% |
 | `orchestrator.py` | 17 | 8 | 53% |
 | `correlator.py` | 8 | 4 | 50% |
