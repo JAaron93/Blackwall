@@ -165,6 +165,35 @@ async def test_broadcast_fleet_signature_with_broadcast_method_on_broadcaster() 
 
 
 @pytest.mark.asyncio
+async def test_broadcast_fleet_signature_unsupported_interface_fails_closed() -> None:
+    """A non-None broadcaster whose interface matches no dispatch branch fails closed.
+
+    When mesh_broadcaster is not callable and exposes neither 'broadcast_threat_signature'
+    nor 'broadcast', all three dispatch branches are skipped.  The reaction must return
+    False / FAILED rather than silently claiming success for an unperformed broadcast.
+    """
+
+    class _UnsupportedBroadcaster:
+        """Has no callable interface and no recognised broadcast method."""
+
+        def send_to_siem(self, data: dict) -> None:  # not a known dispatch target
+            pass
+
+    broadcaster = _UnsupportedBroadcaster()
+    engine = ActiveReactionEngine(mesh_broadcaster=broadcaster)
+
+    payload = make_payload(action_type=ReactionActionType.MESH_SIGNATURE_BROADCAST)
+    result = await engine.broadcast_fleet_signature(payload)
+
+    assert result is False
+    assert payload.status == "FAILED"
+    # Reaction must still be recorded for auditability
+    history = engine.get_reaction_history()
+    assert len(history) == 1
+    assert history[0].status == "FAILED"
+
+
+@pytest.mark.asyncio
 async def test_broadcast_fleet_signature_records_to_history() -> None:
     """broadcast_fleet_signature appends payload to reaction history even when it fails closed.
 

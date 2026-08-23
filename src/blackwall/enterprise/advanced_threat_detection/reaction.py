@@ -200,14 +200,17 @@ class ActiveReactionEngine:
         ):
             return False
 
-        # Fail-closed: no broadcaster configured means no signature was published.
-        success = self.mesh_broadcaster is not None
+        # Fail-closed: success is only set True by a branch that actually dispatches.
+        # An unsupported broadcaster interface (not callable, no known broadcast method)
+        # falls through all branches without setting success, correctly yielding FAILED.
+        success = False
         if self.mesh_broadcaster is not None:
             try:
                 if callable(self.mesh_broadcaster):
                     res = self.mesh_broadcaster(payload)
                     if asyncio.iscoroutine(res):
                         await res
+                    success = True
                 elif "broadcast_threat_signature" in dir(self.mesh_broadcaster):
                     res = self.mesh_broadcaster.broadcast_threat_signature(
                         signature=f"BW-BLOCK-{payload.target_agent_id}",
@@ -215,10 +218,12 @@ class ActiveReactionEngine:
                     )
                     if asyncio.iscoroutine(res):
                         await res
+                    success = True
                 elif "broadcast" in dir(self.mesh_broadcaster):
                     res = self.mesh_broadcaster.broadcast(payload.model_dump(mode="json"))
                     if asyncio.iscoroutine(res):
                         await res
+                    success = True
             except Exception as exc:
                 logger.error("Failed to broadcast threat signature: %s", exc)
                 success = False
