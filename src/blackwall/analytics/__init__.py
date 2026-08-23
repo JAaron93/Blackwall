@@ -528,8 +528,10 @@ class AgentBehavioralAnalytics:
                 behavior_score=BehaviorScore(score=1.0, risk_level="CRITICAL"),
                 agent_id=event.agent_id,
             )
+            anomaly_payload = anomaly_event.model_dump(mode="json")
             logger.info(
-                "ANOMALY_EVENT_LOGGED", extra={"event": anomaly_event.model_dump(mode="json")}
+                f"ANOMALY_EVENT_LOGGED: {anomaly_payload}",
+                extra={"event": anomaly_payload},
             )
 
     def exportAgBOM(self) -> str:

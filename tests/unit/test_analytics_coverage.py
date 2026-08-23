@@ -365,7 +365,7 @@ async def test_trigger_refactoring_with_repo_and_llm(repo: SQLiteThreatRepositor
         assert meta["refactoring_hint"]["vulnerability_type"] == "Command Injection"
 
 
-def test_agbom_update_and_export():
+def test_agbom_update_and_export(caplog):
     analytics = AgentBehavioralAnalytics(allowed_tools={"query_db", "fetch_records"})
 
     event1 = SecurityEvent(
@@ -386,9 +386,12 @@ def test_agbom_update_and_export():
         verdict=Verdict(decision=VerdictDecision.ALLOW, reasoning="Allowed but unlisted", confidence_score=0.5),
         agent_id="test_agent_1",
     )
-    analytics.updateAgBOM(event_drift)
+    with caplog.at_level("INFO"):
+        analytics.updateAgBOM(event_drift)
 
     assert "unexpected_shell_tool" in analytics.agbom["tools"]
+    # Verify anomaly log message contains the payload directly
+    assert any("ANOMALY_EVENT_LOGGED:" in record.message and "unexpected_shell_tool" in record.message for record in caplog.records)
     exported = analytics.exportAgBOM()
     data = json.loads(exported)
     assert "query_db" in data["tools"]
