@@ -75,51 +75,53 @@
 - [x] Test `ContextHygiene.sanitize_value()` with nested dicts, lists, primitives
 - [x] Run: `pytest tests/unit/test_resolver_batch_internals.py -q` passes
 
-## Phase 2: Evaluation Environment (P1/P2) — Target: ≥80% coverage
+## Phase 2: Evaluation Environment (P1/P2) — Target: ≥80% coverage ✅ COMPLETE
+
+> **Completed:** 2026-08-23 | Branch: test/phase2-evaluation-environment | 75 tests added | 947/948 unit tests passing (1 pre-existing GCP Vertex eval failure, unrelated to Phase 2)
 
 ### Task 2.1: EvaluationEnvironmentManager Unit Tests
-- [ ] Read `src/blackwall/enterprise/advanced_threat_detection/evaluation.py` fully
-- [ ] Create `tests/unit/test_evaluation_environment.py`
-- [ ] Test `get_or_create_environment()` creates new env on first call
-- [ ] Test `get_or_create_environment()` returns same instance on second call (idempotent)
-- [ ] Test `list_environments()` with 0, 1, 5 environments
-- [ ] Test `delete_environment()` removes env from list
-- [ ] Test `delete_environment()` with non-existent ID (expected behavior: no-op or KeyError)
-- [ ] Test `reset_environment()` clears events but preserves registration
-- [ ] Test `close_all()` makes all environments unusable
-- [ ] Test `reset_all()` resets state without closing
-- [ ] Test `get_environment()` with valid and invalid IDs
-- [ ] Test thread-safety: concurrent `get_or_create_environment` calls
-- [ ] Run: `pytest tests/unit/test_evaluation_environment.py -q` passes
+- [x] Read `src/blackwall/enterprise/advanced_threat_detection/evaluation.py` fully
+- [x] Create `tests/unit/test_evaluation_environment.py`
+- [x] Test `get_or_create_environment()` creates new env on first call
+- [x] Test `get_or_create_environment()` returns same instance on second call (idempotent)
+- [x] Test `list_environments()` with 0, 1, 5 environments
+- [x] Test `delete_environment()` removes env from list
+- [x] Test `delete_environment()` with non-existent ID (expected behavior: no-op or KeyError)
+- [x] Test `reset_environment()` clears events but preserves registration
+- [x] Test `close_all()` makes all environments unusable
+- [x] Test `reset_all()` resets state without closing
+- [x] Test `get_environment()` with valid and invalid IDs
+- [x] Test thread-safety: concurrent `get_or_create_environment` calls
+- [x] Run: `pytest tests/unit/test_evaluation_environment.py -q` passes
 
 ### Task 2.2: EvaluationAttackGraphStore Unit Tests
-- [ ] Create `tests/unit/test_evaluation_attack_graph_store.py`
-- [ ] Test `initialize()` / `close()` lifecycle
-- [ ] Test `insert_event()` with valid NormalizedEvent
-- [ ] Test `insert_events_batch()` with 1, 5, and 0 events
-- [ ] Test `get_node()` with existing node ID returns correct node
-- [ ] Test `get_node()` with non-existing ID returns None or raises
-- [ ] Test `get_all_nodes()` after various insertions
-- [ ] Test `query_nodes()` with filter criteria
-- [ ] Test `purge_events_before()` removes old events, keeps new
-- [ ] Test `_check_not_closed()` raises RuntimeError after close()
-- [ ] Test `_check_store_open()` raises RuntimeError before initialize()
-- [ ] Test `derive_evaluation_event_id()` is deterministic (same input → same output)
-- [ ] Test `is_evaluation_alert()` correctly identifies eval-labeled alerts
-- [ ] Test `is_evaluation_event()` correctly identifies eval-labeled events
-- [ ] Run: `pytest tests/unit/test_evaluation_attack_graph_store.py -q` passes
+- [x] Create `tests/unit/test_evaluation_attack_graph_store.py`
+- [x] Test `initialize()` / `close()` lifecycle
+- [x] Test `insert_event()` with valid NormalizedEvent
+- [x] Test `insert_events_batch()` with 1, 5, and 0 events
+- [x] Test `get_node()` with existing node ID returns correct node
+- [x] Test `get_node()` with non-existing ID returns None or raises
+- [x] Test `get_all_nodes()` after various insertions
+- [x] Test `query_nodes()` with filter criteria
+- [x] Test `purge_events_before()` removes old events, keeps new
+- [x] Test `_check_not_closed()` raises RuntimeError after close()
+- [x] Test `_check_store_open()` raises RuntimeError before initialize()
+- [x] Test `derive_evaluation_event_id()` is deterministic (same input → same output)
+- [x] Test `is_evaluation_alert()` correctly identifies eval-labeled alerts
+- [x] Test `is_evaluation_event()` correctly identifies eval-labeled events
+- [x] Run: `pytest tests/unit/test_evaluation_attack_graph_store.py -q` passes
 
 ### Task 2.3: EvaluationEnvironment Operations Unit Tests
-- [ ] Create `tests/unit/test_evaluation_environment_ops.py`
-- [ ] Test `is_evaluation_mode()` always True
-- [ ] Test `is_production_action_suppressed()` always True
-- [ ] Test `should_suppress_production_reaction()` always True in eval
-- [ ] Test `label_event()` attaches evaluation_env_id metadata
-- [ ] Test `label_alert()` attaches evaluation_env_id metadata
-- [ ] Test `label_raw_event()` with dict-based events
-- [ ] Test `reset()` clears state
-- [ ] Test `close()` makes subsequent operations raise RuntimeError
-- [ ] Run: `pytest tests/unit/test_evaluation_environment_ops.py -q` passes
+- [x] Create `tests/unit/test_evaluation_environment_ops.py`
+- [x] Test `is_evaluation_mode()` always True
+- [x] Test `is_production_action_suppressed()` always True
+- [x] Test `should_suppress_production_reaction()` always True in eval
+- [x] Test `label_event()` attaches evaluation_env_id metadata
+- [x] Test `label_alert()` attaches evaluation_env_id metadata
+- [x] Test `label_raw_event()` with dict-based events
+- [x] Test `reset()` clears state
+- [x] Test `close()` makes subsequent operations raise RuntimeError
+- [x] Run: `pytest tests/unit/test_evaluation_environment_ops.py -q` passes
 
 ## Phase 3: Enterprise Pillars (P2) — Target: ≥70% coverage
 
