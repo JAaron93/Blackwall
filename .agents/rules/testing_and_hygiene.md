@@ -249,3 +249,39 @@
   ```
 * **Rationale:** Identified during Phase 2 test coverage remediation (PR #92, `test_evaluation_environment.py`). The test passed trivially for any implementation — including broken ones — because `asyncio.gather` over zero-await coroutines is indistinguishable from a plain `for` loop. The bug is invisible at write time: no error is raised, yet the concurrency invariant is never tested.
 
+## 38. Scenario-Scoped Persistent Event Loops for Stateful Async BDD Fixtures
+
+* **Rule:** When writing `pytest-bdd` step definitions for stateful async components that maintain internal `asyncio.Lock` primitives or spawn background tasks (e.g. `GTIQueryBudgetTracker`), step definitions MUST NOT execute consecutive steps using disjoint, temporary event loops via repeated standalone `run_async()` calls.
+* **Pattern:** The scenario state fixture MUST manage a persistent event loop across steps and execute coroutines through a runner method:
+  ```python
+  class ScenarioState:
+      def __init__(self):
+          self.loop = asyncio.new_event_loop()
+          self.tracker = None
+
+      def run(self, coro):
+          return self.loop.run_until_complete(coro)
+
+      def cleanup(self):
+          if self.tracker and self.tracker._replenish_task and not self.tracker._replenish_task.done():
+              self.tracker._replenish_task.cancel()
+              try:
+                  self.loop.run_until_complete(self.tracker._replenish_task)
+              except (asyncio.CancelledError, Exception):
+                  pass
+          if not self.loop.is_closed():
+              self.loop.close()
+
+  @pytest.fixture
+  def state():
+      st = ScenarioState()
+      yield st
+      st.cleanup()
+  ```
+* **Rationale:** Discovered during Phase 6 BDD feature remediation (PR #96) via Greptile review. Reusing lock-bound async objects across separate short-lived event loops causes cross-loop binding errors and unhandled task cancellation warnings.
+
+## 39. Composite Resolver Signal Ingestion Assertions in BDD
+
+* **Rule:** BDD feature steps asserting security verdicts from orchestrating resolvers (`SyncResolver`, `BatchResolver`) MUST assert on the resolver's resulting `Verdict` attributes (`verdict.reasoning`, `verdict.confidence_score`, `verdict.decision`) to verify that signals returned by subsidiary MCP clients (CBM AST blast radius, GTI threat intelligence) were actively consumed and reflected in the verdict calculation. Step definitions MUST NOT rely exclusively on querying the sidecar client directly.
+* **Rationale:** Verifying only the subsidiary adapter's response allows broken ingestion pipelines, missing scoring weights, or malformed adapter mappings inside the resolver to pass BDD test scenarios unnoticed.
+
