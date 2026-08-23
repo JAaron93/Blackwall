@@ -529,7 +529,7 @@ class AgentBehavioralAnalytics:
                 agent_id=event.agent_id,
             )
             logger.info(
-                "ANOMALY_EVENT_LOGGED", event=anomaly_event.model_dump(mode="json")
+                "ANOMALY_EVENT_LOGGED", extra={"event": anomaly_event.model_dump(mode="json")}
             )
 
     def exportAgBOM(self) -> str:
