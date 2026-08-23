@@ -208,3 +208,22 @@
   If the enum values differ (as they do in this codebase — `"SQL_QUERY"` has no matching `SinkType` value), adapters that perform `SinkType(source_enum.value)` will silently catch `ValueError` and produce an empty list. Tests MUST assert the **actual runtime behavior** (e.g. `assert resp.critical_sinks == []`) rather than the idealized semantic intent (e.g. `assert len(resp.critical_sinks) >= 1`).
 * **Rationale:** Asserting idealized intent on a silently-failing enum mapping causes false-passing tests (if the test is skipped by wrong assertion polarity) or persistent false-failing tests (if the assertion expects content that can never be produced). The correct path is to assert the ground truth, then separately file a bug/spec issue for the mapping gap if the semantic intent matters.
 
+## 36. `asyncio.gather` Concurrency Tests Require an `await` Yield Point
+
+* **Rule:** Concurrency tests that stress idempotency or shared-state invariants (e.g. "all N concurrent callers obtain the same singleton") MUST include at least one `await` suspension point inside each inner coroutine passed to `asyncio.gather`. A coroutine containing no `await` expression runs to completion before the event loop yields to the next — `asyncio.gather` does **not** introduce interleaving for purely synchronous coroutines. The canonical fix is `await asyncio.sleep(0)` at the top of the worker, which forces the scheduler to queue all N tasks before any of them begins work:
+  ```python
+  # ❌ Broken: no await — runs sequentially, cannot detect races
+  async def worker():
+      result = manager.get_or_create_environment(env_id)
+      results.append(result)
+
+  # ✅ Correct: yield at entry so all N coroutines interleave before the operation
+  async def worker():
+      await asyncio.sleep(0)  # yield to scheduler; all tasks queued first
+      result = manager.get_or_create_environment(env_id)
+      results.append(result)
+
+  await asyncio.gather(*[worker() for _ in range(20)])
+  ```
+* **Rationale:** Identified during Phase 2 test coverage remediation (PR #92, `test_evaluation_environment.py`). The test passed trivially for any implementation — including broken ones — because `asyncio.gather` over zero-await coroutines is indistinguishable from a plain `for` loop. The bug is invisible at write time: no error is raised, yet the concurrency invariant is never tested.
+
