@@ -213,36 +213,38 @@
 - [x] Test cross-field validators that reference multiple fields
 - [x] Run: `pytest tests/unit/test_atd_model_validators.py -q` passes
 
-## Phase 5: Property Tests (P2/P3) — Target: all invariants covered
+## Phase 5: Property Tests (P2/P3) — Target: all invariants covered ✅ COMPLETE
+
+> **Completed:** 2026-08-23 | Branch: test/phase5-property-tests | 33 property test suites added across 3 files | Hypothesis settings(max_examples=200) | 1406/1406 unit & property tests passing
 
 ### Task 5.1: GTI Budget Tracker Properties
-- [ ] Create `tests/property/test_gti_budget_tracker_properties.py`
-- [ ] Property: token count ∈ [0, max_tokens] after arbitrary acquire/replenish sequences
-- [ ] Property: try_acquire returns False exactly when tokens == 0
-- [ ] Property: replenish never exceeds max_tokens
-- [ ] Property: N acquires from full tracker → exactly min(N, max_tokens) succeed
-- [ ] Use `settings(max_examples=200)`
-- [ ] Run: `pytest tests/property/test_gti_budget_tracker_properties.py -q` passes
+- [x] Create `tests/property/test_gti_budget_tracker_properties.py`
+- [x] Property: token count ∈ [0, max_tokens] after arbitrary acquire/replenish sequences
+- [x] Property: try_acquire returns False exactly when tokens == 0
+- [x] Property: replenish never exceeds max_tokens
+- [x] Property: N acquires from full tracker → exactly min(N, max_tokens) succeed
+- [x] Use `settings(max_examples=200)`
+- [x] Run: `pytest tests/property/test_gti_budget_tracker_properties.py -q` passes
 
 ### Task 5.2: Context Hygiene Properties
-- [ ] Create `tests/property/test_context_hygiene_properties.py`
-- [ ] Property: sanitization is idempotent: `sanitize(sanitize(x)) == sanitize(x)`
-- [ ] Property: output never contains raw env var values from input
-- [ ] Property: non-sensitive plain text passes through unchanged
-- [ ] Property: all placeholder patterns match `[[VARIABLE_NAME]]` regex
-- [ ] Use strategies generating strings with embedded `KEY=value` and `$SECRET` patterns
-- [ ] Use `settings(max_examples=200)`
-- [ ] Run: `pytest tests/property/test_context_hygiene_properties.py -q` passes
+- [x] Create `tests/property/test_context_hygiene_properties.py`
+- [x] Property: sanitization is idempotent: `sanitize(sanitize(x)) == sanitize(x)`
+- [x] Property: output never contains raw env var values from input
+- [x] Property: non-sensitive plain text passes through unchanged
+- [x] Property: all placeholder patterns match `[[VARIABLE_NAME]]` regex
+- [x] Use strategies generating strings with embedded `KEY=value` and `$SECRET` patterns
+- [x] Use `settings(max_examples=200)`
+- [x] Run: `pytest tests/property/test_context_hygiene_properties.py -q` passes
 
 ### Task 5.3: Core Model Validation Properties
-- [ ] Create `tests/property/test_core_model_properties.py`
-- [ ] Property: all models accept valid input (custom strategies per model)
-- [ ] Property: invalid inputs consistently produce `ValidationError`
-- [ ] Property: `model_dump()` → reconstruction preserves all field values
-- [ ] Property: UUID fields are unique across 1000 generations
-- [ ] Property: Verdict.confidence_score is always stored as float ∈ [0,1]
-- [ ] Use `settings(max_examples=200)`
-- [ ] Run: `pytest tests/property/test_core_model_properties.py -q` passes
+- [x] Create `tests/property/test_core_model_properties.py`
+- [x] Property: all models accept valid input (custom strategies per model)
+- [x] Property: invalid inputs consistently produce `ValidationError`
+- [x] Property: `model_dump()` → reconstruction preserves all field values
+- [x] Property: UUID fields are unique across 1000 generations
+- [x] Property: Verdict.confidence_score is always stored as float ∈ [0,1]
+- [x] Use `settings(max_examples=200)`
+- [x] Run: `pytest tests/property/test_core_model_properties.py -q` passes
 
 ## Phase 6: BDD Feature Expansion (P2) — Target: all security contracts covered
 
