@@ -45,18 +45,17 @@ operations_list_st = st.lists(operation_st, min_size=1, max_size=100)
 @settings(max_examples=200)
 @given(capacity=capacity_st, operations=operations_list_st)
 def test_token_count_bounded_invariant(capacity: int, operations: List[str]) -> None:
-    """Property: Token count is strictly bounded in [0, capacity] after arbitrary operations."""
+    """Property: Token count is strictly bounded in [0, capacity] across live asynchronous lifecycle."""
     async def _async_test():
-        tracker = GTIQueryBudgetTracker(capacity=capacity, replenishment_interval=1000.0)
-        tracker.close()  # Prevent autonomous background replenishment during step-by-step test
+        # Use a fast replenishment interval so the actual background task runs during the test
+        tracker = GTIQueryBudgetTracker(capacity=capacity, replenishment_interval=0.002)
         try:
             for op in operations:
                 if op == "acquire":
                     await tracker.try_acquire()
                 elif op == "replenish":
-                    async with tracker.lock:
-                        if tracker.tokens < tracker.capacity:
-                            tracker.tokens += 1
+                    # Allow the production asynchronous _replenish_loop to execute replenishment cycles
+                    await asyncio.sleep(0.005)
                 elif op == "cache_hit":
                     await tracker.record_cache_hit()
                 elif op == "reset":
@@ -108,27 +107,26 @@ def test_try_acquire_returns_false_iff_exhausted(capacity: int, initial_drains: 
 @given(
     capacity=capacity_st,
     initial_drains=st.integers(min_value=0, max_value=50),
-    replenish_count=st.integers(min_value=0, max_value=100),
+    wait_cycles=st.integers(min_value=1, max_value=20),
 )
 def test_replenish_never_exceeds_capacity(
-    capacity: int, initial_drains: int, replenish_count: int
+    capacity: int, initial_drains: int, wait_cycles: int
 ) -> None:
-    """Property: Replenishing any number of tokens never exceeds tracker capacity."""
+    """Property: Asynchronous replenishment lifecycle never exceeds tracker capacity."""
     async def _async_test():
-        tracker = GTIQueryBudgetTracker(capacity=capacity, replenishment_interval=1000.0)
-        tracker.close()
+        # Fast replenishment cadence to test actual background task execution
+        replenish_interval = 0.001
+        tracker = GTIQueryBudgetTracker(capacity=capacity, replenishment_interval=replenish_interval)
         try:
             for _ in range(initial_drains):
                 await tracker.try_acquire()
 
-            for _ in range(replenish_count):
-                async with tracker.lock:
-                    if tracker.tokens < tracker.capacity:
-                        tracker.tokens += 1
+            # Let the actual production _replenish_loop task run for multiple cycles
+            await asyncio.sleep(wait_cycles * replenish_interval * 1.5)
 
             available = await tracker.get_available_tokens()
-            assert available <= capacity
-            assert tracker.tokens <= float(capacity)
+            assert 0 <= available <= capacity, f"Available tokens {available} exceeded capacity {capacity}"
+            assert 0.0 <= tracker.tokens <= float(capacity), f"Tracker tokens {tracker.tokens} exceeded capacity {capacity}"
         finally:
             tracker.close()
 

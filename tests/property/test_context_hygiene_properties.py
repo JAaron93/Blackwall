@@ -221,17 +221,32 @@ def test_non_sensitive_plain_text_preserved(text: str) -> None:
 # Property 4: All placeholder patterns match [[VARIABLE_NAME]] regex
 # ---------------------------------------------------------------------------
 
+ANY_BRACKET_REGEX = re.compile(r"\[\[.*?\]\]")
+
 @settings(max_examples=200)
 @given(payload=text_with_secrets_st())
 def test_all_placeholders_match_canonical_format(payload: tuple[str, str]) -> None:
-    """Property: Every placeholder injected during sanitization matches [[VARIABLE_NAME]]."""
-    raw_text, _ = payload
+    """Property: Every placeholder injected during sanitization matches [[VARIABLE_NAME]] and replaces secrets."""
+    raw_text, secret_val = payload
     hygiene = ContextHygiene()
     sanitized = hygiene.sanitize_string(raw_text)
 
-    placeholders = PLACEHOLDER_REGEX.findall(sanitized)
-    for ph in placeholders:
-        assert ph in KNOWN_PLACEHOLDERS, f"Unknown or malformed placeholder generated: {ph!r}"
+    # 1. Non-vacuous check: at least one placeholder must be injected when a secret is present
+    all_brackets = ANY_BRACKET_REGEX.findall(sanitized)
+    assert len(all_brackets) >= 1, (
+        f"Expected at least one placeholder in sanitized output for text with secret {secret_val!r}:\n"
+        f"Raw:       {raw_text!r}\n"
+        f"Sanitized: {sanitized!r}"
+    )
+
+    # 2. Strict format check: every bracketed substring must match canonical [[VARIABLE_NAME]] and be known
+    for bracket in all_brackets:
+        assert PLACEHOLDER_REGEX.fullmatch(bracket) is not None, (
+            f"Malformed placeholder structure generated: {bracket!r}"
+        )
+        assert bracket in KNOWN_PLACEHOLDERS, (
+            f"Unknown placeholder generated: {bracket!r} (not in {KNOWN_PLACEHOLDERS})"
+        )
 
 
 # ---------------------------------------------------------------------------

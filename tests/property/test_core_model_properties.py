@@ -17,13 +17,18 @@ from hypothesis import strategies as st
 from pydantic import ValidationError
 
 from blackwall.models import (
+    AttackerIdentity,
+    AttackerProfile,
     BatchPayload,
     BatchResponse,
     BehaviorScore,
     CallbackToken,
     CBMResponse,
     EventType,
+    GraphStatistics,
     GTIResponse,
+    IdentitySource,
+    IncidentReport,
     PolicyServerState,
     RefactoringHint,
     ResolverMetrics,
@@ -155,12 +160,97 @@ resolver_metrics_st = st.builds(
     cache_hit_rate=unit_interval_st,
 )
 
+sync_resolver_metrics_st = st.builds(
+    SyncResolverMetrics,
+    total_evaluations=st.integers(min_value=0, max_value=10000),
+    average_latency_ms=st.floats(min_value=0.0, max_value=5000.0, allow_nan=False, allow_infinity=False),
+    rate_limit_hits=st.integers(min_value=0, max_value=1000),
+    gti_queries_executed=st.integers(min_value=0, max_value=1000),
+    gti_queries_deferred=st.integers(min_value=0, max_value=1000),
+    inline_signatures_generated=st.integers(min_value=0, max_value=1000),
+    block_count=st.integers(min_value=0, max_value=1000),
+    quarantine_count=st.integers(min_value=0, max_value=1000),
+    allow_count=st.integers(min_value=0, max_value=1000),
+)
+
 policy_server_state_st = st.builds(
     PolicyServerState,
     version=semver_st,
     last_updated=utc_datetime_st,
     active_signatures=st.integers(min_value=0, max_value=10000),
 )
+
+graph_statistics_st = st.builds(
+    GraphStatistics,
+    node_count=st.integers(min_value=0, max_value=100000),
+    edge_count=st.integers(min_value=0, max_value=500000),
+)
+
+callback_token_st = st.builds(
+    CallbackToken,
+    token_id=valid_uuid4_st,
+    thread_id=non_empty_str_st,
+    timestamp=utc_datetime_st,
+    tool_context=st.one_of(st.none(), tool_call_context_st),
+    correlation_id=st.one_of(st.none(), non_empty_str_st),
+    telemetry_span_id=st.one_of(st.none(), st.text(max_size=30)),
+)
+
+attacker_identity_st = st.builds(
+    AttackerIdentity,
+    identity_id=valid_uuid4_st,
+    agent_id=st.one_of(st.none(), non_empty_str_st),
+    agent_name=st.one_of(st.none(), non_empty_str_st),
+    agent_model=st.one_of(st.none(), non_empty_str_st),
+    thread_id=st.one_of(st.none(), non_empty_str_st),
+    process_pid=st.one_of(st.none(), st.integers(min_value=1, max_value=65535)),
+    process_uid=st.one_of(st.none(), st.integers(min_value=0, max_value=65535)),
+    process_name=st.one_of(st.none(), non_empty_str_st),
+    process_cmdline=st.one_of(st.none(), st.text(max_size=50)),
+    container_id=st.one_of(st.none(), non_empty_str_st),
+    source_ip=st.one_of(st.none(), st.sampled_from(["192.168.1.1", "10.0.0.1", "127.0.0.1"])),
+    vault_token_accessor=st.one_of(st.none(), non_empty_str_st),
+    primary_source=st.sampled_from(list(IdentitySource)),
+)
+
+@st.composite
+def attacker_profile_strategy(draw):
+    first = draw(utc_datetime_st)
+    # Ensure last_seen >= first_seen and both bounds are UTC timezone-aware
+    last = draw(st.datetimes(
+        min_value=first,
+        max_value=datetime(2030, 1, 1, tzinfo=timezone.utc),
+        timezones=st.just(timezone.utc),
+    ))
+    return AttackerProfile(
+        fingerprint=draw(non_empty_str_st),
+        first_seen=first,
+        last_seen=last,
+        total_attacks=draw(st.integers(min_value=1, max_value=1000)),
+        threat_score=draw(unit_interval_st),
+        associated_signatures=draw(st.lists(non_empty_str_st, max_size=3)),
+        targeted_tools=draw(st.lists(non_empty_str_st, max_size=3)),
+        risk_category=draw(st.sampled_from(["LOW", "MEDIUM", "HIGH", "CRITICAL"])),
+    )
+
+@st.composite
+def incident_report_strategy(draw):
+    identity = draw(attacker_identity_st)
+    profile = draw(attacker_profile_strategy())
+    return IncidentReport(
+        report_id=draw(valid_uuid4_st),
+        timestamp=draw(utc_datetime_st),
+        event_id=draw(valid_uuid4_st),
+        verdict=draw(st.sampled_from(list(VerdictDecision))),
+        attacker_identity=identity,
+        attacker_profile=profile,
+        exploited_tool=draw(non_empty_str_st),
+        sanitized_arguments=draw(arguments_dict_st),
+        attack_technique=draw(non_empty_str_st),
+        mitigation_action=draw(non_empty_str_st),
+        recommended_user_action=draw(non_empty_str_st),
+        attribution_confidence=draw(unit_interval_st),
+    )
 
 @st.composite
 def security_event_strategy(draw):
@@ -252,6 +342,92 @@ def test_batch_payload_construction_soundness(bp: BatchPayload) -> None:
     assert isinstance(bp.batch_id, uuid.UUID)
 
 
+@settings(max_examples=200)
+@given(sm=security_metrics_st)
+def test_security_metrics_construction_soundness(sm: SecurityMetrics) -> None:
+    """Property: SecurityMetrics constructs successfully with all metric rates bounded in [0.0, 1.0]."""
+    assert isinstance(sm, SecurityMetrics)
+    assert 0.0 <= sm.accuracy <= 1.0
+    assert 0.0 <= sm.precision <= 1.0
+    assert 0.0 <= sm.recall <= 1.0
+    assert 0.0 <= sm.f1_score <= 1.0
+    assert sm.quarantine_count >= 0
+
+
+@settings(max_examples=200)
+@given(rm=resolver_metrics_st)
+def test_resolver_metrics_construction_soundness(rm: ResolverMetrics) -> None:
+    """Property: ResolverMetrics constructs successfully and cache_hit_rate is bounded in [0.0, 1.0]."""
+    assert isinstance(rm, ResolverMetrics)
+    assert 0.0 <= rm.cache_hit_rate <= 1.0
+    assert rm.total_batches >= 0
+
+
+@settings(max_examples=200)
+@given(srm=sync_resolver_metrics_st)
+def test_sync_resolver_metrics_construction_soundness(srm: SyncResolverMetrics) -> None:
+    """Property: SyncResolverMetrics constructs successfully with non-negative counters."""
+    assert isinstance(srm, SyncResolverMetrics)
+    assert srm.total_evaluations >= 0
+    assert srm.average_latency_ms >= 0.0
+    assert srm.rate_limit_hits >= 0
+
+
+@settings(max_examples=200)
+@given(pss=policy_server_state_st)
+def test_policy_server_state_construction_soundness(pss: PolicyServerState) -> None:
+    """Property: PolicyServerState constructs successfully with validated semver."""
+    assert isinstance(pss, PolicyServerState)
+    assert len(pss.version.split(".")) == 3
+
+
+@settings(max_examples=200)
+@given(gs=graph_statistics_st)
+def test_graph_statistics_construction_soundness(gs: GraphStatistics) -> None:
+    """Property: GraphStatistics constructs successfully with non-negative counts."""
+    assert isinstance(gs, GraphStatistics)
+    assert gs.node_count >= 0
+    assert gs.edge_count >= 0
+
+
+@settings(max_examples=200)
+@given(ct=callback_token_st)
+def test_callback_token_construction_soundness(ct: CallbackToken) -> None:
+    """Property: CallbackToken constructs successfully with UUID token_id."""
+    assert isinstance(ct, CallbackToken)
+    assert isinstance(ct.token_id, uuid.UUID)
+
+
+@settings(max_examples=200)
+@given(ai=attacker_identity_st)
+def test_attacker_identity_construction_soundness(ai: AttackerIdentity) -> None:
+    """Property: AttackerIdentity constructs successfully and computes sha256 fingerprint."""
+    assert isinstance(ai, AttackerIdentity)
+    assert len(ai.identity_fingerprint) == 64
+    assert isinstance(ai.primary_source, IdentitySource)
+
+
+@settings(max_examples=200)
+@given(ap=attacker_profile_strategy())
+def test_attacker_profile_construction_soundness(ap: AttackerProfile) -> None:
+    """Property: AttackerProfile constructs successfully and enforces first_seen <= last_seen."""
+    assert isinstance(ap, AttackerProfile)
+    assert ap.first_seen <= ap.last_seen
+    assert 0.0 <= ap.threat_score <= 1.0
+    assert ap.total_attacks >= 1
+
+
+@settings(max_examples=200)
+@given(ir=incident_report_strategy())
+def test_incident_report_construction_soundness(ir: IncidentReport) -> None:
+    """Property: IncidentReport constructs successfully and generates non-empty report formats."""
+    assert isinstance(ir, IncidentReport)
+    assert 0.0 <= ir.attribution_confidence <= 1.0
+    md = ir.to_markdown()
+    assert "# Blackwall Incident Attribution Report" in md
+    assert ir.verdict.value in md
+
+
 # ---------------------------------------------------------------------------
 # Property 2: Invalid inputs consistently produce ValidationError
 # ---------------------------------------------------------------------------
@@ -314,6 +490,35 @@ def test_security_event_invalid_event_type_raises(bad_event_type: str) -> None:
         SecurityEvent(
             event_type=bad_event_type,  # type: ignore
             tool_context=ToolCallContext(tool_name="test", arguments={}),
+        )
+
+
+@settings(max_examples=200)
+@given(bad_confidence=out_of_bounds_unit_st)
+def test_incident_report_invalid_confidence_raises(bad_confidence: float) -> None:
+    """Property: IncidentReport attribution_confidence out of [0.0, 1.0] raises ValidationError."""
+    with pytest.raises(ValidationError):
+        IncidentReport(
+            event_id=uuid.uuid4(),
+            verdict=VerdictDecision.BLOCK,
+            attacker_identity=AttackerIdentity(),
+            attacker_profile=AttackerProfile(fingerprint="test"),
+            exploited_tool="bash",
+            attack_technique="T1059",
+            mitigation_action="kill",
+            recommended_user_action="isolate",
+            attribution_confidence=bad_confidence,
+        )
+
+
+@settings(max_examples=200)
+@given(bad_fingerprint=st.text(min_size=1, max_size=30).filter(lambda s: len(s) != 64))
+def test_attacker_identity_mismatched_fingerprint_raises(bad_fingerprint: str) -> None:
+    """Property: AttackerIdentity with explicitly mismatched fingerprint raises ValidationError."""
+    with pytest.raises(ValidationError):
+        AttackerIdentity(
+            agent_id="test_agent",
+            identity_fingerprint=bad_fingerprint,
         )
 
 
@@ -382,6 +587,87 @@ def test_batch_response_serialization_round_trip(br: BatchResponse) -> None:
     dumped = br.model_dump()
     reconstructed = BatchResponse.model_validate(dumped)
     assert reconstructed == br
+
+
+@settings(max_examples=200)
+@given(sm=security_metrics_st)
+def test_security_metrics_serialization_round_trip(sm: SecurityMetrics) -> None:
+    """Property: SecurityMetrics.model_validate(sm.model_dump()) preserves all field values."""
+    dumped = sm.model_dump()
+    reconstructed = SecurityMetrics.model_validate(dumped)
+    assert reconstructed == sm
+
+
+@settings(max_examples=200)
+@given(rm=resolver_metrics_st)
+def test_resolver_metrics_serialization_round_trip(rm: ResolverMetrics) -> None:
+    """Property: ResolverMetrics.model_validate(rm.model_dump()) preserves all field values."""
+    dumped = rm.model_dump()
+    reconstructed = ResolverMetrics.model_validate(dumped)
+    assert reconstructed == rm
+
+
+@settings(max_examples=200)
+@given(srm=sync_resolver_metrics_st)
+def test_sync_resolver_metrics_serialization_round_trip(srm: SyncResolverMetrics) -> None:
+    """Property: SyncResolverMetrics.model_validate(srm.model_dump()) preserves all field values."""
+    dumped = srm.model_dump()
+    reconstructed = SyncResolverMetrics.model_validate(dumped)
+    assert reconstructed == srm
+
+
+@settings(max_examples=200)
+@given(pss=policy_server_state_st)
+def test_policy_server_state_serialization_round_trip(pss: PolicyServerState) -> None:
+    """Property: PolicyServerState.model_validate(pss.model_dump()) preserves all field values."""
+    dumped = pss.model_dump()
+    reconstructed = PolicyServerState.model_validate(dumped)
+    assert reconstructed == pss
+
+
+@settings(max_examples=200)
+@given(gs=graph_statistics_st)
+def test_graph_statistics_serialization_round_trip(gs: GraphStatistics) -> None:
+    """Property: GraphStatistics.model_validate(gs.model_dump()) preserves all field values."""
+    dumped = gs.model_dump()
+    reconstructed = GraphStatistics.model_validate(dumped)
+    assert reconstructed == gs
+
+
+@settings(max_examples=200)
+@given(ct=callback_token_st)
+def test_callback_token_serialization_round_trip(ct: CallbackToken) -> None:
+    """Property: CallbackToken.model_validate(ct.model_dump()) preserves all field values."""
+    dumped = ct.model_dump()
+    reconstructed = CallbackToken.model_validate(dumped)
+    assert reconstructed == ct
+
+
+@settings(max_examples=200)
+@given(ai=attacker_identity_st)
+def test_attacker_identity_serialization_round_trip(ai: AttackerIdentity) -> None:
+    """Property: AttackerIdentity.model_validate(ai.model_dump()) preserves all field values."""
+    dumped = ai.model_dump()
+    reconstructed = AttackerIdentity.model_validate(dumped)
+    assert reconstructed == ai
+
+
+@settings(max_examples=200)
+@given(ap=attacker_profile_strategy())
+def test_attacker_profile_serialization_round_trip(ap: AttackerProfile) -> None:
+    """Property: AttackerProfile.model_validate(ap.model_dump()) preserves all field values."""
+    dumped = ap.model_dump()
+    reconstructed = AttackerProfile.model_validate(dumped)
+    assert reconstructed == ap
+
+
+@settings(max_examples=200)
+@given(ir=incident_report_strategy())
+def test_incident_report_serialization_round_trip(ir: IncidentReport) -> None:
+    """Property: IncidentReport.model_validate(ir.model_dump()) preserves all field values."""
+    dumped = ir.model_dump()
+    reconstructed = IncidentReport.model_validate(dumped)
+    assert reconstructed == ir
 
 
 # ---------------------------------------------------------------------------
