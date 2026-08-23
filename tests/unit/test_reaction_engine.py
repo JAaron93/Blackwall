@@ -194,6 +194,42 @@ async def test_broadcast_fleet_signature_unsupported_interface_fails_closed() ->
 
 
 @pytest.mark.asyncio
+async def test_broadcast_fleet_signature_callable_returns_false_fails_closed() -> None:
+    """A callable broadcaster that returns False signals publication failure.
+
+    The dispatcher must capture the broadcaster's return value (including after
+    awaiting a coroutine) and propagate a False result as FAILED rather than
+    claiming COMPLETED for an unconfirmed broadcast.
+    """
+    broadcaster = AsyncMock(return_value=False)
+    engine = ActiveReactionEngine(mesh_broadcaster=broadcaster)
+
+    payload = make_payload(action_type=ReactionActionType.MESH_SIGNATURE_BROADCAST)
+    result = await engine.broadcast_fleet_signature(payload)
+
+    assert result is False
+    assert payload.status == "FAILED"
+    broadcaster.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_broadcast_fleet_signature_callable_returns_none_succeeds() -> None:
+    """A callable broadcaster that returns None (no explicit status) is treated as success.
+
+    None means the broadcaster completed without signalling failure, matching
+    the same contract used by execute_ebpf_socket_drop.
+    """
+    broadcaster = AsyncMock(return_value=None)
+    engine = ActiveReactionEngine(mesh_broadcaster=broadcaster)
+
+    payload = make_payload(action_type=ReactionActionType.MESH_SIGNATURE_BROADCAST)
+    result = await engine.broadcast_fleet_signature(payload)
+
+    assert result is True
+    assert payload.status == "COMPLETED"
+
+
+@pytest.mark.asyncio
 async def test_broadcast_fleet_signature_records_to_history() -> None:
     """broadcast_fleet_signature appends payload to reaction history even when it fails closed.
 
@@ -302,6 +338,42 @@ async def test_revoke_identity_session_no_vault_adapter_fails_closed() -> None:
 
     assert result is False
     assert payload.status == "FAILED"
+
+
+@pytest.mark.asyncio
+async def test_revoke_identity_session_empty_revocation_no_registry_fails_closed() -> None:
+    """When revoke_agent_tokens returns [] and no local _issued_tokens registry exists,
+    the reaction must fail closed — absence of registry visibility is not confirmation
+    that no tokens existed.
+    """
+    vault_adapter = MagicMock()
+    vault_adapter.revoke_agent_tokens = AsyncMock(return_value=[])
+    # _issued_tokens absent: getattr(..., "_issued_tokens", None) → None
+    del vault_adapter._issued_tokens
+    engine = ActiveReactionEngine(vault_adapter=vault_adapter)
+
+    payload = make_payload(action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS)
+    result = await engine.revoke_identity_session(payload)
+
+    assert result is False
+    assert payload.status == "FAILED"
+
+
+@pytest.mark.asyncio
+async def test_revoke_identity_session_empty_revocation_confirmed_empty_registry_succeeds() -> None:
+    """When revoke_agent_tokens returns [] and _issued_tokens is an empty dict,
+    no tokens were ever issued — the empty return is the correct result, not a failure.
+    """
+    vault_adapter = MagicMock()
+    vault_adapter.revoke_agent_tokens = AsyncMock(return_value=[])
+    vault_adapter._issued_tokens = {}   # confirmed empty: nothing was ever registered
+    engine = ActiveReactionEngine(vault_adapter=vault_adapter)
+
+    payload = make_payload(action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS)
+    result = await engine.revoke_identity_session(payload)
+
+    assert result is True
+    assert payload.status == "COMPLETED"
 
 
 # ---------------------------------------------------------------------------
