@@ -292,6 +292,10 @@
   3. Traverse all identified root nodes without artificial finite result collection caps that terminate DFS early and starve sibling branches.
 * **Rationale:** Constant baseline additions connect unrelated routine actions occurring days apart, while un-gated decay severs multi-stage stealth campaigns. Gating decay on MITRE technique relevance preserves genuine multi-day attack paths while rejecting disconnected benign activity.
 
+## 49. Structured Logging via `extra` Dictionary & Logger Keyword Hygiene
+* **Rule:** When emitting structured metadata or event objects via standard Python `logging.Logger` instances, custom payload dictionaries MUST be passed through the `extra={...}` parameter (e.g. `logger.info("EVENT", extra={"event": payload.model_dump()})`) or formatted into the log message string. Passing arbitrary keyword arguments directly to standard logger methods (`logger.info("...", event=...)`) is strictly prohibited to prevent runtime `TypeError` exceptions.
+* **Rationale:** Standard Python `logging.Logger._log()` does not accept arbitrary keyword arguments. Passing custom keywords directly raises `TypeError: Logger._log() got an unexpected keyword argument '...'` at runtime when log statements are triggered in production or test paths.
+
 
 
 
