@@ -246,37 +246,39 @@
 - [x] Use `settings(max_examples=200)`
 - [x] Run: `pytest tests/property/test_core_model_properties.py -q` passes
 
-## Phase 6: BDD Feature Expansion (P2) — Target: all security contracts covered
+## Phase 6: BDD Feature Expansion (P2) — Target: all security contracts covered ✅ COMPLETE
+
+> **Completed:** 2026-08-23 | Branch: test/phase6-bdd-features | 15 BDD scenarios added across 3 new feature/step files | 212/212 BDD tests passing (1638 total passing across unit, property, and BDD)
 
 ### Task 6.1: Codebase Memory Blast Radius BDD
-- [ ] Create `tests/features/codebase_memory_blast_radius.feature` with 5 scenarios
-- [ ] Create `tests/step_defs/test_codebase_memory_bdd.py`
-- [ ] Scenario: "Critical sink identified increases threat score"
-- [ ] Scenario: "No critical sinks produces baseline score"
-- [ ] Scenario: "MCP connection failure degrades gracefully"
-- [ ] Scenario: "Stale graph triggers re-query"
-- [ ] Scenario: "Blast radius isolation report contains affected modules"
-- [ ] Run: `pytest tests/step_defs/test_codebase_memory_bdd.py -q` passes
+- [x] Create `tests/features/codebase_memory_blast_radius.feature` with 5 scenarios
+- [x] Create `tests/step_defs/test_codebase_memory_bdd.py`
+- [x] Scenario: "Critical sink identified increases threat score"
+- [x] Scenario: "No critical sinks produces baseline score"
+- [x] Scenario: "MCP connection failure degrades gracefully"
+- [x] Scenario: "Stale graph triggers re-query"
+- [x] Scenario: "Blast radius isolation report contains affected modules"
+- [x] Run: `pytest tests/step_defs/test_codebase_memory_bdd.py -q` passes
 
 ### Task 6.2: JIT Credential Privilege BDD
-- [ ] Create `tests/features/jit_credential_privilege.feature` with 5 scenarios
-- [ ] Create `tests/step_defs/test_jit_credential_bdd.py`
-- [ ] Scenario: "JIT credential valid within TTL"
-- [ ] Scenario: "JIT credential revoked after TTL"
-- [ ] Scenario: "JIT credential revoked on context exit"
-- [ ] Scenario: "Privilege drop removes elevated permissions"
-- [ ] Scenario: "Nested credential contexts maintain isolation"
-- [ ] Run: `pytest tests/step_defs/test_jit_credential_bdd.py -q` passes
+- [x] Create `tests/features/jit_credential_privilege.feature` with 5 scenarios
+- [x] Create `tests/step_defs/test_jit_credential_bdd.py`
+- [x] Scenario: "JIT credential valid within TTL"
+- [x] Scenario: "JIT credential revoked after TTL"
+- [x] Scenario: "JIT credential revoked on context exit"
+- [x] Scenario: "Privilege drop removes elevated permissions"
+- [x] Scenario: "Nested credential contexts maintain isolation"
+- [x] Run: `pytest tests/step_defs/test_jit_credential_bdd.py -q` passes
 
 ### Task 6.3: GTI Rate Limiting BDD
-- [ ] Create `tests/features/gti_rate_limiting.feature` with 5 scenarios
-- [ ] Create `tests/step_defs/test_gti_rate_limiting_bdd.py`
-- [ ] Scenario: "High-risk event consumes GTI token"
-- [ ] Scenario: "Budget exhaustion triggers graceful degradation"
-- [ ] Scenario: "Low-risk event skips GTI validation"
-- [ ] Scenario: "Token replenishment restores capacity"
-- [ ] Scenario: "Concurrent events respect 4-query/60s cap"
-- [ ] Run: `pytest tests/step_defs/test_gti_rate_limiting_bdd.py -q` passes
+- [x] Create `tests/features/gti_rate_limiting.feature` with 5 scenarios
+- [x] Create `tests/step_defs/test_gti_rate_limiting_bdd.py`
+- [x] Scenario: "High-risk event consumes GTI token"
+- [x] Scenario: "Budget exhaustion triggers graceful degradation"
+- [x] Scenario: "Low-risk event skips GTI validation"
+- [x] Scenario: "Token replenishment restores capacity"
+- [x] Scenario: "Concurrent events respect 4-query/60s cap"
+- [x] Run: `pytest tests/step_defs/test_gti_rate_limiting_bdd.py -q` passes
 
 ## Phase 7: Utilities & Final Validation (P3) — Target: ≥60% coverage
 
