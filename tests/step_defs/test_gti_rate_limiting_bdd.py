@@ -19,6 +19,7 @@ scenarios("../features/gti_rate_limiting.feature")
 
 class GTIState:
     def __init__(self):
+        self.loop = asyncio.new_event_loop()
         self.tracker = None
         self.client = None
         self.repo = None
@@ -29,17 +30,29 @@ class GTIState:
         self.raised_error = None
         self.concurrent_results = []
         self.initial_tokens = 0
+        self.exhaust_needed = False
+
+    def run(self, coro):
+        return self.loop.run_until_complete(coro)
+
+    def cleanup(self):
+        if self.tracker:
+            if self.tracker._replenish_task and not self.tracker._replenish_task.done():
+                self.tracker._replenish_task.cancel()
+                try:
+                    self.loop.run_until_complete(self.tracker._replenish_task)
+                except (asyncio.CancelledError, Exception):
+                    pass
+            self.tracker._replenish_task = None
+        if not self.loop.is_closed():
+            self.loop.close()
 
 
 @pytest.fixture
 def state():
     st = GTIState()
     yield st
-    if st.tracker:
-        try:
-            st.tracker.close()
-        except Exception:
-            st.tracker._replenish_task = None
+    st.cleanup()
 
 
 # --- Scenario: High-risk event consumes GTI token ---
@@ -92,7 +105,7 @@ def query_high_risk_indicator(state):
             skip_budget_check=False,
         )
 
-    state.query_result = run_async(_query())
+    state.query_result = state.run(_query())
 
 
 @then("exactly 1 GTI budget token is consumed")
@@ -101,7 +114,7 @@ def verify_token_consumed(state):
         metrics = await state.tracker.get_metrics()
         return metrics.queries_executed
 
-    executed = run_async(_check())
+    executed = state.run(_check())
     assert executed == 1
 
 
@@ -110,7 +123,7 @@ def verify_token_count_3(state):
     async def _check():
         return await state.tracker.get_available_tokens()
 
-    avail = run_async(_check())
+    avail = state.run(_check())
     assert avail == 3
 
 
@@ -127,12 +140,12 @@ def verify_query_success(state):
 @given("a GTI MCP Client with an exhausted budget of 0 tokens")
 def init_gti_client_exhausted(state):
     state.tracker = GTIQueryBudgetTracker(capacity=4, replenishment_interval=15.0)
-    # Exhaust all 4 tokens
+    # Exhaust all 4 tokens within the scenario's persistent loop
     async def _exhaust():
         for _ in range(4):
             await state.tracker.try_acquire()
 
-    run_async(_exhaust())
+    state.run(_exhaust())
 
     state.repo = MagicMock()
     state.repo.get_cached_gti_response = AsyncMock(return_value=None)
@@ -170,7 +183,7 @@ def query_with_budget_enforcement(state):
         except Exception as e:
             state.raised_error = e
 
-    state.query_result = run_async(_query())
+    state.query_result = state.run(_query())
 
 
 @then("the GTI query raises GTIBudgetExhaustedError")
@@ -184,7 +197,7 @@ def verify_deferred_metric(state):
         metrics = await state.tracker.get_metrics()
         return metrics.queries_deferred
 
-    deferred = run_async(_check())
+    deferred = state.run(_check())
     assert deferred >= 1
 
 
@@ -211,7 +224,7 @@ def evaluate_low_risk_indicator(state):
             skip_budget_check=False,
         )
 
-    state.query_result = run_async(_query())
+    state.query_result = state.run(_query())
 
 
 @then("the GTI query is skipped without consuming a budget token")
@@ -228,7 +241,7 @@ def verify_available_tokens_remains_4(state):
     async def _check():
         return await state.tracker.get_available_tokens()
 
-    avail = run_async(_check())
+    avail = state.run(_check())
     assert avail == 4
 
 
@@ -257,7 +270,7 @@ def wait_for_replenishment(state):
         # Wait for replenishment within active event loop
         await asyncio.sleep(0.12)
 
-    run_async(_exhaust_and_replenish())
+    state.run(_exhaust_and_replenish())
 
 
 @then("the available token count increases above 0")
@@ -265,7 +278,7 @@ def verify_tokens_increased(state):
     async def _check():
         return await state.tracker.get_available_tokens()
 
-    avail = run_async(_check())
+    avail = state.run(_check())
     assert avail >= 1
 
 
@@ -274,7 +287,7 @@ def verify_subsequent_acquire(state):
     async def _check():
         return await state.tracker.try_acquire()
 
-    acquired = run_async(_check())
+    acquired = state.run(_check())
     assert acquired is True
 
 
@@ -293,7 +306,7 @@ def execute_concurrent_acquisitions(state):
         tasks = [state.tracker.try_acquire() for _ in range(10)]
         return await asyncio.gather(*tasks)
 
-    state.concurrent_results = run_async(_run_concurrent())
+    state.concurrent_results = state.run(_run_concurrent())
 
 
 @then("exactly 4 requests are permitted")
@@ -313,5 +326,5 @@ def verify_tokens_zero(state):
     async def _check():
         return await state.tracker.get_available_tokens()
 
-    avail = run_async(_check())
+    avail = state.run(_check())
     assert avail == 0

@@ -90,12 +90,18 @@ def verify_cbm_has_sinks(state):
         sink.sinkType == CriticalSinkType.SQL_QUERY
         for sink in state.critical_sinks
     ) or "ExecuteSQL" in state.dep_chain.criticalSinks
+    # Verify that the resolver ingested CBM and reflected CBM signals in its verdict reasoning
+    assert "CBM: blast_radius=" in state.verdict.reasoning
+    assert state.cbm_response.blast_radius > 0
 
 
 @then("the calculated threat score is higher than the baseline score without sinks")
 def verify_threat_score_elevated(state):
     assert state.verdict is not None
     assert state.verdict.confidence_score > 0.10
+    # Verify that the resolver computed a positive CBM score contribution
+    cbm_score = state.resolver._score_cbm(state.cbm_response)
+    assert cbm_score > 0.0
 
 
 # --- Scenario: No critical sinks produces baseline score ---
