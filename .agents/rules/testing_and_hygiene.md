@@ -208,7 +208,29 @@
   If the enum values differ (as they do in this codebase — `"SQL_QUERY"` has no matching `SinkType` value), adapters that perform `SinkType(source_enum.value)` will silently catch `ValueError` and produce an empty list. Tests MUST assert the **actual runtime behavior** (e.g. `assert resp.critical_sinks == []`) rather than the idealized semantic intent (e.g. `assert len(resp.critical_sinks) >= 1`).
 * **Rationale:** Asserting idealized intent on a silently-failing enum mapping causes false-passing tests (if the test is skipped by wrong assertion polarity) or persistent false-failing tests (if the assertion expects content that can never be produced). The correct path is to assert the ground truth, then separately file a bug/spec issue for the mapping gap if the semantic intent matters.
 
-## 36. `asyncio.gather` Concurrency Tests Require an `await` Yield Point
+## 36. Testing `callable()` Dispatch Chains: MagicMock Is Always Callable
+
+* **Rule:** When testing a method whose dispatch logic begins with `if callable(dep):` followed by `elif "method" in dir(dep):` branches, `MagicMock()` MUST NOT be used as the test stub for the `elif` branches. `MagicMock` implements `__call__` so `callable(MagicMock())` is always `True`, causing the stub to take the first `if callable(dep)` branch unconditionally and never reach any `elif` branch.
+
+  To test an `elif "method_name" in dir(dep)` branch, write a purpose-built non-callable class that exposes only the target method:
+  ```python
+  class _NonCallableBroadcaster:
+      def __init__(self):
+          self.calls = []
+
+      def broadcast(self, payload_dict):
+          self.calls.append(payload_dict)
+
+  broadcaster = _NonCallableBroadcaster()
+  # callable(broadcaster) → False   ← skips the first if-branch
+  # "broadcast" in dir(broadcaster) → True  ← enters the elif branch
+  ```
+
+* **Rule:** The same caveat applies to `spec=SomeClass` mocks when `SomeClass` defines `__call__`, and to `NonCallableMock` from `unittest.mock` as an alternative explicit opt-out.
+
+* **Rationale:** Discovered during Phase 3 test coverage remediation (PR #93). A `MagicMock`-based test for the `broadcast()` method dispatch branch appeared to pass (no exception, `result is True`) while actually exercising the *callable* branch instead. The error was caught only because the test asserted `len(broadcaster.calls) == 1` — which was zero — signalling the wrong branch had fired. Without that assertion the test would have provided misleading coverage over the wrong code path.
+
+## 37. `asyncio.gather` Concurrency Tests Require an `await` Yield Point
 
 * **Rule:** Concurrency tests that stress idempotency or shared-state invariants (e.g. "all N concurrent callers obtain the same singleton") MUST include at least one `await` suspension point inside each inner coroutine passed to `asyncio.gather`. A coroutine containing no `await` expression runs to completion before the event loop yields to the next — `asyncio.gather` does **not** introduce interleaving for purely synchronous coroutines. The canonical fix is `await asyncio.sleep(0)` at the top of the worker, which forces the scheduler to queue all N tasks before any of them begins work:
   ```python
