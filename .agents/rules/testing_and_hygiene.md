@@ -285,3 +285,7 @@
 * **Rule:** BDD feature steps asserting security verdicts from orchestrating resolvers (`SyncResolver`, `BatchResolver`) MUST assert on the resolver's resulting `Verdict` attributes (`verdict.reasoning`, `verdict.confidence_score`, `verdict.decision`) to verify that signals returned by subsidiary MCP clients (CBM AST blast radius, GTI threat intelligence) were actively consumed and reflected in the verdict calculation. Step definitions MUST NOT rely exclusively on querying the sidecar client directly.
 * **Rationale:** Verifying only the subsidiary adapter's response allows broken ingestion pipelines, missing scoring weights, or malformed adapter mappings inside the resolver to pass BDD test scenarios unnoticed.
 
+## 40. Evaluation Metric Zero-Division Safeguards
+* **Rule:** All offline, online, and autorater evaluation metric aggregators (`calculateMetrics`, `GCPVertexEvalMetrics`) MUST explicitly guard all division denominators (`tp + fp == 0`, `tp + fn == 0`, `precision + recall == 0.0`, `len(reference) == 0`) and return safe `0.0` / float defaults rather than permitting `ZeroDivisionError` exceptions during zero-count or empty-candidate evaluation runs.
+* **Rationale:** Real-world evaluation datasets and adversarial test runs frequently produce zero true positives, zero false positives, or empty candidate trajectories on edge cases. Unhandled zero division crashes evaluation batch jobs and masks upstream quality metrics.
+

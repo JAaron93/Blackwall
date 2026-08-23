@@ -190,17 +190,19 @@
 - [ ] `@blackwall.guard_pipeline` decorator tested for interception behavior
 - [ ] Edge cases: empty string input, binary content, syntax errors in input
 
-### REQ-5.5: Weave Configuration & Datasets
-**Module:** `src/blackwall/enterprise/advanced_threat_detection/weave_config.py`, `weave_datasets.py`  
+### REQ-5.5: GCP Vertex AI Evaluation Components & Datasets
+**Modules:** `src/blackwall/enterprise/advanced_threat_detection/gcp_vertex_eval.py`, `gcp_eval_datasets.py`, `gcp_trace_exporter.py`  
 **Priority:** P3  
 **Acceptance Criteria:**
-- [ ] `should_enable_weave()` tested with various env var combinations (WEAVE_DISABLED, WEAVE_OFFLINE, WANDB_API_KEY)
-- [ ] `has_wandb_credentials()` tested with mock netrc and config file presence/absence
-- [ ] `init_weave()` tested for idempotent initialization
-- [ ] `load_weave_config()` tested with valid and missing config files
-- [ ] `_sanitize_scenario_event()` tested with events containing sensitive fields
-- [ ] `_load_scenario_file()` tested with valid JSON, malformed JSON, and missing files
-- [ ] `create_evaluation_dataset()` tested for dataset construction from scenario files
+- [ ] `GCPVertexEvalConfig` tested for default project, region, models, sampling limits, and empty field validation
+- [ ] `GCPVertexEvalMetrics` tested for precision, recall, F1, FPR, trajectory precision/recall, and summary output calculations
+- [ ] `GCPVertexAIEvaluationHarness` tested for initialization with custom config and explicit ADC/SDK error handling
+- [ ] `create_pointwise_rubric` & `create_pairwise_autorater` tested for fallback dictionary structure when SDK is absent
+- [ ] `evaluate_trajectory()` tested with exact matches, sub-sequences, empty reference, and empty candidate inputs
+- [ ] `run_eval_task()` tested with `allow_fallback=True` vs `allow_fallback=False` (raises RuntimeError on unrecoverable init error)
+- [ ] `load_gcp_eval_datasets()` tested for prompt injection, trajectory, and complex attack sample schema compliance (and DataFrame conversion)
+- [ ] `GCPTraceSpan` tested for lifecycle (`finish()`), status tracking, and `duration_ms` calculation
+- [ ] `GCPCloudTraceExporter` tested for `BLACKWALL_DISABLE_CLOUD_TRACE` precedence, `start_span()`, `record_evaluation_result()`, and `record_evaluation_error()`
 
 ### REQ-5.6: Active Reaction Engine
 **Module:** `src/blackwall/enterprise/advanced_threat_detection/reaction.py`  
