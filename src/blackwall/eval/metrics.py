@@ -1,4 +1,3 @@
-from typing import List
 
 from blackwall.models import (
     GroundTruthLabel,
@@ -9,7 +8,7 @@ from blackwall.models import (
 
 
 def calculateMetrics(
-    results: List[TestResult], truth: List[GroundTruthLabel]
+    results: list[TestResult], truth: list[GroundTruthLabel]
 ) -> SecurityMetrics:
     if len(results) != len(truth):
         raise ValueError("Input arrays must have matching sizes")

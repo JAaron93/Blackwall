@@ -1,12 +1,5 @@
-import os
-from unittest.mock import MagicMock, patch
 import pytest
 
-from blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval import (
-    GCPVertexEvalConfig,
-    GCPVertexEvalMetrics,
-    GCPVertexAIEvaluationHarness,
-)
 from blackwall.enterprise.advanced_threat_detection.gcp_eval_datasets import (
     get_adversarial_prompt_injection_samples,
     get_agent_trajectory_samples,
@@ -14,10 +7,13 @@ from blackwall.enterprise.advanced_threat_detection.gcp_eval_datasets import (
     load_gcp_eval_datasets,
 )
 from blackwall.enterprise.advanced_threat_detection.gcp_trace_exporter import (
-    GCPTraceSpan,
     GCPCloudTraceExporter,
 )
-
+from blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval import (
+    GCPVertexAIEvaluationHarness,
+    GCPVertexEvalConfig,
+    GCPVertexEvalMetrics,
+)
 
 # =========================================================================
 # Task 7.3: GCP Vertex AI Evaluation & Telemetry Coverage Tests
