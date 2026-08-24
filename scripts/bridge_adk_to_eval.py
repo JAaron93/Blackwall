@@ -122,7 +122,7 @@ def bridge_adk_evalset(adk_data: dict[str, Any] | list[dict[str, Any]]) -> list[
     elif isinstance(adk_data, list):
         raw_cases = adk_data
     else:
-        raise TypeError(f"Invalid ADK evalset data type: {type(adk_data).__name__}")
+        raise ValueError(f"Invalid ADK evalset data type: {type(adk_data).__name__}")  # noqa: TRY004
 
     scenarios = []
     for raw_case in raw_cases:
