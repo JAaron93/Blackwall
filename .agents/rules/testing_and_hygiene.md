@@ -109,7 +109,8 @@
   2. **Backreference Safety**: Verifying that replacement placeholders containing regex backreference syntax (e.g., `\g<0>`, `\1`) are inserted literally without re-inserting matched threat spans or raising unhandled `re.error` exceptions.
 * **Rationale:** Example-based tests using simple alphanumeric placeholders fail to catch template injection and backreference re-insertion vulnerabilities in regex substitution engines.
 
-
-
+## 28. Security Fix Test Update — Re-Supply Bypassed Credentials
+* **Rule:** When a security fix removes an optional-parameter bypass path (e.g., converting `if headers is not None and remote_addr is not None: validate(...)` to unconditional `validate(headers or {}, remote_addr or "")`), ALL existing integration and BDD tests that previously exercised the "parameter omitted → bypass" path MUST be updated to supply valid credentials for the now-enforced gate (e.g., `remote_addr="127.0.0.1"` for loopback-enforced callers) so they correctly reach the intended downstream behavior (rate limiter, parser, etc.) rather than failing at the newly enforced authorization check with the wrong error code.
+* **Rationale:** Hardening a conditional validation gate to unconditional changes the "no params → pass through" contract to "no params → rejected with auth error." Tests that asserted a specific downstream error code (e.g., `-32000` rate limit) now receive an upstream auth error (`-32600`) instead, causing assertion failures that are valid test hygiene issues rather than regressions in the production security fix.
 
 
