@@ -315,6 +315,23 @@ class InboundProtocolFilter:
                 )
                 return False
 
+        # 2b. When loopback enforcement is disabled and the caller is unauthenticated,
+        # at minimum one identifying header (Origin or Host) MUST be present.
+        # A fully anonymous remote caller with zero metadata must always be rejected
+        # regardless of allow-list configuration — absence of any identifying information
+        # cannot be treated as permission to proceed.
+        if not self.enforce_loopback and not is_authenticated:
+            origin_present = bool(normalized_headers.get("origin"))
+            host_present = bool(normalized_headers.get("host"))
+            if not origin_present and not host_present:
+                logger.warning(
+                    "Rejected inbound connection from %s: unauthenticated caller must "
+                    "provide at least one identifying header (Origin or Host) when "
+                    "loopback enforcement is disabled",
+                    remote_addr or "<unknown>",
+                )
+                return False
+
         # 3. Check Origin header.
         # If allowed_origins is configured, the Origin header MUST be present and in the allow-list.
         # Absence is only tolerated when the list is unconfigured (None = permissive mode) and the
@@ -350,6 +367,7 @@ class InboundProtocolFilter:
             return False
 
         return True
+
 
     async def check_inbound_rate_limit(
         self,

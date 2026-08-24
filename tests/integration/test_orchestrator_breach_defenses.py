@@ -277,7 +277,9 @@ async def test_inbound_rpc_no_header_bypass_closed_when_allowlist_configured():
     )
     assert accepted is True, "Caller with valid allow-listed headers must be accepted"
 
-    # 4. Permissive mode (no allow-lists) — absent headers still accepted
+    # 4. Permissive mode (no allow-lists, enforce_loopback=False) — empty headers
+    # must still be REJECTED because gate 2b requires at least one identifying header
+    # when loopback enforcement is disabled and the caller is unauthenticated.
     permissive_filter = InboundProtocolFilter(
         rate_limit_per_window=10,
         sliding_window_sec=60,
@@ -285,13 +287,33 @@ async def test_inbound_rpc_no_header_bypass_closed_when_allowlist_configured():
         allowed_hosts=None,
         enforce_loopback=False,
     )
-    accepted_permissive = await permissive_filter.validate_headers_and_origin(
+    rejected_no_headers_permissive = await permissive_filter.validate_headers_and_origin(
         headers={}, remote_addr="203.0.113.5"
     )
-    assert accepted_permissive is True, (
-        "In permissive mode (no allow-lists, no loopback enforcement), "
-        "absent headers should still be accepted"
+    assert rejected_no_headers_permissive is False, (
+        "Even in permissive mode (no allow-lists), an unauthenticated remote caller "
+        "with no identifying headers must be rejected when loopback enforcement is disabled"
     )
+
+    # 5. Permissive mode w/ allowed_hosts — valid Host header → accepted.
+    # A filter with enforce_loopback=False and an allowed_hosts list accepts
+    # callers that present the correct Host header.
+    permissive_with_hosts = InboundProtocolFilter(
+        rate_limit_per_window=10,
+        sliding_window_sec=60,
+        allowed_origins=None,
+        allowed_hosts={"trusted.example.com"},
+        enforce_loopback=False,
+    )
+    accepted_with_valid_host = await permissive_with_hosts.validate_headers_and_origin(
+        headers={"Host": "trusted.example.com"},
+        remote_addr="203.0.113.5",
+    )
+    assert accepted_with_valid_host is True, (
+        "A caller presenting a Host header that matches allowed_hosts should be "
+        "accepted even when enforce_loopback=False and allowed_origins is unconfigured"
+    )
+
 
 
 @pytest.mark.asyncio
