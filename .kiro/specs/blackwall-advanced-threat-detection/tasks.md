@@ -975,13 +975,13 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 25.1, 25.2, 25.3_
     - _Verification: `pytest tests/step_defs/test_agent_quota_enforcer_bdd.py -v`_
 
-- [ ] 28. System-wide integration and end-to-end verification
-  - [ ] 28.1 Wire new defensive components into orchestrator
+- [x] 28. System-wide integration and end-to-end verification
+  - [x] 28.1 Wire new defensive components into orchestrator
     - Connect ActiveReactionEngine, InboundProtocolFilter, PromptInjectionScanner, AgentQuotaEnforcer
     - _Requirements: 22.1-22.4, 23.1-23.4, 24.1-24.3, 25.1-25.3_
     - _Verification: `pytest tests/integration/test_orchestrator_breach_defenses.py -v`_
 
-  - [ ] 28.2 Write BDD feature tests for System-Wide Breach Defense Integration
+  - [x] 28.2 Write BDD feature tests for System-Wide Breach Defense Integration
     - Create `tests/features/system_breach_defense.feature` with Gherkin scenarios
     - Scenario: CRITICAL swarm detection triggers eBPF drop, ZeroMQ mesh broadcast, and Vault token revocation
     - Scenario: incoming unauthorized A2A request is rate-limited and sanitized
@@ -989,10 +989,10 @@ The implementation follows a test-driven development approach with property-base
     - _Requirements: 22.1-22.4, 23.1-23.4, 24.1-24.3, 25.1-25.3_
     - _Verification: `pytest tests/step_defs/test_system_breach_defense_bdd.py -v`_
 
-- [ ] 29. Checkpoint - Verify breach defense integrations
+- [x] 29. Checkpoint - Verify breach defense integrations
   - Ensure all breach defense tests pass, ask the user if questions arise.
 
-- [ ] 30. Final checkpoint - Complete system verification
+- [x] 30. Final checkpoint - Complete system verification
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Task Dependency Graph
