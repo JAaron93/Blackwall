@@ -656,9 +656,9 @@ def get_context_hygiene_eval_samples() -> list[dict[str, Any]]:
         {
             "scenario_id": "hygiene_003",
             "domain": "context_hygiene",
-            "raw_payload": "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+            "raw_payload": "Authorization: Bearer eyJ_mock_jwt_header.eyJ_mock_jwt_claims.mock_jwt_signature_xyz",
             "expected_sanitized": "Authorization: Bearer [[JWT_TOKEN]]",
-            "sensitive_patterns": ["eyJhbGciOi*"],
+            "sensitive_patterns": ["eyJ_mock_*"],
             "metadata": {"secret_type": "JWT_TOKEN"},
         },
         {
