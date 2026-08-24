@@ -206,18 +206,20 @@ async def test_orchestrator_inbound_rpc_inspection_and_sanitization():
         assert "sk-proj-" not in str(args)
         assert "Password123!" not in str(args)
 
-        # 2. Inbound rate limit exceeding
+        # 2. Inbound rate limit exceeding — supply loopback addr so validation passes and rate limiter is reached
         for _ in range(5):
             await atd.inspect_and_sanitize_inbound_rpc(
                 raw_data=raw_rpc,
                 sender_id="sender-agent-01",
                 recipient_agent_id="receiver-agent-02",
+                remote_addr="127.0.0.1",
             )
 
         _msg_exceeded, err_exceeded = await atd.inspect_and_sanitize_inbound_rpc(
             raw_data=raw_rpc,
             sender_id="sender-agent-01",
             recipient_agent_id="receiver-agent-02",
+            remote_addr="127.0.0.1",
         )
         assert err_exceeded is not None
         assert err_exceeded["error"]["code"] == -32000

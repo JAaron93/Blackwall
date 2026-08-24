@@ -541,14 +541,20 @@ class AdvancedThreatDetection:
                             action_type=ReactionActionType.EBPF_DROP,
                             metadata={"threat_type": "attack_path", "risk_score": path.risk_score},
                         )
-                        await self.active_reaction.execute_ebpf_socket_drop(ebpf_payload)
+                        try:
+                            await self.active_reaction.execute_ebpf_socket_drop(ebpf_payload)
+                        except Exception as exc:
+                            logger.error("Active reaction (eBPF drop) failed for attack_path %s: %s", path.path_id, exc)
                         mesh_payload = ActiveReactionPayload(
                             trigger_evidence_id=path.path_id,
                             target_agent_id=agent_id,
                             action_type=ReactionActionType.MESH_SIGNATURE_BROADCAST,
                             metadata={"threat_type": "attack_path", "risk_score": path.risk_score},
                         )
-                        await self.active_reaction.broadcast_fleet_signature(mesh_payload)
+                        try:
+                            await self.active_reaction.broadcast_fleet_signature(mesh_payload)
+                        except Exception as exc:
+                            logger.error("Active reaction (mesh broadcast) failed for attack_path %s: %s", path.path_id, exc)
 
         # 2. Zero-Day Exploit Chain Analysis
         if self.exploit_analyzer is not None:
@@ -586,14 +592,20 @@ class AdvancedThreatDetection:
                             action_type=ReactionActionType.EBPF_DROP,
                             metadata={"threat_type": "exploit_chain", "novelty_score": chain.novelty_score},
                         )
-                        await self.active_reaction.execute_ebpf_socket_drop(ebpf_payload)
+                        try:
+                            await self.active_reaction.execute_ebpf_socket_drop(ebpf_payload)
+                        except Exception as exc:
+                            logger.error("Active reaction (eBPF drop) failed for exploit_chain %s: %s", chain.chain_id, exc)
                         mesh_payload = ActiveReactionPayload(
                             trigger_evidence_id=chain.chain_id,
                             target_agent_id=agent_id,
                             action_type=ReactionActionType.MESH_SIGNATURE_BROADCAST,
                             metadata={"threat_type": "exploit_chain", "novelty_score": chain.novelty_score},
                         )
-                        await self.active_reaction.broadcast_fleet_signature(mesh_payload)
+                        try:
+                            await self.active_reaction.broadcast_fleet_signature(mesh_payload)
+                        except Exception as exc:
+                            logger.error("Active reaction (mesh broadcast) failed for exploit_chain %s: %s", chain.chain_id, exc)
 
         # 3. AI-Induced Lateral Movement (AILM)
         if self.ailm_tracker is not None:
@@ -634,7 +646,10 @@ class AdvancedThreatDetection:
                                 "boundary_crossings": ailm.boundary_crossings,
                             },
                         )
-                        await self.active_reaction.revoke_identity_session(vault_payload)
+                        try:
+                            await self.active_reaction.revoke_identity_session(vault_payload)
+                        except Exception as exc:
+                            logger.error("Active reaction (vault revocation) failed for ailm agent %s: %s", agent_id, exc)
 
         # 4. Command-and-Control (C2) Detection
         if self.c2_detector is not None:
@@ -743,7 +758,10 @@ class AdvancedThreatDetection:
                                     "coordination_score": swarm.coordination_score,
                                 },
                             )
-                            await self.active_reaction.execute_ebpf_socket_drop(ebpf_payload)
+                            try:
+                                await self.active_reaction.execute_ebpf_socket_drop(ebpf_payload)
+                            except Exception as exc:
+                                logger.error("Active reaction (eBPF drop) failed for swarm agent %s: %s", aid, exc)
                             mesh_payload = ActiveReactionPayload(
                                 trigger_evidence_id=swarm.swarm_id,
                                 target_agent_id=aid,
@@ -753,7 +771,10 @@ class AdvancedThreatDetection:
                                     "coordination_score": swarm.coordination_score,
                                 },
                             )
-                            await self.active_reaction.broadcast_fleet_signature(mesh_payload)
+                            try:
+                                await self.active_reaction.broadcast_fleet_signature(mesh_payload)
+                            except Exception as exc:
+                                logger.error("Active reaction (mesh broadcast) failed for swarm agent %s: %s", aid, exc)
                             vault_payload = ActiveReactionPayload(
                                 trigger_evidence_id=swarm.swarm_id,
                                 target_agent_id=aid,
@@ -763,7 +784,10 @@ class AdvancedThreatDetection:
                                     "coordination_score": swarm.coordination_score,
                                 },
                             )
-                            await self.active_reaction.revoke_identity_session(vault_payload)
+                            try:
+                                await self.active_reaction.revoke_identity_session(vault_payload)
+                            except Exception as exc:
+                                logger.error("Active reaction (vault revocation) failed for swarm agent %s: %s", aid, exc)
 
         # 7. Package Registry Exploit Probing & Monitoring
         if self.registry_monitor is not None:
@@ -889,15 +913,20 @@ class AdvancedThreatDetection:
                 )
             return None, {"error": "Inbound filter not enabled"}
 
-        # 1. Validate headers and origin if provided
-        if headers is not None and remote_addr is not None:
-            allowed = await self.inbound_filter.validate_headers_and_origin(
-                headers=headers, remote_addr=remote_addr
+        # 1. Validate headers and origin — always enforced to prevent authorization bypass.
+        # Callers that omit headers or remote_addr receive safe defaults: an empty headers dict
+        # and an empty remote_addr string. The filter's loopback/origin rules then evaluate
+        # those defaults, which ensures non-loopback callers cannot skip authorization by
+        # simply omitting these optional parameters.
+        _headers = headers if headers is not None else {}
+        _remote_addr = remote_addr if remote_addr is not None else ""
+        allowed = await self.inbound_filter.validate_headers_and_origin(
+            headers=_headers, remote_addr=_remote_addr
+        )
+        if not allowed:
+            return None, self.inbound_filter.synthesize_error_response(
+                error_code=-32600, message="Unauthorized Origin or Host Header"
             )
-            if not allowed:
-                return None, self.inbound_filter.synthesize_error_response(
-                    error_code=-32600, message="Unauthorized Origin or Host Header"
-                )
 
         # 2. Enforce rate limiting
         within_limit = await self.inbound_filter.check_inbound_rate_limit(sender_id=sender_id)

@@ -205,13 +205,14 @@ def and_rate_limit_exceeded_returns_error(bdd_state: BreachDefenseBDDState) -> N
     orch = bdd_state.orchestrator
     assert orch is not None
 
-    # Exhaust remaining window allowance
+    # Exhaust remaining window allowance — supply loopback addr so validation passes and rate limiter is reached
     for _ in range(3):
         run_async(
             orch.inspect_and_sanitize_inbound_rpc(
                 raw_data=bdd_state.raw_rpc_payload,
                 sender_id="sender-agent-bdd",
                 recipient_agent_id=bdd_state.target_agent,
+                remote_addr="127.0.0.1",
             )
         )
 
@@ -220,6 +221,7 @@ def and_rate_limit_exceeded_returns_error(bdd_state: BreachDefenseBDDState) -> N
             raw_data=bdd_state.raw_rpc_payload,
             sender_id="sender-agent-bdd",
             recipient_agent_id=bdd_state.target_agent,
+            remote_addr="127.0.0.1",
         )
     )
     assert err_resp is not None
