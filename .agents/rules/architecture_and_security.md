@@ -258,12 +258,43 @@
 * **Rule:** Low-level process creation syscalls captured via eBPF tracepoints or audit hooks MUST NOT be included in pod creation or pod self-respawn action sets.
 * **Rationale:** Generic process/thread cloning inside sandbox containers (e.g. worker process forks during CyBench executions) shares the same process namespace or container ID. Treating `sys_clone` as pod creation produces false `fleet_spawning` and `self_respawning_pod` threat evidence.
 
+## 48. Active Enforcement Method Fail-Closed Contract
+
+* **Rule (Fail-Closed Success Initialization):** Every action method in `ActiveReactionEngine` (`execute_ebpf_socket_drop`, `broadcast_fleet_signature`, `revoke_identity_session`) MUST initialize `success = False` unconditionally before any conditional dispatch. `success` MUST be set to `True` only inside a branch that *completes an enforcement action without exception*. The following initializations are strictly prohibited:
+  - `success = True` — leaves `success` unchanged when a branch is silently skipped (e.g. unsupported interface, absent dependency)
+  - `success = self.dep is not None` — leaves `success = True` when the dependency is present but its interface matches no dispatch branch
+
+* **Rule (Dispatcher Return Value Capture):** Dispatch branches that optionally await a coroutine MUST assign the awaited result back to the same variable before inspecting it:
+  ```python
+  res = self.mesh_broadcaster(payload)
+  if asyncio.iscoroutine(res):
+      res = await res          # ← captured, not discarded
+  success = bool(res) if res is not None else True
+  ```
+  The return value of `await` MUST NOT be discarded with a bare `await res` statement. Success semantics: `None` → completed without explicit failure signal (success); any other falsy value (e.g. `False`, `0`) → caller-signalled failure.
+
+* **Rule (Empty-Result Oracle Guard for Token Revocation):** When a vault-style adapter returns an empty collection from `revoke_agent_tokens`, the failure condition MUST apply unless the local token registry confirms zero tokens were ever issued:
+  ```python
+  if len(revoked_tokens) == 0 and not (
+      isinstance(adapter_tokens, dict) and len(adapter_tokens) == 0
+  ):
+      success = False   # absent registry, non-dict, or non-empty dict → failure
+  # else: empty dict registry → no tokens existed, empty return is correct
+  ```
+  An absent registry (`None`), a non-dict registry, or a non-empty registry all require treating zero revocations as a failure; only a confirmed empty dict (`{}`) is a legitimate "nothing to revoke" result.
+
+* **Rationale:** Fail-open enforcement methods produce false `COMPLETED` audit records for actions that never occurred (socket drops, Threat Mesh broadcasts, credential revocations). Discovered across PR #93 review cycles: (a) initializing `success = dep is not None` still reports COMPLETED when a non-None dep exposes an unsupported interface; (b) discarding `await res` ignores a broadcaster's explicit `False` failure signal; (c) guarding empty-revocation failure only on a non-empty `_issued_tokens` dict silently passes when the adapter has no local registry. Each flaw allows adversaries whose mitigations were not actually enforced to continue operating while the SOC log shows `COMPLETED`.
+
 ## 47. Multi-Day Retrospective Semantic Edge Decay & MITRE Technique Gating
 * **Rule:** Retrospective attack path correlators (`RetrospectiveAnalyzer.reconstruct_causal_graph`) constructing semantic and temporal edges across multi-day analysis windows MUST:
   1. Scale non-causal same-target edge weights strictly by continuous exponential decay ($w = \text{base} \cdot e^{-\Delta t / \tau}$), requiring $w \ge 0.4$ for edge creation without applying artificial constant baselines that keep weights $\ge 0.4$ as $\Delta t \to \infty$.
   2. Gate base edge multipliers on MITRE ATT&CK technique matches (e.g. $\text{base} = 0.8$ for MITRE-matched actions, $\text{base} = 0.5$ for non-MITRE routine actions).
   3. Traverse all identified root nodes without artificial finite result collection caps that terminate DFS early and starve sibling branches.
 * **Rationale:** Constant baseline additions connect unrelated routine actions occurring days apart, while un-gated decay severs multi-stage stealth campaigns. Gating decay on MITRE technique relevance preserves genuine multi-day attack paths while rejecting disconnected benign activity.
+
+## 49. Structured Logging via `extra` Dictionary & Logger Keyword Hygiene
+* **Rule:** When emitting structured metadata or event objects via standard Python `logging.Logger` instances, custom payload dictionaries MUST be passed through the `extra={...}` parameter (e.g. `logger.info("EVENT", extra={"event": payload.model_dump()})`) or formatted into the log message string. Passing arbitrary keyword arguments directly to standard logger methods (`logger.info("...", event=...)`) is strictly prohibited to prevent runtime `TypeError` exceptions.
+* **Rationale:** Standard Python `logging.Logger._log()` does not accept arbitrary keyword arguments. Passing custom keywords directly raises `TypeError: Logger._log() got an unexpected keyword argument '...'` at runtime when log statements are triggered in production or test paths.
 
 
 
