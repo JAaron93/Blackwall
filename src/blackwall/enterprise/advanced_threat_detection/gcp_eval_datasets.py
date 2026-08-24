@@ -640,17 +640,17 @@ def get_context_hygiene_eval_samples() -> list[dict[str, Any]]:
         {
             "scenario_id": "hygiene_001",
             "domain": "context_hygiene",
-            "raw_payload": "Bearer sk-proj-abc123def456ghi789jkl012mno345pqr",
+            "raw_payload": "Bearer sk-mock-dummy-openai-key-0123456789abcdef",
             "expected_sanitized": "Bearer [[OPENAI_API_KEY]]",
-            "sensitive_patterns": ["sk-proj-*"],
+            "sensitive_patterns": ["sk-mock-*"],
             "metadata": {"secret_type": "OPENAI_API_KEY"},
         },
         {
             "scenario_id": "hygiene_002",
             "domain": "context_hygiene",
-            "raw_payload": "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\nAWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            "raw_payload": "AWS_ACCESS_KEY_ID=MOCKAKIAIOSFODNN7EXA\nAWS_SECRET_ACCESS_KEY=mockJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLEK",
             "expected_sanitized": "AWS_ACCESS_KEY_ID=[[AWS_ACCESS_KEY_ID]]\nAWS_SECRET_ACCESS_KEY=[[AWS_SECRET_ACCESS_KEY]]",
-            "sensitive_patterns": ["AKIA*", "wJalrXUtnFEMI*"],
+            "sensitive_patterns": ["MOCKAKIA*", "mockJalrXUtnFEMI*"],
             "metadata": {"secret_type": "AWS_CREDENTIALS"},
         },
         {
