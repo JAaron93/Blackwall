@@ -226,6 +226,75 @@ async def test_orchestrator_inbound_rpc_inspection_and_sanitization():
 
 
 @pytest.mark.asyncio
+async def test_inbound_rpc_no_header_bypass_closed_when_allowlist_configured():
+    """Regression: unauthenticated caller omitting headers must be rejected when
+    enforce_loopback=False but allowed_origins/allowed_hosts are configured.
+
+    Previously, absent Origin and Host headers passed through conditional checks
+    (`if origin and ...`) even when an explicit allow-list was set, because the
+    condition was never evaluated for None values. The fix requires presence +
+    membership when an allow-list is configured (strict mode).
+    """
+    config = AdvancedThreatDetectionConfig(
+        in_memory=True,
+        inbound_enforce_loopback=False,  # loopback not enforced — public-facing mode
+        inbound_rate_limit=10,
+        inbound_sliding_window_sec=60,
+        # allowed_origins / allowed_hosts flow through to InboundProtocolFilter
+        # via the orchestrator constructor
+    )
+    # Manually wire a filter with explicit allow-lists to exercise strict-mode checks
+    from blackwall.enterprise.advanced_threat_detection.inbound_filter import InboundProtocolFilter
+
+    strict_filter = InboundProtocolFilter(
+        rate_limit_per_window=10,
+        sliding_window_sec=60,
+        allowed_origins={"https://trusted.example.com"},
+        allowed_hosts={"trusted.example.com"},
+        enforce_loopback=False,
+    )
+
+    # 1. Unauthenticated caller with NO headers must be rejected (bypass closed)
+    rejected = await strict_filter.validate_headers_and_origin(
+        headers={}, remote_addr="203.0.113.5"
+    )
+    assert rejected is False, (
+        "Unauthenticated caller omitting Origin/Host headers must be rejected "
+        "when allowed_origins and allowed_hosts are configured, even with enforce_loopback=False"
+    )
+
+    # 2. Caller with headers NOT in the allow-list must also be rejected
+    rejected_wrong_origin = await strict_filter.validate_headers_and_origin(
+        headers={"Origin": "https://evil.attacker.com", "Host": "trusted.example.com"},
+        remote_addr="203.0.113.5",
+    )
+    assert rejected_wrong_origin is False
+
+    # 3. Caller with headers IN the allow-list must be accepted
+    accepted = await strict_filter.validate_headers_and_origin(
+        headers={"Origin": "https://trusted.example.com", "Host": "trusted.example.com"},
+        remote_addr="203.0.113.5",
+    )
+    assert accepted is True, "Caller with valid allow-listed headers must be accepted"
+
+    # 4. Permissive mode (no allow-lists) — absent headers still accepted
+    permissive_filter = InboundProtocolFilter(
+        rate_limit_per_window=10,
+        sliding_window_sec=60,
+        allowed_origins=None,
+        allowed_hosts=None,
+        enforce_loopback=False,
+    )
+    accepted_permissive = await permissive_filter.validate_headers_and_origin(
+        headers={}, remote_addr="203.0.113.5"
+    )
+    assert accepted_permissive is True, (
+        "In permissive mode (no allow-lists, no loopback enforcement), "
+        "absent headers should still be accepted"
+    )
+
+
+@pytest.mark.asyncio
 async def test_orchestrator_prompt_injection_scanning():
     """Verify git diff and web scrape payloads are scanned, neutralized, and alerted."""
     config = AdvancedThreatDetectionConfig(

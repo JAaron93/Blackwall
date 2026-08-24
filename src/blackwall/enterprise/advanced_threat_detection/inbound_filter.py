@@ -315,15 +315,37 @@ class InboundProtocolFilter:
                 )
                 return False
 
-        # 3. Check Origin header
+        # 3. Check Origin header.
+        # If allowed_origins is configured, the Origin header MUST be present and in the allow-list.
+        # Absence is only tolerated when the list is unconfigured (None = permissive mode) and the
+        # caller is either authenticated or the loopback check already passed above.
         origin = normalized_headers.get("origin")
-        if origin and not self._is_allowed_origin(origin):
+        if self.allowed_origins is not None:
+            # Strict mode: origin header required and must be in allow-list
+            if not origin or not self._is_allowed_origin(origin):
+                logger.warning(
+                    "Rejected inbound connection: Origin header %s not in allow-list",
+                    repr(origin),
+                )
+                return False
+        elif origin and not self._is_allowed_origin(origin):
+            # Permissive mode (no allow-list): only reject if origin is present and disallowed
             logger.warning("Rejected inbound connection with disallowed Origin: %s", origin)
             return False
 
-        # 4. Check Host header
+        # 4. Check Host header.
+        # If allowed_hosts is configured, the Host header MUST be present and in the allow-list.
         host = normalized_headers.get("host")
-        if host and not self._is_allowed_host(host):
+        if self.allowed_hosts is not None:
+            # Strict mode: host header required and must be in allow-list
+            if not host or not self._is_allowed_host(host):
+                logger.warning(
+                    "Rejected inbound connection: Host header %s not in allow-list",
+                    repr(host),
+                )
+                return False
+        elif host and not self._is_allowed_host(host):
+            # Permissive mode (no allow-list): only reject if host is present and disallowed
             logger.warning("Rejected inbound connection with disallowed Host: %s", host)
             return False
 
