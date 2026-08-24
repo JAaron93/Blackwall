@@ -267,9 +267,13 @@
 
 
 
+## 48. Inbound RPC Origin Validation — Always Enforced
+* **Rule:** `InboundProtocolFilter.validate_headers_and_origin()` MUST be called unconditionally on every inbound RPC request, regardless of whether `headers` or `remote_addr` are provided by the caller. Callers that omit these optional parameters MUST receive safe defaults (`headers={}`, `remote_addr=""`) before the validation gate so that loopback enforcement and Origin/Host restrictions are never bypassed by simply omitting arguments.
+* **Rationale:** When `validate_headers_and_origin` was gated on `headers is not None and remote_addr is not None`, an unauthenticated non-loopback caller could skip the entire authorization layer by omitting either parameter, proceed to the rate limiter and RPC parser, and receive a sanitized but authorized response.
 
-
-
+## 49. Active Reaction Dispatch Fault Isolation
+* **Rule:** Every `await active_reaction.*()` call within `correlate_agent_threats()` (eBPF socket drop, ZeroMQ mesh broadcast, Vault token revocation) MUST be wrapped individually in a `try/except Exception` block. Exceptions from the reaction adapter layer MUST be logged via `logger.error()` and MUST NOT propagate to abort the detection correlation loop or suppress alerts that were already generated.
+* **Rationale:** A transient kernel driver failure, mesh broadcaster outage, or Vault connectivity error must not prevent the remaining detectors and correlation engines from completing and returning their alerts. Fault isolation ensures that partial adapter failures degrade gracefully without silently discarding security intelligence.
 
 
 
