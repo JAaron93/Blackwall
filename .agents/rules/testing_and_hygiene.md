@@ -294,3 +294,11 @@
 ## 41. Security Fix Test Update — Re-Supply Bypassed Credentials
 * **Rule:** When a security fix removes an optional-parameter bypass path (e.g., converting `if headers is not None and remote_addr is not None: validate(...)` to unconditional `validate(headers or {}, remote_addr or "")`), ALL existing integration and BDD tests that previously exercised the "parameter omitted → bypass" path MUST be updated to supply valid credentials for the now-enforced gate (e.g., `remote_addr="127.0.0.1"` for loopback-enforced callers) so they correctly reach the intended downstream behavior (rate limiter, parser, etc.) rather than failing at the newly enforced authorization check with the wrong error code.
 * **Rationale:** Hardening a conditional validation gate to unconditional changes the "no params → pass through" contract to "no params → rejected with auth error." Tests that asserted a specific downstream error code (e.g., `-32000` rate limit) now receive an upstream auth error (`-32600`) instead, causing assertion failures that are valid test hygiene issues rather than regressions in the production security fix.
+* **Extension — Regression Test Sufficiency:** Regression tests for security bypass fixes MUST cover all relevant configuration permutations, not just the most obvious attack path. For boolean `enforce_*` flags combined with optional allow-list sets, tests MUST include at minimum:
+  1. **Strict mode** (allow-list configured) + absent headers → assert rejected.
+  2. **Strict mode** + present headers NOT in allow-list → assert rejected.
+  3. **Strict mode** + present headers IN allow-list → assert accepted.
+  4. **Permissive mode** (allow-list unconfigured) + `enforce_*=False` + absent headers → assert rejected (via the independent baseline gate, e.g. gate 2b requiring at least one identifying header).
+  5. **Permissive mode** + at least one identifying header present and valid (e.g. Host in a separately configured `allowed_hosts`) → assert accepted.
+  Failure to cover all permutations allows secondary bypass paths to survive code review undetected (as observed in greploop iterations 2→3 on PR #98, where the permissive-mode empty-header path was missed in the first regression test).
+
