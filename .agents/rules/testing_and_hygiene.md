@@ -303,3 +303,28 @@
   5. **Permissive mode** + at least one identifying header present and valid (e.g. Host in a separately configured `allowed_hosts`) → assert accepted.
   Failure to cover all permutations allows secondary bypass paths to survive code review undetected (as observed in greploop iterations 2→3 on PR #98, where the permissive-mode empty-header path was missed in the first regression test).
 
+## 42. Async Context Manager Mocking & Strict Typing Hygiene
+* **Rule (Explicit Mock Classes for Context Managers):**
+  When mocking objects used as async context managers (e.g. Antigravity `Agent`), prefer explicit helper classes implementing `__aenter__` and `__aexit__` over bare `AsyncMock()` to prevent unwired inner mock instances where `__aenter__` returns an unconfigured mock:
+  ```python
+  class MockJudgeAgent:
+      def __init__(self, response_text: str | None = None, raise_error: bool = False) -> None:
+          self.response_text = response_text
+          self.raise_error = raise_error
+
+      async def __aenter__(self) -> Self:
+          return self
+
+      async def __aexit__(
+          self,
+          exc_type: type[BaseException] | None,
+          exc_val: BaseException | None,
+          exc_tb: TracebackType | None,
+      ) -> None:
+          pass
+  ```
+* **Rule (Strict Typing for `__aexit__`):**
+  Always annotate `__aexit__` parameters with `type[BaseException] | None`, `BaseException | None`, and `TracebackType | None` to comply with Ruff `PYI036` and Pyright typing rules.
+* **Rationale:** Discovered during Track B BDD feature development on PR #100. Using standard `AsyncMock()` with async context managers creates subtle mock nesting bugs during execution, while unannotated mock method parameters violate Python typing conventions and static analysis checks.
+
+
