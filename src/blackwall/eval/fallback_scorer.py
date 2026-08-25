@@ -86,7 +86,11 @@ class SwarmDetectionFallbackScorer(HeuristicFallbackScorer):
     def score(self, scenario_data: dict[str, Any], candidate_result: dict[str, Any]) -> SwarmDetectionRubric:
         gt_coord = scenario_data.get("ground_truth_coordination")
         if isinstance(gt_coord, dict):
-            expected_swarm = bool(gt_coord.get("detected_agents") or gt_coord.get("coordination_score", 0) >= 0.7)
+            expected_swarm = bool(
+                gt_coord.get("agents")
+                or gt_coord.get("detected_agents")
+                or gt_coord.get("score", gt_coord.get("coordination_score", 0)) >= 0.7
+            )
         else:
             expected_swarm = bool(scenario_data.get("expected_swarm", True))
 
