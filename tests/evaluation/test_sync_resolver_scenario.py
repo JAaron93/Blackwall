@@ -158,7 +158,7 @@ def _create_test_resolver(demo_mode: bool = False) -> SyncResolver:
 async def test_sync_resolver_threat_interception_single_scenario() -> None:
     """Evaluate single SyncResolver verdict with ThreatInterceptionJudge."""
     resolver = _create_test_resolver(demo_mode=False)
-    judge = get_judge_for_domain("threat_interception", enforce_tier=False)
+    judge = get_judge_for_domain("threat_interception")
     assert isinstance(judge, ThreatInterceptionJudge)
 
     # 1. Malicious RCE command
@@ -200,7 +200,7 @@ async def test_sync_resolver_eval_dataset_batch_metrics() -> None:
     assert len(samples) >= 20
 
     resolver = _create_test_resolver(demo_mode=False)
-    judge = get_judge_for_domain("threat_interception", enforce_tier=False)
+    judge = get_judge_for_domain("threat_interception")
 
     tp, fp, fn, tn = 0, 0, 0, 0
 

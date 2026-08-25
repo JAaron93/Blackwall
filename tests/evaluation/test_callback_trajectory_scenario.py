@@ -207,7 +207,7 @@ async def test_callback_chain_multi_step_trajectory() -> None:
     """Evaluate multi-step agent interaction trajectory with threat interception and judge verification."""
     resolver = _create_eval_resolver()
     runner = CallbackChainRunner(resolver)
-    judge = get_judge_for_domain("threat_interception", enforce_tier=False)
+    judge = get_judge_for_domain("threat_interception")
     assert isinstance(judge, ThreatInterceptionJudge)
 
     # Step 1: Benign prompt & tool call
@@ -261,7 +261,7 @@ async def test_callback_chain_batch_dataset_trajectories() -> None:
     assert len(samples) >= 20
 
     resolver = _create_eval_resolver()
-    judge = get_judge_for_domain("threat_interception", enforce_tier=False)
+    judge = get_judge_for_domain("threat_interception")
 
     tp, fp, fn, tn = 0, 0, 0, 0
 

@@ -24,7 +24,7 @@ async def test_inbound_filter_origin_and_sanitization_scenario() -> None:
         allowed_origins={"http://127.0.0.1:3000", "http://localhost:8080"},
         enforce_loopback=True,
     )
-    judge = get_judge_for_domain("inbound_filter", enforce_tier=False)
+    judge = get_judge_for_domain("inbound_filter")
     assert isinstance(judge, InboundFilterJudge)
 
     # 1. Valid loopback request
@@ -94,7 +94,7 @@ async def test_inbound_filter_eval_dataset_batch_scenarios() -> None:
         allowed_origins={"http://127.0.0.1:3000", "http://localhost:8080", "http://[::1]:3000", "http://127.0.0.1:8000"},
         enforce_loopback=True,
     )
-    judge = get_judge_for_domain("inbound_filter", enforce_tier=False)
+    judge = get_judge_for_domain("inbound_filter")
 
     for raw_scenario in samples:
         scenario = InboundFilterScenario.model_validate(raw_scenario)
