@@ -313,3 +313,16 @@
   3. Gates that combine boolean `enforce_*` flags with optional allow-list sets MUST be audited for all 2^N flag combinations to verify each combination has a correct accept/reject outcome for both authenticated and unauthenticated callers.
 * **Rationale:** The three-iteration fix on `InboundProtocolFilter.validate_headers_and_origin` demonstrated that optional-parameter disablement (`enforce_loopback=False`) combined with unconfigured allow-lists (`allowed_origins=None`, `allowed_hosts=None`) created a silent "all gates off" path that passed unauthenticated callers with zero headers. Each gate must provide independent rejection rather than relying on the others to catch what it does not.
 
+## 51. Evaluation Judge Agents & Antigravity SDK Invariants
+* **Rule (Mandatory Paid-Tier Contract Validation at Startup):**
+  `GEMINI_TIER=paid`, `BLACKWALL_TIER=paid`, and `GCP_PROJECT` (or `GOOGLE_CLOUD_PROJECT`) must be verified at judge agent creation time. Tier contract violations MUST raise `ValueError` immediately; they must NOT be caught inside candidate evaluation retry loops or converted into heuristic fallbacks.
+* **Rule (Asynchronous Agent Lifecycle Management):**
+  Autonomous Antigravity SDK agents must be invoked within an async context manager (`async with agent as active_agent:`) to guarantee proper session initialization and runtime resource cleanup across evaluation retries.
+* **Rule (Resilient Heuristic Fallback Ground-Truth Mapping):**
+  Fallback scorers must check both canonical scenario schema fields (e.g. `stages`, `c2_endpoints`, `ground_truth_coordination` with `agents`/`score`) and legacy aliases to prevent inverted scoring during degraded-mode execution.
+* **Rationale:** Discovered during Track B implementation and PR #100 review cycles:
+  1. Catching tier contract errors inside the evaluation loop allowed misconfigured environments to silently fall back to heuristic scoring instead of failing at startup.
+  2. Skipping agent `__aenter__`/`__aexit__` leaked runtime resources and caused Vertex AI agents to fail repeatedly.
+  3. Fallback ground truth key mismatches caused fallback scorers to evaluate empty expected sets, penalizing correct detections and rewarding candidates that detected nothing.
+
+
