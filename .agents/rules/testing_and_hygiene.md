@@ -140,6 +140,7 @@
   2. **Backreference Safety**: Verifying that replacement placeholders containing regex backreference syntax (e.g., `\g<0>`, `\1`) are inserted literally without re-inserting matched threat spans or raising unhandled `re.error` exceptions.
 * **Rationale:** Example-based tests using simple alphanumeric placeholders fail to catch template injection and backreference re-insertion vulnerabilities in regex substitution engines.
 
+
 ## 31. Agent-as-a-Judge Evaluation Pattern (Antigravity SDK)
 
 * **Rule (Paid-Tier Enforcement):** Evaluation pipeline runners and judge agent factories MUST validate `GEMINI_TIER=paid` and `BLACKWALL_TIER=paid` at startup. If either is unset or not `paid`, the pipeline MUST exit immediately with a descriptive error rather than silently degrading to free-tier rate limits (4 RPM), which causes cascading timeouts across 9+ concurrent judge agents requiring 300+ RPM.
@@ -150,6 +151,7 @@
 * **Rationale:** The Agent-as-a-Judge pattern provides richer multi-dimensional evaluation than static `PointwiseMetric` templates, but requires strict configuration contracts (paid quota), prompt safety (injection resistance), ordering discipline (cache economics), and fallback transparency (metric integrity) to produce reliable CI quality gates. See `.kiro/specs/blackwall-gcp-evaluation-coverage/` for the governing specification.
 
 ## 32. Module-Qualified `asyncio.sleep` Patching in Unit Tests
+
 
 * **Rule:** When patching `asyncio.sleep` in unit tests that target a class or module which imports `asyncio` at the top level, always use the fully qualified module path as the patch target:
   ```python
@@ -288,4 +290,15 @@
 ## 40. Evaluation Metric Zero-Division Safeguards
 * **Rule:** All offline, online, and autorater evaluation metric aggregators (`calculateMetrics`, `GCPVertexEvalMetrics`) MUST explicitly guard all division denominators (`tp + fp == 0`, `tp + fn == 0`, `precision + recall == 0.0`, `len(reference) == 0`) and return safe `0.0` / float defaults rather than permitting `ZeroDivisionError` exceptions during zero-count or empty-candidate evaluation runs.
 * **Rationale:** Real-world evaluation datasets and adversarial test runs frequently produce zero true positives, zero false positives, or empty candidate trajectories on edge cases. Unhandled zero division crashes evaluation batch jobs and masks upstream quality metrics.
+
+## 41. Security Fix Test Update — Re-Supply Bypassed Credentials
+* **Rule:** When a security fix removes an optional-parameter bypass path (e.g., converting `if headers is not None and remote_addr is not None: validate(...)` to unconditional `validate(headers or {}, remote_addr or "")`), ALL existing integration and BDD tests that previously exercised the "parameter omitted → bypass" path MUST be updated to supply valid credentials for the now-enforced gate (e.g., `remote_addr="127.0.0.1"` for loopback-enforced callers) so they correctly reach the intended downstream behavior (rate limiter, parser, etc.) rather than failing at the newly enforced authorization check with the wrong error code.
+* **Rationale:** Hardening a conditional validation gate to unconditional changes the "no params → pass through" contract to "no params → rejected with auth error." Tests that asserted a specific downstream error code (e.g., `-32000` rate limit) now receive an upstream auth error (`-32600`) instead, causing assertion failures that are valid test hygiene issues rather than regressions in the production security fix.
+* **Extension — Regression Test Sufficiency:** Regression tests for security bypass fixes MUST cover all relevant configuration permutations, not just the most obvious attack path. For boolean `enforce_*` flags combined with optional allow-list sets, tests MUST include at minimum:
+  1. **Strict mode** (allow-list configured) + absent headers → assert rejected.
+  2. **Strict mode** + present headers NOT in allow-list → assert rejected.
+  3. **Strict mode** + present headers IN allow-list → assert accepted.
+  4. **Permissive mode** (allow-list unconfigured) + `enforce_*=False` + absent headers → assert rejected (via the independent baseline gate, e.g. gate 2b requiring at least one identifying header).
+  5. **Permissive mode** + at least one identifying header present and valid (e.g. Host in a separately configured `allowed_hosts`) → assert accepted.
+  Failure to cover all permutations allows secondary bypass paths to survive code review undetected (as observed in greploop iterations 2→3 on PR #98, where the permissive-mode empty-header path was missed in the first regression test).
 

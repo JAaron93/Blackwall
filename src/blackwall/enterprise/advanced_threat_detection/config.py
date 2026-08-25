@@ -27,6 +27,22 @@ class AdvancedThreatDetectionConfig(BaseModel):
     enable_c2_detection: bool = True
     enable_k8s_defense: bool = True
     enable_registry_monitor: bool = True
+    enable_active_reaction: bool = True
+    enable_inbound_filter: bool = True
+    enable_prompt_injection: bool = True
+    enable_quota_enforcer: bool = True
+
+    # Breach Defense Parameters
+    inbound_rate_limit: int = Field(default=100, gt=0)
+    inbound_sliding_window_sec: int = Field(default=60, gt=0)
+    inbound_enforce_loopback: bool = True
+    prompt_injection_confidence_threshold: float = Field(default=0.5, gt=0.0, le=1.0)
+    prompt_injection_critical_threshold: float = Field(default=0.85, gt=0.0, le=1.0)
+    prompt_injection_redaction_placeholder: str = "[REDACTED_PROMPT_INJECTION]"
+    quota_token_burn_rate_limit: float = Field(default=500.0, gt=0.0)
+    quota_request_velocity_limit: float = Field(default=50.0, gt=0.0)
+    quota_sliding_window_sec: float = Field(default=60.0, gt=0.0)
+    quota_quarantine_duration_sec: float = Field(default=300.0, gt=0.0)
 
     # Engine Thresholds and Analysis Parameters
     min_path_length: int = Field(default=2, ge=2)

@@ -298,10 +298,18 @@
 
 
 
+## 48. Inbound RPC Origin Validation — Always Enforced
+* **Rule:** `InboundProtocolFilter.validate_headers_and_origin()` MUST be called unconditionally on every inbound RPC request, regardless of whether `headers` or `remote_addr` are provided by the caller. Callers that omit these optional parameters MUST receive safe defaults (`headers={}`, `remote_addr=""`) before the validation gate so that loopback enforcement and Origin/Host restrictions are never bypassed by simply omitting arguments.
+* **Rationale:** When `validate_headers_and_origin` was gated on `headers is not None and remote_addr is not None`, an unauthenticated non-loopback caller could skip the entire authorization layer by omitting either parameter, proceed to the rate limiter and RPC parser, and receive a sanitized but authorized response.
 
+## 49. Active Reaction Dispatch Fault Isolation
+* **Rule:** Every `await active_reaction.*()` call within `correlate_agent_threats()` (eBPF socket drop, ZeroMQ mesh broadcast, Vault token revocation) MUST be wrapped individually in a `try/except Exception` block. Exceptions from the reaction adapter layer MUST be logged via `logger.error()` and MUST NOT propagate to abort the detection correlation loop or suppress alerts that were already generated.
+* **Rationale:** A transient kernel driver failure, mesh broadcaster outage, or Vault connectivity error must not prevent the remaining detectors and correlation engines from completing and returning their alerts. Fault isolation ensures that partial adapter failures degrade gracefully without silently discarding security intelligence.
 
-
-
-
-
+## 50. Independent Security Gate Bypass-Proofing
+* **Rule:** Multi-layer security validation sequences (e.g. loopback check → allow-list check → header presence check) MUST be designed so that disabling one gate (e.g. `enforce_loopback=False`) does not implicitly open a free path through the remaining gates. Each gate MUST independently provide a baseline rejection for the "no identifying information" case:
+  1. When loopback enforcement is disabled AND the caller is unauthenticated, require at least one other identifying signal (Origin or Host header) to be present — regardless of whether allow-lists are configured.
+  2. When allow-lists are configured (strict mode), absent headers MUST fail the check; header absence must never be treated as implicit allowance in strict mode.
+  3. Gates that combine boolean `enforce_*` flags with optional allow-list sets MUST be audited for all 2^N flag combinations to verify each combination has a correct accept/reject outcome for both authenticated and unauthenticated callers.
+* **Rationale:** The three-iteration fix on `InboundProtocolFilter.validate_headers_and_origin` demonstrated that optional-parameter disablement (`enforce_loopback=False`) combined with unconfigured allow-lists (`allowed_origins=None`, `allowed_hosts=None`) created a silent "all gates off" path that passed unauthenticated callers with zero headers. Each gate must provide independent rejection rather than relying on the others to catch what it does not.
 
