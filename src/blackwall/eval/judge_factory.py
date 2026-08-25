@@ -83,10 +83,11 @@ def validate_evaluation_tier_contract() -> None:
     """
     Validate the 300+ RPM paid-tier quota contract for Agent-as-a-Judge evaluation workloads.
 
-    Enforces GEMINI_TIER=paid and BLACKWALL_TIER=paid.
+    Enforces GEMINI_TIER=paid and BLACKWALL_TIER=paid, and ensures GCP_PROJECT is configured.
     """
     gemini_tier = os.getenv("GEMINI_TIER", "").strip().lower()
     blackwall_tier = os.getenv("BLACKWALL_TIER", "").strip().lower()
+    gcp_project = os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT")
 
     errors = []
     if gemini_tier != "paid":
@@ -98,6 +99,10 @@ def validate_evaluation_tier_contract() -> None:
         errors.append(
             f"BLACKWALL_TIER must be set to 'paid' (found '{os.getenv('BLACKWALL_TIER', '')}'). "
             "Blackwall evaluation pipeline requires the paid-tier feature contract."
+        )
+    if not gcp_project or not gcp_project.strip():
+        errors.append(
+            "GCP_PROJECT (or GOOGLE_CLOUD_PROJECT) must be set for Vertex AI evaluation."
         )
 
     if errors:
@@ -119,7 +124,7 @@ def create_judge_agent(
         domain: Target evaluation domain identifier.
         rubric_schema: Pydantic rubric model class for structured response output.
         model: Model name override (defaults to BLACKWALL_JUDGE_MODEL or 'gemini-3.7-flash').
-        enforce_tier: If True, asserts GEMINI_TIER=paid and BLACKWALL_TIER=paid.
+        enforce_tier: If True, asserts GEMINI_TIER=paid, BLACKWALL_TIER=paid, and GCP_PROJECT.
 
     Returns:
         Configured Agent instance.
@@ -127,7 +132,14 @@ def create_judge_agent(
     if enforce_tier:
         validate_evaluation_tier_contract()
 
-    project = os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or "blackwall-eval-project"
+    project = os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT")
+    if not project or not project.strip():
+        if enforce_tier:
+            raise ValueError("GCP_PROJECT (or GOOGLE_CLOUD_PROJECT) must be set.")
+        project = "blackwall-eval-project"
+    else:
+        project = project.strip()
+
     location = os.getenv("GCP_LOCATION") or os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1"
     effective_model = model or os.getenv("BLACKWALL_JUDGE_MODEL") or "gemini-3.7-flash"
 

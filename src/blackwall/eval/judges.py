@@ -53,7 +53,7 @@ class BaseJudgeAgent:
     system_instruction: str = "You are an impartial AI cybersecurity evaluation judge."
     rubric_text: str = ""
 
-    def __init__(self, agent: Any | None = None, model: str | None = None, enforce_tier: bool = False) -> None:
+    def __init__(self, agent: Any | None = None, model: str | None = None, enforce_tier: bool = True) -> None:
         self._custom_agent = agent
         self._model = model
         self._enforce_tier = enforce_tier
@@ -76,8 +76,9 @@ class BaseJudgeAgent:
         """
         Evaluate a scenario and candidate result against the structured rubric.
 
-        Retries up to 3 times on schema validation errors before gracefully
-        falling back to the deterministic heuristic scorer with `is_fallback=True`.
+        Retries up to 3 times on schema validation errors within the agent async
+        lifecycle before gracefully falling back to the deterministic heuristic
+        scorer with `is_fallback=True`.
         """
         combined_context = dict(scenario_data)
         combined_context["candidate_result"] = candidate_result
@@ -92,35 +93,68 @@ class BaseJudgeAgent:
         attempts = 3
         last_error: Exception | None = None
 
-        for attempt in range(1, attempts + 1):
-            try:
-                agent = self._get_agent()
-                response_text = await agent.chat(prompt)
-                
-                # Parse JSON and validate against response schema
-                if isinstance(response_text, str):
-                    data = json.loads(response_text)
-                elif isinstance(response_text, dict):
-                    data = response_text
-                else:
-                    data = json.loads(str(response_text))
+        try:
+            agent = self._get_agent()
+            if hasattr(agent, "__aenter__"):
+                async with agent as active_agent:
+                    for attempt in range(1, attempts + 1):
+                        try:
+                            response_text = await active_agent.chat(prompt)
 
-                rubric_instance = self.rubric_schema.model_validate(data)
-                return rubric_instance
-            except (ValidationError, json.JSONDecodeError, RuntimeError, ValueError, TypeError, KeyError) as exc:
-                last_error = exc
-                logger.warning(
-                    "Judge agent '%s' evaluation attempt %d/%d failed: %s",
-                    self.domain,
-                    attempt,
-                    attempts,
-                    str(exc),
-                )
+                            # Parse JSON and validate against response schema
+                            if isinstance(response_text, str):
+                                data = json.loads(response_text)
+                            elif isinstance(response_text, dict):
+                                data = response_text
+                            else:
+                                data = json.loads(str(response_text))
+
+                            rubric_instance = self.rubric_schema.model_validate(data)
+                            return rubric_instance
+                        except (ValidationError, json.JSONDecodeError, RuntimeError, ValueError, TypeError, KeyError) as exc:
+                            last_error = exc
+                            logger.warning(
+                                "Judge agent '%s' evaluation attempt %d/%d failed: %s",
+                                self.domain,
+                                attempt,
+                                attempts,
+                                str(exc),
+                            )
+            else:
+                for attempt in range(1, attempts + 1):
+                    try:
+                        response_text = await agent.chat(prompt)
+
+                        # Parse JSON and validate against response schema
+                        if isinstance(response_text, str):
+                            data = json.loads(response_text)
+                        elif isinstance(response_text, dict):
+                            data = response_text
+                        else:
+                            data = json.loads(str(response_text))
+
+                        rubric_instance = self.rubric_schema.model_validate(data)
+                        return rubric_instance
+                    except (ValidationError, json.JSONDecodeError, RuntimeError, ValueError, TypeError, KeyError) as exc:
+                        last_error = exc
+                        logger.warning(
+                            "Judge agent '%s' evaluation attempt %d/%d failed: %s",
+                            self.domain,
+                            attempt,
+                            attempts,
+                            str(exc),
+                        )
+        except (RuntimeError, ValueError, TypeError) as exc:
+            last_error = exc
+            logger.warning(
+                "Judge agent '%s' execution error: %s",
+                self.domain,
+                str(exc),
+            )
 
         logger.info(
-            "Judge agent '%s' failed after %d attempts (%s); activating heuristic fallback scorer",
+            "Judge agent '%s' failed (%s); activating heuristic fallback scorer",
             self.domain,
-            attempts,
             last_error,
         )
         return self.fallback_scorer.score(scenario_data, candidate_result)

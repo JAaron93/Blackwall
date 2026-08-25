@@ -84,9 +84,14 @@ class SwarmDetectionFallbackScorer(HeuristicFallbackScorer):
         return SwarmDetectionRubric
 
     def score(self, scenario_data: dict[str, Any], candidate_result: dict[str, Any]) -> SwarmDetectionRubric:
-        expected_swarm = bool(scenario_data.get("expected_swarm", True))
+        gt_coord = scenario_data.get("ground_truth_coordination")
+        if isinstance(gt_coord, dict):
+            expected_swarm = bool(gt_coord.get("detected_agents") or gt_coord.get("coordination_score", 0) >= 0.7)
+        else:
+            expected_swarm = bool(scenario_data.get("expected_swarm", True))
+
         detected_swarms = candidate_result.get("swarms", candidate_result.get("detected_swarms", []))
-        has_detection = len(detected_swarms) > 0 or candidate_result.get("swarm_detected", False)
+        has_detection = len(detected_swarms) > 0 or bool(candidate_result.get("swarm_detected", False))
 
         is_correct = (expected_swarm == has_detection)
         score = 5 if is_correct else 1
@@ -115,7 +120,7 @@ class ExploitChainFallbackScorer(HeuristicFallbackScorer):
         return ExploitChainRubric
 
     def score(self, scenario_data: dict[str, Any], candidate_result: dict[str, Any]) -> ExploitChainRubric:
-        expected_stages = scenario_data.get("expected_stages", [])
+        expected_stages = scenario_data.get("stages", scenario_data.get("expected_stages", []))
         detected_stages = candidate_result.get("stages", candidate_result.get("detected_stages", []))
 
         if expected_stages:
@@ -147,7 +152,7 @@ class C2DetectionFallbackScorer(HeuristicFallbackScorer):
         return C2DetectionRubric
 
     def score(self, scenario_data: dict[str, Any], candidate_result: dict[str, Any]) -> C2DetectionRubric:
-        expected_endpoints = set(scenario_data.get("expected_c2_endpoints", []))
+        expected_endpoints = set(scenario_data.get("c2_endpoints", scenario_data.get("expected_c2_endpoints", [])))
         detected_endpoints = set(candidate_result.get("c2_endpoints", candidate_result.get("detected_endpoints", [])))
 
         if expected_endpoints:

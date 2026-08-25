@@ -3,8 +3,8 @@ BDD Step Definitions for Autonomous Judge Agents (`tests/step_defs/test_judge_ag
 """
 
 import json
-from typing import Any
-from unittest.mock import AsyncMock
+from types import TracebackType
+from typing import Any, Self
 
 import pytest
 from pytest_bdd import given, parsers, scenarios, then, when
@@ -18,6 +18,28 @@ from blackwall.eval.prompt_template import build_judge_prompt
 from tests.step_defs.async_utils import run_async
 
 scenarios("../features/judge_agents.feature")
+
+
+class MockJudgeAgent:
+    def __init__(self, response_text: str | None = None, raise_error: bool = False) -> None:
+        self.response_text = response_text
+        self.raise_error = raise_error
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        pass
+
+    async def chat(self, prompt: str) -> str:
+        if self.raise_error:
+            raise RuntimeError("Service error")
+        return self.response_text or ""
 
 
 class BDDContext:
@@ -103,8 +125,7 @@ def given_valid_candidate_result(ctx: BDDContext) -> None:
 
 @given("a simulated Vertex AI service outage")
 def given_vertex_ai_outage(ctx: BDDContext) -> None:
-    mock_agent = AsyncMock()
-    mock_agent.chat.side_effect = RuntimeError("Vertex AI Service Unavailable (503)")
+    mock_agent = MockJudgeAgent(raise_error=True)
     ctx.judge = PromptInjectionJudge(agent=mock_agent)
 
 
@@ -124,7 +145,6 @@ def given_untrusted_injection_payload(ctx: BDDContext, tok1: str, tok2: str) -> 
 # ---------------------------------------------------------------------------
 @when("the threat interception judge evaluates the scenario and candidate result")
 def when_threat_judge_evaluates(ctx: BDDContext) -> None:
-    mock_agent = AsyncMock()
     expected_response = {
         "detection_accuracy_score": 5,
         "false_positive_control_score": 5,
@@ -133,22 +153,20 @@ def when_threat_judge_evaluates(ctx: BDDContext) -> None:
         "justification": "Verdict correctly matched ground truth with valid reasoning.",
         "is_fallback": False,
     }
-    mock_agent.chat.return_value = json.dumps(expected_response)
+    mock_agent = MockJudgeAgent(response_text=json.dumps(expected_response))
     judge = ThreatInterceptionJudge(agent=mock_agent)
     ctx.rubric = run_async(judge.evaluate(ctx.scenario, ctx.candidate_result))
 
 
 @when("the swarm detection judge evaluates the scenario with fallback")
 def when_swarm_judge_evaluates_fallback(ctx: BDDContext) -> None:
-    mock_agent = AsyncMock()
-    mock_agent.chat.side_effect = RuntimeError("Service error")
+    mock_agent = MockJudgeAgent(raise_error=True)
     judge = SwarmDetectionJudge(agent=mock_agent)
     ctx.rubric = run_async(judge.evaluate(ctx.scenario, ctx.candidate_result))
 
 
 @when("the domain judge evaluates the scenario")
 def when_domain_judge_evaluates(ctx: BDDContext) -> None:
-    mock_agent = AsyncMock()
     expected_response = {
         "detection_accuracy_score": 4,
         "false_positive_control_score": 5,
@@ -157,7 +175,7 @@ def when_domain_judge_evaluates(ctx: BDDContext) -> None:
         "justification": "Evaluation successfully completed within expected bounds.",
         "is_fallback": False,
     }
-    mock_agent.chat.return_value = json.dumps(expected_response)
+    mock_agent = MockJudgeAgent(response_text=json.dumps(expected_response))
     judge = ThreatInterceptionJudge(agent=mock_agent)
     ctx.rubric = run_async(judge.evaluate(ctx.scenario, ctx.candidate_result))
 
