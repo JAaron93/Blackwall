@@ -110,15 +110,15 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
 
 ### Track B: Judge Agent Registry
 
-- [ ] B.1 Create base judge agent infrastructure
-  - [ ] B.1.1 Implement judge agent factory (`src/blackwall/eval/judge_factory.py`)
+- [x] B.1 Create base judge agent infrastructure
+  - [x] B.1.1 Implement judge agent factory (`src/blackwall/eval/judge_factory.py`)
     - Create `create_judge_agent(domain, rubric_schema)` factory function
     - Configure `LocalAgentConfig(vertex=True, project=GCP_PROJECT, location=GCP_LOCATION, model="gemini-3.7-flash", response_schema=rubric_schema, capabilities=CapabilitiesConfig(agent_behavior=AgentBehavior.AUTONOMOUS))`
     - Support configurable model override via `BLACKWALL_JUDGE_MODEL` env var
     - _Requirements: 1.4, 2.4, 3.4, 4.4, 5.4, 6.4, 7.4, 8.4, 9.4, NFR-1_
     - _Verification: `pytest tests/unit/test_judge_factory.py -v`_
 
-  - [ ] B.1.2 Implement prompt sanitization utility (`src/blackwall/eval/prompt_sanitizer.py`)
+  - [x] B.1.2 Implement prompt sanitization utility (`src/blackwall/eval/prompt_sanitizer.py`)
     - Regex patterns to neutralize: `[INST]`, `[/INST]`, `<<SYS>>`, `<|im_start|>`, `<|im_end|>`
     - Regex patterns to neutralize instruction overrides: `\b(ignore|disregard|forget|bypass|override)\b.*\binstructions?\b`
     - Regex patterns to neutralize scoring manipulation: multi-verb + nonnumeric directives
@@ -126,7 +126,7 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
     - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5_
     - _Verification: `pytest tests/unit/test_prompt_sanitizer.py -v`_
 
-  - [ ] B.1.3 Implement zero-trust prompt template builder (`src/blackwall/eval/prompt_template.py`)
+  - [x] B.1.3 Implement zero-trust prompt template builder (`src/blackwall/eval/prompt_template.py`)
     - Generate structured prompts with XML boundaries
     - Place static system instruction and rubric at the beginning (prefix) for Gemini implicit context caching (>32k prefix → 90% input cost discount)
     - Place per-scenario evaluation context (untrusted inputs, ground truth) at the end (dynamic tail)
@@ -135,99 +135,99 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
     - _Requirements: 16.1, 16.5, NFR-3, NFR-5_
     - _Verification: `pytest tests/unit/test_prompt_template.py -v`_
 
-  - [ ] B.1.4 Implement heuristic fallback scorer base class (`src/blackwall/eval/fallback_scorer.py`)
+  - [x] B.1.4 Implement heuristic fallback scorer base class (`src/blackwall/eval/fallback_scorer.py`)
     - Define `HeuristicFallbackScorer` ABC with `score(scenario, result) -> Rubric`
     - Always set `is_fallback=True` on returned rubrics
     - Implement basic confusion-matrix comparison (predicted vs ground truth)
     - _Requirements: 17.1, 17.2, 17.3, 17.4_
     - _Verification: `pytest tests/unit/test_fallback_scorer.py -v`_
 
-  - [ ] B.1.5 Write property tests for judge infrastructure
+  - [x] B.1.5 Write property tests for judge infrastructure
     - **Property E-4: Sanitizer neutralizes all known injection patterns** (fuzzing with injection corpus)
     - **Property E-5: Prompt template always wraps dynamic content in XML tags** (never raw insertion)
     - **Property E-6: Fallback scorer always sets `is_fallback=True`**
     - **Property E-7: Factory always produces `vertex=True` config**
     - _Verification: `pytest tests/property/test_judge_infra_properties.py --hypothesis-seed=0 -v`_
 
-- [ ] B.2 Implement domain-specific Pydantic rubric models
-  - [ ] B.2.1 Create all 9 rubric models (`src/blackwall/eval/rubrics.py`)
+- [x] B.2 Implement domain-specific Pydantic rubric models
+  - [x] B.2.1 Create all 9 rubric models (`src/blackwall/eval/rubrics.py`)
     - `ThreatInterceptionRubric`, `SwarmDetectionRubric`, `ExploitChainRubric`, `C2DetectionRubric`, `AILMDetectionRubric`, `PromptInjectionRubric`, `InboundFilterRubric`, `QuotaEnforcementRubric`, `ContextHygieneRubric`
     - All: `ConfigDict(extra="forbid")`, scores `Field(ge=1, le=5)`, `justification: str = Field(min_length=10)`, `is_fallback: bool = Field(default=False)`
     - `RegressionComparisonRubric`: `overall_quality_delta: int = Field(ge=-5, le=5)`, `regression_detected: bool`, `justification`
     - _Requirements: 1.2, 2.2, 3.2, 4.2, 5.2, 6.2, 7.2, 8.2, 9.2, 13.2_
     - _Verification: `pytest tests/unit/test_rubric_models.py -v`_
 
-  - [ ] B.2.2 Write property tests for rubric models
+  - [x] B.2.2 Write property tests for rubric models
     - **Property E-8: All score fields reject values outside [1, 5]**
     - **Property E-9: Justification rejects strings shorter than 10 characters**
     - **Property E-10: `extra="forbid"` rejects unknown fields**
     - **Property E-11: `is_fallback` defaults to False**
     - _Verification: `pytest tests/property/test_rubric_properties.py --hypothesis-seed=0 -v`_
 
-- [ ] B.3 Implement domain-specific judge agents
-  - [ ] B.3.1 Implement `ThreatInterceptionJudge` with system instruction and rubric
+- [x] B.3 Implement domain-specific judge agents
+  - [x] B.3.1 Implement `ThreatInterceptionJudge` with system instruction and rubric
     - System instruction: "You are an expert AI cybersecurity judge evaluating firewall verdict accuracy..."
     - Rubric criteria: detection accuracy, false positive control, reasoning quality, trajectory soundness
     - Heuristic fallback: compare predicted verdict to ground truth, score 5 if match, 1 if miss
     - _Requirements: 1.1, 1.2, 1.3, 1.4_
     - _Verification: `pytest tests/unit/test_threat_interception_judge.py -v`_
 
-  - [ ] B.3.2 Implement `SwarmDetectionJudge`
+  - [x] B.3.2 Implement `SwarmDetectionJudge`
     - Criteria: coordination detection, temporal precision, shared infrastructure identification, fingerprint quality
     - Fallback: score based on whether swarm was detected at all (binary)
     - _Requirements: 2.1, 2.2, 2.3, 2.4_
     - _Verification: `pytest tests/unit/test_swarm_judge.py -v`_
 
-  - [ ] B.3.3 Implement `ExploitChainJudge`
+  - [x] B.3.3 Implement `ExploitChainJudge`
     - Criteria: chain completeness, novelty calibration, MITRE mapping accuracy, chaining confidence
     - Fallback: compare detected stages against ground truth stage list
     - _Requirements: 3.1, 3.2, 3.3, 3.4_
     - _Verification: `pytest tests/unit/test_exploit_chain_judge.py -v`_
 
-  - [ ] B.3.4 Implement `C2DetectionJudge`
+  - [x] B.3.4 Implement `C2DetectionJudge`
     - Criteria: endpoint classification, beaconing detection, persistence identification, cross-pillar correlation
     - Fallback: check if C2 endpoints appear in detection output
     - _Requirements: 4.1, 4.2, 4.3, 4.4_
     - _Verification: `pytest tests/unit/test_c2_judge.py -v`_
 
-  - [ ] B.3.5 Implement `AILMDetectionJudge`
+  - [x] B.3.5 Implement `AILMDetectionJudge`
     - Criteria: boundary crossing detection, permission composition accuracy, risk classification, evidence completeness
     - Fallback: compare detected boundary crossings count against ground truth
     - _Requirements: 5.1, 5.2, 5.3, 5.4_
     - _Verification: `pytest tests/unit/test_ailm_judge.py -v`_
 
-  - [ ] B.3.6 Implement `PromptInjectionJudge`
+  - [x] B.3.6 Implement `PromptInjectionJudge`
     - Criteria: injection detection rate, redaction completeness, false positive control, alert severity accuracy
     - Fallback: binary detected/not-detected comparison
     - _Requirements: 6.1, 6.2, 6.3, 6.4_
     - _Verification: `pytest tests/unit/test_injection_judge.py -v`_
 
-  - [ ] B.3.7 Implement `InboundFilterJudge`
+  - [x] B.3.7 Implement `InboundFilterJudge`
     - Criteria: header validation accuracy, rate limit precision, sanitization quality, error response safety
     - Fallback: compare allow/deny decision against ground truth
     - _Requirements: 7.1, 7.2, 7.3, 7.4_
     - _Verification: `pytest tests/unit/test_inbound_judge.py -v`_
 
-  - [ ] B.3.8 Implement `QuotaEnforcementJudge`
+  - [x] B.3.8 Implement `QuotaEnforcementJudge`
     - Criteria: burn rate detection, throttling precision, alert timeliness, quarantine accuracy
     - Fallback: binary throttle/no-throttle comparison
     - _Requirements: 8.1, 8.2, 8.3, 8.4_
     - _Verification: `pytest tests/unit/test_quota_judge.py -v`_
 
-  - [ ] B.3.9 Implement `ContextHygieneJudge`
+  - [x] B.3.9 Implement `ContextHygieneJudge`
     - Criteria: redaction completeness, placeholder format compliance, metadata preservation, non-sensitive passthrough
     - Fallback: regex check for leaked secrets in output
     - _Requirements: 9.1, 9.2, 9.3, 9.4_
     - _Verification: `pytest tests/unit/test_hygiene_judge.py -v`_
 
-  - [ ] B.3.10 Implement `RegressionComparisonJudge` (pairwise)
+  - [x] B.3.10 Implement `RegressionComparisonJudge` (pairwise)
     - Uses PairwiseMetric pattern with response flipping and 4x multi-sampling
     - Compares baseline vs candidate evaluation summaries
     - Returns `RegressionComparisonRubric` with quality deltas
     - _Requirements: 13.1, 13.2, 13.3, 13.4_
     - _Verification: `pytest tests/unit/test_regression_judge.py -v`_
 
-  - [ ] B.3.11 Write BDD feature tests for judge agents
+  - [x] B.3.11 Write BDD feature tests for judge agents
     - Create `tests/features/judge_agents.feature` with Gherkin scenarios
     - Scenario: `threat_interception_judge` correctly awards maximum score when predicted BLOCK matches ground truth MALICIOUS
     - Scenario: `swarm_detection_judge` penalizes missed coordination when ground truth shows 6 agents coordinating
