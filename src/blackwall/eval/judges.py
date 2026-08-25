@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
@@ -26,7 +27,10 @@ from blackwall.eval.fallback_scorer import (
     SwarmDetectionFallbackScorer,
     ThreatInterceptionFallbackScorer,
 )
-from blackwall.eval.judge_factory import create_judge_agent
+from blackwall.eval.judge_factory import (
+    create_judge_agent,
+    validate_evaluation_tier_contract,
+)
 from blackwall.eval.prompt_template import build_judge_prompt
 from blackwall.eval.rubrics import (
     AILMDetectionRubric,
@@ -53,7 +57,7 @@ class BaseJudgeAgent:
     system_instruction: str = "You are an impartial AI cybersecurity evaluation judge."
     rubric_text: str = ""
 
-    def __init__(self, agent: Any | None = None, model: str | None = None, enforce_tier: bool = True) -> None:
+    def __init__(self, agent: Any | None = None, model: str | None = None, enforce_tier: bool = False) -> None:
         self._custom_agent = agent
         self._model = model
         self._enforce_tier = enforce_tier
@@ -80,6 +84,10 @@ class BaseJudgeAgent:
         lifecycle before gracefully falling back to the deterministic heuristic
         scorer with `is_fallback=True`.
         """
+        # If tier enforcement is required, validate tier contract upfront so config errors fail fast
+        if self._custom_agent is None and self._enforce_tier:
+            validate_evaluation_tier_contract()
+
         combined_context = dict(scenario_data)
         combined_context["candidate_result"] = candidate_result
 
@@ -145,9 +153,11 @@ class BaseJudgeAgent:
                             str(exc),
                         )
         except Exception as exc:
+            if self._enforce_tier or os.environ.get("BLACKWALL_STRICT_TIER", "").lower() in ("true", "1", "yes"):
+                raise
             last_error = exc
             logger.warning(
-                "Judge agent '%s' execution error: %s",
+                "Judge agent '%s' execution error (falling back to deterministic heuristic scorer): %s",
                 self.domain,
                 str(exc),
             )
