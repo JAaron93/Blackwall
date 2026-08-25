@@ -10,7 +10,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from blackwall.policy.models import PolicyConfig
-from blackwall.validators import normalize_time_window, validate_utc_datetime
+from blackwall.validators import validate_temporal_sequence, validate_utc_datetime
 
 # Predefined sensitive permission keywords
 CRITICAL_PERMISSIONS = {
@@ -38,35 +38,6 @@ TRUST_BOUNDARIES = {
     "trusted",
     "public",
     "private",
-    "frontend_tier",
-    "app_tier",
-    "database_tier",
-    "k8s_control_plane",
-    "data_warehouse",
-    "iam_service",
-    "crypto_vault",
-    "telemetry_ns",
-    "production_ns",
-    "dev_env",
-    "staging_env",
-    "prod_env",
-    "infra_root",
-    "build_pipeline",
-    "registry_tier",
-    "cloud_compute",
-    "org_root",
-    "dmz_gateway",
-    "core_services",
-    "analytics_db",
-    "billing_db",
-    "vault_cluster",
-    "edge_devices",
-    "ingestion_stream",
-    "compute_cluster",
-    "audit_logs",
-    "ad_analytics",
-    "crm_support",
-    "stripe_gateway",
 }
 
 
@@ -120,12 +91,16 @@ class AILMTracker:
         if not time_window:
             return list(grants)
 
-        start_win, end_win = normalize_time_window(time_window)
+        start_raw, end_raw = time_window
+        validate_temporal_sequence(
+            start_raw, end_raw, start_name="start_time", end_name="end_time"
+        )
+        start_win = validate_utc_datetime(start_raw)
+        end_win = validate_utc_datetime(end_raw)
 
         return [
             g for g in grants if start_win <= g.timestamp <= end_win
         ]
-
 
     async def identify_boundary_crossing(
         self, from_context: str, to_context: str
@@ -145,7 +120,11 @@ class AILMTracker:
         if from_norm == to_norm:
             return False
 
-        return from_norm in TRUST_BOUNDARIES and to_norm in TRUST_BOUNDARIES
+        # Transition is a boundary crossing if at least one context is a recognized trust boundary
+        if from_norm in TRUST_BOUNDARIES or to_norm in TRUST_BOUNDARIES:
+            return True
+
+        return False
 
     def compute_risk_level(
         self, composed_permissions: Set[str], boundary_crossings: List[str]
