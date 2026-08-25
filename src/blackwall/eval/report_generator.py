@@ -22,8 +22,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from blackwall.validators import format_iso_datetime
-
 from blackwall.eval.metrics import calculateMetrics
 from blackwall.models import (
     GroundTruthLabel,
@@ -31,6 +29,7 @@ from blackwall.models import (
     TestResult,
     VerdictDecision,
 )
+from blackwall.validators import format_iso_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +71,7 @@ class _CaseCounts:
     evasion: int = 0
 
 
-def _count_case_results(case_results: list["CaseResult"]) -> "_CaseCounts":
+def _count_case_results(case_results: list[CaseResult]) -> _CaseCounts:
     """
     Single source of truth for TP/TN/FP/FN and scenario-type counts.
 

@@ -5,21 +5,19 @@ Covers: Tasks 2.2 requirements from .kiro/specs/blackwall-test-coverage-remediat
 
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from blackwall.enterprise.advanced_threat_detection import (
     Alert,
     AlertSeverity,
-    EvaluationAttackGraphStore,
     EvaluationEnvironment,
     EvaluationEnvironmentManager,
     EventSource,
     NormalizedEvent,
 )
 from blackwall.enterprise.advanced_threat_detection.models import AttackNode
-
 
 # ---------------------------------------------------------------------------
 # Helpers

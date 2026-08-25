@@ -36,8 +36,8 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
 
 ### Track A: Dataset Foundation
 
-- [ ] A.1 Create ADK-to-EvalTask dataset bridge
-  - [ ] A.1.1 Implement `scripts/bridge_adk_to_eval.py` transformer
+- [x] A.1 Create ADK-to-EvalTask dataset bridge
+  - [x] A.1.1 Implement `scripts/bridge_adk_to_eval.py` transformer
     - Parse ADK evalset JSON (`tests/eval/evalsets/blackwall_security.evalset.json`)
     - Transform `eval_case_id` → `scenario_id`, `reference` → `ground_truth_verdict`, `metadata.ground_truth` → `ground_truth_label`
     - Extract `tool_name` from `expected_tool_use` into `reference_trajectory`
@@ -45,63 +45,63 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
     - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5_
     - _Verification: `pytest tests/unit/test_adk_bridge.py -v`_
 
-  - [ ] A.1.2 Write property tests for ADK bridge
+  - [x] A.1.2 Write property tests for ADK bridge
     - **Property E-1: Bridge output schema compliance** (all fields present, types correct)
     - **Property E-2: Bridge bijection** (no cases dropped, no duplicates)
     - **Property E-3: Verdict mapping correctness** (ALLOW/BLOCK/QUARANTINE preserved)
     - _Verification: `pytest tests/property/test_adk_bridge_properties.py --hypothesis-seed=0 -v`_
 
-  - [ ] A.1.3 Write BDD feature tests for ADK bridge
+  - [x] A.1.3 Write BDD feature tests for ADK bridge
     - Scenario: benign ADK case transforms to judge scenario with `ground_truth_verdict=ALLOW`
     - Scenario: malicious ADK case transforms with `ground_truth_label=MALICIOUS` and `reference_trajectory=["before_tool_callback"]`
     - Scenario: evasion ADK case preserves `evasion_type` and `parent_case_id` in metadata
     - _Verification: `pytest tests/step_defs/test_adk_bridge_bdd.py -v`_
 
-- [ ] A.2 Expand GCP evaluation datasets for missing domains
-  - [ ] A.2.1 Create AILM evaluation scenarios
+- [x] A.2 Expand GCP evaluation datasets for missing domains
+  - [x] A.2.1 Create AILM evaluation scenarios
     - 10+ scenarios covering permission accumulation across trust boundaries
     - Include single-boundary, multi-boundary, and CRITICAL risk_level cases
     - Schema: `{scenario_id, domain: "ailm", permission_grants: [...], ground_truth_crossings: [...], expected_risk_level}`
     - _Requirements: 5.1, 5.2, 5.3, 5.4_
     - _Verification: `pytest tests/unit/test_ailm_eval_dataset.py -v`_
 
-  - [ ] A.2.2 Create Prompt Injection evaluation scenarios
+  - [x] A.2.2 Create Prompt Injection evaluation scenarios
     - 15+ scenarios covering structural jailbreaks, role-play overrides, and benign content
     - Include both true positives and true negatives for false positive testing
     - Schema: `{scenario_id, domain: "prompt_injection", payload, ground_truth_is_injection: bool, expected_severity}`
     - _Requirements: 6.1, 6.2, 6.3, 6.4_
     - _Verification: `pytest tests/unit/test_injection_eval_dataset.py -v`_
 
-  - [ ] A.2.3 Create Inbound Protocol Filter evaluation scenarios
+  - [x] A.2.3 Create Inbound Protocol Filter evaluation scenarios
     - 10+ scenarios covering valid/invalid headers, rate limit bursts, malformed RPC
     - Include loopback (allowed) vs remote (rejected) origin tests
     - Schema: `{scenario_id, domain: "inbound_filter", request_headers, rpc_payload, ground_truth_allowed: bool}`
     - _Requirements: 7.1, 7.2, 7.3, 7.4_
     - _Verification: `pytest tests/unit/test_inbound_eval_dataset.py -v`_
 
-  - [ ] A.2.4 Create Agent Quota Enforcer evaluation scenarios
+  - [x] A.2.4 Create Agent Quota Enforcer evaluation scenarios
     - 10+ scenarios covering normal usage, velocity spikes, and sustained burn
     - Include threshold boundary cases (499 vs 501 tokens/sec)
     - Schema: `{scenario_id, domain: "quota_enforcement", activity_stream: [...], ground_truth_throttled: bool, expected_alert_type}`
     - _Requirements: 8.1, 8.2, 8.3, 8.4_
     - _Verification: `pytest tests/unit/test_quota_eval_dataset.py -v`_
 
-  - [ ] A.2.5 Create Context Hygiene evaluation scenarios
+  - [x] A.2.5 Create Context Hygiene evaluation scenarios
     - 12+ scenarios covering API keys, JWT tokens, AWS secrets, GCP credentials, and benign metadata
     - Include partial redaction edge cases
     - Schema: `{scenario_id, domain: "context_hygiene", raw_payload, expected_sanitized, sensitive_patterns: [...]}`
     - _Requirements: 9.1, 9.2, 9.3, 9.4_
     - _Verification: `pytest tests/unit/test_hygiene_eval_dataset.py -v`_
 
-  - [ ] A.2.6 Create SyncResolver evaluation scenarios (Core)
+  - [x] A.2.6 Create SyncResolver evaluation scenarios (Core)
     - 20+ scenarios from bridged ADK data + novel multi-stage attack patterns
     - Include scoring boundary cases (high-confidence benign, ambiguous, clear malicious)
     - Schema: `{scenario_id, domain: "threat_interception", tool_call, ground_truth_verdict, ground_truth_label, expected_score_range}`
     - _Requirements: 1.1, 1.2, 1.3, 1.4_
     - _Verification: `pytest tests/unit/test_resolver_eval_dataset.py -v`_
 
-- [ ] A.3 Implement scenario JSON schema validation
-  - [ ] A.3.1 Create Pydantic models for eval scenario schema
+- [x] A.3 Implement scenario JSON schema validation
+  - [x] A.3.1 Create Pydantic models for eval scenario schema
     - Define `EvalScenarioBase`, domain-specific scenario models
     - Validate required fields, enum values, and type constraints
     - _Verification: `pytest tests/unit/test_eval_scenario_schema.py -v`_
