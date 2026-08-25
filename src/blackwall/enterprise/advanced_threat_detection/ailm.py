@@ -145,7 +145,7 @@ class AILMTracker:
         if from_norm == to_norm:
             return False
 
-        return from_norm in TRUST_BOUNDARIES or to_norm in TRUST_BOUNDARIES
+        return from_norm in TRUST_BOUNDARIES and to_norm in TRUST_BOUNDARIES
 
     def compute_risk_level(
         self, composed_permissions: Set[str], boundary_crossings: List[str]
