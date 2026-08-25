@@ -90,11 +90,11 @@ class BaseJudgeAgent:
             system_instruction=self.system_instruction,
         )
 
-        agent = self._get_agent()
         attempts = 3
         last_error: Exception | None = None
 
         try:
+            agent = self._get_agent()
             if hasattr(agent, "__aenter__"):
                 async with agent as active_agent:
                     for attempt in range(1, attempts + 1):
@@ -144,7 +144,7 @@ class BaseJudgeAgent:
                             attempts,
                             str(exc),
                         )
-        except (RuntimeError, TimeoutError) as exc:
+        except Exception as exc:
             last_error = exc
             logger.warning(
                 "Judge agent '%s' execution error: %s",

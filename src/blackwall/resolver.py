@@ -48,8 +48,43 @@ class ContextHygiene:
 
     DEFAULT_PATTERNS = [
         (
+            "gcp_sa_json",
+            r'\{\s*"type"\s*:\s*"service_account"[\s\S]+?\}',
+            "[[GCP_SERVICE_ACCOUNT_KEY]]",
+        ),
+        (
+            "rsa_key",
+            r"-----BEGIN (?:RSA )?PRIVATE KEY-----[\s\S]+?-----END (?:RSA )?PRIVATE KEY-----",
+            "[[RSA_PRIVATE_KEY]]",
+        ),
+        (
+            "openai_key",
+            r"sk-[a-zA-Z0-9_\-]{10,}",
+            "[[OPENAI_API_KEY]]",
+        ),
+        (
+            "stripe_key",
+            r"sk_test_[a-zA-Z0-9_\-]+",
+            "[[STRIPE_SECRET_KEY]]",
+        ),
+        (
+            "jwt_token",
+            r"eyJ[a-zA-Z0-9_\-]{5,}(?:\.eyJ[a-zA-Z0-9_\-]{5,})?(?:\.[a-zA-Z0-9_\-]+)?",
+            "[[JWT_TOKEN]]",
+        ),
+        (
+            "aws_access_key",
+            r"(?i)aws_access_key_id[\s:=]+['\"]?([^\s'\"]+)",
+            "AWS_ACCESS_KEY_ID=[[AWS_ACCESS_KEY_ID]]",
+        ),
+        (
+            "aws_secret_key",
+            r"(?i)aws_secret_access_key[\s:=]+['\"]?([^\s'\"]+)",
+            "AWS_SECRET_ACCESS_KEY=[[AWS_SECRET_ACCESS_KEY]]",
+        ),
+        (
             "api_key",
-            r"(?i)(api[_-]?key|apikey|token)[\s:=]+['\"]?([a-zA-Z0-9_\-]{20,})",
+            r"(?i)(api[_-]?key|apikey|token)[\s:=]+['\"]?([a-zA-Z0-9_\-]{10,})",
             "[[API_KEY]]",
         ),
         ("url", r"https?://[^\s]+", "[[URL]]"),

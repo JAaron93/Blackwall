@@ -57,8 +57,13 @@ class ThreatInterceptionFallbackScorer(HeuristicFallbackScorer):
         gt_verdict = str(scenario_data.get("ground_truth_verdict", "")).upper()
         pred_verdict = str(candidate_result.get("verdict", candidate_result.get("decision", ""))).upper()
 
-        is_match = (gt_verdict == pred_verdict) and (gt_verdict != "")
-        score = 5 if is_match else 1
+        is_exact_match = (gt_verdict == pred_verdict) and (gt_verdict != "")
+        is_mitigation_match = (
+            gt_verdict in ("BLOCK", "QUARANTINE")
+            and pred_verdict in ("BLOCK", "QUARANTINE")
+        )
+        is_match = is_exact_match or is_mitigation_match
+        score = 5 if is_exact_match else (4 if is_mitigation_match else 1)
 
         justification = (
             f"[HEURISTIC FALLBACK] Predicted verdict '{pred_verdict}' matched ground truth '{gt_verdict}'."

@@ -116,11 +116,7 @@ class AILMTracker:
         if from_norm == to_norm:
             return False
 
-        # Transition is a boundary crossing if at least one context is a recognized trust boundary
-        if from_norm in TRUST_BOUNDARIES or to_norm in TRUST_BOUNDARIES:
-            return True
-
-        return False
+        return True
 
     def compute_risk_level(
         self, composed_permissions: Set[str], boundary_crossings: List[str]
