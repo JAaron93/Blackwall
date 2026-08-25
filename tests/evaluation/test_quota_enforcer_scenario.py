@@ -31,7 +31,7 @@ async def test_quota_enforcer_velocity_spike_quarantine_scenario() -> None:
         token_burn_rate_limit=500.0,
         quarantine_duration_sec=60.0,
     )
-    judge = get_judge_for_domain("quota_enforcement")
+    judge = get_judge_for_domain("quota_enforcement", enforce_tier=False)
     assert isinstance(judge, QuotaEnforcementJudge)
 
     agent_id = "surging_agent_01"
@@ -78,7 +78,7 @@ async def test_quota_enforcer_eval_dataset_batch_scenarios() -> None:
     samples = get_quota_enforcement_eval_samples()
     assert len(samples) >= 10
 
-    judge = get_judge_for_domain("quota_enforcement")
+    judge = get_judge_for_domain("quota_enforcement", enforce_tier=False)
 
     for raw_scenario in samples:
         scenario = QuotaEnforcementScenario.model_validate(raw_scenario)

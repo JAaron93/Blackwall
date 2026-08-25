@@ -57,7 +57,7 @@ class BaseJudgeAgent:
     system_instruction: str = "You are an impartial AI cybersecurity evaluation judge."
     rubric_text: str = ""
 
-    def __init__(self, agent: Any | None = None, model: str | None = None, enforce_tier: bool = False) -> None:
+    def __init__(self, agent: Any | None = None, model: str | None = None, enforce_tier: bool = True) -> None:
         self._custom_agent = agent
         self._model = model
         self._enforce_tier = enforce_tier

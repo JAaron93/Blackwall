@@ -22,7 +22,7 @@ from blackwall.eval.scenarios import PromptInjectionScenario
 async def test_prompt_injection_structural_jailbreak_scenario() -> None:
     """Evaluate detection and neutralization of structural jailbreak with PromptInjectionJudge."""
     scanner = PromptInjectionScanner(confidence_threshold=0.5)
-    judge = get_judge_for_domain("prompt_injection")
+    judge = get_judge_for_domain("prompt_injection", enforce_tier=False)
     assert isinstance(judge, PromptInjectionJudge)
 
     payload = (
@@ -69,7 +69,7 @@ async def test_prompt_injection_eval_dataset_batch_metrics() -> None:
     assert len(samples) >= 15
 
     scanner = PromptInjectionScanner(confidence_threshold=0.5)
-    judge = get_judge_for_domain("prompt_injection")
+    judge = get_judge_for_domain("prompt_injection", enforce_tier=False)
 
     tp, fp, fn, tn = 0, 0, 0, 0
 

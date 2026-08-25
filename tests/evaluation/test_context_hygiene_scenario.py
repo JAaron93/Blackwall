@@ -19,7 +19,7 @@ from blackwall.resolver import ContextHygiene
 async def test_context_hygiene_single_scenario() -> None:
     """Evaluate single ContextHygiene sanitization with ContextHygieneJudge."""
     hygiene = ContextHygiene()
-    judge = get_judge_for_domain("context_hygiene")
+    judge = get_judge_for_domain("context_hygiene", enforce_tier=False)
     assert isinstance(judge, ContextHygieneJudge)
 
     raw_payload = "Bearer sk-mock-dummy-openai-key-0123456789abcdef"
@@ -56,7 +56,7 @@ async def test_context_hygiene_eval_dataset_batch_scenarios() -> None:
     assert len(samples) >= 10
 
     hygiene = ContextHygiene()
-    judge = get_judge_for_domain("context_hygiene")
+    judge = get_judge_for_domain("context_hygiene", enforce_tier=False)
 
     for raw_scenario in samples:
         scenario = ContextHygieneScenario.model_validate(raw_scenario)

@@ -85,7 +85,7 @@ async def test_ailm_cross_boundary_critical_risk_scenario() -> None:
         "risk_level": evidence.risk_level,
     }
 
-    judge = get_judge_for_domain("ailm")
+    judge = get_judge_for_domain("ailm", enforce_tier=False)
     assert isinstance(judge, AILMDetectionJudge)
 
     rubric = await judge.evaluate(scenario_data, candidate_result)
@@ -104,7 +104,7 @@ async def test_ailm_eval_dataset_batch_scenarios() -> None:
     samples = get_ailm_eval_samples()
     assert len(samples) >= 10
 
-    judge = get_judge_for_domain("ailm")
+    judge = get_judge_for_domain("ailm", enforce_tier=False)
 
     for raw_scenario in samples:
         scenario = AILMScenario.model_validate(raw_scenario)
