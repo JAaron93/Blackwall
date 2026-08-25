@@ -38,6 +38,35 @@ TRUST_BOUNDARIES = {
     "trusted",
     "public",
     "private",
+    "frontend_tier",
+    "app_tier",
+    "database_tier",
+    "k8s_control_plane",
+    "data_warehouse",
+    "iam_service",
+    "crypto_vault",
+    "telemetry_ns",
+    "production_ns",
+    "dev_env",
+    "staging_env",
+    "prod_env",
+    "infra_root",
+    "build_pipeline",
+    "registry_tier",
+    "cloud_compute",
+    "org_root",
+    "dmz_gateway",
+    "core_services",
+    "analytics_db",
+    "billing_db",
+    "vault_cluster",
+    "edge_devices",
+    "ingestion_stream",
+    "compute_cluster",
+    "audit_logs",
+    "ad_analytics",
+    "crm_support",
+    "stripe_gateway",
 }
 
 
@@ -116,7 +145,7 @@ class AILMTracker:
         if from_norm == to_norm:
             return False
 
-        return True
+        return from_norm in TRUST_BOUNDARIES or to_norm in TRUST_BOUNDARIES
 
     def compute_risk_level(
         self, composed_permissions: Set[str], boundary_crossings: List[str]
