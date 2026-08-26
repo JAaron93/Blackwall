@@ -36,6 +36,7 @@ Blackwall is structured into **two distinct product tiers** to serve both develo
 | :--- | :--- | :--- |
 | **Deployment Mode** | Single-host local Python daemon | Multi-host distributed cloud security mesh |
 | **Interception Drivers** | ADK callbacks + `sys.addaudithook` | C/Python eBPF kernel probes + macOS fallback |
+| **Native Acceleration**  | Compiled Rust DFA Regex & SIMD Math (`_core_rs`) | ZeroMQ signature mesh + eBPF kernel hooks |
 | **Threat Signature Sync** | Local SQLite graph (WAL mode) | Real-time ZeroMQ / NATS pub-sub mesh broadcast |
 | **Identity & Secrets** | Regex prompt credential masking | Ephemeral Identity Sidecar & JIT Vault STS exchange |
 | **Pipeline Protection** | Local AST input filters | Micro-sandboxed container loader wrappers |
@@ -44,7 +45,7 @@ Blackwall is structured into **two distinct product tiers** to serve both develo
 | **Developer Test Cost** | **$0.00 (100% Free)** | **$0.00 (100% Free local open-source MCP adapters)** |
 
 > [!NOTE]
-> For complete technical specifications of the Enterprise Security Mesh, Advanced Threat Detection, and Attacker Attribution, see [.kiro/specs/blackwall-enterprise-security-mesh/](.kiro/specs/blackwall-enterprise-security-mesh/), [.kiro/specs/blackwall-advanced-threat-detection/](.kiro/specs/blackwall-advanced-threat-detection/), and [.kiro/specs/blackwall-attacker-attribution/](.kiro/specs/blackwall-attacker-attribution/).
+> For complete technical specifications of the Enterprise Security Mesh, Advanced Threat Detection, Attacker Attribution, and Rust Acceleration, see [.kiro/specs/blackwall-enterprise-security-mesh/](.kiro/specs/blackwall-enterprise-security-mesh/), [.kiro/specs/blackwall-advanced-threat-detection/](.kiro/specs/blackwall-advanced-threat-detection/), [.kiro/specs/blackwall-attacker-attribution/](.kiro/specs/blackwall-attacker-attribution/), and [.kiro/specs/blackwall-rust-acceleration/](.kiro/specs/blackwall-rust-acceleration/).
 
 
 ### ⚡ Enterprise Security Mesh Quick Start
@@ -314,7 +315,8 @@ Structural Layer (fast path)              Semantic Layer (deep analysis)
 
 ### Prerequisites
 - **Python 3.11+**
-- **Free Gemini API key** (no billing required, 15 RPM free tier)
+- **Rust 1.70+ (`cargo` / `rustc`)** (required for compiling native extension `blackwall._core_rs` via Maturin)
+- **GCP Project with Vertex AI API enabled** (100% GCP Vertex AI mode via Application Default Credentials)
 - **VirusTotal API key** (free tier: 4 queries/minute)
 - **Git**
 
