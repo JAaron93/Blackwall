@@ -500,6 +500,7 @@ async def run_evaluation_pipeline(
         location=os.getenv("GCP_LOCATION") or os.getenv("GOOGLE_CLOUD_LOCATION") or "global",
         main_model=model or "gemini-3.5-flash-lite",
         reasoner_model=model or "gemini-3.7-flash",
+        allow_fallback=True,
     )
     eval_harness = GCPVertexAIEvaluationHarness(config=eval_config, trace_exporter=trace_exporter)
 
@@ -588,9 +589,23 @@ async def run_evaluation_pipeline(
             model=model or "gemini-3.7-flash",
         )
         if eval_task_result.get("status") == "FAILED":
-            logger.warning("Managed Vertex AI EvalTask reported FAILED status: %s", eval_task_result.get("error"))
+            error_msg = eval_task_result.get("error", "Vertex AI EvalTask reported FAILED status")
+            logger.error("Managed Vertex AI EvalTask reported FAILED status: %s", error_msg)
+            aggregator.record_error(
+                scenario_id="eval_task_batch",
+                domain="managed_vertex_eval",
+                error=error_msg,
+            )
     except Exception as eval_exc:
-        logger.warning("Managed Vertex AI EvalTask execution exception: %s", eval_exc)
+        logger.error("Managed Vertex AI EvalTask execution exception: %s", eval_exc)
+        aggregator.record_error(
+            scenario_id="eval_task_batch",
+            domain="managed_vertex_eval",
+            error=eval_exc,
+        )
+
+    # Re-compute summary in case managed evaluation recorded batch errors
+    summary = aggregator.summarize()
 
     # 6. Historical regression comparison (Requirement 14)
     domain_means = {
@@ -598,7 +613,15 @@ async def run_evaluation_pipeline(
         if ds.overall_mean is not None
     }
     passed = summary.all_passed
-    is_clean = passed and (summary.failed_scenarios == 0) and (summary.overall_fallback_rate < 0.2)
+    # Only full evaluation runs covering the entire domain suite qualify as persistent baseline anchors
+    total_expected_domains = len(list(DEFAULT_SCENARIOS_DIR.glob("*.json"))) if DEFAULT_SCENARIOS_DIR.exists() else 9
+    is_full_coverage = (domains is None or len(domains) == 0) and (len(domain_means) >= total_expected_domains)
+    is_clean = (
+        passed
+        and is_full_coverage
+        and (summary.failed_scenarios == 0)
+        and (summary.overall_fallback_rate < 0.2)
+    )
     run_summary = EvalRunSummary(
         run_id=run_id,
         domain_means=domain_means,
@@ -610,6 +633,7 @@ async def run_evaluation_pipeline(
             "total_scenarios": summary.total_scenarios,
             "fallback_rate": summary.overall_fallback_rate,
             "failed_scenarios": summary.failed_scenarios,
+            "is_selective_run": not is_full_coverage,
             "model": model or "gemini-3.7-flash",
         },
     )
