@@ -38,6 +38,14 @@ class EvalRunSummary(BaseModel):
     overall_mean: float = Field(
         description="Overall mean quality score across all evaluated domains"
     )
+    passed: bool = Field(
+        default=True,
+        description="Whether this evaluation run passed quality threshold and regression gates",
+    )
+    is_clean_baseline: bool = Field(
+        default=True,
+        description="Whether this run qualifies as a clean baseline (non-regressed and passed)",
+    )
     metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="Run metadata such as model, commit SHA, environment, or CLI flags",
@@ -126,12 +134,18 @@ class HistoricalRegressionTracker:
         threshold_drop: float = REGRESSION_DROP_THRESHOLD,
     ) -> RegressionReport:
         """
-        Compare current evaluation run against the latest historical baselines.
-        Iterates backwards through history so selective/partial baseline runs
-        do not hide regressions for domains evaluated in prior runs.
+        Compare current evaluation run against the latest clean historical baselines.
+        Iterates backwards through history, selecting only clean baseline runs
+        (is_clean_baseline=True and passed=True) so failed, regressed, or degraded
+        intermediate runs do not replace valid baselines.
         """
         history = self.get_history()
-        if not history:
+        clean_history = [
+            run for run in history
+            if getattr(run, "is_clean_baseline", True) and getattr(run, "passed", True)
+        ]
+
+        if not clean_history:
             return RegressionReport(
                 is_baseline=True,
                 baseline_run_id=None,
@@ -140,7 +154,7 @@ class HistoricalRegressionTracker:
                 details=f"Run {current_run.run_id} established as initial baseline.",
             )
 
-        latest_run = history[-1]
+        latest_clean_run = clean_history[-1]
         domain_deltas: dict[str, float] = {}
         regressed_domains: dict[str, float] = {}
         compared_baseline_runs: set[str] = set()
@@ -148,8 +162,8 @@ class HistoricalRegressionTracker:
         for domain, current_mean in current_run.domain_means.items():
             if current_mean is None:
                 continue
-            # Search history in reverse for the most recent run containing this domain
-            for prior_run in reversed(history):
+            # Search clean history in reverse for the most recent valid baseline containing this domain
+            for prior_run in reversed(clean_history):
                 if domain in prior_run.domain_means and prior_run.domain_means[domain] is not None:
                     base_mean = prior_run.domain_means[domain]
                     delta = round(current_mean - base_mean, 4)
@@ -163,10 +177,10 @@ class HistoricalRegressionTracker:
         if not domain_deltas:
             return RegressionReport(
                 is_baseline=True,
-                baseline_run_id=latest_run.run_id,
+                baseline_run_id=latest_clean_run.run_id,
                 current_run_id=current_run.run_id,
                 regression_detected=False,
-                details=f"No prior history found for current domains. Run {current_run.run_id} established as baseline.",
+                details=f"No prior clean history found for current domains. Run {current_run.run_id} established as baseline.",
             )
 
         # Compute overall delta across all compared domain baselines
@@ -176,17 +190,17 @@ class HistoricalRegressionTracker:
             else 0.0
         )
         regression_detected = len(regressed_domains) > 0
-        primary_baseline_id = latest_run.run_id
+        primary_baseline_id = latest_clean_run.run_id
 
         if regression_detected:
             reg_list = ", ".join(f"{d} ({delta:+0.2f})" for d, delta in regressed_domains.items())
             details = (
-                f"Regression detected against historical baselines ({', '.join(sorted(compared_baseline_runs))})! "
+                f"Regression detected against clean historical baselines ({', '.join(sorted(compared_baseline_runs))})! "
                 f"Domains with drop > {threshold_drop}: {reg_list}"
             )
         else:
             details = (
-                f"No regression detected against historical baselines ({', '.join(sorted(compared_baseline_runs))}). "
+                f"No regression detected against clean historical baselines ({', '.join(sorted(compared_baseline_runs))}). "
                 f"Average domain delta: {overall_delta:+0.2f}."
             )
 
@@ -208,7 +222,12 @@ class HistoricalRegressionTracker:
     ) -> RegressionReport:
         """
         Compare current run against baseline, then persist current run to history.
+        If current run regressed or failed, mark is_clean_baseline=False so it does
+        not replace the baseline for subsequent runs.
         """
         report = self.compare_against_baseline(current_run, threshold_drop=threshold_drop)
+        if report.regression_detected or not current_run.passed:
+            current_run.is_clean_baseline = False
+            current_run.metadata["regression_detected"] = report.regression_detected
         self.record_run(current_run)
         return report
