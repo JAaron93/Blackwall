@@ -73,11 +73,15 @@ flowchart TD
 
 ## 3. Subsystem Components & Data Interfaces
 
-### 3.1 Subsystem 1: Context Hygiene & Redaction Engine (`blackwall.middleware.context_hygiene`)
-- **Problem**: The legacy Python implementation uses a spawned multiprocessing worker (`KillableRegexWorker`) over IPC queues with an `asyncio.Lock` barrier to avoid ReDoS from Python's backtracking `re` engine. This introduces 10–25ms of IPC overhead and lock contention.
+### 3.1 Subsystem 1: Context Hygiene & Redaction Engine (`blackwall.middleware.context_hygiene` & `blackwall.resolver`)
+- **Problem**: The legacy Python implementation in `context_hygiene.py` uses a spawned multiprocessing worker (`KillableRegexWorker`) over IPC queues with an `asyncio.Lock` barrier to avoid ReDoS from Python's backtracking `re` engine. This introduces 10–25ms of IPC overhead and lock contention.
+- **Authoritative Redaction Semantics**:
+  - The production standard (`blackwall.resolver.ContextHygiene`) preserves credential delimiters and prefixes:
+    - Key/Password patterns (`api_key`, `password`): Replace only the secret capture group while preserving the key name and assignment prefix (e.g. `api_key=SECRET123` $\rightarrow$ `api_key=[[API_KEY]]`, `password="secret"` $\rightarrow$ `password="[[PASSWORD]]"`).
+    - Standalone patterns (`url`, `ip_address`, `file_path`, `email`): Perform full-token substitution (e.g. `https://evil.com/x` $\rightarrow$ `[[URL]]`, `10.0.0.1` $\rightarrow$ `[[IP_ADDRESS]]`).
 - **Rust Architecture**:
   - Utilizes the Rust `regex` crate which guarantees linear time $O(N)$ execution via Deterministic Finite Automata (DFA), making catastrophic backtracking mathematically impossible.
-  - Replaces multiprocessing IPC with direct, in-process multithreaded DFA replacement.
+  - Eliminates multiprocessing IPC and lock contention with direct, in-process multithreaded DFA replacement.
   - Implements in-memory SHA-256 calculation (`sha2` crate) for original string hashes during match replacement.
   - Returns a tuple `(sanitized_text: String, redactions: Vec<RedactionRecord>)`.
 
@@ -99,9 +103,12 @@ pub struct RedactionRecord {
 
 ### 3.2 Subsystem 2: Vector Math & Similarity Scoring Engine (`blackwall.validators` & `blackwall.db.repository`)
 - **Problem**: Computing cosine similarities across hundreds of 768-dimensional float vectors in Python requires deserializing blobs via `array.array("f")` and running slow Python float loops. Word-level intersection scoring (`compute_word_intersection_match_quality`) repeatedly allocates sets and regex tokens per FTS fallback row.
+- **Malformed Candidate Isolation**:
+  - If a **query vector** has an invalid dimension ($\ne 768$) or type, the system raises a `ValueError`.
+  - If an individual **stored candidate vector** in the database contains malformed bytes or dimension mismatches during batch evaluation, the native batch accelerator isolates and excludes that candidate row with an error/warning indicator, continuing evaluation of all remaining valid candidate rows without aborting the batch.
 - **Rust Architecture**:
   - **Vector Cosine Similarity**: Directly casts byte buffers to `&[f32]` slices with zero-copy decoding. Calculates dot product and Euclidean norms using auto-vectorized SIMD instructions.
-  - **Batch Cosine Similarity**: Evaluates query vectors against an array of candidate vectors in a single FFI call: `batch_cosine_similarity(query: &[f32], candidates: &[u8], dim: usize, threshold: f32) -> Vec<(usize, f32)>`.
+  - **Batch Cosine Similarity**: Evaluates query vectors against an array of candidate vectors in a single FFI call: `batch_cosine_similarity(query: &[f32], candidates: &[&[u8]], dim: usize, threshold: f32) -> (Vec<MatchResult>, Vec<InvalidCandidateError>)`.
   - **Word Intersection**: Zero-allocation ASCII/UTF-8 lowercase tokenization into pre-allocated hash sets or bitsets, returning `intersection_len as f64 / min(query_len, cand_len) as f64`.
 
 ### 3.3 Subsystem 3: Single-Pass IOC Extraction & Entropy Engine (`blackwall.policy.semantic`)
@@ -129,14 +136,14 @@ pub struct RedactionRecord {
 ### 4.2 Error Handling & Exception Mapping
 - No panics across the FFI boundary: all Rust functions return `PyResult<T>`.
 - Internal validation failures map cleanly to Python standard exceptions:
-  - Empty or invalid arguments $\rightarrow$ `PyValueError::new_err(...)`
+  - Invalid query vector dimension $\rightarrow$ `PyValueError::new_err(...)`
   - Regex syntax errors $\rightarrow$ `PyValueError::new_err(...)`
-  - Dimensionality mismatches $\rightarrow$ `PyValueError::new_err(...)`
+  - Empty or invalid string arguments $\rightarrow$ `PyValueError::new_err(...)`
 
 ---
 
-## 5. Build, Packaging, & Workspace Configuration
+## 5. Build, Packaging, & Portable Toolchain Configuration
 
 - **Cargo Workspace**: The Rust source resides in `crates/blackwall_core_rs/`.
 - **Build Backend**: `pyproject.toml` integrates `maturin` (v1.7+) as the build tool, enabling standard `pip install -e .` and `maturin develop --release`.
-- **Local Rust Toolchain**: Configured to use `/Users/pretermodernist/.rustup/toolchains/stable-x86_64-apple-darwin/bin` on macOS.
+- **Portable Toolchain Discovery**: The build configuration relies on standard `cargo` and `rustc` binaries discovered via the system `PATH` or standard `$CARGO_HOME/bin`, ensuring seamless compilation across macOS (Apple Silicon and x86_64), Linux containers, and CI/CD environments.

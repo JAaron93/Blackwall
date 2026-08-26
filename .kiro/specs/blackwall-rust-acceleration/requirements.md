@@ -4,13 +4,17 @@
 
 - **FR-1: DFA-Based Regex Context Redaction & Hash Generation**
   - The Rust module MUST compile and execute regex redaction patterns using Deterministic Finite Automata (DFA) in guaranteed linear time $O(N)$.
+  - The system MUST enforce authoritative prefix-preserving redaction semantics:
+    - For credential patterns (`api_key`, `password`), the system MUST preserve the key name and assignment prefix while replacing only the secret value (e.g. `api_key=SECRET123` $\rightarrow$ `api_key=[[API_KEY]]`).
+    - For standalone patterns (`ip_address`, `url`, `file_path`, `email`), the system MUST perform full-token substitution (e.g. `192.168.1.1` $\rightarrow$ `[[IP_ADDRESS]]`, `https://example.com` $\rightarrow$ `[[URL]]`).
   - The system MUST compute a SHA-256 hash for every redacted token match during the substitution pass.
   - The system MUST return structured redaction records containing `timestamp`, `original_hash`, `pattern_matched`, `placeholder_used`, and `context_size`.
 
 - **FR-2: Vector Cosine Similarity & Word-Level Intersection Scoring**
   - The system MUST compute cosine similarity between 768-dimensional float query vectors and candidate vector buffers.
+  - If a **query vector** has an invalid dimension ($\ne 768$) or invalid type, the system MUST raise a `ValueError`.
+  - If an individual **stored candidate vector** contains malformed bytes or a dimension mismatch during batch similarity evaluation, the system MUST isolate and exclude that candidate from the similarity results with a diagnostic warning, while continuing to score all remaining valid candidates without aborting the batch query.
   - The system MUST compute word-level intersection match quality (`len(intersection) / min_len`) using zero-allocation tokenization.
-  - Dimensionality mismatches or invalid vector bytes MUST raise standard `ValueError` exceptions with clear diagnostics.
 
 - **FR-3: Multi-Pattern IOC Extraction & Shannon Entropy**
   - The system MUST extract IP addresses (IPv4/IPv6), URLs, domains, and cryptographic hashes in a single pass using `RegexSet`.
@@ -40,15 +44,15 @@
   - Graph DFS traversal for up to 500 nodes MUST execute in **< 500 microseconds**.
 
 - **NFR-2: Strict Output & Behavior Parity**
-  - Redacted string outputs, placeholder positions, and original hash values MUST match character-for-character with legacy Python behavior.
+  - Redacted string outputs, placeholder positions, and original hash values MUST match character-for-character with the production `blackwall.resolver.ContextHygiene` standard.
   - Word intersection and cosine similarity scores MUST maintain numerical parity within float precision tolerance ($\epsilon \le 10^{-5}$).
 
 - **NFR-3: ReDoS & Memory Safety Guarantee**
   - Regular expression evaluation MUST be mathematically guaranteed immune to catastrophic backtracking (zero ReDoS vulnerability).
   - Memory safety, buffer access bounds, and pointer conversions MUST be guaranteed by the Rust compiler.
 
-- **NFR-4: Clean Build & Virtual Environment Integration**
-  - The native extension MUST build cleanly via `maturin develop --release` or `pip install -e .` without requiring manual C toolchain modifications.
+- **NFR-4: Portable Build & Cross-Platform Toolchain Integration**
+  - The native extension MUST build cleanly via `maturin develop --release` or `pip install -e .` using standard `cargo`/`rustc` toolchains in `PATH` or `$CARGO_HOME/bin` across macOS (x86_64, ARM64 Apple Silicon) and Linux container environments.
 
 ---
 
@@ -61,8 +65,8 @@
 
 - **US-2: High-Throughput Threat Graph Vector Search**
   - *As a* Blackwall security engine,
-  - *I want* high-dimensional vector similarity scored across thousands of signatures in microseconds,
-  - *So that* threat pattern matching does not delay the critical interception path.
+  - *I want* high-dimensional vector similarity scored across thousands of signatures in microseconds with resilient isolation of corrupted database rows,
+  - *So that* threat pattern matching remains robust and fast.
 
 - **US-3: Scalable Multi-Agent Swarm Detection**
   - *As an* Enterprise Security Mesh node,
@@ -76,19 +80,25 @@
 ```gherkin
 Feature: Native Rust Acceleration for Blackwall Interception Hot Paths
 
-  Scenario: High-Speed Context Hygiene Redaction with SHA-256 Hashes
-    Given a tool call payload containing sensitive API keys and IP addresses
+  Scenario: High-Speed Context Hygiene Redaction with Authoritative Prefix Preservation
+    Given a tool call payload containing "api_key=SECRET_TOKEN_XYZ_12345" and "host=192.168.1.100"
     When the context is sanitized using the native Rust ContextSanitizer
-    Then all API keys MUST be replaced with [[API_KEY]]
-    And all IP addresses MUST be replaced with [[IP_ADDRESS]]
+    Then the secret MUST be redacted preserving the prefix as "api_key=[[API_KEY]]"
+    And the IP address MUST be replaced with "[[IP_ADDRESS]]"
     And a redaction log MUST be generated containing SHA-256 hashes of original matches
     And the sanitization elapsed time MUST be less than 100 microseconds
 
-  Scenario: SIMD Vector Cosine Similarity and Word Intersection
-    Given a 768-dimensional float query vector and raw candidate byte vector
-    When cosine similarity is computed via the native similarity engine
-    Then the calculated similarity score MUST match the expected mathematical cosine distance within 1e-5 tolerance
-    And invalid vector dimensions MUST raise a Python ValueError
+  Scenario: Resilient Vector Cosine Similarity and Corrupted Candidate Isolation
+    Given a valid 768-dimensional float query vector
+    And a batch containing 10 valid 768-dim candidates and 1 malformed candidate vector
+    When batch cosine similarity is computed via the native similarity engine
+    Then all 10 valid candidates MUST be accurately scored within 1e-5 mathematical tolerance
+    And the 1 malformed candidate MUST be isolated and reported without aborting the query batch
+
+  Scenario: Invalid Query Vector Dimensionality Error
+    Given an invalid 512-dimensional float query vector
+    When cosine similarity is invoked
+    Then a Python ValueError MUST be raised indicating incorrect query dimensionality
 
   Scenario: Seamless Pure-Python Fallback on Missing Extension
     Given an environment where the native Rust extension is not compiled

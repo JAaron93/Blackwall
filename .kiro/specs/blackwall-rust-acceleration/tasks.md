@@ -10,10 +10,10 @@ This task document defines the test-driven implementation plan for the Blackwall
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **TASK-1.1** | Rust Crate Scaffolding & Maturin Build | FR-5, FR-6, NFR-4 | None | Sequential | `[ ] PENDING` |
 | **TASK-1.2** | PyO3 Module Stub & Build Verification | FR-6, NFR-4 | TASK-1.1 | Sequential | `[ ] PENDING` |
-| **TASK-2.1** | Rust `ContextSanitizer` DFA & Hasher | FR-1, NFR-1, NFR-3 | TASK-1.2 | Sequential | `[ ] PENDING` |
+| **TASK-2.1** | Rust `ContextSanitizer` DFA & Prefix Redactor | FR-1, NFR-1, NFR-2, NFR-3 | TASK-1.2 | Sequential | `[ ] PENDING` |
 | **TASK-2.2** | Python `ContextHygiene` Wrapper & Fallback | FR-1, FR-5, NFR-2 | TASK-2.1 | Sequential | `[ ] PENDING` |
 | **TASK-2.3** | Context Hygiene BDD & Property Tests | FR-1, NFR-2, NFR-3 | TASK-2.2 | Sequential | `[ ] PENDING` |
-| **TASK-3A.1**| Rust SIMD Cosine & Word Intersection | FR-2, NFR-1, NFR-2 | TASK-1.2 | Parallel Track A | `[ ] PENDING` |
+| **TASK-3A.1**| Rust SIMD Cosine & Malformed Isolation | FR-2, NFR-1, NFR-2 | TASK-1.2 | Parallel Track A | `[ ] PENDING` |
 | **TASK-3A.2**| Python `validators.py` / `repository.py` Wrap | FR-2, FR-5, NFR-2 | TASK-3A.1 | Parallel Track A | `[ ] PENDING` |
 | **TASK-3A.3**| Vector & Match Quality Verification Tests | FR-2, NFR-1, NFR-2 | TASK-3A.2 | Parallel Track A | `[ ] PENDING` |
 | **TASK-3B.1**| Rust `RegexSet` IOC & Entropy Engine | FR-3, NFR-1, NFR-3 | TASK-1.2 | Parallel Track B | `[ ] PENDING` |
@@ -29,11 +29,11 @@ This task document defines the test-driven implementation plan for the Blackwall
 
 ## Track 1: Rust Crate Foundation & Maturin Build Pipeline
 
-### - [ ] TASK-1.1: Scaffolding `crates/blackwall_core_rs` Cargo Crate & Build Config
-- **Description**: Create `crates/blackwall_core_rs/Cargo.toml` configuring `crate-type = ["cdylib"]`, `pyo3` with `extension-module` features, `regex`, `sha2`, and `serde`. Configure `pyproject.toml` to support Maturin builds in the local virtual environment.
+### - [ ] TASK-1.1: Scaffolding `crates/blackwall_core_rs` Cargo Crate & Portable Build Config
+- **Description**: Create `crates/blackwall_core_rs/Cargo.toml` configuring `crate-type = ["cdylib"]`, `pyo3` with `extension-module` features, `regex`, `sha2`, and `serde`. Configure `pyproject.toml` to support Maturin builds using standard toolchains discovered in `PATH` or `$CARGO_HOME/bin`.
 - **Dependencies**: None.
 - **Traceability**: FR-5, FR-6, NFR-4.
-- **Validation**: Verify `cargo check` passes with local Rust toolchain `/Users/pretermodernist/.rustup/toolchains/stable-x86_64-apple-darwin/bin`.
+- **Validation**: Verify `cargo check` passes across standard macOS and Linux environments.
 
 ### - [ ] TASK-1.2: PyO3 Module Stub & Build Verification (TDD)
 - **Description**: Create `crates/blackwall_core_rs/src/lib.rs` exporting basic module functions and version checks. Verify compilation with `maturin develop --release` into `.venv`.
@@ -45,11 +45,11 @@ This task document defines the test-driven implementation plan for the Blackwall
 
 ## Track 2: Context Hygiene & Redaction Engine
 
-### - [ ] TASK-2.1: Implement Rust `ContextSanitizer` with DFA Regex & SHA-256
-- **Description**: Implement `crates/blackwall_core_rs/src/sanitizer.rs` with compiled DFA regex replacement, in-memory SHA-256 calculation, and `RedactionRecord` serialization.
+### - [ ] TASK-2.1: Implement Rust `ContextSanitizer` with DFA Regex, Prefix Preservation & SHA-256
+- **Description**: Implement `crates/blackwall_core_rs/src/sanitizer.rs` with compiled DFA regex replacement, prefix-preserving substitution semantics for credential patterns (`api_key=[[API_KEY]]`, `password="[[PASSWORD]]"`), in-memory SHA-256 calculation, and `RedactionRecord` serialization.
 - **Dependencies**: TASK-1.2.
-- **Traceability**: FR-1, NFR-1, NFR-3.
-- **TDD Requirement**: Write unit tests in Rust (`cargo test`) verifying exact substitution parity, prefix/secret handling, and SHA-256 hashes.
+- **Traceability**: FR-1, NFR-1, NFR-2, NFR-3.
+- **TDD Requirement**: Write unit tests in Rust (`cargo test`) verifying exact substitution parity with `blackwall.resolver.ContextHygiene` (preserving prefix and delimiters) and correct SHA-256 hashes.
 
 ### - [ ] TASK-2.2: Implement Python `ContextHygiene` Thin Wrapper & Pure-Python Fallback
 - **Description**: Update `src/blackwall/middleware/context_hygiene.py` and `src/blackwall/resolver.py` to route sanitization directly to `_core_rs.ContextSanitizer`, completely eliminating the `KillableRegexWorker` multiprocessing spawn, while preserving pure-Python fallback logic.
@@ -58,7 +58,7 @@ This task document defines the test-driven implementation plan for the Blackwall
 - **TDD Requirement**: Run `pytest tests/middleware/test_context_hygiene.py` to verify full test suite passes without IPC.
 
 ### - [ ] TASK-2.3: Context Hygiene BDD & Property-Based Test Verification
-- **Description**: Execute hypothesis property tests (`tests/middleware/test_context_hygiene_properties.py`) and Gherkin BDD scenarios to verify idempotency, structure preservation, and $<50\mu\text{s}$ latency.
+- **Description**: Execute hypothesis property tests (`tests/middleware/test_context_hygiene_properties.py`) and Gherkin BDD scenarios to verify idempotency, structure preservation, prefix preservation, and $<50\mu\text{s}$ latency.
 - **Dependencies**: TASK-2.2.
 - **Traceability**: FR-1, NFR-1, NFR-2, NFR-3.
 - **BDD Requirement**: Verify all hypothesis test cases pass with zero failures.
@@ -70,14 +70,17 @@ This task document defines the test-driven implementation plan for the Blackwall
 > [!TIP] PARALLEL EXECUTION
 > Track 3A (Vector Similarity & Word Match) and Track 3B (IOC Extraction & Entropy) can be developed concurrently once Track 1 is complete.
 
-### - [ ] TASK-3A.1: Implement Rust SIMD Vector Cosine & Word Intersection Match Quality (Track 3A)
-- **Description**: Create `crates/blackwall_core_rs/src/similarity.rs` implementing SIMD-aligned cosine similarity over `&[f32]` byte slices and zero-allocation lowercase word-intersection matching.
+### - [ ] TASK-3A.1: Implement Rust SIMD Vector Cosine, Malformed Candidate Isolation & Word Match (Track 3A)
+- **Description**: Create `crates/blackwall_core_rs/src/similarity.rs` implementing SIMD-aligned cosine similarity over `&[f32]` byte slices, resilient malformed candidate isolation (excluding corrupted database rows while scoring valid candidates), and zero-allocation lowercase word-intersection matching. Raise `ValueError` on invalid query vector dimensions.
 - **Dependencies**: TASK-1.2.
 - **Traceability**: FR-2, NFR-1, NFR-2.
-- **TDD Requirement**: Write Rust tests verifying mathematical equivalence with numpy/scipy cosine similarity and existing Python word-intersection quality calculations.
+- **TDD Requirement**: Write Rust tests verifying:
+  1. Cosine similarity mathematical accuracy against numpy/scipy.
+  2. Exclusion of corrupted candidate rows in batch queries without aborting the batch.
+  3. Word-intersection match quality parity.
 
 ### - [ ] TASK-3A.2: Integrate Vector & Match Quality into Python Wrappers (Track 3A)
-- **Description**: Update `src/blackwall/validators.py` and `src/blackwall/db/repository.py` to use `_core_rs.batch_cosine_similarity` and `_core_rs.compute_word_intersection_match_quality` with pure-Python fallback.
+- **Description**: Update `src/blackwall/validators.py` and `src/blackwall/db/repository.py` to use `_core_rs.batch_cosine_similarity` and `_core_rs.compute_word_intersection_match_quality` with pure-Python fallback, preserving diagnostic exclusion logs for corrupted database rows.
 - **Dependencies**: TASK-3A.1.
 - **Traceability**: FR-2, FR-5, NFR-2.
 - **TDD Requirement**: Run `pytest tests/unit/test_validators.py tests/db/test_repository_similarity.py`.
