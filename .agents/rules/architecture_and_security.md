@@ -325,4 +325,10 @@
   2. Skipping agent `__aenter__`/`__aexit__` leaked runtime resources and caused Vertex AI agents to fail repeatedly.
   3. Fallback ground truth key mismatches caused fallback scorers to evaluate empty expected sets, penalizing correct detections and rewarding candidates that detected nothing.
 
+## 52. AILM Security Trust Boundary Domain Scoping vs. Resource Labels
+* **Rule:**
+  - `AILMTracker.identify_boundary_crossing()` and evaluation datasets targeting AI-Induced Lateral Movement must strictly scope trust boundaries to recognized architectural, system-isolation, and network-perimeter domains (`user_space`, `kernel_space`, `sandbox`, `host`, `untrusted`, `trusted`, `public`, `private`, `internal_api`, `external_net`, `external_network`, `tenant_a`, `tenant_b`).
+  - Fine-grained workload, queue, or resource-level identifiers (e.g., specific database names, support queues, or table names) must NOT be classified as security trust boundaries.
+* **Rationale:** Treating arbitrary resource scopes or workload labels as security trust boundaries causes legitimate multi-service or multi-tenant agents to accumulate false-positive crossing counts, escalating risk to `HIGH` or `CRITICAL` and inadvertently triggering automated identity session revocation (`revoke_identity_session()`).
+
 
