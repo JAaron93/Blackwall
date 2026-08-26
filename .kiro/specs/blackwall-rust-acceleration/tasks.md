@@ -10,8 +10,8 @@ This task document defines the test-driven implementation plan for the Blackwall
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **TASK-1.1** | Rust Crate Scaffolding & Maturin Build | FR-5, FR-6, NFR-4 | None | Sequential | `[ ] PENDING` |
 | **TASK-1.2** | PyO3 Module Stub & Build Verification | FR-6, NFR-4 | TASK-1.1 | Sequential | `[ ] PENDING` |
-| **TASK-2.1** | Rust `ContextSanitizer` DFA & Prefix Redactor | FR-1, NFR-1, NFR-2, NFR-3 | TASK-1.2 | Sequential | `[ ] PENDING` |
-| **TASK-2.2** | Python `ContextHygiene` Wrapper & Fallback | FR-1, FR-5, NFR-2 | TASK-2.1 | Sequential | `[ ] PENDING` |
+| **TASK-2.1** | Rust `ContextSanitizer` (Dual-Mode) & Hasher | FR-1, NFR-1, NFR-2, NFR-3 | TASK-1.2 | Sequential | `[ ] PENDING` |
+| **TASK-2.2** | Python `ContextHygiene` Wrappers & Fallbacks | FR-1, FR-5, NFR-2 | TASK-2.1 | Sequential | `[ ] PENDING` |
 | **TASK-2.3** | Context Hygiene BDD & Property Tests | FR-1, NFR-2, NFR-3 | TASK-2.2 | Sequential | `[ ] PENDING` |
 | **TASK-3A.1**| Rust SIMD Cosine & Malformed Isolation | FR-2, NFR-1, NFR-2 | TASK-1.2 | Parallel Track A | `[ ] PENDING` |
 | **TASK-3A.2**| Python `validators.py` / `repository.py` Wrap | FR-2, FR-5, NFR-2 | TASK-3A.1 | Parallel Track A | `[ ] PENDING` |
@@ -45,20 +45,22 @@ This task document defines the test-driven implementation plan for the Blackwall
 
 ## Track 2: Context Hygiene & Redaction Engine
 
-### - [ ] TASK-2.1: Implement Rust `ContextSanitizer` with DFA Regex, Prefix Preservation & SHA-256
-- **Description**: Implement `crates/blackwall_core_rs/src/sanitizer.rs` with compiled DFA regex replacement, prefix-preserving substitution semantics for credential patterns (`api_key=[[API_KEY]]`, `password="[[PASSWORD]]"`), in-memory SHA-256 calculation, and `RedactionRecord` serialization.
+### - [ ] TASK-2.1: Implement Rust `ContextSanitizer` with Dual-Mode Support & Match Hashing
+- **Description**: Implement `crates/blackwall_core_rs/src/sanitizer.rs` with compiled DFA regex replacement supporting both:
+  1. Middleware mode (`preserve_prefix = false`): replaces full match (`api_key=SECRET` $\rightarrow$ `[[API_KEY]]`) and records `original_hash = sha256(match.group(0))`.
+  2. Resolver mode (`preserve_prefix = true`): preserves prefixes for prompt templates (`api_key=SECRET` $\rightarrow$ `api_key=[[API_KEY]]`).
 - **Dependencies**: TASK-1.2.
 - **Traceability**: FR-1, NFR-1, NFR-2, NFR-3.
-- **TDD Requirement**: Write unit tests in Rust (`cargo test`) verifying exact substitution parity with `blackwall.resolver.ContextHygiene` (preserving prefix and delimiters) and correct SHA-256 hashes.
+- **TDD Requirement**: Write unit tests in Rust (`cargo test`) verifying exact substitution and SHA-256 hash parity for both middleware and resolver modes.
 
-### - [ ] TASK-2.2: Implement Python `ContextHygiene` Thin Wrapper & Pure-Python Fallback
-- **Description**: Update `src/blackwall/middleware/context_hygiene.py` and `src/blackwall/resolver.py` to route sanitization directly to `_core_rs.ContextSanitizer`, completely eliminating the `KillableRegexWorker` multiprocessing spawn, while preserving pure-Python fallback logic.
+### - [ ] TASK-2.2: Implement Python `ContextHygiene` Thin Wrappers & Pure-Python Fallbacks
+- **Description**: Update `src/blackwall/middleware/context_hygiene.py` (middleware mode) and `src/blackwall/resolver.py` (resolver mode) to route sanitization directly to `_core_rs.ContextSanitizer`, completely eliminating the `KillableRegexWorker` multiprocessing spawn, while preserving pure-Python fallback logic.
 - **Dependencies**: TASK-2.1.
 - **Traceability**: FR-1, FR-5, NFR-2.
-- **TDD Requirement**: Run `pytest tests/middleware/test_context_hygiene.py` to verify full test suite passes without IPC.
+- **TDD Requirement**: Run `pytest tests/middleware/test_context_hygiene.py tests/test_sync_resolver.py` to verify both suites pass without IPC.
 
 ### - [ ] TASK-2.3: Context Hygiene BDD & Property-Based Test Verification
-- **Description**: Execute hypothesis property tests (`tests/middleware/test_context_hygiene_properties.py`) and Gherkin BDD scenarios to verify idempotency, structure preservation, prefix preservation, and $<50\mu\text{s}$ latency.
+- **Description**: Execute hypothesis property tests (`tests/middleware/test_context_hygiene_properties.py`) and Gherkin BDD scenarios to verify idempotency, structure preservation, and $<50\mu\text{s}$ latency.
 - **Dependencies**: TASK-2.2.
 - **Traceability**: FR-1, NFR-1, NFR-2, NFR-3.
 - **BDD Requirement**: Verify all hypothesis test cases pass with zero failures.

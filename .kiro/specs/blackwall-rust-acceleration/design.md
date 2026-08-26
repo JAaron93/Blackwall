@@ -42,7 +42,8 @@ flowchart TD
     end
 
     subgraph Python Thin Wrappers with Pure-Python Fallbacks
-        W_CH[ContextHygiene Wrapper]
+        W_CH[Middleware ContextHygiene Wrapper]
+        W_RES[Resolver ContextHygiene Wrapper]
         W_VAL[validators.py Wrapper]
         W_SEM[semantic.py Wrapper]
         W_GR[correlator.py Wrapper]
@@ -56,14 +57,16 @@ flowchart TD
     end
 
     TR --> SR
-    SR -->|1. Sanitize| W_CH
+    SR -->|1. Sanitize| W_RES
+    SR -->|Middleware Sanitize| W_CH
     SR -->|2. TSG Match| REPO
     REPO -->|Cosine Similarity| W_VAL
     SR -->|3. Gate & IOCs| SG
     SG -->|Extract IOCs & Entropy| W_SEM
     PC -->|4. Correlate Graph| W_GR
 
-    W_CH -->|PyO3 <50µs| RS_CH
+    W_CH -->|PyO3 <50µs (Full Match)| RS_CH
+    W_RES -->|PyO3 <50µs (Preserve Prefix)| RS_CH
     W_VAL -->|PyO3 <2µs| RS_SIM
     W_SEM -->|PyO3 <20µs| RS_IOC
     W_GR -->|PyO3 <500µs| RS_GR
@@ -75,15 +78,21 @@ flowchart TD
 
 ### 3.1 Subsystem 1: Context Hygiene & Redaction Engine (`blackwall.middleware.context_hygiene` & `blackwall.resolver`)
 - **Problem**: The legacy Python implementation in `context_hygiene.py` uses a spawned multiprocessing worker (`KillableRegexWorker`) over IPC queues with an `asyncio.Lock` barrier to avoid ReDoS from Python's backtracking `re` engine. This introduces 10–25ms of IPC overhead and lock contention.
-- **Authoritative Redaction Semantics**:
-  - The production standard (`blackwall.resolver.ContextHygiene`) preserves credential delimiters and prefixes:
-    - Key/Password patterns (`api_key`, `password`): Replace only the secret capture group while preserving the key name and assignment prefix (e.g. `api_key=SECRET123` $\rightarrow$ `api_key=[[API_KEY]]`, `password="secret"` $\rightarrow$ `password="[[PASSWORD]]"`).
-    - Standalone patterns (`url`, `ip_address`, `file_path`, `email`): Perform full-token substitution (e.g. `https://evil.com/x` $\rightarrow$ `[[URL]]`, `10.0.0.1` $\rightarrow$ `[[IP_ADDRESS]]`).
+- **Dual-Mode Sanitization Semantics**:
+  The Rust `ContextSanitizer` supports two explicit substitution modes matching the existing architecture:
+  1. **Middleware Redaction Mode** (`preserve_prefix = false`):
+     - Used by `blackwall.middleware.context_hygiene.ContextHygiene`.
+     - Replaces the entire matched pattern (e.g. `api_key=SECRET123` $\rightarrow$ `[[API_KEY]]`).
+     - Computes the authoritative `original_hash` as `SHA-256(matched_string)` for each `RedactionRecord`.
+  2. **Resolver Prompt Redaction Mode** (`preserve_prefix = true`):
+     - Used by `blackwall.resolver.ContextHygiene` in `SyncResolver` and `BatchResolver`.
+     - Preserves credential prefixes/delimiters in prompts (e.g. `api_key=SECRET123` $\rightarrow$ `api_key=[[API_KEY]]`, `password="secret"` $\rightarrow$ `password="[[PASSWORD]]"`).
+     - Standalone patterns (IPs, URLs, emails, file paths) undergo full-token substitution.
 - **Rust Architecture**:
   - Utilizes the Rust `regex` crate which guarantees linear time $O(N)$ execution via Deterministic Finite Automata (DFA), making catastrophic backtracking mathematically impossible.
   - Eliminates multiprocessing IPC and lock contention with direct, in-process multithreaded DFA replacement.
-  - Implements in-memory SHA-256 calculation (`sha2` crate) for original string hashes during match replacement.
-  - Returns a tuple `(sanitized_text: String, redactions: Vec<RedactionRecord>)`.
+  - Implements in-memory SHA-256 calculation (`sha2` crate) over the full matched token for metadata logging.
+  - Returns `(sanitized_text: String, redactions: Vec<RedactionRecord>)`.
 
 ```rust
 #[pyclass]

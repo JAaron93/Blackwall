@@ -4,10 +4,10 @@
 
 - **FR-1: DFA-Based Regex Context Redaction & Hash Generation**
   - The Rust module MUST compile and execute regex redaction patterns using Deterministic Finite Automata (DFA) in guaranteed linear time $O(N)$.
-  - The system MUST enforce authoritative prefix-preserving redaction semantics:
-    - For credential patterns (`api_key`, `password`), the system MUST preserve the key name and assignment prefix while replacing only the secret value (e.g. `api_key=SECRET123` $\rightarrow$ `api_key=[[API_KEY]]`).
-    - For standalone patterns (`ip_address`, `url`, `file_path`, `email`), the system MUST perform full-token substitution (e.g. `192.168.1.1` $\rightarrow$ `[[IP_ADDRESS]]`, `https://example.com` $\rightarrow$ `[[URL]]`).
-  - The system MUST compute a SHA-256 hash for every redacted token match during the substitution pass.
+  - The system MUST support two distinct sanitization modes matching the architecture:
+    - **Middleware Redaction Mode** (`blackwall.middleware.context_hygiene`): Replaces the full matched pattern (e.g. `api_key=SECRET123` $\rightarrow$ `[[API_KEY]]`, `10.0.0.1` $\rightarrow$ `[[IP_ADDRESS]]`) and returns structured `RedactionRecord` logs.
+    - **Resolver Redaction Mode** (`blackwall.resolver.ContextHygiene`): Preserves key and delimiter prefixes in prompts (e.g. `api_key=SECRET123` $\rightarrow$ `api_key=[[API_KEY]]`, `password="secret"` $\rightarrow$ `password="[[PASSWORD]]"`), while performing full-token substitution for standalone indicators.
+  - The system MUST compute the authoritative `original_hash` for every match in Middleware mode as the SHA-256 digest of the entire matched substring (`match.group(0)`).
   - The system MUST return structured redaction records containing `timestamp`, `original_hash`, `pattern_matched`, `placeholder_used`, and `context_size`.
 
 - **FR-2: Vector Cosine Similarity & Word-Level Intersection Scoring**
@@ -44,7 +44,8 @@
   - Graph DFS traversal for up to 500 nodes MUST execute in **< 500 microseconds**.
 
 - **NFR-2: Strict Output & Behavior Parity**
-  - Redacted string outputs, placeholder positions, and original hash values MUST match character-for-character with the production `blackwall.resolver.ContextHygiene` standard.
+  - In Middleware Mode, redacted string outputs, placeholder positions, and original hash values MUST match character-for-character with `blackwall.middleware.context_hygiene.ContextHygiene`.
+  - In Resolver Mode, prompt string replacements MUST match character-for-character with `blackwall.resolver.ContextHygiene`.
   - Word intersection and cosine similarity scores MUST maintain numerical parity within float precision tolerance ($\epsilon \le 10^{-5}$).
 
 - **NFR-3: ReDoS & Memory Safety Guarantee**
@@ -80,13 +81,18 @@
 ```gherkin
 Feature: Native Rust Acceleration for Blackwall Interception Hot Paths
 
-  Scenario: High-Speed Context Hygiene Redaction with Authoritative Prefix Preservation
+  Scenario: High-Speed Middleware Context Hygiene Redaction with Original Hashes
     Given a tool call payload containing "api_key=SECRET_TOKEN_XYZ_12345" and "host=192.168.1.100"
-    When the context is sanitized using the native Rust ContextSanitizer
-    Then the secret MUST be redacted preserving the prefix as "api_key=[[API_KEY]]"
+    When the context is sanitized in Middleware Mode using native Rust ContextSanitizer
+    Then the entire API key match MUST be replaced with "[[API_KEY]]"
     And the IP address MUST be replaced with "[[IP_ADDRESS]]"
-    And a redaction log MUST be generated containing SHA-256 hashes of original matches
+    And the redaction log MUST contain the SHA-256 hash of "api_key=SECRET_TOKEN_XYZ_12345"
     And the sanitization elapsed time MUST be less than 100 microseconds
+
+  Scenario: High-Speed Resolver Prompt Redaction with Prefix Preservation
+    Given a prompt payload containing "api_key=SECRET_TOKEN_XYZ_12345"
+    When the context is sanitized in Resolver Mode using native Rust ContextSanitizer
+    Then the output string MUST preserve the prefix as "api_key=[[API_KEY]]"
 
   Scenario: Resilient Vector Cosine Similarity and Corrupted Candidate Isolation
     Given a valid 768-dimensional float query vector
