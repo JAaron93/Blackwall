@@ -624,7 +624,7 @@ async def run_evaluation_pipeline(
             EvaluationResultRecord(
                 scenario_id=scenario_id,
                 domain=domain,
-                rubric=rubric,
+                rubric=score_data,
                 is_fallback=is_fallback,
                 execution_time_ms=elapsed_ms,
             )
