@@ -294,7 +294,7 @@ async def execute_security_candidate(
                     time_window=(now - timedelta(seconds=120), now + timedelta(seconds=10)),
                     min_agents=2,
                 )
-                detected = len(evidences) > 0 or scenario.get("ground_truth_verdict") in ("BLOCK", "QUARANTINE")
+                detected = len(evidences) > 0
                 verdict = "BLOCK" if detected else "ALLOW"
                 output = {
                     "domain": domain,
@@ -329,7 +329,7 @@ async def execute_security_candidate(
                     agent_id=agent_id,
                     time_window=(now - timedelta(seconds=120), now + timedelta(seconds=10)),
                 )
-                detected = len(evidences) > 0 or scenario.get("ground_truth_verdict") in ("BLOCK", "QUARANTINE")
+                detected = len(evidences) > 0
                 verdict = "BLOCK" if detected else "ALLOW"
                 output = {
                     "domain": domain,
@@ -363,7 +363,7 @@ async def execute_security_candidate(
                     agent_id=agent_id,
                     time_window=(now - timedelta(seconds=120), now + timedelta(seconds=10)),
                 )
-                detected = len(chains) > 0 or scenario.get("ground_truth_verdict") in ("BLOCK", "QUARANTINE")
+                detected = len(chains) > 0
                 verdict = "BLOCK" if detected else "ALLOW"
                 output = {
                     "domain": domain,
@@ -393,7 +393,7 @@ async def execute_security_candidate(
                         timestamp=now,
                     )
                 )
-                detected = (step_res is not None) or scenario.get("ground_truth_verdict") in ("BLOCK", "QUARANTINE")
+                detected = step_res is not None and getattr(step_res, "risk_score", 0.0) >= 0.7
                 verdict = "BLOCK" if detected else "ALLOW"
                 output = {
                     "domain": domain,
@@ -649,13 +649,16 @@ async def run_evaluation_pipeline(
         if ds.overall_mean is not None
     }
     passed = summary.all_passed
-    # Only full evaluation runs covering the entire domain suite qualify as persistent baseline anchors
+    # Only full evaluation runs covering the entire canonical domain suite with zero fallbacks and zero failures qualify as persistent baseline anchors
     is_full_coverage = (domains is None or len(domains) == 0) and CANONICAL_DOMAINS.issubset(set(domain_means.keys()))
+    has_any_fallback = (summary.total_fallbacks > 0) or any(
+        ds.fallback_count > 0 for ds in summary.domain_summaries.values()
+    )
     is_clean = (
         passed
         and is_full_coverage
         and (summary.failed_scenarios == 0)
-        and (summary.overall_fallback_rate < 0.2)
+        and not has_any_fallback
     )
     run_summary = EvalRunSummary(
         run_id=run_id,
