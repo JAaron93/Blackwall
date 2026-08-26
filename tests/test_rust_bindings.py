@@ -5,7 +5,7 @@ import pytest
 
 def test_rust_module_import():
     """Verify that the compiled Rust extension _core_rs is importable and exposes version."""
-    import _core_rs
+    from blackwall import _core_rs
     import blackwall
 
     assert hasattr(_core_rs, "__version__")
