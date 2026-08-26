@@ -117,10 +117,8 @@ class ContextHygiene:
             except ImportError:
                 import _core_rs
 
-            if patterns is not None:
-                self._rust_sanitizer = _core_rs.ContextSanitizer(patterns)
-            else:
-                self._rust_sanitizer = _core_rs.ContextSanitizer()
+            patterns_to_pass = patterns if patterns is not None else self.DEFAULT_PATTERNS
+            self._rust_sanitizer = _core_rs.ContextSanitizer(patterns_to_pass)
         except (ImportError, AttributeError):
             self._rust_sanitizer = None
 

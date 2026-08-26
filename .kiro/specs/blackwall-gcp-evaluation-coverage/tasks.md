@@ -310,8 +310,8 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
 
 ### Track D: Pipeline Infrastructure (Depends on Track B)
 
-- [ ] D.1 Implement Evaluation Pipeline Runner
-  - [ ] D.1.1 Create `scripts/run_gcp_eval.py` orchestrator
+- [x] D.1 Implement Evaluation Pipeline Runner
+  - [x] D.1.1 Create `scripts/run_gcp_eval.py` orchestrator
     - Authenticate via ADC (zero API keys); exit with error if ADC unavailable
     - Validate `GEMINI_TIER=paid` and `BLACKWALL_TIER=paid` at startup; exit with descriptive error if the 300+ RPM paid-tier quota contract is not configured
     - Load scenarios from `tests/eval/judge_scenarios/` and GCP native datasets
@@ -322,7 +322,7 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, NFR-2_
     - _Verification: `pytest tests/unit/test_eval_pipeline_runner.py -v`_
 
-  - [ ] D.1.2 Implement results aggregator with fallback isolation
+  - [x] D.1.2 Implement results aggregator with fallback isolation
     - Filter `is_fallback=True` rows before computing domain means
     - Report `None` for domains with 100% fallback
     - Include `fallback_count` and `fallback_rate` in summary
@@ -330,8 +330,8 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
     - _Requirements: 17.1, 17.2, 17.3, 17.4_
     - _Verification: `pytest tests/unit/test_results_aggregator.py -v`_
 
-- [ ] D.2 Implement SLA Validation Engine
-  - [ ] D.2.1 Create `src/blackwall/eval/sla_validator.py`
+- [x] D.2 Implement SLA Validation Engine
+  - [x] D.2.1 Create `src/blackwall/eval/sla_validator.py`
     - Define SLA thresholds: TSG < 10ms, structural gating < 5ms, reaction < 50ms, eBPF < 50ms, Mesh < 15ms
     - Measure execution time via `time.perf_counter_ns()`
     - Record Cloud Trace span attributes: `blackwall.sla.component`, `blackwall.sla.threshold_ms`, `blackwall.sla.measured_ms`, `blackwall.sla.violated`
@@ -339,14 +339,14 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
     - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5_
     - _Verification: `pytest tests/unit/test_sla_validator.py -v`_
 
-  - [ ] D.2.2 Write property tests for SLA validator
+  - [x] D.2.2 Write property tests for SLA validator
     - **Property E-12: Measured time always ≥ 0**
     - **Property E-13: Violation correctly flagged when measured > threshold**
     - **Property E-14: Non-violation correctly flagged when measured ≤ threshold**
     - _Verification: `pytest tests/property/test_sla_validator_properties.py --hypothesis-seed=0 -v`_
 
-- [ ] D.3 Implement Historical Regression Tracker
-  - [ ] D.3.1 Create `src/blackwall/eval/regression_tracker.py`
+- [x] D.3 Implement Historical Regression Tracker
+  - [x] D.3.1 Create `src/blackwall/eval/regression_tracker.py`
     - Persist evaluation results to `tests/eval/regression/history.jsonl` (JSON Lines)
     - Load most recent entry as comparison baseline on new run
     - Flag regression when any domain mean drops > 0.5 from baseline
@@ -354,15 +354,15 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
     - _Requirements: 14.1, 14.2, 14.3, 14.4_
     - _Verification: `pytest tests/unit/test_regression_tracker.py -v`_
 
-  - [ ] D.3.2 Write BDD feature tests for regression tracker
+  - [x] D.3.2 Write BDD feature tests for regression tracker
     - Scenario: first evaluation run stores baseline with no comparison
     - Scenario: second run with improved scores reports no regression
     - Scenario: third run with domain mean drop > 0.5 flags regression
     - Scenario: `get_history(3)` returns the 3 most recent entries
     - _Verification: `pytest tests/step_defs/test_regression_tracker_bdd.py -v`_
 
-- [ ] D.4 Implement Cloud Trace integration for evaluation spans
-  - [ ] D.4.1 Extend `GCPCloudTraceExporter` with evaluation-specific attributes
+- [x] D.4 Implement Cloud Trace integration for evaluation spans
+  - [x] D.4.1 Extend `GCPCloudTraceExporter` with evaluation-specific attributes
     - Add `gen_ai.evaluation.domain`, `gen_ai.evaluation.judge_model`, `gen_ai.evaluation.rubric_scores`
     - Add `gen_ai.evaluation.is_fallback`, `gen_ai.evaluation.mean_score`
     - Reuse existing `start_span()` / `record_evaluation_result()` / `flush()` API
