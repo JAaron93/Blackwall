@@ -10,7 +10,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from blackwall.policy.models import PolicyConfig
-from blackwall.validators import normalize_time_window, validate_utc_datetime
+from blackwall.validators import validate_temporal_sequence, validate_utc_datetime
 
 # Predefined sensitive permission keywords
 CRITICAL_PERMISSIONS = {
@@ -91,12 +91,16 @@ class AILMTracker:
         if not time_window:
             return list(grants)
 
-        start_win, end_win = normalize_time_window(time_window)
+        start_raw, end_raw = time_window
+        validate_temporal_sequence(
+            start_raw, end_raw, start_name="start_time", end_name="end_time"
+        )
+        start_win = validate_utc_datetime(start_raw)
+        end_win = validate_utc_datetime(end_raw)
 
         return [
             g for g in grants if start_win <= g.timestamp <= end_win
         ]
-
 
     async def identify_boundary_crossing(
         self, from_context: str, to_context: str

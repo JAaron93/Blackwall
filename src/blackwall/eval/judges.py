@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
@@ -26,7 +27,10 @@ from blackwall.eval.fallback_scorer import (
     SwarmDetectionFallbackScorer,
     ThreatInterceptionFallbackScorer,
 )
-from blackwall.eval.judge_factory import create_judge_agent
+from blackwall.eval.judge_factory import (
+    create_judge_agent,
+    validate_evaluation_tier_contract,
+)
 from blackwall.eval.prompt_template import build_judge_prompt
 from blackwall.eval.rubrics import (
     AILMDetectionRubric,
@@ -80,6 +84,10 @@ class BaseJudgeAgent:
         lifecycle before gracefully falling back to the deterministic heuristic
         scorer with `is_fallback=True`.
         """
+        # If tier enforcement is required, validate tier contract upfront so config errors fail fast
+        if self._custom_agent is None and self._enforce_tier:
+            validate_evaluation_tier_contract()
+
         combined_context = dict(scenario_data)
         combined_context["candidate_result"] = candidate_result
 
@@ -90,11 +98,11 @@ class BaseJudgeAgent:
             system_instruction=self.system_instruction,
         )
 
-        agent = self._get_agent()
         attempts = 3
         last_error: Exception | None = None
 
         try:
+            agent = self._get_agent()
             if hasattr(agent, "__aenter__"):
                 async with agent as active_agent:
                     for attempt in range(1, attempts + 1):
@@ -144,10 +152,12 @@ class BaseJudgeAgent:
                             attempts,
                             str(exc),
                         )
-        except (RuntimeError, TimeoutError) as exc:
+        except Exception as exc:
+            if self._enforce_tier or os.environ.get("BLACKWALL_STRICT_TIER", "").lower() in ("true", "1", "yes"):
+                raise
             last_error = exc
             logger.warning(
-                "Judge agent '%s' execution error: %s",
+                "Judge agent '%s' execution error (falling back to deterministic heuristic scorer): %s",
                 self.domain,
                 str(exc),
             )

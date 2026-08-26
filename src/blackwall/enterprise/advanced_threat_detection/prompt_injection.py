@@ -35,14 +35,14 @@ _DEFAULT_INJECTION_PATTERNS: list[tuple[str, re.Pattern[str], float]] = [
     (
         "SYSTEM_PROMPT_EXPLICIT_OVERRIDE",
         re.compile(
-            r"(?i)(?:system\s*prompt\s*override|new\s+system\s+(?:prompt|instructions?)|system\s*:\s*override)",
+            r"(?i)(?:system\s*(?:prompt\s*)?override|new\s+system\s+(?:prompt|instructions?)|system\s*:\s*override)",
         ),
         0.80,
     ),
     (
         "ROLE_SWITCH_JAILBREAK",
         re.compile(
-            r"(?i)(?:you\s+are\s+now|from\s+now\s+on\s+you\s+are|act\s+as\s+if\s+you\s+are)\s+(?:an?\s+)?(?:unrestricted|unfiltered|jailbroken|evil|malicious|dan|developer\s+mode)",
+            r"(?i)(?:you\s+are\s+now|from\s+now\s+on\s+you\s+are|act\s+as\s+if\s+you\s+are|act\s+as\s+(?:an?\s+)?['\"]?(?:unrestricted|unfiltered|jailbroken|evil|malicious|dan|developer|evilbot)|roleplay\s+(?:game|scenario))",
         ),
         0.80,
     ),
@@ -148,6 +148,21 @@ _DEFAULT_INJECTION_PATTERNS: list[tuple[str, re.Pattern[str], float]] = [
             r"(?i)(?:delete\s+(?:the\s+)?database|cat\s+/etc/shadow|rm\s+-rf\s+[/~])",
         ),
         0.80,
+    ),
+    # 5. Scoring Manipulation & Encoded Payloads
+    (
+        "SCORING_MANIPULATION",
+        re.compile(
+            r"(?i)\b(?:assign|give|set|rate|award|provide|score|force|yield)\b[^\n.!?]{0,60}\b(?:maximum|highest|perfect|top|best|worst|minimum|5/5|1/5|5\s+out\s+of\s+5)\b",
+        ),
+        0.75,
+    ),
+    (
+        "BASE64_INSTRUCTION_PAYLOAD",
+        re.compile(
+            r"(?i)(?:base64\s+payload|decode\s+and\s+execute)[^\n.!?]{0,40}:\s*[a-zA-Z0-9+/=]{20,}",
+        ),
+        0.75,
     ),
 ]
 

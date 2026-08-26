@@ -327,4 +327,13 @@
   Always annotate `__aexit__` parameters with `type[BaseException] | None`, `BaseException | None`, and `TracebackType | None` to comply with Ruff `PYI036` and Pyright typing rules.
 * **Rationale:** Discovered during Track B BDD feature development on PR #100. Using standard `AsyncMock()` with async context managers creates subtle mock nesting bugs during execution, while unannotated mock method parameters violate Python typing conventions and static analysis checks.
 
+## 43. Agent-as-a-Judge Evaluation Tier Contract & Upfront Validation Invariant
+* **Rule (Upfront Tier Contract Enforcement):**
+  Evaluation judge agents (`BaseJudgeAgent`) and pipelines targeting 100% GCP Vertex AI Mode must enforce the 300+ RPM quota contract (`GEMINI_TIER=paid`, `BLACKWALL_TIER=paid`, and `GCP_PROJECT`) upfront when `enforce_tier=True`.
+* **Rule (Fail-Fast Configuration Errors):**
+  Upfront tier configuration errors must fail fast and must NEVER be caught by generic agent runtime retry/fallback handlers (`try...except Exception`), preventing unconfigured tier environments from silently converting configuration failures into passing fallback evaluations.
+* **Rule (Test Fixture Tier Alignment):**
+  Test suites and test fixtures (`conftest.py`) must configure both `GEMINI_TIER="paid"` and `BLACKWALL_TIER="paid"` alongside `GCP_PROJECT` and `GOOGLE_GENAI_USE_VERTEXAI="true"` in autouse fixtures (`fixture_gcp_vertex_ai_env`) to maintain paid-tier contract validity during local test executions.
+* **Rationale:** Discovered during Track C implementation and PR #101 review cycles. Broad exception handlers in evaluation judges that catch `Exception` during `_get_agent()` risk masking missing paid-tier configurations by returning ground-truth-aware fallback rubrics, allowing PRs to pass CI without authenticating or executing the required Vertex AI judge.
+
 

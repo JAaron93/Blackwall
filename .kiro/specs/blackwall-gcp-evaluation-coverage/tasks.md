@@ -241,8 +241,8 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
 
 ### Track C: Missing Evaluation Scenarios (Depends on Track A)
 
-- [ ] C.1 Implement AILM evaluation scenario
-  - [ ] C.1.1 Create `tests/evaluation/test_ailm_scenario.py`
+- [x] C.1 Implement AILM evaluation scenario
+  - [x] C.1.1 Create `tests/evaluation/test_ailm_scenario.py`
     - Simulate cross-boundary permission accumulation (3+ boundaries → CRITICAL)
     - Execute `AILMTracker.detect_permission_composition()` and `identify_boundary_crossing()`
     - Route results to `ailm_detection_judge` agent
@@ -250,8 +250,8 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
     - _Requirements: 5.1, 5.2, 5.3, 5.4_
     - _Verification: `pytest tests/evaluation/test_ailm_scenario.py -v`_
 
-- [ ] C.2 Implement Prompt Injection evaluation scenario
-  - [ ] C.2.1 Create `tests/evaluation/test_prompt_injection_scenario.py`
+- [x] C.2 Implement Prompt Injection evaluation scenario
+  - [x] C.2.1 Create `tests/evaluation/test_prompt_injection_scenario.py`
     - Simulate structural jailbreaks, role-play overrides, and benign content
     - Execute `PromptInjectionScanner.scan()` against each payload
     - Route results to `prompt_injection_judge` agent
@@ -259,8 +259,8 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
     - _Requirements: 6.1, 6.2, 6.3, 6.4_
     - _Verification: `pytest tests/evaluation/test_prompt_injection_scenario.py -v`_
 
-- [ ] C.3 Implement Inbound Protocol Filter evaluation scenario
-  - [ ] C.3.1 Create `tests/evaluation/test_inbound_filter_scenario.py`
+- [x] C.3 Implement Inbound Protocol Filter evaluation scenario
+  - [x] C.3.1 Create `tests/evaluation/test_inbound_filter_scenario.py`
     - Simulate valid/invalid Origin headers, rate limit bursts, malformed RPC
     - Execute `InboundProtocolFilter.inspect()` against each request
     - Route results to `inbound_filter_judge` agent
@@ -268,8 +268,8 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
     - _Requirements: 7.1, 7.2, 7.3, 7.4_
     - _Verification: `pytest tests/evaluation/test_inbound_filter_scenario.py -v`_
 
-- [ ] C.4 Implement Quota Enforcer evaluation scenario
-  - [ ] C.4.1 Create `tests/evaluation/test_quota_enforcer_scenario.py`
+- [x] C.4 Implement Quota Enforcer evaluation scenario
+  - [x] C.4.1 Create `tests/evaluation/test_quota_enforcer_scenario.py`
     - Simulate normal usage, velocity spike (>500 tokens/sec), sustained burn
     - Execute `AgentQuotaEnforcer.track()` and `enforce()` against activity streams
     - Route results to `quota_enforcement_judge` agent
@@ -277,8 +277,8 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
     - _Requirements: 8.1, 8.2, 8.3, 8.4_
     - _Verification: `pytest tests/evaluation/test_quota_enforcer_scenario.py -v`_
 
-- [ ] C.5 Implement SyncResolver evaluation scenario (Core)
-  - [ ] C.5.1 Create `tests/evaluation/test_sync_resolver_scenario.py`
+- [x] C.5 Implement SyncResolver evaluation scenario (Core)
+  - [x] C.5.1 Create `tests/evaluation/test_sync_resolver_scenario.py`
     - Load bridged ADK scenarios (benign + malicious + evasion)
     - Execute `SyncResolver.resolve()` against each tool call payload
     - Compute confusion matrix (TP, FP, FN, TN)
@@ -287,8 +287,8 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 15.1, 15.2, 15.3, 15.4, 15.5_
     - _Verification: `pytest tests/evaluation/test_sync_resolver_scenario.py -v`_
 
-- [ ] C.6 Implement Context Hygiene evaluation scenario
-  - [ ] C.6.1 Create `tests/evaluation/test_context_hygiene_scenario.py`
+- [x] C.6 Implement Context Hygiene evaluation scenario
+  - [x] C.6.1 Create `tests/evaluation/test_context_hygiene_scenario.py`
     - Load hygiene eval scenarios with API keys, JWT tokens, AWS secrets
     - Execute `ContextHygiene.sanitize()` against each payload
     - Verify `[[VARIABLE_NAME]]` format compliance and non-sensitive passthrough
@@ -297,8 +297,8 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
     - _Requirements: 9.1, 9.2, 9.3, 9.4_
     - _Verification: `pytest tests/evaluation/test_context_hygiene_scenario.py -v`_
 
-- [ ] C.7 Implement full callback chain trajectory evaluation
-  - [ ] C.7.1 Create `tests/evaluation/test_callback_trajectory_scenario.py`
+- [x] C.7 Implement full callback chain trajectory evaluation
+  - [x] C.7.1 Create `tests/evaluation/test_callback_trajectory_scenario.py`
     - Define reference trajectories for ALLOW and BLOCK paths
     - Execute full interception pipeline (before_tool_callback → verdict → execute/block)
     - Compute `trajectory_precision`, `trajectory_recall`, `trajectory_exact_match`

@@ -72,6 +72,7 @@ markers = [
     "retrospective: Retrospective analysis and historical query test scenarios",
     "evaluation: Evaluation environment and containment test scenarios",
     "vertex_evaluation: Mark tests that run Vertex AI Evaluation Service tasks",
+    "gcp_eval: GCP evaluation pipeline tests (require ADC)",
     "asyncio: Mark async tests to run with pytest-asyncio",
     "gti_rate_limiting: GTI rate limiting BDD scenarios",
     "jit_credential_privilege: JIT credential privilege BDD scenarios",
