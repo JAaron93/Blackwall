@@ -149,3 +149,26 @@ async def test_run_evaluation_pipeline_domain_filter(mock_paid_tier_env, tmp_pat
     assert exit_code == 0
     assert "threat_interception" in summary.domain_summaries
     assert "c2_detection" not in summary.domain_summaries
+
+
+@pytest.mark.asyncio
+async def test_run_evaluation_pipeline_failed_scenario_fails_gate(mock_paid_tier_env, tmp_path: Path):
+    """Verify that an unhandled judge exception records an error and fails the CI gate."""
+    scenarios = [
+        {"scenario_id": "threat_001", "domain": "threat_interception", "ground_truth_verdict": "BLOCK"},
+    ]
+
+    mock_judge = MagicMock()
+    mock_judge.evaluate = AsyncMock(side_effect=RuntimeError("Unrecoverable LLM API failure"))
+
+    with patch("scripts.run_gcp_eval.get_judge_for_domain", return_value=mock_judge):
+        exit_code, summary, _ = await run_evaluation_pipeline(
+            scenarios=scenarios,
+            threshold=3.5,
+            history_path=tmp_path / "history.jsonl",
+            export_trace=False,
+        )
+
+    assert exit_code == 1
+    assert summary.all_passed is False
+    assert summary.failed_scenarios == 1

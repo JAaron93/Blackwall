@@ -65,12 +65,13 @@ class AggregateSummary(BaseModel):
     domain_summaries: dict[str, DomainSummary] = Field(description="Summary per evaluated domain")
     total_scenarios: int = Field(ge=0, description="Total evaluated scenarios across all domains")
     total_fallbacks: int = Field(ge=0, description="Total fallbacks across all domains")
+    failed_scenarios: int = Field(default=0, ge=0, description="Count of scenarios that encountered execution errors")
     overall_fallback_rate: float = Field(ge=0.0, le=1.0, description="Overall fallback percentage")
     overall_mean: float | None = Field(
         default=None,
         description="Overall mean across all non-fallback domain scores",
     )
-    all_passed: bool = Field(description="True if all evaluated domains passed their thresholds")
+    all_passed: bool = Field(description="True if all evaluated domains passed their thresholds and no errors occurred")
     threshold: float = Field(description="Configured passing score threshold")
 
 
@@ -82,10 +83,19 @@ class EvaluationAggregator:
     def __init__(self, threshold: float = 3.5) -> None:
         self.threshold = float(threshold)
         self._records: list[EvaluationResultRecord] = []
+        self._failed_scenarios: list[dict[str, Any]] = []
 
     def add_record(self, record: EvaluationResultRecord) -> None:
         """Add an evaluation result record to the aggregator."""
         self._records.append(record)
+
+    def record_error(self, scenario_id: str, domain: str, error: Any) -> None:
+        """Record an unhandled execution error for a scenario so failure gates CI."""
+        self._failed_scenarios.append({
+            "scenario_id": scenario_id,
+            "domain": domain,
+            "error": str(error),
+        })
 
     def summarize(self) -> AggregateSummary:
         """
@@ -100,7 +110,7 @@ class EvaluationAggregator:
             by_domain[norm_domain].append(r)
 
         domain_summaries: dict[str, DomainSummary] = {}
-        total_scenarios = len(self._records)
+        total_scenarios = len(self._records) + len(self._failed_scenarios)
         total_fallbacks = 0
 
         for domain, records in by_domain.items():
@@ -186,13 +196,18 @@ class EvaluationAggregator:
             else None
         )
 
-        # All evaluated domains must pass for overall pass
-        all_passed = bool(domain_summaries) and all(ds.passed for ds in domain_summaries.values())
+        # All evaluated domains must pass AND there must be zero unhandled scenario errors
+        all_passed = (
+            bool(domain_summaries)
+            and all(ds.passed for ds in domain_summaries.values())
+            and len(self._failed_scenarios) == 0
+        )
 
         return AggregateSummary(
             domain_summaries=domain_summaries,
             total_scenarios=total_scenarios,
             total_fallbacks=total_fallbacks,
+            failed_scenarios=len(self._failed_scenarios),
             overall_fallback_rate=round(overall_fallback_rate, 4),
             overall_mean=overall_mean,
             all_passed=all_passed,
@@ -200,5 +215,6 @@ class EvaluationAggregator:
         )
 
     def clear(self) -> None:
-        """Clear all recorded evaluation records."""
+        """Clear all recorded evaluation records and errors."""
         self._records.clear()
+        self._failed_scenarios.clear()

@@ -105,3 +105,38 @@ def test_get_history_limit(tmp_path: Path):
     last_3 = tracker.get_history(3)
     assert len(last_3) == 3
     assert [r.run_id for r in last_3] == ["run-002", "run-003", "run-004"]
+
+
+def test_partial_baseline_does_not_hide_regression(tmp_path: Path):
+    """Verify that an intermediate partial baseline does not hide regressions for absent domains."""
+    history_file = tmp_path / "history.jsonl"
+    tracker = HistoricalRegressionTracker(history_path=history_file)
+
+    # Run 1: evaluates threat_interception=4.9 and c2_detection=4.5
+    run1 = EvalRunSummary(
+        run_id="run-001",
+        domain_means={"threat_interception": 4.9, "c2_detection": 4.5},
+        overall_mean=4.7,
+    )
+    tracker.record_and_compare(run1)
+
+    # Run 2: partial selective run evaluating ONLY c2_detection=4.6
+    run2 = EvalRunSummary(
+        run_id="run-002",
+        domain_means={"c2_detection": 4.6},
+        overall_mean=4.6,
+    )
+    tracker.record_and_compare(run2)
+
+    # Run 3: evaluates threat_interception=4.2 (drop = 0.7 from run-001)
+    run3 = EvalRunSummary(
+        run_id="run-003",
+        domain_means={"threat_interception": 4.2},
+        overall_mean=4.2,
+    )
+    report = tracker.record_and_compare(run3)
+
+    assert report.is_baseline is False
+    assert report.regression_detected is True
+    assert "threat_interception" in report.regressed_domains
+    assert report.regressed_domains["threat_interception"] == pytest.approx(-0.7)

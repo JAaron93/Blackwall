@@ -26,6 +26,10 @@ from pathlib import Path
 from typing import Any
 
 from blackwall.enterprise.advanced_threat_detection.gcp_trace_exporter import GCPCloudTraceExporter
+from blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval import (
+    GCPVertexAIEvaluationHarness,
+    GCPVertexEvalConfig,
+)
 from blackwall.eval.aggregator import (
     AggregateSummary,
     EvaluationAggregator,
@@ -49,6 +53,21 @@ logger = logging.getLogger("blackwall.eval_runner")
 
 DEFAULT_SCENARIOS_DIR = Path("tests/eval/judge_scenarios")
 DEFAULT_HISTORY_PATH = Path("tests/eval/regression/history.jsonl")
+
+# Mapping from evaluation domain to canonical security component SLA threshold (Requirements 12.1-12.3)
+DOMAIN_TO_SLA_COMPONENT: dict[str, str] = {
+    "threat_interception": "tsg_signature_match",
+    "sync_resolver": "tsg_signature_match",
+    "swarm_detection": "active_reaction",
+    "exploit_chain": "active_reaction",
+    "c2_detection": "active_reaction",
+    "ailm": "structural_gating",
+    "prompt_injection": "structural_gating",
+    "inbound_filter": "structural_gating",
+    "quota_enforcement": "active_reaction",
+    "context_hygiene": "structural_gating",
+    "k8s_scenario": "ebpf_drop",
+}
 
 
 def load_all_scenarios(
@@ -160,6 +179,14 @@ async def run_evaluation_pipeline(
     sla_validator = SLAValidator()
     trace_exporter = GCPCloudTraceExporter(export_to_cloud=export_trace)
 
+    eval_config = GCPVertexEvalConfig(
+        project_id=os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or "blackwall-security-eval",
+        location=os.getenv("GCP_LOCATION") or os.getenv("GOOGLE_CLOUD_LOCATION") or "global",
+        main_model=model or "gemini-3.5-flash-lite",
+        reasoner_model=model or "gemini-3.7-flash",
+    )
+    eval_harness = GCPVertexAIEvaluationHarness(config=eval_config, trace_exporter=trace_exporter)
+
     run_id = f"eval-run-{uuid.uuid4().hex[:8]}"
     logger.info("Starting Evaluation Run %s with %d scenarios (Threshold: %.2f)", run_id, len(eval_scenarios), threshold)
 
@@ -169,7 +196,7 @@ async def run_evaluation_pipeline(
         scenario_id = scenario.get("scenario_id", f"scenario_{idx}")
 
         judge = get_judge_for_domain(domain, model=model)
-        candidate_result = extract_or_simulate_candidate_result(scenario)
+        sla_component = scenario.get("component") or DOMAIN_TO_SLA_COMPONENT.get(domain, "structural_gating")
 
         span = trace_exporter.start_span(
             name=f"vertex_eval.judge.{domain}",
@@ -179,16 +206,29 @@ async def run_evaluation_pipeline(
             attributes={"scenario.id": scenario_id},
         )
 
+        # 4a. Execute candidate detection operation under SLA measurement
+        with sla_validator.measure(sla_component, span=span) as sla_measurement:
+            candidate_result = extract_or_simulate_candidate_result(scenario)
+
+        # Attach SLA measurement to candidate context so judge can evaluate trajectory soundness
+        if isinstance(candidate_result, dict):
+            cand_meta = candidate_result.setdefault("metadata", {})
+            if isinstance(cand_meta, dict):
+                cand_meta["sla_measurement"] = sla_measurement.model_dump()
+                cand_meta["sla_component"] = sla_component
+                cand_meta["sla_violated"] = sla_measurement.violated
+
+        # 4b. Execute domain judge agent
         t0 = time.perf_counter_ns()
         try:
-            with sla_validator.measure(domain, span=span) as measurement:
-                rubric = await judge.evaluate(
-                    scenario_data=scenario,
-                    candidate_result=candidate_result,
-                )
+            rubric = await judge.evaluate(
+                scenario_data=scenario,
+                candidate_result=candidate_result,
+            )
         except Exception as exc:
             logger.error("Judge evaluation failed on scenario %s: %s", scenario_id, exc)
             trace_exporter.record_evaluation_error(span=span, error=exc)
+            aggregator.record_error(scenario_id=scenario_id, domain=domain, error=exc)
             continue
 
         elapsed_ms = (time.perf_counter_ns() - t0) / 1_000_000.0

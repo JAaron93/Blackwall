@@ -126,10 +126,12 @@ class HistoricalRegressionTracker:
         threshold_drop: float = REGRESSION_DROP_THRESHOLD,
     ) -> RegressionReport:
         """
-        Compare current evaluation run against the latest historical baseline.
+        Compare current evaluation run against the latest historical baselines.
+        Iterates backwards through history so selective/partial baseline runs
+        do not hide regressions for domains evaluated in prior runs.
         """
-        baseline = self.get_latest_run()
-        if baseline is None:
+        history = self.get_history()
+        if not history:
             return RegressionReport(
                 is_baseline=True,
                 baseline_run_id=None,
@@ -138,36 +140,59 @@ class HistoricalRegressionTracker:
                 details=f"Run {current_run.run_id} established as initial baseline.",
             )
 
+        latest_run = history[-1]
         domain_deltas: dict[str, float] = {}
         regressed_domains: dict[str, float] = {}
+        compared_baseline_runs: set[str] = set()
 
         for domain, current_mean in current_run.domain_means.items():
-            if domain in baseline.domain_means:
-                base_mean = baseline.domain_means[domain]
-                delta = round(current_mean - base_mean, 4)
-                domain_deltas[domain] = delta
-                # If delta is negative and drop > threshold_drop (i.e. delta < -threshold_drop)
-                if delta < -threshold_drop:
-                    regressed_domains[domain] = delta
+            if current_mean is None:
+                continue
+            # Search history in reverse for the most recent run containing this domain
+            for prior_run in reversed(history):
+                if domain in prior_run.domain_means and prior_run.domain_means[domain] is not None:
+                    base_mean = prior_run.domain_means[domain]
+                    delta = round(current_mean - base_mean, 4)
+                    domain_deltas[domain] = delta
+                    compared_baseline_runs.add(prior_run.run_id)
+                    # If delta is negative and drop > threshold_drop (i.e. delta < -threshold_drop)
+                    if delta < -threshold_drop:
+                        regressed_domains[domain] = delta
+                    break
 
-        overall_delta = round(current_run.overall_mean - baseline.overall_mean, 4)
+        if not domain_deltas:
+            return RegressionReport(
+                is_baseline=True,
+                baseline_run_id=latest_run.run_id,
+                current_run_id=current_run.run_id,
+                regression_detected=False,
+                details=f"No prior history found for current domains. Run {current_run.run_id} established as baseline.",
+            )
+
+        # Compute overall delta across all compared domain baselines
+        overall_delta = (
+            round(sum(domain_deltas.values()) / len(domain_deltas), 4)
+            if domain_deltas
+            else 0.0
+        )
         regression_detected = len(regressed_domains) > 0
+        primary_baseline_id = latest_run.run_id
 
         if regression_detected:
             reg_list = ", ".join(f"{d} ({delta:+0.2f})" for d, delta in regressed_domains.items())
             details = (
-                f"Regression detected against baseline {baseline.run_id}! "
+                f"Regression detected against historical baselines ({', '.join(sorted(compared_baseline_runs))})! "
                 f"Domains with drop > {threshold_drop}: {reg_list}"
             )
         else:
             details = (
-                f"No regression detected against baseline {baseline.run_id}. "
-                f"Overall delta: {overall_delta:+0.2f}."
+                f"No regression detected against historical baselines ({', '.join(sorted(compared_baseline_runs))}). "
+                f"Average domain delta: {overall_delta:+0.2f}."
             )
 
         return RegressionReport(
             is_baseline=False,
-            baseline_run_id=baseline.run_id,
+            baseline_run_id=primary_baseline_id,
             current_run_id=current_run.run_id,
             regression_detected=regression_detected,
             regressed_domains=regressed_domains,
