@@ -9,8 +9,12 @@ license = "MIT OR Apache-2.0"
 name = "_core_rs"
 crate-type = ["cdylib"]
 
+[features]
+default = ["extension-module"]
+extension-module = ["pyo3/extension-module"]
+
 [dependencies]
-pyo3 = { version = "0.22", features = ["extension-module", "abi3-py310"] }
+pyo3 = { version = "0.22", features = ["abi3-py310"] }
 regex = "1.10"
 sha2 = "0.10"
 serde = { version = "1.0", features = ["derive"] }
@@ -19,4 +23,5 @@ chrono = "0.4"
 
 [package.metadata.maturin]
 name = "blackwall._core_rs"
+
 

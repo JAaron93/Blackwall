@@ -2,5 +2,18 @@
   {
     "path": "AGENTS.md",
     "description": "Root AGENTS.md constitution defining Blackwall product tier identity, Core vs Enterprise invariants, and architectural guidelines."
+  },
+  {
+    "path": ".kiro/specs/blackwall-rust-acceleration/design.md",
+    "description": "System architecture design for Blackwall Rust Acceleration Subsystem."
+  },
+  {
+    "path": ".kiro/specs/blackwall-rust-acceleration/requirements.md",
+    "description": "Requirements document for Blackwall Rust Acceleration Subsystem."
+  },
+  {
+    "path": ".kiro/specs/blackwall-rust-acceleration/tasks.md",
+    "description": "Task implementation plan for Blackwall Rust Acceleration Subsystem."
   }
 ]
+

@@ -76,6 +76,15 @@ class ContextHygiene:
             self.patterns = []
             for name, pat, placeholder in patterns:
                 self.patterns.append((name, re.compile(pat), placeholder))
+        try:
+            import _core_rs
+
+            if patterns is not None:
+                self._rust_sanitizer = _core_rs.ContextSanitizer(patterns)
+            else:
+                self._rust_sanitizer = _core_rs.ContextSanitizer()
+        except (ImportError, AttributeError):
+            self._rust_sanitizer = None
 
     def _repl(self, match: Any, placeholder_str: str) -> str:
         full: str = str(match.group(0))
@@ -91,6 +100,14 @@ class ContextHygiene:
         return full
 
     def sanitize_string(self, text: str) -> str:
+        if self._rust_sanitizer is not None:
+            try:
+                return self._rust_sanitizer.sanitize_string(text, True)
+            except Exception as e:
+                logger.warning(
+                    f"Rust sanitizer failed in resolver, falling back to Python: {e}"
+                )
+
         for name, regex, placeholder in self.patterns:
             if name in ("password", "api_key"):
                 # Capture current placeholder via default-argument to avoid late-binding

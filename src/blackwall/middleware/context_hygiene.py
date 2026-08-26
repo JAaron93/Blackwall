@@ -6,7 +6,7 @@ import multiprocessing
 import queue
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Pattern, Tuple
+from typing import Any, Dict, List, Optional, Pattern, Tuple
 
 from pydantic import BaseModel
 
@@ -138,58 +138,98 @@ class ContextHygiene:
     def __init__(self) -> None:
         self.patterns: List[RegexPattern] = []
         self.timeout_seconds = 0.1
-        self.worker = KillableRegexWorker()
+        self.worker: Optional[KillableRegexWorker] = None
         self._lock = asyncio.Lock()
+        self._is_custom = False
         self._initialize_default_patterns()
+        try:
+            import _core_rs
+
+            self._rust_sanitizer = _core_rs.ContextSanitizer()
+        except (ImportError, AttributeError):
+            self._rust_sanitizer = None
+
+    def _get_worker(self) -> KillableRegexWorker:
+        if self.worker is None:
+            self.worker = KillableRegexWorker()
+        return self.worker
 
     def __del__(self) -> None:
         try:
-            self.worker.close()
+            if self.worker is not None:
+                self.worker.close()
         except Exception:
             pass
 
     def _initialize_default_patterns(self) -> None:
-        self.register_pattern(
-            "API_KEY",
-            r"(?i)(api[_-]?key|apikey|token)[\s:=]+['\"]?([a-zA-Z0-9_\-]{20,})",
-            "[[API_KEY]]",
-        )
-        self.register_pattern(
-            "IP_ADDRESS", r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "[[IP_ADDRESS]]"
-        )
-        self.register_pattern("URL", r"https?://[^\s\"']+", "[[URL]]")
-        self.register_pattern("FILE_PATH", r"(?:/[^/\\\s\"']+)+/?", "[[FILE_PATH]]")
-        self.register_pattern(
-            "PASSWORD",
-            r"(?i)(password|passwd|pwd)[\s:=]+['\"]?([^\s'\"]+)",
-            "[[PASSWORD]]",
-        )
-        self.register_pattern(
-            "EMAIL", r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "[[EMAIL]]"
-        )
+        default_patterns = [
+            (
+                "API_KEY",
+                r"(?i)(api[_-]?key|apikey|token)[\s:=]+['\"]?([a-zA-Z0-9_\-]{20,})",
+                "[[API_KEY]]",
+            ),
+            ("IP_ADDRESS", r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "[[IP_ADDRESS]]"),
+            ("URL", r"https?://[^\s\"']+", "[[URL]]"),
+            ("FILE_PATH", r"(?:/[^/\\\s\"']+)+/?", "[[FILE_PATH]]"),
+            (
+                "PASSWORD",
+                r"(?i)(password|passwd|pwd)[\s:=]+['\"]?([^\s'\"]+)",
+                "[[PASSWORD]]",
+            ),
+            ("EMAIL", r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "[[EMAIL]]"),
+        ]
+        for name, regex, placeholder in default_patterns:
+            self.patterns.append(RegexPattern(name, regex, placeholder))
 
     def register_pattern(self, name: str, regex: str, placeholder: str) -> bool:
         try:
             self.patterns.append(RegexPattern(name, regex, placeholder))
+            self._is_custom = True
             return True
         except re.error as e:
             logger.error(f"Failed to register pattern {name}: invalid regex. {e}")
             return False
 
     async def apply_redaction(self, text: str) -> Tuple[str, List[RedactionEntry]]:
+        # Fast path: Rust native DFA sanitization for default patterns (no IPC, O(N), <50us)
+        if (
+            not self._is_custom
+            and self._rust_sanitizer is not None
+            and all(p.enabled for p in self.patterns)
+        ):
+            try:
+                sanitized_text, raw_redactions = self._rust_sanitizer.sanitize(
+                    text, False
+                )
+                redactions = [
+                    RedactionEntry(
+                        timestamp=datetime.fromisoformat(r.timestamp),
+                        original_hash=r.original_hash,
+                        pattern_matched=r.pattern_matched,
+                        placeholder_used=r.placeholder_used,
+                        context_size=r.context_size,
+                    )
+                    for r in raw_redactions
+                ]
+                return sanitized_text, redactions
+            except Exception as e:
+                logger.warning(
+                    f"Rust sanitizer failed, falling back to Python worker: {e}"
+                )
+
+        # Fallback path: pure-Python worker
         all_redactions = []
         current_text = text
+        worker = self._get_worker()
 
         for pattern in self.patterns:
             if not pattern.enabled:
                 continue
 
             try:
-                # Run the regex using the persistent killable worker
-                # We protect the worker call site with an asyncio.Lock to serialize concurrent requests
                 async with self._lock:
                     result_text, redactions_dicts = await asyncio.to_thread(
-                        self.worker.apply,
+                        worker.apply,
                         pattern.regex.pattern,
                         pattern.placeholder,
                         pattern.name,
@@ -199,7 +239,6 @@ class ContextHygiene:
 
                 current_text = result_text
 
-                # Reconstruct RedactionEntry objects
                 redactions = [
                     RedactionEntry(
                         timestamp=datetime.fromisoformat(r["timestamp"]),
@@ -212,7 +251,7 @@ class ContextHygiene:
                 ]
 
                 all_redactions.extend(redactions)
-                pattern.consecutive_timeouts = 0  # reset on success
+                pattern.consecutive_timeouts = 0
             except TimeoutError:
                 pattern.consecutive_timeouts += 1
                 logger.warning(
