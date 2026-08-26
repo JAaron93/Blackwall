@@ -8,8 +8,8 @@ This task document defines the test-driven implementation plan for the Blackwall
 
 | Task ID | Component | Requirements Covered | Dependencies | Execution Mode | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **TASK-1.1** | Rust Crate Scaffolding & Maturin Build | FR-5, FR-6, NFR-4 | None | Sequential | `[ ] PENDING` |
-| **TASK-1.2** | PyO3 Module Stub & Build Verification | FR-6, NFR-4 | TASK-1.1 | Sequential | `[ ] PENDING` |
+| **TASK-1.1** | Rust Crate Scaffolding & Maturin Build | FR-5, FR-6, NFR-4 | None | Sequential | **`[x] COMPLETE`** |
+| **TASK-1.2** | PyO3 Module Stub & Build Verification | FR-6, NFR-4 | TASK-1.1 | Sequential | **`[x] COMPLETE`** |
 | **TASK-2.1** | Rust `ContextSanitizer` (Dual-Mode) & Hasher | FR-1, NFR-1, NFR-2, NFR-3 | TASK-1.2 | Sequential | `[ ] PENDING` |
 | **TASK-2.2** | Python `ContextHygiene` Wrappers & Fallbacks | FR-1, FR-5, NFR-2 | TASK-2.1 | Sequential | `[ ] PENDING` |
 | **TASK-2.3** | Context Hygiene BDD & Property Tests | FR-1, NFR-2, NFR-3 | TASK-2.2 | Sequential | `[ ] PENDING` |
@@ -28,18 +28,19 @@ This task document defines the test-driven implementation plan for the Blackwall
 ---
 
 ## Track 1: Rust Crate Foundation & Maturin Build Pipeline
-
-### - [ ] TASK-1.1: Scaffolding `crates/blackwall_core_rs` Cargo Crate & Portable Build Config
+ 
+### - [x] TASK-1.1: Scaffolding `crates/blackwall_core_rs` Cargo Crate & Portable Build Config
 - **Description**: Create `crates/blackwall_core_rs/Cargo.toml` configuring `crate-type = ["cdylib"]`, `pyo3` with `extension-module` features, `regex`, `sha2`, and `serde`. Configure `pyproject.toml` to support Maturin builds using standard toolchains discovered in `PATH` or `$CARGO_HOME/bin`.
 - **Dependencies**: None.
 - **Traceability**: FR-5, FR-6, NFR-4.
 - **Validation**: Verify `cargo check` passes across standard macOS and Linux environments.
 
-### - [ ] TASK-1.2: PyO3 Module Stub & Build Verification (TDD)
+### - [x] TASK-1.2: PyO3 Module Stub & Build Verification (TDD)
 - **Description**: Create `crates/blackwall_core_rs/src/lib.rs` exporting basic module functions and version checks. Verify compilation with `maturin develop --release` into `.venv`.
 - **Dependencies**: TASK-1.1.
 - **Traceability**: FR-6, NFR-4.
 - **TDD Requirement**: Write test in `tests/test_rust_bindings.py` asserting `import blackwall._core_rs` loads properly and reports version string.
+
 
 ---
 
