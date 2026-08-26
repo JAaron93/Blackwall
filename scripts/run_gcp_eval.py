@@ -54,6 +54,18 @@ logger = logging.getLogger("blackwall.eval_runner")
 DEFAULT_SCENARIOS_DIR = Path("tests/eval/judge_scenarios")
 DEFAULT_HISTORY_PATH = Path("tests/eval/regression/history.jsonl")
 
+CANONICAL_DOMAINS: set[str] = {
+    "threat_interception",
+    "swarm_detection",
+    "exploit_chain",
+    "c2_detection",
+    "ailm",
+    "prompt_injection",
+    "inbound_filter",
+    "quota_enforcement",
+    "context_hygiene",
+}
+
 # Mapping from evaluation domain to canonical security component SLA threshold (Requirements 12.1-12.3)
 DOMAIN_TO_SLA_COMPONENT: dict[str, str] = {
     "threat_interception": "tsg_signature_match",
@@ -408,13 +420,14 @@ async def execute_security_candidate(
                 }
 
         except Exception as exc:
-            logger.debug("Component execution exception on %s: %s", domain, exc)
-            ground_verdict = scenario.get("ground_truth_verdict", "BLOCK")
+            logger.error("Security component execution failed on %s: %s", domain, exc)
             output = {
                 "domain": domain,
-                "verdict": ground_verdict,
-                "detected": ground_verdict in ("BLOCK", "QUARANTINE"),
-                "reasoning": f"Component execution fallback: {exc}",
+                "verdict": "ERROR",
+                "detected": False,
+                "is_fallback": True,
+                "error": str(exc),
+                "reasoning": f"Security component execution failed with exception: {exc}",
             }
 
     candidate_result = existing_result if isinstance(existing_result, dict) else output
@@ -531,6 +544,15 @@ async def run_evaluation_pipeline(
             span=span,
         )
 
+        candidate_fallback = bool(candidate_result.get("is_fallback", False))
+        if candidate_result.get("verdict") == "ERROR" or "error" in candidate_result:
+            logger.error("Candidate execution failure on %s (%s): %s", scenario_id, domain, candidate_result.get("error"))
+            aggregator.record_error(
+                scenario_id=scenario_id,
+                domain=domain,
+                error=candidate_result.get("error", "Component execution error"),
+            )
+
         # 4b. Execute domain judge agent
         t0 = time.perf_counter_ns()
         try:
@@ -545,7 +567,7 @@ async def run_evaluation_pipeline(
             continue
 
         elapsed_ms = (time.perf_counter_ns() - t0) / 1_000_000.0
-        is_fallback = getattr(rubric, "is_fallback", False)
+        is_fallback = getattr(rubric, "is_fallback", False) or candidate_fallback
 
         # Calculate mean score for this rubric
         score_data = rubric.model_dump() if hasattr(rubric, "model_dump") else {}
@@ -614,8 +636,7 @@ async def run_evaluation_pipeline(
     }
     passed = summary.all_passed
     # Only full evaluation runs covering the entire domain suite qualify as persistent baseline anchors
-    total_expected_domains = len(list(DEFAULT_SCENARIOS_DIR.glob("*.json"))) if DEFAULT_SCENARIOS_DIR.exists() else 9
-    is_full_coverage = (domains is None or len(domains) == 0) and (len(domain_means) >= total_expected_domains)
+    is_full_coverage = (domains is None or len(domains) == 0) and CANONICAL_DOMAINS.issubset(set(domain_means.keys()))
     is_clean = (
         passed
         and is_full_coverage
