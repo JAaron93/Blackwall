@@ -51,7 +51,9 @@ This task document defines the test-driven implementation plan for the Blackwall
   2. Resolver mode (`preserve_prefix = true`): preserves prefixes for prompt templates (`api_key=SECRET` $\rightarrow$ `api_key=[[API_KEY]]`).
 - **Dependencies**: TASK-1.2.
 - **Traceability**: FR-1, NFR-1, NFR-2, NFR-3.
-- **TDD Requirement**: Write unit tests in Rust (`cargo test`) verifying exact substitution and SHA-256 hash parity for both middleware and resolver modes.
+- **TDD Requirement**: Write unit tests in Rust (`cargo test`) verifying:
+  1. In Middleware mode (`preserve_prefix = false`): exact full-match substitution parity and SHA-256 `original_hash` digest parity with `blackwall.middleware.context_hygiene`.
+  2. In Resolver mode (`preserve_prefix = true`): exact prefix-preserving prompt substitution parity with `blackwall.resolver.ContextHygiene` (without generating redaction records or hashes).
 
 ### - [ ] TASK-2.2: Implement Python `ContextHygiene` Thin Wrappers & Pure-Python Fallbacks
 - **Description**: Update `src/blackwall/middleware/context_hygiene.py` (middleware mode) and `src/blackwall/resolver.py` (resolver mode) to route sanitization directly to `_core_rs.ContextSanitizer`, completely eliminating the `KillableRegexWorker` multiprocessing spawn, while preserving pure-Python fallback logic.
@@ -136,7 +138,7 @@ This task document defines the test-driven implementation plan for the Blackwall
 
 ## Track 5: System Integration, Benchmarks, & Verification
 
-### - [ ] TASK-5.1: End-to-End Latency Benchmarking & SLA Verification
+### - [ ] TASK-5.1: End-to-End SLA Benchmarking & Verification
 - **Description**: Run automated latency comparison script across all 4 optimized hot paths against baseline Python metrics, asserting $<50\mu\text{s}$ context redaction and $<5\text{ms}$ total `SyncResolver` SLA.
 - **Dependencies**: TASK-2.3, TASK-3A.3, TASK-3B.3, TASK-4.3.
 - **Traceability**: NFR-1, US-1, US-2.
