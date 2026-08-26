@@ -103,7 +103,10 @@ async def test_run_evaluation_pipeline_success(mock_paid_tier_env, tmp_path: Pat
     mock_judge = MagicMock()
     mock_judge.evaluate = AsyncMock(return_value=mock_rubric)
 
-    with patch("scripts.run_gcp_eval.get_judge_for_domain", return_value=mock_judge):
+    with (
+        patch("scripts.run_gcp_eval.get_judge_for_domain", return_value=mock_judge),
+        patch("blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval.GCPVertexAIEvaluationHarness.run_eval_task", return_value={"status": "SUCCESS"}),
+    ):
         exit_code, summary, report = await run_evaluation_pipeline(
             scenarios=scenarios,
             threshold=3.5,
@@ -137,7 +140,10 @@ async def test_run_evaluation_pipeline_domain_filter(mock_paid_tier_env, tmp_pat
     mock_judge = MagicMock()
     mock_judge.evaluate = AsyncMock(return_value=mock_rubric)
 
-    with patch("scripts.run_gcp_eval.get_judge_for_domain", return_value=mock_judge):
+    with (
+        patch("scripts.run_gcp_eval.get_judge_for_domain", return_value=mock_judge),
+        patch("blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval.GCPVertexAIEvaluationHarness.run_eval_task", return_value={"status": "SUCCESS"}),
+    ):
         exit_code, summary, _ = await run_evaluation_pipeline(
             scenarios=scenarios,
             domains=["threat_interception"],
@@ -161,7 +167,10 @@ async def test_run_evaluation_pipeline_failed_scenario_fails_gate(mock_paid_tier
     mock_judge = MagicMock()
     mock_judge.evaluate = AsyncMock(side_effect=RuntimeError("Unrecoverable LLM API failure"))
 
-    with patch("scripts.run_gcp_eval.get_judge_for_domain", return_value=mock_judge):
+    with (
+        patch("scripts.run_gcp_eval.get_judge_for_domain", return_value=mock_judge),
+        patch("blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval.GCPVertexAIEvaluationHarness.run_eval_task", return_value={"status": "SUCCESS"}),
+    ):
         exit_code, summary, _ = await run_evaluation_pipeline(
             scenarios=scenarios,
             threshold=3.5,

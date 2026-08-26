@@ -470,6 +470,7 @@ async def run_evaluation_pipeline(
     history_path: str | Path | None = None,
     model: str | None = None,
     export_trace: bool = True,
+    allow_fallback: bool = False,
 ) -> tuple[int, AggregateSummary, RegressionReport]:
     """
     Execute the full Blackwall Agent-as-a-Judge evaluation pipeline.
@@ -499,6 +500,8 @@ async def run_evaluation_pipeline(
             run_id=f"run-{uuid.uuid4().hex[:8]}",
             domain_means={},
             overall_mean=0.0,
+            passed=False,
+            is_clean_baseline=False,
         )
         empty_report = HistoricalRegressionTracker(history_path).record_and_compare(dummy_run)
         return (1, empty_agg, empty_report)
@@ -513,7 +516,7 @@ async def run_evaluation_pipeline(
         location=os.getenv("GCP_LOCATION") or os.getenv("GOOGLE_CLOUD_LOCATION") or "global",
         main_model=model or "gemini-3.5-flash-lite",
         reasoner_model=model or "gemini-3.7-flash",
-        allow_fallback=True,
+        allow_fallback=allow_fallback,
     )
     eval_harness = GCPVertexAIEvaluationHarness(config=eval_config, trace_exporter=trace_exporter)
 
@@ -569,8 +572,19 @@ async def run_evaluation_pipeline(
         elapsed_ms = (time.perf_counter_ns() - t0) / 1_000_000.0
         is_fallback = getattr(rubric, "is_fallback", False) or candidate_fallback
 
+        # Factor SLA compliance into trajectory_soundness_score (Requirement 12.4 & Design §1.4)
+        sla_factor = sla_validator.compute_trajectory_soundness_factor([sla_measurement])
+        if hasattr(rubric, "trajectory_soundness_score"):
+            try:
+                rubric.trajectory_soundness_score = min(int(rubric.trajectory_soundness_score), sla_factor)
+            except Exception:
+                pass
+
         # Calculate mean score for this rubric
         score_data = rubric.model_dump() if hasattr(rubric, "model_dump") else {}
+        if "trajectory_soundness_score" in score_data:
+            score_data["trajectory_soundness_score"] = min(int(score_data["trajectory_soundness_score"]), sla_factor)
+
         numeric_scores = [
             float(v) for k, v in score_data.items()
             if isinstance(v, (int, float)) and k not in ("is_fallback", "regression_detected")
