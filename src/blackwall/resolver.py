@@ -77,7 +77,10 @@ class ContextHygiene:
             for name, pat, placeholder in patterns:
                 self.patterns.append((name, re.compile(pat), placeholder))
         try:
-            import _core_rs
+            try:
+                from blackwall import _core_rs
+            except ImportError:
+                import _core_rs
 
             if patterns is not None:
                 self._rust_sanitizer = _core_rs.ContextSanitizer(patterns)
@@ -85,6 +88,7 @@ class ContextHygiene:
                 self._rust_sanitizer = _core_rs.ContextSanitizer()
         except (ImportError, AttributeError):
             self._rust_sanitizer = None
+
 
     def _repl(self, match: Any, placeholder_str: str) -> str:
         full: str = str(match.group(0))

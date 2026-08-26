@@ -16,9 +16,13 @@ from blackwall.analytics import AgentBehavioralAnalytics
 from blackwall.adk_integration import ADKIntegration
 
 try:
-    import _core_rs
+    from blackwall import _core_rs  # type: ignore[attr-defined]
 except ImportError:
-    _core_rs = None  # type: ignore[assignment]
+    try:
+        import _core_rs
+    except ImportError:
+        _core_rs = None  # type: ignore[assignment]
+
 
 __all__ = [
     "Settings",

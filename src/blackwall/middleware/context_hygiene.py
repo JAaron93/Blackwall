@@ -143,11 +143,15 @@ class ContextHygiene:
         self._is_custom = False
         self._initialize_default_patterns()
         try:
-            import _core_rs
+            try:
+                from blackwall import _core_rs
+            except ImportError:
+                import _core_rs
 
             self._rust_sanitizer = _core_rs.ContextSanitizer()
         except (ImportError, AttributeError):
             self._rust_sanitizer = None
+
 
     def _get_worker(self) -> KillableRegexWorker:
         if self.worker is None:
