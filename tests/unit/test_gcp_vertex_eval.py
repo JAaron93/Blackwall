@@ -3,10 +3,11 @@ Unit tests for GCP Vertex AI Evaluation Engine (Task 22).
 """
 
 import pytest
+
 from blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval import (
+    GCPVertexAIEvaluationHarness,
     GCPVertexEvalConfig,
     GCPVertexEvalMetrics,
-    GCPVertexAIEvaluationHarness,
 )
 
 

@@ -3,7 +3,7 @@
 from datetime import datetime
 import math
 import re
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 import uuid
 
 from blackwall.enterprise.advanced_threat_detection.enums import EventSource
@@ -13,8 +13,11 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 
-
-from blackwall.validators import validate_temporal_sequence, validate_utc_datetime
+from blackwall.validators import (
+    clamp_score,
+    compute_exponential_decay,
+    normalize_time_window,
+)
 
 
 # MITRE ATT&CK technique mapping patterns
@@ -58,6 +61,42 @@ SEMANTIC_TIERS: Dict[EventSource, int] = {
 }
 
 
+def map_mitre_attack_techniques(
+    events_or_nodes: Sequence[Any], default_fallback: Optional[str] = "T1005"
+) -> List[str]:
+    """Map sequence of events, attack nodes, or action strings to unique MITRE ATT&CK technique IDs."""
+    techniques: List[str] = []
+
+    for item in events_or_nodes:
+        if hasattr(item, "event"):
+            act = str(item.event.action or "")
+            tgt = str(item.event.target or "")
+        elif hasattr(item, "action") and hasattr(item, "target"):
+            act = str(item.action or "")
+            tgt = str(item.target or "")
+        elif isinstance(item, dict):
+            act = str(item.get("action") or "")
+            tgt = str(item.get("target") or "")
+        else:
+            act = str(item)
+            tgt = ""
+
+        action_text = f"{act} {tgt}".strip()
+        matched = False
+        for pattern, tech_id in MITRE_PATTERNS:
+            if pattern.search(action_text):
+                if tech_id not in techniques:
+                    techniques.append(tech_id)
+                matched = True
+                break
+
+        if not matched and default_fallback:
+            if default_fallback not in techniques:
+                techniques.append(default_fallback)
+
+    return techniques
+
+
 class PathCorrelator:
     """Correlates security events into multi-stage attack paths using DFS and temporal graph analysis."""
 
@@ -97,12 +136,7 @@ class PathCorrelator:
         if max_depth < min_path_length:
             raise ValueError("max_depth cannot be less than min_path_length")
 
-        start_raw, end_raw = time_window
-        validate_temporal_sequence(
-            start_raw, end_raw, start_name="start_time", end_name="end_time"
-        )
-        start_win = validate_utc_datetime(start_raw)
-        end_win = validate_utc_datetime(end_raw)
+        start_win, end_win = normalize_time_window(time_window)
 
         # 1. Fetch candidate nodes from store within time window, up to max_nodes
         candidate_nodes = await self.store.query_nodes(
@@ -231,7 +265,7 @@ class PathCorrelator:
         )
 
         # Temporal proximity score (exponential decay over 300s window)
-        temporal_prox = math.exp(-delta_sec / 300.0)
+        temporal_prox = compute_exponential_decay(delta_sec, 300.0)
 
         # Semantic relationship score based on action & target similarity or tier transition
         tier_a = SEMANTIC_TIERS.get(node_a.event.source, 1)
@@ -248,29 +282,11 @@ class PathCorrelator:
 
         # Weighted combination bounded [0.0, 1.0]
         weight = 0.5 * temporal_prox + 0.5 * semantic_score
-        return round(max(0.0, min(1.0, weight)), 4)
+        return clamp_score(weight, 0.0, 1.0, decimals=4)
 
     def map_mitre_techniques(self, nodes: List[AttackNode]) -> List[str]:
         """Map event node sequences to MITRE ATT&CK technique IDs."""
-        techniques: List[str] = []
-
-        for node in nodes:
-            action_text = f"{node.event.action} {node.event.target}"
-            matched = False
-            for pattern, tech_id in MITRE_PATTERNS:
-                if pattern.search(action_text):
-                    if tech_id not in techniques:
-                        techniques.append(tech_id)
-                    matched = True
-                    break
-
-            if not matched:
-                # Default fallback technique ID for uncategorized local system actions
-                fallback_id = "T1005"
-                if fallback_id not in techniques:
-                    techniques.append(fallback_id)
-
-        return techniques
+        return map_mitre_attack_techniques(nodes, default_fallback="T1005")
 
     def compute_path_scores(
         self, nodes: List[AttackNode], edge_weights: List[float]
@@ -292,12 +308,11 @@ class PathCorrelator:
             + 0.1 * avg_edge_weight
             + length_bonus
         )
-        risk_score = round(max(0.0, min(1.0, raw_risk)), 4)
-
-        # Correlation score derived from average edge weight
-        correlation_score = round(max(0.0, min(1.0, avg_edge_weight)), 4)
+        risk_score = clamp_score(raw_risk, 0.0, 1.0, decimals=4)
+        correlation_score = clamp_score(avg_edge_weight, 0.0, 1.0, decimals=4)
 
         return risk_score, correlation_score
+
 
     def _dfs_path_search(
         self,

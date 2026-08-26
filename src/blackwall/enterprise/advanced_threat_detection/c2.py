@@ -13,7 +13,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     NormalizedEvent,
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
-from blackwall.validators import validate_temporal_sequence, validate_utc_datetime
+from blackwall.validators import normalize_time_window, validate_utc_datetime
 
 # Known C2 Hostname Domain Patterns (Requirement 7.1)
 KNOWN_C2_HOST_PATTERNS = [
@@ -252,12 +252,7 @@ class C2InfrastructureDetector:
         Returns:
             True if periodic beaconing pattern is detected, False otherwise.
         """
-        start_raw, end_raw = time_window
-        validate_temporal_sequence(
-            start_raw, end_raw, start_name="start_time", end_name="end_time"
-        )
-        start_win = validate_utc_datetime(start_raw)
-        end_win = validate_utc_datetime(end_raw)
+        start_win, end_win = normalize_time_window(time_window)
 
         if _is_local_endpoint(endpoint):
             return False
@@ -309,29 +304,25 @@ class C2InfrastructureDetector:
         variance = sum((d - mean_delta) ** 2 for d in valid_deltas) / len(valid_deltas)
         std_dev = math.sqrt(variance)
 
-        # Coefficient of variation (std_dev / mean_delta <= threshold indicates regular periodic beaconing)
-        return (std_dev / mean_delta) <= beaconing_threshold
+        # Coefficient of variation (CV) <= beaconing_threshold indicates periodic beaconing
+        cv = std_dev / mean_delta
+        return cv <= beaconing_threshold
 
     async def detect_persistence_indicators(
         self,
         agent_id: str,
         time_window: Tuple[datetime, datetime],
     ) -> List[str]:
-        """Identify persistence indicators such as cron jobs, self-respawning processes, or scheduled tasks.
+        """Detect persistence mechanisms associated with C2 callbacks.
 
         Args:
             agent_id: Agent identifier string.
             time_window: Tuple of (start_time, end_time) UTC datetimes.
 
         Returns:
-            List of detected persistence indicator description strings.
+            List of detected persistence mechanism description strings.
         """
-        start_raw, end_raw = time_window
-        validate_temporal_sequence(
-            start_raw, end_raw, start_name="start_time", end_name="end_time"
-        )
-        start_win = validate_utc_datetime(start_raw)
-        end_win = validate_utc_datetime(end_raw)
+        start_win, end_win = normalize_time_window(time_window)
 
         agent_events = self._events_by_agent.get(str(agent_id), [])
         indicators: Set[str] = set()
@@ -364,12 +355,7 @@ class C2InfrastructureDetector:
         Returns:
             List of C2Evidence objects detected for the agent.
         """
-        start_raw, end_raw = time_window
-        validate_temporal_sequence(
-            start_raw, end_raw, start_name="start_time", end_name="end_time"
-        )
-        start_win = validate_utc_datetime(start_raw)
-        end_win = validate_utc_datetime(end_raw)
+        start_win, end_win = normalize_time_window(time_window)
 
         agent_key = str(agent_id)
         agent_events = [
@@ -419,24 +405,21 @@ class C2InfrastructureDetector:
         # Detect persistence indicators
         persistence_indicators = await self.detect_persistence_indicators(agent_key, time_window)
 
-        # Cross-pillar correlation between network syscalls (Pillar 1) and tool calls (Pillar 4)
+        # Cross-pillar correlation between network syscalls (Pillar 1) and tool calls (Pillar 4) in O(N+M) time
         cross_pillar_correlated = False
         if kernel_network_events and tool_call_events:
+            tool_targets: Set[str] = set()
+            for t_evt in tool_call_events:
+                tool_targets.update(
+                    filter(None, [_normalize_endpoint(t_evt.target)] + _extract_metadata_endpoints(t_evt.metadata))
+                )
+
             for k_evt in kernel_network_events:
                 k_targets = set(
                     filter(None, [_normalize_endpoint(k_evt.target)] + _extract_metadata_endpoints(k_evt.metadata))
                 )
-
-                for t_evt in tool_call_events:
-                    t_targets = set(
-                        filter(None, [_normalize_endpoint(t_evt.target)] + _extract_metadata_endpoints(t_evt.metadata))
-                    )
-
-                    # Correlate if any non-empty normalized endpoint overlaps between kernel and tool/pipeline events
-                    if k_targets & t_targets:
-                        cross_pillar_correlated = True
-                        break
-                if cross_pillar_correlated:
+                if k_targets & tool_targets:
+                    cross_pillar_correlated = True
                     break
 
         if cross_pillar_correlated and "Cross-pillar correlation between Pillar 1 network syscalls and tool calls" not in persistence_indicators:
