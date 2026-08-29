@@ -42,17 +42,20 @@ def test_iocs_extraction_ipv4_and_ipv6():
         "Compressed IPv6 2001:db8::1, 2001:db8::2/path, 2001:db8::1:2:3:4:5, 2001:db8::, fe80::, and loopback ::1",
         "Adjacent hex 0xdeadbeef::1 and prefix2001:db8::1 should not extract corrupt IPs",
         "Port-bound IPv4 10.0.0.1:8080 should extract IP",
+        "The target IPv6 server is 2001:db8::10. And gateway is 192.168.1.5.",
     ]
 
     iocs = _core_rs.extract_iocs(strings)
     ips = set(iocs.get("ips", []))
 
     assert "192.168.1.100" in ips
+    assert "192.168.1.5" in ips
     assert "8.8.8.8" in ips
     assert "10.0.0.1" in ips
     assert "2001:0db8:85a3:0000:0000:8a2e:0370:7334" in ips
     assert "2001:db8::1" in ips
     assert "2001:db8::2" in ips
+    assert "2001:db8::10" in ips
     assert "2001:db8::1:2:3:4:5" in ips
     assert "2001:db8::" in ips
     assert "fe80::" in ips

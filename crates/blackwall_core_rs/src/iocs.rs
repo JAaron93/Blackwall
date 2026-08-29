@@ -79,21 +79,35 @@ pub fn extract_iocs_from_slice(strings: &[String]) -> HashMap<String, Vec<String
     for s in strings {
         // 1. Extract IPs (IPv4 and IPv6) with strict token boundary isolation
         for mat in token_re.find_iter(s) {
-            let token = mat.as_str().trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != ':' && c != '.');
-            if token.is_empty() {
+            let raw_token = mat.as_str();
+            // Trim outer punctuation (periods, quotes, commas) while preserving valid IPv6 colons
+            let trimmed = raw_token.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != ':');
+            if trimmed.is_empty() {
                 continue;
             }
-            if token.contains(':') {
-                if Ipv6Addr::from_str(token).is_ok() {
-                    ips_set.insert(token.to_string());
-                } else if let Some((ip_part, _port_part)) = token.split_once(':') {
-                    if Ipv4Addr::from_str(ip_part).is_ok() {
-                        ips_set.insert(ip_part.to_string());
+
+            if trimmed.contains(':') {
+                // If it ends or starts with a single colon (and not ::), trim the stray colon
+                let ipv6_candidate = if trimmed.starts_with(':') && !trimmed.starts_with("::") {
+                    trimmed.trim_start_matches(':')
+                } else if trimmed.ends_with(':') && !trimmed.ends_with("::") {
+                    trimmed.trim_end_matches(':')
+                } else {
+                    trimmed
+                };
+
+                if Ipv6Addr::from_str(ipv6_candidate).is_ok() {
+                    ips_set.insert(ipv6_candidate.to_string());
+                } else if let Some((ip_part, _port_part)) = trimmed.split_once(':') {
+                    let ip_part_trimmed = ip_part.trim_matches(|c: char| !c.is_ascii_digit());
+                    if Ipv4Addr::from_str(ip_part_trimmed).is_ok() {
+                        ips_set.insert(ip_part_trimmed.to_string());
                     }
                 }
-            } else if token.contains('.') {
-                if Ipv4Addr::from_str(token).is_ok() {
-                    ips_set.insert(token.to_string());
+            } else {
+                let ipv4_candidate = trimmed.trim_matches(|c: char| !c.is_ascii_digit());
+                if Ipv4Addr::from_str(ipv4_candidate).is_ok() {
+                    ips_set.insert(ipv4_candidate.to_string());
                 }
             }
         }
@@ -160,6 +174,7 @@ mod tests {
         let input = vec![
             "Connect to 192.168.1.1, 10.0.0.1:8080, 2001:db8::1, 2001:db8::2/path, 2001:db8::1:2:3:4:5, 2001:db8::, fe80::, ::1, or 999.999.999.999".to_string(),
             "Adjacent hex 0xdeadbeef::1 and prefix2001:db8::1 should not extract corrupt IPs".to_string(),
+            "The target IPv6 server is 2001:db8::10. And gateway is 192.168.1.5.".to_string(),
             "Visit https://evil.com/path?arg=1 and api.malicious.net".to_string(),
             "Payload MD5: 5d41402abc4b2a76b9719d911017c592".to_string(),
         ];
@@ -167,9 +182,11 @@ mod tests {
 
         let ips = iocs.get("ips").unwrap();
         assert!(ips.contains(&"192.168.1.1".to_string()));
+        assert!(ips.contains(&"192.168.1.5".to_string()));
         assert!(ips.contains(&"10.0.0.1".to_string()));
         assert!(ips.contains(&"2001:db8::1".to_string()));
         assert!(ips.contains(&"2001:db8::2".to_string()));
+        assert!(ips.contains(&"2001:db8::10".to_string()));
         assert!(ips.contains(&"2001:db8::1:2:3:4:5".to_string()));
         assert!(ips.contains(&"2001:db8::".to_string()));
         assert!(ips.contains(&"fe80::".to_string()));
