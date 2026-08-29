@@ -14,7 +14,13 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
-from blackwall.eval.rubrics import ThreatInterceptionRubric, C2DetectionRubric
+from blackwall.eval.rubrics import (
+    AILMDetectionRubric,
+    C2DetectionRubric,
+    ExploitChainRubric,
+    SwarmDetectionRubric,
+    ThreatInterceptionRubric,
+)
 from scripts.run_gcp_eval import (
     load_all_scenarios,
     run_evaluation_pipeline,
@@ -105,7 +111,7 @@ async def test_run_evaluation_pipeline_success(mock_paid_tier_env, tmp_path: Pat
 
     with (
         patch("scripts.run_gcp_eval.get_judge_for_domain", return_value=mock_judge),
-        patch("blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval.GCPVertexAIEvaluationHarness.run_eval_task", return_value={"status": "SUCCESS"}),
+        patch("blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval.GCPVertexAIEvaluationHarness.run_eval_task", return_value={"status": "COMPLETED"}),
     ):
         exit_code, summary, report = await run_evaluation_pipeline(
             scenarios=scenarios,
@@ -142,7 +148,7 @@ async def test_run_evaluation_pipeline_domain_filter(mock_paid_tier_env, tmp_pat
 
     with (
         patch("scripts.run_gcp_eval.get_judge_for_domain", return_value=mock_judge),
-        patch("blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval.GCPVertexAIEvaluationHarness.run_eval_task", return_value={"status": "SUCCESS"}),
+        patch("blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval.GCPVertexAIEvaluationHarness.run_eval_task", return_value={"status": "COMPLETED"}),
     ):
         exit_code, summary, _ = await run_evaluation_pipeline(
             scenarios=scenarios,
@@ -169,7 +175,7 @@ async def test_run_evaluation_pipeline_failed_scenario_fails_gate(mock_paid_tier
 
     with (
         patch("scripts.run_gcp_eval.get_judge_for_domain", return_value=mock_judge),
-        patch("blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval.GCPVertexAIEvaluationHarness.run_eval_task", return_value={"status": "SUCCESS"}),
+        patch("blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval.GCPVertexAIEvaluationHarness.run_eval_task", return_value={"status": "COMPLETED"}),
     ):
         exit_code, summary, _ = await run_evaluation_pipeline(
             scenarios=scenarios,
@@ -181,3 +187,261 @@ async def test_run_evaluation_pipeline_failed_scenario_fails_gate(mock_paid_tier
     assert exit_code == 1
     assert summary.all_passed is False
     assert summary.failed_scenarios == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("managed_status", ["LOCAL_FALLBACK", "FAILED"])
+async def test_managed_eval_non_completed_status_fails_gate(mock_paid_tier_env, tmp_path: Path, managed_status):
+    """Managed EvalTask results other than COMPLETED must record an error and fail the CI gate."""
+    scenarios = [
+        {
+            "scenario_id": "threat_001",
+            "domain": "threat_interception",
+            "ground_truth_verdict": "BLOCK",
+            "ground_truth_label": "MALICIOUS",
+            "tool_call": {"tool_name": "bash_exec", "arguments": {"cmd": "cat /etc/shadow"}},
+        }
+    ]
+
+    mock_rubric = ThreatInterceptionRubric(
+        detection_accuracy_score=5,
+        false_positive_control_score=5,
+        reasoning_quality_score=5,
+        trajectory_soundness_score=5,
+        justification="Perfect verdict and reasoning alignment",
+        is_fallback=False,
+    )
+    mock_judge = MagicMock()
+    mock_judge.evaluate = AsyncMock(return_value=mock_rubric)
+
+    managed_result = {"status": managed_status, "total_items": 1}
+    if managed_status == "FAILED":
+        managed_result["error"] = "Vertex AI EvalTask exploded"
+
+    with (
+        patch("scripts.run_gcp_eval.get_judge_for_domain", return_value=mock_judge),
+        patch("blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval.GCPVertexAIEvaluationHarness.run_eval_task", return_value=managed_result),
+    ):
+        exit_code, summary, _ = await run_evaluation_pipeline(
+            scenarios=scenarios,
+            threshold=3.5,
+            history_path=tmp_path / "history.jsonl",
+            export_trace=False,
+            allow_fallback=True,
+        )
+
+    assert exit_code == 1
+    assert summary.all_passed is False
+    assert summary.failed_scenarios >= 1
+
+
+@pytest.mark.asyncio
+async def test_swarm_scenario_evaluates_provided_events(mock_paid_tier_env, tmp_path: Path):
+    """Scenario-supplied benign events must be evaluated instead of manufactured high-risk swarm events."""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    scenarios = [
+        {
+            "scenario_id": "swarm_benign_001",
+            "domain": "swarm_detection",
+            "ground_truth_verdict": "ALLOW",
+            "events": [
+                {
+                    "agent_id": "solo_agent_01",
+                    "action": "read_file",
+                    "target": "/var/log/app/report.txt",
+                    "risk_score": 0.1,
+                    "timestamp": now.isoformat(),
+                },
+            ],
+        }
+    ]
+
+    mock_rubric = SwarmDetectionRubric(
+        coordination_detection_score=5,
+        temporal_precision_score=5,
+        shared_infra_identification_score=5,
+        fingerprint_quality_score=5,
+        justification="Benign single-agent activity evaluated directly",
+        is_fallback=False,
+    )
+    mock_judge = MagicMock()
+    mock_judge.evaluate = AsyncMock(return_value=mock_rubric)
+
+    with (
+        patch("scripts.run_gcp_eval.get_judge_for_domain", return_value=mock_judge),
+        patch("blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval.GCPVertexAIEvaluationHarness.run_eval_task", return_value={"status": "COMPLETED"}),
+    ):
+        await run_evaluation_pipeline(
+            scenarios=scenarios,
+            threshold=3.5,
+            history_path=tmp_path / "history.jsonl",
+            export_trace=False,
+        )
+
+    candidate_result = mock_judge.evaluate.call_args.kwargs["candidate_result"]
+    assert candidate_result["verdict"] == "ALLOW"
+    assert candidate_result["detected"] is False
+
+
+@pytest.mark.asyncio
+async def test_c2_scenario_events_reach_detector(mock_paid_tier_env, tmp_path: Path):
+    """Scenario-supplied C2 events must be recorded into the detector instead of manufactured ones."""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    scenarios = [
+        {
+            "scenario_id": "c2_custom_001",
+            "domain": "c2_detection",
+            "ground_truth_verdict": "ALLOW",
+            "agent_id": "c2_eval_agent_01",
+            "events": [
+                {
+                    "agent_id": "c2_eval_agent_01",
+                    "action": "http_get",
+                    "target": "https://updates.example.com/pkg",
+                    "risk_score": 0.2,
+                    "timestamp": now.isoformat(),
+                },
+            ],
+        }
+    ]
+
+    mock_rubric = C2DetectionRubric(
+        endpoint_classification_score=5,
+        beaconing_detection_score=5,
+        persistence_identification_score=5,
+        cross_pillar_correlation_score=5,
+        justification="Custom events routed to detector",
+        is_fallback=False,
+    )
+    mock_judge = MagicMock()
+    mock_judge.evaluate = AsyncMock(return_value=mock_rubric)
+
+    with (
+        patch("scripts.run_gcp_eval.get_judge_for_domain", return_value=mock_judge),
+        patch("blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval.GCPVertexAIEvaluationHarness.run_eval_task", return_value={"status": "COMPLETED"}),
+        patch("blackwall.enterprise.advanced_threat_detection.c2.C2InfrastructureDetector.record_event", autospec=True) as record_spy,
+    ):
+        await run_evaluation_pipeline(
+            scenarios=scenarios,
+            threshold=3.5,
+            history_path=tmp_path / "history.jsonl",
+            export_trace=False,
+        )
+
+    assert record_spy.call_count == 1
+    recorded_event = record_spy.call_args.args[1]
+    assert recorded_event.agent_id == "c2_eval_agent_01"
+    assert recorded_event.action == "http_get"
+    assert recorded_event.target == "https://updates.example.com/pkg"
+    assert recorded_event.risk_score == 0.2
+
+
+@pytest.mark.asyncio
+async def test_exploit_chain_branch_executes_detector_without_error(mock_paid_tier_env, tmp_path: Path):
+    """Exploit-chain scenarios must run the analyzer against scenario events without execution errors."""
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    scenarios = [
+        {
+            "scenario_id": "exploit_chain_001",
+            "domain": "exploit_chain",
+            "ground_truth_verdict": "BLOCK",
+            "agent_id": "exploit_agent_01",
+            "events": [
+                {
+                    "agent_id": "exploit_agent_01",
+                    "action": "remote_code_execution",
+                    "target": "/tmp/payload_eval.bin",
+                    "risk_score": 0.9,
+                    "timestamp": now.isoformat(),
+                },
+                {
+                    "agent_id": "exploit_agent_01",
+                    "action": "privilege_escalation",
+                    "target": "/etc/shadow",
+                    "risk_score": 0.95,
+                    "timestamp": (now + timedelta(seconds=5)).isoformat(),
+                },
+            ],
+        }
+    ]
+
+    mock_rubric = ExploitChainRubric(
+        chain_completeness_score=5,
+        novelty_calibration_score=5,
+        mitre_mapping_accuracy_score=5,
+        chaining_confidence_score=5,
+        justification="Exploit chain analyzed from scenario events",
+        is_fallback=False,
+    )
+    mock_judge = MagicMock()
+    mock_judge.evaluate = AsyncMock(return_value=mock_rubric)
+
+    with (
+        patch("scripts.run_gcp_eval.get_judge_for_domain", return_value=mock_judge),
+        patch("blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval.GCPVertexAIEvaluationHarness.run_eval_task", return_value={"status": "COMPLETED"}),
+    ):
+        exit_code, summary, _ = await run_evaluation_pipeline(
+            scenarios=scenarios,
+            threshold=3.5,
+            history_path=tmp_path / "history.jsonl",
+            export_trace=False,
+        )
+
+    candidate_result = mock_judge.evaluate.call_args.kwargs["candidate_result"]
+    assert candidate_result["verdict"] == "BLOCK"
+    assert candidate_result["detected"] is True
+    assert summary.failed_scenarios == 0
+    assert exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_ailm_branch_consumes_permission_grants(mock_paid_tier_env, tmp_path: Path):
+    """AILM scenarios must feed permission grants into AILMTracker and escalate on boundary crossings."""
+    scenarios = [
+        {
+            "scenario_id": "ailm_escalation_001",
+            "domain": "ailm",
+            "ground_truth_verdict": "BLOCK",
+            "agent_id": "ailm_agent_01",
+            "permission_grants": [
+                {"timestamp": 100, "role": "viewer", "boundary": "user_space"},
+                {"timestamp": 200, "role": "editor", "boundary": "sandbox"},
+                {"timestamp": 300, "role": "admin", "boundary": "host"},
+                {"timestamp": 400, "role": "cluster_admin", "boundary": "kernel_space"},
+            ],
+        }
+    ]
+
+    mock_rubric = AILMDetectionRubric(
+        boundary_crossing_detection_score=5,
+        permission_composition_accuracy_score=5,
+        risk_classification_score=5,
+        evidence_completeness_score=5,
+        justification="AILM permission composition evaluated",
+        is_fallback=False,
+    )
+    mock_judge = MagicMock()
+    mock_judge.evaluate = AsyncMock(return_value=mock_rubric)
+
+    with (
+        patch("scripts.run_gcp_eval.get_judge_for_domain", return_value=mock_judge),
+        patch("blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval.GCPVertexAIEvaluationHarness.run_eval_task", return_value={"status": "COMPLETED"}),
+    ):
+        exit_code, summary, _ = await run_evaluation_pipeline(
+            scenarios=scenarios,
+            threshold=3.5,
+            history_path=tmp_path / "history.jsonl",
+            export_trace=False,
+        )
+
+    candidate_result = mock_judge.evaluate.call_args.kwargs["candidate_result"]
+    assert candidate_result["verdict"] == "BLOCK"
+    assert candidate_result["detected"] is True
+    assert summary.failed_scenarios == 0
+    assert exit_code == 0
