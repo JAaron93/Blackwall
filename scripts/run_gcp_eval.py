@@ -593,24 +593,13 @@ def _build_domain_worker(domain: str, scenario: dict[str, Any]):
 
         return worker
 
-    from blackwall.enterprise.advanced_threat_detection.reaction import (
-        ActiveReactionEngine,
+    # No security component is mapped for this domain. Refuse to synthesize a
+    # verdict from ground truth: an unevaluated domain must fail the pipeline
+    # rather than receive a fabricated passing candidate.
+    raise ValueError(
+        f"No security component is mapped for evaluation domain '{domain}'; "
+        "cannot evaluate scenario without executing a real detector"
     )
-
-    ActiveReactionEngine()
-    events = scenario.get("events") or scenario.get("trajectory") or []
-    ground_verdict = scenario.get("ground_truth_verdict", "BLOCK")
-    detected = ground_verdict in ("BLOCK", "QUARANTINE")
-
-    async def worker() -> dict[str, Any]:
-        return {
-            "domain": domain,
-            "verdict": ground_verdict,
-            "detected": detected,
-            "reasoning": f"ActiveReactionEngine evaluated {len(events)} threat events.",
-        }
-
-    return worker
 
 
 async def execute_security_candidate(
@@ -620,10 +609,11 @@ async def execute_security_candidate(
     span: Any = None,
 ) -> tuple[dict[str, Any], SLAMeasurement]:
     """
-    Execute the domain-specific Blackwall security component (e.g. SyncResolver, PromptInjectionScanner,
-    InboundProtocolFilter, AgentQuotaEnforcer, ContextHygiene, ActiveReactionEngine) directly against
-    the scenario input under SLA latency measurement. Imports and construction happen outside the
-    measurement window; only the security operation itself is timed.
+    Execute the domain-specific Blackwall security component (e.g. ContextHygiene, PromptInjectionScanner,
+    InboundProtocolFilter, AgentQuotaEnforcer, AgentSwarmDetector, C2InfrastructureDetector,
+    ExploitChainAnalyzer, AILMTracker) directly against the scenario input under SLA latency
+    measurement. Imports and construction happen outside the measurement window; only the security
+    operation itself is timed. Domains without a mapped component raise and produce an ERROR fallback.
     """
     domain = scenario.get("domain", "threat_interception").strip().lower()
     existing_result = scenario.get("candidate_result") or scenario.get("detection_output")
@@ -687,28 +677,6 @@ async def execute_security_candidate(
         cand_meta["sla_violated"] = measurement.violated
 
     return candidate_result, measurement
-
-
-def extract_or_simulate_candidate_result(scenario: dict[str, Any]) -> dict[str, Any]:
-    """
-    Extract existing candidate result from scenario or generate a standard candidate result payload.
-    """
-    if "candidate_result" in scenario and isinstance(scenario["candidate_result"], dict):
-        return scenario["candidate_result"]
-    if "detection_output" in scenario and isinstance(scenario["detection_output"], dict):
-        return scenario["detection_output"]
-
-    # Synthesize standard candidate response from scenario parameters
-    domain = scenario.get("domain", "threat_interception")
-    verdict = scenario.get("ground_truth_verdict", "BLOCK")
-
-    return {
-        "domain": domain,
-        "verdict": verdict,
-        "detected": True if verdict in ("BLOCK", "QUARANTINE") else False,
-        "reasoning": f"Automated Blackwall interception: evaluated {domain} threat policy.",
-        "metadata": scenario.get("metadata", {}),
-    }
 
 
 async def run_evaluation_pipeline(

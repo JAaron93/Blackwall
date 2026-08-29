@@ -443,5 +443,48 @@ async def test_ailm_branch_consumes_permission_grants(mock_paid_tier_env, tmp_pa
     candidate_result = mock_judge.evaluate.call_args.kwargs["candidate_result"]
     assert candidate_result["verdict"] == "BLOCK"
     assert candidate_result["detected"] is True
+    assert candidate_result.get("risk_levels")
     assert summary.failed_scenarios == 0
     assert exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_unmatched_domain_fails_gate_without_ground_truth_copy(mock_paid_tier_env, tmp_path: Path):
+    """Scenarios with unmapped domains must error out and fail the gate, never copy ground truth."""
+    scenarios = [
+        {
+            "scenario_id": "unmapped_001",
+            "domain": "unmapped_evaluation_domain",
+            "ground_truth_verdict": "BLOCK",
+        }
+    ]
+
+    mock_rubric = ThreatInterceptionRubric(
+        detection_accuracy_score=5,
+        false_positive_control_score=5,
+        reasoning_quality_score=5,
+        trajectory_soundness_score=5,
+        justification="Judge should not be able to pass an unevaluated domain",
+        is_fallback=False,
+    )
+    mock_judge = MagicMock()
+    mock_judge.evaluate = AsyncMock(return_value=mock_rubric)
+
+    with (
+        patch("scripts.run_gcp_eval.get_judge_for_domain", return_value=mock_judge),
+        patch("blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval.GCPVertexAIEvaluationHarness.run_eval_task", return_value={"status": "COMPLETED"}),
+    ):
+        exit_code, summary, _ = await run_evaluation_pipeline(
+            scenarios=scenarios,
+            threshold=3.5,
+            history_path=tmp_path / "history.jsonl",
+            export_trace=False,
+        )
+
+    candidate_result = mock_judge.evaluate.call_args.kwargs["candidate_result"]
+    assert candidate_result["verdict"] == "ERROR"
+    assert candidate_result["detected"] is False
+    assert candidate_result.get("is_fallback") is True
+    assert summary.failed_scenarios == 1
+    assert summary.all_passed is False
+    assert exit_code == 1
