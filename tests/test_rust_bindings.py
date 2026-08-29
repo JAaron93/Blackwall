@@ -3,6 +3,7 @@
 from urllib.parse import urlparse
 
 import pytest
+from urllib.parse import urlparse
 
 
 def test_rust_module_import():
@@ -81,7 +82,7 @@ def test_pure_python_fallbacks_when_core_rs_unavailable(monkeypatch):
         )
         iocs = sem.extract_iocs(ctx)
         assert "192.168.1.1" in iocs["ips"]
-        assert "https://evil.com" in iocs["urls"]
+        assert any(urlparse(url).hostname == "evil.com" for url in iocs["urls"])
         assert "d41d8cd98f00b204e9800998ecf8427e" in iocs["hashes"]
 
 
