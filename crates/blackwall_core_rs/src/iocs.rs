@@ -160,7 +160,7 @@ mod tests {
     #[test]
     fn test_extract_iocs() {
         let input = vec![
-            "Connect to 192.168.1.1, 2001:db8::1, ::1, or 999.999.999.999".to_string(),
+            "Connect to 192.168.1.1, 2001:db8::1, 2001:db8::, fe80::, ::1, or 999.999.999.999".to_string(),
             "Visit https://evil.com/path?arg=1 and api.malicious.net".to_string(),
             "Payload MD5: 5d41402abc4b2a76b9719d911017c592".to_string(),
         ];
@@ -169,6 +169,8 @@ mod tests {
         let ips = iocs.get("ips").unwrap();
         assert!(ips.contains(&"192.168.1.1".to_string()));
         assert!(ips.contains(&"2001:db8::1".to_string()));
+        assert!(ips.contains(&"2001:db8::".to_string()));
+        assert!(ips.contains(&"fe80::".to_string()));
         assert!(ips.contains(&"::1".to_string()));
         assert!(!ips.contains(&"999.999.999.999".to_string()));
 
