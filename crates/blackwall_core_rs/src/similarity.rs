@@ -146,13 +146,6 @@ pub fn batch_cosine_similarity(
             continue;
         }
 
-        if norm_q <= 0.0 {
-            if threshold <= 0.0 {
-                matches.push((sig_id, 0.0));
-            }
-            continue;
-        }
-
         // Direct zero-allocation dot product and candidate norm calculation
         let mut dot = 0.0f64;
         let mut cand_norm_sq = 0.0f64;
@@ -174,6 +167,13 @@ pub fn batch_cosine_similarity(
                 sig_id,
                 "error decoding vector: non-finite float value encountered".to_string(),
             ));
+            continue;
+        }
+
+        if norm_q <= 0.0 {
+            if threshold <= 0.0 {
+                matches.push((sig_id, 0.0));
+            }
             continue;
         }
 
