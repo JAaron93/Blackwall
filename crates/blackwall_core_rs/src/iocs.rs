@@ -98,15 +98,10 @@ pub fn extract_iocs_from_slice(strings: &[String]) -> HashMap<String, Vec<String
 
                 if Ipv6Addr::from_str(ipv6_candidate).is_ok() {
                     ips_set.insert(ipv6_candidate.to_string());
-                } else {
-                    let hex_only = ipv6_candidate.trim_end_matches(|c: char| !c.is_ascii_hexdigit() && c != ':');
-                    if !hex_only.is_empty() && Ipv6Addr::from_str(hex_only).is_ok() {
-                        ips_set.insert(hex_only.to_string());
-                    } else if let Some((ip_part, _port_part)) = trimmed.split_once(':') {
-                        let ip_part_trimmed = ip_part.trim_matches(|c: char| !c.is_ascii_digit());
-                        if Ipv4Addr::from_str(ip_part_trimmed).is_ok() {
-                            ips_set.insert(ip_part_trimmed.to_string());
-                        }
+                } else if let Some((ip_part, _port_part)) = trimmed.split_once(':') {
+                    let ip_part_trimmed = ip_part.trim_matches(|c: char| !c.is_ascii_digit());
+                    if Ipv4Addr::from_str(ip_part_trimmed).is_ok() {
+                        ips_set.insert(ip_part_trimmed.to_string());
                     }
                 }
             } else {
@@ -179,6 +174,7 @@ mod tests {
         let input = vec![
             "Connect to 192.168.1.1, 10.0.0.1:8080, 2001:db8::1, 2001:db8::2/path, 2001:db8::1:2:3:4:5, 2001:db8::, fe80::, ::1, or 999.999.999.999".to_string(),
             "Adjacent hex 0xdeadbeef::1 and prefix2001:db8::1 should not extract corrupt IPs".to_string(),
+            "Invalid tokens 2001:db8::1xyz and 2001:db8::1.example.com should not manufacture IPs".to_string(),
             "The target IPv6 server is 2001:db8::10. And gateway is 192.168.1.5.".to_string(),
             "Visit https://evil.com/path?arg=1 and api.malicious.net".to_string(),
             "Payload MD5: 5d41402abc4b2a76b9719d911017c592".to_string(),
@@ -200,6 +196,7 @@ mod tests {
         assert!(!ips.contains(&"0xdeadbeef::1".to_string()));
         assert!(!ips.contains(&"deadbeef::1".to_string()));
         assert!(!ips.contains(&"prefix2001:db8::1".to_string()));
+        assert!(!ips.contains(&"2001:db8::1xyz".to_string()));
 
         let urls = iocs.get("urls").unwrap();
         assert!(urls.iter().any(|u| u.starts_with("https://evil.com")));

@@ -41,6 +41,7 @@ def test_iocs_extraction_ipv4_and_ipv6():
         "IPv6 host 2001:0db8:85a3:0000:0000:8a2e:0370:7334",
         "Compressed IPv6 2001:db8::1, 2001:db8::2/path, 2001:db8::1:2:3:4:5, 2001:db8::, fe80::, and loopback ::1",
         "Adjacent hex 0xdeadbeef::1 and prefix2001:db8::1 should not extract corrupt IPs",
+        "Invalid tokens 2001:db8::1xyz and 2001:db8::1.example.com should not manufacture IPs",
         "Port-bound IPv4 10.0.0.1:8080 should extract IP",
         "The target IPv6 server is 2001:db8::10. And gateway is 192.168.1.5.",
     ]
@@ -65,6 +66,8 @@ def test_iocs_extraction_ipv4_and_ipv6():
     assert "0xdeadbeef::1" not in ips
     assert "deadbeef::1" not in ips
     assert "prefix2001:db8::1" not in ips
+    assert "2001:db8::1xyz" not in ips
+    assert "2001:db8::1.example.com" not in ips
 
 
 def test_iocs_extraction_urls_and_domains():
