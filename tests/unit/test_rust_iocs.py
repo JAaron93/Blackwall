@@ -40,6 +40,7 @@ def test_iocs_extraction_ipv4_and_ipv6():
         "Invalid IP 999.999.999.999 or 10.0.0.999",
         "IPv6 host 2001:0db8:85a3:0000:0000:8a2e:0370:7334",
         "Compressed IPv6 2001:db8::1, 2001:db8::1:2:3:4:5, 2001:db8::, fe80::, and loopback ::1",
+        "Adjacent hex 0xdeadbeef::1 and prefix2001:db8::1 should not extract corrupt IPs",
     ]
 
     iocs = _core_rs.extract_iocs(strings)
@@ -55,6 +56,9 @@ def test_iocs_extraction_ipv4_and_ipv6():
     assert "::1" in ips
     assert "999.999.999.999" not in ips
     assert "10.0.0.999" not in ips
+    assert "0xdeadbeef::1" not in ips
+    assert "deadbeef::1" not in ips
+    assert "prefix2001:db8::1" not in ips
 
 
 def test_iocs_extraction_urls_and_domains():

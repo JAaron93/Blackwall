@@ -5,20 +5,14 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 use std::sync::OnceLock;
 
-static IP_REGEX: OnceLock<Regex> = OnceLock::new();
-static IPV6_REGEX: OnceLock<Regex> = OnceLock::new();
+static TOKEN_REGEX: OnceLock<Regex> = OnceLock::new();
 static URL_REGEX: OnceLock<Regex> = OnceLock::new();
 static DOMAIN_REGEX: OnceLock<Regex> = OnceLock::new();
 static HASH_REGEX: OnceLock<Regex> = OnceLock::new();
 
-fn get_ip_regex() -> &'static Regex {
-    IP_REGEX.get_or_init(|| Regex::new(r"\b(?:\d{1,3}\.){3}\d{1,3}\b").expect("Failed to compile IP regex"))
-}
-
-fn get_ipv6_regex() -> &'static Regex {
-    IPV6_REGEX.get_or_init(|| {
-        Regex::new(r"(?i)(?:[0-9a-f]{0,4}:){1,8}[0-9a-f]{0,4}")
-            .expect("Failed to compile IPv6 regex")
+fn get_token_regex() -> &'static Regex {
+    TOKEN_REGEX.get_or_init(|| {
+        Regex::new(r#"[^\s,;'"()<>{}\[\]=]+"#).expect("Failed to compile token regex")
     })
 }
 
@@ -77,26 +71,26 @@ pub fn extract_iocs_from_slice(strings: &[String]) -> HashMap<String, Vec<String
     let mut domains_set: HashSet<String> = HashSet::new();
     let mut hashes_set: HashSet<String> = HashSet::new();
 
-    let ip_re = get_ip_regex();
-    let ipv6_re = get_ipv6_regex();
+    let token_re = get_token_regex();
     let url_re = get_url_regex();
     let domain_re = get_domain_regex();
     let hash_re = get_hash_regex();
 
     for s in strings {
-        // 1. Extract IPv4
-        for mat in ip_re.find_iter(s) {
-            let candidate = mat.as_str();
-            if Ipv4Addr::from_str(candidate).is_ok() {
-                ips_set.insert(candidate.to_string());
+        // 1. Extract IPs (IPv4 and IPv6) with strict token boundary isolation
+        for mat in token_re.find_iter(s) {
+            let token = mat.as_str().trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != ':' && c != '.');
+            if token.is_empty() {
+                continue;
             }
-        }
-
-        // Extract IPv6
-        for mat in ipv6_re.find_iter(s) {
-            let candidate = mat.as_str();
-            if Ipv6Addr::from_str(candidate).is_ok() {
-                ips_set.insert(candidate.to_string());
+            if token.contains(':') {
+                if Ipv6Addr::from_str(token).is_ok() {
+                    ips_set.insert(token.to_string());
+                }
+            } else if token.contains('.') {
+                if Ipv4Addr::from_str(token).is_ok() {
+                    ips_set.insert(token.to_string());
+                }
             }
         }
 
@@ -113,7 +107,7 @@ pub fn extract_iocs_from_slice(strings: &[String]) -> HashMap<String, Vec<String
         // 4. Extract Domains (excluding matched IPs)
         for mat in domain_re.find_iter(s) {
             let dom = mat.as_str();
-            if !ip_re.is_match(dom) && Ipv4Addr::from_str(dom).is_err() && Ipv6Addr::from_str(dom).is_err() {
+            if Ipv4Addr::from_str(dom).is_err() && Ipv6Addr::from_str(dom).is_err() {
                 domains_set.insert(dom.to_string());
             }
         }
@@ -161,6 +155,7 @@ mod tests {
     fn test_extract_iocs() {
         let input = vec![
             "Connect to 192.168.1.1, 2001:db8::1, 2001:db8::1:2:3:4:5, 2001:db8::, fe80::, ::1, or 999.999.999.999".to_string(),
+            "Adjacent hex 0xdeadbeef::1 and prefix2001:db8::1 should not extract corrupt IPs".to_string(),
             "Visit https://evil.com/path?arg=1 and api.malicious.net".to_string(),
             "Payload MD5: 5d41402abc4b2a76b9719d911017c592".to_string(),
         ];
@@ -174,6 +169,9 @@ mod tests {
         assert!(ips.contains(&"fe80::".to_string()));
         assert!(ips.contains(&"::1".to_string()));
         assert!(!ips.contains(&"999.999.999.999".to_string()));
+        assert!(!ips.contains(&"0xdeadbeef::1".to_string()));
+        assert!(!ips.contains(&"deadbeef::1".to_string()));
+        assert!(!ips.contains(&"prefix2001:db8::1".to_string()));
 
         let urls = iocs.get("urls").unwrap();
         assert!(urls.iter().any(|u| u.starts_with("https://evil.com")));
