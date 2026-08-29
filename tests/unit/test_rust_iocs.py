@@ -73,13 +73,13 @@ def test_iocs_extraction_urls_and_domains():
     ]
 
     iocs = _core_rs.extract_iocs(strings)
-    urls = set(iocs.get("urls", []))
+    urls = iocs.get("urls", [])
     domains = set(iocs.get("domains", []))
-    url_hosts = {parsed.hostname for parsed in (urlparse(u) for u in urls) if parsed.hostname}
+    url_netlocs = [urlparse(u).netloc for u in urls]
 
     assert "https://evil-domain.com/malware.bin" in urls
     assert "http://api.threat-intel.org/v1/query?token=xyz" in urls
-    assert "evil-domain.com" in url_hosts
+    assert any(loc == "evil-domain.com" for loc in url_netlocs)
     assert "c2.botnet-network.xyz" in domains
 
 

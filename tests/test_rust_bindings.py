@@ -54,7 +54,7 @@ def test_rust_iocs_and_entropy_bindings():
     # IOCs
     iocs = _core_rs.extract_iocs(["192.168.1.1", "https://example.com", "d41d8cd98f00b204e9800998ecf8427e"])
     assert "192.168.1.1" in iocs["ips"]
-    assert "example.com" in {urlparse(u).hostname for u in iocs["urls"] if urlparse(u).hostname}
+    assert any(urlparse(u).netloc == "example.com" for u in iocs["urls"])
 def test_pure_python_fallbacks_when_core_rs_unavailable(monkeypatch):
     """Verify that Python wrappers gracefully fall back to pure-Python implementations when _core_rs is None."""
     import blackwall.validators as val
