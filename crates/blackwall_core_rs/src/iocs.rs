@@ -105,7 +105,7 @@ pub fn extract_iocs_from_slice(strings: &[String]) -> HashMap<String, Vec<String
                     }
                 }
             } else {
-                let ipv4_candidate = trimmed.trim_matches(|c: char| !c.is_ascii_digit());
+                let ipv4_candidate = trimmed;
                 if Ipv4Addr::from_str(ipv4_candidate).is_ok() {
                     ips_set.insert(ipv4_candidate.to_string());
                 }
