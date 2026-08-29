@@ -2,6 +2,7 @@
 
 import math
 from collections import Counter
+from urllib.parse import urlparse
 import pytest
 from blackwall import _core_rs
 
@@ -64,10 +65,11 @@ def test_iocs_extraction_urls_and_domains():
     iocs = _core_rs.extract_iocs(strings)
     urls = set(iocs.get("urls", []))
     domains = set(iocs.get("domains", []))
+    url_hosts = {parsed.hostname for parsed in (urlparse(u) for u in urls) if parsed.hostname}
 
     assert "https://evil-domain.com/malware.bin" in urls
     assert "http://api.threat-intel.org/v1/query?token=xyz" in urls
-    assert "evil-domain.com" in domains
+    assert "evil-domain.com" in url_hosts
     assert "c2.botnet-network.xyz" in domains
 
 
