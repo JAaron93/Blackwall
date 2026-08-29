@@ -64,6 +64,9 @@ Blackwall is divided into two distinct product tiers:
   - All Rust FFI boundaries MUST return `PyResult<T>` and never panic across the C ABI.
   - Internal Rust errors MUST map cleanly to Python built-in exceptions (`PyValueError`, `PyRuntimeError`).
   - All Python wrappers (`context_hygiene.py`, `resolver.py`, `validators.py`, `repository.py`, `semantic.py`, `correlator.py`, `swarm.py`) MUST maintain seamless pure-Python fallbacks when `blackwall._core_rs` is missing or unbuilt.
+- **Anti-Oscillation & Review Stability Directive**:
+  - Reviewers must not reopen, oscillate between, or contradict previously accepted implementations across review iterations.
+  - **IPv6 Token Parsing Semantics**: In IOC extraction, standard RFC 4291 token boundaries and Rust `std::net::Ipv6Addr` grammar govern valid addresses. Distinct valid hexadecimal characters within a token (e.g. `2001:db8::1abc`) parse as legitimate 16-bit hextets (`0x1abc`) according to standard IPv6 notation.
 - **Portable Cross-Platform Toolchains**:
   - Rust crate configuration in `crates/blackwall_core_rs/Cargo.toml` and `pyproject.toml` MUST use standard toolchains discovered in `PATH` or `$CARGO_HOME/bin`, ensuring portable builds across macOS (x86_64, ARM64 Apple Silicon) and Linux containers without hardcoded developer-specific paths.
 
