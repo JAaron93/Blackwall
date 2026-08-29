@@ -17,7 +17,7 @@ fn get_ip_regex() -> &'static Regex {
 
 fn get_ipv6_regex() -> &'static Regex {
     IPV6_REGEX.get_or_init(|| {
-        Regex::new(r"\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b")
+        Regex::new(r"(?i)\b(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}\b|\b(?:[0-9a-f]{1,4}:){1,6}:[0-9a-f]{1,4}\b|\b(?:[0-9a-f]{1,4}:){1,5}(?::[0-9a-f]{1,4}){1,2}\b|\b(?:[0-9a-f]{1,4}:){1,4}(?::[0-9a-f]{1,4}){1,3}\b|\b(?:[0-9a-f]{1,4}:){1,3}(?::[0-9a-f]{1,4}){1,4}\b|\b(?:[0-9a-f]{1,4}:){1,2}(?::[0-9a-f]{1,4}){1,5}\b|\b[0-9a-f]{1,4}:(?::[0-9a-f]{1,4}){1,6}\b|:(?::[0-9a-f]{1,4}){1,7}\b|\b(?:[0-9a-f]{1,4}:){1,7}:\b|::1\b|::")
             .expect("Failed to compile IPv6 regex")
     })
 }
@@ -113,7 +113,7 @@ pub fn extract_iocs_from_slice(strings: &[String]) -> HashMap<String, Vec<String
         // 4. Extract Domains (excluding matched IPs)
         for mat in domain_re.find_iter(s) {
             let dom = mat.as_str();
-            if !ip_re.is_match(dom) {
+            if !ip_re.is_match(dom) && Ipv4Addr::from_str(dom).is_err() && Ipv6Addr::from_str(dom).is_err() {
                 domains_set.insert(dom.to_string());
             }
         }
@@ -160,7 +160,7 @@ mod tests {
     #[test]
     fn test_extract_iocs() {
         let input = vec![
-            "Connect to 192.168.1.1 or 999.999.999.999".to_string(),
+            "Connect to 192.168.1.1, 2001:db8::1, ::1, or 999.999.999.999".to_string(),
             "Visit https://evil.com/path?arg=1 and api.malicious.net".to_string(),
             "Payload MD5: 5d41402abc4b2a76b9719d911017c592".to_string(),
         ];
@@ -168,6 +168,8 @@ mod tests {
 
         let ips = iocs.get("ips").unwrap();
         assert!(ips.contains(&"192.168.1.1".to_string()));
+        assert!(ips.contains(&"2001:db8::1".to_string()));
+        assert!(ips.contains(&"::1".to_string()));
         assert!(!ips.contains(&"999.999.999.999".to_string()));
 
         let urls = iocs.get("urls").unwrap();
@@ -176,6 +178,7 @@ mod tests {
         let domains = iocs.get("domains").unwrap();
         assert!(domains.contains(&"api.malicious.net".to_string()));
         assert!(!domains.contains(&"192.168.1.1".to_string()));
+        assert!(!domains.contains(&"2001:db8::1".to_string()));
 
         let hashes = iocs.get("hashes").unwrap();
         assert!(hashes.contains(&"5d41402abc4b2a76b9719d911017c592".to_string()));

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import math
 import time
 import uuid
 from typing import Any, Dict, List, Optional
@@ -650,11 +651,13 @@ class SQLiteThreatRepository:
                 )
                 vector_rows = await cursor.fetchall()
 
-                # Validate query_vector dimension
+                # Validate query_vector dimension and finite values
                 if len(query_vector) != 768:
                     raise ValueError(
                         f"Query vector has incorrect dimension {len(query_vector)}, expected 768"
                     )
+                if any(not math.isfinite(x) for x in query_vector):
+                    raise ValueError("Query vector contains non-finite values (NaN or Inf)")
 
                 if _core_rs is not None and hasattr(_core_rs, "batch_cosine_similarity"):
                     row_map = {row[0]: row for row in vector_rows}
@@ -689,14 +692,19 @@ class SQLiteThreatRepository:
                             arr.frombytes(similarity_vector)
                             vector_floats = arr.tolist()
 
-                            if len(vector_floats) == 768:
-                                is_valid_vector = True
-                            else:
+                            if len(vector_floats) != 768:
                                 logger.warning(
                                     f"Excluding signature {sig_id} from vector similarity query due to incorrect vector dimension {len(vector_floats)}",
                                     signature_id=sig_id,
                                     dimension=len(vector_floats),
                                 )
+                            elif any(not math.isfinite(x) for x in vector_floats):
+                                logger.warning(
+                                    f"Excluding signature {sig_id} from vector similarity query due to non-finite float values",
+                                    signature_id=sig_id,
+                                )
+                            else:
+                                is_valid_vector = True
                         except Exception as e:
                             logger.warning(
                                 f"Excluding signature {sig_id} from vector similarity query due to error decoding vector: {e}",
@@ -708,8 +716,6 @@ class SQLiteThreatRepository:
                             continue
 
                         # Calculate cosine similarity
-                        import math
-
                         dot_product = sum(
                             x * y for x, y in zip(query_vector, vector_floats, strict=True)
                         )

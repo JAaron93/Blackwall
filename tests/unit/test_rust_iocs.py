@@ -38,14 +38,17 @@ def test_iocs_extraction_ipv4_and_ipv6():
         "Primary host 192.168.1.100 and public 8.8.8.8",
         "Invalid IP 999.999.999.999 or 10.0.0.999",
         "IPv6 host 2001:0db8:85a3:0000:0000:8a2e:0370:7334",
+        "Compressed IPv6 2001:db8::1 and loopback ::1",
     ]
 
     iocs = _core_rs.extract_iocs(strings)
-    ips = iocs.get("ips", [])
+    ips = set(iocs.get("ips", []))
 
     assert "192.168.1.100" in ips
     assert "8.8.8.8" in ips
     assert "2001:0db8:85a3:0000:0000:8a2e:0370:7334" in ips
+    assert "2001:db8::1" in ips
+    assert "::1" in ips
     assert "999.999.999.999" not in ips
     assert "10.0.0.999" not in ips
 
@@ -59,12 +62,13 @@ def test_iocs_extraction_urls_and_domains():
     ]
 
     iocs = _core_rs.extract_iocs(strings)
-    urls = iocs.get("urls", [])
-    domains = iocs.get("domains", [])
+    urls = set(iocs.get("urls", []))
+    domains = set(iocs.get("domains", []))
 
-    assert any("https://evil-domain.com/malware.bin" in u for u in urls)
-    assert any("http://api.threat-intel.org/v1/query?token=xyz" in u for u in urls)
-    assert "evil-domain.com" in domains or "c2.botnet-network.xyz" in domains
+    assert "https://evil-domain.com/malware.bin" in urls
+    assert "http://api.threat-intel.org/v1/query?token=xyz" in urls
+    assert "evil-domain.com" in domains
+    assert "c2.botnet-network.xyz" in domains
 
 
 def test_iocs_extraction_hashes():

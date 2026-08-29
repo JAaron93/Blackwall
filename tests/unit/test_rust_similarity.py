@@ -54,6 +54,10 @@ def test_batch_cosine_similarity_malformed_candidate_isolation():
         ("sig-corrupted", corrupted_bytes),
     ]
 
+    # Add candidate with NaN float
+    nan_cand = array.array("f", [float("nan")] * 768).tobytes()
+    candidates.append(("sig-nan", nan_cand))
+
     matches, exclusions = _core_rs.batch_cosine_similarity(q, candidates, 768, 0.85)
 
     assert len(matches) == 2
@@ -62,12 +66,27 @@ def test_batch_cosine_similarity_malformed_candidate_isolation():
     assert "sig-valid-2" in matched_ids
     assert all(m[1] == pytest.approx(1.0, rel=1e-5) for m in matches)
 
-    assert len(exclusions) == 2
+    assert len(exclusions) == 3
     excluded_map = dict(exclusions)
     assert "sig-bad-dim" in excluded_map
     assert "incorrect vector dimension 384" in excluded_map["sig-bad-dim"]
     assert "sig-corrupted" in excluded_map
     assert "error decoding vector" in excluded_map["sig-corrupted"]
+    assert "sig-nan" in excluded_map
+    assert "non-finite float" in excluded_map["sig-nan"]
+
+
+def test_batch_cosine_similarity_nan_query_validation():
+    """Verify ValueError is raised when query vector contains NaN."""
+    query = [1.0] * 767 + [float("nan")]
+    with pytest.raises(ValueError, match="non-finite"):
+        _core_rs.batch_cosine_similarity(query, [], 768, 0.85)
+
+
+def test_cosine_similarity_nan_validation():
+    """Verify ValueError is raised when cosine_similarity is given NaN values."""
+    with pytest.raises(ValueError, match="non-finite"):
+        _core_rs.cosine_similarity([1.0, float("nan")], [1.0, 1.0])
 
 
 def test_word_intersection_match_quality_parity():

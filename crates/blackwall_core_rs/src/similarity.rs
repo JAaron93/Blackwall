@@ -73,6 +73,9 @@ pub fn cosine_similarity(v1: Vec<f32>, v2: Vec<f32>) -> PyResult<f64> {
     if v1.is_empty() {
         return Err(PyValueError::new_err("Vectors must not be empty"));
     }
+    if v1.iter().any(|x| !x.is_finite()) || v2.iter().any(|x| !x.is_finite()) {
+        return Err(PyValueError::new_err("Vectors must not contain non-finite values (NaN or Inf)"));
+    }
     Ok(calculate_cosine_similarity(&v1, &v2))
 }
 
@@ -100,6 +103,12 @@ pub fn batch_cosine_similarity(
             query_vector.len(),
             dim
         )));
+    }
+
+    if query_vector.iter().any(|q| !q.is_finite()) {
+        return Err(PyValueError::new_err(
+            "Query vector contains non-finite values (NaN or Inf)",
+        ));
     }
 
     let mut matches = Vec::new();
@@ -147,17 +156,44 @@ pub fn batch_cosine_similarity(
         // Direct zero-allocation dot product and candidate norm calculation
         let mut dot = 0.0f64;
         let mut cand_norm_sq = 0.0f64;
+        let mut has_non_finite = false;
 
         for (&q_val, chunk) in query_vector.iter().zip(raw_bytes.chunks_exact(4)) {
             let arr: [u8; 4] = [chunk[0], chunk[1], chunk[2], chunk[3]];
             let c_val = f32::from_ne_bytes(arr) as f64;
+            if !c_val.is_finite() {
+                has_non_finite = true;
+                break;
+            }
             dot += (q_val as f64) * c_val;
             cand_norm_sq += c_val * c_val;
         }
 
+        if has_non_finite {
+            exclusions.push((
+                sig_id,
+                "error decoding vector: non-finite float value encountered".to_string(),
+            ));
+            continue;
+        }
+
         let norm_c = cand_norm_sq.sqrt();
         let denom = norm_q * norm_c;
-        let score = if denom > 0.0 { dot / denom } else { 0.0 };
+        if !denom.is_finite() || denom <= 0.0 {
+            if threshold <= 0.0 {
+                matches.push((sig_id, 0.0));
+            }
+            continue;
+        }
+
+        let score = dot / denom;
+        if !score.is_finite() {
+            exclusions.push((
+                sig_id,
+                "error calculating similarity: non-finite score".to_string(),
+            ));
+            continue;
+        }
 
         if score >= threshold {
             matches.push((sig_id, score));
@@ -223,5 +259,23 @@ mod tests {
         assert_eq!(exclusions.len(), 2);
         assert!(exclusions.iter().any(|(id, _)| id == "sig-bad-dim"));
         assert!(exclusions.iter().any(|(id, _)| id == "sig-malformed"));
+    }
+
+    #[test]
+    fn test_batch_nan_candidate_isolation() {
+        let q = vec![1.0f32; 768];
+        let mut nan_vec = vec![1.0f32; 768];
+        nan_vec[10] = f32::NAN;
+        let nan_bytes: Vec<u8> = nan_vec.iter().flat_map(|f| f.to_ne_bytes()).collect();
+
+        let candidates = vec![
+            ("sig-nan".to_string(), nan_bytes),
+        ];
+
+        let (matches, exclusions) = batch_cosine_similarity(q, candidates, 768, 0.85).unwrap();
+        assert_eq!(matches.len(), 0);
+        assert_eq!(exclusions.len(), 1);
+        assert_eq!(exclusions[0].0, "sig-nan");
+        assert!(exclusions[0].1.contains("non-finite"));
     }
 }
