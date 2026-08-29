@@ -16,6 +16,14 @@ from blackwall.validators import (
 )
 from .pool import AsyncConnectionPool
 
+try:
+    try:
+        from blackwall import _core_rs
+    except ImportError:
+        import _core_rs
+except (ImportError, AttributeError):
+    _core_rs = None
+
 logger = structlog.get_logger("blackwall.db.repository")
 
 
@@ -648,53 +656,73 @@ class SQLiteThreatRepository:
                         f"Query vector has incorrect dimension {len(query_vector)}, expected 768"
                     )
 
-                for row in vector_rows:
-                    sig_id = row[0]
-                    similarity_vector = row[11]
-
-                    is_valid_vector = False
-                    vector_floats = None
-                    try:
-                        import array
-
-                        arr = array.array("f")
-                        arr.frombytes(similarity_vector)
-                        vector_floats = arr.tolist()
-
-                        if len(vector_floats) == 768:
-                            is_valid_vector = True
-                        else:
-                            logger.warning(
-                                f"Excluding signature {sig_id} from vector similarity query due to incorrect vector dimension {len(vector_floats)}",
-                                signature_id=sig_id,
-                                dimension=len(vector_floats),
-                            )
-                    except Exception as e:
+                if _core_rs is not None and hasattr(_core_rs, "batch_cosine_similarity"):
+                    row_map = {row[0]: row for row in vector_rows}
+                    candidates = [
+                        (row[0], bytes(row[11]))
+                        for row in vector_rows
+                        if row[11] is not None
+                    ]
+                    batch_matches, exclusions = _core_rs.batch_cosine_similarity(
+                        query_vector, candidates, 768, threshold
+                    )
+                    for sig_id, err_str in exclusions:
                         logger.warning(
-                            f"Excluding signature {sig_id} from vector similarity query due to error decoding vector: {e}",
+                            f"Excluding signature {sig_id} from vector similarity query due to {err_str}",
                             signature_id=sig_id,
-                            error=str(e),
+                            error=err_str,
+                        )
+                    for sig_id, score in batch_matches:
+                        if sig_id in row_map:
+                            matches.append(_parse_row(row_map[sig_id], score))
+                else:
+                    for row in vector_rows:
+                        sig_id = row[0]
+                        similarity_vector = row[11]
+
+                        is_valid_vector = False
+                        vector_floats = None
+                        try:
+                            import array
+
+                            arr = array.array("f")
+                            arr.frombytes(similarity_vector)
+                            vector_floats = arr.tolist()
+
+                            if len(vector_floats) == 768:
+                                is_valid_vector = True
+                            else:
+                                logger.warning(
+                                    f"Excluding signature {sig_id} from vector similarity query due to incorrect vector dimension {len(vector_floats)}",
+                                    signature_id=sig_id,
+                                    dimension=len(vector_floats),
+                                )
+                        except Exception as e:
+                            logger.warning(
+                                f"Excluding signature {sig_id} from vector similarity query due to error decoding vector: {e}",
+                                signature_id=sig_id,
+                                error=str(e),
+                            )
+
+                        if not is_valid_vector:
+                            continue
+
+                        # Calculate cosine similarity
+                        import math
+
+                        dot_product = sum(
+                            x * y for x, y in zip(query_vector, vector_floats, strict=True)
+                        )
+                        norm_q = math.sqrt(sum(x * x for x in query_vector))
+                        norm_s = math.sqrt(sum(x * x for x in vector_floats))
+                        similarity_score = (
+                            dot_product / (norm_q * norm_s)
+                            if norm_q > 0.0 and norm_s > 0.0
+                            else 0.0
                         )
 
-                    if not is_valid_vector:
-                        continue
-
-                    # Calculate cosine similarity
-                    import math
-
-                    dot_product = sum(
-                        x * y for x, y in zip(query_vector, vector_floats, strict=True)
-                    )
-                    norm_q = math.sqrt(sum(x * x for x in query_vector))
-                    norm_s = math.sqrt(sum(x * x for x in vector_floats))
-                    similarity_score = (
-                        dot_product / (norm_q * norm_s)
-                        if norm_q > 0.0 and norm_s > 0.0
-                        else 0.0
-                    )
-
-                    if similarity_score >= threshold:
-                        matches.append(_parse_row(row, similarity_score))
+                        if similarity_score >= threshold:
+                            matches.append(_parse_row(row, similarity_score))
 
                 # 2. For signatures without vectors, query them via FTS5 if there's a query
                 # Use target_tool as a separate WHERE predicate, not in MATCH
