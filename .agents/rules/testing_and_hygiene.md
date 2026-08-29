@@ -336,4 +336,16 @@
   Test suites and test fixtures (`conftest.py`) must configure both `GEMINI_TIER="paid"` and `BLACKWALL_TIER="paid"` alongside `GCP_PROJECT` and `GOOGLE_GENAI_USE_VERTEXAI="true"` in autouse fixtures (`fixture_gcp_vertex_ai_env`) to maintain paid-tier contract validity during local test executions.
 * **Rationale:** Discovered during Track C implementation and PR #101 review cycles. Broad exception handlers in evaluation judges that catch `Exception` during `_get_agent()` risk masking missing paid-tier configurations by returning ground-truth-aware fallback rubrics, allowing PRs to pass CI without authenticating or executing the required Vertex AI judge.
 
+## 44. Automated Review Agent Circuit Breaker & Anti-Oscillation Protocol
+* **Rule (Circuit Breaker Triggering):**
+  During automated AI review loops (e.g. Greptile, CodeRabbit), agents MUST NOT enter recursive code-churn cycles (>2-3 iterations) attempting to satisfy contradictory, oscillating, or pedantic micro-edge-case review comments. When an automated reviewer re-flags previously resolved topics, applies contradictory requirements, or enters an edge-case spiral (e.g., demanding ad-hoc token splitting that violates RFC/protocol specifications), the agent MUST invoke the `review-agent-circuit-breaker` skill.
+* **Rule (Configuration & Rule Synthesis):**
+  Instead of writing defensive, brittle code workarounds to satisfy reviewer pedantry:
+  1. **Halt Code Ping-Ponging**: Cease speculative code modifications.
+  2. **Synthesize Reviewer Rulebooks**: Update repository-level reviewer instructions (e.g. `.greptile/rules.md` Anti-Oscillation Directive and explicit grammar/RFC boundaries) to clarify design invariants.
+  3. **Strict Standard Invariants**: Enforce unambiguous standard protocol/RFC boundaries (such as Rust `std::net::Ipv6Addr` whole-token validation) without fallback heuristics that manufacture invalid data.
+  4. **Verification & Resolution**: Verify full test suite pass rates, push configuration updates, resolve GraphQL review threads, and re-trigger review to achieve passing status with zero churn.
+* **Rationale:** AI reviewers evaluate PR diffs statelessly and can fall into contradictory loops or micro-edge-case spirals. Establishing clear repository-level reviewer rules breaks churn loops and stabilizes review confidence scores deterministically.
+
+
 
