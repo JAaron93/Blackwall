@@ -17,7 +17,7 @@ fn get_ip_regex() -> &'static Regex {
 
 fn get_ipv6_regex() -> &'static Regex {
     IPV6_REGEX.get_or_init(|| {
-        Regex::new(r"(?i)\b(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}\b|\b(?:[0-9a-f]{1,4}:){1,6}:[0-9a-f]{1,4}\b|\b(?:[0-9a-f]{1,4}:){1,5}(?::[0-9a-f]{1,4}){1,2}\b|\b(?:[0-9a-f]{1,4}:){1,4}(?::[0-9a-f]{1,4}){1,3}\b|\b(?:[0-9a-f]{1,4}:){1,3}(?::[0-9a-f]{1,4}){1,4}\b|\b(?:[0-9a-f]{1,4}:){1,2}(?::[0-9a-f]{1,4}){1,5}\b|\b[0-9a-f]{1,4}:(?::[0-9a-f]{1,4}){1,6}\b|:(?::[0-9a-f]{1,4}){1,7}\b|\b(?:[0-9a-f]{1,4}:){1,7}:|::1\b|::")
+        Regex::new(r"(?i)(?:[0-9a-f]{0,4}:){1,8}[0-9a-f]{0,4}")
             .expect("Failed to compile IPv6 regex")
     })
 }
@@ -160,7 +160,7 @@ mod tests {
     #[test]
     fn test_extract_iocs() {
         let input = vec![
-            "Connect to 192.168.1.1, 2001:db8::1, 2001:db8::, fe80::, ::1, or 999.999.999.999".to_string(),
+            "Connect to 192.168.1.1, 2001:db8::1, 2001:db8::1:2:3:4:5, 2001:db8::, fe80::, ::1, or 999.999.999.999".to_string(),
             "Visit https://evil.com/path?arg=1 and api.malicious.net".to_string(),
             "Payload MD5: 5d41402abc4b2a76b9719d911017c592".to_string(),
         ];
@@ -169,6 +169,7 @@ mod tests {
         let ips = iocs.get("ips").unwrap();
         assert!(ips.contains(&"192.168.1.1".to_string()));
         assert!(ips.contains(&"2001:db8::1".to_string()));
+        assert!(ips.contains(&"2001:db8::1:2:3:4:5".to_string()));
         assert!(ips.contains(&"2001:db8::".to_string()));
         assert!(ips.contains(&"fe80::".to_string()));
         assert!(ips.contains(&"::1".to_string()));
