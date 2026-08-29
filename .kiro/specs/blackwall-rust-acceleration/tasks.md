@@ -13,12 +13,12 @@ This task document defines the test-driven implementation plan for the Blackwall
 | **TASK-2.1** | Rust `ContextSanitizer` (Dual-Mode) & Hasher | FR-1, NFR-1, NFR-2, NFR-3 | TASK-1.2 | Sequential | **`[x] COMPLETE`** |
 | **TASK-2.2** | Python `ContextHygiene` Wrappers & Fallbacks | FR-1, FR-5, NFR-2 | TASK-2.1 | Sequential | **`[x] COMPLETE`** |
 | **TASK-2.3** | Context Hygiene BDD & Property Tests | FR-1, NFR-2, NFR-3 | TASK-2.2 | Sequential | **`[x] COMPLETE`** |
-| **TASK-3A.1**| Rust SIMD Cosine & Malformed Isolation | FR-2, NFR-1, NFR-2 | TASK-1.2 | Parallel Track A | `[ ] PENDING` |
-| **TASK-3A.2**| Python `validators.py` / `repository.py` Wrap | FR-2, FR-5, NFR-2 | TASK-3A.1 | Parallel Track A | `[ ] PENDING` |
-| **TASK-3A.3**| Vector & Match Quality Verification Tests | FR-2, NFR-1, NFR-2 | TASK-3A.2 | Parallel Track A | `[ ] PENDING` |
-| **TASK-3B.1**| Rust `RegexSet` IOC & Entropy Engine | FR-3, NFR-1, NFR-3 | TASK-1.2 | Parallel Track B | `[ ] PENDING` |
-| **TASK-3B.2**| Python `semantic.py` Wrapper & Fallback | FR-3, FR-5, NFR-2 | TASK-3B.1 | Parallel Track B | `[ ] PENDING` |
-| **TASK-3B.3**| IOC Extraction & Entropy Unit Tests | FR-3, NFR-1, NFR-2 | TASK-3B.2 | Parallel Track B | `[ ] PENDING` |
+| **TASK-3A.1**| Rust SIMD Cosine & Malformed Isolation | FR-2, NFR-1, NFR-2 | TASK-1.2 | Parallel Track A | **`[x] COMPLETE`** |
+| **TASK-3A.2**| Python `validators.py` / `repository.py` Wrap | FR-2, FR-5, NFR-2 | TASK-3A.1 | Parallel Track A | **`[x] COMPLETE`** |
+| **TASK-3A.3**| Vector & Match Quality Verification Tests | FR-2, NFR-1, NFR-2 | TASK-3A.2 | Parallel Track A | **`[x] COMPLETE`** |
+| **TASK-3B.1**| Rust `RegexSet` IOC & Entropy Engine | FR-3, NFR-1, NFR-3 | TASK-1.2 | Parallel Track B | **`[x] COMPLETE`** |
+| **TASK-3B.2**| Python `semantic.py` Wrapper & Fallback | FR-3, FR-5, NFR-2 | TASK-3B.1 | Parallel Track B | **`[x] COMPLETE`** |
+| **TASK-3B.3**| IOC Extraction & Entropy Unit Tests | FR-3, NFR-1, NFR-2 | TASK-3B.2 | Parallel Track B | **`[x] COMPLETE`** |
 | **TASK-4.1** | Rust Graph DFS & Temporal Correlator | FR-4, NFR-1, US-3 | TASK-1.2 | Sequential | `[ ] PENDING` |
 | **TASK-4.2** | Python `correlator.py` / `swarm.py` Wrap | FR-4, FR-5, US-3 | TASK-4.1 | Sequential | `[ ] PENDING` |
 | **TASK-4.3** | Path & Swarm Correlation BDD Tests | FR-4, NFR-1, US-3 | TASK-4.2 | Sequential | `[ ] PENDING` |
@@ -75,7 +75,7 @@ This task document defines the test-driven implementation plan for the Blackwall
 > [!TIP] PARALLEL EXECUTION
 > Track 3A (Vector Similarity & Word Match) and Track 3B (IOC Extraction & Entropy) can be developed concurrently once Track 1 is complete.
 
-### - [ ] TASK-3A.1: Implement Rust SIMD Vector Cosine, Malformed Candidate Isolation & Word Match (Track 3A)
+### - [x] TASK-3A.1: Implement Rust SIMD Vector Cosine, Malformed Candidate Isolation & Word Match (Track 3A)
 - **Description**: Create `crates/blackwall_core_rs/src/similarity.rs` implementing SIMD-aligned cosine similarity over `&[f32]` byte slices, resilient malformed candidate isolation (excluding corrupted database rows while scoring valid candidates), and zero-allocation lowercase word-intersection matching. Raise `ValueError` on invalid query vector dimensions.
 - **Dependencies**: TASK-1.2.
 - **Traceability**: FR-2, NFR-1, NFR-2.
@@ -84,32 +84,32 @@ This task document defines the test-driven implementation plan for the Blackwall
   2. Exclusion of corrupted candidate rows in batch queries without aborting the batch.
   3. Word-intersection match quality parity.
 
-### - [ ] TASK-3A.2: Integrate Vector & Match Quality into Python Wrappers (Track 3A)
+### - [x] TASK-3A.2: Integrate Vector & Match Quality into Python Wrappers (Track 3A)
 - **Description**: Update `src/blackwall/validators.py` and `src/blackwall/db/repository.py` to use `_core_rs.batch_cosine_similarity` and `_core_rs.compute_word_intersection_match_quality` with pure-Python fallback, preserving diagnostic exclusion logs for corrupted database rows.
 - **Dependencies**: TASK-3A.1.
 - **Traceability**: FR-2, FR-5, NFR-2.
 - **TDD Requirement**: Run `pytest tests/unit/test_validators.py tests/db/test_repository_similarity.py`.
 
-### - [ ] TASK-3A.3: Vector & Match Quality Verification Suite (Track 3A)
+### - [x] TASK-3A.3: Vector & Match Quality Verification Suite (Track 3A)
 - **Description**: Benchmark 768-dim vector searches over 1,000 candidate vectors to verify $<20\mu\text{s}$ latency and assert exact score parity.
 - **Dependencies**: TASK-3A.2.
 - **Traceability**: FR-2, NFR-1, NFR-2.
 
 ---
 
-### - [ ] TASK-3B.1: Implement Rust Single-Pass `RegexSet` IOC Extractor & Shannon Entropy (Track 3B)
+### - [x] TASK-3B.1: Implement Rust Single-Pass `RegexSet` IOC Extractor & Shannon Entropy (Track 3B)
 - **Description**: Create `crates/blackwall_core_rs/src/iocs.rs` implementing combined `RegexSet` matching for IPv4/IPv6, URLs, domains, hashes, and 256-bin Shannon entropy calculation.
 - **Dependencies**: TASK-1.2.
 - **Traceability**: FR-3, NFR-1, NFR-3.
 - **TDD Requirement**: Write Rust unit tests verifying extraction and entropy matching Python reference implementations.
 
-### - [ ] TASK-3B.2: Integrate IOC Extractor into `semantic.py` & Forensics (Track 3B)
+### - [x] TASK-3B.2: Integrate IOC Extractor into `semantic.py` & Forensics (Track 3B)
 - **Description**: Update `src/blackwall/policy/semantic.py` to route `extract_iocs` and `calculate_entropy` to `_core_rs` with pure-Python fallback.
 - **Dependencies**: TASK-3B.1.
 - **Traceability**: FR-3, FR-5, NFR-2.
 - **TDD Requirement**: Run `pytest tests/unit/test_semantic_gating.py`.
 
-### - [ ] TASK-3B.3: IOC & Entropy Test Verification (Track 3B)
+### - [x] TASK-3B.3: IOC & Entropy Test Verification (Track 3B)
 - **Description**: Verify semantic gating test suite and edge-case inputs (IPv6 loopbacks, malformed URLs).
 - **Dependencies**: TASK-3B.2.
 - **Traceability**: FR-3, NFR-1, NFR-2.

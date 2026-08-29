@@ -107,20 +107,22 @@ class ContextHygiene:
     def __init__(self, patterns: Optional[List[tuple[str, str, str]]] = None):
         if patterns is None:
             self.patterns = list(self._COMPILED_DEFAULT_PATTERNS)
+            raw_patterns = [
+                (name, pat, placeholder) for name, pat, placeholder in self.DEFAULT_PATTERNS
+            ]
         else:
             self.patterns = []
+            raw_patterns = []
             for name, pat, placeholder in patterns:
                 self.patterns.append((name, re.compile(pat), placeholder))
+                raw_patterns.append((name, pat, placeholder))
         try:
             try:
                 from blackwall import _core_rs
             except ImportError:
                 import _core_rs
 
-            if patterns is not None:
-                self._rust_sanitizer = _core_rs.ContextSanitizer(patterns)
-            else:
-                self._rust_sanitizer = _core_rs.ContextSanitizer()
+            self._rust_sanitizer = _core_rs.ContextSanitizer(raw_patterns)
         except (ImportError, AttributeError):
             self._rust_sanitizer = None
 
@@ -138,8 +140,9 @@ class ContextHygiene:
             )
         return full
 
+
     def sanitize_string(self, text: str) -> str:
-        if self._rust_sanitizer is not None:
+        if self._rust_sanitizer is not None and len(self.patterns) == len(self._COMPILED_DEFAULT_PATTERNS):
             try:
                 return self._rust_sanitizer.sanitize_string(text, True)
             except Exception as e:

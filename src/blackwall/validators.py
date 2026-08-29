@@ -6,6 +6,14 @@ import re
 from typing import Any, Collection, Optional, TypeVar, Union
 from uuid import UUID, uuid4
 
+try:
+    try:
+        from blackwall import _core_rs
+    except ImportError:
+        import _core_rs
+except (ImportError, AttributeError):
+    _core_rs = None
+
 T = TypeVar("T", bound=Collection[Any])
 
 
@@ -137,6 +145,12 @@ def parse_iso_datetime(
 
 def compute_word_intersection_match_quality(query_text: str, candidate_text: str) -> float:
     """Compute word-level intersection match quality between a query text and candidate text."""
+    if _core_rs is not None and hasattr(_core_rs, "compute_word_intersection_match_quality"):
+        try:
+            return float(_core_rs.compute_word_intersection_match_quality(query_text, candidate_text))
+        except Exception:
+            pass
+
     query_words = set(re.findall(r"\w+", query_text.lower()))
     candidate_words = set(re.findall(r"\w+", candidate_text.lower()))
     if not query_words or not candidate_words:
@@ -144,6 +158,28 @@ def compute_word_intersection_match_quality(query_text: str, candidate_text: str
     intersection = query_words & candidate_words
     min_len = min(len(query_words), len(candidate_words))
     return len(intersection) / max(min_len, 1)
+
+
+def compute_cosine_similarity(v1: list[float], v2: list[float]) -> float:
+    """Compute cosine similarity between two float vectors with Rust acceleration and Python fallback."""
+    if len(v1) != len(v2):
+        raise ValueError(f"Vectors must have the same dimension (got {len(v1)} and {len(v2)})")
+    if not v1:
+        raise ValueError("Vectors must not be empty")
+
+    if _core_rs is not None and hasattr(_core_rs, "cosine_similarity"):
+        try:
+            return float(_core_rs.cosine_similarity(v1, v2))
+        except Exception:
+            pass
+
+    import math
+
+    dot = sum(a * b for a, b in zip(v1, v2, strict=True))
+    norm1 = math.sqrt(sum(a * a for a in v1))
+    norm2 = math.sqrt(sum(b * b for b in v2))
+    denom = norm1 * norm2
+    return (dot / denom) if denom > 0.0 else 0.0
 
 
 def normalize_time_window(
