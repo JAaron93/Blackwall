@@ -39,8 +39,9 @@ def test_iocs_extraction_ipv4_and_ipv6():
         "Primary host 192.168.1.100 and public 8.8.8.8",
         "Invalid IP 999.999.999.999 or 10.0.0.999",
         "IPv6 host 2001:0db8:85a3:0000:0000:8a2e:0370:7334",
-        "Compressed IPv6 2001:db8::1, 2001:db8::1:2:3:4:5, 2001:db8::, fe80::, and loopback ::1",
+        "Compressed IPv6 2001:db8::1, 2001:db8::2/path, 2001:db8::1:2:3:4:5, 2001:db8::, fe80::, and loopback ::1",
         "Adjacent hex 0xdeadbeef::1 and prefix2001:db8::1 should not extract corrupt IPs",
+        "Port-bound IPv4 10.0.0.1:8080 should extract IP",
     ]
 
     iocs = _core_rs.extract_iocs(strings)
@@ -48,8 +49,10 @@ def test_iocs_extraction_ipv4_and_ipv6():
 
     assert "192.168.1.100" in ips
     assert "8.8.8.8" in ips
+    assert "10.0.0.1" in ips
     assert "2001:0db8:85a3:0000:0000:8a2e:0370:7334" in ips
     assert "2001:db8::1" in ips
+    assert "2001:db8::2" in ips
     assert "2001:db8::1:2:3:4:5" in ips
     assert "2001:db8::" in ips
     assert "fe80::" in ips

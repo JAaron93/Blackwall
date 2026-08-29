@@ -12,7 +12,7 @@ static HASH_REGEX: OnceLock<Regex> = OnceLock::new();
 
 fn get_token_regex() -> &'static Regex {
     TOKEN_REGEX.get_or_init(|| {
-        Regex::new(r#"[^\s,;'"()<>{}\[\]=]+"#).expect("Failed to compile token regex")
+        Regex::new(r#"[^\s,;'"()<>{}\[\]=/\\?#]+"#).expect("Failed to compile token regex")
     })
 }
 
@@ -86,6 +86,10 @@ pub fn extract_iocs_from_slice(strings: &[String]) -> HashMap<String, Vec<String
             if token.contains(':') {
                 if Ipv6Addr::from_str(token).is_ok() {
                     ips_set.insert(token.to_string());
+                } else if let Some((ip_part, _port_part)) = token.split_once(':') {
+                    if Ipv4Addr::from_str(ip_part).is_ok() {
+                        ips_set.insert(ip_part.to_string());
+                    }
                 }
             } else if token.contains('.') {
                 if Ipv4Addr::from_str(token).is_ok() {
@@ -154,7 +158,7 @@ mod tests {
     #[test]
     fn test_extract_iocs() {
         let input = vec![
-            "Connect to 192.168.1.1, 2001:db8::1, 2001:db8::1:2:3:4:5, 2001:db8::, fe80::, ::1, or 999.999.999.999".to_string(),
+            "Connect to 192.168.1.1, 10.0.0.1:8080, 2001:db8::1, 2001:db8::2/path, 2001:db8::1:2:3:4:5, 2001:db8::, fe80::, ::1, or 999.999.999.999".to_string(),
             "Adjacent hex 0xdeadbeef::1 and prefix2001:db8::1 should not extract corrupt IPs".to_string(),
             "Visit https://evil.com/path?arg=1 and api.malicious.net".to_string(),
             "Payload MD5: 5d41402abc4b2a76b9719d911017c592".to_string(),
@@ -163,7 +167,9 @@ mod tests {
 
         let ips = iocs.get("ips").unwrap();
         assert!(ips.contains(&"192.168.1.1".to_string()));
+        assert!(ips.contains(&"10.0.0.1".to_string()));
         assert!(ips.contains(&"2001:db8::1".to_string()));
+        assert!(ips.contains(&"2001:db8::2".to_string()));
         assert!(ips.contains(&"2001:db8::1:2:3:4:5".to_string()));
         assert!(ips.contains(&"2001:db8::".to_string()));
         assert!(ips.contains(&"fe80::".to_string()));
