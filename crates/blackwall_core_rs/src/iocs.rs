@@ -98,10 +98,15 @@ pub fn extract_iocs_from_slice(strings: &[String]) -> HashMap<String, Vec<String
 
                 if Ipv6Addr::from_str(ipv6_candidate).is_ok() {
                     ips_set.insert(ipv6_candidate.to_string());
-                } else if let Some((ip_part, _port_part)) = trimmed.split_once(':') {
-                    let ip_part_trimmed = ip_part.trim_matches(|c: char| !c.is_ascii_digit());
-                    if Ipv4Addr::from_str(ip_part_trimmed).is_ok() {
-                        ips_set.insert(ip_part_trimmed.to_string());
+                } else {
+                    let hex_only = ipv6_candidate.trim_end_matches(|c: char| !c.is_ascii_hexdigit() && c != ':');
+                    if !hex_only.is_empty() && Ipv6Addr::from_str(hex_only).is_ok() {
+                        ips_set.insert(hex_only.to_string());
+                    } else if let Some((ip_part, _port_part)) = trimmed.split_once(':') {
+                        let ip_part_trimmed = ip_part.trim_matches(|c: char| !c.is_ascii_digit());
+                        if Ipv4Addr::from_str(ip_part_trimmed).is_ok() {
+                            ips_set.insert(ip_part_trimmed.to_string());
+                        }
                     }
                 }
             } else {
