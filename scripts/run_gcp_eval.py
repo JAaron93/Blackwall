@@ -117,12 +117,98 @@ def load_all_scenarios(
                 for domain_key, items in native_data.items():
                     if isinstance(items, list):
                         for item in items:
-                            if isinstance(item, dict) and "domain" in item:
+                            if not isinstance(item, dict):
+                                continue
+                            if "domain" in item:
                                 scenarios.append(item)
+                            else:
+                                bridged = _bridge_complex_attack_record(item)
+                                if bridged is not None:
+                                    scenarios.append(bridged)
         except (ImportError, Exception) as exc:
             logger.debug("Native GCP datasets not loaded: %s", exc)
 
     return scenarios
+
+
+def _bridge_complex_attack_record(record: dict[str, Any]) -> dict[str, Any] | None:
+    """
+    Bridge a GCP complex-attack record (which lacks a domain field) into an
+    executable evaluation scenario by deriving the domain from its threat type
+    and materializing detector events from the record's own structure, so the
+    canonical swarm/exploit-chain/C2 domains are evaluated in default runs.
+    """
+    threat_type = str(record.get("threat_type", "")).strip().upper()
+    if "SWARM" in threat_type:
+        domain = "swarm_detection"
+    elif "CHAIN" in threat_type or "RCE" in threat_type:
+        domain = "exploit_chain"
+    elif "C2" in threat_type or "BEACON" in threat_type:
+        domain = "c2_detection"
+    else:
+        return None
+
+    attack_id = str(record.get("attack_id") or f"complex_attack_{uuid.uuid4().hex[:6]}")
+    is_threat = bool(record.get("is_threat", True))
+    now = datetime.now(timezone.utc)
+    events: list[dict[str, Any]] = []
+
+    if domain == "swarm_detection":
+        try:
+            nodes = max(2, int(record.get("nodes_count") or 2))
+        except (TypeError, ValueError):
+            nodes = 2
+        try:
+            risk = max(0.0, min(1.0, float(record.get("coordination_score") or 0.85)))
+        except (TypeError, ValueError):
+            risk = 0.85
+        for index in range(nodes):
+            events.append(
+                {
+                    "agent_id": f"{attack_id}_node_{index}",
+                    "action": "scan_subnet",
+                    "target": "10.0.0.1",
+                    "risk_score": risk,
+                    "timestamp": now.isoformat(),
+                }
+            )
+    elif domain == "exploit_chain":
+        stages = record.get("stages") or ["remote_code_execution", "privilege_escalation"]
+        for offset, stage in enumerate(stages):
+            events.append(
+                {
+                    "agent_id": f"{attack_id}_agent",
+                    "action": str(stage),
+                    "target": "/etc/shadow",
+                    "risk_score": 0.95,
+                    "timestamp": (now + timedelta(seconds=offset * 5)).isoformat(),
+                }
+            )
+    else:
+        destination = str(record.get("destination") or "https://requestbin.net/r/exfil")
+        try:
+            interval = float(record.get("periodic_interval_s") or 5.0)
+        except (TypeError, ValueError):
+            interval = 5.0
+        for beacon in range(4):
+            events.append(
+                {
+                    "agent_id": f"{attack_id}_agent",
+                    "action": "connect",
+                    "target": destination,
+                    "risk_score": 0.9,
+                    "timestamp": (now + timedelta(seconds=beacon * interval)).isoformat(),
+                }
+            )
+
+    return {
+        "scenario_id": attack_id,
+        "domain": domain,
+        "ground_truth_verdict": "BLOCK" if is_threat else "ALLOW",
+        "expected_action": record.get("expected_action"),
+        "events": events,
+        "metadata": record,
+    }
 
 
 def _parse_event_timestamp(value: Any, default: datetime) -> datetime:

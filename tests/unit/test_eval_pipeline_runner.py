@@ -628,3 +628,61 @@ def test_sla_components_match_evaluated_operations():
         assert DOMAIN_TO_SLA_COMPONENT[domain] not in foreign_operations, (
             f"{domain} is timed against a threshold belonging to a different operation"
         )
+
+
+def test_complex_attack_records_are_bridged_to_domains():
+    """Domain-less complex-attack records must be bridged into executable domain scenarios."""
+    scenarios = load_all_scenarios(scenarios_dir=None, include_native_datasets=True)
+    by_domain: dict[str, list[dict]] = {}
+    for scenario in scenarios:
+        by_domain.setdefault(scenario.get("domain"), []).append(scenario)
+
+    for domain in ("swarm_detection", "exploit_chain", "c2_detection"):
+        bridged = by_domain.get(domain, [])
+        assert bridged, f"expected bridged scenarios for {domain}"
+        assert all(scenario.get("events") for scenario in bridged), (
+            f"bridged {domain} scenarios must carry detector events"
+        )
+
+
+@pytest.mark.asyncio
+async def test_bridged_complex_attacks_execute_detectors(mock_paid_tier_env, tmp_path: Path):
+    """Default runs must execute swarm/exploit-chain/C2 detectors on bridged complex-attack records."""
+    all_scenarios = load_all_scenarios(scenarios_dir=None, include_native_datasets=True)
+    scenarios = [
+        scenario
+        for scenario in all_scenarios
+        if str(scenario.get("scenario_id", "")).startswith(("swarm_burst", "exploit_chain_01", "c2_beacon"))
+    ]
+    assert len(scenarios) == 3
+
+    mock_rubric = ThreatInterceptionRubric(
+        detection_accuracy_score=5,
+        false_positive_control_score=5,
+        reasoning_quality_score=5,
+        trajectory_soundness_score=5,
+        justification="Bridged complex attack scenarios executed their detectors",
+        is_fallback=False,
+    )
+    mock_judge = MagicMock()
+    mock_judge.evaluate = AsyncMock(return_value=mock_rubric)
+
+    with (
+        patch("scripts.run_gcp_eval.get_judge_for_domain", return_value=mock_judge),
+        patch("blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval.GCPVertexAIEvaluationHarness.run_eval_task", return_value={"status": "COMPLETED"}),
+    ):
+        exit_code, summary, _ = await run_evaluation_pipeline(
+            scenarios=scenarios,
+            threshold=3.5,
+            history_path=tmp_path / "history.jsonl",
+            export_trace=False,
+        )
+
+    assert summary.failed_scenarios == 0
+    assert exit_code == 0
+    assert set(summary.domain_summaries.keys()) == {"swarm_detection", "exploit_chain", "c2_detection"}
+
+    for call in mock_judge.evaluate.call_args_list:
+        candidate_result = call.kwargs["candidate_result"]
+        assert candidate_result["verdict"] == "BLOCK"
+        assert candidate_result["detected"] is True
