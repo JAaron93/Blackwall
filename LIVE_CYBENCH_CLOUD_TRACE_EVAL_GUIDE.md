@@ -151,6 +151,25 @@ pytest tests/evaluation/test_c2_scenario.py -v
 pytest tests/evaluation/test_k8s_scenario.py -v
 ```
 
+#### Executing the Track D CI Evaluation Pipeline (Agent-as-a-Judge)
+
+The canonical Tier-1 CI entry point orchestrates domain judges, managed `EvalTask` execution, SLA measurement, and historical regression tracking in a single gated run:
+
+```bash
+python scripts/run_gcp_eval.py                                   # full canonical domain suite
+python scripts/run_gcp_eval.py --domains swarm_detection,c2_detection
+python scripts/run_gcp_eval.py --eval-threshold 3.5              # minimum domain mean to pass
+```
+
+Gate semantics:
+
+- Requires ADC authentication plus `GEMINI_TIER=paid` / `BLACKWALL_TIER=paid` at startup (fails fast otherwise).
+- Each scenario executes its mapped security component under `SLAValidator` timing; scenario-supplied events / permission grants drive the detectors.
+- The managed Vertex AI `EvalTask` must return `COMPLETED`; `FAILED` or `LOCAL_FALLBACK` records a pipeline error and fails the run.
+- Scenarios whose domain has no mapped component produce an execution error and fail the run (ground truth is never copied into candidates).
+- Passing runs with full canonical coverage and zero fallbacks become regression baselines in `tests/eval/regression/history.jsonl`; score drops > 0.5 against a clean baseline fail the gate.
+- Exit code 0 = CI pass, 1 = fail.
+
 ### Executing Tier 2 Evaluation (CyBench on Cloud Run / gVisor Sandboxes)
 To evaluate multi-stage exploit chains, live `<50ms` eBPF/audit socket drops, and JIT credential revocations inside gVisor-isolated container runtimes:
 
@@ -174,10 +193,14 @@ Every live evaluation run collects and reports metrics across the following benc
 | **Detection Recall** | $\ge 0.90$ ($90\%$) | Vertex AI `EvalTask` Pointwise Autorater |
 | **False Positive Rate (FPR)** | $\le 0.05$ ($5\%$) | Vertex AI `EvalTask` Pointwise Autorater |
 | **Trajectory Precision** | $\ge 0.90$ ($90\%$) | `GCPVertexAIEvaluationHarness.evaluate_trajectory()` |
-| **Threat Signature Graph (TSG) Gating** | $< 10\text{ ms}$ | SQLite WAL In-Memory / Hybrid Policy Cache |
-| **eBPF / Audit Socket Drop** | $< 50\text{ ms}$ | `ActiveReactionEngine.execute_ebpf_socket_drop()` |
-| **ZeroMQ Mesh Broadcast** | $< 15\text{ ms}$ | `ActiveReactionEngine.broadcast_fleet_signature()` |
+| **Threat Signature Graph (TSG) Gating** | $< 10\text{ ms}$ | `SLAValidator` (`tsg_signature_match`) timing component execution |
+| **Structural Gating** | $< 5\text{ ms}$ | `SLAValidator` (`structural_gating`) |
+| **Active Reaction Containment** | $< 50\text{ ms}$ | `SLAValidator` (`active_reaction`) |
+| **eBPF / Audit Socket Drop** | $< 50\text{ ms}$ | `SLAValidator` (`ebpf_drop`) around `ActiveReactionEngine.execute_ebpf_socket_drop()` |
+| **ZeroMQ Mesh Broadcast** | $< 15\text{ ms}$ | `SLAValidator` (`mesh_broadcast`) around `ActiveReactionEngine.broadcast_fleet_signature()` |
 | **Vault JIT Invalidation** | $< 50\text{ ms}$ | `ActiveReactionEngine.revoke_identity_session()` |
+
+Latency measurements are recorded by `SLAValidator` (`src/blackwall/eval/sla_validator.py`) and exported as `blackwall.sla.*` span attributes. SLA violations bound the trajectory-soundness factor (`compute_trajectory_soundness_factor()`: 5 at 100% compliance, scaling down to 1), and the evaluation pipeline caps all rubric dimensions by that factor so latency regressions cannot pass CI with unaffected quality scores.
 
 ---
 
@@ -187,8 +210,9 @@ Once the live evaluation run completes:
 
 1. **Google Cloud Trace Spans**:
    - Open [Google Cloud Trace Console](https://console.cloud.google.com/traces).
-   - Filter by Span Name (e.g. `adk.before_tool_callback`, `vertex_eval.run_eval_task`).
+   - Filter by Span Name (e.g. `adk.before_tool_callback`, `vertex_eval.run_eval_task`, `vertex_eval.judge.<domain>`, `vertex_eval.local_fallback`).
    - Inspect attributes: `blackwall.verdict`, `gen_ai.evaluation.score`, `gen_ai.usage.input_tokens`, and latency breakdowns.
+   - Track D evaluation telemetry adds `gen_ai.evaluation.domain`, `gen_ai.evaluation.judge_model`, `gen_ai.evaluation.rubric_scores`, `gen_ai.evaluation.is_fallback`, `gen_ai.evaluation.mean_score`, plus SLA attributes `blackwall.sla.component`, `blackwall.sla.threshold_ms`, `blackwall.sla.measured_ms`, and `blackwall.sla.violated`.
 
 2. **Vertex AI Experiments**:
    - Open [Vertex AI Experiments](https://console.cloud.google.com/vertex-ai/experiments).
