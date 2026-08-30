@@ -369,6 +369,19 @@ Accuracy:                  97.5%
 F1 Score:                  95.1%
 ```
 
+### Run the Agent-as-a-Judge CI Evaluation Pipeline (Track D)
+
+```bash
+# Full canonical domain suite with the managed Vertex AI EvalTask gate
+python scripts/run_gcp_eval.py
+
+# Scoped runs and options
+python scripts/run_gcp_eval.py --domains c2_detection,ailm
+python scripts/run_gcp_eval.py --eval-threshold 3.5 --model gemini-3.7-flash --no-trace
+```
+
+The pipeline routes scenarios from `tests/eval/judge_scenarios/` and the GCP native datasets to domain-specific autonomous Antigravity SDK judges, executes the mapped security components under `SLAValidator` latency measurement, runs the managed Vertex AI `EvalTask` (a `COMPLETED` status is required — `FAILED`/`LOCAL_FALLBACK` fails the run), compares scores against historical baselines in `tests/eval/regression/history.jsonl`, and exits 0/1 as the CI gate. Requires ADC authentication plus `GEMINI_TIER=paid` / `BLACKWALL_TIER=paid` (300+ RPM quota contract); scenarios for unmapped domains fail the gate instead of being scored from ground truth.
+
 ---
 
 ## 📊 Evaluation Results & Metrics
@@ -580,7 +593,7 @@ pytest tests/features/blackwall_guardrails.feature -v
 
 | Document | Purpose |
 |----------|---------|
-| **[JUDGE_EVALUATION.md](JUDGE_EVALUATION.md)** | Complete reproduction guide (100% GCP Vertex AI Mode) |
+| **[LIVE_CYBENCH_CLOUD_TRACE_EVAL_GUIDE.md](LIVE_CYBENCH_CLOUD_TRACE_EVAL_GUIDE.md)** | Live evaluation & Cloud Trace guide (100% GCP Vertex AI Mode) |
 | **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** | Known issues and workarounds (evaluation performance) |
 | **[design.md](.kiro/specs/blackwall-agentic-firewall/design.md)** | Full technical design (40+ pages, all architectural details) |
 | **[requirements.md](.kiro/specs/blackwall-agentic-firewall/requirements.md)** | 28 EARS-compliant requirements with acceptance criteria |

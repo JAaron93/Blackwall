@@ -62,6 +62,7 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
   - **Dual-Tiered Evaluation Strategy**: Tier 1 (ADK Adversarial Harness in 100% GCP Vertex AI Mode) + Tier 2 (Cybench on Cloud Run with gVisor container isolation).
   - **100% Cloud-Native GCP Evaluation**: Zero-SaaS evaluation using GCP Vertex AI Gen AI Evaluation Service (`vertexai.preview.evaluation` / `EvalTask`) and Google Cloud Trace, fully replacing legacy Weights & Biases (Weave).
   - **Agent-as-a-Judge Evaluation Pipeline**: 9 domain-specific autonomous Antigravity SDK judge agents (`google.antigravity.Agent`, `vertex=True`, `AgentBehavior.AUTONOMOUS`) producing structured Pydantic rubric scores under zero-trust XML prompt delimitation. Requires `GEMINI_TIER=paid` for 300+ RPM quota contract.
+  - **Tier-1 CI Entry Point**: `scripts/run_gcp_eval.py` orchestrates domain judges, `SLAValidator` component latency measurement, the managed Vertex AI `EvalTask` gate (`COMPLETED` required), and `HistoricalRegressionTracker` baselines, exiting 0/1 as the CI gate.
 
 ---
 

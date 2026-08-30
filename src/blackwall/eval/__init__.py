@@ -5,6 +5,12 @@ Provides evaluation metrics, report generation, scenario definitions, Pydantic r
 and autonomous Antigravity SDK Judge Agents running in Vertex AI Standard Mode.
 """
 
+from blackwall.eval.aggregator import (
+    AggregateSummary,
+    DomainSummary,
+    EvaluationAggregator,
+    EvaluationResultRecord,
+)
 from blackwall.eval.fallback_scorer import (
     AILMDetectionFallbackScorer,
     C2DetectionFallbackScorer,
@@ -44,6 +50,11 @@ from blackwall.eval.prompt_sanitizer import (
     sanitize_text,
 )
 from blackwall.eval.prompt_template import build_judge_prompt
+from blackwall.eval.regression_tracker import (
+    EvalRunSummary,
+    HistoricalRegressionTracker,
+    RegressionReport,
+)
 from blackwall.eval.report_generator import ReportGenerator
 from blackwall.eval.rubrics import (
     AILMDetectionRubric,
@@ -71,12 +82,18 @@ from blackwall.eval.scenarios import (
     ThreatInterceptionScenario,
     parse_eval_scenario,
 )
+from blackwall.eval.sla_validator import (
+    DEFAULT_SLA_THRESHOLDS_MS,
+    SLAMeasurement,
+    SLAValidator,
+)
 
 __all__ = [
     "AILMDetectionFallbackScorer",
     "AILMDetectionJudge",
     "AILMDetectionRubric",
     "AILMScenario",
+    "AggregateSummary",
     "BaseJudgeAgent",
     "C2DetectionFallbackScorer",
     "C2DetectionJudge",
@@ -86,12 +103,18 @@ __all__ = [
     "ContextHygieneJudge",
     "ContextHygieneRubric",
     "ContextHygieneScenario",
+    "DEFAULT_SLA_THRESHOLDS_MS",
+    "DomainSummary",
+    "EvalRunSummary",
     "EvalScenarioBase",
+    "EvaluationAggregator",
+    "EvaluationResultRecord",
     "ExploitChainFallbackScorer",
     "ExploitChainJudge",
     "ExploitChainRubric",
     "ExploitChainScenario",
     "HeuristicFallbackScorer",
+    "HistoricalRegressionTracker",
     "InboundFilterFallbackScorer",
     "InboundFilterJudge",
     "InboundFilterRubric",
@@ -107,7 +130,10 @@ __all__ = [
     "RegressionComparisonFallbackScorer",
     "RegressionComparisonJudge",
     "RegressionComparisonRubric",
+    "RegressionReport",
     "ReportGenerator",
+    "SLAMeasurement",
+    "SLAValidator",
     "SwarmDetectionFallbackScorer",
     "SwarmDetectionJudge",
     "SwarmDetectionRubric",
