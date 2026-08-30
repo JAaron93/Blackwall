@@ -67,18 +67,19 @@ CANONICAL_DOMAINS: set[str] = {
     "context_hygiene",
 }
 
-# Mapping from evaluation domain to canonical security component SLA threshold (Requirements 12.1-12.3)
+# Mapping from evaluation domain to the SLA component whose threshold matches the
+# operation the domain worker actually executes (Requirements 12.1-12.3)
 DOMAIN_TO_SLA_COMPONENT: dict[str, str] = {
-    "threat_interception": "tsg_signature_match",
-    "sync_resolver": "tsg_signature_match",
-    "swarm_detection": "active_reaction",
-    "exploit_chain": "active_reaction",
-    "c2_detection": "active_reaction",
-    "ailm": "structural_gating",
-    "prompt_injection": "structural_gating",
-    "inbound_filter": "structural_gating",
-    "quota_enforcement": "active_reaction",
-    "context_hygiene": "structural_gating",
+    "threat_interception": "eval_context_sanitization",
+    "sync_resolver": "eval_context_sanitization",
+    "context_hygiene": "eval_context_sanitization",
+    "prompt_injection": "eval_prompt_injection_scan",
+    "inbound_filter": "eval_inbound_filter_validation",
+    "quota_enforcement": "eval_quota_enforcement",
+    "swarm_detection": "eval_swarm_detection",
+    "c2_detection": "eval_c2_detection",
+    "exploit_chain": "eval_exploit_chain_analysis",
+    "ailm": "eval_ailm_tracking",
     "k8s_scenario": "ebpf_drop",
 }
 
@@ -209,6 +210,39 @@ def _events_time_window(events: list[Any]) -> tuple[datetime, datetime]:
     )
 
 
+def _build_managed_eval_dataset(
+    scenarios: list[dict[str, Any]],
+    candidate_outputs: dict[str, dict[str, Any]],
+) -> list[dict[str, str]]:
+    """
+    Convert evaluation scenarios and their executed candidate outputs into the
+    prompt/context/response column schema required by the managed Vertex AI
+    EvalTask autoraters, instead of submitting raw heterogeneous scenario dicts.
+    """
+    records: list[dict[str, str]] = []
+    for idx, scenario in enumerate(scenarios, start=1):
+        scenario_id = scenario.get("scenario_id", f"scenario_{idx}")
+        response = candidate_outputs.get(scenario_id, {})
+        records.append(
+            {
+                "prompt": json.dumps(scenario, default=str),
+                "context": json.dumps(
+                    {
+                        "domain": scenario.get("domain"),
+                        "ground_truth": {
+                            key: value
+                            for key, value in scenario.items()
+                            if key.startswith("ground_truth") or key.startswith("expected_")
+                        },
+                    },
+                    default=str,
+                ),
+                "response": json.dumps(response, default=str),
+            }
+        )
+    return records
+
+
 def _build_domain_worker(domain: str, scenario: dict[str, Any]):
     """
     Prepare the domain-specific security component outside the SLA measurement window.
@@ -326,20 +360,57 @@ def _build_domain_worker(domain: str, scenario: dict[str, Any]):
 
         bus = AlertBus()
         enforcer = AgentQuotaEnforcer(alert_bus=bus, token_burn_rate_limit=500.0)
-        agent_id = scenario.get("agent_id", "eval_agent_01")
-        tokens = scenario.get("tokens_used") or scenario.get("token_count") or 100
+        default_agent = str(scenario.get("agent_id", "eval_agent_01"))
+        stream = scenario.get("activity_stream")
 
         async def worker() -> dict[str, Any]:
-            usage = await enforcer.track_token_consumption(agent_id=agent_id, tokens_used=tokens)
-            quarantined = enforcer.is_quarantined(agent_id)
-            verdict = "QUARANTINE" if quarantined else "ALLOW"
+            replayed_agents: list[str] = []
+            if isinstance(stream, list) and stream:
+                for entry in stream:
+                    if not isinstance(entry, dict):
+                        continue
+                    agent_id = str(entry.get("agent_id") or default_agent)
+                    raw_tokens = entry.get("tokens")
+                    if raw_tokens is None:
+                        raw_tokens = entry.get("tokens_used", 0)
+                    await enforcer.track_token_consumption(
+                        agent_id=agent_id,
+                        tokens_used=int(raw_tokens),
+                        api_calls=int(entry.get("api_calls") or 1),
+                        timestamp=_parse_event_timestamp(entry.get("timestamp"), datetime.now(timezone.utc)),
+                    )
+                    if agent_id not in replayed_agents:
+                        replayed_agents.append(agent_id)
+            else:
+                tokens = scenario.get("tokens_used") or scenario.get("token_count") or 100
+                await enforcer.track_token_consumption(agent_id=default_agent, tokens_used=int(tokens))
+                replayed_agents.append(default_agent)
+
+            quarantined = False
+            throttled = False
+            max_burn_rate = 0.0
+            for agent_id in replayed_agents:
+                exceeded = await enforcer.enforce_quota_limits(agent_id=agent_id, auto_quarantine=True)
+                if exceeded:
+                    throttled = True
+                if enforcer.is_quarantined(agent_id):
+                    quarantined = True
+                usage = enforcer.get_usage(agent_id)
+                if usage is not None:
+                    max_burn_rate = max(max_burn_rate, usage.token_burn_rate_per_sec)
+                    if usage.quota_exceeded:
+                        throttled = True
+
+            verdict = "QUARANTINE" if quarantined else ("THROTTLE" if throttled else "ALLOW")
             return {
                 "domain": domain,
                 "verdict": verdict,
-                "detected": quarantined,
-                "current_burn_rate": usage.current_burn_rate,
+                "detected": quarantined or throttled,
                 "quarantined": quarantined,
-                "reasoning": f"AgentQuotaEnforcer evaluated usage: burn_rate={usage.current_burn_rate:.1f}/s, quarantined={quarantined}.",
+                "throttled": throttled,
+                "token_burn_rate_per_sec": max_burn_rate,
+                "agents_evaluated": replayed_agents,
+                "reasoning": f"AgentQuotaEnforcer replayed activity stream across {len(replayed_agents)} agent(s): burn_rate={max_burn_rate:.1f}/s, quarantined={quarantined}, throttled={throttled}.",
             }
 
         return worker
@@ -741,6 +812,7 @@ async def run_evaluation_pipeline(
     logger.info("Starting Evaluation Run %s with %d scenarios (Threshold: %.2f)", run_id, len(eval_scenarios), threshold)
 
     # 4. Route and execute each scenario
+    candidate_outputs: dict[str, dict[str, Any]] = {}
     for idx, scenario in enumerate(eval_scenarios, start=1):
         domain = scenario.get("domain", "threat_interception")
         scenario_id = scenario.get("scenario_id", f"scenario_{idx}")
@@ -763,6 +835,7 @@ async def run_evaluation_pipeline(
             sla_component=sla_component,
             span=span,
         )
+        candidate_outputs[scenario_id] = candidate_result
 
         candidate_fallback = bool(candidate_result.get("is_fallback", False))
         if candidate_result.get("verdict") == "ERROR" or "error" in candidate_result:
@@ -837,8 +910,9 @@ async def run_evaluation_pipeline(
     # 5a. Execute managed Vertex AI EvalTask over the evaluation dataset (Rule: Dual-Tiered GCP Evaluation Architecture)
     try:
         eval_autorater = eval_harness.build_threat_accuracy_autorater()
+        managed_dataset = _build_managed_eval_dataset(eval_scenarios, candidate_outputs)
         eval_task_result = eval_harness.run_eval_task(
-            dataset=eval_scenarios,
+            dataset=managed_dataset,
             metrics=[eval_autorater],
             model=model or "gemini-3.7-flash",
         )

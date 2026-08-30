@@ -23,6 +23,16 @@ DEFAULT_SLA_THRESHOLDS_MS: dict[str, float] = {
     "active_reaction": 50.0,
     "ebpf_drop": 50.0,
     "mesh_broadcast": 15.0,
+    # Evaluation-pipeline components executed by scripts/run_gcp_eval.py workers.
+    # Each threshold belongs to the operation its domain worker actually runs.
+    "eval_context_sanitization": 10.0,
+    "eval_prompt_injection_scan": 50.0,
+    "eval_inbound_filter_validation": 5.0,
+    "eval_quota_enforcement": 50.0,
+    "eval_swarm_detection": 50.0,
+    "eval_c2_detection": 50.0,
+    "eval_exploit_chain_analysis": 50.0,
+    "eval_ailm_tracking": 50.0,
 }
 
 # Synonyms/aliases for component names
