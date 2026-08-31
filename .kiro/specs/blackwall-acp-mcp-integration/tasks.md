@@ -245,21 +245,22 @@ Ensure that when protocol-sourced evidence is flagged via `is_evaluation_mode(pa
 
 ### Track H: Behavior-Driven End-to-End Verification
 
-#### TASK-H01: BDD Feature — Malicious Hermes Agent MCP Tool Call (BLOCK)
+#### TASK-H01: BDD Feature — Hermes Agent MCP Interception (ALLOW Golden Path & BLOCK)
 **Status:** ⏳ Not Started
 **Dependencies:** TASK-F01
 **Requirements Satisfied:** FR-05, US-01, US-02, NFR-05
 
 **Description:**
-Behavior-driven integration test: a simulated Hermes Agent emits a malicious `tools/call` over MCP; the proxy returns `-32603` and logs the redacted payload to the SQLite Threat Graph. The proxy MUST be launched in a new process group with guaranteed cleanup.
+Behavior-driven integration test of the full configured topology — simulated Hermes Agent ↔ Blackwall proxy ↔ downstream tool server. The harness MUST use: (a) a simulated Hermes MCP client speaking the client side of the wire (`initialize` handshake, `tools/call`, notifications) over **both** stdio and Streamable HTTP transports — no real Hermes dependency and no Hermes forks; (b) the real proxy launched as a subprocess in a new process group with guaranteed cleanup; (c) a mock downstream tool server behind the proxy so forwarding and invocation can be observed; (d) the real `SyncResolver` gating chain and SQLite Threat Graph, with only the external providers (GCP Vertex AI evaluator, GTI) deterministically mocked so verdicts are reproducible without paid API calls. Scenarios: a benign call passes through untouched (ALLOW golden path), and a malicious call is blocked with the redacted payload persisted.
 **Acceptance Criteria:**
 1. Add Gherkin scenarios to a new `tests/features/protocol_proxy_interception.feature` and implement step bindings in `tests/step_defs/test_protocol_proxy_bdd.py` (do not overload `blackwall_guardrails.feature`).
 2. Spin up the Protocol Proxy in a subprocess with process-group isolation (e.g., `preexec_fn=os.setsid`).
-3. Emit a malicious `tools/call` JSON-RPC payload imitating Hermes Agent.
-4. Assert Blackwall returns a `-32603` error.
+3. ALLOW golden path: a benign `tools/call` from the simulated Hermes client reaches the mock downstream tool server, the tool IS invoked, and its response is piped back to the client byte-for-byte with the synthesizer never invoked.
+4. BLOCK path: a malicious `tools/call` JSON-RPC payload imitating Hermes Agent returns a `-32603` error, and the downstream tool server is never invoked.
 5. Assert the SQLite Threat Graph logs the BLOCKED (redacted) payload.
-6. The entire subprocess group is terminated in a `finally` handler, including on test failure.
-7. `pytest-bdd` executes the feature and passes.
+6. Both scenarios execute over both stdio and Streamable HTTP transports.
+7. The entire subprocess group is terminated in a `finally` handler, including on test failure.
+8. `pytest-bdd` executes the feature and passes.
 **Verification:** `pytest tests/step_defs/test_protocol_proxy_bdd.py -v`
 
 #### TASK-H02: BDD Feature — QUARANTINE Containment Path
@@ -268,7 +269,7 @@ Behavior-driven integration test: a simulated Hermes Agent emits a malicious `to
 **Requirements Satisfied:** FR-05, US-02, NFR-05
 
 **Description:**
-BDD scenario for a `QUARANTINE` verdict: the agent receives a sandboxed mock result, the real tool is NOT invoked, and the agent loop continues. Cover the fail-closed triggers (rate-limit exhaustion and verdict timeout).
+BDD scenario for a `QUARANTINE` verdict: the agent receives a sandboxed mock result, the real tool is NOT invoked, and the agent loop continues. Cover the fail-closed triggers (rate-limit exhaustion and verdict timeout). Reuse the harness topology defined in TASK-H01 (simulated Hermes client, real proxy subprocess, mock downstream tool server, deterministically mocked external providers).
 **Acceptance Criteria:**
 1. Gherkin scenario asserts a QUARANTINE verdict returns a successful sandboxed result, not an error crash.
 2. Assert the real tool execution target was never invoked.
