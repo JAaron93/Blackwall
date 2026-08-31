@@ -131,7 +131,7 @@ Manages downstream MCP tool server lifecycle and request forwarding.
 *   `blackwall serve` — start the gateway daemon
     *   `--transport stdio|http` (default: `stdio`)
     *   `--port 9229` (HTTP mode, default)
-    *   `--host 127.0.0.1` (HTTP mode, locked to loopback)
+    *   `--host 127.0.0.1` (HTTP mode, loopback by default; non-loopback requires `--auth-token`)
     *   `--wrap <command>` (downstream tool server to proxy)
     *   `--config <path>` (path to `gateway.yaml`)
     *   `--policy <path>` (path to `policy.yaml`)
