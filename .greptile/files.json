@@ -14,5 +14,17 @@
   {
     "path": ".kiro/specs/blackwall-mcp-gateway/tasks.md",
     "description": "MCP Gateway implementation tasks — 13 tasks across 4 phases covering gateway infrastructure, interceptor, synthesizer, CLI, BDD tests, and resource profiling."
+  },
+  {
+    "path": ".kiro/specs/blackwall-rust-acceleration/design.md",
+    "description": "System architecture design for Blackwall Rust Acceleration Subsystem."
+  },
+  {
+    "path": ".kiro/specs/blackwall-rust-acceleration/requirements.md",
+    "description": "Requirements document for Blackwall Rust Acceleration Subsystem."
+  },
+  {
+    "path": ".kiro/specs/blackwall-rust-acceleration/tasks.md",
+    "description": "Task implementation plan for Blackwall Rust Acceleration Subsystem."
   }
 ]

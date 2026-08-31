@@ -7,6 +7,7 @@ directly to Google Cloud Trace (`opentelemetry-exporter-gcp-trace`).
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -119,6 +120,8 @@ class GCPCloudTraceExporter:
         name: str,
         model: str = "gemini-3.5-flash-lite",
         metric_name: Optional[str] = None,
+        domain: Optional[str] = None,
+        judge_model: Optional[str] = None,
         attributes: Optional[Dict[str, Any]] = None,
     ) -> GCPTraceSpan:
         """
@@ -131,6 +134,10 @@ class GCPCloudTraceExporter:
         }
         if metric_name:
             span_attrs["gen_ai.evaluation.metric_name"] = metric_name
+        if domain:
+            span_attrs["gen_ai.evaluation.domain"] = domain
+        if judge_model:
+            span_attrs["gen_ai.evaluation.judge_model"] = judge_model
         if attributes:
             span_attrs.update(attributes)
 
@@ -159,6 +166,11 @@ class GCPCloudTraceExporter:
         verdict: str,
         input_tokens: Optional[int] = None,
         output_tokens: Optional[int] = None,
+        domain: Optional[str] = None,
+        judge_model: Optional[str] = None,
+        rubric_scores: Optional[Dict[str, Any]] = None,
+        is_fallback: Optional[bool] = None,
+        mean_score: Optional[float] = None,
     ) -> None:
         """Record evaluation score and token metrics on an active span and stream to Cloud Trace."""
         span.attributes["gen_ai.evaluation.score"] = score
@@ -167,6 +179,16 @@ class GCPCloudTraceExporter:
             span.attributes["gen_ai.usage.input_tokens"] = input_tokens
         if output_tokens is not None:
             span.attributes["gen_ai.usage.output_tokens"] = output_tokens
+        if domain is not None:
+            span.attributes["gen_ai.evaluation.domain"] = domain
+        if judge_model is not None:
+            span.attributes["gen_ai.evaluation.judge_model"] = judge_model
+        if rubric_scores is not None:
+            span.attributes["gen_ai.evaluation.rubric_scores"] = json.dumps(rubric_scores)
+        if is_fallback is not None:
+            span.attributes["gen_ai.evaluation.is_fallback"] = is_fallback
+        if mean_score is not None:
+            span.attributes["gen_ai.evaluation.mean_score"] = mean_score
         span.finish(status="OK")
 
         otel_span = getattr(span, "_otel_span", None)
@@ -174,12 +196,9 @@ class GCPCloudTraceExporter:
             try:
                 from opentelemetry.trace import Status, StatusCode
 
-                otel_span.set_attribute("gen_ai.evaluation.score", score)
-                otel_span.set_attribute("blackwall.verdict", verdict)
-                if input_tokens is not None:
-                    otel_span.set_attribute("gen_ai.usage.input_tokens", input_tokens)
-                if output_tokens is not None:
-                    otel_span.set_attribute("gen_ai.usage.output_tokens", output_tokens)
+                for k, v in span.attributes.items():
+                    if isinstance(v, (str, bool, int, float)):
+                        otel_span.set_attribute(k, v)
                 otel_span.set_status(Status(StatusCode.OK))
                 otel_span.end(end_time=span.end_time_ns)
             except Exception as exc:

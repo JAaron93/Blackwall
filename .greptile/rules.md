@@ -59,6 +59,29 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 
 ---
 
+## 4. Rust Acceleration Subsystem & Native FFI Invariants
+
+- **Non-Greedy Rewrite Philosophy (90/10 to 95/5 Rule)**:
+  - Only compute-heavy, latency-critical hot paths (DFA regex context hygiene, SIMD vector cosine similarity, word intersection match quality, single-pass IOC extraction, graph DFS path traversal) reside in Rust (`crates/blackwall_core_rs/`).
+  - High-level application frameworks (FastAPI/Uvicorn, aiosqlite, Google GenAI SDK, Pydantic models, OpenTelemetry) must remain 100% in Python.
+- **Dual-Mode Sanitization Parity**:
+  - **Middleware Mode** (`preserve_prefix = false`): Replaces full matched token (`api_key=SECRET` $\rightarrow$ `[[API_KEY]]`) and records `original_hash = sha256(matched_string)` in `RedactionRecord` logs.
+  - **Resolver Mode** (`preserve_prefix = true`): Preserves credential prefixes/delimiters in prompts (`api_key=SECRET` $\rightarrow$ `api_key=[[API_KEY]]`, `password="x"` $\rightarrow$ `password="[[PASSWORD]]"`).
+- **Resilient Batch Vector Similarity & Corrupted Candidate Isolation**:
+  - Invalid *query* vector dimensions ($\ne 768$) MUST raise `ValueError`.
+  - Corrupted, invalid-byte, or dimension-mismatched *candidate* vector rows during batch queries MUST be isolated and excluded with diagnostic logging, allowing all valid candidate rows to be scored without aborting the batch.
+- **Zero-Panic FFI & Pure-Python Fallback Guarantee**:
+  - All Rust FFI boundaries MUST return `PyResult<T>` and never panic across the C ABI.
+  - Internal Rust errors MUST map cleanly to Python built-in exceptions (`PyValueError`, `PyRuntimeError`).
+  - All Python wrappers (`context_hygiene.py`, `resolver.py`, `validators.py`, `repository.py`, `semantic.py`, `correlator.py`, `swarm.py`) MUST maintain seamless pure-Python fallbacks when `blackwall._core_rs` is missing or unbuilt.
+- **Anti-Oscillation & Review Stability Directive**:
+  - Reviewers must not reopen, oscillate between, or contradict previously accepted implementations across review iterations.
+  - **IPv6 Token Parsing Semantics**: In IOC extraction, standard RFC 4291 token boundaries and Rust `std::net::Ipv6Addr` grammar govern valid addresses. Distinct valid hexadecimal characters within a token (e.g. `2001:db8::1abc`) parse as legitimate 16-bit hextets (`0x1abc`) according to standard IPv6 notation.
+- **Portable Cross-Platform Toolchains**:
+  - Rust crate configuration in `crates/blackwall_core_rs/Cargo.toml` and `pyproject.toml` MUST use standard toolchains discovered in `PATH` or `$CARGO_HOME/bin`, ensuring portable builds across macOS (x86_64, ARM64 Apple Silicon) and Linux containers without hardcoded developer-specific paths.
+
+---
+
 ## 5. Active Threat Reaction, Kernel Semantics, & Evaluation Invariants
 
 ### Pillar 1 (Kernel Interception Scope & Semantics)
@@ -92,4 +115,5 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 - **Audit Hook Isolation**: Registrations of `sys.addaudithook` in tests MUST be scoped inside isolated test functions (never module-level).
 - **Process Group Cleanup**: Background test processes MUST clean up process groups using `os.killpg(os.getpgid(pid), signal.SIGTERM)`.
 - **Secret Scanner Hygiene**: Synthetic test credentials MUST NOT match live cloud provider key formats (e.g. `AWS_KEY_<digits>`).
+
 

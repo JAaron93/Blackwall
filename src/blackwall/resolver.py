@@ -48,8 +48,43 @@ class ContextHygiene:
 
     DEFAULT_PATTERNS = [
         (
+            "gcp_sa_json",
+            r'\{\s*"type"\s*:\s*"service_account"[\s\S]+?\}',
+            "[[GCP_SERVICE_ACCOUNT_KEY]]",
+        ),
+        (
+            "rsa_key",
+            r"-----BEGIN (?:RSA )?PRIVATE KEY-----[\s\S]+?-----END (?:RSA )?PRIVATE KEY-----",
+            "[[RSA_PRIVATE_KEY]]",
+        ),
+        (
+            "openai_key",
+            r"sk-[a-zA-Z0-9_\-]{10,}",
+            "[[OPENAI_API_KEY]]",
+        ),
+        (
+            "stripe_key",
+            r"sk_test_[a-zA-Z0-9_\-]+",
+            "[[STRIPE_SECRET_KEY]]",
+        ),
+        (
+            "jwt_token",
+            r"eyJ[a-zA-Z0-9_\-]{5,}(?:\.eyJ[a-zA-Z0-9_\-]{5,})?(?:\.[a-zA-Z0-9_\-]+)?",
+            "[[JWT_TOKEN]]",
+        ),
+        (
+            "aws_access_key",
+            r"(?i)aws_access_key_id[\s:=]+['\"]?([^\s'\"]+)",
+            "AWS_ACCESS_KEY_ID=[[AWS_ACCESS_KEY_ID]]",
+        ),
+        (
+            "aws_secret_key",
+            r"(?i)aws_secret_access_key[\s:=]+['\"]?([^\s'\"]+)",
+            "AWS_SECRET_ACCESS_KEY=[[AWS_SECRET_ACCESS_KEY]]",
+        ),
+        (
             "api_key",
-            r"(?i)(api[_-]?key|apikey|token)[\s:=]+['\"]?([a-zA-Z0-9_\-]{20,})",
+            r"(?i)(api[_-]?key|apikey|token)[\s:=]+['\"]?([a-zA-Z0-9_\-]{10,})",
             "[[API_KEY]]",
         ),
         ("url", r"https?://[^\s]+", "[[URL]]"),
@@ -72,10 +107,25 @@ class ContextHygiene:
     def __init__(self, patterns: Optional[List[tuple[str, str, str]]] = None):
         if patterns is None:
             self.patterns = list(self._COMPILED_DEFAULT_PATTERNS)
+            raw_patterns = [
+                (name, pat, placeholder) for name, pat, placeholder in self.DEFAULT_PATTERNS
+            ]
         else:
             self.patterns = []
+            raw_patterns = []
             for name, pat, placeholder in patterns:
                 self.patterns.append((name, re.compile(pat), placeholder))
+                raw_patterns.append((name, pat, placeholder))
+        try:
+            try:
+                from blackwall import _core_rs
+            except ImportError:
+                import _core_rs
+
+            self._rust_sanitizer = _core_rs.ContextSanitizer(raw_patterns)
+        except (ImportError, AttributeError):
+            self._rust_sanitizer = None
+
 
     def _repl(self, match: Any, placeholder_str: str) -> str:
         full: str = str(match.group(0))
@@ -90,7 +140,16 @@ class ContextHygiene:
             )
         return full
 
+
     def sanitize_string(self, text: str) -> str:
+        if self._rust_sanitizer is not None and len(self.patterns) == len(self._COMPILED_DEFAULT_PATTERNS):
+            try:
+                return self._rust_sanitizer.sanitize_string(text, True)
+            except Exception as e:
+                logger.warning(
+                    f"Rust sanitizer failed in resolver, falling back to Python: {e}"
+                )
+
         for name, regex, placeholder in self.patterns:
             if name in ("password", "api_key"):
                 # Capture current placeholder via default-argument to avoid late-binding

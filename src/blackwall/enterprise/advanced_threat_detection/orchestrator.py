@@ -25,16 +25,39 @@ from blackwall.enterprise.advanced_threat_detection.correlator import PathCorrel
 from blackwall.enterprise.advanced_threat_detection.enums import (
     AlertSeverity,
     EventSource,
+    InboundMethodType,
+    InboundProtocolType,
+    InjectionSourceType,
+    ReactionActionType,
+)
+from blackwall.enterprise.advanced_threat_detection.evaluation import (
+    EvaluationEnvironmentManager,
 )
 from blackwall.enterprise.advanced_threat_detection.exploit import ExploitChainAnalyzer
+from blackwall.enterprise.advanced_threat_detection.inbound_filter import (
+    InboundProtocolFilter,
+)
 from blackwall.enterprise.advanced_threat_detection.k8s import KubernetesDefenseLayer
 from blackwall.enterprise.advanced_threat_detection.models import (
+    ActiveReactionPayload,
+    AgentQuotaUsage,
     Alert,
     AttackNode,
     AttackPath,
+    InboundProtocolMessage,
     NormalizedEvent,
+    PromptInjectionEvidence,
     RegistryThreatEvidence,
     SwarmEvidence,
+)
+from blackwall.enterprise.advanced_threat_detection.prompt_injection import (
+    PromptInjectionScanner,
+)
+from blackwall.enterprise.advanced_threat_detection.quota_enforcer import (
+    AgentQuotaEnforcer,
+)
+from blackwall.enterprise.advanced_threat_detection.reaction import (
+    ActiveReactionEngine,
 )
 from blackwall.enterprise.advanced_threat_detection.registry import PackageRegistryMonitor
 from blackwall.enterprise.advanced_threat_detection.resilience import (
@@ -46,7 +69,7 @@ from blackwall.enterprise.advanced_threat_detection.retrospective import (
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from blackwall.enterprise.advanced_threat_detection.swarm import AgentSwarmDetector
-from blackwall.validators import utc_now, validate_utc_datetime
+from blackwall.validators import normalize_time_window, utc_now, validate_utc_datetime
 
 try:
     import psutil
@@ -76,6 +99,14 @@ class AdvancedThreatDetection:
         self,
         config: Optional[AdvancedThreatDetectionConfig] = None,
         stream_factories: Optional[dict[EventSource, Callable[[], Any]]] = None,
+        kernel_driver: Optional[Any] = None,
+        mesh_broadcaster: Optional[Any] = None,
+        vault_adapter: Optional[Any] = None,
+        eval_manager: Optional[EvaluationEnvironmentManager] = None,
+        active_reaction: Optional[ActiveReactionEngine] = None,
+        inbound_filter: Optional[InboundProtocolFilter] = None,
+        prompt_injection_scanner: Optional[PromptInjectionScanner] = None,
+        quota_enforcer: Optional[AgentQuotaEnforcer] = None,
     ) -> None:
         self.config = config or AdvancedThreatDetectionConfig()
         self._running = False
@@ -83,6 +114,7 @@ class AdvancedThreatDetection:
         self._stream_factories: dict[EventSource, Callable[[], Any]] = dict(stream_factories or {})
         self._stream_tasks: dict[EventSource, asyncio.Task[Any]] = {}
         self._stream_generations: dict[EventSource, int] = {}
+        self.eval_manager = eval_manager
 
         # Core subsystem infrastructure configured per runtime config
         self.store = AttackGraphStore(
@@ -157,6 +189,77 @@ class AdvancedThreatDetection:
                 swarm_detector=self.swarm_detector,
             )
         )
+
+        # Breach Defense & Active Mitigation Engines (wired conditionally)
+        self.active_reaction: Optional[ActiveReactionEngine] = (
+            active_reaction
+            if active_reaction is not None
+            else (
+                ActiveReactionEngine(
+                    kernel_driver=kernel_driver,
+                    mesh_broadcaster=mesh_broadcaster,
+                    vault_adapter=vault_adapter,
+                    alert_bus=self.alert_bus,
+                    attack_graph=self.store,
+                    eval_manager=self.eval_manager,
+                )
+                if self.config.enable_active_reaction
+                else None
+            )
+        )
+        self.inbound_filter: Optional[InboundProtocolFilter] = (
+            inbound_filter
+            if inbound_filter is not None
+            else (
+                InboundProtocolFilter(
+                    alert_bus=self.alert_bus,
+                    rate_limit_per_window=self.config.inbound_rate_limit,
+                    sliding_window_sec=self.config.inbound_sliding_window_sec,
+                    enforce_loopback=self.config.inbound_enforce_loopback,
+                )
+                if self.config.enable_inbound_filter
+                else None
+            )
+        )
+        self.prompt_injection_scanner: Optional[PromptInjectionScanner] = (
+            prompt_injection_scanner
+            if prompt_injection_scanner is not None
+            else (
+                PromptInjectionScanner(
+                    alert_bus=self.alert_bus,
+                    confidence_threshold=self.config.prompt_injection_confidence_threshold,
+                    critical_confidence_threshold=self.config.prompt_injection_critical_threshold,
+                    redaction_placeholder=self.config.prompt_injection_redaction_placeholder,
+                )
+                if self.config.enable_prompt_injection
+                else None
+            )
+        )
+        self.quota_enforcer: Optional[AgentQuotaEnforcer] = (
+            quota_enforcer
+            if quota_enforcer is not None
+            else (
+                AgentQuotaEnforcer(
+                    alert_bus=self.alert_bus,
+                    token_burn_rate_limit=self.config.quota_token_burn_rate_limit,
+                    request_velocity_limit=self.config.quota_request_velocity_limit,
+                    sliding_window_sec=self.config.quota_sliding_window_sec,
+                    quarantine_duration_sec=self.config.quota_quarantine_duration_sec,
+                )
+                if self.config.enable_quota_enforcer
+                else None
+            )
+        )
+
+    @property
+    def reaction_engine(self) -> Optional[ActiveReactionEngine]:
+        """Alias property for active reaction engine."""
+        return self.active_reaction
+
+    @property
+    def injection_scanner(self) -> Optional[PromptInjectionScanner]:
+        """Alias property for prompt injection scanner."""
+        return self.prompt_injection_scanner
 
     def register_pillar_stream(
         self,
@@ -382,13 +485,9 @@ class AdvancedThreatDetection:
         if not agent_id or not agent_id.strip():
             raise ValueError("agent_id must not be empty")
 
-        if time_window is not None:
-            win_start, win_end = time_window
-            win_start = validate_utc_datetime(win_start)
-            win_end = validate_utc_datetime(win_end)
-        else:
-            win_end = utc_now()
-            win_start = win_end - timedelta(seconds=self.config.temporal_window_seconds)
+        win_start, win_end = normalize_time_window(
+            time_window, default_duration_seconds=self.config.temporal_window_seconds
+        )
 
         mem_mb = _get_current_memory_mb()
         is_throttled = self.throttler.should_throttle(current_memory_mb=mem_mb)
@@ -435,6 +534,27 @@ class AdvancedThreatDetection:
                         },
                     )
                     await self._publish_alert(alert, new_alerts)
+                    if sev == AlertSeverity.CRITICAL and self.active_reaction is not None:
+                        ebpf_payload = ActiveReactionPayload(
+                            trigger_evidence_id=path.path_id,
+                            target_agent_id=agent_id,
+                            action_type=ReactionActionType.EBPF_DROP,
+                            metadata={"threat_type": "attack_path", "risk_score": path.risk_score},
+                        )
+                        try:
+                            await self.active_reaction.execute_ebpf_socket_drop(ebpf_payload)
+                        except Exception as exc:
+                            logger.error("Active reaction (eBPF drop) failed for attack_path %s: %s", path.path_id, exc)
+                        mesh_payload = ActiveReactionPayload(
+                            trigger_evidence_id=path.path_id,
+                            target_agent_id=agent_id,
+                            action_type=ReactionActionType.MESH_SIGNATURE_BROADCAST,
+                            metadata={"threat_type": "attack_path", "risk_score": path.risk_score},
+                        )
+                        try:
+                            await self.active_reaction.broadcast_fleet_signature(mesh_payload)
+                        except Exception as exc:
+                            logger.error("Active reaction (mesh broadcast) failed for attack_path %s: %s", path.path_id, exc)
 
         # 2. Zero-Day Exploit Chain Analysis
         if self.exploit_analyzer is not None:
@@ -465,6 +585,27 @@ class AdvancedThreatDetection:
                         },
                     )
                     await self._publish_alert(alert, new_alerts)
+                    if sev == AlertSeverity.CRITICAL and self.active_reaction is not None:
+                        ebpf_payload = ActiveReactionPayload(
+                            trigger_evidence_id=chain.chain_id,
+                            target_agent_id=agent_id,
+                            action_type=ReactionActionType.EBPF_DROP,
+                            metadata={"threat_type": "exploit_chain", "novelty_score": chain.novelty_score},
+                        )
+                        try:
+                            await self.active_reaction.execute_ebpf_socket_drop(ebpf_payload)
+                        except Exception as exc:
+                            logger.error("Active reaction (eBPF drop) failed for exploit_chain %s: %s", chain.chain_id, exc)
+                        mesh_payload = ActiveReactionPayload(
+                            trigger_evidence_id=chain.chain_id,
+                            target_agent_id=agent_id,
+                            action_type=ReactionActionType.MESH_SIGNATURE_BROADCAST,
+                            metadata={"threat_type": "exploit_chain", "novelty_score": chain.novelty_score},
+                        )
+                        try:
+                            await self.active_reaction.broadcast_fleet_signature(mesh_payload)
+                        except Exception as exc:
+                            logger.error("Active reaction (mesh broadcast) failed for exploit_chain %s: %s", chain.chain_id, exc)
 
         # 3. AI-Induced Lateral Movement (AILM)
         if self.ailm_tracker is not None:
@@ -494,6 +635,21 @@ class AdvancedThreatDetection:
                         },
                     )
                     await self._publish_alert(alert, new_alerts)
+                    if sev in (AlertSeverity.HIGH, AlertSeverity.CRITICAL) and self.active_reaction is not None:
+                        vault_payload = ActiveReactionPayload(
+                            trigger_evidence_id=alert.alert_id,
+                            target_agent_id=agent_id,
+                            action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
+                            metadata={
+                                "threat_type": "ailm",
+                                "risk_level": ailm.risk_level,
+                                "boundary_crossings": ailm.boundary_crossings,
+                            },
+                        )
+                        try:
+                            await self.active_reaction.revoke_identity_session(vault_payload)
+                        except Exception as exc:
+                            logger.error("Active reaction (vault revocation) failed for ailm agent %s: %s", agent_id, exc)
 
         # 4. Command-and-Control (C2) Detection
         if self.c2_detector is not None:
@@ -591,6 +747,47 @@ class AdvancedThreatDetection:
                         },
                     )
                     await self._publish_alert(alert, new_alerts)
+                    if sev == AlertSeverity.CRITICAL and self.active_reaction is not None:
+                        for aid in swarm.agent_ids:
+                            ebpf_payload = ActiveReactionPayload(
+                                trigger_evidence_id=swarm.swarm_id,
+                                target_agent_id=aid,
+                                action_type=ReactionActionType.EBPF_DROP,
+                                metadata={
+                                    "threat_type": "agent_swarm",
+                                    "coordination_score": swarm.coordination_score,
+                                },
+                            )
+                            try:
+                                await self.active_reaction.execute_ebpf_socket_drop(ebpf_payload)
+                            except Exception as exc:
+                                logger.error("Active reaction (eBPF drop) failed for swarm agent %s: %s", aid, exc)
+                            mesh_payload = ActiveReactionPayload(
+                                trigger_evidence_id=swarm.swarm_id,
+                                target_agent_id=aid,
+                                action_type=ReactionActionType.MESH_SIGNATURE_BROADCAST,
+                                metadata={
+                                    "threat_type": "agent_swarm",
+                                    "coordination_score": swarm.coordination_score,
+                                },
+                            )
+                            try:
+                                await self.active_reaction.broadcast_fleet_signature(mesh_payload)
+                            except Exception as exc:
+                                logger.error("Active reaction (mesh broadcast) failed for swarm agent %s: %s", aid, exc)
+                            vault_payload = ActiveReactionPayload(
+                                trigger_evidence_id=swarm.swarm_id,
+                                target_agent_id=aid,
+                                action_type=ReactionActionType.REVOKE_IDENTITY_TOKENS,
+                                metadata={
+                                    "threat_type": "agent_swarm",
+                                    "coordination_score": swarm.coordination_score,
+                                },
+                            )
+                            try:
+                                await self.active_reaction.revoke_identity_session(vault_payload)
+                            except Exception as exc:
+                                logger.error("Active reaction (vault revocation) failed for swarm agent %s: %s", aid, exc)
 
         # 7. Package Registry Exploit Probing & Monitoring
         if self.registry_monitor is not None:
@@ -686,3 +883,135 @@ class AdvancedThreatDetection:
             threat_type=threat_type,
             agent_id=agent_id,
         )
+
+    async def inspect_and_sanitize_inbound_rpc(
+        self,
+        raw_data: str | bytes | dict[str, Any],
+        sender_id: str,
+        recipient_agent_id: str,
+        protocol: InboundProtocolType = InboundProtocolType.MCP_SSE,
+        headers: Optional[dict[str, Any]] = None,
+        remote_addr: Optional[str] = None,
+    ) -> Tuple[Optional[InboundProtocolMessage], Optional[dict[str, Any]]]:
+        """Inspect headers, rate-limit, parse, and sanitize incoming RPC request."""
+        if self.inbound_filter is None:
+            if isinstance(raw_data, dict):
+                method_val = raw_data.get("method", "tools/call")
+                try:
+                    m_type = InboundMethodType(method_val)
+                except ValueError:
+                    m_type = InboundMethodType.TOOLS_CALL
+                return (
+                    InboundProtocolMessage(
+                        sender_id=sender_id,
+                        recipient_agent_id=recipient_agent_id,
+                        protocol=protocol,
+                        method=m_type,
+                        payload=raw_data,
+                    ),
+                    None,
+                )
+            return None, {"error": "Inbound filter not enabled"}
+
+        # 1. Validate headers and origin — always enforced to prevent authorization bypass.
+        # Callers that omit headers or remote_addr receive safe defaults: an empty headers dict
+        # and an empty remote_addr string. The filter's loopback/origin rules then evaluate
+        # those defaults, which ensures non-loopback callers cannot skip authorization by
+        # simply omitting these optional parameters.
+        _headers = headers if headers is not None else {}
+        _remote_addr = remote_addr if remote_addr is not None else ""
+        allowed = await self.inbound_filter.validate_headers_and_origin(
+            headers=_headers, remote_addr=_remote_addr
+        )
+        if not allowed:
+            return None, self.inbound_filter.synthesize_error_response(
+                error_code=-32600, message="Unauthorized Origin or Host Header"
+            )
+
+        # 2. Enforce rate limiting
+        within_limit = await self.inbound_filter.check_inbound_rate_limit(sender_id=sender_id)
+        if not within_limit:
+            return None, self.inbound_filter.synthesize_error_response(
+                error_code=-32000, message="Inbound rate limit exceeded"
+            )
+
+        # 3. Parse and validate JSON-RPC
+        msg, err = await self.inbound_filter.parse_and_validate_rpc(
+            raw_data=raw_data,
+            sender_id=sender_id,
+            recipient_agent_id=recipient_agent_id,
+            protocol=protocol,
+        )
+        if err is not None or msg is None:
+            return None, err
+
+        # 4. Sanitize parameters
+        sanitized_msg = await self.inbound_filter.sanitize_incoming_rpc(msg)
+        return sanitized_msg, None
+
+    async def scan_payload_for_injection(
+        self,
+        content: str,
+        source_type: InjectionSourceType,
+        agent_id: Optional[str] = None,
+    ) -> PromptInjectionEvidence:
+        """Scan input payload for indirect prompt injection indicators and sanitize."""
+        if self.prompt_injection_scanner is None:
+            return PromptInjectionEvidence(
+                scan_id=uuid.uuid4(),
+                source_context=source_type,
+                detected_patterns=["NO_SCANNER_CONFIGURED"],
+                injection_confidence=0.0,
+                sanitized_content=content,
+            )
+        return await self.prompt_injection_scanner.scan_payload(
+            content=content,
+            source_type=source_type,
+            agent_id=agent_id,
+        )
+
+    async def track_agent_tokens(
+        self,
+        agent_id: str,
+        tokens_used: int,
+        api_calls: int = 1,
+        timestamp: Optional[datetime] = None,
+    ) -> Optional[AgentQuotaUsage]:
+        """Record token consumption and compute rolling burn rate."""
+        if self.quota_enforcer is None:
+            return None
+        return await self.quota_enforcer.track_token_consumption(
+            agent_id=agent_id,
+            tokens_used=tokens_used,
+            api_calls=api_calls,
+            timestamp=timestamp,
+        )
+
+    async def enforce_agent_velocity_limits(
+        self,
+        agent_id: str,
+        auto_quarantine: bool = True,
+    ) -> bool:
+        """Enforce rate limits and quarantine for an agent. Returns True if exceeded or quarantined."""
+        if self.quota_enforcer is None:
+            return False
+        return await self.quota_enforcer.enforce_quota_limits(
+            agent_id=agent_id,
+            auto_quarantine=auto_quarantine,
+        )
+
+    async def dispatch_threat_mitigation(
+        self,
+        payload: ActiveReactionPayload,
+    ) -> bool:
+        """Directly dispatch an active threat reaction mitigation across Pillars 1, 2, or 3."""
+        if self.active_reaction is None:
+            logger.warning("ActiveReactionEngine not enabled; skipping reaction dispatch")
+            return False
+        if payload.action_type == ReactionActionType.EBPF_DROP:
+            return await self.active_reaction.execute_ebpf_socket_drop(payload)
+        elif payload.action_type == ReactionActionType.MESH_SIGNATURE_BROADCAST:
+            return await self.active_reaction.broadcast_fleet_signature(payload)
+        elif payload.action_type == ReactionActionType.REVOKE_IDENTITY_TOKENS:
+            return await self.active_reaction.revoke_identity_session(payload)
+        return False

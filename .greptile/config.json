@@ -100,6 +100,12 @@
       "id": "performance-async-safety",
       "rule": "Performance & Async Safety: Focus code suggestions strictly on performance bottlenecks, thread safety, async coroutine safety, and security vulnerabilities. Ensure suggestions conform to Python 3.11+ async patterns and avoid deprecated decorators like @unittest_run_loop.",
       "severity": "medium"
+    },
+    {
+      "id": "rust-acceleration-invariants",
+      "rule": "Rust Acceleration & FFI Invariants: Verify native Rust optimizations in crates/blackwall_core_rs/ adhere to the non-greedy rewrite philosophy (90/10 to 95/5 rule). Ensure dual-mode context sanitization parity (Middleware full-match + SHA-256 vs Resolver prefix preservation), candidate isolation in batch cosine similarity, zero-panic PyResult error handling, and pure-Python fallbacks in all wrapping Python modules.",
+      "severity": "high"
     }
   ]
 }
+

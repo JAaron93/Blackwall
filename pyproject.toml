@@ -1,6 +1,13 @@
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.7.0,<2.0.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+manifest-path = "crates/blackwall_core_rs/Cargo.toml"
+python-source = "src"
+module-name = "blackwall._core_rs"
+features = ["pyo3/extension-module"]
+
 
 [project]
 name = "blackwall"
@@ -40,7 +47,8 @@ dev = [
     "ruff>=0.3.0",
     "black>=24.3.0",
     "mypy>=1.9.0",
-    "pre-commit>=3.7.0"
+    "pre-commit>=3.7.0",
+    "maturin>=1.7.0"
 ]
 evaluation = [
     "google-cloud-aiplatform>=1.60.0",
@@ -64,7 +72,14 @@ markers = [
     "retrospective: Retrospective analysis and historical query test scenarios",
     "evaluation: Evaluation environment and containment test scenarios",
     "vertex_evaluation: Mark tests that run Vertex AI Evaluation Service tasks",
+    "gcp_eval: GCP evaluation pipeline tests (require ADC)",
     "asyncio: Mark async tests to run with pytest-asyncio",
+    "gti_rate_limiting: GTI rate limiting BDD scenarios",
+    "jit_credential_privilege: JIT credential privilege BDD scenarios",
+    "codebase_memory_blast_radius: Codebase memory blast radius BDD scenarios",
+    "profile_db: Profile DB test scenarios",
+    "e2e_attribution: E2E attribution test scenarios",
+    "lifecycle: Lifecycle test scenarios",
 ]
 
 

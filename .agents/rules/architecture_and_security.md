@@ -111,10 +111,11 @@
 * **Rationale:** VirusTotal commercial enterprise API subscriptions cost >$1,000/month and are an explicit non-goal. Conflating third-party Threat Intelligence rate limits with Gemini LLM model quotas creates catastrophic financial exposure.
 
 ## 26. Network Security Detector Endpoint Parsing & IPv4/IPv6 Loopback Range Filtering
-* **Rule:** Security detection modules parsing network targets or hostnames (e.g. `C2InfrastructureDetector`, network event correlators) MUST:
+* **Rule:** Security detection modules parsing network targets or hostnames (e.g. `C2InfrastructureDetector`, network event correlators, `InboundProtocolFilter`) MUST:
   1. Enclose unbracketed IPv6 target strings (e.g. `::1`, `::1:8080`) in brackets (`[::1]`, `[::1]:8080`) before passing to URL parsers (`urlparse`) to prevent colons from being split into empty host components.
-  2. Treat the entire `127.0.0.0/8` IPv4 loopback block (e.g. `127.0.0.2`), IPv6 loopback (`::1`, `[::1]`), and IPv4-mapped IPv6 loopback addresses (`::ffff:127.0.0.0/8`, e.g. `[::ffff:127.0.0.1]:8080`) as local loopback endpoints (`_is_local_host` / `_is_local_endpoint`) alongside `localhost`.
-* **Rationale:** Single IP exact-string comparisons (e.g., checking only `"127.0.0.1"` or `"::1"`) allow unbracketed IPv6 ports, alternative IPv4 loopback subnets (`127.0.0.2`), or IPv4-mapped IPv6 loopbacks (`::ffff:127.0.0.1`) to bypass local endpoint filtering, resulting in false cross-pillar persistence indicators and false `C2Evidence`.
+  2. Treat the entire `127.0.0.0/8` IPv4 loopback block (e.g. `127.0.0.2`), IPv6 loopback (`::1`, `[::1]`), and IPv4-mapped IPv6 loopback addresses (`::ffff:127.0.0.0/8`, e.g. `[::ffff:127.0.0.1]:8080`) as local loopback endpoints (`_is_local_host` / `_is_local_endpoint` / `_is_loopback`) alongside `localhost`.
+  3. Extract IP literals from bracketed IPv6 host headers with ports (e.g. `[::1]:8000` -> `::1` or `[::1]`) by parsing bracket delimiters (`clean[1:clean.index("]")]`) before port stripping or IP address parsing. Naive colon splitting (`split(":")[0]`) leaves trailing colons or corrupted IPv6 addresses.
+* **Rationale:** Single IP exact-string comparisons and naive colon splitting allow valid bracketed IPv6 requests with ports (`[::1]:8000`) or alternative loopback subnets (`127.0.0.2`) to be rejected or misclassified as remote traffic.
 
 ## 27. Destination Metadata Extraction Isolation in Security Event Correlation
 * **Rule:** Cross-pillar security correlation components and endpoint classifiers extracting target endpoints from event metadata MUST restrict metadata extraction strictly to explicit, known network destination keys (`DESTINATION_KEYS = {"url", "uri", "endpoint", "domain", "host", "target", "c2_url", "remote_url", "destination", "dest_url", "server"}`) or validated HTTP/HTTPS URLs. Security engines MUST NOT perform loose substring searches (e.g. searching for `"http"`, `"bin"`, or `"paste"`) over arbitrary string metadata values.
@@ -228,10 +229,106 @@
   - Dataset utilities providing tabular outputs (`as_dataframe=True`) MUST gracefully handle missing optional dependencies (`pandas`) with safe `ImportError` fallback to standard dictionaries, without referencing uninitialized loggers.
 * **Rationale:** Enforces deterministic evaluation reporting in Vertex AI mode, guarantees end-to-end telemetry capture in Google Cloud Trace, prevents silent false positives during security harness runs, and preserves pristine isolation between evaluation artifacts and persistent threat graphs.
 
+## 44. Ingress Payload Scanning, Literal Substitution, & Positive Threshold Validation Invariants
+* **Rule (Strictly Positive Confidence Thresholds & Benign Alert Guarding):**
+  - Parameter validators for security confidence thresholds (e.g. `confidence_threshold`, `critical_confidence_threshold`) MUST enforce strictly positive values (`0.0 < threshold <= 1.0`), raising `ValueError` when `0.0` or negative values are provided.
+  - Alert publishing routines MUST explicitly verify that threat indicators were matched (`if matched_patterns and confidence >= self.confidence_threshold:`) before publishing alerts to the `AlertBus`, ensuring benign inputs receiving baseline `0.0` confidence never trigger false-positive security alerts with `NO_INJECTION_DETECTED` evidence.
+* **Rule (Literal Replacement in Regex Sanitization & Redaction):**
+  - When replacing detected malicious payloads or injection vectors via `Pattern.sub` or `re.sub` with configurable user-provided or default placeholders (e.g., `redaction_placeholder`), replacement MUST be performed using a callable (`pattern.sub(lambda _match: self.redaction_placeholder, text)`) or `re.escape`-protected string.
+  - Passing unescaped replacement strings directly to `re.sub` is strictly prohibited to prevent regex template/group backreference injection (e.g., `\g<0>`, `\1`) from re-inserting malicious payloads or raising syntax errors that leave exploit vectors unredacted in host execution contexts.
+* **Rationale:** Permitting `0.0` threshold values allows benign inputs to satisfy `>= 0.0` comparisons and emit spurious `HIGH`/`CRITICAL` alerts that flood SOC pipelines. Passing unescaped replacement strings to regex engines allows crafted placeholders with backreferences to reconstitute stripped exploit spans, defeating prompt injection and data poisoning containment.
+
+## 45. Non-Finite Numeric Limit Validation & Resource Quota Invariants
+* **Rule (Finite Float Validation on Numeric Thresholds, Rates, and Durations):**
+  - All numeric constructor and method parameters representing security limits, rate caps, sliding windows, timeouts, multipliers, and durations (e.g. `token_burn_rate_limit`, `request_velocity_limit`, `sliding_window_sec`, `quarantine_duration_sec`, `critical_burn_rate_multiplier`, `duration_sec`, `confidence_threshold`) MUST be explicitly validated with `math.isfinite(x)` in addition to type and positivity checks:
+    ```python
+    if (
+        isinstance(x, bool)
+        or not isinstance(x, (int, float))
+        or not math.isfinite(x)
+        or x <= 0.0
+    ):
+        raise ValueError("x must be a finite float greater than 0.0")
+    ```
+  - Relying solely on `x <= 0.0` or `x < 1.0` is strictly prohibited because comparisons with `NaN` (e.g. `float('nan') <= 0.0`) evaluate to `False` in Python, accepting invalid inputs. Similarly, positive infinity (`float('inf')`) passes `> 0.0` checks and breaks enforcement: infinite rate/velocity limits prevent threshold comparisons from triggering, while infinite timeouts and quarantine durations produce holds that never expire automatically.
+* **Rationale:** Accepting `NaN` breaks mathematical comparisons in sliding-window calculations and alert severity evaluation, causing silent security failures. Accepting `+inf` disables throttling and creates unexpiring quarantines, causing denial of service for benign workloads or unmitigated Denial of Wallet (DoW) exposure for adversarial workloads.
+
+## 46. Low-Level Syscall vs. Container Orchestrator Lifecycle Separation
+* **Rule:** Container and Kubernetes security detectors (`KubernetesDefenseLayer`, container sandbox monitors) MUST strictly separate low-level kernel/process syscall actions (`sys_clone`, `sys_fork`, `clone`) from high-level orchestrator lifecycle actions (`POD_CREATE_ACTIONS`, `POD_TERM_ACTIONS`, `FLEET_SPAWN_ACTIONS`).
+* **Rule:** Low-level process creation syscalls captured via eBPF tracepoints or audit hooks MUST NOT be included in pod creation or pod self-respawn action sets.
+* **Rationale:** Generic process/thread cloning inside sandbox containers (e.g. worker process forks during CyBench executions) shares the same process namespace or container ID. Treating `sys_clone` as pod creation produces false `fleet_spawning` and `self_respawning_pod` threat evidence.
+
+## 48. Active Enforcement Method Fail-Closed Contract
+
+* **Rule (Fail-Closed Success Initialization):** Every action method in `ActiveReactionEngine` (`execute_ebpf_socket_drop`, `broadcast_fleet_signature`, `revoke_identity_session`) MUST initialize `success = False` unconditionally before any conditional dispatch. `success` MUST be set to `True` only inside a branch that *completes an enforcement action without exception*. The following initializations are strictly prohibited:
+  - `success = True` — leaves `success` unchanged when a branch is silently skipped (e.g. unsupported interface, absent dependency)
+  - `success = self.dep is not None` — leaves `success = True` when the dependency is present but its interface matches no dispatch branch
+
+* **Rule (Dispatcher Return Value Capture):** Dispatch branches that optionally await a coroutine MUST assign the awaited result back to the same variable before inspecting it:
+  ```python
+  res = self.mesh_broadcaster(payload)
+  if asyncio.iscoroutine(res):
+      res = await res          # ← captured, not discarded
+  success = bool(res) if res is not None else True
+  ```
+  The return value of `await` MUST NOT be discarded with a bare `await res` statement. Success semantics: `None` → completed without explicit failure signal (success); any other falsy value (e.g. `False`, `0`) → caller-signalled failure.
+
+* **Rule (Empty-Result Oracle Guard for Token Revocation):** When a vault-style adapter returns an empty collection from `revoke_agent_tokens`, the failure condition MUST apply unless the local token registry confirms zero tokens were ever issued:
+  ```python
+  if len(revoked_tokens) == 0 and not (
+      isinstance(adapter_tokens, dict) and len(adapter_tokens) == 0
+  ):
+      success = False   # absent registry, non-dict, or non-empty dict → failure
+  # else: empty dict registry → no tokens existed, empty return is correct
+  ```
+  An absent registry (`None`), a non-dict registry, or a non-empty registry all require treating zero revocations as a failure; only a confirmed empty dict (`{}`) is a legitimate "nothing to revoke" result.
+
+* **Rationale:** Fail-open enforcement methods produce false `COMPLETED` audit records for actions that never occurred (socket drops, Threat Mesh broadcasts, credential revocations). Discovered across PR #93 review cycles: (a) initializing `success = dep is not None` still reports COMPLETED when a non-None dep exposes an unsupported interface; (b) discarding `await res` ignores a broadcaster's explicit `False` failure signal; (c) guarding empty-revocation failure only on a non-empty `_issued_tokens` dict silently passes when the adapter has no local registry. Each flaw allows adversaries whose mitigations were not actually enforced to continue operating while the SOC log shows `COMPLETED`.
+
+## 47. Multi-Day Retrospective Semantic Edge Decay & MITRE Technique Gating
+* **Rule:** Retrospective attack path correlators (`RetrospectiveAnalyzer.reconstruct_causal_graph`) constructing semantic and temporal edges across multi-day analysis windows MUST:
+  1. Scale non-causal same-target edge weights strictly by continuous exponential decay ($w = \text{base} \cdot e^{-\Delta t / \tau}$), requiring $w \ge 0.4$ for edge creation without applying artificial constant baselines that keep weights $\ge 0.4$ as $\Delta t \to \infty$.
+  2. Gate base edge multipliers on MITRE ATT&CK technique matches (e.g. $\text{base} = 0.8$ for MITRE-matched actions, $\text{base} = 0.5$ for non-MITRE routine actions).
+  3. Traverse all identified root nodes without artificial finite result collection caps that terminate DFS early and starve sibling branches.
+* **Rationale:** Constant baseline additions connect unrelated routine actions occurring days apart, while un-gated decay severs multi-stage stealth campaigns. Gating decay on MITRE technique relevance preserves genuine multi-day attack paths while rejecting disconnected benign activity.
+
+## 49. Structured Logging via `extra` Dictionary & Logger Keyword Hygiene
+* **Rule:** When emitting structured metadata or event objects via standard Python `logging.Logger` instances, custom payload dictionaries MUST be passed through the `extra={...}` parameter (e.g. `logger.info("EVENT", extra={"event": payload.model_dump()})`) or formatted into the log message string. Passing arbitrary keyword arguments directly to standard logger methods (`logger.info("...", event=...)`) is strictly prohibited to prevent runtime `TypeError` exceptions.
+* **Rationale:** Standard Python `logging.Logger._log()` does not accept arbitrary keyword arguments. Passing custom keywords directly raises `TypeError: Logger._log() got an unexpected keyword argument '...'` at runtime when log statements are triggered in production or test paths.
 
 
 
+## 48. Inbound RPC Origin Validation — Always Enforced
+* **Rule:** `InboundProtocolFilter.validate_headers_and_origin()` MUST be called unconditionally on every inbound RPC request, regardless of whether `headers` or `remote_addr` are provided by the caller. Callers that omit these optional parameters MUST receive safe defaults (`headers={}`, `remote_addr=""`) before the validation gate so that loopback enforcement and Origin/Host restrictions are never bypassed by simply omitting arguments.
+* **Rationale:** When `validate_headers_and_origin` was gated on `headers is not None and remote_addr is not None`, an unauthenticated non-loopback caller could skip the entire authorization layer by omitting either parameter, proceed to the rate limiter and RPC parser, and receive a sanitized but authorized response.
 
+## 49. Active Reaction Dispatch Fault Isolation
+* **Rule:** Every `await active_reaction.*()` call within `correlate_agent_threats()` (eBPF socket drop, ZeroMQ mesh broadcast, Vault token revocation) MUST be wrapped individually in a `try/except Exception` block. Exceptions from the reaction adapter layer MUST be logged via `logger.error()` and MUST NOT propagate to abort the detection correlation loop or suppress alerts that were already generated.
+* **Rationale:** A transient kernel driver failure, mesh broadcaster outage, or Vault connectivity error must not prevent the remaining detectors and correlation engines from completing and returning their alerts. Fault isolation ensures that partial adapter failures degrade gracefully without silently discarding security intelligence.
 
+## 50. Independent Security Gate Bypass-Proofing
+* **Rule:** Multi-layer security validation sequences (e.g. loopback check → allow-list check → header presence check) MUST be designed so that disabling one gate (e.g. `enforce_loopback=False`) does not implicitly open a free path through the remaining gates. Each gate MUST independently provide a baseline rejection for the "no identifying information" case:
+  1. When loopback enforcement is disabled AND the caller is unauthenticated, require at least one other identifying signal (Origin or Host header) to be present — regardless of whether allow-lists are configured.
+  2. When allow-lists are configured (strict mode), absent headers MUST fail the check; header absence must never be treated as implicit allowance in strict mode.
+  3. Gates that combine boolean `enforce_*` flags with optional allow-list sets MUST be audited for all 2^N flag combinations to verify each combination has a correct accept/reject outcome for both authenticated and unauthenticated callers.
+* **Rationale:** The three-iteration fix on `InboundProtocolFilter.validate_headers_and_origin` demonstrated that optional-parameter disablement (`enforce_loopback=False`) combined with unconfigured allow-lists (`allowed_origins=None`, `allowed_hosts=None`) created a silent "all gates off" path that passed unauthenticated callers with zero headers. Each gate must provide independent rejection rather than relying on the others to catch what it does not.
+
+## 51. Evaluation Judge Agents & Antigravity SDK Invariants
+* **Rule (Mandatory Paid-Tier Contract Validation at Startup):**
+  `GEMINI_TIER=paid`, `BLACKWALL_TIER=paid`, and `GCP_PROJECT` (or `GOOGLE_CLOUD_PROJECT`) must be verified at judge agent creation time. Tier contract violations MUST raise `ValueError` immediately; they must NOT be caught inside candidate evaluation retry loops or converted into heuristic fallbacks.
+* **Rule (Asynchronous Agent Lifecycle Management):**
+  Autonomous Antigravity SDK agents must be invoked within an async context manager (`async with agent as active_agent:`) to guarantee proper session initialization and runtime resource cleanup across evaluation retries.
+* **Rule (Resilient Heuristic Fallback Ground-Truth Mapping):**
+  Fallback scorers must check both canonical scenario schema fields (e.g. `stages`, `c2_endpoints`, `ground_truth_coordination` with `agents`/`score`) and legacy aliases to prevent inverted scoring during degraded-mode execution.
+* **Rationale:** Discovered during Track B implementation and PR #100 review cycles:
+  1. Catching tier contract errors inside the evaluation loop allowed misconfigured environments to silently fall back to heuristic scoring instead of failing at startup.
+  2. Skipping agent `__aenter__`/`__aexit__` leaked runtime resources and caused Vertex AI agents to fail repeatedly.
+  3. Fallback ground truth key mismatches caused fallback scorers to evaluate empty expected sets, penalizing correct detections and rewarding candidates that detected nothing.
+
+## 52. AILM Security Trust Boundary Domain Scoping vs. Resource Labels
+* **Rule:**
+  - `AILMTracker.identify_boundary_crossing()` and evaluation datasets targeting AI-Induced Lateral Movement must strictly scope trust boundaries to recognized architectural, system-isolation, and network-perimeter domains (`user_space`, `kernel_space`, `sandbox`, `host`, `untrusted`, `trusted`, `public`, `private`, `internal_api`, `external_net`, `external_network`, `tenant_a`, `tenant_b`).
+  - Fine-grained workload, queue, or resource-level identifiers (e.g., specific database names, support queues, or table names) must NOT be classified as security trust boundaries.
+* **Rationale:** Treating arbitrary resource scopes or workload labels as security trust boundaries causes legitimate multi-service or multi-tenant agents to accumulate false-positive crossing counts, escalating risk to `HIGH` or `CRITICAL` and inadvertently triggering automated identity session revocation (`revoke_identity_session()`).
 
 

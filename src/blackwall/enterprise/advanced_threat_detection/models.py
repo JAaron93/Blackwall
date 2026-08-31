@@ -1,6 +1,7 @@
 """Data models for Blackwall Advanced Threat Detection pillar."""
 
 from datetime import UTC, datetime
+import math
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -10,6 +11,9 @@ from blackwall.enterprise.advanced_threat_detection.enums import (
     AlertSeverity,
     EventSource,
     ExploitCategory,
+    InboundMethodType,
+    InboundProtocolType,
+    InjectionSourceType,
     ReactionActionType,
 )
 from blackwall.validators import (
@@ -319,5 +323,115 @@ class ActiveReactionPayload(BaseModel):
                 raise ValueError(f"evaluation_env_id must match ^[a-zA-Z0-9_-]+$: {v}")
             return clean
         return None
+
+
+class InboundProtocolMessage(BaseModel):
+    """Model representing an incoming A2A or MCP JSON-RPC protocol message."""
+
+    message_id: UUID4 = Field(default_factory=uuid4)
+    sender_id: str = Field(..., min_length=1)
+    recipient_agent_id: str = Field(..., min_length=1)
+    protocol: InboundProtocolType
+    method: InboundMethodType
+    payload: dict[str, Any] = Field(..., min_length=1)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @field_validator("message_id")
+    @classmethod
+    def validate_uuid_v4(cls, v: Any, info: Any) -> UUID:
+        """Validate message_id is a valid UUID v4."""
+        return validate_uuid_v4_format(v, field_name=info.field_name)
+
+    @field_validator("timestamp")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        """Validate timestamp is timezone-aware and set to UTC."""
+        return validate_utc_datetime(v)
+
+    @field_validator("sender_id", "recipient_agent_id")
+    @classmethod
+    def validate_non_empty_ids(cls, v: str, info: Any) -> str:
+        """Validate string identifiers are not empty or whitespace only."""
+        return validate_non_empty_string(v, field_name=info.field_name)
+
+    @field_validator("payload")
+    @classmethod
+    def validate_non_empty_payload(cls, v: dict[str, Any]) -> dict[str, Any]:
+        """Validate payload is a non-empty dictionary."""
+        if not v or not isinstance(v, dict):
+            raise ValueError("payload must be a non-empty dictionary")
+        return v
+
+
+class PromptInjectionEvidence(BaseModel):
+    """Evidence structure for indirect prompt injection and data poisoning attempts."""
+
+    scan_id: UUID4 = Field(default_factory=uuid4)
+    source_context: InjectionSourceType
+    detected_patterns: list[str] = Field(..., min_length=1)
+    injection_confidence: float = Field(..., ge=0.0, le=1.0)
+    sanitized_content: str = Field(..., min_length=1)
+
+    @field_validator("scan_id")
+    @classmethod
+    def validate_uuid_v4(cls, v: Any, info: Any) -> UUID:
+        """Validate scan_id is a valid UUID v4."""
+        return validate_uuid_v4_format(v, field_name=info.field_name)
+
+    @field_validator("detected_patterns")
+    @classmethod
+    def validate_min_patterns(cls, v: list[str]) -> list[str]:
+        """Validate detected_patterns contains at least 1 pattern."""
+        return validate_min_items(
+            v, min_items=1, custom_msg="PromptInjectionEvidence detected_patterns must contain at least 1 pattern"
+        )
+
+    @field_validator("sanitized_content")
+    @classmethod
+    def validate_sanitized_content(cls, v: str, info: Any) -> str:
+        """Validate sanitized_content is not empty or whitespace only."""
+        return validate_non_empty_string(v, field_name=info.field_name)
+
+
+class AgentQuotaUsage(BaseModel):
+    """Model tracking real-time token consumption and velocity per agent identity (Pillar 6 Task 27)."""
+
+    agent_id: str = Field(..., min_length=1)
+    time_window_start: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    tokens_consumed: int = Field(..., ge=0)
+    api_call_count: int = Field(..., ge=0)
+    token_burn_rate_per_sec: float = Field(..., ge=0.0)
+    quota_exceeded: bool
+
+    @field_validator("agent_id")
+    @classmethod
+    def validate_non_empty_agent_id(cls, v: str) -> str:
+        """Validate agent_id is not empty or whitespace only."""
+        return validate_non_empty_string(v, field_name="agent_id")
+
+    @field_validator("time_window_start")
+    @classmethod
+    def validate_utc_timestamp(cls, v: datetime) -> datetime:
+        """Validate time_window_start is timezone-aware and set to UTC."""
+        return validate_utc_datetime(v)
+
+    @field_validator("tokens_consumed", "api_call_count")
+    @classmethod
+    def validate_non_negative_counts(cls, v: int, info: Any) -> int:
+        """Validate token and call counts are non-negative integers."""
+        if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+            raise ValueError(f"{info.field_name} must be a non-negative integer")
+        return v
+
+    @field_validator("token_burn_rate_per_sec")
+    @classmethod
+    def validate_non_negative_rate(cls, v: float) -> float:
+        """Validate token burn rate is a finite non-negative float."""
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0.0:
+            raise ValueError("token_burn_rate_per_sec must be a finite non-negative float")
+        return float(v)
+
+
+
 
 

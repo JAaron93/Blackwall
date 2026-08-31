@@ -15,6 +15,15 @@ from blackwall.interception import (
 from blackwall.analytics import AgentBehavioralAnalytics
 from blackwall.adk_integration import ADKIntegration
 
+try:
+    from blackwall import _core_rs  # type: ignore[attr-defined]
+except ImportError:
+    try:
+        import _core_rs
+    except ImportError:
+        _core_rs = None  # type: ignore[assignment]
+
+
 __all__ = [
     "Settings",
     "configure_provider_env",
@@ -26,4 +35,6 @@ __all__ = [
     "QueueOverloadError",
     "AgentBehavioralAnalytics",
     "ADKIntegration",
+    "_core_rs",
 ]
+
