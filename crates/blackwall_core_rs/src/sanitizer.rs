@@ -5,7 +5,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct RedactionRecord {
     #[pyo3(get)]
@@ -39,14 +39,14 @@ impl RedactionRecord {
         }
     }
 
-    pub fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let dict = pyo3::types::PyDict::new_bound(py);
+    pub fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let dict = pyo3::types::PyDict::new(py);
         dict.set_item("timestamp", &self.timestamp)?;
         dict.set_item("original_hash", &self.original_hash)?;
         dict.set_item("pattern_matched", &self.pattern_matched)?;
         dict.set_item("placeholder_used", &self.placeholder_used)?;
         dict.set_item("context_size", self.context_size)?;
-        Ok(dict.into())
+        Ok(dict.unbind().into_any())
     }
 
     fn __repr__(&self) -> String {
