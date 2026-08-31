@@ -40,9 +40,9 @@ Blackwall runs as a **standalone local daemon** — not a sidecar, not a proxy f
 │  │  │ Gateway   │  │ (Payload     │  │ Pipeline           │    │   │
 │  │  │ (stdio +  │  │  Extraction) │  │                   │    │   │
 │  │  │  HTTP)    │  │              │  │ ┌───────────────┐ │    │   │
-│  │  └───────────┘  └──────────────┘  │ │ Threat Graph  │ │    │   │
+│  │  └───────────┘  └──────────────┘  │ │ Rate Check    │ │    │   │
 │  │                                    │ │ Context Hygiene│ │    │   │
-│  │  ┌───────────┐                    │ │ Policy Engine │ │    │   │
+│  │  ┌───────────┐                    │ │ Threat Graph  │ │    │   │
 │  │  │ Response  │← ─ ─ Verdict ─ ─ ─│ │ CBM AST Query │ │    │   │
 │  │  │ Synthesizer│                    │ │ GTI (high-risk)│ │    │   │
 │  │  │ (ALLOW →  │                    │ └───────────────┘ │    │   │

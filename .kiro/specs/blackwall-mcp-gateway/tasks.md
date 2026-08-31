@@ -130,11 +130,12 @@ Implement the upstream/downstream tool server management module:
 #### TASK-C03: Implement CLI Entry Point & Daemon Lifecycle
 **Status:** ⏳ Not Started
 **Dependencies:** TASK-C01
-**Requirements Satisfied:** FR-06, FR-08, FR-09, US-04, US-05
+**Requirements Satisfied:** FR-02, FR-06, FR-08, FR-09, US-04, US-05
 
 **Description:**
 Build the `click`-based CLI (`src/blackwall/cli.py`) and daemon lifecycle manager:
-- `blackwall serve` — daemonize by default, write PID to `~/.blackwall/blackwall.pid`, redirect logs to `~/.blackwall/blackwall.log`. Support `--foreground`, `--transport`, `--port`, `--host`, `--wrap`, `--config`, `--policy`, `--db`, `--log-level`.
+- `blackwall serve` — daemonize by default, write PID to `~/.blackwall/blackwall.pid`, redirect logs to `~/.blackwall/blackwall.log`. Support `--foreground`, `--transport`, `--port`, `--host`, `--wrap`, `--config`, `--policy`, `--db`, `--auth-token`, `--log-level`.
+- `--auth-token <token>` (or `BLACKWALL_AUTH_TOKEN` env var) MUST be accepted by the CLI and wired into the HTTP server's request validation middleware. When `--host` specifies a non-loopback address and no token is configured, `blackwall serve` MUST refuse to start with a clear error.
 - `blackwall init` — scaffold `~/.blackwall/` with default `policy.yaml`, empty threat DB, starter `gateway.yaml`.
 - `blackwall stop` — read PID, send SIGTERM, verify termination, clean up PID file.
 - `blackwall status` — check PID liveness, report threat graph stats, recent verdicts.
@@ -150,7 +151,9 @@ Build the `click`-based CLI (`src/blackwall/cli.py`) and daemon lifecycle manage
 5. `blackwall stop` terminates the daemon and cleans up the PID file.
 6. `blackwall status` reports daemon state and threat graph statistics.
 7. Missing GCP credentials produce a clear, actionable error message on startup.
-8. All unit tests pass (TDD).
+8. `--auth-token` value (or `BLACKWALL_AUTH_TOKEN` env var) is wired into the HTTP server; non-loopback requests without a valid `Authorization: Bearer <token>` header are rejected with HTTP 401.
+9. `blackwall serve --host 0.0.0.0` without `--auth-token` or `BLACKWALL_AUTH_TOKEN` refuses to start with a clear error message (startup guard).
+10. All unit tests pass (TDD).
 
 ---
 
