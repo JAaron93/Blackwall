@@ -4,11 +4,11 @@
   "commentTypes": ["logic", "syntax"],
   "triggerOnUpdates": true,
   "statusCheck": true,
-  "instructions": "Blackwall is an autonomous Agentic Security Firewall designed to intercept execution flows at machine speed before rogue AI agents can perform unauthorized OS/network actions. Verify architecture invariants across Blackwall Core (single-host daemon) and Blackwall Enterprise Mesh (multi-host security mesh under src/blackwall/enterprise/). Ensure strict Pydantic v2 validation, 100% GCP Vertex AI mode compliance, and TDD/BDD test coverage.",
+  "instructions": "Blackwall is an autonomous Agentic Security Firewall designed to intercept execution flows at machine speed before rogue AI agents can perform unauthorized OS/network actions. The primary entry point is the Blackwall MCP Gateway — a standalone local daemon (src/blackwall/gateway/ + src/blackwall/cli.py) that intercepts MCP tool calls on localhost:9229 and evaluates them via the SyncResolver pipeline. Verify architecture invariants across Blackwall Core (single-host daemon + MCP Gateway) and Blackwall Enterprise Mesh (multi-host security mesh under src/blackwall/enterprise/). The gateway MUST NOT contain agent-specific coupling (no Hermes, no Antigravity-specific, no Warp-specific logic). Ensure strict Pydantic v2 validation, 100% GCP Vertex AI Mode compliance (paid tier only, no free tier, no AI Studio keys), TDD/BDD test coverage, and resource budget compliance for the 2019 Intel MacBook Pro baseline.",
   "rules": [
     {
       "id": "vertex-ai-mode",
-      "rule": "100% GCP Vertex AI Mode (Paid Tier) Vendor Compliance: Ensure google-genai clients instantiate with vertexai=True, require GCP_PROJECT / GOOGLE_CLOUD_PROJECT via Application Default Credentials (ADC), and run in paid tier mode (GEMINI_TIER=paid, 300+ RPM quota). Flag any PR reintroducing Google AI Studio API key configurations (GEMINI_API_KEY, LLM_API_KEY, BACKUP_LLM_API_KEY) or free/standard tier rate limit fallbacks.",
+      "rule": "100% GCP Vertex AI Mode (Paid Tier Only) Vendor Compliance: There is no free tier for Vertex AI — it is exclusively paid via GCP billing credits (300+ RPM quota). Ensure google-genai clients instantiate with vertexai=True, require GCP_PROJECT / GOOGLE_CLOUD_PROJECT via Application Default Credentials (ADC). Flag any PR reintroducing Google AI Studio API key configurations (GEMINI_API_KEY, LLM_API_KEY, BACKUP_LLM_API_KEY), free-tier rate limit fallbacks (e.g. 15 RPM caps), or standard-tier rate limit logic. Note: VirusTotal GTI free-tier rate limits (4 queries/60s) are a separate third-party constraint and must NOT be stripped.",
       "severity": "high"
     },
     {
@@ -72,8 +72,23 @@
       "severity": "high"
     },
     {
+      "id": "mcp-gateway-architecture",
+      "rule": "MCP Gateway Architecture Invariants: Verify gateway components under src/blackwall/gateway/ enforce: (1) HTTP transport binds to 127.0.0.1 by default with Origin/Host header validation, (2) JSON-RPC request id tracking for concurrent call isolation, (3) BLOCK verdicts synthesize error code -32603 with bounded generic messages (no internal threat reasoning leaked), (4) ALLOW verdicts forward original payloads unchanged to downstream tool servers, (5) daemon mode writes PID to ~/.blackwall/blackwall.pid with graceful SIGTERM shutdown.",
+      "severity": "high"
+    },
+    {
+      "id": "gateway-agent-agnosticism",
+      "rule": "Gateway Agent Agnosticism: The MCP Gateway (src/blackwall/gateway/ and src/blackwall/cli.py) MUST NOT contain hardcoded references, special-case logic, or configuration for any specific agent runtime (Hermes Agent, Antigravity, Warp Terminal, Claude Desktop, Cursor, etc.). All agent interaction must be purely via standard MCP protocol. Flag any PR introducing agent-specific coupling in the gateway layer.",
+      "severity": "high"
+    },
+    {
+      "id": "gateway-resource-budget",
+      "rule": "Gateway Resource Budget (2019 Intel MacBook Pro Baseline): Blackwall Core gateway components must operate within: ≤60MB idle RAM, ≤150MB active RAM, ~0% idle CPU, <5% active CPU per call, <2s startup, ≤50MB disk. Flag PRs introducing polling loops, background threads, or eager module loading that would violate these budgets.",
+      "severity": "medium"
+    },
+    {
       "id": "pr-description-grouping",
-      "rule": "PR Description Grouping: Group changes by Blackwall Product Tier (Blackwall Core vs. Blackwall Enterprise Mesh) and highlight changes affecting security resolvers, eBPF probes, or MCP adapters.",
+      "rule": "PR Description Grouping: Group changes by Blackwall component: (1) MCP Gateway (src/blackwall/gateway/, src/blackwall/cli.py), (2) Core Engine (SyncResolver, policy, threat graph, attribution), (3) Enterprise Mesh (src/blackwall/enterprise/). Highlight changes affecting security resolvers, protocol transports, eBPF probes, or MCP adapters.",
       "severity": "low"
     },
     {
