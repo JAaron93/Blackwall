@@ -14,7 +14,7 @@ Blackwall runs as a **standalone local daemon** — not a sidecar, not a proxy f
 
 1.  **The Agent** (e.g., Antigravity, Warp Terminal Agent) sends a `tools/call` JSON-RPC request.
 2.  **Blackwall Gateway** receives the request over stdio or Streamable HTTP on `localhost:9229`.
-3.  **Blackwall's Engine** (`SyncResolver` pipeline) evaluates the request: SQLite Threat Signature Graph → Context Hygiene Sanitization → Structural Policy Gating → Codebase Memory MCP AST Query → Conditional GTI/VirusTotal Validation (high-risk only) → Score Aggregation → Threshold Verdict.
+3.  **Blackwall's Engine** (`SyncResolver` pipeline) evaluates the request: Rate Check → Context Hygiene Sanitization → SQLite Threat Signature Graph (TSG) Check → Codebase Memory MCP AST Query → Conditional GTI/VirusTotal Validation (high-risk only) → Score Aggregation → Threshold Verdict.
 4.  **ALLOW Verdict:** Blackwall forwards the original payload to the downstream tool server and pipes the response back to the agent.
 5.  **BLOCK Verdict:** Blackwall drops the request and synthesizes a valid MCP-compliant JSON-RPC Error response, simulating a tool failure without crashing the agent's execution loop.
 
