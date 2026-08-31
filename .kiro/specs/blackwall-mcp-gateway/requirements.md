@@ -1,0 +1,120 @@
+# Requirements Document: Blackwall MCP Gateway
+
+## Introduction
+
+Blackwall is an autonomous Agentic Security Firewall. To achieve universal portability across the AI agent ecosystem, Blackwall operates as a **standalone MCP Security Gateway** — a local background daemon that intercepts MCP protocol traffic, evaluates tool calls against its threat intelligence engine, and enforces security verdicts transparently.
+
+The goal is to allow **any MCP-compliant agent** — Antigravity, Warp Terminal, Claude Desktop, Cursor, ADK agents, or any future MCP client — to route tool executions through Blackwall securely and transparently. Blackwall intercepts JSON-RPC protocol payloads, evaluates them using the `SyncResolver` pipeline (structural and semantic gating), and returns synthesized errors for blocked actions — all while remaining entirely Python-exclusive and operating within the resource constraints of a 2019 Intel MacBook Pro.
+
+## Glossary
+
+*   **MCP (Model Context Protocol):** An open standard JSON-RPC protocol standardizing how AI models and agents communicate with external tools and data sources.
+*   **MCP Gateway:** The Blackwall daemon that sits between MCP clients (agents) and downstream tool servers, intercepting and governing tool execution traffic.
+*   **Downstream Tool Server:** An MCP-compliant tool server (e.g., filesystem, GitHub, shell) that Blackwall protects by intercepting tool calls before they reach it.
+*   **JSON-RPC Synthesizer:** The Blackwall component responsible for translating firewall BLOCK verdicts into protocol-compliant JSON-RPC error responses.
+*   **SyncResolver Pipeline:** Blackwall's core evaluation engine that processes tool calls through threat graph matching, context hygiene, policy evaluation, and optional GTI validation.
+*   **Wrap Mode:** A gateway deployment mode where Blackwall spawns and manages a single downstream tool server as a child process.
+
+## Functional Requirements
+
+### FR-01: MCP Protocol Gateway Server (Python)
+Blackwall MUST implement a standalone `asyncio`-based server capable of receiving, parsing, and routing JSON-RPC 2.0 messages conforming to the MCP specification. No Node.js components are permitted.
+
+### FR-02: Transport Layer Support
+The gateway MUST support two primary transport methods for agent communication:
+1.  **stdio:** Intercepting standard input/output streams for local CLI agents and IDE integrations (e.g., Antigravity MCP config).
+2.  **MCP Streamable HTTP (POST + SSE):** Intercepting network-bound tool requests via a POST `/mcp` endpoint on `localhost:9229`. Responses and events return asynchronously over the established SSE channel.
+    *   **Transport Security (Mandatory):** The HTTP endpoint MUST validate `Origin` and `Host` headers to prevent DNS rebinding attacks. Local deployments MUST bind to loopback interfaces only (`127.0.0.1`). When binding to a non-loopback address (via `--host`), the gateway MUST require a pre-shared bearer token configured via `--auth-token <token>` flag or `BLACKWALL_AUTH_TOKEN` environment variable. All inbound requests MUST include a valid `Authorization: Bearer <token>` header; requests without a valid token MUST be rejected with HTTP 401 before JSON-RPC processing. If `--host` specifies a non-loopback address and no auth token is configured, the gateway MUST refuse to start with a clear error message.
+
+### FR-03: Message Interception & Payload Extraction
+When an agent sends a `tools/call` request, Blackwall MUST pause the stream, extract the tool `name` and `arguments`, and pass them through the `ContextResolver` to replace sensitive values with generic placeholders before `SyncResolver` evaluation. The redacted payload MUST then be formatted into a `ToolCallContext` compatible with the existing `SyncResolver` pipeline. The original sensitive payload MUST NOT be forwarded during policy evaluation.
+
+Non-tool methods (`initialize`, `notifications/*`, `tools/list`) MUST be passed through to the downstream tool server unchanged.
+
+### FR-04: Verdict Enforcement via Protocol Synthesis
+*   **ALLOW:** If the `SyncResolver` returns an ALLOW verdict, the original JSON-RPC payload MUST be passed cleanly to the downstream tool server, and its response piped back to the agent.
+*   **BLOCK:** If a BLOCK verdict is reached, Blackwall MUST NOT forward the request. It MUST synthesize an MCP-compliant JSON-RPC Error object (Error Code `-32603`). The error MUST be bounded and generic (e.g., "Blackwall Firewall: Execution blocked"), without exposing internal threat reasoning or redacted context. The synthesizer MUST extract and reuse the incoming JSON-RPC request `id`.
+*   **QUARANTINE:** If a QUARANTINE verdict is reached, Blackwall MUST synthesize a JSON-RPC Error with a distinct error code (`-32001`) and log the event for manual review.
+
+The synthesizer MUST reject `ALLOW` inputs and raise an exception if incorrectly invoked for allowed verdicts.
+
+### FR-05: Threat Signature Logging
+All blocked protocol payloads MUST be redacted (credentials, secrets, PII removed) before being logged into the embedded SQLite Threat Signature Graph. Detailed threat reasoning MUST be restricted to protected local diagnostics (structured logs, audit trails) and MUST NOT be included in the error response returned to the agent.
+
+### FR-06: CLI Entry Point
+Blackwall MUST provide a `blackwall` CLI command (via `[project.scripts]` in `pyproject.toml`) with the following subcommands:
+*   `blackwall serve` — Start the gateway daemon (background by default, `--foreground` for terminal mode).
+*   `blackwall init` — Initialize `~/.blackwall/` directory with default policy, empty threat DB, and starter gateway config.
+*   `blackwall stop` — Stop the running daemon via PID file.
+*   `blackwall status` — Report daemon liveness, threat graph statistics, and recent verdict summary.
+*   `blackwall version` — Print the installed version.
+
+### FR-07: Upstream Tool Server Management
+The gateway MUST support two modes for managing downstream tool servers:
+1.  **Wrap Mode (`--wrap <command>`):** Spawn a single downstream MCP tool server as a stdio child process. Blackwall manages the process lifecycle (start, health check, graceful shutdown).
+2.  **Multi-Server Mode (`--config <path>`):** Read a `gateway.yaml` configuration file listing multiple downstream tool servers (stdio or HTTP). Blackwall manages all listed servers and routes tool calls to the appropriate downstream target based on tool name registration.
+
+### FR-08: Background Daemon with PID File Management
+*   `blackwall serve` MUST daemonize the process by default, writing the PID to `~/.blackwall/blackwall.pid` and redirecting output to `~/.blackwall/blackwall.log`.
+*   `blackwall serve --foreground` MUST run in the terminal with live log output to stdout/stderr.
+*   `blackwall stop` MUST read the PID file, send `SIGTERM`, verify process termination, and clean up the PID file.
+*   The daemon MUST handle `SIGTERM` and `SIGINT` gracefully, flushing pending evaluations and closing SQLite connections before exit.
+
+### FR-09: GCP Vertex AI Mode (Mandatory)
+The gateway MUST require GCP Vertex AI Mode for the `SyncResolver`'s LLM-based semantic evaluation. Configuration requires `GCP_PROJECT` / `GOOGLE_CLOUD_PROJECT` and Application Default Credentials (ADC). Google AI Studio API Key Mode is permanently removed. The gateway MUST fail fast with a clear error message if GCP credentials are not configured.
+
+## Non-Functional Requirements
+
+### NFR-01: Zero Non-Python Dependencies
+Blackwall MUST remain 100% Python-based (`asyncio`, `pydantic`, `click`). No Node.js, no Rust extensions required for Core functionality. The gateway MUST be installable via `pip install blackwall`.
+
+### NFR-02: Latency Constraints
+The serialization, parsing, and proxying of JSON-RPC messages MUST add no more than 10ms of overhead to the baseline `SyncResolver` evaluation latency (which is < 10ms for structural evaluation).
+
+### NFR-03: Agent Agnosticism
+The gateway MUST NOT contain hardcoded rules specific to any particular agent (Antigravity, Warp, Claude, Cursor, etc.). It MUST adhere strictly to the MCP specification, ensuring compatibility with any MCP-compliant client.
+
+### NFR-04: Test-Driven Development (TDD)
+All implementation tasks MUST follow strict TDD. Developers MUST write failing unit tests or reproduction commands before generating the minimum code required to pass the test.
+
+### NFR-05: Behavior-Driven Development (BDD)
+End-to-end security and interception workflows MUST be defined using Gherkin syntax in `.feature` files. Execution MUST be validated using `pytest-bdd`.
+
+### NFR-06: Resource Constraints (2019 Intel MacBook Pro Baseline)
+All gateway components MUST operate within these budgets when running Blackwall Core (Enterprise pillars excluded):
+
+| Resource | Budget | Enforcement |
+|----------|--------|-------------|
+| Idle RAM | ≤ 60MB | Lazy-load heavy modules on first tool call |
+| Active RAM | ≤ 150MB | Peak during SyncResolver + GTI evaluation |
+| Idle CPU | ~0% | Event loop sleeping, no polling or background threads |
+| Active CPU | < 5% single core | Per-call burst only |
+| Disk | ≤ 50MB | SQLite + policy + logs |
+| Startup | < 2s | Deferred initialization |
+
+## User Stories
+
+### US-01: Transparent Security for AI-Powered Development
+**As a developer using AI-powered tools (Antigravity, Warp Terminal, etc.),**
+I want to route my tools through Blackwall's local gateway,
+**So that** rogue agent actions are blocked before they reach my OS without requiring me to maintain complex whitelists or blacklists.
+
+### US-02: Graceful Agent Failure on Block
+**As an MCP-compliant AI agent,**
+I want to receive standard JSON-RPC error messages when my tool call is denied by the firewall,
+**So that** my execution loop does not crash, and I can prompt the LLM to reflect on the failure and try a different, safer approach.
+
+### US-03: Python Exclusivity for Maintainers
+**As the lead maintainer of Blackwall,**
+I want the entire gateway to be built in Python (`asyncio`, `pydantic`, `click`),
+**So that** I don't have to manage multiple runtime environments when deploying the firewall.
+
+### US-04: Lightweight Local Daemon
+**As a developer running a 2019 MacBook Pro,**
+I want Blackwall to run as a background daemon that uses minimal CPU and memory when idle,
+**So that** I can keep it always-on without impacting my development workflow or machine performance.
+
+### US-05: Simple Initial Setup
+**As a first-time Blackwall user,**
+I want to run `blackwall init` and `blackwall serve --wrap <my-tool-server>` to get started,
+**So that** I can protect my tools within minutes without reading extensive documentation.

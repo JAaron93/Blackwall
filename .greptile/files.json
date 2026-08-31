@@ -4,6 +4,18 @@
     "description": "Root AGENTS.md constitution defining Blackwall product tier identity, Core vs Enterprise invariants, and architectural guidelines."
   },
   {
+    "path": ".kiro/specs/blackwall-mcp-gateway/design.md",
+    "description": "MCP Gateway architectural design — standalone daemon, transport layer, SyncResolver pipeline, upstream management, daemon lifecycle, resource constraints."
+  },
+  {
+    "path": ".kiro/specs/blackwall-mcp-gateway/requirements.md",
+    "description": "MCP Gateway functional and non-functional requirements — transport security, verdict enforcement, CLI entry point, daemon management, agent agnosticism, resource budgets."
+  },
+  {
+    "path": ".kiro/specs/blackwall-mcp-gateway/tasks.md",
+    "description": "MCP Gateway implementation tasks — 13 tasks across 4 phases covering gateway infrastructure, interceptor, synthesizer, CLI, BDD tests, and resource profiling."
+  },
+  {
     "path": ".kiro/specs/blackwall-rust-acceleration/design.md",
     "description": "System architecture design for Blackwall Rust Acceleration Subsystem."
   },
@@ -16,4 +28,3 @@
     "description": "Task implementation plan for Blackwall Rust Acceleration Subsystem."
   }
 ]
-

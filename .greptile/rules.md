@@ -6,13 +6,23 @@ This document outlines the repository policy, security invariants, and code revi
 
 ## 1. Product Tier Boundaries & Architecture Invariants
 
-Blackwall is divided into two distinct product tiers:
+Blackwall is divided into two distinct product tiers, with the MCP Gateway serving as the primary entry point for Core:
 
 ### Blackwall Core (Developer Edition)
 - **Single-Host Daemon**: Core components under `src/blackwall/` (outside `src/blackwall/enterprise/`) must remain a lightweight single-host daemon.
 - **Core Attacker Attribution**: Single-host local attacker attribution (`AttackerIdentityExtractor`, `AttackerProfile`, `IncidentReportGenerator` in `src/blackwall/attribution/` & `SyncResolver`) is a shared baseline Core capability.
 - **Zero Cluster-Mesh / eBPF Dependencies**: Core must contain zero imports or dependencies on ZeroMQ, NATS, or eBPF C headers.
 - **Support**: Core fully supports 100% GCP Vertex AI Mode (`google-genai` with `vertexai=True`).
+
+### Blackwall MCP Gateway (Core Entry Point)
+- **Location**: `src/blackwall/gateway/` (server, interceptor, synthesizer, upstream manager) + `src/blackwall/cli.py`.
+- **Standalone Daemon**: The gateway is the primary way Blackwall runs — a local background daemon on `localhost:9229` with PID file management (`~/.blackwall/blackwall.pid`). It is NOT a sidecar or proxy for any specific agent runtime.
+- **Agent Agnosticism**: The gateway MUST NOT contain hardcoded rules or references specific to any particular agent (no Hermes, no Antigravity-specific, no Warp-specific logic). It operates purely at the MCP protocol level.
+- **Transport Security**: HTTP transport MUST bind to `127.0.0.1` by default. `Origin` and `Host` header validation is mandatory. Network-bound requests require authentication.
+- **JSON-RPC `id` Tracking**: The stream layer MUST track all in-flight requests by their JSON-RPC `id` to prevent concurrent call mismatching.
+- **Upstream Management**: Supports `--wrap` (single downstream tool server as child process) and `gateway.yaml` (multi-server configuration). ALLOW'd requests are forwarded; BLOCK'd requests return synthesized JSON-RPC errors.
+- **Resource Budget**: Gateway components MUST operate within the 2019 Intel MacBook Pro baseline: ≤60MB idle RAM, ~0% idle CPU, <2s startup, ≤150MB active RAM during evaluation.
+- **Spec Reference**: Architecture governed by `.kiro/specs/blackwall-mcp-gateway/` (design.md, requirements.md, tasks.md).
 
 ### Blackwall Enterprise Mesh (Enterprise Edition)
 - **Isolated Location**: All enterprise capabilities must reside exclusively under `src/blackwall/enterprise/`.
