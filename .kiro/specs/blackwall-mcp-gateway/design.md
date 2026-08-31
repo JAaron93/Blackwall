@@ -65,6 +65,7 @@ Blackwall runs as a **standalone local daemon** — not a sidecar, not a proxy f
 ### 1. Protocol Gateway (Transport Layer)
 A high-performance Python `asyncio` server handling bidirectional JSON-RPC streams.
 *   **Transports Supported:** `stdio` (standard input/output redirection) and **MCP Streamable HTTP** (bidirectional POST `/mcp` endpoint with SSE responses). The gateway targets the **MCP 2025-03-26 revision**. The Streamable HTTP endpoint establishes per-session isolation, validates `Origin` and `Host` headers for local deployments, and binds to `127.0.0.1` by default.
+*   **Remote Authentication:** When the HTTP transport binds to a non-loopback address (via `--host`), the gateway MUST require a pre-shared bearer token for all inbound requests. The token is configured via `--auth-token <token>` flag or `BLACKWALL_AUTH_TOKEN` environment variable. Requests without a valid `Authorization: Bearer <token>` header MUST be rejected with HTTP 401 before any JSON-RPC processing occurs. If `--host` specifies a non-loopback address and no auth token is configured, the gateway MUST refuse to start with a clear error message.
 *   **Role:** Sits between MCP clients (any agent) and downstream tool servers.
 
 ### 2. Message Interceptor
@@ -136,6 +137,7 @@ Manages downstream MCP tool server lifecycle and request forwarding.
     *   `--policy <path>` (path to `policy.yaml`)
     *   `--db <path>` (path to SQLite threat graph)
     *   `--foreground` (run in foreground instead of daemonizing)
+    *   `--auth-token <token>` (bearer token for non-loopback HTTP; also configurable via `BLACKWALL_AUTH_TOKEN` env var. Required when `--host` is non-loopback; gateway refuses to start without it)
     *   `--log-level debug|info|warning|error`
 *   `blackwall init` — initialize `~/.blackwall/` directory
 *   `blackwall stop` — stop the running daemon
@@ -181,7 +183,7 @@ The gateway requires GCP Vertex AI Mode for the `SyncResolver`'s LLM-based seman
 
 *   **No Node.js:** The entire gateway stack is Python `asyncio` + `pydantic` + `click`.
 *   **Performance:** Gateway overhead MUST remain < 10ms on top of core evaluation latency.
-*   **Local-Only Binding:** HTTP transport binds to `127.0.0.1` by default. Network-bound deployments require explicit `--host` override and authentication.
+*   **Local-Only Binding:** HTTP transport binds to `127.0.0.1` by default. Network-bound deployments require explicit `--host` override and a pre-shared bearer token (`--auth-token` or `BLACKWALL_AUTH_TOKEN`). The gateway MUST refuse to start on a non-loopback address without a configured auth token.
 *   **State Persistence:** SQLite Threat Signature Graph in WAL mode with strict connection pooling. TTL/LFU pruning keeps query latencies under 10ms.
     - Node types: `AttackerIntent`, `PayloadStructure`, `TargetTool`.
     - Edge types: `SIMILAR_TO`, `MITIGATED_BY`.

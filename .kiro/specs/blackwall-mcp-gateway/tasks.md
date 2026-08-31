@@ -30,8 +30,10 @@ Build a Python `asyncio` server capable of receiving bidirectional JSON-RPC 2.0 
 3. Server correctly parses valid JSON-RPC 2.0 messages from a continuous stream.
 4. HTTP transport validates `Origin` and `Host` headers; rejects invalid origins and unauthenticated requests.
 5. HTTP transport binds to loopback (`127.0.0.1`) by default.
-6. Zero Node.js dependencies are introduced.
-7. All unit tests pass.
+6. When `--host` specifies a non-loopback address, the server requires a pre-shared bearer token (`--auth-token` or `BLACKWALL_AUTH_TOKEN`). Requests without a valid `Authorization: Bearer <token>` header are rejected with HTTP 401.
+7. Server refuses to start on a non-loopback address if no auth token is configured (startup guard test).
+8. Zero Node.js dependencies are introduced.
+9. All unit tests pass.
 
 #### TASK-A02: Implement Flow Control & Request Tracking
 **Status:** ⏳ Not Started
