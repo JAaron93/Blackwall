@@ -153,7 +153,8 @@ Build the `click`-based CLI (`src/blackwall/cli.py`) and daemon lifecycle manage
 7. Missing GCP credentials produce a clear, actionable error message on startup.
 8. `--auth-token` value (or `BLACKWALL_AUTH_TOKEN` env var) is wired into the HTTP server; non-loopback requests without a valid `Authorization: Bearer <token>` header are rejected with HTTP 401.
 9. `blackwall serve --host 0.0.0.0` without `--auth-token` or `BLACKWALL_AUTH_TOKEN` refuses to start with a clear error message (startup guard).
-10. All unit tests pass (TDD).
+10. `blackwall serve --host 0.0.0.0 --transport http --auth-token <valid-token>` starts successfully; an HTTP request to `/mcp` with a valid `Authorization: Bearer <valid-token>` header is accepted and processed (valid-token happy path).
+11. All unit tests pass (TDD).
 
 ---
 
@@ -196,7 +197,9 @@ Replicate TASK-D01 using the Streamable HTTP transport (`POST /mcp` on `localhos
 2. Gateway starts on `localhost:9229` in test subprocess.
 3. Send malicious `tools/call` via HTTP POST to `/mcp`.
 4. Assert `-32603` JSON-RPC error in SSE response.
-5. `pytest-bdd` passes.
+5. Add Gherkin scenario for authenticated non-loopback HTTP: gateway starts with `--host 0.0.0.0 --auth-token <test-token>`, a request with valid `Authorization: Bearer <test-token>` is accepted and processed.
+6. Add Gherkin scenario for unauthenticated non-loopback rejection: gateway starts with `--host 0.0.0.0 --auth-token <test-token>`, a request without a valid token is rejected with HTTP 401.
+7. `pytest-bdd` passes.
 
 #### TASK-D03: BDD E2E Test — ALLOW Verdict Forwards to Upstream
 **Status:** ⏳ Not Started
