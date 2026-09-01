@@ -264,18 +264,23 @@ Review and finalize all three spec files (`design.md`, `requirements.md`, `tasks
 
 **Description:**
 Implement the macOS `launchd` service management module and CLI subcommands:
-- `blackwall service install` — Generate and validate `~/Library/LaunchAgents/com.blackwall.gateway.plist` configured to supervise `blackwall serve --transport http --port 9229`, setting `RunAtLoad=true`, `KeepAlive=true`, and redirecting output to `~/.blackwall/blackwall.log` and `~/.blackwall/blackwall.err`.
+- `blackwall service install` — Generate and validate `~/Library/LaunchAgents/com.blackwall.gateway.plist` configured to supervise `blackwall serve --transport http --port 9229 --config ~/.blackwall/gateway.yaml` (or user-specified `--wrap <cmd>`), ensuring allowed tool calls are forwarded to downstream tool servers.
+- `install` MUST validate that `GCP_PROJECT` or `GOOGLE_CLOUD_PROJECT` is set in the environment or passed via `--project`, failing fast with a clear error if unconfigured.
+- `install` MUST embed an `EnvironmentVariables` dictionary containing `GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, and `PATH` into the plist to guarantee `launchd` executes with required Vertex AI credentials.
+- Plist configuration MUST include `RunAtLoad=true`, `KeepAlive` with `SuccessfulExit=false`, `ThrottleInterval=30` to prevent rapid restart loops on failure, and output redirection to `~/.blackwall/blackwall.log` and `~/.blackwall/blackwall.err`.
 - `blackwall service start` — Load the service via `launchctl load` (or `bootstrap`).
 - `blackwall service stop` — Unload the service via `launchctl unload` (or `bootout`).
 - `blackwall service status` — Check service registration and PID liveness via `launchctl list com.blackwall.gateway`.
 - `blackwall service uninstall` — Unload and remove plist cleanly.
 
 **Acceptance Criteria:**
-1. Unit tests assert correct XML generation for `com.blackwall.gateway.plist` (TDD).
-2. Service commands gracefully handle missing directories, existing plist files, and permission errors.
-3. `install` writes a valid plist and sets secure file permissions (`0644`).
-4. `uninstall` removes the plist and verifies service termination.
-5. All unit tests pass.
+1. Unit tests assert correct XML generation for `com.blackwall.gateway.plist` including upstream `--config` flag and `EnvironmentVariables` dictionary (TDD).
+2. `blackwall service install` fails fast with an exit code != 0 and clear message if `GCP_PROJECT` / `GOOGLE_CLOUD_PROJECT` is missing from the environment.
+3. Generated plist sets `ThrottleInterval=30` and `KeepAlive` with `SuccessfulExit=false` to prevent tight crash loops.
+4. Service commands gracefully handle missing directories, existing plist files, and permission errors.
+5. `install` writes a valid plist and sets secure file permissions (`0644`).
+6. `uninstall` removes the plist and verifies service termination.
+7. All unit tests pass.
 
 #### TASK-F02: Implement Python Audit Hook Auto-Bootstrap
 **Status:** ⏳ Not Started

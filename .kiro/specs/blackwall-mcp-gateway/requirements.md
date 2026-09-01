@@ -65,7 +65,10 @@ The gateway MUST require GCP Vertex AI Mode for the `SyncResolver`'s LLM-based s
 
 ### FR-10: macOS LaunchAgent Service Management
 Blackwall MUST provide CLI and programmatic subcommands (`blackwall service install|uninstall|start|stop|status`) to generate and manage a user LaunchAgent plist (`~/Library/LaunchAgents/com.blackwall.gateway.plist`).
-*   `install` MUST generate the valid plist configured to supervise `blackwall serve --transport http --port 9229`, enable `RunAtLoad`, and redirect logs to `~/.blackwall/blackwall.log` and `~/.blackwall/blackwall.err`.
+*   `install` MUST generate a valid plist configured to supervise `blackwall serve --transport http --port 9229 --config ~/.blackwall/gateway.yaml` (or user-specified `--wrap <cmd>`), ensuring allowed tool requests are forwarded to downstream tool servers.
+*   `install` MUST validate that `GCP_PROJECT` (or `GOOGLE_CLOUD_PROJECT`) is configured, failing fast with a clear error message if absent.
+*   `install` MUST embed active GCP environment variables (`GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, `PATH`) into the plist's `EnvironmentVariables` dictionary to ensure non-interactive `launchd` execution has valid authentication credentials.
+*   The generated plist MUST configure `RunAtLoad=true`, `KeepAlive` with `SuccessfulExit=false`, `ThrottleInterval=30`, and redirect standard logs to `~/.blackwall/blackwall.log` and `~/.blackwall/blackwall.err`.
 *   `start` and `stop` MUST invoke `launchctl load` and `launchctl unload` (or `bootstrap`/`bootout`).
 *   `uninstall` MUST unload the service and remove the plist file cleanly.
 

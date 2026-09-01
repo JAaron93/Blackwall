@@ -143,12 +143,15 @@ Manages downstream MCP tool server lifecycle and request forwarding.
 *   `blackwall stop` — stop the running daemon
 *   `blackwall status` — show daemon status and recent verdicts
 *   `blackwall service install|uninstall|start|stop|status` — manage macOS `launchd` background service (`~/Library/LaunchAgents/com.blackwall.gateway.plist`)
+    *   `install` options: `--config <path>` (default: `~/.blackwall/gateway.yaml`), `--wrap <cmd>`, `--project <id>` (or capture active `GCP_PROJECT`)
 *   `blackwall hook install|uninstall|status` — manage global Python runtime audit hook (`sitecustomize.py` / `.pth`)
 *   `blackwall version` — print version
 
 ### 8. macOS Background Service Manager (`launchd`)
 *   **LaunchAgent Plist Generation:** Automatically installs and manages `~/Library/LaunchAgents/com.blackwall.gateway.plist` for seamless user-session background startup.
-*   **Process Supervision:** `launchd` keeps the `blackwall serve --transport http --port 9229` gateway alive continuously across system reboots and user logins, restarting the daemon automatically if terminated unexpectedly.
+*   **Authoritative Upstream Target:** The LaunchAgent executes `blackwall serve --transport http --port 9229 --config ~/.blackwall/gateway.yaml` (or user-specified `--wrap`), ensuring allowed tool requests are deterministically forwarded to defined downstream tool servers.
+*   **GCP Environment Inheritance & Startup Validation:** Because `launchd` runs in a non-interactive shell without inheriting terminal profile variables, `blackwall service install` captures the active `GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, and `PATH`, embedding them in the plist's `<key>EnvironmentVariables</key>` block. `install` MUST fail fast if GCP project configuration is missing at install time.
+*   **Process Supervision & Crash-Loop Throttling:** `launchd` supervises the gateway across user logins. The plist configures `<key>ThrottleInterval</key><integer>30</integer>` and `<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>` to prevent tight crash loops on unexpected failures.
 *   **Logging:** Output streams are directed to `~/.blackwall/blackwall.log` and `~/.blackwall/blackwall.err`.
 
 ### 9. Native macOS Menu Bar Application & System Notifications
