@@ -63,10 +63,34 @@ The gateway MUST support two modes for managing downstream tool servers:
 ### FR-09: GCP Vertex AI Mode (Mandatory)
 The gateway MUST require GCP Vertex AI Mode for the `SyncResolver`'s LLM-based semantic evaluation. Configuration requires `GCP_PROJECT` / `GOOGLE_CLOUD_PROJECT` and Application Default Credentials (ADC). Google AI Studio API Key Mode is permanently removed. The gateway MUST fail fast with a clear error message if GCP credentials are not configured.
 
+### FR-10: macOS LaunchAgent Service Management
+Blackwall MUST provide CLI and programmatic subcommands (`blackwall service install|uninstall|start|stop|status`) to generate and manage a user LaunchAgent plist (`~/Library/LaunchAgents/com.blackwall.gateway.plist`).
+*   `install` MUST generate a valid plist configured to supervise `blackwall serve --transport http --port 9229 --config ~/.blackwall/gateway.yaml` (or user-specified `--wrap <cmd>`), ensuring allowed tool requests are forwarded to downstream tool servers.
+*   `install` MUST validate that `GCP_PROJECT` (or `GOOGLE_CLOUD_PROJECT`) is configured, failing fast with a clear error message if absent.
+*   `install` MUST embed active GCP environment variables (`GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, `PATH`) into the plist's `EnvironmentVariables` dictionary to ensure non-interactive `launchd` execution has valid authentication credentials.
+*   The generated plist MUST configure `RunAtLoad=true`, `KeepAlive` with `SuccessfulExit=false`, `ThrottleInterval=30`, and redirect standard logs to `~/.blackwall/blackwall.log` and `~/.blackwall/blackwall.err`.
+*   `start` and `stop` MUST invoke `launchctl load` and `launchctl unload` (or `bootstrap`/`bootout`).
+*   `uninstall` MUST unload the service and remove the plist file cleanly.
+
+### FR-11: Native macOS Menu Bar GUI & System Notifications
+Blackwall MUST support packaging as a native macOS Menu Bar application (`Blackwall.app`):
+*   Display a menu bar status icon reflecting real-time protection state (Green = Protected, Amber = Quarantined, Red = Threat Blocked).
+*   Dispatch native macOS UserNotifications banners upon `BLOCK` or `QUARANTINE` verdicts, presenting the triggering tool and severity while sanitizing credentials.
+*   Provide a GUI menu showing daemon liveness, threat signature graph count, and one-click MCP registration for Antigravity, Warp Terminal, Claude Desktop, and Cursor.
+
+### FR-12: Global Python Audit Hook Bootstrapping
+Blackwall MUST provide subcommands (`blackwall hook install|uninstall|status`) to manage global Python runtime audit hook integration:
+*   `install` MUST inject a non-destructive bootstrap snippet into `sitecustomize.py` (or a `.pth` file) in target Python environments.
+*   The bootstrap snippet MUST attach Blackwall's `sys.addaudithook` before arbitrary user scripts execute.
+*   `uninstall` MUST remove the bootstrap code cleanly without affecting existing `sitecustomize.py` customizations.
+
+### FR-13: GitHub Release Artifact Packaging (`.dmg`)
+The build and CI pipeline MUST produce standalone distributable macOS disk image installers (`.dmg`) containing `Blackwall.app` for both Intel (`x86_64`) and Apple Silicon (`arm64`) architectures, automatically attached as downloadable assets to GitHub Releases.
+
 ## Non-Functional Requirements
 
 ### NFR-01: Zero Non-Python Dependencies
-Blackwall MUST remain 100% Python-based (`asyncio`, `pydantic`, `click`). No Node.js, no Rust extensions required for Core functionality. The gateway MUST be installable via `pip install blackwall`.
+Blackwall Core MUST remain 100% Python-based (`asyncio`, `pydantic`, `click`). No Node.js, no Rust extensions required for Core functionality. The gateway MUST be installable via `pip install blackwall`.
 
 ### NFR-02: Latency Constraints
 The serialization, parsing, and proxying of JSON-RPC messages MUST add no more than 10ms of overhead to the baseline `SyncResolver` evaluation latency (which is < 10ms for structural evaluation).
@@ -118,3 +142,13 @@ I want Blackwall to run as a background daemon that uses minimal CPU and memory 
 **As a first-time Blackwall user,**
 I want to run `blackwall init` and `blackwall serve --wrap <my-tool-server>` to get started,
 **So that** I can protect my tools within minutes without reading extensive documentation.
+
+### US-06: Frictionless Menu Bar Management
+**As a macOS developer,**
+I want Blackwall to run unobtrusively in my menu bar and start automatically on login via `launchd`,
+**So that** I am protected continuously and notified immediately with native banners whenever rogue actions are intercepted.
+
+### US-07: Downloadable GitHub Release App
+**As a developer setting up a new Mac,**
+I want to download a pre-built `Blackwall.dmg` directly from GitHub Releases,
+**So that** I can install and run Blackwall with a single drag-and-drop without manually configuring Python environments.

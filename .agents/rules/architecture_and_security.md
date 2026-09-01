@@ -17,8 +17,8 @@
 * **Rationale:** Suppressing configuration errors in production allows daemons to launch in invalid or unmonitored security states.
 
 ## 5. Unconditional Credential Purging
-* **Rule:** Provider configuration helpers (`configure_provider_env()`) MUST purge legacy API keys (`GEMINI_API_KEY`, `LLM_API_KEY`) and re-assert required mode variables (`GOOGLE_GENAI_USE_VERTEXAI="true"`, `GEMINI_TIER="paid"`) on *every* call, regardless of module-level caching flags.
-* **Rationale:** Prevents credential leakage and ensures GCP Vertex AI enterprise mode compliance across all sub-processes.
+* **Rule:** Provider configuration helpers (`configure_provider_env()`) MUST purge legacy API keys (`GEMINI_API_KEY`, `LLM_API_KEY`) and re-assert required mode variables (`GOOGLE_GENAI_USE_VERTEXAI="true"`, `GEMINI_TIER="paid"`) on *every* call, regardless of module-level caching flags. Vertex AI has NO free tier; it operates exclusively on paid billing quota (300+ RPM). Free-tier or 15 RPM fallback logic must never be introduced for Vertex AI. Third-party rate limiters (e.g. VirusTotal GTI 4 queries/60s) remain separate and preserved.
+* **Rationale:** Prevents credential leakage and ensures GCP Vertex AI enterprise mode compliance across all sub-processes without artificial rate throttling.
 
 ## 6. Context Hygiene & Sanitization
 * **Rule:** `ContextResolver` middleware must replace sensitive environment variable patterns with generic placeholders (`[[VARIABLE_NAME]]`). Integration tests querying external hostnames (e.g. GTI / VirusTotal) must use un-redacted standalone hostnames (e.g. `wd-bouygues.com`) to prevent accidental sanitization matching.
@@ -330,5 +330,21 @@
   - `AILMTracker.identify_boundary_crossing()` and evaluation datasets targeting AI-Induced Lateral Movement must strictly scope trust boundaries to recognized architectural, system-isolation, and network-perimeter domains (`user_space`, `kernel_space`, `sandbox`, `host`, `untrusted`, `trusted`, `public`, `private`, `internal_api`, `external_net`, `external_network`, `tenant_a`, `tenant_b`).
   - Fine-grained workload, queue, or resource-level identifiers (e.g., specific database names, support queues, or table names) must NOT be classified as security trust boundaries.
 * **Rationale:** Treating arbitrary resource scopes or workload labels as security trust boundaries causes legitimate multi-service or multi-tenant agents to accumulate false-positive crossing counts, escalating risk to `HIGH` or `CRITICAL` and inadvertently triggering automated identity session revocation (`revoke_identity_session()`).
+
+## 53. Blackwall MCP Gateway Architecture & Transport Security Invariants
+* **Rule (Agent Agnosticism):** Gateway components (`src/blackwall/gateway/`, `src/blackwall/cli.py`) MUST NOT include hardcoded rules, special casing, or coupling for any specific agent runtime (Hermes Agent, Antigravity, Warp Terminal, Claude Desktop, Cursor). All communication must adhere strictly to the generic Model Context Protocol (MCP) JSON-RPC specification.
+* **Rule (Transport Security & Loopback Default):** The MCP Streamable HTTP transport MUST default to `127.0.0.1:9229` with `Origin` and `Host` header validation to prevent DNS rebinding attacks.
+* **Rule (Remote Authentication Boundary & Startup Guard):** When `--host` binds to a non-loopback address, a pre-shared bearer token (`--auth-token` or `BLACKWALL_AUTH_TOKEN`) is mandatory. Inbound requests missing a valid `Authorization: Bearer <token>` header MUST be rejected with HTTP 401 before JSON-RPC processing. The gateway daemon MUST refuse to start if configured with a non-loopback host without an auth token.
+* **Rule (JSON-RPC Request ID Concurrency Isolation):** The gateway stream layer MUST track all in-flight requests by JSON-RPC `id` to ensure responses, cancellations, and errors are mapped deterministically during concurrent evaluation.
+* **Rule (Downstream Tool Proxying & Verdict Synthesis):** ALLOW'd tool calls MUST be forwarded intact to downstream tool servers (spawned via `--wrap` or configured in `gateway.yaml`). BLOCK verdicts MUST synthesize a JSON-RPC error `-32603` with a generic message, reusing the incoming `id` and never exposing internal threat telemetry to the agent.
+* **Rationale:** Discovered during MCP Gateway spec rebaseline and Greptile PR #108 review cycles: clear transport security boundaries, loopback defaults, startup guards, and protocol-level synthesis prevent unauthorized network exposure of downstream tools and prevent leaking sensitive threat intelligence to calling agents.
+
+## 54. macOS LaunchAgent & Background Daemon Supervision Invariants
+* **Rule (Non-Interactive Environment Variable Injection):** Because macOS `launchd` executes user LaunchAgents in a clean non-interactive shell that does not source terminal startup scripts (`.zshrc`, `.bash_profile`), service installation commands (`blackwall service install`) MUST capture active cloud credentials (`GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, `PATH`) and embed them in the generated plist's `<key>EnvironmentVariables</key>` block.
+* **Rule (Install-Time Validation & Fail-Fast Guard):** `blackwall service install` MUST validate that required cloud credentials (e.g. `GCP_PROJECT`) are configured at install time (or supplied via `--project`). If missing, installation MUST fail immediately with an exit code != 0 and a clear error message, preventing the creation of a broken LaunchAgent.
+* **Rule (Crash-Loop Throttling):** Plists generated for `launchd` supervision MUST specify `<key>ThrottleInterval</key><integer>30</integer>` and configure `<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>` to prevent tight crash-loop restart storms upon unrecoverable runtime errors.
+* **Rule (Authoritative Upstream Specification):** LaunchAgents supervising proxy/gateway services MUST explicitly include an upstream configuration flag (e.g. `--config ~/.blackwall/gateway.yaml` or user-specified `--wrap <cmd>`), ensuring allowed tool requests are deterministically forwarded to downstream servers.
+* **Rationale:** Discovered during PR #110 review. Running a gateway under `launchd` without an `EnvironmentVariables` dictionary caused instant authentication failures, while omitting `ThrottleInterval` caused `launchd` to restart the crashed daemon in a tight loop.
+
 
 

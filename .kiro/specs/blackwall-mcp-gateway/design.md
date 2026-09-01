@@ -142,7 +142,34 @@ Manages downstream MCP tool server lifecycle and request forwarding.
 *   `blackwall init` — initialize `~/.blackwall/` directory
 *   `blackwall stop` — stop the running daemon
 *   `blackwall status` — show daemon status and recent verdicts
+*   `blackwall service install|uninstall|start|stop|status` — manage macOS `launchd` background service (`~/Library/LaunchAgents/com.blackwall.gateway.plist`)
+    *   `install` options: `--config <path>` (default: `~/.blackwall/gateway.yaml`), `--wrap <cmd>`, `--project <id>` (or capture active `GCP_PROJECT`)
+*   `blackwall hook install|uninstall|status` — manage global Python runtime audit hook (`sitecustomize.py` / `.pth`)
 *   `blackwall version` — print version
+
+### 8. macOS Background Service Manager (`launchd`)
+*   **LaunchAgent Plist Generation:** Automatically installs and manages `~/Library/LaunchAgents/com.blackwall.gateway.plist` for seamless user-session background startup.
+*   **Authoritative Upstream Target:** The LaunchAgent executes `blackwall serve --transport http --port 9229 --config ~/.blackwall/gateway.yaml` (or user-specified `--wrap`), ensuring allowed tool requests are deterministically forwarded to defined downstream tool servers.
+*   **GCP Environment Inheritance & Startup Validation:** Because `launchd` runs in a non-interactive shell without inheriting terminal profile variables, `blackwall service install` captures the active `GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, and `PATH`, embedding them in the plist's `<key>EnvironmentVariables</key>` block. `install` MUST fail fast if GCP project configuration is missing at install time.
+*   **Process Supervision & Crash-Loop Throttling:** `launchd` supervises the gateway across user logins. The plist configures `<key>ThrottleInterval</key><integer>30</integer>` and `<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>` to prevent tight crash loops on unexpected failures.
+*   **Logging:** Output streams are directed to `~/.blackwall/blackwall.log` and `~/.blackwall/blackwall.err`.
+
+### 9. Native macOS Menu Bar Application & System Notifications
+*   **Menu Bar Tray Application (`Blackwall.app`):** Lightweight native tray application (Swift/SwiftUI or lightweight macOS runner) living in the macOS menu bar.
+*   **Visual Status Indicator:**
+    *   🟢 **Green Shield**: Gateway daemon active, protected, 0 active threat alerts.
+    *   🟡 **Amber Shield**: Suspicious payload quarantined, pending inspection.
+    *   🔴 **Red Shield**: Malicious tool call blocked, threat signature generated.
+*   **Native System Notifications:** Dispatches macOS native notification banners (via UserNotifications framework) when `SyncResolver` returns a `BLOCK` or `QUARANTINE` verdict, displaying the agent name, trapped tool, and risk score without exposing raw credentials.
+*   **One-Click Tool Integrations:** GUI toggles to automatically register Blackwall's MCP gateway endpoint into Google Antigravity, Warp Terminal, Claude Desktop, and Cursor configuration files.
+
+### 10. Global Python Audit Hook Auto-Bootstrap
+*   **Zero-Config Hook Registration:** `blackwall hook install` automatically injects a lightweight bootstrap loader into Python's `sitecustomize.py` (or `.pth` file) across active Python virtualenvs and user site-packages.
+*   **Transparent Subprocess Protection:** Whenever an AI agent or tool executes a Python script, `sys.addaudithook` is attached immediately before user code runs, preventing rogue scripts from making direct `subprocess.Popen` or `socket.connect` escapes.
+
+### 11. GitHub Release Distribution & `.dmg` Packaging Pipeline
+*   **Standalone Bundle:** GitHub Actions CI builds standalone native macOS application bundles (`Blackwall.app`) for both Intel (`x86_64`) and Apple Silicon (`arm64`) architectures.
+*   **Installer Packaging:** Packaged into a drag-and-drop `.dmg` disk image installer attached automatically to GitHub Releases for one-click download.
 
 ## Defense-in-Depth Layers
 

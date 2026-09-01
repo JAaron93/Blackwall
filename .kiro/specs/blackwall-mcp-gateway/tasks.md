@@ -248,3 +248,90 @@ Review and finalize all three spec files (`design.md`, `requirements.md`, `tasks
 1. All task statuses are updated to reflect completion.
 2. Any implementation deviations are documented.
 3. The old `blackwall-acp-mcp-integration` spec directory is removed from the repository.
+
+---
+
+## 🛤️ Phase 5: macOS Service, App Packaging & Distribution
+
+> [!TIP]
+> **PARALLEL EXECUTION**
+> `TASK-F01` (LaunchAgent Manager) and `TASK-F02` (Python Audit Hook Bootstrap) can be developed concurrently in Track E.
+
+#### TASK-F01: Implement macOS LaunchAgent Service Manager
+**Status:** ⏳ Not Started
+**Dependencies:** TASK-C03
+**Requirements Satisfied:** FR-10, US-06
+
+**Description:**
+Implement the macOS `launchd` service management module and CLI subcommands:
+- `blackwall service install` — Generate and validate `~/Library/LaunchAgents/com.blackwall.gateway.plist` configured to supervise `blackwall serve --transport http --port 9229 --config ~/.blackwall/gateway.yaml` (or user-specified `--wrap <cmd>`), ensuring allowed tool calls are forwarded to downstream tool servers.
+- `install` MUST validate that `GCP_PROJECT` or `GOOGLE_CLOUD_PROJECT` is set in the environment or passed via `--project`, failing fast with a clear error if unconfigured.
+- `install` MUST embed an `EnvironmentVariables` dictionary containing `GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, and `PATH` into the plist to guarantee `launchd` executes with required Vertex AI credentials.
+- Plist configuration MUST include `RunAtLoad=true`, `KeepAlive` with `SuccessfulExit=false`, `ThrottleInterval=30` to prevent rapid restart loops on failure, and output redirection to `~/.blackwall/blackwall.log` and `~/.blackwall/blackwall.err`.
+- `blackwall service start` — Load the service via `launchctl load` (or `bootstrap`).
+- `blackwall service stop` — Unload the service via `launchctl unload` (or `bootout`).
+- `blackwall service status` — Check service registration and PID liveness via `launchctl list com.blackwall.gateway`.
+- `blackwall service uninstall` — Unload and remove plist cleanly.
+
+**Acceptance Criteria:**
+1. Unit tests assert correct XML generation for `com.blackwall.gateway.plist` including upstream `--config` flag and `EnvironmentVariables` dictionary (TDD).
+2. `blackwall service install` fails fast with an exit code != 0 and clear message if `GCP_PROJECT` / `GOOGLE_CLOUD_PROJECT` is missing from the environment.
+3. Generated plist sets `ThrottleInterval=30` and `KeepAlive` with `SuccessfulExit=false` to prevent tight crash loops.
+4. Service commands gracefully handle missing directories, existing plist files, and permission errors.
+5. `install` writes a valid plist and sets secure file permissions (`0644`).
+6. `uninstall` removes the plist and verifies service termination.
+7. All unit tests pass.
+
+#### TASK-F02: Implement Python Audit Hook Auto-Bootstrap
+**Status:** ⏳ Not Started
+**Dependencies:** TASK-C03
+**Requirements Satisfied:** FR-12, US-01, US-06
+
+**Description:**
+Implement the global Python runtime audit hook bootstrap manager:
+- `blackwall hook install` — Identify active Python virtualenv and user site-packages directories. Inject a safe, non-destructive bootstrap snippet into `sitecustomize.py` (or drop `blackwall_audit.pth`) that attaches `sys.addaudithook` before user code executes.
+- `blackwall hook uninstall` — Remove the bootstrap snippet cleanly without corrupting pre-existing `sitecustomize.py` logic.
+- `blackwall hook status` — Verify whether audit hooks are actively attached and functional in the current environment.
+
+**Acceptance Criteria:**
+1. Unit tests assert that `hook install` correctly injects hook bootstrap into mock site-packages (TDD).
+2. Starting a clean Python subprocess in the bootstrapped environment automatically attaches `sys.addaudithook` without explicit imports.
+3. Subprocess attempts to invoke blocked OS calls (`subprocess.Popen` with malicious payload) raise `PermissionError` immediately.
+4. `hook uninstall` restores original `sitecustomize.py` state with byte-for-byte fidelity.
+5. All unit tests pass.
+
+#### TASK-F03: Implement macOS Menu Bar Tray Application & System Notifications
+**Status:** ⏳ Not Started
+**Dependencies:** TASK-F01, TASK-C01
+**Requirements Satisfied:** FR-11, US-06
+
+**Description:**
+Build a lightweight native macOS Menu Bar application (`Blackwall.app`):
+- Tray icon reflecting real-time state: Green (Protected), Amber (Quarantine), Red (Threat Blocked).
+- Menu items: Service Status (Running/Stopped), Threat DB Stats (signature count), Recent Incidents list, Quick Links, and Exit.
+- Native notification integration: Dispatch macOS UserNotifications banners when `SyncResolver` triggers `BLOCK` or `QUARANTINE` verdicts.
+- One-click tool config registration for Google Antigravity, Warp Terminal, Claude Desktop, and Cursor.
+
+**Acceptance Criteria:**
+1. Menu bar app launches cleanly and displays current protection status.
+2. Background poll or IPC socket updates icon state when threats are intercepted.
+3. System notifications display sanitized threat telemetry (tool name, risk score) without leaking raw payloads or credentials.
+4. Idle memory footprint remains < 25MB RAM and 0.0% CPU.
+5. All unit and UI tests pass.
+
+#### TASK-F04: Build GitHub Actions Release Packaging Pipeline
+**Status:** ⏳ Not Started
+**Dependencies:** TASK-F03
+**Requirements Satisfied:** FR-13, US-07
+
+**Description:**
+Create the GitHub Actions workflow (`.github/workflows/release_macos.yml`) to build, bundle, and package `Blackwall.app` into a standalone `.dmg` installer:
+- Matrix build for macOS `x86_64` (Intel baseline) and `arm64` (Apple Silicon).
+- Package standalone executable and application bundle using PyInstaller / Platypus.
+- Create compressed drag-and-drop `.dmg` installers (`Blackwall-Intel.dmg`, `Blackwall-AppleSilicon.dmg`).
+- Automatically attach release assets to tagged GitHub Releases.
+
+**Acceptance Criteria:**
+1. Workflow builds `.app` and `.dmg` on GitHub macOS runners without errors.
+2. The packaged `.dmg` installs cleanly and launches on a clean macOS environment without pre-installed Python dependencies.
+3. Release assets are attached automatically upon publishing a git tag.
