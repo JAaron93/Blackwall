@@ -24,7 +24,28 @@ python3 demo_live.py
 
 **Expected output:** Real-time threat evaluation with colorful progress display, showing BLOCK/QUARANTINE/ALLOW decisions for 5 attacks.
 
-**For detailed architecture:** See [.kiro/specs/blackwall-agentic-firewall/design.md](.kiro/specs/blackwall-agentic-firewall/design.md)
+### 🔌 Local MCP Security Gateway Quickstart
+
+Protect any MCP-compliant AI developer tool (**Google Antigravity**, **Warp Terminal**, **Claude Desktop**, **Cursor**, **ADK Agents**) by running Blackwall as a local background security gateway daemon:
+
+```bash
+# 1. Initialize Blackwall configuration & threat database
+blackwall init
+
+# 2. Start the security gateway wrapping a downstream MCP server (stdio mode)
+blackwall serve --wrap "npx @anthropic/mcp-server-filesystem /path/to/project"
+
+# 3. Or start the Streamable HTTP gateway daemon on localhost:9229 (PID daemon)
+blackwall serve --transport http --port 9229
+
+# 4. Check daemon status and threat graph statistics
+blackwall status
+
+# 5. Gracefully stop the background daemon
+blackwall stop
+```
+
+**For detailed architecture:** See [.kiro/specs/blackwall-mcp-gateway/design.md](.kiro/specs/blackwall-mcp-gateway/design.md)
 
 ---
 
@@ -34,6 +55,7 @@ Blackwall is structured into **two distinct product tiers** to serve both develo
 
 | Feature / Tier | **Blackwall Core** (Individual Edition) | **Blackwall Enterprise Mesh** (Enterprise Edition) |
 | :--- | :--- | :--- |
+| **Primary Entry Point** | **Blackwall MCP Gateway** (stdio / HTTP `localhost:9229`) | Distributed Gateway + ZeroMQ Threat Mesh |
 | **Deployment Mode** | Single-host local Python daemon | Multi-host distributed cloud security mesh |
 | **Interception Drivers** | ADK callbacks + `sys.addaudithook` | C/Python eBPF kernel probes + macOS fallback |
 | **Native Acceleration**  | Compiled Rust DFA Regex & SIMD Math (`_core_rs`) | ZeroMQ signature mesh + eBPF kernel hooks |
@@ -45,7 +67,7 @@ Blackwall is structured into **two distinct product tiers** to serve both develo
 | **Developer Test Cost** | **$0.00 (100% Free)** | **$0.00 (100% Free local open-source MCP adapters)** |
 
 > [!NOTE]
-> For complete technical specifications of the Enterprise Security Mesh, Advanced Threat Detection, Attacker Attribution, and Rust Acceleration, see [.kiro/specs/blackwall-enterprise-security-mesh/](.kiro/specs/blackwall-enterprise-security-mesh/), [.kiro/specs/blackwall-advanced-threat-detection/](.kiro/specs/blackwall-advanced-threat-detection/), [.kiro/specs/blackwall-attacker-attribution/](.kiro/specs/blackwall-attacker-attribution/), and [.kiro/specs/blackwall-rust-acceleration/](.kiro/specs/blackwall-rust-acceleration/).
+> For complete technical specifications of the MCP Gateway, Enterprise Security Mesh, Advanced Threat Detection, Attacker Attribution, and Rust Acceleration, see [.kiro/specs/blackwall-mcp-gateway/](.kiro/specs/blackwall-mcp-gateway/), [.kiro/specs/blackwall-enterprise-security-mesh/](.kiro/specs/blackwall-enterprise-security-mesh/), [.kiro/specs/blackwall-advanced-threat-detection/](.kiro/specs/blackwall-advanced-threat-detection/), [.kiro/specs/blackwall-attacker-attribution/](.kiro/specs/blackwall-attacker-attribution/), and [.kiro/specs/blackwall-rust-acceleration/](.kiro/specs/blackwall-rust-acceleration/).
 
 
 ### ⚡ Enterprise Security Mesh Quick Start
