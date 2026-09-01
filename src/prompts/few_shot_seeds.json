@@ -22,7 +22,7 @@
   },
   {
     "few_shot_id": "FS-ESCALATE-02",
-    "competitor_origin": "Hermes Agent Skill Document Pattern",
+    "competitor_origin": "Adversarial Agent Skill Document Pattern",
     "threat_category": "Zero Ambient Authority Violation",
     "intercepted_event": {
       "tool_name": "file_write",
