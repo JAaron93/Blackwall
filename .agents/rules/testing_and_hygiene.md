@@ -347,5 +347,23 @@
   4. **Verification & Resolution**: Verify full test suite pass rates, push configuration updates, resolve GraphQL review threads, and re-trigger review to achieve passing status with zero churn.
 * **Rationale:** AI reviewers evaluate PR diffs statelessly and can fall into contradictory loops or micro-edge-case spirals. Establishing clear repository-level reviewer rules breaks churn loops and stabilizes review confidence scores deterministically.
 
+## 45. MCP Gateway Transport & Remote Authentication Testing Invariants
+* **Rule (End-to-End Remote Authentication Test Matrix):** Unit and BDD test suites covering non-loopback HTTP bindings MUST test all three branches of the remote authentication boundary:
+  1. **Startup Guard Failure**: Verify that `blackwall serve --host 0.0.0.0` without an auth token fails to start and exits with a clear error.
+  2. **Unauthenticated Rejection**: Verify that requests without a token or with an invalid token receive HTTP 401 before any JSON-RPC evaluation.
+  3. **Valid-Token Happy Path**: Verify that `blackwall serve --host 0.0.0.0 --auth-token <token>` starts cleanly and successfully processes authorized requests with `Authorization: Bearer <token>`.
+* **Rule (Hardware Baseline Budget Verification):** Core daemon performance tests must profile and enforce the 2019 Intel MacBook Pro baseline: ≤60MB idle RAM, ≤150MB active evaluation RAM, ~0% idle CPU, and <2s startup time through lazy module initialization.
+* **Rationale:** Discovered during Greptile review iterations 1-3 on PR #108. Testing only negative/rejection paths (401 and startup failure) leaves the valid-token execution path unverified, risking shipping an auth gate that rejects all requests or fails to bind properly.
+
+## 46. macOS LaunchAgent Plist & Service Lifecycle Test Invariants
+* **Rule (LaunchAgent Plist Generation Test Matrix):** Unit tests covering macOS service managers (`blackwall service install`) MUST assert:
+  1. **XML Validity & Structure**: Generated `com.blackwall.gateway.plist` parses as valid XML with correct `Label`, `ProgramArguments`, `RunAtLoad`, and log path keys.
+  2. **Environment Variable Injection**: Plist contains an `EnvironmentVariables` dictionary with `GCP_PROJECT`, `GEMINI_TIER`, `PATH`, and credential paths.
+  3. **Upstream Flag Inclusion**: `ProgramArguments` array includes `--config` (defaulting to `~/.blackwall/gateway.yaml`) or `--wrap`.
+  4. **Throttle & Backoff Guards**: Plist specifies `ThrottleInterval=30` and `KeepAlive` with `SuccessfulExit=false`.
+  5. **Install-Time Validation Rejection**: Installation fails with non-zero exit when `GCP_PROJECT` is absent.
+* **Rationale:** Ensures plist generation logic does not omit critical environment or upstream flags that would cause silent failures or crash loops in production `launchd` environments.
+
+
 
 
