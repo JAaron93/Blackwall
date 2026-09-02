@@ -251,35 +251,39 @@ Review and finalize all three spec files (`design.md`, `requirements.md`, `tasks
 
 ---
 
-## 🛤️ Phase 5: macOS Service, App Packaging & Distribution
+## 🛤️ Phase 5: Cross-Platform Service, Linux Packaging & Release Pipeline
 
 > [!TIP]
 > **PARALLEL EXECUTION**
-> `TASK-F01` (LaunchAgent Manager) and `TASK-F02` (Python Audit Hook Bootstrap) can be developed concurrently in Track E.
+> `TASK-F01` (Cross-Platform Service Manager) and `TASK-F02` (Python Audit Hook Bootstrap) can be developed concurrently in Track E.
 
-#### TASK-F01: Implement macOS LaunchAgent Service Manager
+#### TASK-F01: Implement Cross-Platform Service Manager (macOS LaunchAgent + Linux systemd for DGX OS)
 **Status:** ⏳ Not Started
 **Dependencies:** TASK-C03
-**Requirements Satisfied:** FR-10, US-06
+**Requirements Satisfied:** FR-10, US-06, US-08
 
 **Description:**
-Implement the macOS `launchd` service management module and CLI subcommands:
-- `blackwall service install` — Generate and validate `~/Library/LaunchAgents/com.blackwall.gateway.plist` configured to supervise `blackwall serve --transport http --port 9229 --config ~/.blackwall/gateway.yaml` (or user-specified `--wrap <cmd>`), ensuring allowed tool calls are forwarded to downstream tool servers.
-- `install` MUST validate that `GCP_PROJECT` or `GOOGLE_CLOUD_PROJECT` is set in the environment or passed via `--project`, failing fast with a clear error if unconfigured.
-- `install` MUST embed an `EnvironmentVariables` dictionary containing `GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, and `PATH` into the plist to guarantee `launchd` executes with required Vertex AI credentials.
-- Plist configuration MUST include `RunAtLoad=true`, `KeepAlive` with `SuccessfulExit=false`, `ThrottleInterval=30` to prevent rapid restart loops on failure, and output redirection to `~/.blackwall/blackwall.log` and `~/.blackwall/blackwall.err`.
-- `blackwall service start` — Load the service via `launchctl load` (or `bootstrap`).
-- `blackwall service stop` — Unload the service via `launchctl unload` (or `bootout`).
-- `blackwall service status` — Check service registration and PID liveness via `launchctl list com.blackwall.gateway`.
-- `blackwall service uninstall` — Unload and remove plist cleanly.
+Implement the cross-platform background service management module and CLI subcommands:
+- Platform auto-detection (`platform.system()`): detects Darwin (macOS) vs Linux (DGX OS / Ubuntu).
+- **macOS (`launchd`):**
+  - `blackwall service install` — Generate and validate `~/Library/LaunchAgents/com.blackwall.gateway.plist` configured to supervise `blackwall serve --transport http --port 9229 --config ~/.blackwall/gateway.yaml` (or user-specified `--wrap <cmd>`), ensuring allowed tool calls are forwarded to downstream tool servers.
+  - Embed `EnvironmentVariables` dictionary containing `GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, and `PATH`.
+  - Set `RunAtLoad=true`, `KeepAlive` with `SuccessfulExit=false`, `ThrottleInterval=30`, and log redirection to `~/.blackwall/blackwall.log` and `~/.blackwall/blackwall.err`.
+- **GNU/Linux (`systemd` on DGX OS / Ubuntu):**
+  - `blackwall service install` — Generate and validate systemd unit `blackwall.service` (`~/.config/systemd/user/blackwall.service` or `/etc/systemd/system/blackwall.service` with `--system`).
+  - Configure `[Unit]` with `Description=Blackwall MCP Gateway`, `After=network.target`.
+  - Configure `[Service]` with `ExecStart=...`, `Restart=on-failure`, `RestartSec=5s`, `StartLimitBurst=5`, `StartLimitIntervalSec=60s`, `MemoryMax=500M`, and active `Environment=` directives.
+  - Enable and start via `systemctl --user enable --now blackwall` (or systemctl).
+- Fail fast at install time if `GCP_PROJECT` / `GOOGLE_CLOUD_PROJECT` is absent.
+- `blackwall service start|stop|status|uninstall` — Dispatch to `launchctl` or `systemctl`.
 
 **Acceptance Criteria:**
-1. Unit tests assert correct XML generation for `com.blackwall.gateway.plist` including upstream `--config` flag and `EnvironmentVariables` dictionary (TDD).
-2. `blackwall service install` fails fast with an exit code != 0 and clear message if `GCP_PROJECT` / `GOOGLE_CLOUD_PROJECT` is missing from the environment.
-3. Generated plist sets `ThrottleInterval=30` and `KeepAlive` with `SuccessfulExit=false` to prevent tight crash loops.
-4. Service commands gracefully handle missing directories, existing plist files, and permission errors.
-5. `install` writes a valid plist and sets secure file permissions (`0644`).
-6. `uninstall` removes the plist and verifies service termination.
+1. Unit tests assert correct XML generation for macOS `com.blackwall.gateway.plist` and correct INI syntax for Linux `blackwall.service` unit file (TDD).
+2. Service installer detects OS accurately and writes to correct platform paths (`~/Library/LaunchAgents/` on macOS, `~/.config/systemd/user/` on Linux).
+3. Both service configurations embed upstream `--config` flag and GCP credentials.
+4. `install` fails fast with an exit code != 0 when `GCP_PROJECT` is missing.
+5. Crash throttling is configured on both platforms (`ThrottleInterval=30` on launchd, `RestartSec=5s` on systemd).
+6. `uninstall` unloads the service and removes service definition files cleanly.
 7. All unit tests pass.
 
 #### TASK-F02: Implement Python Audit Hook Auto-Bootstrap
@@ -288,7 +292,7 @@ Implement the macOS `launchd` service management module and CLI subcommands:
 **Requirements Satisfied:** FR-12, US-01, US-06
 
 **Description:**
-Implement the global Python runtime audit hook bootstrap manager:
+Implement the global Python runtime audit hook bootstrap manager across macOS and Linux:
 - `blackwall hook install` — Identify active Python virtualenv and user site-packages directories. Inject a safe, non-destructive bootstrap snippet into `sitecustomize.py` (or drop `blackwall_audit.pth`) that attaches `sys.addaudithook` before user code executes.
 - `blackwall hook uninstall` — Remove the bootstrap snippet cleanly without corrupting pre-existing `sitecustomize.py` logic.
 - `blackwall hook status` — Verify whether audit hooks are actively attached and functional in the current environment.
@@ -319,19 +323,43 @@ Build a lightweight native macOS Menu Bar application (`Blackwall.app`):
 4. Idle memory footprint remains < 25MB RAM and 0.0% CPU.
 5. All unit and UI tests pass.
 
-#### TASK-F04: Build GitHub Actions Release Packaging Pipeline
+#### TASK-F04: Build GitHub Actions Release Packaging Pipeline (macOS .dmg & Linux .deb / Tarball)
 **Status:** ⏳ Not Started
 **Dependencies:** TASK-F03
-**Requirements Satisfied:** FR-13, US-07
+**Requirements Satisfied:** FR-13, US-07, US-09, NFR-07
 
 **Description:**
-Create the GitHub Actions workflow (`.github/workflows/release_macos.yml`) to build, bundle, and package `Blackwall.app` into a standalone `.dmg` installer:
-- Matrix build for macOS `x86_64` (Intel baseline) and `arm64` (Apple Silicon).
-- Package standalone executable and application bundle using PyInstaller / Platypus.
-- Create compressed drag-and-drop `.dmg` installers (`Blackwall-Intel.dmg`, `Blackwall-AppleSilicon.dmg`).
+Create the GitHub Actions workflow (`.github/workflows/release_packages.yml`) to build, bundle, and package release artifacts:
+- **macOS:** Matrix build for macOS `x86_64` (Intel baseline) and `arm64` (Apple Silicon), creating `.dmg` installers (`Blackwall-Intel.dmg`, `Blackwall-AppleSilicon.dmg`).
+- **GNU/Linux (DGX OS / Ubuntu):**
+  - Build Debian packages (`.deb`) targeting **DGX OS / Ubuntu 24.04 LTS `aarch64`** (NVIDIA DGX Spark) and Ubuntu `x86_64`, packaging `/usr/local/bin/blackwall`, `/usr/lib/systemd/user/blackwall.service`, default config, and post-install hooks.
+  - Build standalone Linux binary tarballs (`blackwall-linux-aarch64.tar.gz`, `blackwall-linux-x86_64.tar.gz`) with `install.sh`.
+- Windows artifacts (`.exe`, `.msi`) are explicitly excluded.
 - Automatically attach release assets to tagged GitHub Releases.
 
 **Acceptance Criteria:**
 1. Workflow builds `.app` and `.dmg` on GitHub macOS runners without errors.
-2. The packaged `.dmg` installs cleanly and launches on a clean macOS environment without pre-installed Python dependencies.
-3. Release assets are attached automatically upon publishing a git tag.
+2. Workflow builds valid `.deb` packages using `dpkg-deb` on Linux runners for `aarch64` and `x86_64`.
+3. Packaged `.deb` installs cleanly via `dpkg -i` on clean Ubuntu 24.04 LTS and DGX OS environments.
+4. Release assets are attached automatically upon publishing a git tag.
+5. All build verification checks pass.
+
+#### TASK-F05: Implement NVIDIA DGX OS Co-Existence & Zero-VRAM Verification Tests
+**Status:** ⏳ Not Started
+**Dependencies:** TASK-F01, TASK-F04
+**Requirements Satisfied:** FR-14, NFR-06, US-08
+
+**Description:**
+Implement verification tests ensuring complete non-interference and zero GPU VRAM consumption on NVIDIA DGX OS environments:
+- Verify that running `blackwall serve` never invokes CUDA runtime functions or allocates GPU memory (`torch.cuda.is_initialized()` is False; GPU VRAM allocation is 0MB).
+- Verify port non-collision: assert that Blackwall HTTP gateway runs and forwards traffic on port `9229` while mock local AI services run on port `11434` (Ollama), `8000` (vLLM), `8001` (Triton), and `8888` (JupyterLab).
+- Verify that Python audit hooks and MCP stream filters do not intercept or disrupt NVIDIA Container Toolkit (`nvidia-ctk`) or GPU device nodes (`/dev/nvidia*`).
+- Test Linux `systemd` user unit lifecycle (`blackwall service install`, `start`, `status`, `stop`, `uninstall`) inside an Ubuntu 24.04 / DGX OS container.
+
+**Acceptance Criteria:**
+1. Automated tests assert 0MB GPU VRAM allocation during gateway execution (TDD).
+2. Gateway successfully handles concurrent requests while mock AI serving ports (11434, 8000) are occupied.
+3. Systemd service lifecycle tests pass in an Ubuntu 24.04 container.
+4. Active memory remains within the DGX Spark budget (≤ 350MB active RAM, zero VRAM).
+5. All unit and integration tests pass.
+

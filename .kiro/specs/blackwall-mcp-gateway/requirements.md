@@ -63,14 +63,18 @@ The gateway MUST support two modes for managing downstream tool servers:
 ### FR-09: GCP Vertex AI Mode (Mandatory)
 The gateway MUST require GCP Vertex AI Mode for the `SyncResolver`'s LLM-based semantic evaluation. Configuration requires `GCP_PROJECT` / `GOOGLE_CLOUD_PROJECT` and Application Default Credentials (ADC). Google AI Studio API Key Mode is permanently removed. The gateway MUST fail fast with a clear error message if GCP credentials are not configured.
 
-### FR-10: macOS LaunchAgent Service Management
-Blackwall MUST provide CLI and programmatic subcommands (`blackwall service install|uninstall|start|stop|status`) to generate and manage a user LaunchAgent plist (`~/Library/LaunchAgents/com.blackwall.gateway.plist`).
-*   `install` MUST generate a valid plist configured to supervise `blackwall serve --transport http --port 9229 --config ~/.blackwall/gateway.yaml` (or user-specified `--wrap <cmd>`), ensuring allowed tool requests are forwarded to downstream tool servers.
-*   `install` MUST validate that `GCP_PROJECT` (or `GOOGLE_CLOUD_PROJECT`) is configured, failing fast with a clear error message if absent.
-*   `install` MUST embed active GCP environment variables (`GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, `PATH`) into the plist's `EnvironmentVariables` dictionary to ensure non-interactive `launchd` execution has valid authentication credentials.
-*   The generated plist MUST configure `RunAtLoad=true`, `KeepAlive` with `SuccessfulExit=false`, `ThrottleInterval=30`, and redirect standard logs to `~/.blackwall/blackwall.log` and `~/.blackwall/blackwall.err`.
-*   `start` and `stop` MUST invoke `launchctl load` and `launchctl unload` (or `bootstrap`/`bootout`).
-*   `uninstall` MUST unload the service and remove the plist file cleanly.
+### FR-10: Cross-Platform Background Service Management (`launchd` on macOS & `systemd` on Linux/DGX OS)
+Blackwall MUST provide CLI and programmatic subcommands (`blackwall service install|uninstall|start|stop|status`) that auto-detect the operating system and manage native background daemon services:
+*   **macOS (`launchd`):** Generates and manages `~/Library/LaunchAgents/com.blackwall.gateway.plist` via `launchctl`.
+*   **GNU/Linux (`systemd`):** Generates and manages `blackwall.service` (`~/.config/systemd/user/blackwall.service` or `/etc/systemd/system/blackwall.service` when `--system` is provided) via `systemctl`.
+*   **Authoritative Upstream Target:** On both platforms, `install` MUST configure the service to supervise `blackwall serve --transport http --port 9229 --config ~/.blackwall/gateway.yaml` (or user-specified `--wrap <cmd>`), ensuring allowed tool requests are deterministically forwarded to downstream tool servers.
+*   **Install-Time Credential Validation:** `install` MUST validate that `GCP_PROJECT` (or `GOOGLE_CLOUD_PROJECT`) is configured, failing fast with an exit code != 0 and a clear error message if absent.
+*   **Environment Variable Injection:** `install` MUST embed active GCP environment variables (`GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, `PATH`) into the plist's `EnvironmentVariables` dictionary on macOS, or the systemd `[Service]` `Environment=` / `EnvironmentFile=` block on Linux.
+*   **Supervision & Throttling:**
+    *   macOS plist MUST configure `RunAtLoad=true`, `KeepAlive` with `SuccessfulExit=false`, and `ThrottleInterval=30`.
+    *   Linux systemd unit MUST configure `Restart=on-failure`, `RestartSec=5s`, `StartLimitBurst=5`, `StartLimitIntervalSec=60s`, and `MemoryMax=500M`.
+*   `start`, `stop`, and `status` MUST invoke platform-native tools (`launchctl` or `systemctl`).
+*   `uninstall` MUST unload the service and remove the service configuration file cleanly.
 
 ### FR-11: Native macOS Menu Bar GUI & System Notifications
 Blackwall MUST support packaging as a native macOS Menu Bar application (`Blackwall.app`):
@@ -79,18 +83,29 @@ Blackwall MUST support packaging as a native macOS Menu Bar application (`Blackw
 *   Provide a GUI menu showing daemon liveness, threat signature graph count, and one-click MCP registration for Antigravity, Warp Terminal, Claude Desktop, and Cursor.
 
 ### FR-12: Global Python Audit Hook Bootstrapping
-Blackwall MUST provide subcommands (`blackwall hook install|uninstall|status`) to manage global Python runtime audit hook integration:
+Blackwall MUST provide subcommands (`blackwall hook install|uninstall|status`) to manage global Python runtime audit hook integration across macOS and Linux:
 *   `install` MUST inject a non-destructive bootstrap snippet into `sitecustomize.py` (or a `.pth` file) in target Python environments.
 *   The bootstrap snippet MUST attach Blackwall's `sys.addaudithook` before arbitrary user scripts execute.
 *   `uninstall` MUST remove the bootstrap code cleanly without affecting existing `sitecustomize.py` customizations.
 
-### FR-13: GitHub Release Artifact Packaging (`.dmg`)
-The build and CI pipeline MUST produce standalone distributable macOS disk image installers (`.dmg`) containing `Blackwall.app` for both Intel (`x86_64`) and Apple Silicon (`arm64`) architectures, automatically attached as downloadable assets to GitHub Releases.
+### FR-13: Cross-Platform Release Packaging Pipeline (macOS `.dmg` & Linux `.deb` / Tarball)
+The build and CI pipeline MUST produce standalone release artifacts attached to GitHub Releases:
+*   **macOS:** Standalone disk image installers (`.dmg`) containing `Blackwall.app` for both Intel (`x86_64`) and Apple Silicon (`arm64`).
+*   **GNU/Linux:**
+    *   Debian/Ubuntu packages (`.deb`) targeting **DGX OS / Ubuntu 24.04 LTS `aarch64`** (NVIDIA DGX Spark) and Ubuntu `x86_64`, bundling binary, default configuration, systemd unit, and man pages for single-command installation (`sudo dpkg -i blackwall-*.deb` or `apt install ./blackwall-*.deb`).
+    *   Standalone Linux binary tarballs (`.tar.gz`) with automated `install.sh` scripts.
+*   **Windows Strictly Excluded:** Windows formats (`.exe`, `.msi`, PowerShell) are explicitly excluded from all release workflows.
+
+### FR-14: NVIDIA DGX Stack Co-Existence & Zero-VRAM Footprint
+When deployed on the top-of-the-line **NVIDIA DGX Spark** (DGX OS / Ubuntu 24.04 LTS `aarch64`), Blackwall Core MUST guarantee complete non-interference with the pre-installed NVIDIA AI stack:
+*   **Zero GPU VRAM Reservation:** Blackwall Core MUST run 100% in CPU host memory and user-space threads. It MUST NOT initialize a CUDA driver/runtime context or allocate GPU unified memory, preserving all 128GB unified memory for local LLM weights (vLLM, Ollama, TensorRT-LLM) and training workloads.
+*   **Port Collision Avoidance:** Default gateway port `9229` MUST NOT collide with standard DGX OS AI serving ports: `11434` (Ollama), `8000`/`8001`/`8002` (vLLM, Triton), or `8888` (JupyterLab).
+*   **Container & Driver Transparency:** Blackwall's stream layer and Python audit hooks MUST operate transparently alongside Docker, `nvidia-container-toolkit` (`nvidia-ctk`), and CUDA IPC without intercepting or degrading GPU tensor operations.
 
 ## Non-Functional Requirements
 
 ### NFR-01: Zero Non-Python Dependencies
-Blackwall Core MUST remain 100% Python-based (`asyncio`, `pydantic`, `click`). No Node.js, no Rust extensions required for Core functionality. The gateway MUST be installable via `pip install blackwall`.
+Blackwall Core MUST remain 100% Python-based (`asyncio`, `pydantic`, `click`). No Node.js, no Rust extensions required for Core functionality. The gateway MUST be installable via `pip install blackwall` or native `.deb` package.
 
 ### NFR-02: Latency Constraints
 The serialization, parsing, and proxying of JSON-RPC messages MUST add no more than 10ms of overhead to the baseline `SyncResolver` evaluation latency (which is < 10ms for structural evaluation).
@@ -104,17 +119,24 @@ All implementation tasks MUST follow strict TDD. Developers MUST write failing u
 ### NFR-05: Behavior-Driven Development (BDD)
 End-to-end security and interception workflows MUST be defined using Gherkin syntax in `.feature` files. Execution MUST be validated using `pytest-bdd`.
 
-### NFR-06: Resource Constraints (2019 Intel MacBook Pro Baseline)
-All gateway components MUST operate within these budgets when running Blackwall Core (Enterprise pillars excluded):
+### NFR-06: Resource Constraints (Dual Hardware Target Tiers)
+All gateway components MUST operate within these budgets across supported hardware profiles:
 
-| Resource | Budget | Enforcement |
-|----------|--------|-------------|
-| Idle RAM | ≤ 60MB | Lazy-load heavy modules on first tool call |
-| Active RAM | ≤ 150MB | Peak during SyncResolver + GTI evaluation |
-| Idle CPU | ~0% | Event loop sleeping, no polling or background threads |
-| Active CPU | < 5% single core | Per-call burst only |
-| Disk | ≤ 50MB | SQLite + policy + logs |
-| Startup | < 2s | Deferred initialization |
+| Resource | 2019 MacBook Pro Baseline (Intel i7, 16GB) | NVIDIA DGX Spark Top-of-the-Line (GB10 ARM64, 128GB) | Enforcement |
+| :--- | :--- | :--- | :--- |
+| **Idle RAM** | ≤ 60MB | ≤ 100MB | Lazy-load heavy modules on first tool call |
+| **Active RAM** | ≤ 150MB | ≤ 350MB | Peak during SyncResolver + GTI evaluation |
+| **GPU VRAM** | 0MB (N/A) | **0MB (Strict Invariant)** | Runs 100% in CPU host memory; zero CUDA allocation |
+| **Idle CPU** | ~0% | ~0% | Event loop sleeping, no polling or background threads |
+| **Active CPU** | < 5% single core | < 2% across 20 ARM cores | Sub-10ms burst per tool call |
+| **Disk** | ≤ 50MB | ≤ 50MB | SQLite + policy + logs |
+| **Startup** | < 2s | < 1s | Deferred initialization |
+
+### NFR-07: Operating System Support & Windows Exclusion
+Blackwall Core MUST support:
+1. **macOS** (Darwin `x86_64` and `arm64`).
+2. **GNU/Linux** (**DGX OS / Ubuntu 24.04 LTS `aarch64`** on NVIDIA DGX Spark, and Debian/Ubuntu `x86_64`).
+**Windows is strictly and permanently unsupported.** No Windows installers, services, or documentation shall be produced or maintained.
 
 ## User Stories
 
@@ -152,3 +174,13 @@ I want Blackwall to run unobtrusively in my menu bar and start automatically on 
 **As a developer setting up a new Mac,**
 I want to download a pre-built `Blackwall.dmg` directly from GitHub Releases,
 **So that** I can install and run Blackwall with a single drag-and-drop without manually configuring Python environments.
+
+### US-08: High-Throughput Protection on NVIDIA DGX Spark
+**As an AI researcher running an NVIDIA DGX Spark AI supercomputer,**
+I want Blackwall Core to run as a native `systemd` daemon on DGX OS (`aarch64`) with zero GPU VRAM consumption,
+**So that** my multi-agent development workflows are secured at wire speed while preserving all 128GB of unified memory and tensor cores for local LLM serving and model fine-tuning.
+
+### US-09: Native Linux Package Installation (`.deb`)
+**As a DGX OS / Ubuntu Linux user,**
+I want to install Blackwall via `sudo dpkg -i blackwall-*.deb` or `apt install ./blackwall-*.deb`,
+**So that** the executable, systemd unit, and default configuration are pre-installed and ready to run with zero manual configuration.

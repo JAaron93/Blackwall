@@ -23,7 +23,7 @@ Blackwall runs as a **standalone local daemon** — not a sidecar, not a proxy f
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        Developer's Machine                         │
-│                    (2019 MacBook Pro / Intel i7)                    │
+│      (Baseline: 2019 MacBook Pro | Top: NVIDIA DGX Spark ARM64)     │
 │                                                                     │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐  │
 │  │ Antigravity   │  │ Warp Terminal│  │ Any MCP-Compliant Agent  │  │
@@ -142,17 +142,21 @@ Manages downstream MCP tool server lifecycle and request forwarding.
 *   `blackwall init` — initialize `~/.blackwall/` directory
 *   `blackwall stop` — stop the running daemon
 *   `blackwall status` — show daemon status and recent verdicts
-*   `blackwall service install|uninstall|start|stop|status` — manage macOS `launchd` background service (`~/Library/LaunchAgents/com.blackwall.gateway.plist`)
-    *   `install` options: `--config <path>` (default: `~/.blackwall/gateway.yaml`), `--wrap <cmd>`, `--project <id>` (or capture active `GCP_PROJECT`)
+*   `blackwall service install|uninstall|start|stop|status` — manage background daemon service: auto-detects macOS `launchd` (`~/Library/LaunchAgents/com.blackwall.gateway.plist`) or GNU/Linux `systemd` (`~/.config/systemd/user/blackwall.service` or `/etc/systemd/system/blackwall.service` on DGX OS / Ubuntu)
+    *   `install` options: `--config <path>` (default: `~/.blackwall/gateway.yaml`), `--wrap <cmd>`, `--project <id>` (or capture active `GCP_PROJECT`), `--system` (Linux system-level unit vs user unit)
 *   `blackwall hook install|uninstall|status` — manage global Python runtime audit hook (`sitecustomize.py` / `.pth`)
 *   `blackwall version` — print version
 
-### 8. macOS Background Service Manager (`launchd`)
-*   **LaunchAgent Plist Generation:** Automatically installs and manages `~/Library/LaunchAgents/com.blackwall.gateway.plist` for seamless user-session background startup.
-*   **Authoritative Upstream Target:** The LaunchAgent executes `blackwall serve --transport http --port 9229 --config ~/.blackwall/gateway.yaml` (or user-specified `--wrap`), ensuring allowed tool requests are deterministically forwarded to defined downstream tool servers.
-*   **GCP Environment Inheritance & Startup Validation:** Because `launchd` runs in a non-interactive shell without inheriting terminal profile variables, `blackwall service install` captures the active `GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, and `PATH`, embedding them in the plist's `<key>EnvironmentVariables</key>` block. `install` MUST fail fast if GCP project configuration is missing at install time.
-*   **Process Supervision & Crash-Loop Throttling:** `launchd` supervises the gateway across user logins. The plist configures `<key>ThrottleInterval</key><integer>30</integer>` and `<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>` to prevent tight crash loops on unexpected failures.
-*   **Logging:** Output streams are directed to `~/.blackwall/blackwall.log` and `~/.blackwall/blackwall.err`.
+### 8. Cross-Platform Background Service Manager (`launchd` on macOS & `systemd` on Linux/DGX OS)
+*   **Platform Auto-Detection:** `blackwall service` detects the host OS at runtime:
+    *   **macOS:** Generates and manages `~/Library/LaunchAgents/com.blackwall.gateway.plist` via `launchctl`.
+    *   **GNU/Linux (DGX OS / Ubuntu):** Generates and manages `systemd` unit file `blackwall.service` (`~/.config/systemd/user/blackwall.service` or `/etc/systemd/system/blackwall.service`) via `systemctl`.
+*   **Authoritative Upstream Target:** On both platforms, the service executes `blackwall serve --transport http --port 9229 --config ~/.blackwall/gateway.yaml` (or user-specified `--wrap`), ensuring allowed tool requests are deterministically forwarded to defined downstream tool servers.
+*   **Environment Inheritance & Startup Validation:** Both `launchd` and `systemd` execute outside interactive terminal sessions. `blackwall service install` captures the active `GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, and `PATH`, embedding them in the plist `<key>EnvironmentVariables</key>` block on macOS, or the systemd `[Service]` `Environment=` directives / `EnvironmentFile=` block on Linux. `install` MUST fail fast if GCP project configuration is missing at install time.
+*   **Process Supervision & Crash-Loop Throttling:**
+    *   **macOS (`launchd`):** Configures `<key>ThrottleInterval</key><integer>30</integer>` and `<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>`.
+    *   **Linux (`systemd`):** Configures `Restart=on-failure`, `RestartSec=5s`, `StartLimitBurst=5`, `StartLimitIntervalSec=60s`, and `MemoryMax=500M`.
+*   **Logging:** Output streams are directed to `~/.blackwall/blackwall.log` and `~/.blackwall/blackwall.err` (and systemd journal on Linux via `journalctl --user -u blackwall`).
 
 ### 9. Native macOS Menu Bar Application & System Notifications
 *   **Menu Bar Tray Application (`Blackwall.app`):** Lightweight native tray application (Swift/SwiftUI or lightweight macOS runner) living in the macOS menu bar.
@@ -164,35 +168,48 @@ Manages downstream MCP tool server lifecycle and request forwarding.
 *   **One-Click Tool Integrations:** GUI toggles to automatically register Blackwall's MCP gateway endpoint into Google Antigravity, Warp Terminal, Claude Desktop, and Cursor configuration files.
 
 ### 10. Global Python Audit Hook Auto-Bootstrap
-*   **Zero-Config Hook Registration:** `blackwall hook install` automatically injects a lightweight bootstrap loader into Python's `sitecustomize.py` (or `.pth` file) across active Python virtualenvs and user site-packages.
+*   **Zero-Config Hook Registration:** `blackwall hook install` automatically injects a lightweight bootstrap loader into Python's `sitecustomize.py` (or `.pth` file) across active Python virtualenvs and user site-packages on both macOS and Linux.
 *   **Transparent Subprocess Protection:** Whenever an AI agent or tool executes a Python script, `sys.addaudithook` is attached immediately before user code runs, preventing rogue scripts from making direct `subprocess.Popen` or `socket.connect` escapes.
 
-### 11. GitHub Release Distribution & `.dmg` Packaging Pipeline
-*   **Standalone Bundle:** GitHub Actions CI builds standalone native macOS application bundles (`Blackwall.app`) for both Intel (`x86_64`) and Apple Silicon (`arm64`) architectures.
-*   **Installer Packaging:** Packaged into a drag-and-drop `.dmg` disk image installer attached automatically to GitHub Releases for one-click download.
+### 11. Cross-Platform Release Packaging Pipeline (macOS `.dmg` & Linux `.deb` / Tarball)
+*   **macOS Packaging (`.dmg`):** GitHub Actions CI builds standalone native macOS application bundles (`Blackwall.app`) for both Intel (`x86_64`) and Apple Silicon (`arm64`) architectures, packaged into drag-and-drop `.dmg` disk image installers.
+*   **GNU/Linux Packaging (`.deb` & Standalone Tarball):**
+    *   **Debian/Ubuntu Package (`.deb`):** Pre-compiled `.deb` package targeting **DGX OS / Ubuntu 24.04 LTS `aarch64`** (NVIDIA DGX Spark) and **Ubuntu `x86_64`**, bundling the binary, default configuration, systemd service unit, and man pages for one-command installation (`sudo dpkg -i blackwall-*.deb` or `apt install ./blackwall-*.deb`).
+    *   **Standalone Linux Tarball (`.tar.gz`):** Pre-compiled standalone binary archive with automated `install.sh` script for non-Debian Linux environments.
+*   **Windows Strictly Excluded:** Windows (`.exe`, `.msi`, PowerShell) is explicitly unsupported and excluded from CI release pipelines.
+
+### 12. NVIDIA DGX Spark Co-Existence Architecture (Zero-VRAM & Port Isolation)
+When operating on the top-of-the-line **NVIDIA DGX Spark** (Grace Blackwell GB10, 20 ARM cores, 128GB unified LPDDR5x memory, DGX OS / Ubuntu 24.04 LTS `aarch64`), Blackwall Core operates with strict co-existence invariants to guarantee zero interference with pre-installed AI workloads:
+*   **Zero GPU VRAM Footprint:** Blackwall Core runs 100% in CPU host memory and user-space threads. It never initializes a CUDA context, never allocates GPU unified memory (`cudaMallocManaged` or PyTorch CUDA caching allocators), and leaves all 128GB of high-bandwidth unified memory free for local LLM inference engines (vLLM, Ollama, TensorRT-LLM) or model fine-tuning jobs.
+*   **Port Collision Avoidance:** Default gateway port `9229` is specifically selected to avoid collision with standard AI serving and development software on DGX OS:
+    *   `11434` — Ollama API / WebUI
+    *   `8000` / `8001` / `8002` — vLLM OpenAI-compatible endpoint, Triton Inference Server HTTP/gRPC/Metrics
+    *   `8888` / `8080` — JupyterLab, NGC Web Services
+*   **Container & Runtime Transparency:** Blackwall's Python audit hooks and MCP stream proxies operate independently of the NVIDIA Container Toolkit (`nvidia-ctk`), Docker daemon, and NVIDIA GPU Operator, ensuring sandboxed agent containers and CUDA IPC communication are never corrupted or throttled.
 
 ## Defense-in-Depth Layers
 
 Blackwall provides three layers of security, each operating at a different level:
 
-| Layer | Scope | Integration | Day-to-Day on 2019 MacBook? |
-|-------|-------|-------------|----------------------------|
-| **MCP Gateway** (protocol) | Tool calls from any MCP agent | Agent MCP config → Blackwall | ✅ Yes — Core |
-| **Python Audit Hooks** (runtime) | Direct `os.system()`, `subprocess`, file I/O, network | `sys.addaudithook` in Python process | ✅ Yes — Core |
-| **eBPF Kernel Probes** (kernel) | Container escapes, kernel syscalls | Enterprise daemon with root privileges | ❌ Portfolio only |
+| Layer | Scope | Integration | Target Hardware Support |
+|-------|-------|-------------|-------------------------|
+| **MCP Gateway** (protocol) | Tool calls from any MCP agent | Agent MCP config → Blackwall | ✅ Yes — Core (MacBook Baseline & DGX Spark) |
+| **Python Audit Hooks** (runtime) | Direct `os.system()`, `subprocess`, file I/O, network | `sys.addaudithook` in Python process | ✅ Yes — Core (MacBook Baseline & DGX Spark) |
+| **eBPF Kernel Probes** (kernel) | Container escapes, kernel syscalls | Enterprise daemon with root privileges | ❌ Portfolio only (Enterprise Mesh) |
 
-## Resource Constraints (2019 Intel MacBook Pro Baseline)
+## Resource Constraints (Dual Hardware Target Tiers)
 
-All gateway components MUST operate within these budgets:
+All gateway components MUST operate within these hardware budgets:
 
-| Resource | Budget | Rationale |
-|----------|--------|-----------|
-| Idle RAM | ≤ 60MB | Python asyncio daemon + SQLite mmap. No ML models at idle. |
-| Active RAM | ≤ 150MB | Peak during SyncResolver eval with GTI query + threat graph scan. |
-| Idle CPU | ~0% | Event loop sleeping. Zero polling, zero background threads. |
-| Active CPU | < 5% single core | Per-tool-call burst: JSON parse + SQLite FTS5 + context hygiene. Sub-10ms. |
-| Disk | ≤ 50MB | SQLite threat graph + policy YAML + PID/log files. |
-| Startup | < 2s | Lazy-load heavy modules (GTI client, policy engine) on first call. |
+| Metric | 2019 MacBook Pro Baseline (Intel i7, 16GB) | NVIDIA DGX Spark Top-of-the-Line (GB10 ARM64, 128GB) | Enforcement / Rationale |
+| :--- | :--- | :--- | :--- |
+| **Idle RAM** | ≤ 60MB | ≤ 100MB | Event loop sleeping. Zero background ML models loaded at idle. |
+| **Active RAM** | ≤ 150MB | ≤ 350MB | Peak during SyncResolver eval + concurrent multi-agent batch queries. |
+| **GPU VRAM** | 0MB (N/A) | **0MB (100% CPU Host RAM)** | **Strict Invariant**: 100% of 128GB unified memory reserved for local LLMs/training. |
+| **Idle CPU** | ~0% | ~0% | Asyncio event loop sleep. Zero polling. |
+| **Active CPU** | < 5% single core | < 2% across 20 ARM cores | Sub-10ms evaluation burst (JSON parse + FTS5 + hygiene). |
+| **Disk** | ≤ 50MB | ≤ 50MB | SQLite threat graph + policy YAML + logs. |
+| **Startup** | < 2s | < 1s | Lazy-load heavy dependencies (GTI client, policy engine) on first call. |
 
 ## Quality Assurance (TDD & BDD)
 
@@ -209,9 +226,12 @@ The gateway requires GCP Vertex AI Mode for the `SyncResolver`'s LLM-based seman
 ## Constraints & Assumptions
 
 *   **No Node.js:** The entire gateway stack is Python `asyncio` + `pydantic` + `click`.
+*   **Operating System Scope & Explicit Windows Exclusion:** Supported platforms are **macOS** (Darwin `x86_64`, `arm64`) and **GNU/Linux** (**DGX OS / Ubuntu 24.04 LTS `aarch64`** on NVIDIA DGX Spark, and Debian/Ubuntu `x86_64`). **Windows is strictly unsupported** — no Windows releases, no PowerShell/MSI installers, and zero maintenance overhead.
+*   **Dual Hardware Target Profiles:**
+    - **Baseline**: 2019 MacBook Pro (Intel i7, 16GB RAM) prioritizing strict resource conservation and low-power battery efficiency.
+    - **Top-of-the-Line**: NVIDIA DGX Spark (NVIDIA GB10 Grace Blackwell, 20 ARM cores, 128GB unified memory) delivering high-throughput concurrent agent security with zero GPU VRAM consumption.
 *   **Performance:** Gateway overhead MUST remain < 10ms on top of core evaluation latency.
 *   **Local-Only Binding:** HTTP transport binds to `127.0.0.1` by default. Network-bound deployments require explicit `--host` override and a pre-shared bearer token (`--auth-token` or `BLACKWALL_AUTH_TOKEN`). The gateway MUST refuse to start on a non-loopback address without a configured auth token.
 *   **State Persistence:** SQLite Threat Signature Graph in WAL mode with strict connection pooling. TTL/LFU pruning keeps query latencies under 10ms.
     - Node types: `AttackerIntent`, `PayloadStructure`, `TargetTool`.
     - Edge types: `SIMILAR_TO`, `MITIGATED_BY`.
-*   **Hardware Baseline:** All resource budgets target a 2019 MacBook Pro (Intel i7, 16GB RAM). Enterprise features (eBPF, ZeroMQ mesh) are excluded from the resource budget.
