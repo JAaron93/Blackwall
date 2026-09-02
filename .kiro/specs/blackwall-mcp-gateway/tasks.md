@@ -357,13 +357,13 @@ Create the GitHub Actions workflow (`.github/workflows/release_packages.yml`) to
 
 **Description:**
 Implement verification tests ensuring complete non-interference, zero GPU VRAM consumption, and bounded host memory on NVIDIA DGX OS environments:
-- Verify that running `blackwall serve` never invokes CUDA runtime or driver functions across all system layers: assert 0 open file descriptors to `/dev/nvidia*`, `/dev/nvidiactl`, `/dev/nvidia-uvm` in `/proc/self/fd/`, confirm daemon PID is absent from NVML compute process listings (`nvmlDeviceGetComputeRunningProcesses`), verify `torch.cuda.is_initialized()` is False (if torch is imported), and verify host process RSS memory stays strictly within the ≤350MB ceiling, ensuring >127.6GB of the 128GB unified memory pool remains unencumbered for AI models.
+- Verify that running `blackwall serve` never invokes CUDA runtime or driver functions across all system layers: assert 0 open file descriptors to `/dev/nvidia*`, `/dev/nvidiactl`, `/dev/nvidia-uvm` in the daemon's `/proc/<daemon_pid>/fd/` (resolving the target daemon PID from `~/.blackwall/blackwall.pid` or subprocess handle), confirm daemon PID is absent from NVML compute process listings (`nvmlDeviceGetComputeRunningProcesses`), verify `torch.cuda.is_initialized()` is False (if torch is imported), and verify host process RSS memory stays strictly within the ≤350MB ceiling, ensuring >127.6GB of the 128GB unified memory pool remains unencumbered for AI models.
 - Verify port non-collision: assert that Blackwall HTTP gateway runs and forwards traffic on port `9229` while mock local AI services run on port `11434` (Ollama), `8000` (vLLM), `8001` (Triton), and `8888` (JupyterLab).
 - Verify that Python audit hooks and MCP stream filters do not intercept or disrupt NVIDIA Container Toolkit (`nvidia-ctk`) or GPU device nodes (`/dev/nvidia*`).
 - Test Linux `systemd` user and system unit lifecycles (`blackwall service install`, `start`, `status`, `stop`, `uninstall`) inside an Ubuntu 24.04 / DGX OS container, verifying absolute path resolution and non-root execution.
 
 **Acceptance Criteria:**
-1. Automated tests assert zero open `/dev/nvidia*` file descriptors, empty NVML compute process registration for the daemon PID, `torch.cuda.is_initialized()` is False, and host process RSS ≤ 350MB during active gateway execution (TDD), validating multi-layer unified memory non-encroachment.
+1. Automated tests assert zero open `/dev/nvidia*` file descriptors in the target daemon's `/proc/<daemon_pid>/fd/`, empty NVML compute process registration for the daemon PID, `torch.cuda.is_initialized()` is False, and host process RSS ≤ 350MB during active gateway execution (TDD), validating multi-layer unified memory non-encroachment.
 2. Gateway successfully handles concurrent requests while mock AI serving ports (11434, 8000) are occupied.
 3. Systemd service lifecycle tests pass in an Ubuntu 24.04 container.
 4. Active memory remains within the DGX Spark budget (≤ 350MB active RAM, 0MB CUDA allocation).
