@@ -275,7 +275,7 @@ Implement the cross-platform background service management module and CLI subcom
   - Configure `[Unit]` with `Description=Blackwall MCP Gateway`, `After=network.target`, `StartLimitBurst=5`, `StartLimitIntervalSec=60s` (placing rate-limit throttling in `[Unit]` where required by systemd).
   - Configure `[Service]` with `ExecStart=...` using resolved absolute paths, `Restart=on-failure`, `RestartSec=5s`, `MemoryMax=500M`, and active `Environment=` directives.
   - For system units (`--system`), configure non-root `User=` and `Group=` (defaulting to the invoking user via `SUDO_USER` or explicit `--user <name>`) and verify read access to `GOOGLE_APPLICATION_CREDENTIALS`.
-  - Fallback ADC resolution: If `GOOGLE_APPLICATION_CREDENTIALS` is unset in the environment, locate user ADC at `~/.config/gcloud/application_default_credentials.json` (resolving against `SUDO_USER`'s home directory under `sudo`), and inject `Environment="GOOGLE_APPLICATION_CREDENTIALS=<resolved-adc-path>"`.
+  - Fallback ADC resolution: If `GOOGLE_APPLICATION_CREDENTIALS` is unset in the environment, locate user ADC at `~/.config/gcloud/application_default_credentials.json` (resolving against the designated service user's home directory derived from `--user <name>`, or defaulting to `SUDO_USER`'s home directory under `sudo`), and inject `Environment="GOOGLE_APPLICATION_CREDENTIALS=<resolved-adc-path>"`.
   - Enable and start via `systemctl --user enable --now blackwall` (or `systemctl enable --now blackwall`).
 - Fail fast at install time if `GCP_PROJECT` / `GOOGLE_CLOUD_PROJECT` is absent or ADC credentials cannot be located.
 - `blackwall service start|stop|status|uninstall` — Dispatch to `launchctl` or `systemctl`.
@@ -284,7 +284,7 @@ Implement the cross-platform background service management module and CLI subcom
 1. Unit tests assert correct XML generation for macOS `com.blackwall.gateway.plist` and correct INI syntax for Linux `blackwall.service` unit file, ensuring `StartLimitBurst` and `StartLimitIntervalSec` are strictly placed in `[Unit]` and not `[Service]` (TDD).
 2. Service installer resolves all paths to absolute filesystem paths; tests assert 0 unexpanded `~` characters in generated plists or systemd unit files.
 3. When `--system` is specified on Linux, the generated unit configures non-root `User=` and `Group=` matching the invoking user or specified `--user`.
-4. Installer resolves standard gcloud ADC (`application_default_credentials.json`) via `SUDO_USER` under `sudo` when `GOOGLE_APPLICATION_CREDENTIALS` is unset, injecting the resolved absolute path into the service definition.
+4. Installer resolves standard gcloud ADC (`application_default_credentials.json`) from the designated service user's home directory (`--user <name>` or `SUDO_USER` under `sudo`) when `GOOGLE_APPLICATION_CREDENTIALS` is unset, injecting the resolved absolute path into the service definition.
 5. Service installer detects OS accurately and writes to correct platform paths (`~/Library/LaunchAgents/` on macOS, `~/.config/systemd/user/` on Linux).
 6. Both service configurations embed upstream `--config` flag and GCP credentials.
 7. `install` fails fast with an exit code != 0 when `GCP_PROJECT` is missing.
