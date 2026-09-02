@@ -134,10 +134,10 @@ Implement the upstream/downstream tool server management module:
 
 **Description:**
 Build the `click`-based CLI (`src/blackwall/cli.py`) and daemon lifecycle manager:
-- `blackwall serve` — daemonize by default, write PID to `~/.blackwall/blackwall.pid`, redirect logs to `~/.blackwall/blackwall.log`. Support `--foreground`, `--transport`, `--port`, `--host`, `--wrap`, `--config`, `--policy`, `--db`, `--auth-token`, `--log-level`.
+- `blackwall serve` — daemonize by default, write PID to `~/.blackwall/blackwall.pid`, redirect logs to `~/.blackwall/blackwall.log`. Support `--foreground`, `--transport`, `--port`, `--host`, `--wrap`, `--config`, `--policy`, `--db` (aliased to `--db-path`), `--pidfile`, `--logfile`, `--auth-token`, `--log-level`.
 - `--auth-token <token>` (or `BLACKWALL_AUTH_TOKEN` env var) MUST be accepted by the CLI and wired into the HTTP server's request validation middleware. When `--host` specifies a non-loopback address and no token is configured, `blackwall serve` MUST refuse to start with a clear error.
 - `blackwall init` — scaffold `~/.blackwall/` with default `policy.yaml`, empty threat DB, starter `gateway.yaml`.
-- `blackwall stop` — read PID, send SIGTERM, verify termination, clean up PID file.
+- `blackwall stop` — read PID (supporting `--pidfile`), send SIGTERM, verify termination, clean up PID file.
 - `blackwall status` — check PID liveness, report threat graph stats, recent verdicts.
 - `blackwall version` — print version.
 - Add `[project.scripts] blackwall = "blackwall.cli:main"` to `pyproject.toml`.
@@ -146,7 +146,7 @@ Build the `click`-based CLI (`src/blackwall/cli.py`) and daemon lifecycle manage
 **Acceptance Criteria:**
 1. `pip install -e .` makes the `blackwall` command available.
 2. `blackwall init` creates `~/.blackwall/` with all expected files.
-3. `blackwall serve` daemonizes, creates PID file, writes logs.
+3. `blackwall serve` daemonizes, creates PID file, writes logs; accepts `--pidfile`, `--logfile`, and `--db` / `--db-path` to override default paths.
 4. `blackwall serve --foreground` runs in terminal with live output.
 5. `blackwall stop` terminates the daemon and cleans up the PID file.
 6. `blackwall status` reports daemon state and threat graph statistics.

@@ -56,8 +56,9 @@ The gateway MUST support two modes for managing downstream tool servers:
 
 ### FR-08: Background Daemon with PID File Management
 *   `blackwall serve` MUST daemonize the process by default, writing the PID to `~/.blackwall/blackwall.pid` and redirecting output to `~/.blackwall/blackwall.log`.
+*   `blackwall serve` MUST accept `--pidfile <path>`, `--logfile <path>`, and `--db <path>` (aliased to `--db-path`) to override default paths for systemd system services and multi-tenant environments.
 *   `blackwall serve --foreground` MUST run in the terminal with live log output to stdout/stderr.
-*   `blackwall stop` MUST read the PID file, send `SIGTERM`, verify process termination, and clean up the PID file.
+*   `blackwall stop` MUST read the PID file (supporting `--pidfile <path>`), send `SIGTERM`, verify process termination, and clean up the PID file.
 *   The daemon MUST handle `SIGTERM` and `SIGINT` gracefully, flushing pending evaluations and closing SQLite connections before exit.
 
 ### FR-09: GCP Vertex AI Mode (Mandatory)

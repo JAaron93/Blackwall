@@ -135,7 +135,9 @@ Manages downstream MCP tool server lifecycle and request forwarding.
     *   `--wrap <command>` (downstream tool server to proxy)
     *   `--config <path>` (path to `gateway.yaml`)
     *   `--policy <path>` (path to `policy.yaml`)
-    *   `--db <path>` (path to SQLite threat graph)
+    *   `--db <path>` (path to SQLite threat graph; aliased to `--db-path`)
+    *   `--pidfile <path>` (path to daemon PID file; default: `~/.blackwall/blackwall.pid`)
+    *   `--logfile <path>` (path to log file; default: `~/.blackwall/blackwall.log`)
     *   `--foreground` (run in foreground instead of daemonizing)
     *   `--auth-token <token>` (bearer token for non-loopback HTTP; also configurable via `BLACKWALL_AUTH_TOKEN` env var. Required when `--host` is non-loopback; gateway refuses to start without it)
     *   `--log-level debug|info|warning|error`
