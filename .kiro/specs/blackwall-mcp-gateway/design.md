@@ -150,13 +150,14 @@ Manages downstream MCP tool server lifecycle and request forwarding.
 ### 8. Cross-Platform Background Service Manager (`launchd` on macOS & `systemd` on Linux/DGX OS)
 *   **Platform Auto-Detection:** `blackwall service` detects the host OS at runtime:
     *   **macOS:** Generates and manages `~/Library/LaunchAgents/com.blackwall.gateway.plist` via `launchctl`.
-    *   **GNU/Linux (DGX OS / Ubuntu):** Generates and manages `systemd` unit file `blackwall.service` (`~/.config/systemd/user/blackwall.service` or `/etc/systemd/system/blackwall.service`) via `systemctl`.
-*   **Authoritative Upstream Target:** On both platforms, the service executes `blackwall serve --transport http --port 9229 --config ~/.blackwall/gateway.yaml` (or user-specified `--wrap`), ensuring allowed tool requests are deterministically forwarded to defined downstream tool servers.
-*   **Environment Inheritance & Startup Validation:** Both `launchd` and `systemd` execute outside interactive terminal sessions. `blackwall service install` captures the active `GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, and `PATH`, embedding them in the plist `<key>EnvironmentVariables</key>` block on macOS, or the systemd `[Service]` `Environment=` directives / `EnvironmentFile=` block on Linux. `install` MUST fail fast if GCP project configuration is missing at install time.
+    *   **GNU/Linux (DGX OS / Ubuntu):** Generates and manages `systemd` unit file `blackwall.service` (`~/.config/systemd/user/blackwall.service` or `/etc/systemd/system/blackwall.service` when `--system` is specified) via `systemctl`.
+*   **Absolute Path Resolution & Non-Tilde Invariant:** Because systemd `ExecStart` does not execute in a shell and does not perform tilde (`~`) expansion, `blackwall service install` resolves all file paths (configuration, logs, upstream targets, and credential files) to absolute paths at installation time (`Path.resolve()`). No unexpanded `~` characters are permitted in generated service files.
+*   **Authoritative Upstream Target:** On both platforms, the service executes `blackwall serve --transport http --port 9229 --config <resolved-absolute-path-to-gateway.yaml>` (or user-specified `--wrap`), ensuring allowed tool requests are deterministically forwarded to defined downstream tool servers.
+*   **Environment Inheritance, Service User & Startup Validation:** Both `launchd` and `systemd` execute outside interactive terminal sessions. `blackwall service install` captures the active `GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, and `PATH`, embedding them in the plist `<key>EnvironmentVariables</key>` block on macOS, or the systemd `[Service]` `Environment=` directives on Linux. For Linux system units (`/etc/systemd/system/blackwall.service`), the unit explicitly defines `User=` and `Group=` (defaulting to the invoking non-root user via `SUDO_USER` or `--user <name>`), avoiding running as root and guaranteeing the service user has read access to the resolved absolute path of `GOOGLE_APPLICATION_CREDENTIALS`. `install` MUST fail fast if GCP project configuration or credentials cannot be resolved at install time.
 *   **Process Supervision & Crash-Loop Throttling:**
     *   **macOS (`launchd`):** Configures `<key>ThrottleInterval</key><integer>30</integer>` and `<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>`.
-    *   **Linux (`systemd`):** Configures `Restart=on-failure`, `RestartSec=5s`, `StartLimitBurst=5`, `StartLimitIntervalSec=60s`, and `MemoryMax=500M`.
-*   **Logging:** Output streams are directed to `~/.blackwall/blackwall.log` and `~/.blackwall/blackwall.err` (and systemd journal on Linux via `journalctl --user -u blackwall`).
+    *   **Linux (`systemd`):** Configures `StartLimitBurst=5` and `StartLimitIntervalSec=60s` under the `[Unit]` section (where systemd rate limits are defined), and `Restart=on-failure`, `RestartSec=5s`, and `MemoryMax=500M` under the `[Service]` section.
+*   **Logging:** Output streams are directed to resolved absolute paths (e.g. `/home/<user>/.blackwall/blackwall.log` or `/var/log/blackwall/blackwall.log` for system units) and the systemd journal on Linux via `journalctl --user -u blackwall`.
 
 ### 9. Native macOS Menu Bar Application & System Notifications
 *   **Menu Bar Tray Application (`Blackwall.app`):** Lightweight native tray application (Swift/SwiftUI or lightweight macOS runner) living in the macOS menu bar.
@@ -180,7 +181,7 @@ Manages downstream MCP tool server lifecycle and request forwarding.
 
 ### 12. NVIDIA DGX Spark Co-Existence Architecture (Zero-VRAM & Port Isolation)
 When operating on the top-of-the-line **NVIDIA DGX Spark** (Grace Blackwell GB10, 20 ARM cores, 128GB unified LPDDR5x memory, DGX OS / Ubuntu 24.04 LTS `aarch64`), Blackwall Core operates with strict co-existence invariants to guarantee zero interference with pre-installed AI workloads:
-*   **Zero GPU VRAM Footprint:** Blackwall Core runs 100% in CPU host memory and user-space threads. It never initializes a CUDA context, never allocates GPU unified memory (`cudaMallocManaged` or PyTorch CUDA caching allocators), and leaves all 128GB of high-bandwidth unified memory free for local LLM inference engines (vLLM, Ollama, TensorRT-LLM) or model fine-tuning jobs.
+*   **Zero GPU VRAM Footprint & Host Memory Bounding:** On unified memory architectures where CPU and GPU share the same physical 128GB LPDDR5x memory pool, Blackwall Core strictly guarantees zero CUDA context creation, zero GPU device allocations, and caps its host process RSS memory to ≤350MB (<0.28% of the unified pool). This leaves >127.6GB (>99.7%) of the unified memory strictly available for local LLM inference engines (vLLM, Ollama, TensorRT-LLM) or model fine-tuning jobs. Conformance verification asserts both `torch.cuda.is_initialized() is False` (zero CUDA context) and host process RSS ≤ 350MB.
 *   **Port Collision Avoidance:** Default gateway port `9229` is specifically selected to avoid collision with standard AI serving and development software on DGX OS:
     *   `11434` — Ollama API / WebUI
     *   `8000` / `8001` / `8002` — vLLM OpenAI-compatible endpoint, Triton Inference Server HTTP/gRPC/Metrics
@@ -205,7 +206,7 @@ All gateway components MUST operate within these hardware budgets:
 | :--- | :--- | :--- | :--- |
 | **Idle RAM** | ≤ 60MB | ≤ 100MB | Event loop sleeping. Zero background ML models loaded at idle. |
 | **Active RAM** | ≤ 150MB | ≤ 350MB | Peak during SyncResolver eval + concurrent multi-agent batch queries. |
-| **GPU VRAM** | 0MB (N/A) | **0MB (100% CPU Host RAM)** | **Strict Invariant**: 100% of 128GB unified memory reserved for local LLMs/training. |
+| **GPU VRAM** | 0MB (N/A) | **0MB CUDA / host RSS ≤ 350MB** | **Strict Invariant**: 0MB allocated in CUDA contexts; host RSS capped to ≤350MB (<0.28%), leaving >127.6GB (>99.7%) unified memory for local LLMs/training. |
 | **Idle CPU** | ~0% | ~0% | Asyncio event loop sleep. Zero polling. |
 | **Active CPU** | < 5% single core | < 2% across 20 ARM cores | Sub-10ms evaluation burst (JSON parse + FTS5 + hygiene). |
 | **Disk** | ≤ 50MB | ≤ 50MB | SQLite threat graph + policy YAML + logs. |
@@ -229,7 +230,7 @@ The gateway requires GCP Vertex AI Mode for the `SyncResolver`'s LLM-based seman
 *   **Operating System Scope & Explicit Windows Exclusion:** Supported platforms are **macOS** (Darwin `x86_64`, `arm64`) and **GNU/Linux** (**DGX OS / Ubuntu 24.04 LTS `aarch64`** on NVIDIA DGX Spark, and Debian/Ubuntu `x86_64`). **Windows is strictly unsupported** — no Windows releases, no PowerShell/MSI installers, and zero maintenance overhead.
 *   **Dual Hardware Target Profiles:**
     - **Baseline**: 2019 MacBook Pro (Intel i7, 16GB RAM) prioritizing strict resource conservation and low-power battery efficiency.
-    - **Top-of-the-Line**: NVIDIA DGX Spark (NVIDIA GB10 Grace Blackwell, 20 ARM cores, 128GB unified memory) delivering high-throughput concurrent agent security with zero GPU VRAM consumption.
+    - **Top-of-the-Line**: NVIDIA DGX Spark (NVIDIA GB10 Grace Blackwell, 20 ARM cores, 128GB unified memory) delivering high-throughput concurrent agent security with zero CUDA device allocation and strictly bounded host RSS (≤350MB), preserving >99.7% of unified memory for AI models.
 *   **Performance:** Gateway overhead MUST remain < 10ms on top of core evaluation latency.
 *   **Local-Only Binding:** HTTP transport binds to `127.0.0.1` by default. Network-bound deployments require explicit `--host` override and a pre-shared bearer token (`--auth-token` or `BLACKWALL_AUTH_TOKEN`). The gateway MUST refuse to start on a non-loopback address without a configured auth token.
 *   **State Persistence:** SQLite Threat Signature Graph in WAL mode with strict connection pooling. TTL/LFU pruning keeps query latencies under 10ms.

@@ -67,12 +67,13 @@ The gateway MUST require GCP Vertex AI Mode for the `SyncResolver`'s LLM-based s
 Blackwall MUST provide CLI and programmatic subcommands (`blackwall service install|uninstall|start|stop|status`) that auto-detect the operating system and manage native background daemon services:
 *   **macOS (`launchd`):** Generates and manages `~/Library/LaunchAgents/com.blackwall.gateway.plist` via `launchctl`.
 *   **GNU/Linux (`systemd`):** Generates and manages `blackwall.service` (`~/.config/systemd/user/blackwall.service` or `/etc/systemd/system/blackwall.service` when `--system` is provided) via `systemctl`.
-*   **Authoritative Upstream Target:** On both platforms, `install` MUST configure the service to supervise `blackwall serve --transport http --port 9229 --config ~/.blackwall/gateway.yaml` (or user-specified `--wrap <cmd>`), ensuring allowed tool requests are deterministically forwarded to downstream tool servers.
+*   **Absolute Path Resolution & Non-Tilde Invariant:** Because systemd `ExecStart` does not execute in a shell and does not perform tilde (`~`) expansion, `blackwall service install` MUST resolve all configuration paths, log file locations, upstream targets, and credential paths to absolute filesystem paths (`Path.resolve()`). Raw `~` characters MUST NOT appear in generated service definitions.
+*   **Authoritative Upstream Target:** On both platforms, `install` MUST configure the service to supervise `blackwall serve --transport http --port 9229 --config <resolved-absolute-config-path>` (or user-specified `--wrap <cmd>`), ensuring allowed tool requests are deterministically forwarded to downstream tool servers.
 *   **Install-Time Credential Validation:** `install` MUST validate that `GCP_PROJECT` (or `GOOGLE_CLOUD_PROJECT`) is configured, failing fast with an exit code != 0 and a clear error message if absent.
-*   **Environment Variable Injection:** `install` MUST embed active GCP environment variables (`GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, `PATH`) into the plist's `EnvironmentVariables` dictionary on macOS, or the systemd `[Service]` `Environment=` / `EnvironmentFile=` block on Linux.
+*   **Environment Variable Injection & Service User:** `install` MUST embed active GCP environment variables (`GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, `PATH`) into the plist's `EnvironmentVariables` dictionary on macOS, or the systemd `[Service]` `Environment=` directives on Linux. When `--system` is specified on Linux, the generated service MUST configure `User=` and `Group=` (defaulting to the invoking non-root user via `SUDO_USER` or explicit `--user <name>`), verify the user has read permissions to `GOOGLE_APPLICATION_CREDENTIALS`, and avoid running as root.
 *   **Supervision & Throttling:**
     *   macOS plist MUST configure `RunAtLoad=true`, `KeepAlive` with `SuccessfulExit=false`, and `ThrottleInterval=30`.
-    *   Linux systemd unit MUST configure `Restart=on-failure`, `RestartSec=5s`, `StartLimitBurst=5`, `StartLimitIntervalSec=60s`, and `MemoryMax=500M`.
+    *   Linux systemd unit MUST configure `StartLimitBurst=5` and `StartLimitIntervalSec=60s` under the `[Unit]` section, and `Restart=on-failure`, `RestartSec=5s`, and `MemoryMax=500M` under the `[Service]` section.
 *   `start`, `stop`, and `status` MUST invoke platform-native tools (`launchctl` or `systemctl`).
 *   `uninstall` MUST unload the service and remove the service configuration file cleanly.
 
@@ -98,7 +99,7 @@ The build and CI pipeline MUST produce standalone release artifacts attached to 
 
 ### FR-14: NVIDIA DGX Stack Co-Existence & Zero-VRAM Footprint
 When deployed on the top-of-the-line **NVIDIA DGX Spark** (DGX OS / Ubuntu 24.04 LTS `aarch64`), Blackwall Core MUST guarantee complete non-interference with the pre-installed NVIDIA AI stack:
-*   **Zero GPU VRAM Reservation:** Blackwall Core MUST run 100% in CPU host memory and user-space threads. It MUST NOT initialize a CUDA driver/runtime context or allocate GPU unified memory, preserving all 128GB unified memory for local LLM weights (vLLM, Ollama, TensorRT-LLM) and training workloads.
+*   **Zero GPU VRAM Reservation & Host Memory Ceiling:** On unified memory architectures where CPU and GPU share the same 128GB LPDDR5x pool, Blackwall Core MUST run 100% in CPU user-space threads without initializing a CUDA runtime/driver context (`torch.cuda.is_initialized()` is False), and its host process RSS memory MUST NOT exceed 350MB (<0.28% of the unified pool). This strictly preserves >127.6GB (>99.7%) of unified memory for local LLM weights (vLLM, Ollama, TensorRT-LLM) and training workloads. Conformance testing MUST assert both zero CUDA context allocation and that host process RSS remains strictly capped under load.
 *   **Port Collision Avoidance:** Default gateway port `9229` MUST NOT collide with standard DGX OS AI serving ports: `11434` (Ollama), `8000`/`8001`/`8002` (vLLM, Triton), or `8888` (JupyterLab).
 *   **Container & Driver Transparency:** Blackwall's stream layer and Python audit hooks MUST operate transparently alongside Docker, `nvidia-container-toolkit` (`nvidia-ctk`), and CUDA IPC without intercepting or degrading GPU tensor operations.
 
@@ -126,7 +127,7 @@ All gateway components MUST operate within these budgets across supported hardwa
 | :--- | :--- | :--- | :--- |
 | **Idle RAM** | ≤ 60MB | ≤ 100MB | Lazy-load heavy modules on first tool call |
 | **Active RAM** | ≤ 150MB | ≤ 350MB | Peak during SyncResolver + GTI evaluation |
-| **GPU VRAM** | 0MB (N/A) | **0MB (Strict Invariant)** | Runs 100% in CPU host memory; zero CUDA allocation |
+| **GPU VRAM** | 0MB (N/A) | **0MB CUDA / host RSS ≤ 350MB** | Zero CUDA context; host RSS capped to ≤350MB, leaving >127.6GB (>99.7%) unified memory free |
 | **Idle CPU** | ~0% | ~0% | Event loop sleeping, no polling or background threads |
 | **Active CPU** | < 5% single core | < 2% across 20 ARM cores | Sub-10ms burst per tool call |
 | **Disk** | ≤ 50MB | ≤ 50MB | SQLite + policy + logs |
@@ -177,8 +178,8 @@ I want to download a pre-built `Blackwall.dmg` directly from GitHub Releases,
 
 ### US-08: High-Throughput Protection on NVIDIA DGX Spark
 **As an AI researcher running an NVIDIA DGX Spark AI supercomputer,**
-I want Blackwall Core to run as a native `systemd` daemon on DGX OS (`aarch64`) with zero GPU VRAM consumption,
-**So that** my multi-agent development workflows are secured at wire speed while preserving all 128GB of unified memory and tensor cores for local LLM serving and model fine-tuning.
+I want Blackwall Core to run as a native `systemd` daemon on DGX OS (`aarch64`) with zero CUDA allocation and strictly bounded host RSS (≤350MB),
+**So that** my multi-agent development workflows are secured at wire speed while preserving >99.7% (>127.6GB) of unified memory and all tensor cores for local LLM serving and model fine-tuning.
 
 ### US-09: Native Linux Package Installation (`.deb`)
 **As a DGX OS / Ubuntu Linux user,**
