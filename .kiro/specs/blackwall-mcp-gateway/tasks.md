@@ -275,20 +275,22 @@ Implement the cross-platform background service management module and CLI subcom
   - Configure `[Unit]` with `Description=Blackwall MCP Gateway`, `After=network.target`, `StartLimitBurst=5`, `StartLimitIntervalSec=60s` (placing rate-limit throttling in `[Unit]` where required by systemd).
   - Configure `[Service]` with `ExecStart=...` using resolved absolute paths, `Restart=on-failure`, `RestartSec=5s`, `MemoryMax=500M`, and active `Environment=` directives.
   - For system units (`--system`), configure non-root `User=` and `Group=` (defaulting to the invoking user via `SUDO_USER` or explicit `--user <name>`) and verify read access to `GOOGLE_APPLICATION_CREDENTIALS`.
+  - Fallback ADC resolution: If `GOOGLE_APPLICATION_CREDENTIALS` is unset in the environment, locate user ADC at `~/.config/gcloud/application_default_credentials.json` (resolving against `SUDO_USER`'s home directory under `sudo`), and inject `Environment="GOOGLE_APPLICATION_CREDENTIALS=<resolved-adc-path>"`.
   - Enable and start via `systemctl --user enable --now blackwall` (or `systemctl enable --now blackwall`).
-- Fail fast at install time if `GCP_PROJECT` / `GOOGLE_CLOUD_PROJECT` is absent.
+- Fail fast at install time if `GCP_PROJECT` / `GOOGLE_CLOUD_PROJECT` is absent or ADC credentials cannot be located.
 - `blackwall service start|stop|status|uninstall` — Dispatch to `launchctl` or `systemctl`.
 
 **Acceptance Criteria:**
 1. Unit tests assert correct XML generation for macOS `com.blackwall.gateway.plist` and correct INI syntax for Linux `blackwall.service` unit file, ensuring `StartLimitBurst` and `StartLimitIntervalSec` are strictly placed in `[Unit]` and not `[Service]` (TDD).
 2. Service installer resolves all paths to absolute filesystem paths; tests assert 0 unexpanded `~` characters in generated plists or systemd unit files.
 3. When `--system` is specified on Linux, the generated unit configures non-root `User=` and `Group=` matching the invoking user or specified `--user`.
-4. Service installer detects OS accurately and writes to correct platform paths (`~/Library/LaunchAgents/` on macOS, `~/.config/systemd/user/` on Linux).
-5. Both service configurations embed upstream `--config` flag and GCP credentials.
-6. `install` fails fast with an exit code != 0 when `GCP_PROJECT` is missing.
-7. Crash throttling is configured on both platforms (`ThrottleInterval=30` on launchd, `StartLimitBurst=5` / `StartLimitIntervalSec=60s` under `[Unit]` and `RestartSec=5s` under `[Service]` on systemd).
-8. `uninstall` unloads the service and removes service definition files cleanly.
-9. All unit tests pass.
+4. Installer resolves standard gcloud ADC (`application_default_credentials.json`) via `SUDO_USER` under `sudo` when `GOOGLE_APPLICATION_CREDENTIALS` is unset, injecting the resolved absolute path into the service definition.
+5. Service installer detects OS accurately and writes to correct platform paths (`~/Library/LaunchAgents/` on macOS, `~/.config/systemd/user/` on Linux).
+6. Both service configurations embed upstream `--config` flag and GCP credentials.
+7. `install` fails fast with an exit code != 0 when `GCP_PROJECT` is missing.
+8. Crash throttling is configured on both platforms (`ThrottleInterval=30` on launchd, `StartLimitBurst=5` / `StartLimitIntervalSec=60s` under `[Unit]` and `RestartSec=5s` under `[Service]` on systemd).
+9. `uninstall` unloads the service and removes service definition files cleanly.
+10. All unit tests pass.
 
 #### TASK-F02: Implement Python Audit Hook Auto-Bootstrap
 **Status:** ⏳ Not Started
@@ -355,13 +357,13 @@ Create the GitHub Actions workflow (`.github/workflows/release_packages.yml`) to
 
 **Description:**
 Implement verification tests ensuring complete non-interference, zero GPU VRAM consumption, and bounded host memory on NVIDIA DGX OS environments:
-- Verify that running `blackwall serve` never invokes CUDA runtime functions or allocates GPU memory (`torch.cuda.is_initialized()` is False; 0MB CUDA context allocation) AND that host process RSS memory stays strictly within the ≤350MB ceiling, ensuring >127.6GB of the 128GB unified memory pool remains unencumbered for AI models.
+- Verify that running `blackwall serve` never invokes CUDA runtime or driver functions across all system layers: assert 0 open file descriptors to `/dev/nvidia*`, `/dev/nvidiactl`, `/dev/nvidia-uvm` in `/proc/self/fd/`, confirm daemon PID is absent from NVML compute process listings (`nvmlDeviceGetComputeRunningProcesses`), verify `torch.cuda.is_initialized()` is False (if torch is imported), and verify host process RSS memory stays strictly within the ≤350MB ceiling, ensuring >127.6GB of the 128GB unified memory pool remains unencumbered for AI models.
 - Verify port non-collision: assert that Blackwall HTTP gateway runs and forwards traffic on port `9229` while mock local AI services run on port `11434` (Ollama), `8000` (vLLM), `8001` (Triton), and `8888` (JupyterLab).
 - Verify that Python audit hooks and MCP stream filters do not intercept or disrupt NVIDIA Container Toolkit (`nvidia-ctk`) or GPU device nodes (`/dev/nvidia*`).
 - Test Linux `systemd` user and system unit lifecycles (`blackwall service install`, `start`, `status`, `stop`, `uninstall`) inside an Ubuntu 24.04 / DGX OS container, verifying absolute path resolution and non-root execution.
 
 **Acceptance Criteria:**
-1. Automated tests assert 0MB CUDA context allocation AND host process RSS ≤ 350MB during active gateway execution (TDD), validating unified memory non-encroachment.
+1. Automated tests assert zero open `/dev/nvidia*` file descriptors, empty NVML compute process registration for the daemon PID, `torch.cuda.is_initialized()` is False, and host process RSS ≤ 350MB during active gateway execution (TDD), validating multi-layer unified memory non-encroachment.
 2. Gateway successfully handles concurrent requests while mock AI serving ports (11434, 8000) are occupied.
 3. Systemd service lifecycle tests pass in an Ubuntu 24.04 container.
 4. Active memory remains within the DGX Spark budget (≤ 350MB active RAM, 0MB CUDA allocation).
