@@ -4,6 +4,14 @@
     "description": "Root AGENTS.md constitution defining Blackwall product tier identity, Core vs Enterprise invariants, and architectural guidelines."
   },
   {
+    "path": ".agents/rules/architecture_and_security.md",
+    "description": "Project architectural, database, security, and service supervision rules (Sections 54-56: launchd/systemd supervision, FHS separation, DGX Spark unified memory)."
+  },
+  {
+    "path": ".agents/rules/testing_and_hygiene.md",
+    "description": "Project testing hygiene, TDD, and test matrix rules (Section 47: systemd unit testing matrix and DGX co-existence test scoping)."
+  },
+  {
     "path": ".kiro/specs/blackwall-mcp-gateway/design.md",
     "description": "MCP Gateway architectural design — standalone daemon, transport layer, SyncResolver pipeline, upstream management, daemon lifecycle, resource constraints."
   },

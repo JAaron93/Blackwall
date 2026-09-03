@@ -4,7 +4,7 @@
   "commentTypes": ["logic", "syntax"],
   "triggerOnUpdates": true,
   "statusCheck": true,
-  "instructions": "Blackwall is an autonomous Agentic Security Firewall designed to intercept execution flows at machine speed before rogue AI agents can perform unauthorized OS/network actions. The primary entry point is the Blackwall MCP Gateway — a standalone local daemon (src/blackwall/gateway/ + src/blackwall/cli.py) that intercepts MCP tool calls on localhost:9229 and evaluates them via the SyncResolver pipeline. Verify architecture invariants across Blackwall Core (single-host daemon + MCP Gateway) and Blackwall Enterprise Mesh (multi-host security mesh under src/blackwall/enterprise/). The gateway MUST NOT contain agent-specific coupling (no Hermes, no Antigravity-specific, no Warp-specific logic). Ensure strict Pydantic v2 validation, 100% GCP Vertex AI Mode compliance (paid tier only, no free tier, no AI Studio keys), TDD/BDD test coverage, and resource budget compliance for the 2019 Intel MacBook Pro baseline.",
+  "instructions": "Blackwall is an autonomous Agentic Security Firewall designed to intercept execution flows at machine speed before rogue AI agents can perform unauthorized OS/network actions. The primary entry point is the Blackwall MCP Gateway — a standalone local daemon (src/blackwall/gateway/ + src/blackwall/cli.py) that intercepts MCP tool calls on localhost:9229 and evaluates them via the SyncResolver pipeline. Verify architecture invariants across Blackwall Core (single-host daemon + MCP Gateway) and Blackwall Enterprise Mesh (multi-host security mesh under src/blackwall/enterprise/). The gateway MUST NOT contain agent-specific coupling (no Hermes, no Antigravity-specific, no Warp-specific logic). Ensure strict Pydantic v2 validation, 100% GCP Vertex AI Mode compliance (paid tier only, no free tier, no AI Studio keys), TDD/BDD test coverage, cross-platform background service management (macOS launchd and Linux systemd on DGX OS / Ubuntu), and resource budget compliance across dual hardware profiles: 2019 Intel MacBook Pro (baseline) and NVIDIA DGX Spark (top-of-the-line GB10 ARM64, 0MB CUDA, host RSS <= 350MB). Windows OS support is strictly excluded.",
   "rules": [
     {
       "id": "vertex-ai-mode",
@@ -83,7 +83,7 @@
     },
     {
       "id": "gateway-resource-budget",
-      "rule": "Gateway Resource Budget (2019 Intel MacBook Pro Baseline): Blackwall Core gateway components must operate within: ≤60MB idle RAM, ≤150MB active RAM, ~0% idle CPU, <5% active CPU per call, <2s startup, ≤50MB disk. Flag PRs introducing polling loops, background threads, or eager module loading that would violate these budgets.",
+      "rule": "Gateway Resource Budgets (Dual Hardware Profiles): Blackwall Core gateway components must operate within: (1) 2019 Intel MacBook Pro Baseline: <=60MB idle RAM, <=150MB active RAM, ~0% idle CPU, <5% active CPU per call, <2s startup, <=50MB disk; (2) NVIDIA DGX Spark Top-of-the-Line (Grace Blackwell GB10 ARM64, 128GB unified memory): <=100MB idle RAM, <=350MB active RAM, 0MB CUDA context / VRAM allocation, host RSS bounded to <=350MB (<0.28% of unified pool) preserving >127.6GB (>99.7%) unified memory for local AI models, ~0% idle CPU, <2% active CPU across 20 cores, <1s startup. Flag PRs introducing polling loops, background threads, eager module loading, or GPU context allocations that violate these budgets.",
       "severity": "medium"
     },
     {
@@ -104,6 +104,21 @@
     {
       "id": "rust-acceleration-invariants",
       "rule": "Rust Acceleration & FFI Invariants: Verify native Rust optimizations in crates/blackwall_core_rs/ adhere to the non-greedy rewrite philosophy (90/10 to 95/5 rule). Ensure dual-mode context sanitization parity (Middleware full-match + SHA-256 vs Resolver prefix preservation), candidate isolation in batch cosine similarity, zero-panic PyResult error handling, and pure-Python fallbacks in all wrapping Python modules.",
+      "severity": "high"
+    },
+    {
+      "id": "cross-platform-service-supervision",
+      "rule": "Cross-Platform Background Service Supervision & Packaging Invariants: Verify service management logic (blackwall service install|uninstall|start|stop|status|configure) enforces: (1) Supervised processes run blackwall serve --foreground (with Type=exec and PIDFile= in systemd) so supervisors directly track the active gateway without tracking exiting parents; (2) In foreground mode, --pidfile creates the designated PID file upon start and cleans up on exit; (3) Absolute path resolution (Path.resolve()) is enforced at install time so 0 raw ~ characters appear in service files; (4) systemd rate limits (StartLimitBurst=5, StartLimitIntervalSec=60s) belong strictly under [Unit], NOT [Service]; (5) Linux system units (--system) use FHS paths (/etc/blackwall/, /run/blackwall/, /var/log/blackwall/, /var/lib/blackwall/) via RuntimeDirectory, StateDirectory, and LogsDirectory; (6) Non-root execution is strictly enforced (User=root is prohibited) with identity derived via --user, SUDO_USER, or dedicated blackwall user with /var/lib/blackwall home; (7) Debian .deb packages install system unit to /lib/systemd/system/blackwall.service with EnvironmentFile=-/etc/default/blackwall, postinst provisions blackwall:blackwall, auto-captures $SUDO_USER ADC credentials when present, and supports blackwall service configure.",
+      "severity": "high"
+    },
+    {
+      "id": "dgx-spark-coexistence-and-hardware-targets",
+      "rule": "NVIDIA DGX Spark Co-Existence & Multi-Layer Zero-CUDA Verification: On DGX Spark / Linux, Blackwall Core must run 100% in CPU user-space with 0MB allocated in CUDA contexts/VRAM. Port 9229 must not collide with standard AI serving ports (11434, 8000, 8888). Conformance tests asserting zero-CUDA usage must inspect /proc/<daemon_pid>/fd/ for /dev/nvidia* devices on the target daemon PID (resolved from blackwall.pid or subprocess handle, NOT the test runner /proc/self/fd/), verify daemon PID absence from NVML compute processes, and verify torch.cuda.is_initialized() is False.",
+      "severity": "high"
+    },
+    {
+      "id": "os-platform-support-and-windows-exclusion",
+      "rule": "Operating System Support & Windows Exclusion: Blackwall Core strictly targets macOS (Darwin x86_64, arm64) and GNU/Linux (DGX OS / Ubuntu 24.04 LTS aarch64, and Ubuntu x86_64). Windows OS support is explicitly excluded. Flag any PR introducing Windows-specific packaging (.exe, .msi), PowerShell scripts, or Windows service wrappers.",
       "severity": "high"
     }
   ]
