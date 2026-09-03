@@ -34,7 +34,7 @@ For synchronous inline resolution (`submit_to_gemini_sync` in `BatchResolver`), 
 ### 2. Asynchronous Out-of-Band Engine: Gemini 3.7 Flash
 For quarantined events requiring deep threat correlation (`submit_to_gemini_background`), Blackwall standardizes on **Gemini 3.7 Flash**:
 - **Native Background Webhooks (`background=True`)**: Employs the Gemini Interactions API's built-in background execution primitive. The model endpoint processes deep threat chains out-of-band and notifies Blackwall's `/webhook/analysis_complete` endpoint via asynchronous server-side webhooks.
-- **Zero Auxiliary Queue Infrastructure**: Eliminates the operational overhead and failure modes of deploying separate distributed task brokers (e.g., Celery, Temporal, or RabbitMQ) just to handle asynchronous forensic triage.
+- **Queue-Free Task Offloading & Ingress Topology**: Eliminates the operational overhead and failure modes of deploying separate distributed task brokers (e.g., Celery, Temporal, or RabbitMQ) to manage asynchronous forensic triage. In production deployments where `WebhookListener` binds locally (`127.0.0.1`), delivering completed cloud callbacks requires an external ingress relay, reverse proxy, or Cloud Run service URL to route traffic to the listener.
 
 ### 3. Deliberate Exclusion of Claude 5 Series Models
 Claude models were evaluated and rejected for the following technical and economic reasons:
@@ -65,4 +65,4 @@ While Claude is excluded from core inline firewalling, Blackwall's modular `Batc
 
 ### Negative & Trade-offs
 - **Platform Coupling**: Core resolution remains tightly coupled to GCP Vertex AI and the Gemini Interactions API wire specifications.
-- **Air-Gapped Limitations**: Environments without GCP connectivity must rely on Blackwall's local AST rules, SQLite threat graph, and local Ollama fallback (Pillar 5 forensics) rather than cloud-based LLM resolution.
+- **Air-Gapped & Offline Fail-Closed Policy**: Environments without GCP connectivity must rely exclusively on deterministic AST policies and local SQLite threat signatures. If an event requires cloud LLM arbitration, the resolvers enforce a strict fail-closed policy (`QUARANTINE`) rather than attempting an inline local model fallback. (The local Ollama engine remains strictly isolated to Enterprise Pillar 5 for out-of-band telemetry log triage, not inline tool-call resolution).
