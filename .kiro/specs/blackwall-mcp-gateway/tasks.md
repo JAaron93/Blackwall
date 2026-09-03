@@ -279,7 +279,7 @@ Implement the cross-platform background service management module and CLI subcom
   - Fallback ADC resolution: If `GOOGLE_APPLICATION_CREDENTIALS` is unset in the environment, locate user ADC at `~/.config/gcloud/application_default_credentials.json` (resolving against the derived non-root service user's home directory), and inject `Environment="GOOGLE_APPLICATION_CREDENTIALS=<resolved-adc-path>"`. When installing as root with the dedicated `blackwall` user, accept `--credentials <path>` and copy to `/etc/blackwall/credentials.json` owned by `blackwall:blackwall` (`0600`).
   - Enable and start via `systemctl --user enable --now blackwall` (or `systemctl enable --now blackwall`).
 - Fail fast at install time if `GCP_PROJECT` / `GOOGLE_CLOUD_PROJECT` is absent or ADC credentials cannot be located.
-- `blackwall service start|stop|status|uninstall` — Dispatch to `launchctl` or `systemctl`.
+- `blackwall service start|stop|status|uninstall|configure` — Dispatch to `launchctl` or `systemctl`; `configure` updates project IDs and credential paths (`--project <id>`, `--credentials <path>`, `--system`), writing to `/etc/default/blackwall` and `/etc/blackwall/credentials.json` (owned by `blackwall:blackwall`, permissions `0600`) for system services, or user service environment settings.
 
 **Acceptance Criteria:**
 1. Unit tests assert correct XML generation for macOS `com.blackwall.gateway.plist` and correct INI syntax for Linux `blackwall.service` unit file, ensuring `StartLimitBurst` and `StartLimitIntervalSec` are strictly placed in `[Unit]`, `Type=exec` and `MemoryMax=350M` under `[Service]`, and `ExecStart` includes `--foreground` (TDD).
@@ -291,7 +291,8 @@ Implement the cross-platform background service management module and CLI subcom
 7. `install` fails fast with an exit code != 0 when `GCP_PROJECT` is missing.
 8. Crash throttling and process supervision are configured on both platforms (`ThrottleInterval=30` on launchd, `StartLimitBurst=5` / `StartLimitIntervalSec=60s` under `[Unit]`, `Type=exec`, `PIDFile=`, and `RestartSec=5s` / `MemoryMax=350M` under `[Service]` on systemd).
 9. `uninstall` unloads the service and removes service definition files cleanly.
-10. All unit tests pass.
+10. `blackwall service configure --project <id> --credentials <path> --system` writes configuration to `/etc/default/blackwall` and provisions `/etc/blackwall/credentials.json` with permissions `0600` owned by `blackwall:blackwall`.
+11. All unit tests pass.
 
 #### TASK-F02: Implement Python Audit Hook Auto-Bootstrap
 **Status:** ⏳ Not Started

@@ -144,8 +144,9 @@ Manages downstream MCP tool server lifecycle and request forwarding.
 *   `blackwall init` — initialize `~/.blackwall/` directory
 *   `blackwall stop` — stop the running daemon
 *   `blackwall status` — show daemon status and recent verdicts
-*   `blackwall service install|uninstall|start|stop|status` — manage background daemon service: auto-detects macOS `launchd` (`~/Library/LaunchAgents/com.blackwall.gateway.plist`) or GNU/Linux `systemd` (`~/.config/systemd/user/blackwall.service` or `/etc/systemd/system/blackwall.service` on DGX OS / Ubuntu)
+*   `blackwall service install|uninstall|start|stop|status|configure` — manage background daemon service: auto-detects macOS `launchd` (`~/Library/LaunchAgents/com.blackwall.gateway.plist`) or GNU/Linux `systemd` (`~/.config/systemd/user/blackwall.service` or `/etc/systemd/system/blackwall.service` on DGX OS / Ubuntu)
     *   `install` options: `--config <path>` (default: `~/.blackwall/gateway.yaml`), `--wrap <cmd>`, `--project <id>` (or capture active `GCP_PROJECT`), `--system` (Linux system-level unit vs user unit), `--user <name>` (system-service identity), `--credentials <path>` (credentials for direct-root installation)
+    *   `configure` options: `--project <id>`, `--credentials <path>`, `--system` (updates `/etc/default/blackwall` and `/etc/blackwall/credentials.json` with permissions `0600` owned by `blackwall:blackwall` on system units, or updates user service environment)
 *   `blackwall hook install|uninstall|status` — manage global Python runtime audit hook (`sitecustomize.py` / `.pth`)
 *   `blackwall version` — print version
 

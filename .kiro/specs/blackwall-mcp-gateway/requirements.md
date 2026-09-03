@@ -66,7 +66,7 @@ The gateway MUST support two modes for managing downstream tool servers:
 The gateway MUST require GCP Vertex AI Mode for the `SyncResolver`'s LLM-based semantic evaluation. Configuration requires `GCP_PROJECT` / `GOOGLE_CLOUD_PROJECT` and Application Default Credentials (ADC). Google AI Studio API Key Mode is permanently removed. The gateway MUST fail fast with a clear error message if GCP credentials are not configured.
 
 ### FR-10: Cross-Platform Background Service Management (`launchd` on macOS & `systemd` on Linux/DGX OS)
-Blackwall MUST provide CLI and programmatic subcommands (`blackwall service install|uninstall|start|stop|status`) that auto-detect the operating system and manage native background daemon services:
+Blackwall MUST provide CLI and programmatic subcommands (`blackwall service install|uninstall|start|stop|status|configure`) that auto-detect the operating system and manage native background daemon services:
 *   **macOS (`launchd`):** Generates and manages `~/Library/LaunchAgents/com.blackwall.gateway.plist` via `launchctl`.
 *   **GNU/Linux (`systemd`):** Generates and manages `blackwall.service` (`~/.config/systemd/user/blackwall.service` or `/etc/systemd/system/blackwall.service` when `--system` is provided) via `systemctl`.
 *   **Absolute Path Resolution & Non-Tilde Invariant:** Because systemd `ExecStart` does not execute in a shell and does not perform tilde (`~`) expansion, `blackwall service install` MUST resolve all configuration paths, log file locations, upstream targets, and credential paths to absolute filesystem paths (`Path.resolve()`). Raw `~` characters MUST NOT appear in generated service definitions.
@@ -81,6 +81,7 @@ Blackwall MUST provide CLI and programmatic subcommands (`blackwall service inst
     *   macOS plist MUST execute `blackwall serve --foreground` and configure `RunAtLoad=true`, `KeepAlive` with `SuccessfulExit=false`, and `ThrottleInterval=30`.
     *   Linux systemd unit MUST configure `Type=exec`, `PIDFile=<resolved-pid-file>`, `StartLimitBurst=5` and `StartLimitIntervalSec=60s` under the `[Unit]` section, and `Restart=on-failure`, `RestartSec=5s`, `MemoryHigh=320M`, and `MemoryMax=350M` under the `[Service]` section (strictly enforcing the 350MB host memory ceiling for DGX Spark co-existence). Passing `--foreground` ensures systemd directly supervises the gateway runtime without premature parent process exit.
 *   `start`, `stop`, and `status` MUST invoke platform-native tools (`launchctl` or `systemctl`).
+*   `configure` MUST support setting cloud project identifiers and credential paths (`--project <id>`, `--credentials <path>`, `--system`), writing configuration to `/etc/default/blackwall` and credentials to `/etc/blackwall/credentials.json` (mode `0600` owned by `blackwall:blackwall`) on system services, or updating user service environment settings.
 *   `uninstall` MUST unload the service and remove the service configuration file cleanly.
 
 ### FR-11: Native macOS Menu Bar GUI & System Notifications
