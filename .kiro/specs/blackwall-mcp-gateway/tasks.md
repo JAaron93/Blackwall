@@ -134,10 +134,10 @@ Implement the upstream/downstream tool server management module:
 
 **Description:**
 Build the `click`-based CLI (`src/blackwall/cli.py`) and daemon lifecycle manager:
-- `blackwall serve` — daemonize by default, write PID to `~/.blackwall/blackwall.pid`, redirect logs to `~/.blackwall/blackwall.log`. Support `--foreground`, `--transport`, `--port`, `--host`, `--wrap`, `--config`, `--policy`, `--db`, `--auth-token`, `--log-level`.
+- `blackwall serve` — daemonize by default, write PID to `~/.blackwall/blackwall.pid`, redirect logs to `~/.blackwall/blackwall.log`. Support `--foreground`, `--transport`, `--port`, `--host`, `--wrap`, `--config`, `--policy`, `--db` (aliased to `--db-path`), `--pidfile`, `--logfile`, `--auth-token`, `--log-level`.
 - `--auth-token <token>` (or `BLACKWALL_AUTH_TOKEN` env var) MUST be accepted by the CLI and wired into the HTTP server's request validation middleware. When `--host` specifies a non-loopback address and no token is configured, `blackwall serve` MUST refuse to start with a clear error.
 - `blackwall init` — scaffold `~/.blackwall/` with default `policy.yaml`, empty threat DB, starter `gateway.yaml`.
-- `blackwall stop` — read PID, send SIGTERM, verify termination, clean up PID file.
+- `blackwall stop` — read PID (supporting `--pidfile`), send SIGTERM, verify termination, clean up PID file.
 - `blackwall status` — check PID liveness, report threat graph stats, recent verdicts.
 - `blackwall version` — print version.
 - Add `[project.scripts] blackwall = "blackwall.cli:main"` to `pyproject.toml`.
@@ -146,8 +146,8 @@ Build the `click`-based CLI (`src/blackwall/cli.py`) and daemon lifecycle manage
 **Acceptance Criteria:**
 1. `pip install -e .` makes the `blackwall` command available.
 2. `blackwall init` creates `~/.blackwall/` with all expected files.
-3. `blackwall serve` daemonizes, creates PID file, writes logs.
-4. `blackwall serve --foreground` runs in terminal with live output.
+3. `blackwall serve` daemonizes, creates PID file, writes logs; accepts `--pidfile`, `--logfile`, and `--db` / `--db-path` to override default paths.
+4. `blackwall serve --foreground` runs in terminal or supervisor with live output; when `--pidfile` is supplied, it creates the specified PID file upon startup and deletes it upon termination.
 5. `blackwall stop` terminates the daemon and cleans up the PID file.
 6. `blackwall status` reports daemon state and threat graph statistics.
 7. Missing GCP credentials produce a clear, actionable error message on startup.
@@ -251,36 +251,48 @@ Review and finalize all three spec files (`design.md`, `requirements.md`, `tasks
 
 ---
 
-## 🛤️ Phase 5: macOS Service, App Packaging & Distribution
+## 🛤️ Phase 5: Cross-Platform Service, Linux Packaging & Release Pipeline
 
 > [!TIP]
 > **PARALLEL EXECUTION**
-> `TASK-F01` (LaunchAgent Manager) and `TASK-F02` (Python Audit Hook Bootstrap) can be developed concurrently in Track E.
+> `TASK-F01` (Cross-Platform Service Manager) and `TASK-F02` (Python Audit Hook Bootstrap) can be developed concurrently in Track E.
 
-#### TASK-F01: Implement macOS LaunchAgent Service Manager
+#### TASK-F01: Implement Cross-Platform Service Manager (macOS LaunchAgent + Linux systemd for DGX OS)
 **Status:** ⏳ Not Started
 **Dependencies:** TASK-C03
-**Requirements Satisfied:** FR-10, US-06
+**Requirements Satisfied:** FR-10, US-06, US-08
 
 **Description:**
-Implement the macOS `launchd` service management module and CLI subcommands:
-- `blackwall service install` — Generate and validate `~/Library/LaunchAgents/com.blackwall.gateway.plist` configured to supervise `blackwall serve --transport http --port 9229 --config ~/.blackwall/gateway.yaml` (or user-specified `--wrap <cmd>`), ensuring allowed tool calls are forwarded to downstream tool servers.
-- `install` MUST validate that `GCP_PROJECT` or `GOOGLE_CLOUD_PROJECT` is set in the environment or passed via `--project`, failing fast with a clear error if unconfigured.
-- `install` MUST embed an `EnvironmentVariables` dictionary containing `GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, and `PATH` into the plist to guarantee `launchd` executes with required Vertex AI credentials.
-- Plist configuration MUST include `RunAtLoad=true`, `KeepAlive` with `SuccessfulExit=false`, `ThrottleInterval=30` to prevent rapid restart loops on failure, and output redirection to `~/.blackwall/blackwall.log` and `~/.blackwall/blackwall.err`.
-- `blackwall service start` — Load the service via `launchctl load` (or `bootstrap`).
-- `blackwall service stop` — Unload the service via `launchctl unload` (or `bootout`).
-- `blackwall service status` — Check service registration and PID liveness via `launchctl list com.blackwall.gateway`.
-- `blackwall service uninstall` — Unload and remove plist cleanly.
+Implement the cross-platform background service management module and CLI subcommands:
+- Platform auto-detection (`platform.system()`): detects Darwin (macOS) vs Linux (DGX OS / Ubuntu).
+- **Absolute Path Resolution & Non-Tilde Invariant:** Because systemd `ExecStart` and daemon runners do not execute in a shell and do not expand tildes (`~`), `blackwall service install` resolves all file paths (config, logs, upstream targets, and credential paths) to absolute filesystem paths at installation time (`Path.resolve()`). No raw `~` characters are permitted in generated service files.
+- **macOS (`launchd`):**
+  - `blackwall service install` — Generate and validate `~/Library/LaunchAgents/com.blackwall.gateway.plist` configured to supervise `blackwall serve --foreground --transport http --port 9229 --config <resolved-absolute-config-path> --pidfile <resolved-pidfile> --logfile <resolved-logfile> --db <resolved-db>` (or user-specified `--wrap <cmd>`), ensuring allowed tool calls are forwarded to downstream tool servers, launchd directly monitors the running process, and the designated PID file is written.
+  - Embed `EnvironmentVariables` dictionary containing `GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, and `PATH`.
+  - Set `RunAtLoad=true`, `KeepAlive` with `SuccessfulExit=false`, `ThrottleInterval=30`, and log redirection to resolved absolute paths (e.g. `/Users/<user>/.blackwall/blackwall.log`).
+- **GNU/Linux (`systemd` on DGX OS / Ubuntu):**
+  - `blackwall service install` — Generate and validate systemd unit `blackwall.service` (`~/.config/systemd/user/blackwall.service` or `/etc/systemd/system/blackwall.service` when `--system` is provided).
+  - Configure `[Unit]` with `Description=Blackwall MCP Gateway`, `After=network.target`, `StartLimitBurst=5`, `StartLimitIntervalSec=60s` (placing rate-limit throttling in `[Unit]` where required by systemd).
+  - Configure `[Service]` with `Type=exec`, `PIDFile=<resolved-pid-file>`, `ExecStart=... serve --foreground --transport http --port 9229 --config <resolved-config> --pidfile <resolved-pidfile> --logfile <resolved-logfile> --db <resolved-db>` using resolved absolute paths, `Restart=on-failure`, `RestartSec=5s`, `MemoryHigh=320M`, `MemoryMax=350M` (strictly enforcing DGX Spark host memory bounds), and active `Environment=` directives. Passing `--foreground` ensures systemd directly tracks the gateway process rather than an exiting daemonized parent, while `--pidfile` ensures the PID file is created upon startup in foreground mode.
+  - For system units (`--system`), configure standard FHS directories: `/etc/blackwall/gateway.yaml` (config), `/run/blackwall/blackwall.pid` (PID), `/var/log/blackwall/blackwall.log` (logs), and `/var/lib/blackwall/` (threat DB), provisioning them with systemd `RuntimeDirectory=blackwall`, `StateDirectory=blackwall`, and `LogsDirectory=blackwall`. Bind these paths in the generated config file and explicitly pass them in `ExecStart` (`--pidfile /run/blackwall/blackwall.pid --logfile /var/log/blackwall/blackwall.log --db /var/lib/blackwall/threat_signatures.db`) and `Environment="BLACKWALL_DB_PATH=..."`.
+  - For system units (`--system`), derive non-root execution identity: (1) explicit `--user <name>`, (2) `SUDO_USER` under `sudo`, or (3) dedicated system user `blackwall` (group `blackwall`, created with `useradd --system --home-dir /var/lib/blackwall --create-home blackwall`) when installing directly as root. Running systemd units as root (`User=root`) is strictly disallowed.
+  - Fallback ADC resolution: If `GOOGLE_APPLICATION_CREDENTIALS` is unset in the environment, locate user ADC at `~/.config/gcloud/application_default_credentials.json` (resolving against the derived non-root service user's home directory), and inject `Environment="GOOGLE_APPLICATION_CREDENTIALS=<resolved-adc-path>"`. When installing as root with the dedicated `blackwall` user, accept `--credentials <path>` and copy to `/etc/blackwall/credentials.json` owned by `blackwall:blackwall` (`0600`).
+  - Enable and start via `systemctl --user enable --now blackwall` (or `systemctl enable --now blackwall`).
+- Fail fast at install time if `GCP_PROJECT` / `GOOGLE_CLOUD_PROJECT` is absent or ADC credentials cannot be located.
+- `blackwall service start|stop|status|uninstall|configure` — Dispatch to `launchctl` or `systemctl`; `configure` updates project IDs and credential paths (`--project <id>`, `--credentials <path>`, `--system`), writing to `/etc/default/blackwall` and `/etc/blackwall/credentials.json` (owned by `blackwall:blackwall`, permissions `0600`) for system services, or user service environment settings.
 
 **Acceptance Criteria:**
-1. Unit tests assert correct XML generation for `com.blackwall.gateway.plist` including upstream `--config` flag and `EnvironmentVariables` dictionary (TDD).
-2. `blackwall service install` fails fast with an exit code != 0 and clear message if `GCP_PROJECT` / `GOOGLE_CLOUD_PROJECT` is missing from the environment.
-3. Generated plist sets `ThrottleInterval=30` and `KeepAlive` with `SuccessfulExit=false` to prevent tight crash loops.
-4. Service commands gracefully handle missing directories, existing plist files, and permission errors.
-5. `install` writes a valid plist and sets secure file permissions (`0644`).
-6. `uninstall` removes the plist and verifies service termination.
-7. All unit tests pass.
+1. Unit tests assert correct XML generation for macOS `com.blackwall.gateway.plist` and correct INI syntax for Linux `blackwall.service` unit file, ensuring `StartLimitBurst` and `StartLimitIntervalSec` are strictly placed in `[Unit]`, `Type=exec` and `MemoryMax=350M` under `[Service]`, and `ExecStart` includes `--foreground` (TDD).
+2. Service installer resolves all paths to absolute filesystem paths; tests assert 0 unexpanded `~` characters in generated plists or systemd unit files.
+3. When `--system` is specified on Linux, the generated unit configures non-root `User=` and `Group=` derived from `--user <name>`, `SUDO_USER`, or dedicated `blackwall` user (created with `/var/lib/blackwall` home), configures `RuntimeDirectory`/`StateDirectory`/`LogsDirectory`, explicitly passes FHS `--pidfile`, `--logfile`, and `--db-path` flags, and strictly rejects `User=root`.
+4. Installer resolves standard gcloud ADC (`application_default_credentials.json`) from the derived non-root service user's home directory when `GOOGLE_APPLICATION_CREDENTIALS` is unset, injecting the resolved absolute path into the service definition.
+5. Service installer detects OS accurately and writes to correct platform paths (`~/Library/LaunchAgents/` on macOS, `~/.config/systemd/user/` on Linux).
+6. Both service configurations embed upstream `--config` flag and GCP credentials.
+7. `install` fails fast with an exit code != 0 when `GCP_PROJECT` is missing.
+8. Crash throttling and process supervision are configured on both platforms (`ThrottleInterval=30` on launchd, `StartLimitBurst=5` / `StartLimitIntervalSec=60s` under `[Unit]`, `Type=exec`, `PIDFile=`, and `RestartSec=5s` / `MemoryMax=350M` under `[Service]` on systemd).
+9. `uninstall` unloads the service and removes service definition files cleanly.
+10. `blackwall service configure --project <id> --credentials <path> --system` writes configuration to `/etc/default/blackwall` and provisions `/etc/blackwall/credentials.json` with permissions `0600` owned by `blackwall:blackwall`.
+11. All unit tests pass.
 
 #### TASK-F02: Implement Python Audit Hook Auto-Bootstrap
 **Status:** ⏳ Not Started
@@ -288,7 +300,7 @@ Implement the macOS `launchd` service management module and CLI subcommands:
 **Requirements Satisfied:** FR-12, US-01, US-06
 
 **Description:**
-Implement the global Python runtime audit hook bootstrap manager:
+Implement the global Python runtime audit hook bootstrap manager across macOS and Linux:
 - `blackwall hook install` — Identify active Python virtualenv and user site-packages directories. Inject a safe, non-destructive bootstrap snippet into `sitecustomize.py` (or drop `blackwall_audit.pth`) that attaches `sys.addaudithook` before user code executes.
 - `blackwall hook uninstall` — Remove the bootstrap snippet cleanly without corrupting pre-existing `sitecustomize.py` logic.
 - `blackwall hook status` — Verify whether audit hooks are actively attached and functional in the current environment.
@@ -319,19 +331,43 @@ Build a lightweight native macOS Menu Bar application (`Blackwall.app`):
 4. Idle memory footprint remains < 25MB RAM and 0.0% CPU.
 5. All unit and UI tests pass.
 
-#### TASK-F04: Build GitHub Actions Release Packaging Pipeline
+#### TASK-F04: Build GitHub Actions Release Packaging Pipeline (macOS .dmg & Linux .deb / Tarball)
 **Status:** ⏳ Not Started
 **Dependencies:** TASK-F03
-**Requirements Satisfied:** FR-13, US-07
+**Requirements Satisfied:** FR-13, US-07, US-09, NFR-07
 
 **Description:**
-Create the GitHub Actions workflow (`.github/workflows/release_macos.yml`) to build, bundle, and package `Blackwall.app` into a standalone `.dmg` installer:
-- Matrix build for macOS `x86_64` (Intel baseline) and `arm64` (Apple Silicon).
-- Package standalone executable and application bundle using PyInstaller / Platypus.
-- Create compressed drag-and-drop `.dmg` installers (`Blackwall-Intel.dmg`, `Blackwall-AppleSilicon.dmg`).
+Create the GitHub Actions workflow (`.github/workflows/release_packages.yml`) to build, bundle, and package release artifacts:
+- **macOS:** Matrix build for macOS `x86_64` (Intel baseline) and `arm64` (Apple Silicon), creating `.dmg` installers (`Blackwall-Intel.dmg`, `Blackwall-AppleSilicon.dmg`).
+- **GNU/Linux (DGX OS / Ubuntu):**
+  - Build Debian packages (`.deb`) targeting **DGX OS / Ubuntu 24.04 LTS `aarch64`** (NVIDIA DGX Spark) and Ubuntu `x86_64`, packaging binary (`/usr/bin/blackwall`), default FHS configuration (`/etc/blackwall/gateway.yaml`), environment template (`/etc/default/blackwall`), system-scope systemd unit (`/lib/systemd/system/blackwall.service` configured with `EnvironmentFile=-/etc/default/blackwall`), optional user unit (`/usr/lib/systemd/user/blackwall.service`), and post-install hooks (`postinst` provisioning dedicated non-root system user/group `blackwall:blackwall` via `useradd --system --home-dir /var/lib/blackwall --create-home --shell /usr/sbin/nologin --user-group blackwall` if absent, setting directory ownership for `/var/lib/blackwall`, `/etc/blackwall`, and `/var/log/blackwall`, auto-copying `$SUDO_USER` ADC credentials to `/etc/blackwall/credentials.json` with permissions `0600` when present, populating `/etc/default/blackwall`, and executing `systemctl daemon-reload`).
+  - Build standalone Linux binary tarballs (`blackwall-linux-aarch64.tar.gz`, `blackwall-linux-x86_64.tar.gz`) with `install.sh`.
+- Windows artifacts (`.exe`, `.msi`) are explicitly excluded.
 - Automatically attach release assets to tagged GitHub Releases.
 
 **Acceptance Criteria:**
 1. Workflow builds `.app` and `.dmg` on GitHub macOS runners without errors.
-2. The packaged `.dmg` installs cleanly and launches on a clean macOS environment without pre-installed Python dependencies.
-3. Release assets are attached automatically upon publishing a git tag.
+2. Workflow builds valid `.deb` packages using `dpkg-deb` on Linux runners for `aarch64` and `x86_64`.
+3. Packaged `.deb` installs cleanly via `dpkg -i` on clean Ubuntu 24.04 LTS and DGX OS environments, creating the dedicated non-root `blackwall:blackwall` service account, setting directory permissions, and deploying `/lib/systemd/system/blackwall.service` configured with `EnvironmentFile=-/etc/default/blackwall`; upon providing valid GCP credentials (via postinst auto-capture from `$SUDO_USER`, populating `/etc/default/blackwall`, or `sudo blackwall service configure`), `systemctl enable --now blackwall` discovers and starts the service under the non-root identity without error, while unconfigured credentials trigger an immediate fail-fast exit.
+4. Release assets are attached automatically upon publishing a git tag.
+5. All build verification checks pass.
+
+#### TASK-F05: Implement NVIDIA DGX OS Co-Existence & Zero-VRAM Verification Tests
+**Status:** ⏳ Not Started
+**Dependencies:** TASK-F01, TASK-F04
+**Requirements Satisfied:** FR-14, NFR-06, US-08
+
+**Description:**
+Implement verification tests ensuring complete non-interference, zero GPU VRAM consumption, and bounded host memory on NVIDIA DGX OS environments:
+- Verify that running `blackwall serve` never invokes CUDA runtime or driver functions across all system layers: assert 0 open file descriptors to `/dev/nvidia*`, `/dev/nvidiactl`, `/dev/nvidia-uvm` in the daemon's `/proc/<daemon_pid>/fd/` (resolving the target daemon PID from `~/.blackwall/blackwall.pid`, `/run/blackwall/blackwall.pid` for system services, or daemon subprocess handle), confirm daemon PID is absent from NVML compute process listings (`nvmlDeviceGetComputeRunningProcesses`), verify `torch.cuda.is_initialized()` is False (if torch is imported), and verify host process RSS memory stays strictly within the ≤350MB ceiling, ensuring >127.6GB of the 128GB unified memory pool remains unencumbered for AI models.
+- Verify port non-collision: assert that Blackwall HTTP gateway runs and forwards traffic on port `9229` while mock local AI services run on port `11434` (Ollama), `8000` (vLLM), `8001` (Triton), and `8888` (JupyterLab).
+- Verify that Python audit hooks and MCP stream filters do not intercept or disrupt NVIDIA Container Toolkit (`nvidia-ctk`) or GPU device nodes (`/dev/nvidia*`).
+- Test Linux `systemd` user and system unit lifecycles (`blackwall service install`, `start`, `status`, `stop`, `uninstall`) inside an Ubuntu 24.04 / DGX OS container, verifying absolute path resolution and non-root execution.
+
+**Acceptance Criteria:**
+1. Automated tests assert zero open `/dev/nvidia*` file descriptors in the target daemon's `/proc/<daemon_pid>/fd/` (resolving PID via `blackwall.pid` across user and system FHS paths), empty NVML compute process registration for the daemon PID, `torch.cuda.is_initialized()` is False, and host process RSS ≤ 350MB during active gateway execution (TDD), validating multi-layer unified memory non-encroachment.
+2. Gateway successfully handles concurrent requests while mock AI serving ports (11434, 8000) are occupied.
+3. Systemd service lifecycle tests pass in an Ubuntu 24.04 container.
+4. Active memory remains within the DGX Spark budget (≤ 350MB active RAM, 0MB CUDA allocation).
+5. All unit and integration tests pass.
+

@@ -22,6 +22,7 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 - **JSON-RPC `id` Tracking**: The stream layer MUST track all in-flight requests by their JSON-RPC `id` to prevent concurrent call mismatching.
 - **Upstream Management**: Supports `--wrap` (single downstream tool server as child process) and `gateway.yaml` (multi-server configuration). ALLOW'd requests are forwarded; BLOCK'd requests return synthesized JSON-RPC errors.
 - **Resource Budget**: Gateway components MUST operate within the 2019 Intel MacBook Pro baseline: ≤60MB idle RAM, ~0% idle CPU, <2s startup, ≤150MB active RAM during evaluation.
+- **Hardware Targets**: Blackwall Core targets the 2019 Intel MacBook Pro as its baseline (<=60MB idle RAM, <=150MB active RAM) and the NVIDIA DGX Spark (Grace Blackwell GB10 ARM64, 128GB unified memory) as top-of-the-line (0MB CUDA contexts, host RSS <= 350MB, preserving >127.6GB unified memory for AI models).
 - **Spec Reference**: Architecture governed by `.kiro/specs/blackwall-mcp-gateway/` (design.md, requirements.md, tasks.md).
 
 ### Blackwall Enterprise Mesh (Enterprise Edition)
@@ -115,5 +116,38 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 - **Audit Hook Isolation**: Registrations of `sys.addaudithook` in tests MUST be scoped inside isolated test functions (never module-level).
 - **Process Group Cleanup**: Background test processes MUST clean up process groups using `os.killpg(os.getpgid(pid), signal.SIGTERM)`.
 - **Secret Scanner Hygiene**: Synthetic test credentials MUST NOT match live cloud provider key formats (e.g. `AWS_KEY_<digits>`).
+
+---
+
+## 7. Cross-Platform Background Service Management (`launchd` & `systemd`) & Packaging Invariants
+
+- **Foreground Execution Invariant**: Both macOS `launchd` and Linux `systemd` must supervise `blackwall serve --foreground` (with `Type=exec` and `PIDFile=` in systemd), ensuring supervisors directly track the active gateway child process rather than an exiting daemonized parent.
+- **Foreground PID Creation**: In `--foreground` mode, whenever `--pidfile <path>` is supplied, `blackwall serve` MUST write its active process PID upon startup and delete it upon shutdown.
+- **Absolute Path Resolution**: Because system service supervisors do not execute in a shell and do not expand tildes (`~`), `blackwall service install` MUST resolve all configuration paths, executable paths, log paths, and credential files to absolute filesystem paths (`Path.resolve()`). Zero unexpanded `~` characters may appear in generated service definitions.
+- **systemd Syntax & Sectioning**: Start-rate limit throttling (`StartLimitBurst=5`, `StartLimitIntervalSec=60s`) belongs strictly under `[Unit]`. Placing rate limits under `[Service]` is invalid systemd syntax and disables throttling.
+- **FHS Separation for System Services**: System units (`/etc/systemd/system/blackwall.service`) MUST NOT reference `~/.blackwall/`. System units MUST use standard FHS directories: `/etc/blackwall/gateway.yaml` (config), `/run/blackwall/blackwall.pid` (`RuntimeDirectory=blackwall`), `/var/log/blackwall/blackwall.log` (`LogsDirectory=blackwall`), and `/var/lib/blackwall/threat_signatures.db` (`StateDirectory=blackwall`).
+- **Non-Root Execution Identity**: Running systemd units as root (`User=root`) is strictly disallowed. Identity is derived in order: (1) `--user <name>`, (2) `SUDO_USER`, or (3) dedicated system user `blackwall` (group `blackwall`) provisioned with `--home-dir /var/lib/blackwall --create-home`.
+- **Debian Package (`.deb`) Structure**: Packaged `.deb` files deploy the system unit to `/lib/systemd/system/blackwall.service` configured with `EnvironmentFile=-/etc/default/blackwall`. In `postinst`, the package creates `blackwall:blackwall` if absent, assigns FHS directory ownership, auto-captures `$SUDO_USER` ADC credentials when present, and runs `systemctl daemon-reload`.
+- **Credential Configuration Subcommand**: The CLI provides `blackwall service configure --project <id> --credentials <path> --system` to provision `/etc/default/blackwall` and `/etc/blackwall/credentials.json` (`0600 blackwall:blackwall`) on hosts without pre-existing credentials.
+
+---
+
+## 8. NVIDIA DGX Spark Co-Existence, Unified Memory Bounding & Hardware Invariants
+
+- **Unified Memory Guarantee**: On unified memory systems (NVIDIA DGX Spark / Grace Blackwell GB10, 128GB LPDDR5x), CPU and GPU share the same physical pool. Blackwall Core MUST run 100% in CPU user-space threads with 0MB allocated in CUDA contexts/VRAM. Its host process RSS memory MUST NOT exceed 350MB (<0.28% of the unified pool), strictly preserving >127.6GB (>99.7%) of unified memory for colocated AI inference engines (vLLM, Ollama, TensorRT-LLM) or model fine-tuning.
+- **Port Non-Collision**: Default gateway port `9229` MUST NOT collide with standard DGX OS AI serving ports: `11434` (Ollama), `8000`/`8001`/`8002` (vLLM, Triton), or `8888`/`8080` (JupyterLab).
+- **Multi-Layer Zero-CUDA Verification**: Conformance tests asserting zero-CUDA usage must inspect `/proc/<daemon_pid>/fd/` for `/dev/nvidia*` character devices on the target daemon PID (resolved from `blackwall.pid` or subprocess handle, NOT `/proc/self/fd/`), confirm daemon PID absence from `nvmlDeviceGetComputeRunningProcesses`, and verify `torch.cuda.is_initialized() is False`.
+- **Resource Budgets**:
+  - **2019 MacBook Pro Baseline**: <=60MB idle RAM, <=150MB active RAM, ~0% idle CPU, <5% active CPU, <2s startup.
+  - **NVIDIA DGX Spark Top-of-the-Line**: <=100MB idle RAM, <=350MB active RAM, 0MB CUDA, ~0% idle CPU, <2% active CPU across 20 cores, <1s startup.
+
+---
+
+## 9. Operating System Support Scope & Windows Exclusion
+
+- **Supported Operating Systems**:
+  1. **macOS**: Darwin `x86_64` (Intel baseline) and `arm64` (Apple Silicon).
+  2. **GNU/Linux**: **DGX OS / Ubuntu 24.04 LTS `aarch64`** (NVIDIA DGX Spark) and Ubuntu `x86_64`.
+- **Strict Windows Exclusion**: Windows OS packaging (`.exe`, `.msi`), PowerShell scripts, and Windows service wrappers are explicitly barred from all codebase development, CI workflows, and release pipelines.
 
 
