@@ -339,7 +339,7 @@ Build a lightweight native macOS Menu Bar application (`Blackwall.app`):
 Create the GitHub Actions workflow (`.github/workflows/release_packages.yml`) to build, bundle, and package release artifacts:
 - **macOS:** Matrix build for macOS `x86_64` (Intel baseline) and `arm64` (Apple Silicon), creating `.dmg` installers (`Blackwall-Intel.dmg`, `Blackwall-AppleSilicon.dmg`).
 - **GNU/Linux (DGX OS / Ubuntu):**
-  - Build Debian packages (`.deb`) targeting **DGX OS / Ubuntu 24.04 LTS `aarch64`** (NVIDIA DGX Spark) and Ubuntu `x86_64`, packaging binary (`/usr/bin/blackwall`), system-scope systemd unit (`/lib/systemd/system/blackwall.service`), optional user unit (`/usr/lib/systemd/user/blackwall.service`), default FHS configuration (`/etc/blackwall/gateway.yaml`), and post-install hooks (`systemctl daemon-reload`).
+  - Build Debian packages (`.deb`) targeting **DGX OS / Ubuntu 24.04 LTS `aarch64`** (NVIDIA DGX Spark) and Ubuntu `x86_64`, packaging binary (`/usr/bin/blackwall`), system-scope systemd unit (`/lib/systemd/system/blackwall.service`), optional user unit (`/usr/lib/systemd/user/blackwall.service`), default FHS configuration (`/etc/blackwall/gateway.yaml`), and post-install hooks (`postinst` provisioning dedicated non-root system user/group `blackwall:blackwall` via `useradd --system --home-dir /var/lib/blackwall --create-home --shell /usr/sbin/nologin --user-group blackwall` if absent, setting directory ownership for `/var/lib/blackwall`, `/etc/blackwall`, and `/var/log/blackwall`, and executing `systemctl daemon-reload`).
   - Build standalone Linux binary tarballs (`blackwall-linux-aarch64.tar.gz`, `blackwall-linux-x86_64.tar.gz`) with `install.sh`.
 - Windows artifacts (`.exe`, `.msi`) are explicitly excluded.
 - Automatically attach release assets to tagged GitHub Releases.
@@ -347,7 +347,7 @@ Create the GitHub Actions workflow (`.github/workflows/release_packages.yml`) to
 **Acceptance Criteria:**
 1. Workflow builds `.app` and `.dmg` on GitHub macOS runners without errors.
 2. Workflow builds valid `.deb` packages using `dpkg-deb` on Linux runners for `aarch64` and `x86_64`.
-3. Packaged `.deb` installs cleanly via `dpkg -i` on clean Ubuntu 24.04 LTS and DGX OS environments, registering the system-scope unit under `/lib/systemd/system/blackwall.service` so `systemctl enable --now blackwall` discovers and starts the service without error.
+3. Packaged `.deb` installs cleanly via `dpkg -i` on clean Ubuntu 24.04 LTS and DGX OS environments, creating the dedicated non-root `blackwall:blackwall` service account, setting directory permissions, and registering the system-scope unit under `/lib/systemd/system/blackwall.service` so `systemctl enable --now blackwall` discovers and starts the service under the non-root identity without error.
 4. Release assets are attached automatically upon publishing a git tag.
 5. All build verification checks pass.
 
