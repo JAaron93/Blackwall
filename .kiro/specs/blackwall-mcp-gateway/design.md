@@ -177,7 +177,7 @@ Manages downstream MCP tool server lifecycle and request forwarding.
 ### 11. Cross-Platform Release Packaging Pipeline (macOS `.dmg` & Linux `.deb` / Tarball)
 *   **macOS Packaging (`.dmg`):** GitHub Actions CI builds standalone native macOS application bundles (`Blackwall.app`) for both Intel (`x86_64`) and Apple Silicon (`arm64`) architectures, packaged into drag-and-drop `.dmg` disk image installers.
 *   **GNU/Linux Packaging (`.deb` & Standalone Tarball):**
-    *   **Debian/Ubuntu Package (`.deb`):** Pre-compiled `.deb` package targeting **DGX OS / Ubuntu 24.04 LTS `aarch64`** (NVIDIA DGX Spark) and **Ubuntu `x86_64`**, bundling the binary, default configuration, systemd service unit, and man pages for one-command installation (`sudo dpkg -i blackwall-*.deb` or `apt install ./blackwall-*.deb`).
+    *   **Debian/Ubuntu Package (`.deb`):** Pre-compiled `.deb` package targeting **DGX OS / Ubuntu 24.04 LTS `aarch64`** (NVIDIA DGX Spark) and **Ubuntu `x86_64`**, bundling the binary (`/usr/bin/blackwall`), default configuration (`/etc/blackwall/gateway.yaml`), system-scope systemd service unit (`/lib/systemd/system/blackwall.service`), optional user unit (`/usr/lib/systemd/user/blackwall.service`), post-install hooks (`systemctl daemon-reload`), and man pages for one-command installation (`sudo dpkg -i blackwall-*.deb` or `apt install ./blackwall-*.deb`).
     *   **Standalone Linux Tarball (`.tar.gz`):** Pre-compiled standalone binary archive with automated `install.sh` script for non-Debian Linux environments.
 *   **Windows Strictly Excluded:** Windows (`.exe`, `.msi`, PowerShell) is explicitly unsupported and excluded from CI release pipelines.
 
