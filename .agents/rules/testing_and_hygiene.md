@@ -364,6 +364,16 @@
   5. **Install-Time Validation Rejection**: Installation fails with non-zero exit when `GCP_PROJECT` is absent.
 * **Rationale:** Ensures plist generation logic does not omit critical environment or upstream flags that would cause silent failures or crash loops in production `launchd` environments.
 
+## 47. Linux Systemd Unit & DGX Co-Existence Test Invariants
+* **Rule (Systemd Unit Generation Test Matrix):** Unit tests covering Linux service generation (`blackwall service install`) MUST assert:
+  1. **Syntax & Sectioning**: `StartLimitBurst=5` and `StartLimitIntervalSec=60s` are strictly placed under `[Unit]`; `Restart=on-failure`, `RestartSec=5s`, `Type=exec`, `PIDFile=`, `MemoryHigh=320M`, and `MemoryMax=350M` are placed under `[Service]`.
+  2. **Zero Unexpanded Tildes**: Generated service definition strings contain 0 raw `~` characters (`Path.resolve()` enforced).
+  3. **Non-Root Execution**: When `--system` is specified, `User=` and `Group=` are configured and non-root, strictly rejecting `User=root`.
+  4. **FHS Directory Directives**: System units configure `RuntimeDirectory=blackwall`, `StateDirectory=blackwall`, and `LogsDirectory=blackwall`.
+  5. **Foreground Execution & PID Creation**: `ExecStart` passes `--foreground`, `--pidfile`, `--logfile`, and `--db`. Tests assert that `--foreground` creates the designated PID file when `--pidfile` is supplied.
+* **Rule (DGX Co-Existence Test Scoping):** Conformance tests checking `/proc/<daemon_pid>/fd/` for `/dev/nvidia*` character devices MUST target the running daemon process (resolved via `~/.blackwall/blackwall.pid`, `/run/blackwall/blackwall.pid`, or the daemon subprocess handle), rather than inspecting the test runner (`/proc/self/fd/`).
+* **Rationale:** Ensures systemd unit generation, process supervision, and hardware co-existence tests catch syntax violations, permission leaks, and false-positive test runner assertions prior to deployment.
+
 
 
 
