@@ -107,6 +107,21 @@ def test_http_timeout_floor(monkeypatch: pytest.MonkeyPatch) -> None:
     assert get_gemini_http_timeout(configured=15.0, task_type="analysis") == 15.0
 
 
+def test_http_timeout_rejects_invalid_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_ALLOW_ANALYTICAL_DOWNGRADE", "true")
+
+    # Non-finite and non-positive string env vars must fall back
+    for invalid in ["nan", "inf", "-inf", "0", "-5.0", "not-a-number"]:
+        monkeypatch.setenv("GEMINI_HTTP_TIMEOUT", invalid)
+        assert get_gemini_http_timeout() == 120.0
+        assert get_gemini_http_timeout(configured=30.0) == 30.0
+
+    # Non-finite and non-positive float values must fall back
+    monkeypatch.delenv("GEMINI_HTTP_TIMEOUT", raising=False)
+    for invalid_val in [float("nan"), float("inf"), float("-inf"), 0.0, -10.0]:
+        assert get_gemini_http_timeout(configured=invalid_val) == 120.0
+
+
 def test_excluded_telemetry_keys_preserves_thought_signatures() -> None:
     required_keys = {
         "tokens_used",

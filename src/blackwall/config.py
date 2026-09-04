@@ -8,6 +8,7 @@ Agent Platform). Google AI Studio API Key Mode (GEMINI_API_KEY / LLM_API_KEY) an
 free/standard tier rate-limits are permanently disabled.
 """
 
+import math
 import os
 from typing import Any, Optional
 from google import genai
@@ -103,17 +104,28 @@ def get_gemini_max_output_tokens(
 ) -> int:
     """
     Resolve maximum output token ceiling, enforcing 64K floor for analytical tasks.
+    Guarantees finite, strictly positive (>0) token limits across all environments.
     """
     allow_downgrade = (
         os.getenv("GEMINI_ALLOW_ANALYTICAL_DOWNGRADE", "").strip().lower() == "true"
         or getattr(settings, "GEMINI_ALLOW_ANALYTICAL_DOWNGRADE", False)
     )
+
+    def _is_valid_tokens(t: Any) -> bool:
+        return isinstance(t, int) and t > 0
+
+    valid_configured = configured if _is_valid_tokens(configured) else DEFAULT_MAX_OUTPUT_TOKENS
+
     env_tokens = os.getenv("GEMINI_MAX_OUTPUT_TOKENS")
-    val = (
-        int(env_tokens)
-        if env_tokens and env_tokens.strip().isdigit()
-        else (configured if configured is not None else DEFAULT_MAX_OUTPUT_TOKENS)
-    )
+    if env_tokens and env_tokens.strip().isdigit():
+        try:
+            parsed = int(env_tokens)
+            val = parsed if _is_valid_tokens(parsed) else valid_configured
+        except (ValueError, TypeError):
+            val = valid_configured
+    else:
+        val = valid_configured
+
     if task_type in ANALYTICAL_TASK_TYPES and not allow_downgrade:
         return max(val, DEFAULT_MAX_OUTPUT_TOKENS)
     return val
@@ -127,20 +139,27 @@ def get_gemini_http_timeout(
 ) -> float:
     """
     Resolve request-level HTTP timeout, enforcing 120s floor for analytical tasks.
+    Guarantees finite, strictly positive (>0) timeouts across all environments.
     """
     allow_downgrade = (
         os.getenv("GEMINI_ALLOW_ANALYTICAL_DOWNGRADE", "").strip().lower() == "true"
         or getattr(settings, "GEMINI_ALLOW_ANALYTICAL_DOWNGRADE", False)
     )
+
+    def _is_valid(t: Any) -> bool:
+        return isinstance(t, (int, float)) and math.isfinite(t) and t > 0.0
+
+    valid_configured = configured if _is_valid(configured) else DEFAULT_HTTP_TIMEOUT
+
     env_timeout = os.getenv("GEMINI_HTTP_TIMEOUT")
-    try:
-        val = (
-            float(env_timeout)
-            if env_timeout and env_timeout.strip()
-            else (configured if configured is not None else DEFAULT_HTTP_TIMEOUT)
-        )
-    except ValueError:
-        val = configured if configured is not None else DEFAULT_HTTP_TIMEOUT
+    if env_timeout and env_timeout.strip():
+        try:
+            parsed = float(env_timeout)
+            val = parsed if _is_valid(parsed) else valid_configured
+        except (ValueError, TypeError):
+            val = valid_configured
+    else:
+        val = valid_configured
 
     if task_type in ANALYTICAL_TASK_TYPES and not allow_downgrade:
         return max(val, DEFAULT_HTTP_TIMEOUT)

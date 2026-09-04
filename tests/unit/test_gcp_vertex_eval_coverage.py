@@ -159,6 +159,53 @@ def test_run_eval_task_local_fallback():
     assert res["status"] == "LOCAL_FALLBACK"
     assert res["total_items"] == 1
     assert "threat_accuracy" in res["metrics"]
+    assert res["thinking_level"] == "high"
+    assert res["max_output_tokens"] == 65536
+    assert res["http_timeout"] == 120.0
+
+
+def test_run_eval_task_capabilities_forwarded_to_vertex():
+    from unittest.mock import MagicMock, patch
+
+    config = GCPVertexEvalConfig(
+        project_id="test-proj",
+        thinking_level="high",
+        max_output_tokens=65536,
+        http_timeout=90.0,
+        allow_fallback=False,
+    )
+    harness = GCPVertexAIEvaluationHarness(config=config)
+    harness._vertex_eval_available = True
+    harness._init_error = None
+
+    dataset = [{"prompt": "test prompt"}]
+    metrics = ["threat_accuracy"]
+
+    mock_eval_task_cls = MagicMock()
+    mock_eval_task_instance = MagicMock()
+    mock_eval_task_cls.return_value = mock_eval_task_instance
+    mock_eval_result = MagicMock()
+    mock_eval_result.metrics_table = "table"
+    mock_eval_result.summary_metrics = {"accuracy": 1.0}
+    mock_eval_task_instance.evaluate.return_value = mock_eval_result
+
+    with patch("vertexai.preview.evaluation.EvalTask", mock_eval_task_cls):
+        res = harness.run_eval_task(dataset=dataset, metrics=metrics)
+
+    assert res["status"] == "COMPLETED"
+    assert res["thinking_level"] == "high"
+    assert res["max_output_tokens"] == 65536
+    assert res["http_timeout"] == 90.0
+
+    mock_eval_task_instance.evaluate.assert_called_once()
+    call_kwargs = mock_eval_task_instance.evaluate.call_args[1]
+    assert call_kwargs["retry_timeout"] == 90.0
+    passed_model = call_kwargs["model"]
+    assert hasattr(passed_model, "_generation_config")
+    assert passed_model._generation_config.to_dict()["max_output_tokens"] == 65536
+    raw_cfg = getattr(passed_model._generation_config, "_raw_generation_config", None)
+    assert raw_cfg is not None
+    assert raw_cfg.thinking_config.include_thoughts is True
 
 
 def test_run_eval_task_failure_when_fallback_disabled():
