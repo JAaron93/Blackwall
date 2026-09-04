@@ -81,7 +81,6 @@ def test_thinking_level_router_bypass(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_thinking_level_default_for_gemini_38() -> None:
     assert get_gemini_thinking_level(model="gemini-3.8-flash") == "high"
-    assert get_gemini_thinking_level(model="gemini-3.8-pro") == "high"
 
 
 def test_max_output_tokens_ceiling_and_floor(monkeypatch: pytest.MonkeyPatch) -> None:

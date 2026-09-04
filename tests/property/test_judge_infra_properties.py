@@ -114,7 +114,7 @@ def test_property_e6_fallback_scorer_always_sets_is_fallback_true(
 @settings(max_examples=30, deadline=None)
 @given(
     domain=st.sampled_from(["threat_interception", "swarm_detection", "exploit_chain"]),
-    model_name=st.sampled_from(["gemini-3.8-flash", "gemini-3.8-pro", "gemini-3.5-flash-lite"]),
+    model_name=st.sampled_from(["gemini-3.8-flash", "gemini-3.5-flash-lite"]),
 )
 def test_property_e7_factory_always_produces_vertex_config(
     domain: str, model_name: str

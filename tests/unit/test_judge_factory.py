@@ -67,14 +67,14 @@ def test_create_judge_agent_config(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_create_judge_agent_model_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GEMINI_TIER", "paid")
     monkeypatch.setenv("BLACKWALL_TIER", "paid")
-    monkeypatch.setenv("BLACKWALL_JUDGE_MODEL", "gemini-3.8-pro")
+    monkeypatch.setenv("BLACKWALL_JUDGE_MODEL", "gemini-test-judge-override")
 
     agent_env_model = create_judge_agent(
         domain="threat_interception",
         rubric_schema=DummyRubric,
         enforce_tier=False,
     )
-    assert agent_env_model.config.model == "gemini-3.8-pro"
+    assert agent_env_model.config.model == "gemini-test-judge-override"
 
     agent_explicit_model = create_judge_agent(
         domain="threat_interception",
