@@ -291,6 +291,51 @@ def test_run_eval_task_thinking_attachment_failure_handling():
         assert res_fb["thinking_level"] == "none"
 
 
+def test_run_eval_task_unknown_thinking_level_handling():
+    from unittest.mock import MagicMock, patch
+
+    config = GCPVertexEvalConfig(
+        project_id="test-proj",
+        thinking_level="hgh",  # Misspelled / unsupported level
+        allow_fallback=False,
+    )
+    harness = GCPVertexAIEvaluationHarness(config=config)
+    harness._vertex_eval_available = True
+    harness._init_error = None
+
+    dataset = [{"prompt": "test prompt"}]
+    metrics = ["threat_accuracy"]
+
+    mock_eval_task_cls = MagicMock()
+    mock_eval_task_instance = MagicMock()
+    mock_eval_task_cls.return_value = mock_eval_task_instance
+    mock_eval_result = MagicMock()
+    mock_eval_result.metrics_table = "table"
+    mock_eval_result.summary_metrics = {}
+    mock_eval_task_instance.evaluate.return_value = mock_eval_result
+
+    mock_gen_model_cls = MagicMock()
+    mock_model_instance = MagicMock()
+    mock_gen_model_cls.return_value = mock_model_instance
+
+    with patch("vertexai.preview.evaluation.EvalTask", mock_eval_task_cls), \
+         patch("vertexai.generative_models.GenerativeModel", mock_gen_model_cls):
+        # 1. With raise_on_error=True: raises RuntimeError citing unsupported thinking_level
+        with pytest.raises(RuntimeError, match="Unsupported thinking_level 'hgh'"):
+            harness.run_eval_task(dataset=dataset, metrics=metrics, raise_on_error=True)
+
+        # 2. With raise_on_error=False and allow_fallback=False: reports sdk_default rather than falsely claiming 'hgh'
+        res = harness.run_eval_task(dataset=dataset, metrics=metrics, raise_on_error=False)
+        assert res["status"] == "COMPLETED"
+        assert res["thinking_level"] == "sdk_default"
+
+        # 3. With raise_on_error=False and allow_fallback=True: falls back to LOCAL_FALLBACK reporting 'none'
+        harness.config.allow_fallback = True
+        res_fb = harness.run_eval_task(dataset=dataset, metrics=metrics, raise_on_error=False)
+        assert res_fb["status"] == "LOCAL_FALLBACK"
+        assert res_fb["thinking_level"] == "none"
+
+
 def test_run_eval_task_failure_when_fallback_disabled():
     config = GCPVertexEvalConfig(project_id="test-proj", allow_fallback=False)
     harness = GCPVertexAIEvaluationHarness(config=config)

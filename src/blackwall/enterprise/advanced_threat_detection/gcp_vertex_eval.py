@@ -443,7 +443,6 @@ class GCPVertexAIEvaluationHarness:
                     model_obj = GenerativeModel(target_model, generation_config=gen_config)
                     if self.config.thinking_level:
                         lvl = self.config.thinking_level.lower().strip()
-                        include_thoughts = lvl not in ("off", "none", "false", "0")
                         # Map semantic thinking level to reasoning token budget
                         thinking_budget_map = {
                             "high": -1,       # Dynamic unthrottled deep reasoning
@@ -452,9 +451,16 @@ class GCPVertexAIEvaluationHarness:
                             "minimal": 1024,
                             "off": 0,
                         }
-                        budget = thinking_budget_map.get(lvl, -1 if lvl == "high" else 0)
 
                         try:
+                            if lvl not in thinking_budget_map:
+                                raise ValueError(
+                                    f"Unsupported thinking_level '{self.config.thinking_level}'. "
+                                    f"Expected one of {list(thinking_budget_map.keys())}"
+                                )
+                            budget = thinking_budget_map[lvl]
+                            include_thoughts = lvl not in ("off", "none", "false", "0")
+
                             from google.cloud.aiplatform_v1beta1.types import content
 
                             kwargs: Dict[str, Any] = {"include_thoughts": include_thoughts}
