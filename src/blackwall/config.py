@@ -205,6 +205,7 @@ def get_genai_client(
     project: Optional[str] = None,
     location: Optional[str] = None,
     timeout: Optional[float] = None,
+    **kwargs: Any,
 ) -> genai.Client:
     """
     Instantiate a google.genai.Client strictly in Vertex AI Mode with request-level HTTP timeout.
@@ -212,14 +213,15 @@ def get_genai_client(
     settings = configure_provider_env()
     proj = (project or settings.effective_gcp_project).strip()
     loc = (location or settings.gcp_location).strip()
-    effective_timeout = timeout if timeout is not None else get_gemini_http_timeout()
 
-    from google.genai import types
+    client_kwargs: dict[str, Any] = {
+        "vertexai": True,
+        "project": proj,
+        "location": loc,
+    }
+    if timeout is not None:
+        from google.genai import types
 
-    http_options = types.HttpOptions(timeout=effective_timeout)
-    return genai.Client(
-        vertexai=True,
-        project=proj,
-        location=loc,
-        http_options=http_options,
-    )
+        client_kwargs["http_options"] = types.HttpOptions(timeout=timeout)
+    client_kwargs.update(kwargs)
+    return genai.Client(**client_kwargs)
