@@ -17,6 +17,7 @@ def fixture_gcp_vertex_ai_env(monkeypatch) -> None:
     monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
     monkeypatch.setenv("GEMINI_TIER", "paid")
     monkeypatch.setenv("BLACKWALL_TIER", "paid")
+    monkeypatch.setenv("OTEL_TRACES_EXPORTER", "none")
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("LLM_API_KEY", raising=False)
 
