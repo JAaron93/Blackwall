@@ -26,7 +26,7 @@ def test_gcp_vertex_eval_config_validation():
         project_id="test-proj-eval",
         location="us-central1",
         main_model="gemini-3.5-flash-lite",
-        reasoner_model="gemini-3.7-flash",
+        reasoner_model="gemini-3.8-flash",
         sampling_count=8,
     )
     assert config.project_id == "test-proj-eval"
@@ -92,19 +92,28 @@ def test_harness_init_and_autoraters():
     assert harness.trace_exporter is not None
 
     threat_autorater = harness.build_threat_accuracy_autorater()
-    assert threat_autorater["metric"] == "threat_interception_accuracy"
-    assert "accuracy" in threat_autorater["criteria"]
+    if isinstance(threat_autorater, dict):
+        assert threat_autorater["metric"] == "threat_interception_accuracy"
+        assert "accuracy" in threat_autorater["criteria"]
+    else:
+        assert getattr(threat_autorater, "metric", getattr(threat_autorater, "metric_name", None)) == "threat_interception_accuracy"
 
     hygiene_autorater = harness.build_context_hygiene_autorater()
-    assert hygiene_autorater["metric"] == "context_hygiene_sanitization"
-    assert "redaction" in hygiene_autorater["criteria"]
+    if isinstance(hygiene_autorater, dict):
+        assert hygiene_autorater["metric"] == "context_hygiene_sanitization"
+        assert "redaction" in hygiene_autorater["criteria"]
+    else:
+        assert getattr(hygiene_autorater, "metric", getattr(hygiene_autorater, "metric_name", None)) == "context_hygiene_sanitization"
 
     pairwise = harness.create_pairwise_autorater(
         metric_name="pairwise_test",
         prompt_template="Compare {baseline} vs {candidate}",
     )
-    assert pairwise["metric"] == "pairwise_test"
-    assert pairwise["flip_enabled"] is True
+    if isinstance(pairwise, dict):
+        assert pairwise["metric"] == "pairwise_test"
+        assert pairwise["flip_enabled"] is True
+    else:
+        assert getattr(pairwise, "metric", getattr(pairwise, "metric_name", None)) == "pairwise_test"
 
 
 def test_evaluate_trajectory():

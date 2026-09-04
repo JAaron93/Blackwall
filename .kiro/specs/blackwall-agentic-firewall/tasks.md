@@ -224,7 +224,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Leverage server-side context caching to track cache hit rate
     - Return BatchResponse with verdicts array, processing time, tokens consumed, cache hit count
     - Track batch metrics: total processed, average size, average latency (<100ms @ 99th percentile), rate limit hits, cache hit rate
-    - **TIER 3 - DEEP REASONING:** Implement submitToGeminiBackground() using `client.interactions.create(background=True)` with `gemini-3.7-flash` model
+    - **TIER 3 - DEEP REASONING:** Implement submitToGeminiBackground() using `client.interactions.create(background=True)` with `gemini-3.8-flash` model
     - Background task submission includes webhook callback configuration (POST /webhook/analysis_complete)
     - Background submission returns task_id immediately (non-blocking)
     - _Requirements: 2.1, 2A.1, 2A.2, 2A.3, 2A.4, 2A.11, 2B.1, 2B.2, 2B.3, 2B.4_
@@ -258,7 +258,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - **TIER 2:** Test `previous_interaction_id` included in request for context caching
     - **TIER 2:** Test cache hit rate calculation (>=50% token reduction on hits)
     - **TIER 2:** Test <100ms latency @ 99th percentile
-    - **TIER 3:** Test background task submission with `gemini-3.7-flash` model
+    - **TIER 3:** Test background task submission with `gemini-3.8-flash` model
     - **TIER 3:** Test webhook callback URL configuration
     - **TIER 3:** Test immediate return of task_id (non-blocking)
     - Mock Gemini Interactions API responses for deterministic testing
@@ -631,7 +631,7 @@ Implement Agent_Behavioral_Analytics submission of background tasks to Gemini In
 **Acceptance Criteria:**
 1. AgentBehavioralAnalytics.submitBackgroundAnalysis() method submits task via `client.interactions.create(background=True)`
 2. Background task includes: quarantined tool context, related signatures, CBM dependency chain, GTI IOC data
-3. Background task uses `gemini-3.7-flash` model (deep reasoning tier)
+3. Background task uses `gemini-3.8-flash` model (deep reasoning tier)
 4. Task specifies webhook callback URL: `http://localhost:8090/webhook/analysis_complete`
 5. Task specifies webhook event types: `COMPLETED`, `FAILED`, `TIMEOUT`
 6. submitBackgroundAnalysis() returns task_id immediately (non-blocking)

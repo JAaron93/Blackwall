@@ -15,7 +15,7 @@ Blackwall evaluation is 100% cloud-native (Zero-SaaS) and structured into two ev
 |                                                                                   |
 |  [Tier 1: Fast CI/CD & Trajectory Eval]                                           |
 |   - Google Cloud Agent Platform / ADK In-Process Adversarial Harness              |
-|   - Models: gemini-3.5-flash-lite (triage) & gemini-3.7-flash (deep reasoning)   |
+|   - Models: gemini-3.5-flash-lite (triage) & gemini-3.8-flash (deep reasoning)   |
 |   - Vertex AI EvalTask (Pointwise & Pairwise autoraters, trajectory metrics)      |
 |   - Direct OpenTelemetry telemetry export to Google Cloud Trace                   |
 |                                                                                   |
@@ -91,7 +91,7 @@ GOOGLE_GENAI_USE_VERTEXAI=true
 
 # High-throughput models
 BLACKWALL_MODEL=gemini-3.5-flash-lite
-BLACKWALL_DEEP_REASONING_MODEL=gemini-3.7-flash
+BLACKWALL_DEEP_REASONING_MODEL=gemini-3.8-flash
 GEMINI_RPM_LIMIT=300
 
 # =============================================================================

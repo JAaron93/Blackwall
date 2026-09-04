@@ -206,10 +206,10 @@
 
 ## 42. Production LLM Model Standards (Gemini 3.X Generation)
 * **Rule (Main Interception & Rapid Triage Model):** MUST default to `gemini-3.5-flash-lite` for sub-100ms synchronous anomaly classification, structural policy escalation, and tool interception.
-* **Rule (Deep Reasoning & Forensic Attribution Model):** MUST default to `gemini-3.7-flash` for frontier semantic reasoning, attack path decompilation, and threat signature synthesis.
+* **Rule (Deep Reasoning & Forensic Attribution Model):** MUST default to `gemini-3.8-flash` for frontier semantic reasoning, attack path decompilation, and threat signature synthesis.
 * **Rule (Embeddings Model):** MUST default to `gemini-embedding-001` (768 dimensions).
 * **Rule (Deprecated Models Deny List):** All legacy model identifiers (`gemini-1.5-*`, `gemini-2.0-*`, `gemini-2.5-*`, and `gemini-3.1-pro-preview`) are strictly deprecated and prohibited in production and test configurations.
-* **Rationale:** `gemini-3.5-flash-lite` provides sub-100ms SLA compliance for the hot synchronous path, while `gemini-3.7-flash` delivers frontier reasoning speed and depth without the latency penalties of legacy preview models.
+* **Rationale:** `gemini-3.5-flash-lite` provides sub-100ms SLA compliance for the hot synchronous path, while `gemini-3.8-flash` delivers frontier reasoning speed and depth without the latency penalties of legacy preview models.
 
 ## 43. GCP Vertex AI EvalTask Failure Escalation & Cloud Trace Telemetry Invariants
 * **Rule (Explicit EvalTask Failure Escalation):**

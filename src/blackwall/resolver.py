@@ -557,7 +557,7 @@ class BatchResolver:
         cbm_chain: List[Any],
         gti_data: Any,
     ) -> str:
-        """Submits deep analysis in the background to Gemini 3.1 Pro-Preview.
+        """Submits deep analysis in the background to Gemini 3.8 Flash.
 
         Returns:
             task_id: The ID of the background interaction.
@@ -587,7 +587,7 @@ class BatchResolver:
             create_fn = self.client.interactions.create
             if asyncio.iscoroutinefunction(create_fn):
                 interaction = await create_fn(
-                    model="gemini-3.7-flash",
+                    model="gemini-3.8-flash",
                     input=json.dumps(payload_input),
                     background=True,
                     webhook_config=webhook_config,
@@ -599,7 +599,7 @@ class BatchResolver:
                 interaction = await loop.run_in_executor(
                     None,
                     lambda: create_fn(
-                        model="gemini-3.7-flash",
+                        model="gemini-3.8-flash",
                         input=json.dumps(payload_input),
                         background=True,
                         webhook_config=webhook_config,

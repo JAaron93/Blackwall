@@ -44,7 +44,7 @@ except ImportError:
             vertex: bool = True,
             project: str | None = None,
             location: str = "us-central1",
-            model: str = "gemini-3.7-flash",
+            model: str = "gemini-3.8-flash",
             response_schema: type[BaseModel] | None = None,
             capabilities: CapabilitiesConfig | None = None,
             **kwargs: Any,
@@ -123,7 +123,7 @@ def create_judge_agent(
     Args:
         domain: Target evaluation domain identifier.
         rubric_schema: Pydantic rubric model class for structured response output.
-        model: Model name override (defaults to BLACKWALL_JUDGE_MODEL or 'gemini-3.7-flash').
+        model: Model name override (defaults to BLACKWALL_JUDGE_MODEL or 'gemini-3.8-flash').
         enforce_tier: If True, asserts GEMINI_TIER=paid, BLACKWALL_TIER=paid, and GCP_PROJECT.
 
     Returns:
@@ -141,7 +141,7 @@ def create_judge_agent(
         project = project.strip()
 
     location = os.getenv("GCP_LOCATION") or os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1"
-    effective_model = model or os.getenv("BLACKWALL_JUDGE_MODEL") or "gemini-3.7-flash"
+    effective_model = model or os.getenv("BLACKWALL_JUDGE_MODEL") or "gemini-3.8-flash"
 
     capabilities = types.CapabilitiesConfig(
         agent_behavior=types.AgentBehavior.AUTONOMOUS,

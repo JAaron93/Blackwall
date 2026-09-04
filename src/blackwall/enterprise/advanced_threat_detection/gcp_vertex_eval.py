@@ -35,7 +35,7 @@ class GCPVertexEvalConfig(BaseModel):
         description="High-throughput model for rapid triage & fast evaluation turns.",
     )
     reasoner_model: str = Field(
-        default="gemini-3.7-flash",
+        default="gemini-3.8-flash",
         description="Deep reasoning model for autoraters and trajectory evaluation.",
     )
     flip_enabled: bool = Field(
@@ -398,7 +398,7 @@ class GCPVertexAIEvaluationHarness:
                 attributes={"experiment": self.config.experiment_name},
             )
 
-        if self._vertex_eval_available:
+        if self._vertex_eval_available and not self._init_error:
             try:
                 from vertexai.preview.evaluation import AutoraterConfig, EvalTask
 

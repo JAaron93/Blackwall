@@ -20,7 +20,7 @@ def test_gcp_vertex_eval_config_defaults():
     assert config.project_id == "test-eval-project"
     assert config.location == "us-central1"
     assert config.main_model == "gemini-3.5-flash-lite"
-    assert config.reasoner_model == "gemini-3.7-flash"
+    assert config.reasoner_model == "gemini-3.8-flash"
     assert config.flip_enabled is True
     assert config.sampling_count == 4
 
@@ -117,7 +117,7 @@ def test_gcp_vertex_eval_run_eval_task_local_fallback():
     metrics = ["threat_interception_accuracy"]
     result = harness.run_eval_task(dataset=dataset, metrics=metrics)
     assert result["status"] in ("COMPLETED", "LOCAL_FALLBACK")
-    assert result["model"] == "gemini-3.7-flash"
+    assert result["model"] == "gemini-3.8-flash"
 
 
 def test_gcp_vertex_eval_run_eval_task_explicit_failure_when_no_fallback():
