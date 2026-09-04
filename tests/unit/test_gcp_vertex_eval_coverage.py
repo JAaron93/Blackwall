@@ -209,6 +209,49 @@ def test_run_eval_task_capabilities_forwarded_to_vertex():
     assert raw_cfg.thinking_config.thinking_budget == -1
 
 
+def test_run_eval_task_thinking_attachment_failure_handling():
+    from unittest.mock import MagicMock, patch
+
+    config = GCPVertexEvalConfig(
+        project_id="test-proj",
+        thinking_level="high",
+        max_output_tokens=65536,
+        http_timeout=60.0,
+        allow_fallback=False,
+    )
+    harness = GCPVertexAIEvaluationHarness(config=config)
+    harness._vertex_eval_available = True
+    harness._init_error = None
+
+    dataset = [{"prompt": "test prompt"}]
+    metrics = ["threat_accuracy"]
+
+    mock_eval_task_cls = MagicMock()
+    mock_eval_task_instance = MagicMock()
+    mock_eval_task_cls.return_value = mock_eval_task_instance
+    mock_eval_result = MagicMock()
+    mock_eval_result.metrics_table = "table"
+    mock_eval_result.summary_metrics = {}
+    mock_eval_task_instance.evaluate.return_value = mock_eval_result
+
+    # Mock GenerativeModel without _raw_generation_config layout
+    mock_gen_model_cls = MagicMock()
+    bad_model_instance = MagicMock()
+    del bad_model_instance._generation_config._raw_generation_config
+    mock_gen_model_cls.return_value = bad_model_instance
+
+    with patch("vertexai.preview.evaluation.EvalTask", mock_eval_task_cls), \
+         patch("vertexai.generative_models.GenerativeModel", mock_gen_model_cls):
+        # 1. With raise_on_error=True: raises RuntimeError
+        with pytest.raises(RuntimeError, match="Failed to attach required thinking_level"):
+            harness.run_eval_task(dataset=dataset, metrics=metrics, raise_on_error=True)
+
+        # 2. With raise_on_error=False: reports sdk_default rather than false high
+        res = harness.run_eval_task(dataset=dataset, metrics=metrics, raise_on_error=False)
+        assert res["status"] == "COMPLETED"
+        assert res["thinking_level"] == "sdk_default"
+
+
 def test_run_eval_task_failure_when_fallback_disabled():
     config = GCPVertexEvalConfig(project_id="test-proj", allow_fallback=False)
     harness = GCPVertexAIEvaluationHarness(config=config)

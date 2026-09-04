@@ -415,7 +415,6 @@ class GCPVertexAIEvaluationHarness:
                 metric_name=",".join(metric_names),
                 attributes={
                     "experiment": self.config.experiment_name,
-                    "gen_ai.request.thinking_level": self.config.thinking_level,
                     "gen_ai.request.max_output_tokens": self.config.max_output_tokens,
                     "gen_ai.request.timeout": self.config.http_timeout,
                 },
@@ -438,6 +437,7 @@ class GCPVertexAIEvaluationHarness:
                 )
 
                 # Forward evaluator capability settings (max_output_tokens, thinking_level)
+                applied_thinking_level: Optional[str] = None
                 if isinstance(target_model, str):
                     gen_config = GenerationConfig(max_output_tokens=self.config.max_output_tokens)
                     model_obj = GenerativeModel(target_model, generation_config=gen_config)
@@ -462,14 +462,35 @@ class GCPVertexAIEvaluationHarness:
                                 kwargs["thinking_budget"] = budget
 
                             raw_cfg = getattr(getattr(model_obj, "_generation_config", None), "_raw_generation_config", None)
-                            if raw_cfg is not None:
-                                raw_cfg.thinking_config = content.GenerationConfig.ThinkingConfig(**kwargs)
-                                if hasattr(raw_cfg.thinking_config, "thinking_level"):
-                                    setattr(raw_cfg.thinking_config, "thinking_level", lvl.upper())
+                            if raw_cfg is None:
+                                raise AttributeError("Target model does not expose _raw_generation_config layout")
+                            raw_cfg.thinking_config = content.GenerationConfig.ThinkingConfig(**kwargs)
+                            if hasattr(raw_cfg.thinking_config, "thinking_level"):
+                                setattr(raw_cfg.thinking_config, "thinking_level", lvl.upper())
+                            applied_thinking_level = self.config.thinking_level
                         except Exception as tc_err:
-                            logger.debug("Could not attach ThinkingConfig: %s", tc_err)
+                            logger.warning(
+                                "Failed to attach ThinkingConfig to Vertex model '%s': %s",
+                                target_model,
+                                tc_err,
+                            )
+                            if raise_on_error:
+                                raise RuntimeError(
+                                    f"Failed to attach required thinking_level '{self.config.thinking_level}' to Vertex AI model: {tc_err}"
+                                ) from tc_err
+                            applied_thinking_level = "sdk_default"
                 else:
                     model_obj = target_model
+                    applied_thinking_level = self.config.thinking_level
+
+                if span is not None:
+                    effective_lvl = applied_thinking_level or "sdk_default"
+                    span.attributes["gen_ai.request.thinking_level"] = effective_lvl
+                    if getattr(span, "_otel_span", None) is not None:
+                        try:
+                            span._otel_span.set_attribute("gen_ai.request.thinking_level", effective_lvl)
+                        except Exception:
+                            pass
 
                 eval_result = eval_task.evaluate(
                     model=model_obj,
@@ -490,7 +511,7 @@ class GCPVertexAIEvaluationHarness:
                     "metrics_table": getattr(eval_result, "metrics_table", None),
                     "summary_metrics": getattr(eval_result, "summary_metrics", {}),
                     "model": target_model,
-                    "thinking_level": self.config.thinking_level,
+                    "thinking_level": applied_thinking_level or "sdk_default",
                     "max_output_tokens": self.config.max_output_tokens,
                     "http_timeout": self.config.http_timeout,
                 }
