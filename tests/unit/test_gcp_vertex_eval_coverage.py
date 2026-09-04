@@ -26,7 +26,7 @@ def test_gcp_vertex_eval_config_validation():
         project_id="test-proj-eval",
         location="us-central1",
         main_model="gemini-3.5-flash-lite",
-        reasoner_model="gemini-3.7-flash",
+        reasoner_model="gemini-3.8-flash",
         sampling_count=8,
     )
     assert config.project_id == "test-proj-eval"
@@ -92,19 +92,28 @@ def test_harness_init_and_autoraters():
     assert harness.trace_exporter is not None
 
     threat_autorater = harness.build_threat_accuracy_autorater()
-    assert threat_autorater["metric"] == "threat_interception_accuracy"
-    assert "accuracy" in threat_autorater["criteria"]
+    if isinstance(threat_autorater, dict):
+        assert threat_autorater["metric"] == "threat_interception_accuracy"
+        assert "accuracy" in threat_autorater["criteria"]
+    else:
+        assert getattr(threat_autorater, "metric", getattr(threat_autorater, "metric_name", None)) == "threat_interception_accuracy"
 
     hygiene_autorater = harness.build_context_hygiene_autorater()
-    assert hygiene_autorater["metric"] == "context_hygiene_sanitization"
-    assert "redaction" in hygiene_autorater["criteria"]
+    if isinstance(hygiene_autorater, dict):
+        assert hygiene_autorater["metric"] == "context_hygiene_sanitization"
+        assert "redaction" in hygiene_autorater["criteria"]
+    else:
+        assert getattr(hygiene_autorater, "metric", getattr(hygiene_autorater, "metric_name", None)) == "context_hygiene_sanitization"
 
     pairwise = harness.create_pairwise_autorater(
         metric_name="pairwise_test",
         prompt_template="Compare {baseline} vs {candidate}",
     )
-    assert pairwise["metric"] == "pairwise_test"
-    assert pairwise["flip_enabled"] is True
+    if isinstance(pairwise, dict):
+        assert pairwise["metric"] == "pairwise_test"
+        assert pairwise["flip_enabled"] is True
+    else:
+        assert getattr(pairwise, "metric", getattr(pairwise, "metric_name", None)) == "pairwise_test"
 
 
 def test_evaluate_trajectory():
@@ -150,6 +159,181 @@ def test_run_eval_task_local_fallback():
     assert res["status"] == "LOCAL_FALLBACK"
     assert res["total_items"] == 1
     assert "threat_accuracy" in res["metrics"]
+    assert res["thinking_level"] == "none"
+    assert res["max_output_tokens"] == 65536
+    assert res["http_timeout"] == 120.0
+
+
+def test_run_eval_task_fallback_telemetry_accuracy():
+    from unittest.mock import MagicMock, patch
+
+    exporter = GCPCloudTraceExporter(project_id="test-proj")
+    config = GCPVertexEvalConfig(
+        project_id="test-proj",
+        thinking_level="high",
+        allow_fallback=True,
+    )
+    harness = GCPVertexAIEvaluationHarness(config=config, trace_exporter=exporter)
+    harness._vertex_eval_available = True
+    harness._init_error = None
+
+    dataset = [{"prompt": "test prompt"}]
+    metrics = ["threat_accuracy"]
+
+    mock_eval_task_cls = MagicMock()
+    mock_eval_task_instance = MagicMock()
+    mock_eval_task_cls.return_value = mock_eval_task_instance
+    mock_eval_task_instance.evaluate.side_effect = RuntimeError("Vertex AI API error")
+
+    with patch("vertexai.preview.evaluation.EvalTask", mock_eval_task_cls):
+        res = harness.run_eval_task(dataset=dataset, metrics=metrics, raise_on_error=False)
+
+    assert res["status"] == "LOCAL_FALLBACK"
+    assert res["thinking_level"] == "none"
+
+    spans = exporter.exported_spans
+    fallback_spans = [s for s in spans if s.name == "vertex_eval.local_fallback"]
+    assert len(fallback_spans) == 1
+    assert fallback_spans[0].attributes.get("gen_ai.request.thinking_level") == "none"
+
+
+def test_run_eval_task_capabilities_forwarded_to_vertex():
+    from unittest.mock import MagicMock, patch
+
+    config = GCPVertexEvalConfig(
+        project_id="test-proj",
+        thinking_level="high",
+        max_output_tokens=65536,
+        http_timeout=90.0,
+        allow_fallback=False,
+    )
+    harness = GCPVertexAIEvaluationHarness(config=config)
+    harness._vertex_eval_available = True
+    harness._init_error = None
+
+    dataset = [{"prompt": "test prompt"}]
+    metrics = ["threat_accuracy"]
+
+    mock_eval_task_cls = MagicMock()
+    mock_eval_task_instance = MagicMock()
+    mock_eval_task_cls.return_value = mock_eval_task_instance
+    mock_eval_result = MagicMock()
+    mock_eval_result.metrics_table = "table"
+    mock_eval_result.summary_metrics = {"accuracy": 1.0}
+    mock_eval_task_instance.evaluate.return_value = mock_eval_result
+
+    with patch("vertexai.preview.evaluation.EvalTask", mock_eval_task_cls):
+        res = harness.run_eval_task(dataset=dataset, metrics=metrics)
+
+    assert res["status"] == "COMPLETED"
+    assert res["thinking_level"] == "high"
+    assert res["max_output_tokens"] == 65536
+    assert res["http_timeout"] == 90.0
+
+    mock_eval_task_instance.evaluate.assert_called_once()
+    call_kwargs = mock_eval_task_instance.evaluate.call_args[1]
+    assert call_kwargs["retry_timeout"] == 90.0
+    passed_model = call_kwargs["model"]
+    assert hasattr(passed_model, "_generation_config")
+    assert passed_model._generation_config.to_dict()["max_output_tokens"] == 65536
+    raw_cfg = getattr(passed_model._generation_config, "_raw_generation_config", None)
+    assert raw_cfg is not None
+    assert raw_cfg.thinking_config.include_thoughts is True
+    assert raw_cfg.thinking_config.thinking_budget == -1
+
+
+def test_run_eval_task_thinking_attachment_failure_handling():
+    from unittest.mock import MagicMock, patch
+
+    config = GCPVertexEvalConfig(
+        project_id="test-proj",
+        thinking_level="high",
+        max_output_tokens=65536,
+        http_timeout=60.0,
+        allow_fallback=False,
+    )
+    harness = GCPVertexAIEvaluationHarness(config=config)
+    harness._vertex_eval_available = True
+    harness._init_error = None
+
+    dataset = [{"prompt": "test prompt"}]
+    metrics = ["threat_accuracy"]
+
+    mock_eval_task_cls = MagicMock()
+    mock_eval_task_instance = MagicMock()
+    mock_eval_task_cls.return_value = mock_eval_task_instance
+    mock_eval_result = MagicMock()
+    mock_eval_result.metrics_table = "table"
+    mock_eval_result.summary_metrics = {}
+    mock_eval_task_instance.evaluate.return_value = mock_eval_result
+
+    # Mock GenerativeModel without _raw_generation_config layout
+    mock_gen_model_cls = MagicMock()
+    bad_model_instance = MagicMock()
+    del bad_model_instance._generation_config._raw_generation_config
+    mock_gen_model_cls.return_value = bad_model_instance
+
+    with patch("vertexai.preview.evaluation.EvalTask", mock_eval_task_cls), \
+         patch("vertexai.generative_models.GenerativeModel", mock_gen_model_cls):
+        # 1. With raise_on_error=True: raises RuntimeError
+        with pytest.raises(RuntimeError, match="Failed to attach required thinking_level"):
+            harness.run_eval_task(dataset=dataset, metrics=metrics, raise_on_error=True)
+
+        # 2. With raise_on_error=False and allow_fallback=False: reports sdk_default rather than false high
+        res = harness.run_eval_task(dataset=dataset, metrics=metrics, raise_on_error=False)
+        assert res["status"] == "COMPLETED"
+        assert res["thinking_level"] == "sdk_default"
+
+        # 3. With raise_on_error=False and allow_fallback=True: falls back to LOCAL_FALLBACK with thinking_level="none"
+        harness.config.allow_fallback = True
+        res_fb = harness.run_eval_task(dataset=dataset, metrics=metrics, raise_on_error=False)
+        assert res_fb["status"] == "LOCAL_FALLBACK"
+        assert res_fb["thinking_level"] == "none"
+
+
+def test_run_eval_task_unknown_thinking_level_handling():
+    from unittest.mock import MagicMock, patch
+
+    config = GCPVertexEvalConfig(
+        project_id="test-proj",
+        thinking_level="hgh",  # Misspelled / unsupported level
+        allow_fallback=False,
+    )
+    harness = GCPVertexAIEvaluationHarness(config=config)
+    harness._vertex_eval_available = True
+    harness._init_error = None
+
+    dataset = [{"prompt": "test prompt"}]
+    metrics = ["threat_accuracy"]
+
+    mock_eval_task_cls = MagicMock()
+    mock_eval_task_instance = MagicMock()
+    mock_eval_task_cls.return_value = mock_eval_task_instance
+    mock_eval_result = MagicMock()
+    mock_eval_result.metrics_table = "table"
+    mock_eval_result.summary_metrics = {}
+    mock_eval_task_instance.evaluate.return_value = mock_eval_result
+
+    mock_gen_model_cls = MagicMock()
+    mock_model_instance = MagicMock()
+    mock_gen_model_cls.return_value = mock_model_instance
+
+    with patch("vertexai.preview.evaluation.EvalTask", mock_eval_task_cls), \
+         patch("vertexai.generative_models.GenerativeModel", mock_gen_model_cls):
+        # 1. With raise_on_error=True: raises RuntimeError citing unsupported thinking_level
+        with pytest.raises(RuntimeError, match="Unsupported thinking_level 'hgh'"):
+            harness.run_eval_task(dataset=dataset, metrics=metrics, raise_on_error=True)
+
+        # 2. With raise_on_error=False and allow_fallback=False: reports sdk_default rather than falsely claiming 'hgh'
+        res = harness.run_eval_task(dataset=dataset, metrics=metrics, raise_on_error=False)
+        assert res["status"] == "COMPLETED"
+        assert res["thinking_level"] == "sdk_default"
+
+        # 3. With raise_on_error=False and allow_fallback=True: falls back to LOCAL_FALLBACK reporting 'none'
+        harness.config.allow_fallback = True
+        res_fb = harness.run_eval_task(dataset=dataset, metrics=metrics, raise_on_error=False)
+        assert res_fb["status"] == "LOCAL_FALLBACK"
+        assert res_fb["thinking_level"] == "none"
 
 
 def test_run_eval_task_failure_when_fallback_disabled():

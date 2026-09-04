@@ -557,7 +557,7 @@ class BatchResolver:
         cbm_chain: List[Any],
         gti_data: Any,
     ) -> str:
-        """Submits deep analysis in the background to Gemini 3.1 Pro-Preview.
+        """Submits deep analysis in the background to Gemini 3.8 Flash.
 
         Returns:
             task_id: The ID of the background interaction.
@@ -565,9 +565,11 @@ class BatchResolver:
         # Ensure we conform to local rate limits
         await self._acquire_rate_limit_token()
 
-        # Network-level timeout for background tasks (25 seconds).
+        # Network-level timeout for background tasks (120s floor for Gemini 3.8 Flash extended reasoning).
         # This applies a real HTTP timeout at the request level.
-        API_CALL_TIMEOUT = 25.0
+        from blackwall.config import get_gemini_http_timeout
+
+        API_CALL_TIMEOUT = get_gemini_http_timeout(task_type="analysis")
 
         # Build payload input
         payload_input = {
@@ -587,7 +589,7 @@ class BatchResolver:
             create_fn = self.client.interactions.create
             if asyncio.iscoroutinefunction(create_fn):
                 interaction = await create_fn(
-                    model="gemini-3.7-flash",
+                    model="gemini-3.8-flash",
                     input=json.dumps(payload_input),
                     background=True,
                     webhook_config=webhook_config,
@@ -599,7 +601,7 @@ class BatchResolver:
                 interaction = await loop.run_in_executor(
                     None,
                     lambda: create_fn(
-                        model="gemini-3.7-flash",
+                        model="gemini-3.8-flash",
                         input=json.dumps(payload_input),
                         background=True,
                         webhook_config=webhook_config,

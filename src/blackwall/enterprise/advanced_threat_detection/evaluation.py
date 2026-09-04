@@ -2,6 +2,7 @@
 
 Provides isolated attack graph instances, event labeling, alert isolation,
 state resets, and evidence-derived containment checks for evaluation environments.
+Aligned with Gemini 3.8 Flash capability maximization (thinking_level="high", max_output_tokens=65536).
 (Requirements 14.1 - 14.5, 22.5 & Properties 69 - 72).
 """
 

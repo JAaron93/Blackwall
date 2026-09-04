@@ -166,6 +166,8 @@ class GCPCloudTraceExporter:
         verdict: str,
         input_tokens: Optional[int] = None,
         output_tokens: Optional[int] = None,
+        thought_tokens: Optional[int] = None,
+        total_cost: Optional[float] = None,
         domain: Optional[str] = None,
         judge_model: Optional[str] = None,
         rubric_scores: Optional[Dict[str, Any]] = None,
@@ -179,6 +181,10 @@ class GCPCloudTraceExporter:
             span.attributes["gen_ai.usage.input_tokens"] = input_tokens
         if output_tokens is not None:
             span.attributes["gen_ai.usage.output_tokens"] = output_tokens
+        if thought_tokens is not None:
+            span.attributes["gen_ai.usage.thought_tokens"] = thought_tokens
+        if total_cost is not None:
+            span.attributes["gen_ai.usage.total_cost"] = total_cost
         if domain is not None:
             span.attributes["gen_ai.evaluation.domain"] = domain
         if judge_model is not None:

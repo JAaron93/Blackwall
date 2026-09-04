@@ -321,7 +321,7 @@ Structural Layer (fast path)              Semantic Layer (deep analysis)
 - Verdict decision: ALLOW/BLOCK/QUARANTINE with threat score
 
 **Tier 3: Deep Reasoning** (background, non-blocking, Gemini Flash / Deep Reasoner)
-- Model: `gemini-3.7-flash` (frontier reasoning, higher-quality analysis)
+- Model: `gemini-3.8-flash` (frontier reasoning, higher-quality analysis)
 - Execution: `background=True` submission → webhook callback when analysis complete
 - Triggered after BLOCK/QUARANTINE verdicts in Tier 2
 - Generates detailed threat signatures, behavioral patterns, mitigation recommendations
@@ -399,7 +399,7 @@ python scripts/run_gcp_eval.py
 
 # Scoped runs and options
 python scripts/run_gcp_eval.py --domains c2_detection,ailm
-python scripts/run_gcp_eval.py --eval-threshold 3.5 --model gemini-3.7-flash --no-trace
+python scripts/run_gcp_eval.py --eval-threshold 3.5 --model gemini-3.8-flash --no-trace
 ```
 
 The pipeline routes scenarios from `tests/eval/judge_scenarios/` and the GCP native datasets to domain-specific autonomous Antigravity SDK judges, executes the mapped security components under `SLAValidator` latency measurement, runs the managed Vertex AI `EvalTask` (a `COMPLETED` status is required — `FAILED`/`LOCAL_FALLBACK` fails the run), compares scores against historical baselines in `tests/eval/regression/history.jsonl`, and exits 0/1 as the CI gate. Requires ADC authentication plus `GEMINI_TIER=paid` / `BLACKWALL_TIER=paid` (300+ RPM quota contract); scenarios for unmapped domains fail the gate instead of being scored from ground truth.
@@ -710,7 +710,7 @@ VirusTotal free tier: 4 queries/minute
 
 **Architecture**: Hybrid structural + semantic gating with self-learning threat signature graph  
 **Platform**: 100% GCP Vertex AI Mode (Gemini Enterprise Agent Platform)  
-**Models**: Gemini 3.5 Flash-Lite (rapid triage), Gemini 3.7 Flash (deep reasoning)  
+**Models**: Gemini 3.5 Flash-Lite (rapid triage), Gemini 3.8 Flash (deep reasoning)  
 **Evaluation**: 120-case suite with sub-10% FRR and evasion rates on reference-based dataset  
 **Code**: Python 3.11+, asyncio, SQLite WAL, eBPF probes, ZeroMQ threat mesh  
 **Repository**: [GitHub - Blackwall](https://github.com/JAaron93/Blackwall)

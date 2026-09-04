@@ -206,10 +206,11 @@
 
 ## 42. Production LLM Model Standards (Gemini 3.X Generation)
 * **Rule (Main Interception & Rapid Triage Model):** MUST default to `gemini-3.5-flash-lite` for sub-100ms synchronous anomaly classification, structural policy escalation, and tool interception.
-* **Rule (Deep Reasoning & Forensic Attribution Model):** MUST default to `gemini-3.7-flash` for frontier semantic reasoning, attack path decompilation, and threat signature synthesis.
+* **Rule (Deep Reasoning & Forensic Attribution Model):** MUST default to `gemini-3.8-flash` for frontier semantic reasoning, attack path decompilation, and threat signature synthesis.
+* **Rule (Flash-Only Architecture & Prohibition of Pro Models):** Blackwall operates exclusively on Gemini Flash models. All Gemini Pro models (`gemini-*-pro*`) and unverified/hallucinated model identifiers are strictly prohibited in production, test suites, evaluation judges, benchmarks, mocks, and property tests.
 * **Rule (Embeddings Model):** MUST default to `gemini-embedding-001` (768 dimensions).
 * **Rule (Deprecated Models Deny List):** All legacy model identifiers (`gemini-1.5-*`, `gemini-2.0-*`, `gemini-2.5-*`, and `gemini-3.1-pro-preview`) are strictly deprecated and prohibited in production and test configurations.
-* **Rationale:** `gemini-3.5-flash-lite` provides sub-100ms SLA compliance for the hot synchronous path, while `gemini-3.7-flash` delivers frontier reasoning speed and depth without the latency penalties of legacy preview models.
+* **Rationale:** `gemini-3.5-flash-lite` provides sub-100ms SLA compliance for the hot synchronous path, while `gemini-3.8-flash` delivers frontier reasoning speed and depth without the latency penalties of legacy preview models.
 
 ## 43. GCP Vertex AI EvalTask Failure Escalation & Cloud Trace Telemetry Invariants
 * **Rule (Explicit EvalTask Failure Escalation):**
@@ -250,6 +251,7 @@
     ):
         raise ValueError("x must be a finite float greater than 0.0")
     ```
+  - **Configuration and Environment Variable Resolvers**: Resolvers reading numeric settings from environment variables (e.g. `get_gemini_http_timeout`, `get_gemini_max_output_tokens`) MUST validate parsed floats/ints with `math.isfinite(val) and val > 0`. Because Python's `float("nan")` and `float("inf")` parse without raising `ValueError`, resolvers MUST catch non-finite or non-positive values and fall back to safe architectural defaults rather than passing invalid values to downstream SDKs.
   - Relying solely on `x <= 0.0` or `x < 1.0` is strictly prohibited because comparisons with `NaN` (e.g. `float('nan') <= 0.0`) evaluate to `False` in Python, accepting invalid inputs. Similarly, positive infinity (`float('inf')`) passes `> 0.0` checks and breaks enforcement: infinite rate/velocity limits prevent threshold comparisons from triggering, while infinite timeouts and quarantine durations produce holds that never expire automatically.
 * **Rationale:** Accepting `NaN` breaks mathematical comparisons in sliding-window calculations and alert severity evaluation, causing silent security failures. Accepting `+inf` disables throttling and creates unexpiring quarantines, causing denial of service for benign workloads or unmitigated Denial of Wallet (DoW) exposure for adversarial workloads.
 
@@ -366,6 +368,17 @@
   4. cgroup & host RSS bounds: `MemoryHigh=320M` and `MemoryMax=350M` in systemd unit, and host process RSS ≤ 350MB under active evaluation load.
 * **Rule (Windows Strictly Excluded):** Windows packaging (`.exe`, `.msi`, PowerShell) is explicitly barred from all release and maintenance workflows.
 * **Rationale:** Discovered during DGX Spark spec review on PR #111. Unified memory pools require strict co-existence guarantees and multi-layer verification to ensure agent security firewalls never starve colocated AI models.
+
+## 57. GCP Vertex AI Thinking Budget Mapping & Telemetry Truthfulness
+* **Rule (Vertex AI Thinking Budget Mapping):** In Google Cloud Vertex AI evaluations and models (`vertexai.generative_models`, `vertexai.preview.evaluation.EvalTask`), configuring reasoning levels MUST NOT merely set `include_thoughts=True`. The `thinking_level` string MUST be translated to `ThinkingConfig.thinking_budget`:
+  - `"high"` → `thinking_budget = -1` (dynamic unthrottled reasoning)
+  - `"medium"` → `thinking_budget = 16384`
+  - `"low"` → `thinking_budget = 2048`
+  - `"off"` → `thinking_budget = 0`
+* **Rule (Fail-Safe Capability Attachment & Telemetry Truthfulness):** When attaching `ThinkingConfig` or private configuration overrides to Vertex AI models, code MUST NOT silently suppress attachment errors while reporting requested capabilities as active:
+  - If `raise_on_error=True`: raise a descriptive `RuntimeError` immediately.
+  - If `raise_on_error=False`: log a warning and record `applied_thinking_level = "sdk_default"` in evaluation results and Cloud Trace / OpenTelemetry span attributes (`gen_ai.request.thinking_level`), ensuring telemetry accurately reflects executed capabilities.
+* **Rationale:** Discovered during PR #113 Greptile reviews. Toggling only `include_thoughts` omits the reasoning budget, while masking attachment failures produces false-positive evaluation claims and misleading telemetry in production benchmarks.
 
 
 

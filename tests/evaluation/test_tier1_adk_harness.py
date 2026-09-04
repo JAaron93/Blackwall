@@ -1,6 +1,6 @@
 """
 Task 23.1: Tier 1 In-Process ADK Adversarial Harness in 100% GCP Vertex AI Mode.
-Validates before_tool_callback interception with gemini-3.5-flash-lite and gemini-3.7-flash.
+Validates before_tool_callback interception with gemini-3.5-flash-lite and gemini-3.8-flash.
 """
 
 import pytest
@@ -21,7 +21,7 @@ async def test_tier1_adk_before_tool_callback_interception():
     harness = GCPVertexAIEvaluationHarness(
         config=GCPVertexEvalConfig(
             main_model="gemini-3.5-flash-lite",
-            reasoner_model="gemini-3.7-flash",
+            reasoner_model="gemini-3.8-flash",
         )
     )
     exporter = GCPCloudTraceExporter(project_id="tier1-adk-eval")

@@ -101,7 +101,7 @@ async def create_judge_agent(rubric_schema: type[BaseModel]) -> Agent:
         vertex=True,
         project=os.getenv("GCP_PROJECT"),
         location=os.getenv("GCP_LOCATION", "global"),
-        model="gemini-3.7-flash",
+        model="gemini-3.8-flash",
         response_schema=rubric_schema,
         capabilities=types.CapabilitiesConfig(
             agent_behavior=types.AgentBehavior.AUTONOMOUS,

@@ -31,8 +31,8 @@ For synchronous inline resolution (`submit_to_gemini_sync` in `BatchResolver`), 
 - **Micro-Cent Unit Economics**: Enables continuous, non-sampled inspection across high-frequency tool invocations without cost exhaustion.
 - **Server-Side Context Caching (`previous_interaction_id`)**: Natively persists policy snapshots and tool context server-side across interaction turns, guaranteeing a `>=50%` token reduction on cache hits and eliminating redundant payload serialization.
 
-### 2. Asynchronous Out-of-Band Engine: Gemini 3.7 Flash
-For quarantined events requiring deep threat correlation (`submit_to_gemini_background`), Blackwall standardizes on **Gemini 3.7 Flash**:
+### 2. Asynchronous Out-of-Band Engine: Gemini 3.8 Flash
+For quarantined events requiring deep threat correlation (`submit_to_gemini_background`), Blackwall standardizes on **Gemini 3.8 Flash**:
 - **Native Background Webhooks (`background=True`)**: Employs the Gemini Interactions API's built-in background execution primitive. The model endpoint processes deep threat chains out-of-band and notifies Blackwall's `/webhook/analysis_complete` endpoint via asynchronous server-side webhooks.
 - **Queue-Free Task Offloading & Ingress Topology**: Eliminates the operational overhead and failure modes of deploying separate distributed task brokers (e.g., Celery, Temporal, or RabbitMQ) to manage asynchronous forensic triage. In production deployments where `WebhookListener` binds locally (`127.0.0.1`), delivering completed cloud callbacks requires an external ingress relay, reverse proxy, or Cloud Run service URL to route traffic to the listener.
 
