@@ -206,6 +206,7 @@ def test_run_eval_task_capabilities_forwarded_to_vertex():
     raw_cfg = getattr(passed_model._generation_config, "_raw_generation_config", None)
     assert raw_cfg is not None
     assert raw_cfg.thinking_config.include_thoughts is True
+    assert raw_cfg.thinking_config.thinking_budget == -1
 
 
 def test_run_eval_task_failure_when_fallback_disabled():

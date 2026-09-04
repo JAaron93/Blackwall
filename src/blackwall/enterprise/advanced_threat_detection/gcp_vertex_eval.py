@@ -442,15 +442,30 @@ class GCPVertexAIEvaluationHarness:
                     gen_config = GenerationConfig(max_output_tokens=self.config.max_output_tokens)
                     model_obj = GenerativeModel(target_model, generation_config=gen_config)
                     if self.config.thinking_level:
+                        lvl = self.config.thinking_level.lower().strip()
+                        include_thoughts = lvl not in ("off", "none", "false", "0")
+                        # Map semantic thinking level to reasoning token budget
+                        thinking_budget_map = {
+                            "high": -1,       # Dynamic unthrottled deep reasoning
+                            "medium": 16384,  # Intermediate reasoning budget
+                            "low": 2048,      # Minimal rapid reasoning budget
+                            "minimal": 1024,
+                            "off": 0,
+                        }
+                        budget = thinking_budget_map.get(lvl, -1 if lvl == "high" else 0)
+
                         try:
                             from google.cloud.aiplatform_v1beta1.types import content
 
-                            include_thoughts = self.config.thinking_level.lower() in ("high", "medium")
+                            kwargs: Dict[str, Any] = {"include_thoughts": include_thoughts}
+                            if budget is not None:
+                                kwargs["thinking_budget"] = budget
+
                             raw_cfg = getattr(getattr(model_obj, "_generation_config", None), "_raw_generation_config", None)
                             if raw_cfg is not None:
-                                raw_cfg.thinking_config = content.GenerationConfig.ThinkingConfig(
-                                    include_thoughts=include_thoughts
-                                )
+                                raw_cfg.thinking_config = content.GenerationConfig.ThinkingConfig(**kwargs)
+                                if hasattr(raw_cfg.thinking_config, "thinking_level"):
+                                    setattr(raw_cfg.thinking_config, "thinking_level", lvl.upper())
                         except Exception as tc_err:
                             logger.debug("Could not attach ThinkingConfig: %s", tc_err)
                 else:
