@@ -113,7 +113,7 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
 - [x] B.1 Create base judge agent infrastructure
   - [x] B.1.1 Implement judge agent factory (`src/blackwall/eval/judge_factory.py`)
     - Create `create_judge_agent(domain, rubric_schema)` factory function
-    - Configure `LocalAgentConfig(vertex=True, project=GCP_PROJECT, location=GCP_LOCATION, model="gemini-3.7-flash", response_schema=rubric_schema, capabilities=CapabilitiesConfig(agent_behavior=AgentBehavior.AUTONOMOUS))`
+    - Configure `LocalAgentConfig(vertex=True, project=GCP_PROJECT, location=GCP_LOCATION, model="gemini-3.8-flash", response_schema=rubric_schema, capabilities=CapabilitiesConfig(agent_behavior=AgentBehavior.AUTONOMOUS))`
     - Support configurable model override via `BLACKWALL_JUDGE_MODEL` env var
     - _Requirements: 1.4, 2.4, 3.4, 4.4, 5.4, 6.4, 7.4, 8.4, 9.4, NFR-1_
     - _Verification: `pytest tests/unit/test_judge_factory.py -v`_

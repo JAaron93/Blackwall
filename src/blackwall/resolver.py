@@ -565,9 +565,11 @@ class BatchResolver:
         # Ensure we conform to local rate limits
         await self._acquire_rate_limit_token()
 
-        # Network-level timeout for background tasks (25 seconds).
+        # Network-level timeout for background tasks (120s floor for Gemini 3.8 Flash extended reasoning).
         # This applies a real HTTP timeout at the request level.
-        API_CALL_TIMEOUT = 25.0
+        from blackwall.config import get_gemini_http_timeout
+
+        API_CALL_TIMEOUT = get_gemini_http_timeout(task_type="analysis")
 
         # Build payload input
         payload_input = {

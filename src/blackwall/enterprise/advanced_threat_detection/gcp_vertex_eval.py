@@ -16,6 +16,12 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 from pydantic import BaseModel, Field, field_validator
 
+from blackwall.config import (
+    get_gemini_http_timeout,
+    get_gemini_max_output_tokens,
+    get_gemini_thinking_level,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,6 +43,18 @@ class GCPVertexEvalConfig(BaseModel):
     reasoner_model: str = Field(
         default="gemini-3.8-flash",
         description="Deep reasoning model for autoraters and trajectory evaluation.",
+    )
+    thinking_level: str = Field(
+        default_factory=lambda: get_gemini_thinking_level(task_type="evaluator") or "high",
+        description="Thinking level for evaluation reasoners (high for analytical autoraters).",
+    )
+    max_output_tokens: int = Field(
+        default_factory=lambda: get_gemini_max_output_tokens(task_type="evaluator"),
+        description="Maximum output token ceiling for structured evaluation rubrics (up to 64K).",
+    )
+    http_timeout: float = Field(
+        default_factory=lambda: get_gemini_http_timeout(task_type="evaluator"),
+        description="Request-level HTTP timeout in seconds for deep reasoning evaluation runs.",
     )
     flip_enabled: bool = Field(
         default=True,

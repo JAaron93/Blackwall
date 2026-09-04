@@ -47,6 +47,9 @@ except ImportError:
             model: str = "gemini-3.8-flash",
             response_schema: type[BaseModel] | None = None,
             capabilities: CapabilitiesConfig | None = None,
+            thinking_level: str | None = None,
+            max_output_tokens: int | None = None,
+            timeout: float | None = None,
             **kwargs: Any,
         ) -> None:
             self.vertex = vertex
@@ -55,6 +58,9 @@ except ImportError:
             self.model = model
             self.response_schema = response_schema
             self.capabilities = capabilities or CapabilitiesConfig()
+            self.thinking_level = thinking_level
+            self.max_output_tokens = max_output_tokens
+            self.timeout = timeout
             self.extra = kwargs
 
     class Agent:  # type: ignore[no-redef]
@@ -116,6 +122,9 @@ def create_judge_agent(
     rubric_schema: type[BaseModel],
     model: str | None = None,
     enforce_tier: bool = True,
+    thinking_level: str | None = None,
+    max_output_tokens: int | None = None,
+    timeout: float | None = None,
 ) -> Agent:
     """
     Create an autonomous Antigravity SDK Agent configured for evaluation scoring.
@@ -125,10 +134,19 @@ def create_judge_agent(
         rubric_schema: Pydantic rubric model class for structured response output.
         model: Model name override (defaults to BLACKWALL_JUDGE_MODEL or 'gemini-3.8-flash').
         enforce_tier: If True, asserts GEMINI_TIER=paid, BLACKWALL_TIER=paid, and GCP_PROJECT.
+        thinking_level: Optional thinking level override (defaults to get_gemini_thinking_level, enforcing HIGH floor).
+        max_output_tokens: Optional token ceiling override (defaults to get_gemini_max_output_tokens, 64K floor).
+        timeout: Optional request timeout override (defaults to get_gemini_http_timeout, 120s floor).
 
     Returns:
         Configured Agent instance.
     """
+    from blackwall.config import (
+        get_gemini_http_timeout,
+        get_gemini_max_output_tokens,
+        get_gemini_thinking_level,
+    )
+
     if enforce_tier:
         validate_evaluation_tier_contract()
 
@@ -142,6 +160,13 @@ def create_judge_agent(
 
     location = os.getenv("GCP_LOCATION") or os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1"
     effective_model = model or os.getenv("BLACKWALL_JUDGE_MODEL") or "gemini-3.8-flash"
+    effective_thinking_level = thinking_level or get_gemini_thinking_level(
+        model=effective_model, task_type="judge"
+    )
+    effective_max_output_tokens = max_output_tokens or get_gemini_max_output_tokens(
+        task_type="judge"
+    )
+    effective_timeout = timeout or get_gemini_http_timeout(task_type="judge")
 
     capabilities = types.CapabilitiesConfig(
         agent_behavior=types.AgentBehavior.AUTONOMOUS,
@@ -154,12 +179,18 @@ def create_judge_agent(
         model=effective_model,
         response_schema=rubric_schema,
         capabilities=capabilities,
+        thinking_level=effective_thinking_level,
+        max_output_tokens=effective_max_output_tokens,
+        timeout=effective_timeout,
     )
 
     logger.info(
-        "Created judge agent for domain '%s' using model '%s' in region '%s'",
+        "Created judge agent for domain '%s' using model '%s' in region '%s' (thinking_level=%s, max_output_tokens=%s, timeout=%s)",
         domain,
         effective_model,
         location,
+        effective_thinking_level,
+        effective_max_output_tokens,
+        effective_timeout,
     )
     return Agent(config=config)

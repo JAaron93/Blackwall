@@ -59,19 +59,22 @@ def test_create_judge_agent_config(monkeypatch: pytest.MonkeyPatch) -> None:
     assert agent.config.model == "gemini-3.8-flash"
     assert agent.config.response_schema == ThreatInterceptionRubric
     assert agent.config.capabilities.agent_behavior == "AUTONOMOUS"
+    assert agent.config.thinking_level == "high"
+    assert agent.config.max_output_tokens == 65536
+    assert agent.config.timeout == 120.0
 
 
 def test_create_judge_agent_model_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GEMINI_TIER", "paid")
     monkeypatch.setenv("BLACKWALL_TIER", "paid")
-    monkeypatch.setenv("BLACKWALL_JUDGE_MODEL", "gemini-2.5-pro")
+    monkeypatch.setenv("BLACKWALL_JUDGE_MODEL", "gemini-3.8-pro")
 
     agent_env_model = create_judge_agent(
         domain="threat_interception",
         rubric_schema=DummyRubric,
         enforce_tier=False,
     )
-    assert agent_env_model.config.model == "gemini-2.5-pro"
+    assert agent_env_model.config.model == "gemini-3.8-pro"
 
     agent_explicit_model = create_judge_agent(
         domain="threat_interception",
