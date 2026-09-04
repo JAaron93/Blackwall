@@ -159,9 +159,42 @@ def test_run_eval_task_local_fallback():
     assert res["status"] == "LOCAL_FALLBACK"
     assert res["total_items"] == 1
     assert "threat_accuracy" in res["metrics"]
-    assert res["thinking_level"] == "high"
+    assert res["thinking_level"] == "none"
     assert res["max_output_tokens"] == 65536
     assert res["http_timeout"] == 120.0
+
+
+def test_run_eval_task_fallback_telemetry_accuracy():
+    from unittest.mock import MagicMock, patch
+
+    exporter = GCPCloudTraceExporter(project_id="test-proj")
+    config = GCPVertexEvalConfig(
+        project_id="test-proj",
+        thinking_level="high",
+        allow_fallback=True,
+    )
+    harness = GCPVertexAIEvaluationHarness(config=config, trace_exporter=exporter)
+    harness._vertex_eval_available = True
+    harness._init_error = None
+
+    dataset = [{"prompt": "test prompt"}]
+    metrics = ["threat_accuracy"]
+
+    mock_eval_task_cls = MagicMock()
+    mock_eval_task_instance = MagicMock()
+    mock_eval_task_cls.return_value = mock_eval_task_instance
+    mock_eval_task_instance.evaluate.side_effect = RuntimeError("Vertex AI API error")
+
+    with patch("vertexai.preview.evaluation.EvalTask", mock_eval_task_cls):
+        res = harness.run_eval_task(dataset=dataset, metrics=metrics, raise_on_error=False)
+
+    assert res["status"] == "LOCAL_FALLBACK"
+    assert res["thinking_level"] == "none"
+
+    spans = exporter.exported_spans
+    fallback_spans = [s for s in spans if s.name == "vertex_eval.local_fallback"]
+    assert len(fallback_spans) == 1
+    assert fallback_spans[0].attributes.get("gen_ai.request.thinking_level") == "none"
 
 
 def test_run_eval_task_capabilities_forwarded_to_vertex():
@@ -246,10 +279,16 @@ def test_run_eval_task_thinking_attachment_failure_handling():
         with pytest.raises(RuntimeError, match="Failed to attach required thinking_level"):
             harness.run_eval_task(dataset=dataset, metrics=metrics, raise_on_error=True)
 
-        # 2. With raise_on_error=False: reports sdk_default rather than false high
+        # 2. With raise_on_error=False and allow_fallback=False: reports sdk_default rather than false high
         res = harness.run_eval_task(dataset=dataset, metrics=metrics, raise_on_error=False)
         assert res["status"] == "COMPLETED"
         assert res["thinking_level"] == "sdk_default"
+
+        # 3. With raise_on_error=False and allow_fallback=True: falls back to LOCAL_FALLBACK with thinking_level="none"
+        harness.config.allow_fallback = True
+        res_fb = harness.run_eval_task(dataset=dataset, metrics=metrics, raise_on_error=False)
+        assert res_fb["status"] == "LOCAL_FALLBACK"
+        assert res_fb["thinking_level"] == "none"
 
 
 def test_run_eval_task_failure_when_fallback_disabled():

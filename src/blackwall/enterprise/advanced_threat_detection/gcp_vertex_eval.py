@@ -407,6 +407,7 @@ class GCPVertexAIEvaluationHarness:
         """
         target_model = model or self.config.reasoner_model
         span = None
+        applied_thinking_level: Optional[str] = None
         if self._trace_exporter is not None:
             metric_names = [m if isinstance(m, str) else getattr(m, "metric", "custom") for m in metrics]
             span = self._trace_exporter.start_span(
@@ -437,7 +438,6 @@ class GCPVertexAIEvaluationHarness:
                 )
 
                 # Forward evaluator capability settings (max_output_tokens, thinking_level)
-                applied_thinking_level: Optional[str] = None
                 if isinstance(target_model, str):
                     gen_config = GenerationConfig(max_output_tokens=self.config.max_output_tokens)
                     model_obj = GenerativeModel(target_model, generation_config=gen_config)
@@ -477,6 +477,10 @@ class GCPVertexAIEvaluationHarness:
                             if raise_on_error:
                                 raise RuntimeError(
                                     f"Failed to attach required thinking_level '{self.config.thinking_level}' to Vertex AI model: {tc_err}"
+                                ) from tc_err
+                            if self.config.allow_fallback:
+                                raise RuntimeError(
+                                    f"ThinkingConfig attachment failed with fallback enabled: {tc_err}"
                                 ) from tc_err
                             applied_thinking_level = "sdk_default"
                 else:
@@ -518,6 +522,8 @@ class GCPVertexAIEvaluationHarness:
             except Exception as e:
                 logger.error("Vertex AI EvalTask API execution failed: %s", e)
                 if span is not None:
+                    if "gen_ai.request.thinking_level" not in span.attributes:
+                        span.attributes["gen_ai.request.thinking_level"] = applied_thinking_level or "sdk_default"
                     self._trace_exporter.record_evaluation_error(
                         span=span,
                         error=e,
@@ -556,6 +562,7 @@ class GCPVertexAIEvaluationHarness:
 
         # Local fallback execution (only when explicitly permitted via allow_fallback=True)
         total = len(dataset) if hasattr(dataset, "__len__") else 1
+        effective_thinking_level = "none"
         if span is not None:
             if span.end_time_ns is not None:
                 # Primary cloud evaluation span already captured error telemetry; emit a dedicated fallback span
@@ -563,7 +570,11 @@ class GCPVertexAIEvaluationHarness:
                     name="vertex_eval.local_fallback",
                     model=target_model,
                     metric_name=",".join(metric_names),
-                    attributes={"experiment": self.config.experiment_name, "reason": "cloud_eval_fallback"},
+                    attributes={
+                        "experiment": self.config.experiment_name,
+                        "reason": "cloud_eval_fallback",
+                        "gen_ai.request.thinking_level": effective_thinking_level,
+                    },
                 )
                 self._trace_exporter.record_evaluation_result(
                     span=fallback_span,
@@ -572,6 +583,12 @@ class GCPVertexAIEvaluationHarness:
                 )
                 self._trace_exporter.flush()
             else:
+                span.attributes["gen_ai.request.thinking_level"] = effective_thinking_level
+                if getattr(span, "_otel_span", None) is not None:
+                    try:
+                        span._otel_span.set_attribute("gen_ai.request.thinking_level", effective_thinking_level)
+                    except Exception:
+                        pass
                 self._trace_exporter.record_evaluation_result(
                     span=span,
                     score=1.0,
@@ -584,7 +601,7 @@ class GCPVertexAIEvaluationHarness:
             "total_items": total,
             "metrics": [m if isinstance(m, str) else getattr(m, "metric", "custom") for m in metrics],
             "model": target_model,
-            "thinking_level": self.config.thinking_level,
+            "thinking_level": effective_thinking_level,
             "max_output_tokens": self.config.max_output_tokens,
             "http_timeout": self.config.http_timeout,
             "summary": self._metrics.summary(),
