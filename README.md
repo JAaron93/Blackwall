@@ -67,7 +67,7 @@ Blackwall is structured into **two distinct product tiers** to serve both develo
 | **Developer Test Cost** | **$0.00 (100% Free)** | **$0.00 (100% Free local open-source MCP adapters)** |
 
 > [!NOTE]
-> For complete technical specifications of the MCP Gateway, Enterprise Security Mesh, Advanced Threat Detection, Attacker Attribution, and Rust Acceleration, see [.kiro/specs/blackwall-mcp-gateway/](.kiro/specs/blackwall-mcp-gateway/), [.kiro/specs/blackwall-enterprise-security-mesh/](.kiro/specs/blackwall-enterprise-security-mesh/), [.kiro/specs/blackwall-advanced-threat-detection/](.kiro/specs/blackwall-advanced-threat-detection/), [.kiro/specs/blackwall-attacker-attribution/](.kiro/specs/blackwall-attacker-attribution/), and [.kiro/specs/blackwall-rust-acceleration/](.kiro/specs/blackwall-rust-acceleration/).
+> For complete technical specifications of the MCP Gateway, Enterprise Security Mesh, Advanced Threat Detection, Attacker Attribution, Agent Swarm Attribution Logic, and Rust Acceleration, see [.kiro/specs/blackwall-mcp-gateway/](.kiro/specs/blackwall-mcp-gateway/), [.kiro/specs/blackwall-enterprise-security-mesh/](.kiro/specs/blackwall-enterprise-security-mesh/), [.kiro/specs/blackwall-advanced-threat-detection/](.kiro/specs/blackwall-advanced-threat-detection/), [.kiro/specs/blackwall-attacker-attribution/](.kiro/specs/blackwall-attacker-attribution/), [.kiro/specs/agent-swarm-attribution-logic/](.kiro/specs/agent-swarm-attribution-logic/), and [.kiro/specs/blackwall-rust-acceleration/](.kiro/specs/blackwall-rust-acceleration/).
 
 
 ### ⚡ Enterprise Security Mesh Quick Start
@@ -104,7 +104,8 @@ from uuid import uuid4
 from blackwall.enterprise.advanced_threat_detection import (
     EventStreamCollector, NormalizedEvent, EventSource, AttackGraphStore, PathCorrelator,
     AgentSwarmDetector, ExploitChainAnalyzer, AILMTracker, C2InfrastructureDetector,
-    KubernetesDefenseLayer, PackageRegistryMonitor, PermissionGrant, AlertBus, AlertSeverity
+    KubernetesDefenseLayer, PackageRegistryMonitor, PermissionGrant, AlertBus, AlertSeverity,
+    CovertChannelEvidence, CovertChannelType
 )
 
 collector = EventStreamCollector()
@@ -621,6 +622,8 @@ pytest tests/features/blackwall_guardrails.feature -v
 | **[requirements.md](.kiro/specs/blackwall-agentic-firewall/requirements.md)** | 28 EARS-compliant requirements with acceptance criteria |
 | **[tasks.md](.kiro/specs/blackwall-agentic-firewall/tasks.md)** | Implementation plan with 97 tasks, dependencies, estimates |
 | **[AGENTS.md](AGENTS.md)** | Agent context & architectural guardrails (workspace rules) |
+| **[agent-swarm-attribution-logic](.kiro/specs/agent-swarm-attribution-logic/)** | Agent Swarm Attribution Logic specification (collective markers, covert channel detection, and swarm profiling) |
+| **[helper_functions.md](docs/helper_functions.md)** | Catalog of centralized validation helpers, utilities, and date/UUID formatters |
 | **[Source Code](src/blackwall)** | All implementations with inline docs (resolver.py, models.py, sync_resolver.py, etc.) |
 
 ---

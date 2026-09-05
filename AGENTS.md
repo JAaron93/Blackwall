@@ -21,7 +21,7 @@ Blackwall is structured into **two distinct product tiers**:
 All code submitted via pull requests or feature branches must be reviewed against these Greptile agent guardrails:
 
 * **Greptile Review Directives**: Enforce Greptile agent review standards configured in `.greptile/config.json`, `.greptile/rules.md`, and `.greptile/files.json`. Greptile reviews must verify both Core and Enterprise architecture invariants.
-* **Spec-Driven Consistency**: All edits must align with `.kiro/specs/blackwall-mcp-gateway/`, `.kiro/specs/blackwall-enterprise-security-mesh/`, `.kiro/specs/blackwall-advanced-threat-detection/`, `.kiro/specs/blackwall-attacker-attribution/`, `.kiro/specs/blackwall-test-coverage-remediation/`, `.kiro/specs/blackwall-gcp-evaluation-coverage/`, and `.kiro/specs/blackwall-rust-acceleration/` (`design.md`, `requirements.md`, `tasks.md`).
+* **Spec-Driven Consistency**: All edits must align with `.kiro/specs/blackwall-mcp-gateway/`, `.kiro/specs/blackwall-enterprise-security-mesh/`, `.kiro/specs/blackwall-advanced-threat-detection/`, `.kiro/specs/blackwall-attacker-attribution/`, `.kiro/specs/agent-swarm-attribution-logic/`, `.kiro/specs/blackwall-test-coverage-remediation/`, `.kiro/specs/blackwall-gcp-evaluation-coverage/`, and `.kiro/specs/blackwall-rust-acceleration/` (`design.md`, `requirements.md`, `tasks.md`).
 
 * **Behavior-Driven Specifications**: Verify all security behavior contracts using Gherkin syntax via `pytest-bdd` scenarios in `tests/features/`.
 * **Strict Test-Driven Development (TDD)**: Every feature addition or bug fix must include a failing unit test or reproduction script before code changes are staged.
