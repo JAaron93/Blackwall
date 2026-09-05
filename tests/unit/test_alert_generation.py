@@ -396,14 +396,29 @@ async def test_detect_swarms_and_orchestrator_publishes_covert_channel_alert():
             await orch.store.insert_event(e1)
             await orch.store.insert_event(e2)
 
-        alerts = await orch.correlate_agent_threats(
+        alerts1 = await orch.correlate_agent_threats(
             agent_id="agent-01",
             time_window=(now - timedelta(seconds=100), now + timedelta(seconds=10)),
         )
-        covert_alerts = [a for a in alerts if a.threat_type == "covert_channel"]
-        assert len(covert_alerts) == 1
-        bus_covert = orch.alert_bus.get_alerts(threat_type="covert_channel")
-        assert len(bus_covert) == 1
+        covert_alerts1 = [a for a in alerts1 if a.threat_type == "covert_channel"]
+        assert len(covert_alerts1) == 1
+        assert len(orch.alert_bus.get_alerts(threat_type="covert_channel")) == 1
+
+        # Correlating second agent in the same swarm does not re-publish duplicate covert alert to alert_bus
+        await orch.correlate_agent_threats(
+            agent_id="agent-02",
+            time_window=(now - timedelta(seconds=100), now + timedelta(seconds=10)),
+        )
+        assert len(orch.alert_bus.get_alerts(threat_type="covert_channel")) == 1
+
+        # Verify detect_swarms clears stale covert evidence on insufficient-agent early return
+        assert len(orch.swarm_detector.last_detected_covert_channels) >= 1
+        swarms_empty = await orch.swarm_detector.detect_swarms(
+            time_window=(now - timedelta(seconds=100), now + timedelta(seconds=10)),
+            min_agents=10,
+        )
+        assert swarms_empty == []
+        assert orch.swarm_detector.last_detected_covert_channels == []
     finally:
         await orch.stop()
 

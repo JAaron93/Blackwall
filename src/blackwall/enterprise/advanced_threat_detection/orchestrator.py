@@ -260,6 +260,7 @@ class AdvancedThreatDetection:
                 else None
             )
         )
+        self._published_covert_keys: set[tuple[Any, frozenset[str], datetime, datetime]] = set()
 
     @property
     def reaction_engine(self) -> Optional[ActiveReactionEngine]:
@@ -396,6 +397,7 @@ class AdvancedThreatDetection:
 
             await self.alert_bus.stop()
             await self.store.close()
+            self._published_covert_keys.clear()
             logger.info("AdvancedThreatDetection orchestrator stopped")
 
     async def __aenter__(self) -> "AdvancedThreatDetection":
@@ -801,7 +803,17 @@ class AdvancedThreatDetection:
 
             if hasattr(self.swarm_detector, "last_detected_covert_channels"):
                 for covert_channel in self.swarm_detector.last_detected_covert_channels:
-                    if agent_id in covert_channel.coordinating_agents:
+                    dedup_key = (
+                        covert_channel.channel_type,
+                        frozenset(covert_channel.coordinating_agents),
+                        covert_channel.first_detected,
+                        covert_channel.last_detected,
+                    )
+                    if (
+                        agent_id in covert_channel.coordinating_agents
+                        and dedup_key not in self._published_covert_keys
+                    ):
+                        self._published_covert_keys.add(dedup_key)
                         covert_alert = self.alert_bus.generate_covert_channel_alert(covert_channel)
                         await self._publish_alert(covert_alert, new_alerts)
 

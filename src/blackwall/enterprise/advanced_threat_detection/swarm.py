@@ -192,6 +192,8 @@ class AgentSwarmDetector:
         if not (0.0 <= c_thresh <= 1.0):
             raise ValueError("correlation_threshold must be between 0.0 and 1.0")
 
+        self.last_detected_covert_channels.clear()
+
         start_win, end_win = normalize_time_window(time_window)
 
         # Fetch nodes across all agents within time window
@@ -209,6 +211,7 @@ class AgentSwarmDetector:
 
         agent_ids = list(events_by_agent.keys())
         if len(agent_ids) < m_agents:
+            self.last_detected_covert_channels.clear()
             return []
 
         # Find pairwise correlations and build agent adjacency graph
