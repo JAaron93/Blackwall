@@ -140,7 +140,7 @@ To preserve Blackwall Core's strict architectural independence (Constitution §1
          ) -> Optional[SwarmContextSummary]:
              ...
      ```
-   - Core provides `SQLiteSwarmContextProvider`, querying local SQLite `attacker_profiles` and local threat graph nodes with zero external or C-kernel dependencies.
+   - Core provides `SQLiteSwarmContextProvider` (`src/blackwall/attribution/provider.py`), querying `SQLiteThreatRepository` in `src/blackwall/db/repository.py` via `find_swarm_by_agent_or_fingerprint()` backed by the `local_swarm_contexts` and `attacker_profiles` tables with zero external or C-kernel dependencies.
 2. **Enterprise Swarm Context Provider (`src/blackwall/enterprise/advanced_threat_detection/bridge.py`)**:
    - In Enterprise Mesh environments, `EnterpriseSwarmContextProvider` implements the protocol against `AttackGraphStore` and is injected at runtime into `SyncResolver` via constructor dependency injection (`swarm_provider: Optional[SwarmContextProvider] = None`).
    - If no provider is supplied, `SyncResolver` defaults to `SQLiteSwarmContextProvider`.
@@ -260,6 +260,48 @@ class IncidentReport(BaseModel):
     suspected_covert_channels: list[str] = Field(default_factory=list)
     collective_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     collective_attribution_summary: Optional[str] = None
+```
+
+### 4.5 Core SQLite Storage Schema & Repository API (`src/blackwall/db/repository.py`)
+Core persistence in `SQLiteThreatRepository` is extended with a dedicated table for local swarm contexts and migration columns on `attacker_profiles`:
+
+```sql
+-- 1. Local Swarm Contexts Table
+CREATE TABLE IF NOT EXISTS local_swarm_contexts (
+    swarm_id TEXT PRIMARY KEY,
+    collective_name TEXT,
+    collective_confidence REAL NOT NULL DEFAULT 0.0,
+    coordinating_agents TEXT NOT NULL DEFAULT '[]',
+    suspected_covert_channels TEXT NOT NULL DEFAULT '[]',
+    covert_channel_type TEXT,
+    deduction_rationale TEXT,
+    first_detected TEXT NOT NULL,
+    last_detected TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_swarm_agents ON local_swarm_contexts(coordinating_agents);
+
+-- 2. Attacker Profiles Column Migrations (Self-Healing in initialize())
+-- ALTER TABLE attacker_profiles ADD COLUMN swarm_memberships TEXT DEFAULT '[]';
+-- ALTER TABLE attacker_profiles ADD COLUMN suspected_covert_channels TEXT DEFAULT '[]';
+-- ALTER TABLE attacker_profiles ADD COLUMN collective_confidence REAL DEFAULT 0.0;
+-- ALTER TABLE attacker_profiles ADD COLUMN collective_name TEXT;
+```
+
+#### `SQLiteThreatRepository` Python Query Interface:
+```python
+async def upsert_swarm_context(self, context: SwarmContextSummary) -> SwarmContextSummary:
+    """Inserts or updates a local swarm context record."""
+    ...
+
+async def get_swarm_context(self, swarm_id: UUID) -> Optional[SwarmContextSummary]:
+    """Fetches a swarm context by UUID."""
+    ...
+
+async def find_swarm_by_agent_or_fingerprint(
+    self, agent_id: Optional[str], fingerprint: str
+) -> Optional[SwarmContextSummary]:
+    """Queries local_swarm_contexts and attacker_profiles to resolve active swarm lineage."""
+    ...
 ```
 
 ---
