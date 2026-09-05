@@ -1,12 +1,14 @@
 """Agent Swarm Detector component for Blackwall Advanced Threat Detection (Pillar 6 Task 7)."""
 
 import hashlib
+import ipaddress
 import logging
 import re
 import uuid
 from collections import deque
 from datetime import datetime, timedelta
 from typing import Any
+from urllib.parse import urlsplit
 
 from blackwall.enterprise.advanced_threat_detection.alert_bus import AlertBus
 from blackwall.enterprise.advanced_threat_detection.covert_channel import (
@@ -32,6 +34,62 @@ logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.swarm
 
 IP_REGEX = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 DOMAIN_REGEX = re.compile(r"\b[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b")
+
+
+def _extract_all_ips(text: str) -> set[str]:
+    """Extract and normalize all IPv4 and IPv6 addresses from a target string or metadata value."""
+    found: set[str] = set()
+    if not text:
+        return found
+
+    # 1. URL hostname extraction if text is a URL
+    if "://" in text or text.startswith("//"):
+        try:
+            parsed = urlsplit(text)
+            if parsed.hostname:
+                clean_host = parsed.hostname.strip("[]")
+                try:
+                    found.add(str(ipaddress.ip_address(clean_host)))
+                except ValueError:
+                    pass
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+    # 2. Bracketed IPv6 (e.g. [2607:f8b0:4005:805::200e]:8080 or [::1])
+    for b in re.findall(r"\[([0-9a-fA-F:]+)\]", text):
+        try:
+            found.add(str(ipaddress.IPv6Address(b)))
+        except ValueError:
+            pass
+
+    # 3. IPv4 addresses (dotted quad)
+    for ip_str in IP_REGEX.findall(text):
+        try:
+            found.add(str(ipaddress.IPv4Address(ip_str)))
+        except ValueError:
+            pass
+
+    # 4. Unbracketed IPv6 candidates
+    tokens = re.split(r"[\s,;\"'<>\[\]\(\)/]+", text)
+    for raw_tok in tokens:
+        tok = raw_tok.strip()
+        if not tok:
+            continue
+        for prefix in ("ip:", "endpoint:", "host:", "target:", "resource:", "url:"):
+            if tok.lower().startswith(prefix):
+                tok = tok[len(prefix):].strip()
+        if tok.count(":") >= 2:
+            try:
+                found.add(str(ipaddress.IPv6Address(tok)))
+            except ValueError:
+                parts = tok.rsplit(":", 1)
+                if len(parts) == 2 and parts[1].isdigit():
+                    try:
+                        found.add(str(ipaddress.IPv6Address(parts[0])))
+                    except ValueError:
+                        pass
+
+    return found
 
 
 def _avg_min_time_diff(ts1: list[datetime], ts2: list[datetime]) -> float:
@@ -432,7 +490,7 @@ class AgentSwarmDetector:
             agent_resources[aid] = set()
 
             for e in events:
-                for ip in IP_REGEX.findall(e.target):
+                for ip in _extract_all_ips(e.target):
                     agent_ips[aid].add(ip)
                 for dom in DOMAIN_REGEX.findall(e.target):
                     agent_domains[aid].add(dom)
@@ -440,7 +498,7 @@ class AgentSwarmDetector:
                 if isinstance(e.metadata, dict):
                     for k, v in e.metadata.items():
                         v_str = str(v)
-                        for ip in IP_REGEX.findall(v_str):
+                        for ip in _extract_all_ips(v_str):
                             agent_ips[aid].add(ip)
                         for dom in DOMAIN_REGEX.findall(v_str):
                             agent_domains[aid].add(dom)

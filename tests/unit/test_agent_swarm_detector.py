@@ -1,25 +1,26 @@
 """Unit tests for AgentSwarmDetector (Blackwall Pillar 6 Task 7)."""
 
-from datetime import datetime, timezone, timedelta
 import uuid
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from blackwall.enterprise.advanced_threat_detection import (
+    AttackGraphStore,
     EventSource,
     NormalizedEvent,
-    AttackGraphStore,
     SwarmEvidence,
 )
 from blackwall.enterprise.advanced_threat_detection.swarm import AgentSwarmDetector
 from blackwall.policy.models import (
-    PolicyConfig,
-    GlobalConfig,
-    EnvironmentRoleConfig,
-    MCPServersConfig,
-    MCPServerConfig,
-    ThreatSignatureGraphConfig,
     AdvancedThreatDetectionPolicyConfig,
+    EnvironmentRoleConfig,
+    GlobalConfig,
+    MCPServerConfig,
+    MCPServersConfig,
+    PolicyConfig,
     SwarmDetectorPolicyConfig,
+    ThreatSignatureGraphConfig,
 )
 
 
@@ -30,12 +31,12 @@ def create_event(
     offset_seconds: float = 0.0,
     risk_score: float = 0.5,
     source: EventSource = EventSource.KERNEL_SYSCALL,
-    metadata: dict = None,
-    base_time: datetime = None,
+    metadata: dict | None = None,
+    base_time: datetime | None = None,
 ) -> NormalizedEvent:
     """Helper to create a UTC-aware NormalizedEvent."""
     if base_time is None:
-        base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
+        base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=UTC)
 
     return NormalizedEvent(
         event_id=uuid.uuid4(),
@@ -56,7 +57,7 @@ async def test_fingerprinting():
     await store.initialize()
     detector = AgentSwarmDetector(store=store)
 
-    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
+    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=UTC)
 
     # Insert sequence of events for agent-1
     e1 = create_event(
@@ -119,7 +120,7 @@ async def test_temporal_correlation():
     await store.initialize()
     detector = AgentSwarmDetector(store=store)
 
-    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
+    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=UTC)
 
     # Create 2 agents performing correlated actions closely in time
     for offset in [0, 5, 10, 15]:
@@ -162,7 +163,7 @@ async def test_shared_infrastructure():
     await store.initialize()
     detector = AgentSwarmDetector(store=store)
 
-    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
+    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=UTC)
 
     # Both agents share IP 192.168.1.50 and domain evil.c2.org in metadata/target
     e_a = create_event(
@@ -200,13 +201,169 @@ async def test_shared_infrastructure():
 
 
 @pytest.mark.asyncio
+async def test_shared_infrastructure_extraction_ipv6():
+    """Verify shared IPv6 target extraction across agents in event target and metadata."""
+    store = AttackGraphStore(in_memory=True)
+    await store.initialize()
+    detector = AgentSwarmDetector(store=store)
+
+    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=UTC)
+
+    # Both agents connect to public IPv6 endpoint in target
+    e_a = create_event(
+        agent_id="agent-ipv6-1",
+        action="connect",
+        target="connect [2607:f8b0:4005:805::200e]:8080",
+        metadata={"endpoint": "https://[2607:f8b0:4005:805::200e]:8080/c2"},
+        offset_seconds=5,
+        base_time=base_time,
+    )
+    e_b = create_event(
+        agent_id="agent-ipv6-2",
+        action="connect",
+        target="connect [2607:f8b0:4005:805::200e]:8080",
+        metadata={"endpoint": "https://[2607:f8b0:4005:805::200e]:8080/c2"},
+        offset_seconds=6,
+        base_time=base_time,
+    )
+
+    await store.insert_event(e_a)
+    await store.insert_event(e_b)
+
+    time_win = (base_time, base_time + timedelta(seconds=60))
+    swarms = await detector.detect_swarms(
+        time_win, min_agents=2, correlation_threshold=0.5
+    )
+
+    assert len(swarms) >= 1
+    swarm = swarms[0]
+    assert "ip:2607:f8b0:4005:805::200e" in swarm.shared_patterns
+
+
+@pytest.mark.asyncio
+async def test_public_ipv6_target_suppresses_false_covert_channel_alert():
+    """Verify that public IPv6 targets in events populate shared_patterns and suppress false UNLOCATED_MESSAGE_BOARD alerts."""
+    from blackwall.enterprise.advanced_threat_detection.covert_channel import (
+        CovertChannelDetector,
+        CovertChannelType,
+    )
+
+    store = AttackGraphStore(in_memory=True)
+    await store.initialize()
+    covert_detector = CovertChannelDetector(
+        min_agents=2,
+        min_correlation_threshold=0.5,
+        min_coordination_threshold=0.5,
+    )
+    detector = AgentSwarmDetector(store=store, covert_channel_detector=covert_detector)
+
+    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=UTC)
+
+    # Coordinated agents communicating with a public IPv6 target
+    for offset in [0, 5, 10]:
+        await store.insert_event(
+            create_event(
+                agent_id="agent-ipv6-a",
+                action="probe",
+                target="connect [2607:f8b0:4005:805::200e]:8080",
+                metadata={"protocol": "tcp"},
+                offset_seconds=offset,
+                base_time=base_time,
+            )
+        )
+        await store.insert_event(
+            create_event(
+                agent_id="agent-ipv6-b",
+                action="probe",
+                target="connect [2607:f8b0:4005:805::200e]:8080",
+                metadata={"protocol": "tcp"},
+                offset_seconds=offset + 0.1,
+                base_time=base_time,
+            )
+        )
+
+    time_win = (base_time, base_time + timedelta(seconds=60))
+    swarms = await detector.detect_swarms(
+        time_win, min_agents=2, correlation_threshold=0.5
+    )
+
+    assert len(swarms) >= 1
+    swarm = swarms[0]
+    assert "ip:2607:f8b0:4005:805::200e" in swarm.shared_patterns
+    # Verify covert channels do NOT include false UNLOCATED_MESSAGE_BOARD
+    unlocated_alerts = [
+        c
+        for c in swarm.covert_channels
+        if c.channel_type == CovertChannelType.UNLOCATED_MESSAGE_BOARD
+    ]
+    assert len(unlocated_alerts) == 0
+
+
+@pytest.mark.asyncio
+async def test_private_ipv6_target_does_not_suppress_covert_channel_alert():
+    """Verify that private IPv6 targets (e.g. fe80::1) do NOT suppress UNLOCATED_MESSAGE_BOARD alerts."""
+    from blackwall.enterprise.advanced_threat_detection.covert_channel import (
+        CovertChannelDetector,
+        CovertChannelType,
+    )
+
+    store = AttackGraphStore(in_memory=True)
+    await store.initialize()
+    covert_detector = CovertChannelDetector(
+        min_agents=2,
+        min_correlation_threshold=0.5,
+        min_coordination_threshold=0.5,
+    )
+    detector = AgentSwarmDetector(store=store, covert_channel_detector=covert_detector)
+
+    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=UTC)
+
+    for offset in [0, 5, 10]:
+        await store.insert_event(
+            create_event(
+                agent_id="agent-priv-a",
+                action="probe",
+                target="connect [fe80::1]:8080",
+                metadata={"protocol": "tcp"},
+                offset_seconds=offset,
+                base_time=base_time,
+            )
+        )
+        await store.insert_event(
+            create_event(
+                agent_id="agent-priv-b",
+                action="probe",
+                target="connect [fe80::1]:8080",
+                metadata={"protocol": "tcp"},
+                offset_seconds=offset + 0.1,
+                base_time=base_time,
+            )
+        )
+
+    time_win = (base_time, base_time + timedelta(seconds=60))
+    swarms = await detector.detect_swarms(
+        time_win, min_agents=2, correlation_threshold=0.5
+    )
+
+    assert len(swarms) >= 1
+    swarm = swarms[0]
+    assert "ip:fe80::1" in swarm.shared_patterns
+    unlocated_alerts = [
+        c
+        for c in swarm.covert_channels
+        if c.channel_type == CovertChannelType.UNLOCATED_MESSAGE_BOARD
+    ]
+    assert len(unlocated_alerts) >= 1
+
+
+@pytest.mark.asyncio
 async def test_coordination_score():
     """Verify compute_coordination_score analysis and range [0.0, 1.0] (Subtask 7.4 / Reqs 4.5, 15.9)."""
     store = AttackGraphStore(in_memory=True)
     await store.initialize()
     detector = AgentSwarmDetector(store=store)
 
-    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
+    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=UTC)
     time_win = (base_time, base_time + timedelta(seconds=60))
 
     # Agents with identical actions at identical times -> high coordination score
