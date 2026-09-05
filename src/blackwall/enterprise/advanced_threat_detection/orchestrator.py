@@ -7,8 +7,8 @@ ResourceThrottler, and all detection engines into a unified system entry point.
 from __future__ import annotations
 
 import asyncio
-from collections import OrderedDict
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 import logging
 import re
@@ -18,7 +18,9 @@ import uuid
 from blackwall.enterprise.advanced_threat_detection.ailm import AILMTracker
 from blackwall.enterprise.advanced_threat_detection.alert_bus import AlertBus
 from blackwall.enterprise.advanced_threat_detection.c2 import C2InfrastructureDetector
-from blackwall.enterprise.advanced_threat_detection.collector import EventStreamCollector
+from blackwall.enterprise.advanced_threat_detection.collector import (
+    EventStreamCollector,
+)
 from blackwall.enterprise.advanced_threat_detection.config import (
     AdvancedThreatDetectionConfig,
 )
@@ -63,7 +65,9 @@ from blackwall.enterprise.advanced_threat_detection.quota_enforcer import (
 from blackwall.enterprise.advanced_threat_detection.reaction import (
     ActiveReactionEngine,
 )
-from blackwall.enterprise.advanced_threat_detection.registry import PackageRegistryMonitor
+from blackwall.enterprise.advanced_threat_detection.registry import (
+    PackageRegistryMonitor,
+)
 from blackwall.enterprise.advanced_threat_detection.resilience import (
     ResourceThrottler,
     SafeDetectionRunner,
@@ -93,7 +97,20 @@ def _get_current_memory_mb() -> float:
     return 0.0
 
 
-logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.orchestrator")
+@dataclass
+class CorrelationCycleState:
+    """State tracking for explicit agent correlation cycles."""
+
+    last_activity: datetime
+    completed: bool = False
+    keys: set[tuple[Any, frozenset[str], datetime, datetime]] = field(
+        default_factory=set
+    )
+
+
+logger = logging.getLogger(
+    "blackwall.enterprise.advanced_threat_detection.orchestrator"
+)
 
 
 class AdvancedThreatDetection:
@@ -115,7 +132,9 @@ class AdvancedThreatDetection:
         self.config = config or AdvancedThreatDetectionConfig()
         self._running = False
         self._lock = asyncio.Lock()
-        self._stream_factories: dict[EventSource, Callable[[], Any]] = dict(stream_factories or {})
+        self._stream_factories: dict[EventSource, Callable[[], Any]] = dict(
+            stream_factories or {}
+        )
         self._stream_tasks: dict[EventSource, asyncio.Task[Any]] = {}
         self._stream_generations: dict[EventSource, int] = {}
         self.eval_manager = eval_manager
@@ -174,9 +193,7 @@ class AdvancedThreatDetection:
             else None
         )
         self.ailm_tracker: Optional[AILMTracker] = (
-            AILMTracker(store=self.store)
-            if self.config.enable_ailm_tracking
-            else None
+            AILMTracker(store=self.store) if self.config.enable_ailm_tracking else None
         )
         self.c2_detector: Optional[C2InfrastructureDetector] = (
             C2InfrastructureDetector(store=self.store)
@@ -261,8 +278,10 @@ class AdvancedThreatDetection:
                 else None
             )
         )
-        self._published_covert_keys: dict[tuple[Any, frozenset[str], datetime, datetime], datetime] = {}
-        self._published_covert_cycles: OrderedDict[str, set[tuple[Any, frozenset[str], datetime, datetime]]] = OrderedDict()
+        self._published_covert_keys: dict[
+            tuple[Any, frozenset[str], datetime, datetime], datetime
+        ] = {}
+        self._published_covert_cycles: dict[str, CorrelationCycleState] = {}
 
     @property
     def reaction_engine(self) -> Optional[ActiveReactionEngine]:
@@ -283,11 +302,15 @@ class AdvancedThreatDetection:
         self._stream_factories[source] = stream_factory
         if self._running:
             old_task = self._stream_tasks.get(source)
-            self._stream_generations[source] = self._stream_generations.get(source, 0) + 1
+            self._stream_generations[source] = (
+                self._stream_generations.get(source, 0) + 1
+            )
             gen = self._stream_generations[source]
             if old_task and not old_task.done():
                 old_task.cancel()
-            task = asyncio.create_task(self._run_pillar_stream(source, stream_factory, gen))
+            task = asyncio.create_task(
+                self._run_pillar_stream(source, stream_factory, gen)
+            )
             self._stream_tasks[source] = task
 
     async def _run_pillar_stream(
@@ -298,11 +321,19 @@ class AdvancedThreatDetection:
     ) -> None:
         """Continuously collect and ingest events from a registered pillar stream."""
         try:
-            async for event in self.collector.collect_with_reconnect(source, stream_factory):
-                if not self._running or self._stream_generations.get(source) != generation:
+            async for event in self.collector.collect_with_reconnect(
+                source, stream_factory
+            ):
+                if (
+                    not self._running
+                    or self._stream_generations.get(source) != generation
+                ):
                     break
                 await self.ingest_event(event, source_generation=generation)
-                if not self._running or self._stream_generations.get(source) != generation:
+                if (
+                    not self._running
+                    or self._stream_generations.get(source) != generation
+                ):
                     break
         except asyncio.CancelledError:
             pass
@@ -351,7 +382,9 @@ class AdvancedThreatDetection:
                 try:
                     await self.enforce_retention()
                 except Exception as ret_exc:
-                    logger.warning("Failed to enforce retention during startup: %s", ret_exc)
+                    logger.warning(
+                        "Failed to enforce retention during startup: %s", ret_exc
+                    )
 
             self._running = True
 
@@ -360,11 +393,18 @@ class AdvancedThreatDetection:
 
             # Start background collection tasks for all registered pillar streams
             for source, factory in self._stream_factories.items():
-                if source in self._stream_tasks and not self._stream_tasks[source].done():
+                if (
+                    source in self._stream_tasks
+                    and not self._stream_tasks[source].done()
+                ):
                     self._stream_tasks[source].cancel()
-                self._stream_generations[source] = self._stream_generations.get(source, 0) + 1
+                self._stream_generations[source] = (
+                    self._stream_generations.get(source, 0) + 1
+                )
                 gen = self._stream_generations[source]
-                task = asyncio.create_task(self._run_pillar_stream(source, factory, gen))
+                task = asyncio.create_task(
+                    self._run_pillar_stream(source, factory, gen)
+                )
                 self._stream_tasks[source] = task
 
             logger.info("AdvancedThreatDetection orchestrator started successfully")
@@ -387,7 +427,9 @@ class AdvancedThreatDetection:
                     pass
             if tasks_to_cancel:
                 try:
-                    active_tasks = [t for t in tasks_to_cancel if not t.get_loop().is_closed()]
+                    active_tasks = [
+                        t for t in tasks_to_cancel if not t.get_loop().is_closed()
+                    ]
                     if active_tasks:
                         await asyncio.wait_for(
                             asyncio.gather(*active_tasks, return_exceptions=True),
@@ -426,7 +468,9 @@ class AdvancedThreatDetection:
             normalized = source_or_event
         else:
             if raw_event is None:
-                raise ValueError("raw_event dictionary must be provided when source is EventSource")
+                raise ValueError(
+                    "raw_event dictionary must be provided when source is EventSource"
+                )
             normalized = self.collector.normalize_event(source_or_event, raw_event)
 
         # Check generation ownership to prevent stale or superseded stream tasks from mutating state
@@ -463,7 +507,12 @@ class AdvancedThreatDetection:
 
         if self.k8s_defense is not None:
             target_str = (normalized.target or "").lower()
-            if "k8s" in target_str or "kubernetes" in target_str or "secrets" in target_str or "pod" in target_str:
+            if (
+                "k8s" in target_str
+                or "kubernetes" in target_str
+                or "secrets" in target_str
+                or "pod" in target_str
+            ):
                 await self.k8s_defense.track_k8s_api_access(normalized)
 
         return normalized
@@ -519,7 +568,9 @@ class AdvancedThreatDetection:
 
         # 1. Multi-Stage Attack Path Correlation
         if self.path_correlator is not None:
-            max_d = self.throttler.get_analysis_depth(base_depth=10, current_memory_mb=mem_mb)
+            max_d = self.throttler.get_analysis_depth(
+                base_depth=10, current_memory_mb=mem_mb
+            )
             paths: List[AttackPath] = await self.runner.run_safe(
                 detector_name="path_correlator",
                 coro=self.path_correlator.correlate_attack_paths(
@@ -550,27 +601,48 @@ class AdvancedThreatDetection:
                         },
                     )
                     await self._publish_alert(alert, new_alerts)
-                    if sev == AlertSeverity.CRITICAL and self.active_reaction is not None:
+                    if (
+                        sev == AlertSeverity.CRITICAL
+                        and self.active_reaction is not None
+                    ):
                         ebpf_payload = ActiveReactionPayload(
                             trigger_evidence_id=path.path_id,
                             target_agent_id=agent_id,
                             action_type=ReactionActionType.EBPF_DROP,
-                            metadata={"threat_type": "attack_path", "risk_score": path.risk_score},
+                            metadata={
+                                "threat_type": "attack_path",
+                                "risk_score": path.risk_score,
+                            },
                         )
                         try:
-                            await self.active_reaction.execute_ebpf_socket_drop(ebpf_payload)
+                            await self.active_reaction.execute_ebpf_socket_drop(
+                                ebpf_payload
+                            )
                         except Exception as exc:
-                            logger.error("Active reaction (eBPF drop) failed for attack_path %s: %s", path.path_id, exc)
+                            logger.error(
+                                "Active reaction (eBPF drop) failed for attack_path %s: %s",
+                                path.path_id,
+                                exc,
+                            )
                         mesh_payload = ActiveReactionPayload(
                             trigger_evidence_id=path.path_id,
                             target_agent_id=agent_id,
                             action_type=ReactionActionType.MESH_SIGNATURE_BROADCAST,
-                            metadata={"threat_type": "attack_path", "risk_score": path.risk_score},
+                            metadata={
+                                "threat_type": "attack_path",
+                                "risk_score": path.risk_score,
+                            },
                         )
                         try:
-                            await self.active_reaction.broadcast_fleet_signature(mesh_payload)
+                            await self.active_reaction.broadcast_fleet_signature(
+                                mesh_payload
+                            )
                         except Exception as exc:
-                            logger.error("Active reaction (mesh broadcast) failed for attack_path %s: %s", path.path_id, exc)
+                            logger.error(
+                                "Active reaction (mesh broadcast) failed for attack_path %s: %s",
+                                path.path_id,
+                                exc,
+                            )
 
         # 2. Zero-Day Exploit Chain Analysis
         if self.exploit_analyzer is not None:
@@ -583,7 +655,10 @@ class AdvancedThreatDetection:
                 fallback=[],
             )
             for chain in chains:
-                if chain.novelty_score >= self.config.exploit_novelty_threshold or chain.chaining_confidence >= 0.5:
+                if (
+                    chain.novelty_score >= self.config.exploit_novelty_threshold
+                    or chain.chaining_confidence >= 0.5
+                ):
                     sev = self.alert_bus.map_exploit_chain_severity(chain)
                     alert = Alert(
                         alert_id=uuid.uuid4(),
@@ -597,31 +672,55 @@ class AdvancedThreatDetection:
                         evidence={
                             "novelty_score": chain.novelty_score,
                             "chaining_confidence": chain.chaining_confidence,
-                            "exploits": [str(cat.value) if hasattr(cat, "value") else str(cat) for _, cat in chain.exploits],
+                            "exploits": [
+                                str(cat.value) if hasattr(cat, "value") else str(cat)
+                                for _, cat in chain.exploits
+                            ],
                         },
                     )
                     await self._publish_alert(alert, new_alerts)
-                    if sev == AlertSeverity.CRITICAL and self.active_reaction is not None:
+                    if (
+                        sev == AlertSeverity.CRITICAL
+                        and self.active_reaction is not None
+                    ):
                         ebpf_payload = ActiveReactionPayload(
                             trigger_evidence_id=chain.chain_id,
                             target_agent_id=agent_id,
                             action_type=ReactionActionType.EBPF_DROP,
-                            metadata={"threat_type": "exploit_chain", "novelty_score": chain.novelty_score},
+                            metadata={
+                                "threat_type": "exploit_chain",
+                                "novelty_score": chain.novelty_score,
+                            },
                         )
                         try:
-                            await self.active_reaction.execute_ebpf_socket_drop(ebpf_payload)
+                            await self.active_reaction.execute_ebpf_socket_drop(
+                                ebpf_payload
+                            )
                         except Exception as exc:
-                            logger.error("Active reaction (eBPF drop) failed for exploit_chain %s: %s", chain.chain_id, exc)
+                            logger.error(
+                                "Active reaction (eBPF drop) failed for exploit_chain %s: %s",
+                                chain.chain_id,
+                                exc,
+                            )
                         mesh_payload = ActiveReactionPayload(
                             trigger_evidence_id=chain.chain_id,
                             target_agent_id=agent_id,
                             action_type=ReactionActionType.MESH_SIGNATURE_BROADCAST,
-                            metadata={"threat_type": "exploit_chain", "novelty_score": chain.novelty_score},
+                            metadata={
+                                "threat_type": "exploit_chain",
+                                "novelty_score": chain.novelty_score,
+                            },
                         )
                         try:
-                            await self.active_reaction.broadcast_fleet_signature(mesh_payload)
+                            await self.active_reaction.broadcast_fleet_signature(
+                                mesh_payload
+                            )
                         except Exception as exc:
-                            logger.error("Active reaction (mesh broadcast) failed for exploit_chain %s: %s", chain.chain_id, exc)
+                            logger.error(
+                                "Active reaction (mesh broadcast) failed for exploit_chain %s: %s",
+                                chain.chain_id,
+                                exc,
+                            )
 
         # 3. AI-Induced Lateral Movement (AILM)
         if self.ailm_tracker is not None:
@@ -651,7 +750,10 @@ class AdvancedThreatDetection:
                         },
                     )
                     await self._publish_alert(alert, new_alerts)
-                    if sev in (AlertSeverity.HIGH, AlertSeverity.CRITICAL) and self.active_reaction is not None:
+                    if (
+                        sev in (AlertSeverity.HIGH, AlertSeverity.CRITICAL)
+                        and self.active_reaction is not None
+                    ):
                         vault_payload = ActiveReactionPayload(
                             trigger_evidence_id=alert.alert_id,
                             target_agent_id=agent_id,
@@ -663,9 +765,15 @@ class AdvancedThreatDetection:
                             },
                         )
                         try:
-                            await self.active_reaction.revoke_identity_session(vault_payload)
+                            await self.active_reaction.revoke_identity_session(
+                                vault_payload
+                            )
                         except Exception as exc:
-                            logger.error("Active reaction (vault revocation) failed for ailm agent %s: %s", agent_id, exc)
+                            logger.error(
+                                "Active reaction (vault revocation) failed for ailm agent %s: %s",
+                                agent_id,
+                                exc,
+                            )
 
         # 4. Command-and-Control (C2) Detection
         if self.c2_detector is not None:
@@ -763,7 +871,10 @@ class AdvancedThreatDetection:
                         },
                     )
                     await self._publish_alert(alert, new_alerts)
-                    if sev == AlertSeverity.CRITICAL and self.active_reaction is not None:
+                    if (
+                        sev == AlertSeverity.CRITICAL
+                        and self.active_reaction is not None
+                    ):
                         for aid in swarm.agent_ids:
                             ebpf_payload = ActiveReactionPayload(
                                 trigger_evidence_id=swarm.swarm_id,
@@ -775,9 +886,15 @@ class AdvancedThreatDetection:
                                 },
                             )
                             try:
-                                await self.active_reaction.execute_ebpf_socket_drop(ebpf_payload)
+                                await self.active_reaction.execute_ebpf_socket_drop(
+                                    ebpf_payload
+                                )
                             except Exception as exc:
-                                logger.error("Active reaction (eBPF drop) failed for swarm agent %s: %s", aid, exc)
+                                logger.error(
+                                    "Active reaction (eBPF drop) failed for swarm agent %s: %s",
+                                    aid,
+                                    exc,
+                                )
                             mesh_payload = ActiveReactionPayload(
                                 trigger_evidence_id=swarm.swarm_id,
                                 target_agent_id=aid,
@@ -788,9 +905,15 @@ class AdvancedThreatDetection:
                                 },
                             )
                             try:
-                                await self.active_reaction.broadcast_fleet_signature(mesh_payload)
+                                await self.active_reaction.broadcast_fleet_signature(
+                                    mesh_payload
+                                )
                             except Exception as exc:
-                                logger.error("Active reaction (mesh broadcast) failed for swarm agent %s: %s", aid, exc)
+                                logger.error(
+                                    "Active reaction (mesh broadcast) failed for swarm agent %s: %s",
+                                    aid,
+                                    exc,
+                                )
                             vault_payload = ActiveReactionPayload(
                                 trigger_evidence_id=swarm.swarm_id,
                                 target_agent_id=aid,
@@ -801,9 +924,15 @@ class AdvancedThreatDetection:
                                 },
                             )
                             try:
-                                await self.active_reaction.revoke_identity_session(vault_payload)
+                                await self.active_reaction.revoke_identity_session(
+                                    vault_payload
+                                )
                             except Exception as exc:
-                                logger.error("Active reaction (vault revocation) failed for swarm agent %s: %s", aid, exc)
+                                logger.error(
+                                    "Active reaction (vault revocation) failed for swarm agent %s: %s",
+                                    aid,
+                                    exc,
+                                )
 
                     # Publish covert channel alerts directly from this swarm's scoped evidence
                     for covert_channel in getattr(swarm, "covert_channels", []):
@@ -825,28 +954,112 @@ class AdvancedThreatDetection:
                             # Suppress per-agent duplicates within one correlation cycle without suppressing subsequent detections of an ongoing channel
                             is_duplicate = False
                             if cycle_id is not None:
-                                cycle_keys = self._published_covert_cycles.get(cycle_id)
-                                is_duplicate = cycle_keys is not None and dedup_key in cycle_keys
+                                cycle_state = self._published_covert_cycles.get(
+                                    cycle_id
+                                )
+                                if isinstance(cycle_state, CorrelationCycleState):
+                                    cycle_state.last_activity = now
+                                    is_duplicate = dedup_key in cycle_state.keys
+                                elif isinstance(cycle_state, set):
+                                    is_duplicate = dedup_key in cycle_state
+                                elif (
+                                    isinstance(cycle_state, tuple)
+                                    and len(cycle_state) == 2
+                                ):
+                                    is_duplicate = dedup_key in cycle_state[1]
                             elif last_published is not None:
-                                is_duplicate = (now - last_published).total_seconds() < cooldown
+                                is_duplicate = (
+                                    now - last_published
+                                ).total_seconds() < cooldown
 
                             if not is_duplicate:
                                 self._published_covert_keys[dedup_key] = now
                                 if cycle_id is not None:
-                                    if cycle_id not in self._published_covert_cycles:
-                                        self._published_covert_cycles[cycle_id] = set()
-                                        # Evict oldest completed cycles beyond 100 to prevent unbounded growth without touching active cycles
-                                        while len(self._published_covert_cycles) > 100:
-                                            self._published_covert_cycles.popitem(last=False)
-                                    self._published_covert_cycles[cycle_id].add(dedup_key)
-                                covert_alert = self.alert_bus.generate_covert_channel_alert(covert_channel)
+                                    # Evict completed cycles or cycles whose activity has timed out beyond cycle_ttl
+                                    if len(self._published_covert_cycles) >= 100:
+                                        cycle_ttl = max(
+                                            300.0,
+                                            self.config.temporal_window_seconds * 2,
+                                        )
+                                        expired_or_completed = []
+                                        for (
+                                            cid,
+                                            state,
+                                        ) in self._published_covert_cycles.items():
+                                            if isinstance(state, CorrelationCycleState):
+                                                if (
+                                                    state.completed
+                                                    or (
+                                                        now - state.last_activity
+                                                    ).total_seconds()
+                                                    >= cycle_ttl
+                                                ):
+                                                    expired_or_completed.append(cid)
+                                            elif (
+                                                isinstance(state, tuple)
+                                                and len(state) == 2
+                                            ):
+                                                if (
+                                                    now - state[0]
+                                                ).total_seconds() >= cycle_ttl:
+                                                    expired_or_completed.append(cid)
+                                        for cid in expired_or_completed:
+                                            del self._published_covert_cycles[cid]
+
+                                        # If still exceeding hard capacity after purging completed/expired cycles, evict oldest by last_activity
+                                        if len(self._published_covert_cycles) > 2000:
+                                            sorted_cycles = sorted(
+                                                self._published_covert_cycles.items(),
+                                                key=lambda item: (
+                                                    item[1].last_activity
+                                                    if isinstance(
+                                                        item[1], CorrelationCycleState
+                                                    )
+                                                    else (
+                                                        item[1][0]
+                                                        if isinstance(item[1], tuple)
+                                                        else datetime.min.replace(
+                                                            tzinfo=UTC
+                                                        )
+                                                    )
+                                                ),
+                                            )
+                                            for cid, _ in sorted_cycles[
+                                                : len(self._published_covert_cycles)
+                                                - 2000
+                                            ]:
+                                                del self._published_covert_cycles[cid]
+
+                                    cycle_state = self._published_covert_cycles.get(
+                                        cycle_id
+                                    )
+                                    if isinstance(cycle_state, CorrelationCycleState):
+                                        cycle_state.last_activity = now
+                                        cycle_state.keys.add(dedup_key)
+                                    elif isinstance(cycle_state, set):
+                                        cycle_state.add(dedup_key)
+                                    else:
+                                        self._published_covert_cycles[cycle_id] = (
+                                            CorrelationCycleState(
+                                                last_activity=now,
+                                                completed=False,
+                                                keys={dedup_key},
+                                            )
+                                        )
+                                covert_alert = (
+                                    self.alert_bus.generate_covert_channel_alert(
+                                        covert_channel
+                                    )
+                                )
                                 await self._publish_alert(covert_alert, new_alerts)
 
                             # Evict expired dedup keys beyond 2x cooldown window to prevent memory leaks
                             if len(self._published_covert_keys) > 1000:
                                 cutoff = now - timedelta(seconds=cooldown * 2)
                                 self._published_covert_keys = {
-                                    k: v for k, v in self._published_covert_keys.items() if v >= cutoff
+                                    k: v
+                                    for k, v in self._published_covert_keys.items()
+                                    if v >= cutoff
                                 }
 
         # 7. Package Registry Exploit Probing & Monitoring
@@ -886,7 +1099,9 @@ class AdvancedThreatDetection:
             ):
                 for reg in reg_evidences:
                     conf = 0.85 if reg.cve_candidates else 0.5
-                    sev = self.alert_bus.map_registry_severity(reg, exploit_confidence=conf)
+                    sev = self.alert_bus.map_registry_severity(
+                        reg, exploit_confidence=conf
+                    )
                     alert = Alert(
                         alert_id=uuid.uuid4(),
                         timestamp=utc_now(),
@@ -905,6 +1120,16 @@ class AdvancedThreatDetection:
                     await self._publish_alert(alert, new_alerts)
 
         return new_alerts
+
+    def complete_correlation_cycle(self, cycle_id: str) -> None:
+        """Mark an explicit correlation cycle as completed, enabling safe deduplication eviction."""
+        state = self._published_covert_cycles.get(cycle_id)
+        if isinstance(state, CorrelationCycleState):
+            state.completed = True
+            if len(self._published_covert_cycles) >= 100:
+                del self._published_covert_cycles[cycle_id]
+        elif state is not None:
+            self._published_covert_cycles.pop(cycle_id, None)
 
     async def get_attack_graph(
         self,
@@ -989,7 +1214,9 @@ class AdvancedThreatDetection:
             )
 
         # 2. Enforce rate limiting
-        within_limit = await self.inbound_filter.check_inbound_rate_limit(sender_id=sender_id)
+        within_limit = await self.inbound_filter.check_inbound_rate_limit(
+            sender_id=sender_id
+        )
         if not within_limit:
             return None, self.inbound_filter.synthesize_error_response(
                 error_code=-32000, message="Inbound rate limit exceeded"
@@ -1066,7 +1293,9 @@ class AdvancedThreatDetection:
     ) -> bool:
         """Directly dispatch an active threat reaction mitigation across Pillars 1, 2, or 3."""
         if self.active_reaction is None:
-            logger.warning("ActiveReactionEngine not enabled; skipping reaction dispatch")
+            logger.warning(
+                "ActiveReactionEngine not enabled; skipping reaction dispatch"
+            )
             return False
         if payload.action_type == ReactionActionType.EBPF_DROP:
             return await self.active_reaction.execute_ebpf_socket_drop(payload)

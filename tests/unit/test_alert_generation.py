@@ -122,7 +122,10 @@ async def test_all_alert_types():
     # 1. Exploit Chains (novelty_score mapping - Requirement 10.3)
     chain_crit = ExploitChainEvidence(
         chain_id=uuid.uuid4(),
-        exploits=[("RCE", ExploitCategory.RCE), ("PrivEsc", ExploitCategory.PRIVILEGE_ESCALATION)],
+        exploits=[
+            ("RCE", ExploitCategory.RCE),
+            ("PrivEsc", ExploitCategory.PRIVILEGE_ESCALATION),
+        ],
         novelty_score=0.90,
         chaining_confidence=0.85,
     )
@@ -281,7 +284,9 @@ async def test_all_alert_types():
     assert await bus.publish_attack_path_alert(path_crit) is True
     assert await bus.publish_c2_alert(c2) is True
     assert await bus.publish_k8s_alert(k8s_token) is True
-    assert await bus.publish_registry_alert(reg_high_conf, exploit_confidence=0.85) is True
+    assert (
+        await bus.publish_registry_alert(reg_high_conf, exploit_confidence=0.85) is True
+    )
     assert len(bus.get_alerts()) == 5
 
 
@@ -355,7 +360,9 @@ async def test_detect_swarms_and_orchestrator_publishes_covert_channel_alert():
     detector = AgentSwarmDetector(
         store=store,
         covert_channel_detector=CovertChannelDetector(
-            min_agents=2, min_correlation_threshold=0.70, min_coordination_threshold=0.70
+            min_agents=2,
+            min_correlation_threshold=0.70,
+            min_coordination_threshold=0.70,
         ),
     )
     swarms = await detector.detect_swarms(
@@ -417,19 +424,24 @@ async def test_detect_swarms_and_orchestrator_publishes_covert_channel_alert():
             time_window=(now - timedelta(seconds=100), now + timedelta(seconds=10)),
             cycle_id="cycle-2",
         )
-        covert_subsequent = [a for a in alerts_subsequent if a.threat_type == "covert_channel"]
+        covert_subsequent = [
+            a for a in alerts_subsequent if a.threat_type == "covert_channel"
+        ]
         assert len(covert_subsequent) == 1
         assert len(orch.alert_bus.get_alerts(threat_type="covert_channel")) == 2
 
         # After cooldown elapses, subsequent correlation without explicit cycle_id also alerts
         orch._published_covert_keys = {
-            k: v - timedelta(seconds=100) for k, v in orch._published_covert_keys.items()
+            k: v - timedelta(seconds=100)
+            for k, v in orch._published_covert_keys.items()
         }
         alerts_cooldown = await orch.correlate_agent_threats(
             agent_id="agent-01",
             time_window=(now - timedelta(seconds=100), now + timedelta(seconds=10)),
         )
-        covert_cooldown = [a for a in alerts_cooldown if a.threat_type == "covert_channel"]
+        covert_cooldown = [
+            a for a in alerts_cooldown if a.threat_type == "covert_channel"
+        ]
         assert len(covert_cooldown) == 1
         assert len(orch.alert_bus.get_alerts(threat_type="covert_channel")) == 3
 
@@ -493,7 +505,9 @@ async def test_concurrent_correlation_does_not_corrupt_covert_evidence():
             orch.correlate_agent_threats(agent_id="agent-B", time_window=t_win),
         )
 
-        all_covert = [a for res in results for a in res if a.threat_type == "covert_channel"]
+        all_covert = [
+            a for res in results for a in res if a.threat_type == "covert_channel"
+        ]
         assert len(all_covert) >= 1
         bus_covert = orch.alert_bus.get_alerts(threat_type="covert_channel")
         assert len(bus_covert) == 1
@@ -509,6 +523,7 @@ async def test_cycle_deduplication_state_is_not_erased_with_many_keys():
     )
     from blackwall.enterprise.advanced_threat_detection.orchestrator import (
         AdvancedThreatDetection,
+        CorrelationCycleState,
     )
 
     cfg = AdvancedThreatDetectionConfig(
@@ -545,9 +560,11 @@ async def test_cycle_deduplication_state_is_not_erased_with_many_keys():
 
         # Populate the active cycle with 1500 distinct keys
         cycle_id = "stress-cycle-1"
+        cycle_state = CorrelationCycleState(last_activity=now)
         for k_idx in range(1500):
             fake_key = (f"CHANNEL_{k_idx}", frozenset(["agent-x", "agent-y"]), now, now)
-            orch._published_covert_cycles.setdefault(cycle_id, set()).add(fake_key)
+            cycle_state.keys.add(fake_key)
+        orch._published_covert_cycles[cycle_id] = cycle_state
 
         # Correlate agent-A in the same active cycle
         alerts_a = await orch.correlate_agent_threats(
@@ -560,9 +577,84 @@ async def test_cycle_deduplication_state_is_not_erased_with_many_keys():
         alerts_b = await orch.correlate_agent_threats(
             agent_id="agent-B", time_window=t_win, cycle_id=cycle_id
         )
+        assert len([a for a in alerts_b if a.threat_type == "covert_channel"]) == 0
         assert len(orch.alert_bus.get_alerts(threat_type="covert_channel")) == 1
     finally:
         await orch.stop()
 
 
+@pytest.mark.asyncio
+async def test_overlapping_active_cycles_not_evicted_when_exceeding_cycle_threshold():
+    """Verify that >100 overlapping active correlation cycles do not evict each other's deduplication state."""
+    from blackwall.enterprise.advanced_threat_detection.config import (
+        AdvancedThreatDetectionConfig,
+    )
+    from blackwall.enterprise.advanced_threat_detection.orchestrator import (
+        AdvancedThreatDetection,
+    )
 
+    cfg = AdvancedThreatDetectionConfig(
+        in_memory=True,
+        enable_swarm_detection=True,
+        enable_path_correlation=False,
+        enable_exploit_analysis=False,
+        enable_ailm_tracking=False,
+        enable_c2_detection=False,
+        enable_k8s_defense=False,
+        enable_registry_monitoring=False,
+        swarm_min_agents=2,
+        swarm_correlation_threshold=0.70,
+        temporal_window_seconds=120.0,
+    )
+    orch = AdvancedThreatDetection(config=cfg)
+    await orch.start()
+    try:
+        now = datetime.now(UTC)
+        for i in range(5):
+            t = now - timedelta(seconds=50 - i * 10)
+            e1 = create_normalized_event(
+                agent_id="agent-01", action="action_1", target="/bin/sh", risk_score=0.8
+            )
+            e1.timestamp = t
+            e2 = create_normalized_event(
+                agent_id="agent-02", action="action_1", target="/bin/sh", risk_score=0.8
+            )
+            e2.timestamp = t
+            await orch.store.insert_event(e1)
+            await orch.store.insert_event(e2)
+
+        t_win = (now - timedelta(seconds=100), now + timedelta(seconds=10))
+
+        # 1. Start Cycle 0 and correlate agent-01 (generates covert alert)
+        alerts_01 = await orch.correlate_agent_threats(
+            agent_id="agent-01", time_window=t_win, cycle_id="cycle-000"
+        )
+        assert len([a for a in alerts_01 if a.threat_type == "covert_channel"]) == 1
+        assert len(orch.alert_bus.get_alerts(threat_type="covert_channel")) == 1
+
+        # 2. Simulate 120 additional concurrent/overlapping active cycles being created
+        for i in range(1, 121):
+            cycle_name = f"cycle-{i:03d}"
+            await orch.correlate_agent_threats(
+                agent_id="agent-01", time_window=t_win, cycle_id=cycle_name
+            )
+
+        # Total cycles in orch._published_covert_cycles now > 100
+        assert len(orch._published_covert_cycles) > 100
+        # cycle-000 must NOT have been evicted because it is still active and not completed
+        assert "cycle-000" in orch._published_covert_cycles
+        assert not orch._published_covert_cycles["cycle-000"].completed
+
+        # 3. Later agent call (agent-02) within cycle-000: must be deduplicated (NOT duplicate alert)
+        pre_count = len(orch.alert_bus.get_alerts(threat_type="covert_channel"))
+        alerts_02 = await orch.correlate_agent_threats(
+            agent_id="agent-02", time_window=t_win, cycle_id="cycle-000"
+        )
+        assert len([a for a in alerts_02 if a.threat_type == "covert_channel"]) == 0
+        assert len(orch.alert_bus.get_alerts(threat_type="covert_channel")) == pre_count
+
+        # 4. Explicitly complete cycle-000
+        orch.complete_correlation_cycle("cycle-000")
+        assert "cycle-000" not in orch._published_covert_cycles
+    finally:
+        await orch.stop()
