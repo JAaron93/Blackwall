@@ -411,6 +411,28 @@ async def test_detect_swarms_and_orchestrator_publishes_covert_channel_alert():
         )
         assert len(orch.alert_bus.get_alerts(threat_type="covert_channel")) == 1
 
+        # Subsequent correlation cycle for ongoing channel generates alert (FR-3 / P1)
+        alerts_subsequent = await orch.correlate_agent_threats(
+            agent_id="agent-01",
+            time_window=(now - timedelta(seconds=100), now + timedelta(seconds=10)),
+            cycle_id="cycle-2",
+        )
+        covert_subsequent = [a for a in alerts_subsequent if a.threat_type == "covert_channel"]
+        assert len(covert_subsequent) == 1
+        assert len(orch.alert_bus.get_alerts(threat_type="covert_channel")) == 2
+
+        # After cooldown elapses, subsequent correlation without explicit cycle_id also alerts
+        orch._published_covert_keys = {
+            k: v - timedelta(seconds=100) for k, v in orch._published_covert_keys.items()
+        }
+        alerts_cooldown = await orch.correlate_agent_threats(
+            agent_id="agent-01",
+            time_window=(now - timedelta(seconds=100), now + timedelta(seconds=10)),
+        )
+        covert_cooldown = [a for a in alerts_cooldown if a.threat_type == "covert_channel"]
+        assert len(covert_cooldown) == 1
+        assert len(orch.alert_bus.get_alerts(threat_type="covert_channel")) == 3
+
         # Verify detect_swarms clears stale covert evidence on insufficient-agent early return
         assert len(orch.swarm_detector.last_detected_covert_channels) >= 1
         swarms_empty = await orch.swarm_detector.detect_swarms(

@@ -260,7 +260,8 @@ class AdvancedThreatDetection:
                 else None
             )
         )
-        self._published_covert_keys: set[tuple[Any, frozenset[str], datetime, datetime]] = set()
+        self._published_covert_keys: dict[tuple[Any, frozenset[str], datetime, datetime], datetime] = {}
+        self._published_covert_cycle_keys: set[tuple[str, tuple[Any, frozenset[str], datetime, datetime]]] = set()
 
     @property
     def reaction_engine(self) -> Optional[ActiveReactionEngine]:
@@ -398,6 +399,7 @@ class AdvancedThreatDetection:
             await self.alert_bus.stop()
             await self.store.close()
             self._published_covert_keys.clear()
+            self._published_covert_cycle_keys.clear()
             logger.info("AdvancedThreatDetection orchestrator stopped")
 
     async def __aenter__(self) -> "AdvancedThreatDetection":
@@ -492,6 +494,7 @@ class AdvancedThreatDetection:
         self,
         agent_id: str,
         time_window: Optional[Tuple[datetime, datetime]] = None,
+        cycle_id: str | None = None,
     ) -> List[Alert]:
         """Run all enabled detection engines safely for an agent within the specified time window."""
         if not agent_id or not agent_id.strip():
@@ -810,10 +813,36 @@ class AdvancedThreatDetection:
                                 covert_channel.first_detected,
                                 covert_channel.last_detected,
                             )
-                            if dedup_key not in self._published_covert_keys:
-                                self._published_covert_keys.add(dedup_key)
+                            now = utc_now()
+                            cooldown = getattr(
+                                self.config,
+                                "covert_channel_dedup_cooldown_seconds",
+                                30.0,
+                            )
+                            last_published = self._published_covert_keys.get(dedup_key)
+
+                            # Suppress per-agent duplicates within one correlation cycle without suppressing subsequent detections of an ongoing channel
+                            is_duplicate = False
+                            if cycle_id is not None:
+                                is_duplicate = (cycle_id, dedup_key) in self._published_covert_cycle_keys
+                            elif last_published is not None:
+                                is_duplicate = (now - last_published).total_seconds() < cooldown
+
+                            if not is_duplicate:
+                                self._published_covert_keys[dedup_key] = now
+                                if cycle_id is not None:
+                                    self._published_covert_cycle_keys.add((cycle_id, dedup_key))
                                 covert_alert = self.alert_bus.generate_covert_channel_alert(covert_channel)
                                 await self._publish_alert(covert_alert, new_alerts)
+
+                            # Evict expired dedup keys beyond 2x cooldown window to prevent memory leaks
+                            if len(self._published_covert_keys) > 1000:
+                                cutoff = now - timedelta(seconds=cooldown * 2)
+                                self._published_covert_keys = {
+                                    k: v for k, v in self._published_covert_keys.items() if v >= cutoff
+                                }
+                            if len(self._published_covert_cycle_keys) > 1000:
+                                self._published_covert_cycle_keys.clear()
 
         # 7. Package Registry Exploit Probing & Monitoring
         if self.registry_monitor is not None:
