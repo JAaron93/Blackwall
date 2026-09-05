@@ -177,3 +177,62 @@ class TestPrimarySourceClassification:
         identity_a = extractor.extract(context=tool_context, metadata={"agent_id": "agent-A"})
         identity_b = extractor.extract(context=tool_context, metadata={"agent_id": "agent-B"})
         assert identity_a.identity_fingerprint != identity_b.identity_fingerprint
+
+
+class TestSwarmAttributionIntegration:
+    """TASK-2A.3: Tests verifying linguistic markers, is_collective, and false monolith disambiguation."""
+
+    def test_linguistic_markers_embedded_in_extracted_identity(
+        self, extractor: AttackerIdentityExtractor
+    ):
+        ctx = ToolCallContext(
+            tool_name="bash",
+            arguments={"cmd": "echo 'we are coordinating with peer workers on consensus reached'"},
+            metadata=None,
+        )
+        identity = extractor.extract(context=ctx, metadata={"agent_id": "agent-swarm-1"})
+
+        assert identity.linguistic_markers is not None
+        assert identity.is_collective is True
+        assert identity.collective_name is not None
+        assert "we" in identity.linguistic_markers.detected_pronouns
+
+    def test_benign_call_has_linguistic_markers_not_collective(
+        self, extractor: AttackerIdentityExtractor
+    ):
+        ctx = ToolCallContext(
+            tool_name="bash",
+            arguments={"cmd": "whoami"},
+            metadata=None,
+        )
+        identity = extractor.extract(context=ctx, metadata={"agent_id": "agent-solo-1"})
+
+        assert identity.linguistic_markers is not None
+        assert identity.is_collective is False
+        assert identity.linguistic_markers.confidence_score == 0.0
+
+    def test_false_monolith_disambiguation_produces_distinct_fingerprints(
+        self, extractor: AttackerIdentityExtractor
+    ):
+        """FR-2: Multiple calls with agent_id='we' across different sessions must NOT collapse."""
+        ctx1 = ToolCallContext(
+            tool_name="bash",
+            arguments={"cmd": "cat /etc/passwd"},
+            metadata={"session_id": "session-alpha-100"},
+        )
+        ctx2 = ToolCallContext(
+            tool_name="bash",
+            arguments={"cmd": "cat /etc/shadow"},
+            metadata={"session_id": "session-beta-200"},
+        )
+
+        identity1 = extractor.extract(context=ctx1, metadata={"agent_id": "we"})
+        identity2 = extractor.extract(context=ctx2, metadata={"agent_id": "we"})
+
+        assert identity1.is_collective is True
+        assert identity2.is_collective is True
+        assert identity1.identity_fingerprint != identity2.identity_fingerprint
+        assert identity1.session_salt is not None
+        assert identity2.session_salt is not None
+        assert identity1.session_salt != identity2.session_salt
+

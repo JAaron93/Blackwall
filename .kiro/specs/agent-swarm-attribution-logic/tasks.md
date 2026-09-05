@@ -58,25 +58,25 @@ This task implementation plan structures the development of Blackwall's Agent Sw
 
 ### Track 2A: Linguistic Swarm Classifier (Pillar 1)
 
-#### [ ] TASK-2A.1: Implement `LinguisticSwarmClassifier` (TDD)
+#### [x] TASK-2A.1: Implement `LinguisticSwarmClassifier` (TDD)
 - **Description**: Create `src/blackwall/attribution/linguistic.py`. Implement regex-based pronoun scanning, consensus phrase weighting, and `collective_confidence_score` calculation with fail-safe error isolation.
 - **Dependencies**: TASK-1.3.
 - **Traceability**: FR-1, FR-2, NFR-1.
 - **TDD Requirement**: Write failing tests in `tests/unit/test_linguistic_swarm_classifier.py` covering single "we" vs. multi-pronoun consensus phrases before implementing classifier.
 
-#### [ ] TASK-2A.2: Linguistic Classifier Unit Tests & Edge Case Hardening
+#### [x] TASK-2A.2: Linguistic Classifier Unit Tests & Edge Case Hardening
 - **Description**: Test edge cases including false monoliths (`agent_id="we"`), natural language ambiguity (casual "we" in benign prompts), empty strings, and adversarial unicode substitutions.
 - **Dependencies**: TASK-2A.1.
 - **Traceability**: FR-1, FR-2, NFR-1.
 - **TDD Requirement**: Ensure execution time per evaluation is benchmarked under <2ms.
 
-#### [ ] TASK-2A.3: Integrate Classifier into `AttackerIdentityExtractor`
+#### [x] TASK-2A.3: Integrate Classifier into `AttackerIdentityExtractor`
 - **Description**: Update `src/blackwall/attribution/extractor.py` to call `LinguisticSwarmClassifier.classify(context)` and embed `LinguisticSwarmMarkers` inside the returned `AttackerIdentity`. Implement session-salted fingerprinting for false-monolith prevention.
 - **Dependencies**: TASK-2A.2.
 - **Traceability**: FR-1, FR-2, NFR-2.
 - **TDD Requirement**: Update `tests/test_identity_extractor.py` with tests verifying `is_collective` assignment.
 
-#### [ ] TASK-2A.4: Linguistic Attribution BDD Scenarios
+#### [x] TASK-2A.4: Linguistic Attribution BDD Scenarios
 - **Description**: Add Gherkin scenarios in `tests/features/agent_swarm_linguistic_attribution.feature` and step definitions in `tests/step_defs/test_agent_swarm_linguistic_bdd.py` testing pronoun extraction and collective identity tagging.
 - **Dependencies**: TASK-2A.3.
 - **Traceability**: FR-1, FR-2, US-1, BDD Scenarios.
@@ -86,25 +86,25 @@ This task implementation plan structures the development of Blackwall's Agent Sw
 
 ### Track 2B: Covert Channel & Latent Coordination Detector (Pillar 2)
 
-#### [ ] TASK-2B.1: Implement `CovertChannelDetector` (TDD)
+#### [x] TASK-2B.1: Implement `CovertChannelDetector` (TDD)
 - **Description**: Create `src/blackwall/enterprise/advanced_threat_detection/covert_channel.py`. Implement the Latent Coordination Divergence heuristic to infer `UNLOCATED_MESSAGE_BOARD` when high correlation occurs without visible external C2.
 - **Dependencies**: TASK-1.3.
 - **Traceability**: FR-3, FR-4, NFR-4.
 - **TDD Requirement**: Write failing tests in `tests/unit/test_covert_channel_detector.py` checking unlocated board deduction when external IPs are absent.
 
-#### [ ] TASK-2B.2: Steganographic Registry & Storage Channel Detection
+#### [x] TASK-2B.2: Steganographic Registry & Storage Channel Detection
 - **Description**: Implement heuristics recognizing Artifactory package name steganography, unusual metadata querying spikes, and local file dead-drop sequences (`/tmp`, `/dev/shm`).
 - **Dependencies**: TASK-2B.1.
 - **Traceability**: FR-4, US-2.
 - **TDD Requirement**: Add unit tests simulating multi-agent Artifactory directory polling.
 
-#### [ ] TASK-2B.3: Integrate Detector with `AgentSwarmDetector` & `AlertBus`
+#### [x] TASK-2B.3: Integrate Detector with `AgentSwarmDetector` & `AlertBus`
 - **Description**: Wire `CovertChannelDetector` into `AgentSwarmDetector.detect_swarms()`. Add `publish_covert_channel_alert()` to `src/blackwall/enterprise/advanced_threat_detection/alert_bus.py` with `CRITICAL` severity mapping.
 - **Dependencies**: TASK-2B.2.
 - **Traceability**: FR-3, FR-4, NFR-2.
 - **TDD Requirement**: Update alert bus tests in `tests/unit/test_alert_generation.py` ensuring covert channel alerts are published.
 
-#### [ ] TASK-2B.4: Covert Channel BDD Gherkin Scenarios
+#### [x] TASK-2B.4: Covert Channel BDD Gherkin Scenarios
 - **Description**: Add Gherkin scenarios in `tests/features/covert_channel_detection.feature` and step definitions in `tests/step_defs/test_covert_channel_bdd.py` testing unlocated board inference and Artifactory steganography detection.
 - **Dependencies**: TASK-2B.3.
 - **Traceability**: FR-3, FR-4, US-2, BDD Scenarios.

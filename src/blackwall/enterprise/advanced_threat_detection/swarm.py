@@ -2,14 +2,17 @@
 
 import hashlib
 import logging
-import math
 import re
 import uuid
 from collections import deque
 from datetime import datetime, timedelta
 from typing import Any
 
+from blackwall.enterprise.advanced_threat_detection.covert_channel import (
+    CovertChannelDetector,
+)
 from blackwall.enterprise.advanced_threat_detection.models import (
+    CovertChannelEvidence,
     NormalizedEvent,
     SwarmEvidence,
 )
@@ -59,6 +62,7 @@ class AgentSwarmDetector:
         default_window: int | None = None,
         default_min_agents: int | None = None,
         default_correlation_threshold: float | None = None,
+        covert_channel_detector: CovertChannelDetector | None = None,
     ) -> None:
         self.store = store or AttackGraphStore(in_memory=True)
         self.policy = policy
@@ -80,6 +84,12 @@ class AgentSwarmDetector:
             if default_correlation_threshold is not None
             else (p_cfg.correlationThreshold if p_cfg else 0.75)
         )
+        self.covert_channel_detector = covert_channel_detector or CovertChannelDetector(
+            min_agents=self.default_min_agents,
+            min_correlation_threshold=0.80,
+            min_coordination_threshold=0.80,
+        )
+        self.last_detected_covert_channels: list[CovertChannelEvidence] = []
         self._fingerprint_state: dict[str, dict[str, Any]] = {}
 
     def update_fingerprint_incremental(
@@ -279,6 +289,16 @@ class AgentSwarmDetector:
                 last_seen=last_seen,
             )
             swarms.append(swarm)
+
+        # Evaluate covert channel evidence for detected swarms (TASK-2B.3, FR-3, FR-4)
+        self.last_detected_covert_channels.clear()
+        if self.covert_channel_detector is not None:
+            for swarm in swarms:
+                comp_events_by_agent = {a: events_by_agent.get(a, []) for a in swarm.agent_ids}
+                evidences = self.covert_channel_detector.detect_for_swarm(
+                    swarm, events_by_agent=comp_events_by_agent
+                )
+                self.last_detected_covert_channels.extend(evidences)
 
         return swarms
 

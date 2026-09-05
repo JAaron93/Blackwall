@@ -15,6 +15,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     Alert,
     AttackPath,
     C2Evidence,
+    CovertChannelEvidence,
     ExploitChainEvidence,
     K8sThreatEvidence,
     RegistryThreatEvidence,
@@ -94,7 +95,7 @@ class AlertBus:
                     try:
                         # Allow periodic task to exit gracefully upon wake_event
                         await asyncio.wait_for(task, timeout=2.0)
-                    except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                    except (TimeoutError, asyncio.CancelledError, Exception):
                         task.cancel()
                         try:
                             await task
@@ -107,7 +108,7 @@ class AlertBus:
 
         try:
             await asyncio.wait_for(self._flush_pending(), timeout=drain_timeout)
-        except (asyncio.CancelledError, asyncio.TimeoutError, Exception) as exc:
+        except (TimeoutError, asyncio.CancelledError, Exception) as exc:
             logger.warning("AlertBus shutdown flush terminated or timed out: %s", exc)
 
     async def _periodic_flush_loop(self) -> None:
@@ -120,7 +121,7 @@ class AlertBus:
                         timeout=self.flush_interval_seconds,
                     )
                     self._wake_event.clear()
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
                 if not self._running:
                     break
@@ -289,6 +290,12 @@ class AlertBus:
 
     def map_swarm_severity(self, swarm: SwarmEvidence) -> AlertSeverity:
         """Map swarm detection evidence to alert severity (Requirement 10.1 -> CRITICAL)."""
+        return AlertSeverity.CRITICAL
+
+    def map_covert_channel_severity(
+        self, covert_channel: CovertChannelEvidence
+    ) -> AlertSeverity:
+        """Map covert channel evidence to alert severity (FR-3, FR-4 -> CRITICAL)."""
         return AlertSeverity.CRITICAL
 
     def map_ailm_severity(self, ailm: AILMEvidence) -> AlertSeverity:
@@ -476,6 +483,29 @@ class AlertBus:
             evidence=registry.model_dump(),
         )
 
+    def generate_covert_channel_alert(
+        self,
+        covert_channel: CovertChannelEvidence,
+    ) -> Alert:
+        """Generate an Alert for detected covert channels (FR-3, FR-4)."""
+        agents = sorted(covert_channel.coordinating_agents)
+        return Alert(
+            alert_id=uuid.uuid4(),
+            timestamp=datetime.now(UTC),
+            severity=self.map_covert_channel_severity(covert_channel),
+            threat_type="covert_channel",
+            title=f"Covert Channel Detected: {covert_channel.channel_type.value}",
+            description=(
+                f"Covert communication channel of type '{covert_channel.channel_type.value}' "
+                f"detected involving {len(agents)} agents ({', '.join(agents)}). "
+                f"Rationale: {covert_channel.deduction_rationale}"
+            ),
+            evidence_id=covert_channel.channel_id,
+            agent_ids=agents,
+            agent_id=agents[0] if agents else None,
+            evidence=covert_channel.model_dump(mode="json"),
+        )
+
     # ---------------------------------------------------------------------------
     # Convenience Publication Methods
     # ---------------------------------------------------------------------------
@@ -483,6 +513,14 @@ class AlertBus:
     async def publish_swarm_alert(self, swarm: SwarmEvidence) -> bool:
         """Generate and publish an alert for detected swarm activity."""
         alert = self.generate_swarm_alert(swarm)
+        return await self.publish(alert)
+
+    async def publish_covert_channel_alert(
+        self,
+        covert_channel: CovertChannelEvidence,
+    ) -> bool:
+        """Generate and publish an alert for detected covert channel activity (FR-3, FR-4)."""
+        alert = self.generate_covert_channel_alert(covert_channel)
         return await self.publish(alert)
 
     async def publish_ailm_alert(self, ailm: AILMEvidence) -> bool:

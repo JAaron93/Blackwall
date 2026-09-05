@@ -12,6 +12,8 @@ from blackwall.enterprise.advanced_threat_detection import (
     AttackNode,
     AttackPath,
     C2Evidence,
+    CovertChannelEvidence,
+    CovertChannelType,
     EventSource,
     ExploitCategory,
     ExploitChainEvidence,
@@ -281,3 +283,38 @@ async def test_all_alert_types():
     assert await bus.publish_k8s_alert(k8s_token) is True
     assert await bus.publish_registry_alert(reg_high_conf, exploit_confidence=0.85) is True
     assert len(bus.get_alerts()) == 5
+
+
+@pytest.mark.asyncio
+async def test_covert_channel_alerts():
+    """Verify alert generation and publication for covert channel detection (FR-3, FR-4)."""
+    bus = AlertBus()
+    now = datetime.now(UTC)
+
+    evidence = CovertChannelEvidence(
+        channel_id=uuid.uuid4(),
+        channel_type=CovertChannelType.UNLOCATED_MESSAGE_BOARD,
+        coordinating_agents={"agent-alpha", "agent-beta"},
+        confidence_score=0.92,
+        first_detected=now,
+        last_detected=now + timedelta(seconds=120),
+        deduction_rationale="Latent coordination divergence detected: high temporal correlation (0.95) with no active C2 endpoints.",
+        observed_artifacts=["divergence_ratio:0.95"],
+    )
+
+    alert = bus.generate_covert_channel_alert(evidence)
+    assert alert.severity == AlertSeverity.CRITICAL
+    assert alert.threat_type == "covert_channel"
+    assert alert.evidence_id == evidence.channel_id
+    assert set(alert.agent_ids) == {"agent-alpha", "agent-beta"}
+    assert alert.agent_id == "agent-alpha"
+    assert "Covert Channel Detected: UNLOCATED_MESSAGE_BOARD" in alert.title
+    assert "agent-alpha, agent-beta" in alert.description
+    assert alert.evidence["channel_type"] == "UNLOCATED_MESSAGE_BOARD"
+    assert alert.evidence["confidence_score"] == 0.92
+
+    success = await bus.publish_covert_channel_alert(evidence)
+    assert success is True
+    assert len(bus.get_alerts(severity=AlertSeverity.CRITICAL)) == 1
+    assert bus.get_alerts()[0].threat_type == "covert_channel"
+
