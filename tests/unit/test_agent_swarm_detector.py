@@ -506,3 +506,62 @@ async def test_policy_configuration_default_omission():
     assert detector.default_window == 3600
     assert detector.default_min_agents == 2
     assert detector.default_correlation_threshold == 0.75
+
+
+@pytest.mark.asyncio
+async def test_url_path_ip_is_not_extracted_as_shared_c2_pattern():
+    """Verify that internal URLs with IP literals in their paths do not extract path IPs as shared patterns."""
+    from blackwall.enterprise.advanced_threat_detection.swarm import _extract_all_ips
+
+    # 1. Direct unit verification on _extract_all_ips
+    url_target = "https://artifactory.internal/api/198.51.100.5/storage"
+    assert _extract_all_ips(url_target) == set()
+
+    res_target = "resource:https://artifactory.internal/api/198.51.100.5/storage"
+    assert _extract_all_ips(res_target) == set()
+
+    raw_path = "/api/198.51.100.5/storage"
+    assert _extract_all_ips(raw_path) == set()
+
+    # Legitimate IP endpoints are still extracted
+    assert _extract_all_ips("https://198.51.100.5/api/storage") == {"198.51.100.5"}
+    assert _extract_all_ips("https://[2607:f8b0:4005:805::200e]:8080/api") == {
+        "2607:f8b0:4005:805::200e"
+    }
+
+    # 2. Integration verification via detect_swarms
+    store = AttackGraphStore(in_memory=True)
+    await store.initialize()
+    detector = AgentSwarmDetector(
+        store=store, default_min_agents=2, default_correlation_threshold=0.7
+    )
+
+    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=UTC)
+    e1 = create_event(
+        agent_id="agent-01",
+        action="fetch",
+        target="https://artifactory.internal/api/198.51.100.5/storage",
+        offset_seconds=0.0,
+        base_time=base_time,
+        metadata={},
+    )
+    e2 = create_event(
+        agent_id="agent-02",
+        action="fetch",
+        target="https://artifactory.internal/api/198.51.100.5/storage",
+        offset_seconds=1.0,
+        base_time=base_time,
+        metadata={},
+    )
+    await store.insert_event(e1)
+    await store.insert_event(e2)
+
+    swarms = await detector.detect_swarms(
+        time_window=(
+            base_time - timedelta(minutes=5),
+            base_time + timedelta(minutes=5),
+        )
+    )
+    assert len(swarms) == 1
+    # Must NOT have extracted "ip:198.51.100.5" into shared_patterns
+    assert "ip:198.51.100.5" not in swarms[0].shared_patterns

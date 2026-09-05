@@ -42,42 +42,61 @@ def _extract_all_ips(text: str) -> set[str]:
     if not text:
         return found
 
+    t = text.strip()
+    for prefix in (
+        "ip:",
+        "endpoint:",
+        "domain:",
+        "resource:",
+        "target:",
+        "host:",
+        "url:",
+    ):
+        if t.lower().startswith(prefix):
+            t = t[len(prefix) :].strip()
+            break
+
     # 1. URL hostname extraction if text is a URL
-    if "://" in text or text.startswith("//"):
+    if "://" in t or t.startswith("//"):
         try:
-            parsed = urlsplit(text)
+            parsed = urlsplit(t)
             if parsed.hostname:
                 clean_host = parsed.hostname.strip("[]")
                 try:
                     found.add(str(ipaddress.ip_address(clean_host)))
                 except ValueError:
                     pass
+                return found
         except Exception:  # noqa: BLE001, S110
             pass
 
+    # If it is a local filesystem path, do not extract path components as IP endpoints
+    if t.startswith("/"):
+        return found
+
     # 2. Bracketed IPv6 (e.g. [2607:f8b0:4005:805::200e]:8080 or [::1])
-    for b in re.findall(r"\[([0-9a-fA-F:]+)\]", text):
+    for b in re.findall(r"\[([0-9a-fA-F:]+)\]", t):
         try:
             found.add(str(ipaddress.IPv6Address(b)))
         except ValueError:
             pass
 
     # 3. IPv4 addresses (dotted quad)
-    for ip_str in IP_REGEX.findall(text):
+    for ip_str in IP_REGEX.findall(t):
         try:
             found.add(str(ipaddress.IPv4Address(ip_str)))
         except ValueError:
             pass
 
     # 4. Unbracketed IPv6 candidates
-    tokens = re.split(r"[\s,;\"'<>\[\]\(\)/]+", text)
+    tokens = re.split(r"[\s,;\"'<>\[\]\(\)/]+", t)
     for raw_tok in tokens:
         tok = raw_tok.strip()
         if not tok:
             continue
         for prefix in ("ip:", "endpoint:", "host:", "target:", "resource:", "url:"):
             if tok.lower().startswith(prefix):
-                tok = tok[len(prefix):].strip()
+                tok = tok[len(prefix) :].strip()
         if tok.count(":") >= 2:
             try:
                 found.add(str(ipaddress.IPv6Address(tok)))
@@ -358,7 +377,9 @@ class AgentSwarmDetector:
         all_covert_evidences: list[CovertChannelEvidence] = []
         if self.covert_channel_detector is not None:
             for swarm in swarms:
-                comp_events_by_agent = {a: events_by_agent.get(a, []) for a in swarm.agent_ids}
+                comp_events_by_agent = {
+                    a: events_by_agent.get(a, []) for a in swarm.agent_ids
+                }
                 evidences = self.covert_channel_detector.detect_for_swarm(
                     swarm, events_by_agent=comp_events_by_agent
                 )
@@ -470,7 +491,6 @@ class AgentSwarmDetector:
 
         correlation = (0.5 * temporal_score) + (0.25 * action_sim) + (0.25 * target_sim)
         return clamp_score(correlation, 0.0, 1.0)
-
 
     def _extract_shared_infrastructure(
         self,
