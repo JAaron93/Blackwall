@@ -1006,30 +1006,6 @@ class AdvancedThreatDetection:
                                         for cid in expired_or_completed:
                                             del self._published_covert_cycles[cid]
 
-                                        # If still exceeding hard capacity after purging completed/expired cycles, evict oldest by last_activity
-                                        if len(self._published_covert_cycles) > 2000:
-                                            sorted_cycles = sorted(
-                                                self._published_covert_cycles.items(),
-                                                key=lambda item: (
-                                                    item[1].last_activity
-                                                    if isinstance(
-                                                        item[1], CorrelationCycleState
-                                                    )
-                                                    else (
-                                                        item[1][0]
-                                                        if isinstance(item[1], tuple)
-                                                        else datetime.min.replace(
-                                                            tzinfo=UTC
-                                                        )
-                                                    )
-                                                ),
-                                            )
-                                            for cid, _ in sorted_cycles[
-                                                : len(self._published_covert_cycles)
-                                                - 2000
-                                            ]:
-                                                del self._published_covert_cycles[cid]
-
                                     cycle_state = self._published_covert_cycles.get(
                                         cycle_id
                                     )
@@ -1126,10 +1102,7 @@ class AdvancedThreatDetection:
         state = self._published_covert_cycles.get(cycle_id)
         if isinstance(state, CorrelationCycleState):
             state.completed = True
-            if len(self._published_covert_cycles) >= 100:
-                del self._published_covert_cycles[cycle_id]
-        elif state is not None:
-            self._published_covert_cycles.pop(cycle_id, None)
+        self._published_covert_cycles.pop(cycle_id, None)
 
     async def get_attack_graph(
         self,
