@@ -33,6 +33,8 @@ from blackwall.validators import (
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.covert_channel")
 
+import ipaddress
+
 # Regex pattern for external IP addresses (IPv4)
 IP_REGEX = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 DOMAIN_REGEX = re.compile(r"\b[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b")
@@ -45,6 +47,25 @@ REGISTRY_KEYWORDS = ("artifactory", "/api/storage", "npm-local", "pypi-local", "
 
 # Shared dead-drop staging directory prefixes
 DEAD_DROP_DIR_PREFIXES = ("/tmp", "/dev/shm", ".cache")
+
+RFC1918_NETWORKS = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fe80::/10"),
+)
+
+
+def _is_rfc1918_or_local_ip(ip_str: str) -> bool:
+    """Return True if IP is RFC1918 private, loopback, or link-local."""
+    try:
+        ip = ipaddress.ip_address(ip_str.strip())
+        return any(ip in net for net in RFC1918_NETWORKS)
+    except ValueError:
+        return False
 
 
 def _is_base64_string(s: str) -> bool:
@@ -62,13 +83,23 @@ def _has_external_c2_endpoints(shared_patterns: list[str]) -> bool:
     """Return True if shared_patterns contains external IP or domain indicators."""
     for pattern in shared_patterns:
         p_lower = pattern.lower()
-        if p_lower.startswith(("ip:", "domain:", "endpoint:")):
-            # Exclude explicit loopback patterns
-            if "127.0.0.1" in p_lower or "localhost" in p_lower or "::1" in p_lower:
+
+        # Check for IP address in pattern
+        ip_match = IP_REGEX.search(pattern)
+        if ip_match:
+            candidate_ip = ip_match.group(0)
+            if not _is_rfc1918_or_local_ip(candidate_ip):
+                return True
+            continue
+
+        if p_lower.startswith(("endpoint:", "domain:")):
+            target = pattern.split(":", 1)[1].strip().lower()
+            if "localhost" in target or target.endswith((".local", ".internal", ".lan")):
                 continue
             return True
-        if IP_REGEX.search(pattern) or DOMAIN_REGEX.search(pattern):
-            if "127.0.0.1" in p_lower or "localhost" in p_lower:
+
+        if DOMAIN_REGEX.search(pattern):
+            if "localhost" in p_lower or p_lower.endswith((".local", ".internal", ".lan")):
                 continue
             return True
     return False

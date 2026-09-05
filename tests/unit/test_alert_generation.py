@@ -318,3 +318,50 @@ async def test_covert_channel_alerts():
     assert len(bus.get_alerts(severity=AlertSeverity.CRITICAL)) == 1
     assert bus.get_alerts()[0].threat_type == "covert_channel"
 
+
+@pytest.mark.asyncio
+async def test_detect_swarms_publishes_covert_channel_alert():
+    """Verify that AgentSwarmDetector publishes covert channel alerts to AlertBus (P1 fix)."""
+    from blackwall.enterprise.advanced_threat_detection.covert_channel import (
+        CovertChannelDetector,
+    )
+    from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
+    from blackwall.enterprise.advanced_threat_detection.swarm import AgentSwarmDetector
+
+    bus = AlertBus()
+    store = AttackGraphStore(in_memory=True)
+    await store.initialize()
+
+    now = datetime.now(UTC)
+    for i in range(5):
+        t = now - timedelta(seconds=50 - i * 10)
+        ev1 = create_normalized_event(
+            agent_id="agent-01", action="action_1", target="/bin/sh", risk_score=0.8
+        )
+        ev1.timestamp = t
+        ev2 = create_normalized_event(
+            agent_id="agent-02", action="action_1", target="/bin/sh", risk_score=0.8
+        )
+        ev2.timestamp = t
+        await store.insert_event(ev1)
+        await store.insert_event(ev2)
+
+    detector = AgentSwarmDetector(
+        store=store,
+        alert_bus=bus,
+        covert_channel_detector=CovertChannelDetector(
+            min_agents=2, min_correlation_threshold=0.70, min_coordination_threshold=0.70
+        ),
+    )
+
+    swarms = await detector.detect_swarms(
+        time_window=(now - timedelta(seconds=100), now + timedelta(seconds=10)),
+        min_agents=2,
+        correlation_threshold=0.75,
+    )
+
+    assert len(swarms) >= 1
+    covert_alerts = bus.get_alerts(severity=AlertSeverity.CRITICAL)
+    assert any(a.threat_type == "covert_channel" for a in covert_alerts)
+
+

@@ -8,6 +8,7 @@ from collections import deque
 from datetime import datetime, timedelta
 from typing import Any
 
+from blackwall.enterprise.advanced_threat_detection.alert_bus import AlertBus
 from blackwall.enterprise.advanced_threat_detection.covert_channel import (
     CovertChannelDetector,
 )
@@ -63,9 +64,11 @@ class AgentSwarmDetector:
         default_min_agents: int | None = None,
         default_correlation_threshold: float | None = None,
         covert_channel_detector: CovertChannelDetector | None = None,
+        alert_bus: AlertBus | None = None,
     ) -> None:
         self.store = store or AttackGraphStore(in_memory=True)
         self.policy = policy
+        self.alert_bus = alert_bus
 
         p_cfg = policy.advancedThreatDetection.swarmDetector if policy else None
 
@@ -224,7 +227,7 @@ class AgentSwarmDetector:
 
         # Build connected components (swarms) of agents
         adjacency: dict[str, set[str]] = {aid: set() for aid in agent_ids}
-        for (a1, a2), _ in correlated_pairs.items():
+        for a1, a2 in correlated_pairs:
             adjacency[a1].add(a2)
             adjacency[a2].add(a1)
 
@@ -299,6 +302,9 @@ class AgentSwarmDetector:
                     swarm, events_by_agent=comp_events_by_agent
                 )
                 self.last_detected_covert_channels.extend(evidences)
+                if self.alert_bus is not None:
+                    for ev in evidences:
+                        await self.alert_bus.publish_covert_channel_alert(ev)
 
         return swarms
 
@@ -463,4 +469,4 @@ class AgentSwarmDetector:
             if len(sharing_agents) >= 2:
                 shared_patterns.append(f"resource:{res}")
 
-        return sorted(list(set(shared_patterns)))
+        return sorted(set(shared_patterns))

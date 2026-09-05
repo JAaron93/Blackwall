@@ -102,6 +102,24 @@ class TestUnlocatedMessageBoardInference:
         evidences = detector.detect_for_swarm(swarm)
         assert len(evidences) == 0
 
+    def test_rfc1918_private_ips_do_not_suppress_unlocated_board(
+        self, detector: CovertChannelDetector
+    ):
+        now = datetime.now(UTC)
+        swarm = SwarmEvidence(
+            swarm_id=uuid.uuid4(),
+            agent_ids={"agent-1", "agent-2", "agent-3"},
+            shared_patterns=["ip:10.0.0.5", "ip:192.168.1.100", "ip:172.16.0.50"],
+            temporal_correlation=0.90,
+            coordination_score=0.88,
+            first_seen=now - timedelta(minutes=5),
+            last_seen=now,
+        )
+
+        evidences = detector.detect_for_swarm(swarm)
+        assert len(evidences) == 1
+        assert evidences[0].channel_type == CovertChannelType.UNLOCATED_MESSAGE_BOARD
+
 
 class TestSteganographicRegistryDetection:
     """FR-4: Steganographic storage and package registry dead-drop detection."""

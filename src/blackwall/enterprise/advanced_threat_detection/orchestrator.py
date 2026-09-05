@@ -33,6 +33,9 @@ from blackwall.enterprise.advanced_threat_detection.enums import (
 from blackwall.enterprise.advanced_threat_detection.evaluation import (
     EvaluationEnvironmentManager,
 )
+from blackwall.enterprise.advanced_threat_detection.covert_channel import (
+    CovertChannelDetector,
+)
 from blackwall.enterprise.advanced_threat_detection.exploit import ExploitChainAnalyzer
 from blackwall.enterprise.advanced_threat_detection.inbound_filter import (
     InboundProtocolFilter,
@@ -147,12 +150,19 @@ class AdvancedThreatDetection:
             if self.config.enable_path_correlation
             else None
         )
+        self.covert_channel_detector: Optional[CovertChannelDetector] = (
+            CovertChannelDetector(min_agents=self.config.swarm_min_agents)
+            if self.config.enable_swarm_detection
+            else None
+        )
         self.swarm_detector: Optional[AgentSwarmDetector] = (
             AgentSwarmDetector(
                 store=self.store,
                 default_window=int(self.config.temporal_window_seconds),
                 default_min_agents=self.config.swarm_min_agents,
                 default_correlation_threshold=self.config.swarm_correlation_threshold,
+                covert_channel_detector=self.covert_channel_detector,
+                alert_bus=self.alert_bus,
             )
             if self.config.enable_swarm_detection
             else None
@@ -788,6 +798,12 @@ class AdvancedThreatDetection:
                                 await self.active_reaction.revoke_identity_session(vault_payload)
                             except Exception as exc:
                                 logger.error("Active reaction (vault revocation) failed for swarm agent %s: %s", aid, exc)
+
+            if hasattr(self.swarm_detector, "last_detected_covert_channels"):
+                for covert_channel in self.swarm_detector.last_detected_covert_channels:
+                    if agent_id in covert_channel.coordinating_agents:
+                        covert_alert = self.alert_bus.generate_covert_channel_alert(covert_channel)
+                        await self._publish_alert(covert_alert, new_alerts)
 
         # 7. Package Registry Exploit Probing & Monitoring
         if self.registry_monitor is not None:
