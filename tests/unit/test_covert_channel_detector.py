@@ -177,6 +177,26 @@ class TestUnlocatedMessageBoardInference:
         assert len(evidences) == 1
         assert evidences[0].channel_type == CovertChannelType.UNLOCATED_MESSAGE_BOARD
 
+    def test_internal_url_with_path_ip_does_not_suppress_unlocated_board(
+        self, detector: CovertChannelDetector
+    ):
+        now = datetime.now(UTC)
+        swarm = SwarmEvidence(
+            swarm_id=uuid.uuid4(),
+            agent_ids={"agent-1", "agent-2"},
+            shared_patterns=[
+                "resource:https://artifactory.internal/api/198.51.100.5/storage",
+            ],
+            temporal_correlation=0.90,
+            coordination_score=0.88,
+            first_seen=now - timedelta(minutes=5),
+            last_seen=now,
+        )
+
+        evidences = detector.detect_for_swarm(swarm)
+        assert len(evidences) == 1
+        assert evidences[0].channel_type == CovertChannelType.UNLOCATED_MESSAGE_BOARD
+
     def test_external_url_with_path_suppresses_unlocated_board(
         self, detector: CovertChannelDetector
     ):
@@ -228,12 +248,22 @@ class TestSteganographicRegistryDetection:
         evidences = detector.detect_storage_channels(events)
         assert len(evidences) >= 1
         stego_evidence = next(
-            (e for e in evidences if e.channel_type == CovertChannelType.STEGANOGRAPHIC_REGISTRY),
+            (
+                e
+                for e in evidences
+                if e.channel_type == CovertChannelType.STEGANOGRAPHIC_REGISTRY
+            ),
             None,
         )
         assert stego_evidence is not None
-        assert stego_evidence.coordinating_agents == {"agent-01", "agent-02", "agent-03"}
-        assert any("artifactory.internal" in art for art in stego_evidence.observed_artifacts)
+        assert stego_evidence.coordinating_agents == {
+            "agent-01",
+            "agent-02",
+            "agent-03",
+        }
+        assert any(
+            "artifactory.internal" in art for art in stego_evidence.observed_artifacts
+        )
 
 
 class TestFilesystemDeadDropDetection:
@@ -262,7 +292,11 @@ class TestFilesystemDeadDropDetection:
         evidences = detector.detect_storage_channels(events)
         assert len(evidences) >= 1
         dead_drop = next(
-            (e for e in evidences if e.channel_type == CovertChannelType.FILESYSTEM_DEAD_DROP),
+            (
+                e
+                for e in evidences
+                if e.channel_type == CovertChannelType.FILESYSTEM_DEAD_DROP
+            ),
             None,
         )
         assert dead_drop is not None
@@ -299,9 +333,7 @@ class TestCardinalityAndSingleAgentRejection:
 class TestFailSafeExceptionIsolation:
     """NFR-2: Fail-safe exception isolation returning safe defaults without propagation."""
 
-    def test_broken_swarm_returns_empty_evidence(
-        self, detector: CovertChannelDetector
-    ):
+    def test_broken_swarm_returns_empty_evidence(self, detector: CovertChannelDetector):
         class BrokenSwarm:
             @property
             def agent_ids(self):
@@ -336,4 +368,6 @@ class TestLatencySLA:
         elapsed = time.perf_counter() - start
         avg_ms = (elapsed / iterations) * 1000.0
 
-        assert avg_ms < 5.0, f"Average execution time {avg_ms:.3f}ms exceeds 5.0ms SLA budget"
+        assert avg_ms < 5.0, (
+            f"Average execution time {avg_ms:.3f}ms exceeds 5.0ms SLA budget"
+        )

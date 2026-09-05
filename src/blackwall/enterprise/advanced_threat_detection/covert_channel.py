@@ -31,7 +31,9 @@ from blackwall.validators import (
     validate_utc_datetime,
 )
 
-logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.covert_channel")
+logger = logging.getLogger(
+    "blackwall.enterprise.advanced_threat_detection.covert_channel"
+)
 
 import ipaddress
 from urllib.parse import urlsplit
@@ -44,7 +46,13 @@ DOMAIN_REGEX = re.compile(r"\b[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b")
 BASE64_PATH_REGEX = re.compile(r"[A-Za-z0-9+/]{8,}={0,2}")
 
 # Package registry keywords for steganography detection
-REGISTRY_KEYWORDS = ("artifactory", "/api/storage", "npm-local", "pypi-local", "pkg-cache")
+REGISTRY_KEYWORDS = (
+    "artifactory",
+    "/api/storage",
+    "npm-local",
+    "pypi-local",
+    "pkg-cache",
+)
 
 # Shared dead-drop staging directory prefixes
 DEAD_DROP_DIR_PREFIXES = ("/tmp", "/dev/shm", ".cache")
@@ -67,43 +75,48 @@ def _is_private_or_local_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -
 
 
 def _extract_ip(pattern: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
-    """Extract and parse an IPv4 or IPv6 address from a pattern string if present."""
+    """Extract and parse an IPv4 or IPv6 address from an endpoint/pattern host if present."""
     p = pattern.strip()
-    for prefix in ("ip:", "endpoint:", "domain:", "resource:", "target:", "host:"):
+    for prefix in (
+        "ip:",
+        "endpoint:",
+        "domain:",
+        "resource:",
+        "target:",
+        "host:",
+        "url:",
+    ):
         if p.lower().startswith(prefix):
-            p = p[len(prefix):].strip()
+            p = p[len(prefix) :].strip()
             break
 
+    # If it is a URL with scheme or double slashes, only the URL host can be the endpoint IP
     if "://" in p or p.startswith("//"):
         try:
             parsed = urlsplit(p)
             if parsed.hostname:
-                p = parsed.hostname
+                raw_host = parsed.hostname.strip("[]")
+                try:
+                    return ipaddress.ip_address(raw_host)
+                except ValueError:
+                    return None
         except Exception:  # noqa: BLE001, S110
             pass
 
-    if "]:" in p:
-        raw = p.split("]:")[0].lstrip("[")
-    elif p.startswith("[") and p.endswith("]"):
-        raw = p[1:-1]
+    # Extract host part before path or query
+    host_part = p.split("/")[0].split("?")[0].strip()
+
+    if host_part.startswith("[") and "]" in host_part:
+        raw = host_part.split("]")[0].lstrip("[")
+    elif ":" in host_part and host_part.count(":") == 1:
+        raw = host_part.split(":")[0]
     else:
-        raw = p.split("/")[0].split(":")[0] if "." in p else p.split("/")[0]
+        raw = host_part
 
     try:
         return ipaddress.ip_address(raw)
     except ValueError:
-        pass
-
-    tokens = re.findall(r"[0-9a-fA-F:.]+", pattern)
-    for tok in tokens:
-        if "." in tok or ":" in tok:
-            t = tok.strip("[]/:")
-            try:
-                return ipaddress.ip_address(t)
-            except ValueError:
-                pass
-
-    return None
+        return None
 
 
 def _is_base64_string(s: str) -> bool:
@@ -122,7 +135,7 @@ def _extract_hostname_or_domain(pattern: str) -> str | None:
     p = pattern.strip()
     for prefix in ("endpoint:", "domain:", "host:", "resource:", "target:", "url:"):
         if p.lower().startswith(prefix):
-            p = p[len(prefix):].strip()
+            p = p[len(prefix) :].strip()
             break
 
     if "://" in p or p.startswith("//"):
@@ -147,10 +160,7 @@ def _extract_hostname_or_domain(pattern: str) -> str | None:
 def _is_internal_domain(hostname: str) -> bool:
     """Return True if hostname is internal or local."""
     h = hostname.lower().strip(".")
-    return (
-        h == "localhost"
-        or h.endswith((".localhost", ".local", ".internal", ".lan"))
-    )
+    return h == "localhost" or h.endswith((".localhost", ".local", ".internal", ".lan"))
 
 
 def _has_external_c2_endpoints(shared_patterns: list[str]) -> bool:
@@ -319,7 +329,9 @@ class CovertChannelDetector:
                 has_b64 = any(_is_base64_string(seg) for seg in segments)
                 if has_b64:
                     # Group by base registry endpoint or root path
-                    base_key = "/".join(segments[:5]) if len(segments) >= 5 else event.target
+                    base_key = (
+                        "/".join(segments[:5]) if len(segments) >= 5 else event.target
+                    )
                     registry_events_by_base[base_key].append(event)
 
         for base_key, reg_events in registry_events_by_base.items():
@@ -356,7 +368,11 @@ class CovertChannelDetector:
         for event in events:
             target = event.target or ""
             target_norm = target.replace("\\", "/")
-            if any(target_norm.startswith(prefix) or f"/{prefix.lstrip('/')}" in target_norm for prefix in DEAD_DROP_DIR_PREFIXES):
+            if any(
+                target_norm.startswith(prefix)
+                or f"/{prefix.lstrip('/')}" in target_norm
+                for prefix in DEAD_DROP_DIR_PREFIXES
+            ):
                 dead_drop_events_by_path[target].append(event)
 
         for path, path_events in dead_drop_events_by_path.items():
@@ -364,9 +380,9 @@ class CovertChannelDetector:
             if len(coordinating) >= self.min_agents:
                 # Check for complementary actions (e.g. write and read) or distinct coordinating agents
                 actions = {e.action.lower() for e in path_events}
-                has_multi_action = any("write" in a or "create" in a or "exec" in a for a in actions) and any(
-                    "read" in a or "list" in a or "open" in a for a in actions
-                )
+                has_multi_action = any(
+                    "write" in a or "create" in a or "exec" in a for a in actions
+                ) and any("read" in a or "list" in a or "open" in a for a in actions)
                 # Either multi-action or multiple distinct agents touching identical staging target
                 score = 0.90 if has_multi_action else 0.80
 
