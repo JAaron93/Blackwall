@@ -1,15 +1,21 @@
 """Agent Swarm Detector component for Blackwall Advanced Threat Detection (Pillar 6 Task 7)."""
 
 import hashlib
+import ipaddress
 import logging
-import math
 import re
 import uuid
 from collections import deque
 from datetime import datetime, timedelta
 from typing import Any
+from urllib.parse import urlsplit
 
+from blackwall.enterprise.advanced_threat_detection.alert_bus import AlertBus
+from blackwall.enterprise.advanced_threat_detection.covert_channel import (
+    CovertChannelDetector,
+)
 from blackwall.enterprise.advanced_threat_detection.models import (
+    CovertChannelEvidence,
     NormalizedEvent,
     SwarmEvidence,
 )
@@ -28,6 +34,116 @@ logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.swarm
 
 IP_REGEX = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 DOMAIN_REGEX = re.compile(r"\b[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b")
+
+
+def _extract_ip_from_host_port(host_port: str) -> str | None:
+    """Extract and validate an IPv4 or IPv6 address string from a host[:port] string."""
+    hp = host_port.strip()
+    if not hp:
+        return None
+
+    # 1. Bracketed IPv6 (e.g. [2607:f8b0:4005:805::200e]:8080 or [::1])
+    if hp.startswith("[") and "]" in hp:
+        raw = hp.split("]")[0][1:]
+        try:
+            return str(ipaddress.IPv6Address(raw))
+        except ValueError:
+            return None
+
+    # 2. IPv4 (with or without port, e.g. 198.51.100.5:8080 or 198.51.100.5)
+    if ":" in hp and hp.count(":") == 1:
+        cand_ipv4, port_str = hp.split(":", 1)
+        if port_str.isdigit() and 1 <= int(port_str) <= 65535:
+            try:
+                return str(ipaddress.IPv4Address(cand_ipv4))
+            except ValueError:
+                pass
+    else:
+        try:
+            return str(ipaddress.IPv4Address(hp))
+        except ValueError:
+            pass
+
+    # 3. Unbracketed IPv6 (with or without port, e.g. 2607:f8b0:4005:805::200e:8080 or 2607:f8b0:4005:805::200e)
+    if ":" in hp:
+        parts = hp.rsplit(":", 1)
+        if len(parts) == 2 and parts[1].isdigit() and 1 <= int(parts[1]) <= 65535:
+            try:
+                return str(ipaddress.IPv6Address(parts[0]))
+            except ValueError:
+                pass
+
+        try:
+            return str(ipaddress.IPv6Address(hp))
+        except ValueError:
+            pass
+
+    return None
+
+
+def _extract_ip_from_token(tok: str) -> str | None:
+    """Extract an IPv4 or IPv6 address string from a single token/host if valid."""
+    t = tok.strip()
+    if not t:
+        return None
+
+    for prefix in (
+        "ip:",
+        "endpoint:",
+        "domain:",
+        "resource:",
+        "target:",
+        "host:",
+        "url:",
+    ):
+        if t.lower().startswith(prefix):
+            t = t[len(prefix) :].strip()
+            break
+
+    # If it is a local filesystem path, do not extract path components as IP endpoints
+    if t.startswith("/"):
+        return None
+
+    # URL with scheme or double slashes (e.g. https://..., tcp://..., //...)
+    if "://" in t or t.startswith("//"):
+        if "://" in t:
+            _, rest = t.split("://", 1)
+        else:
+            rest = t[2:]
+        host_port = rest.split("/")[0].split("?")[0].split("#")[0].strip()
+        if "@" in host_port:
+            host_port = host_port.split("@", 1)[1]
+        return _extract_ip_from_host_port(host_port)
+
+    # Non-scheme target/endpoint: isolate host portion before path, query, or fragment
+    host_port = t.split("/")[0].split("?")[0].split("#")[0].strip()
+    if not host_port:
+        return None
+
+    return _extract_ip_from_host_port(host_port)
+
+
+def _extract_all_ips(text: str) -> set[str]:
+    """Extract and normalize all IPv4 and IPv6 addresses from a target string or metadata value."""
+    found: set[str] = set()
+    if not text:
+        return found
+
+    # Check whole text first as a single target/endpoint
+    single_ip = _extract_ip_from_token(text)
+    if single_ip is not None:
+        found.add(single_ip)
+        return found
+
+    # If text has whitespace or delimiter-separated tokens, inspect each token
+    tokens = re.split(r"[\s,;]+", text.strip())
+    if len(tokens) > 1:
+        for tok in tokens:
+            ip = _extract_ip_from_token(tok)
+            if ip is not None:
+                found.add(ip)
+
+    return found
 
 
 def _avg_min_time_diff(ts1: list[datetime], ts2: list[datetime]) -> float:
@@ -59,9 +175,12 @@ class AgentSwarmDetector:
         default_window: int | None = None,
         default_min_agents: int | None = None,
         default_correlation_threshold: float | None = None,
+        covert_channel_detector: CovertChannelDetector | None = None,
+        alert_bus: AlertBus | None = None,
     ) -> None:
         self.store = store or AttackGraphStore(in_memory=True)
         self.policy = policy
+        self.alert_bus = alert_bus
 
         p_cfg = policy.advancedThreatDetection.swarmDetector if policy else None
 
@@ -80,6 +199,12 @@ class AgentSwarmDetector:
             if default_correlation_threshold is not None
             else (p_cfg.correlationThreshold if p_cfg else 0.75)
         )
+        self.covert_channel_detector = covert_channel_detector or CovertChannelDetector(
+            min_agents=self.default_min_agents,
+            min_correlation_threshold=0.80,
+            min_coordination_threshold=0.80,
+        )
+        self.last_detected_covert_channels: list[CovertChannelEvidence] = []
         self._fingerprint_state: dict[str, dict[str, Any]] = {}
 
     def update_fingerprint_incremental(
@@ -179,6 +304,8 @@ class AgentSwarmDetector:
         if not (0.0 <= c_thresh <= 1.0):
             raise ValueError("correlation_threshold must be between 0.0 and 1.0")
 
+        self.last_detected_covert_channels.clear()
+
         start_win, end_win = normalize_time_window(time_window)
 
         # Fetch nodes across all agents within time window
@@ -196,6 +323,7 @@ class AgentSwarmDetector:
 
         agent_ids = list(events_by_agent.keys())
         if len(agent_ids) < m_agents:
+            self.last_detected_covert_channels.clear()
             return []
 
         # Find pairwise correlations and build agent adjacency graph
@@ -214,7 +342,7 @@ class AgentSwarmDetector:
 
         # Build connected components (swarms) of agents
         adjacency: dict[str, set[str]] = {aid: set() for aid in agent_ids}
-        for (a1, a2), _ in correlated_pairs.items():
+        for a1, a2 in correlated_pairs:
             adjacency[a1].add(a2)
             adjacency[a2].add(a1)
 
@@ -280,6 +408,20 @@ class AgentSwarmDetector:
             )
             swarms.append(swarm)
 
+        # Evaluate covert channel evidence for detected swarms (TASK-2B.3, FR-3, FR-4)
+        all_covert_evidences: list[CovertChannelEvidence] = []
+        if self.covert_channel_detector is not None:
+            for swarm in swarms:
+                comp_events_by_agent = {
+                    a: events_by_agent.get(a, []) for a in swarm.agent_ids
+                }
+                evidences = self.covert_channel_detector.detect_for_swarm(
+                    swarm, events_by_agent=comp_events_by_agent
+                )
+                swarm.covert_channels = evidences
+                all_covert_evidences.extend(evidences)
+
+        self.last_detected_covert_channels = all_covert_evidences
         return swarms
 
     async def compute_coordination_score(
@@ -385,7 +527,6 @@ class AgentSwarmDetector:
         correlation = (0.5 * temporal_score) + (0.25 * action_sim) + (0.25 * target_sim)
         return clamp_score(correlation, 0.0, 1.0)
 
-
     def _extract_shared_infrastructure(
         self,
         events_by_agent: dict[str, list[NormalizedEvent]],
@@ -404,7 +545,7 @@ class AgentSwarmDetector:
             agent_resources[aid] = set()
 
             for e in events:
-                for ip in IP_REGEX.findall(e.target):
+                for ip in _extract_all_ips(e.target):
                     agent_ips[aid].add(ip)
                 for dom in DOMAIN_REGEX.findall(e.target):
                     agent_domains[aid].add(dom)
@@ -412,7 +553,7 @@ class AgentSwarmDetector:
                 if isinstance(e.metadata, dict):
                     for k, v in e.metadata.items():
                         v_str = str(v)
-                        for ip in IP_REGEX.findall(v_str):
+                        for ip in _extract_all_ips(v_str):
                             agent_ips[aid].add(ip)
                         for dom in DOMAIN_REGEX.findall(v_str):
                             agent_domains[aid].add(dom)
@@ -443,4 +584,4 @@ class AgentSwarmDetector:
             if len(sharing_agents) >= 2:
                 shared_patterns.append(f"resource:{res}")
 
-        return sorted(list(set(shared_patterns)))
+        return sorted(set(shared_patterns))

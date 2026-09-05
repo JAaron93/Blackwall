@@ -81,6 +81,8 @@ markers = [
     "e2e_attribution: E2E attribution test scenarios",
     "lifecycle: Lifecycle test scenarios",
     "swarm_models: Agent swarm attribution data models BDD scenarios",
+    "linguistic_attribution: Linguistic swarm attribution BDD scenarios",
+    "covert_channel: Covert channel detection BDD scenarios",
 ]
 
 

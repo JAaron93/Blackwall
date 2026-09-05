@@ -53,6 +53,7 @@ class AdvancedThreatDetectionConfig(BaseModel):
     c2_beaconing_threshold: float = Field(default=0.25, ge=0.0, le=1.0)
     k8s_min_exfiltration_events: int = Field(default=3, gt=0)
     registry_min_probing_events: int = Field(default=5, gt=0)
+    covert_channel_dedup_cooldown_seconds: float = Field(default=30.0, ge=0.0)
 
     # Alert Bus Settings
     alert_min_severity: AlertSeverity = AlertSeverity.LOW
