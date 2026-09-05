@@ -32,15 +32,15 @@ This task implementation plan structures the development of Blackwall's Agent Sw
 ## Track 1: Foundation Data Models & Validation
 
 ### [ ] TASK-1.1: Implement Swarm Attribution Models & Extensions (TDD)
-- **Description**: Add `LinguisticSwarmMarkers` directly to Core models (`src/blackwall/models.py`) to prevent Core-to-Enterprise coupling. Add `CovertChannelEvidence` to Enterprise models (`src/blackwall/enterprise/advanced_threat_detection/models.py`). Extend `AttackerIdentity`, `AttackerProfile`, and `IncidentReport` in `src/blackwall/models.py` with collective fields (`is_collective`, `collective_name`, `swarm_id`, `suspected_covert_channels`, and bounded `collective_confidence: float = Field(default=0.0, ge=0.0, le=1.0)`).
+- **Description**: Add `LinguisticSwarmMarkers` and `SwarmContextSummary` directly to Core models (`src/blackwall/models.py`) to prevent Core-to-Enterprise coupling and provide a unified provider return contract. Add `CovertChannelEvidence` to Enterprise models (`src/blackwall/enterprise/advanced_threat_detection/models.py`). Extend `AttackerIdentity`, `AttackerProfile`, and `IncidentReport` in `src/blackwall/models.py` with collective fields (`is_collective`, `collective_name`, `swarm_id`, `suspected_covert_channels`, and bounded `collective_confidence: float = Field(default=0.0, ge=0.0, le=1.0)`).
 - **Dependencies**: None.
-- **Traceability**: FR-1, FR-2, FR-4.
+- **Traceability**: FR-1, FR-2, FR-4, FR-5.
 - **TDD Requirement**: Write failing unit tests in `tests/unit/test_swarm_attribution_models.py` asserting field presence, UTC timezone validation, score bounds (`[0.0, 1.0]`), and default empty list factories before implementing models.
 
 ### [ ] TASK-1.2: Implement Model Property & Validation Tests
-- **Description**: Add Hypothesis property tests verifying score boundary validation (`[0.0, 1.0]`), minimal agent set lengths ($N \ge 2$), timezone-aware UTC datetime validation via `validate_utc_datetime`, and temporal sequence ordering (`last_detected >= first_detected` on `CovertChannelEvidence`).
+- **Description**: Add Hypothesis property tests verifying score boundary validation (`[0.0, 1.0]`), minimal agent set lengths ($N \ge 2$), timezone-aware UTC datetime validation via `validate_utc_datetime` (for `CovertChannelEvidence` and `SwarmContextSummary`), and temporal sequence ordering (`last_detected >= first_detected`).
 - **Dependencies**: TASK-1.1.
-- **Traceability**: FR-1, FR-2, FR-4.
+- **Traceability**: FR-1, FR-2, FR-4, FR-5.
 - **TDD Requirement**: Verify all property checks pass via `pytest tests/property/test_swarm_attribution_properties.py`.
 
 ### [ ] TASK-1.3: Implement Data Models BDD Gherkin Scenarios
@@ -121,7 +121,7 @@ This task implementation plan structures the development of Blackwall's Agent Sw
 - **TDD Requirement**: Write migration tests in `tests/test_attacker_profile_db.py` ensuring backward compatibility with existing profiles.
 
 ### [ ] TASK-3.2: Implement `SwarmContextProvider` Protocol & Providers (TDD)
-- **Description**: Create `src/blackwall/attribution/provider.py` defining the abstract `SwarmContextProvider` protocol and `SQLiteSwarmContextProvider` in Core with zero Enterprise dependencies. In Enterprise, create `src/blackwall/enterprise/advanced_threat_detection/bridge.py` implementing `EnterpriseSwarmContextProvider` adapting `AttackGraphStore` without Core ever importing from `blackwall.enterprise`.
+- **Description**: Create `src/blackwall/attribution/provider.py` defining the abstract `SwarmContextProvider` protocol returning `Optional[SwarmContextSummary]`, and `SQLiteSwarmContextProvider` in Core with zero Enterprise dependencies. In Enterprise, create `src/blackwall/enterprise/advanced_threat_detection/bridge.py` implementing `EnterpriseSwarmContextProvider` adapting `AttackGraphStore` without Core ever importing from `blackwall.enterprise`.
 - **Dependencies**: TASK-2A.4, TASK-2B.4, TASK-3.1.
 - **Traceability**: FR-5, NFR-3, NFR-4.
 - **TDD Requirement**: Write unit tests in `tests/unit/test_swarm_attribution_provider.py` verifying lookup latency (<15ms) across both SQLite and mock Enterprise providers.

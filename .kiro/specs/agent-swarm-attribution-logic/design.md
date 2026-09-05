@@ -164,7 +164,42 @@ class LinguisticSwarmMarkers(BaseModel):
     collective_identity_inferred: Optional[str] = None
 ```
 
-### 4.2 Enterprise Model: `CovertChannelEvidence` (`src/blackwall/enterprise/advanced_threat_detection/models.py`)
+### 4.2 Core Model: `SwarmContextSummary` (`src/blackwall/models.py`)
+Defines the unified data exchange contract returned by `SwarmContextProvider.resolve_swarm_context()`. Placed in Core so that both Core `SQLiteSwarmContextProvider` and Enterprise `EnterpriseSwarmContextProvider` can return a standardized payload without Core importing from Enterprise.
+
+```python
+class SwarmContextSummary(BaseModel):
+    swarm_id: Optional[UUID] = None
+    is_collective: bool = False
+    collective_name: Optional[str] = None
+    collective_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    coordinating_agents: list[str] = Field(default_factory=list)
+    suspected_covert_channels: list[str] = Field(default_factory=list)
+    covert_channel_type: Optional[str] = None
+    deduction_rationale: Optional[str] = None
+    first_detected: Optional[datetime] = None
+    last_detected: Optional[datetime] = None
+
+    @field_validator("first_detected", "last_detected")
+    @classmethod
+    def validate_utc_timestamps(cls, v: Optional[datetime]) -> Optional[datetime]:
+        if v is None:
+            return None
+        return validate_utc_datetime(v)
+
+    @model_validator(mode="after")
+    def validate_temporal_ordering(self) -> "SwarmContextSummary":
+        if self.first_detected is not None and self.last_detected is not None:
+            validate_temporal_sequence(
+                self.first_detected,
+                self.last_detected,
+                start_name="first_detected",
+                end_name="last_detected",
+            )
+        return self
+```
+
+### 4.3 Enterprise Model: `CovertChannelEvidence` (`src/blackwall/enterprise/advanced_threat_detection/models.py`)
 Placed in Enterprise Pillar 6 alongside `SwarmEvidence`. Enforces UTC-aware timestamps, score bounds, and temporal ordering sequence.
 
 ```python
@@ -200,7 +235,7 @@ class CovertChannelEvidence(BaseModel):
         return self
 ```
 
-### 4.3 Extensions to Core Attribution Models (`src/blackwall/models.py`)
+### 4.4 Extensions to Core Attribution Models (`src/blackwall/models.py`)
 
 ```python
 # Extensions to AttackerIdentity:

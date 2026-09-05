@@ -29,6 +29,7 @@
 
 ### FR-5: Core Attribution & Enterprise Swarm Context Provider Protocol
 - The system MUST maintain architectural decoupling between Core and Enterprise through an asynchronous `SwarmContextProvider` protocol in `src/blackwall/attribution/provider.py`.
+- The system MUST define `SwarmContextSummary` in Core (`src/blackwall/models.py`) as the standardized return type for `SwarmContextProvider.resolve_swarm_context()`, enforcing UTC timezone-aware validation on timestamps, temporal sequence `last_detected >= first_detected`, and `collective_confidence` bounded in `[0.0, 1.0]`.
 - In Core mode, the system MUST provide `SQLiteSwarmContextProvider` querying local SQLite `attacker_profiles` and local nodes with zero imports from `src/blackwall/enterprise/` and zero `asyncpg` dependency.
 - In Enterprise mode, `EnterpriseSwarmContextProvider` (under `src/blackwall/enterprise/advanced_threat_detection/bridge.py`) MUST adapt `AttackGraphStore` to `SwarmContextProvider` and be injected at runtime into `SyncResolver`.
 - When `SyncResolver` processes a `BLOCK` or `QUARANTINE` verdict, it MUST invoke `SwarmContextProvider.resolve_swarm_context()` asynchronously to link the agent to active swarms or covert channels without violating tier boundaries.
@@ -60,7 +61,7 @@
 - Under failure conditions, the system MUST fall back gracefully to standard individual `UNRESOLVED_ATTACKER` attribution without interrupting policy enforcement.
 
 ### NFR-3: Zero Third-Party C-Dependencies and Enterprise Decoupling for Core
-- Blackwall Core components (`LinguisticSwarmMarkers`, `LinguisticSwarmClassifier`, `SwarmContextProvider`, `SQLiteSwarmContextProvider`, updated `IncidentReport`, `AttackerIdentity`, `AttackerProfile`) MUST rely solely on the Python standard library (`re`, `json`, `hashlib`, `uuid`) and `pydantic`. Zero C-extensions, zero `asyncpg`, and zero static imports from `src/blackwall/enterprise/` are permitted in Core.
+- Blackwall Core components (`LinguisticSwarmMarkers`, `SwarmContextSummary`, `LinguisticSwarmClassifier`, `SwarmContextProvider`, `SQLiteSwarmContextProvider`, updated `IncidentReport`, `AttackerIdentity`, `AttackerProfile`) MUST rely solely on the Python standard library (`re`, `json`, `hashlib`, `uuid`) and `pydantic`. Zero C-extensions, zero `asyncpg`, and zero static imports from `src/blackwall/enterprise/` are permitted in Core.
 
 ### NFR-4: Memory Graph Ingestion & Provider Query SLA
 - Provider queries executed to look up active swarm memberships across 10,000+ cached event nodes MUST complete in **< 15ms**.
