@@ -7,16 +7,19 @@
 - The system MUST scan for distributed consensus and swarm collaboration phrases (e.g., `consensus reached`, `swarm objective`, `peer worker`, `delegating sub-task`, `sub-agent fleet`).
 - The system MUST calculate a `collective_confidence_score` (in the range `[0.0, 1.0]`) reflecting the density and semantic relevance of detected collective linguistic markers.
 - If `collective_confidence_score >= 0.70`, the system MUST flag `is_collective = True` and generate a `LinguisticSwarmMarkers` metadata structure.
+- The `LinguisticSwarmMarkers` model MUST reside in Core (`src/blackwall/models.py`) and enforce field validation bounds `ge=0.0, le=1.0` on `confidence_score`.
 
 ### FR-2: Collective Identity Modeling & False-Monolith Disambiguation
 - When an agent presents a generic collective identifier (e.g., `agent_name = "we"`, `agent_id = "collective"`), the system MUST NOT collapse all past and future distinct swarm operations into a single permanent `AttackerProfile`.
 - The system MUST disambiguate false-monolithic callers by combining the collective name with temporal epoch windows and process/host lineage salts when deriving the `identity_fingerprint`.
 - When multiple distinct `agent_id`s operate in close temporal proximity and exhibit identical collective linguistic markers, the system MUST link them to a shared `collective_name` (e.g., `collective:exploitgym-swarm-alpha`).
+- All `collective_confidence` fields in `AttackerProfile` and `IncidentReport` MUST be validated within `[0.0, 1.0]`.
 
 ### FR-3: Latent Coordination & Unlocated Message Board Inference
 - When the `AgentSwarmDetector` detects a cluster of $N \ge 2$ agents with `temporal_correlation >= 0.80` and `coordination_score >= 0.80`, the system MUST evaluate whether observed network traffic contains known C2 host endpoints.
 - If high coordination is established but **zero** known C2 network endpoints or external IPs are present in `shared_patterns`, the system MUST infer the existence of an `UNLOCATED_MESSAGE_BOARD`.
 - The system MUST create a `CovertChannelEvidence` record with `channel_type = UNLOCATED_MESSAGE_BOARD`, listing the coordinating agent IDs, deduction rationale, and timestamp boundaries.
+- The `CovertChannelEvidence` model MUST reside in Enterprise (`src/blackwall/enterprise/advanced_threat_detection/models.py`), validate `first_detected` and `last_detected` as UTC timezone-aware datetimes, enforce temporal sequence `last_detected >= first_detected`, and validate `confidence_score` in `[0.0, 1.0]`.
 - The system MUST publish an alert with `CRITICAL` severity to the `AlertBus` upon inferring an unlocated message board.
 
 ### FR-4: Steganographic Storage & Package Registry Dead-Drop Detection
@@ -24,9 +27,11 @@
 - The system MUST detect unusual directory name listings, metadata querying bursts, or sequential path-based polling that deviate from standard dependency installation routines.
 - When such patterns are detected across multiple agents, the system MUST classify the channel type as `STEGANOGRAPHIC_REGISTRY` or `FILESYSTEM_DEAD_DROP` in the `CovertChannelEvidence`.
 
-### FR-5: Core Attribution & Enterprise Swarm Feedback Bridge
-- The system MUST maintain a bi-directional `SwarmAttributionBridge` linking Core `AttackerIdentityExtractor` and Enterprise `AgentSwarmDetector`.
-- When `SyncResolver` processes a `BLOCK` or `QUARANTINE` verdict, the bridge MUST query the local attack graph to determine if the originating agent belongs to an active detected swarm or covert channel.
+### FR-5: Core Attribution & Enterprise Swarm Context Provider Protocol
+- The system MUST maintain architectural decoupling between Core and Enterprise through an asynchronous `SwarmContextProvider` protocol in `src/blackwall/attribution/provider.py`.
+- In Core mode, the system MUST provide `SQLiteSwarmContextProvider` querying local SQLite `attacker_profiles` and local nodes with zero imports from `src/blackwall/enterprise/` and zero `asyncpg` dependency.
+- In Enterprise mode, `EnterpriseSwarmContextProvider` (under `src/blackwall/enterprise/advanced_threat_detection/bridge.py`) MUST adapt `AttackGraphStore` to `SwarmContextProvider` and be injected at runtime into `SyncResolver`.
+- When `SyncResolver` processes a `BLOCK` or `QUARANTINE` verdict, it MUST invoke `SwarmContextProvider.resolve_swarm_context()` asynchronously to link the agent to active swarms or covert channels without violating tier boundaries.
 - If a swarm association is found, the system MUST update the persistent `AttackerProfile` in SQLite with `swarm_memberships` and `suspected_covert_channels`.
 
 ### FR-6: Enriched Incident Reporting with Swarm Lineage
@@ -34,6 +39,7 @@
   - `is_collective: bool`
   - `swarm_id: Optional[UUID]`
   - `suspected_covert_channels: list[str]`
+  - `collective_confidence: float` (constrained to `[0.0, 1.0]`)
   - `collective_attribution_summary: Optional[str]`
 - The system MUST provide `to_markdown()` and `to_json()` formatters displaying the swarm ID, collective markers, and suspected communication channels alongside single-agent metrics.
 
@@ -47,17 +53,17 @@
 
 ### NFR-1: Fast-Path Latency Budget
 - Linguistic marker scanning within `SyncResolver` MUST add **< 2ms** overhead to the tool call evaluation fast-path.
-- Total attribution enrichment (linguistic classification, bridge lookup, and incident generation) MUST execute within **< 5ms** overhead.
+- Total attribution enrichment (linguistic classification, provider lookup, and incident generation) MUST execute within **< 5ms** overhead.
 
 ### NFR-2: Fail-Safe Exception Isolation
-- Any error or unhandled exception during linguistic parsing, covert channel deduction, or bridge synchronization MUST be safely caught and logged.
+- Any error or unhandled exception during linguistic parsing, covert channel deduction, or provider lookup MUST be safely caught and logged.
 - Under failure conditions, the system MUST fall back gracefully to standard individual `UNRESOLVED_ATTACKER` attribution without interrupting policy enforcement.
 
-### NFR-3: Zero Third-Party C-Dependencies for Core Module
-- Blackwall Core components (`LinguisticSwarmClassifier`, `SwarmAttributionBridge`, updated `IncidentReport`) MUST rely solely on the Python standard library (`re`, `json`, `hashlib`, `uuid`) and `pydantic`. Zero C-extensions or external network services are permitted for Core.
+### NFR-3: Zero Third-Party C-Dependencies and Enterprise Decoupling for Core
+- Blackwall Core components (`LinguisticSwarmMarkers`, `LinguisticSwarmClassifier`, `SwarmContextProvider`, `SQLiteSwarmContextProvider`, updated `IncidentReport`, `AttackerIdentity`, `AttackerProfile`) MUST rely solely on the Python standard library (`re`, `json`, `hashlib`, `uuid`) and `pydantic`. Zero C-extensions, zero `asyncpg`, and zero static imports from `src/blackwall/enterprise/` are permitted in Core.
 
-### NFR-4: Memory Graph Ingestion SLA
-- Graph queries executed by `SwarmAttributionBridge` to look up active swarm memberships across 10,000+ cached event nodes MUST complete in **< 15ms**.
+### NFR-4: Memory Graph Ingestion & Provider Query SLA
+- Provider queries executed to look up active swarm memberships across 10,000+ cached event nodes MUST complete in **< 15ms**.
 
 ---
 

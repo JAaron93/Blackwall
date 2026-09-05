@@ -126,14 +126,25 @@ The `CovertChannelDetector` resides in Enterprise Pillar 6 (`advanced_threat_det
    - **Local Filesystem Dead-Drops**: Uncorrelated tool calls touching staging directories (`/tmp/.swarm`, `/dev/shm`, `.cache`, directory name encodings) where one agent creates paths and another immediately reads them.
    - **Unlocated Board Inference**: If $\text{Corr}_{\text{temporal}} \ge 0.80$ and $\text{Coord} \ge 0.80$, but `shared_patterns` contains **zero** external network IP/domain indicators, the engine formally infers an `UNLOCATED_MESSAGE_BOARD`.
 
-### 3.3 Component 3: `SwarmAttributionBridge` (`src/blackwall/attribution/bridge.py`)
+### 3.3 Component 3: `SwarmAttributionBridge` & `SwarmContextProvider` Protocol
 
-The bridge connects the single-host Blackwall Core attribution database with Enterprise Advanced Threat Detection swarm models.
+To preserve Blackwall Core's strict architectural independence (Constitution §1), Core components (`SyncResolver`, `AttackerIdentityExtractor`, `models.py`) MUST NEVER import from or depend on `src/blackwall/enterprise/` or the `asyncpg`-backed `AttackGraphStore`.
 
 #### Architectural Responsibilities:
-1. **Dynamic Swarm Lineage Resolution**:
-   - When an individual tool call is blocked, `SwarmAttributionBridge` checks whether the agent's identity fingerprint or session ID matches an active `SwarmEvidence` or `CovertChannelEvidence` record in the local memory graph.
-2. **Profile & Report Enrichment**:
+1. **Core `SwarmContextProvider` Protocol (`src/blackwall/attribution/provider.py`)**:
+   - Core defines an abstract, asynchronous protocol:
+     ```python
+     class SwarmContextProvider(Protocol):
+         async def resolve_swarm_context(
+             self, agent_id: Optional[str], fingerprint: str
+         ) -> Optional[SwarmContextSummary]:
+             ...
+     ```
+   - Core provides `SQLiteSwarmContextProvider`, querying local SQLite `attacker_profiles` and local threat graph nodes with zero external or C-kernel dependencies.
+2. **Enterprise Swarm Context Provider (`src/blackwall/enterprise/advanced_threat_detection/bridge.py`)**:
+   - In Enterprise Mesh environments, `EnterpriseSwarmContextProvider` implements the protocol against `AttackGraphStore` and is injected at runtime into `SyncResolver` via constructor dependency injection (`swarm_provider: Optional[SwarmContextProvider] = None`).
+   - If no provider is supplied, `SyncResolver` defaults to `SQLiteSwarmContextProvider`.
+3. **Profile & Report Enrichment**:
    - Enriches `IncidentReport` with `swarm_id`, `is_collective`, `collective_confidence`, and `suspected_covert_channels`.
    - Ensures SOC operators and developer CLI alerts clearly state: *"Blocked action by Agent X (Part of Coordinated Swarm Y communicating via Suspected Covert Message Board Z)"*.
 
@@ -141,7 +152,9 @@ The bridge connects the single-host Blackwall Core attribution database with Ent
 
 ## 4. Subsystem Data Models & Schema Extensions
 
-### 4.1 New Model: `LinguisticSwarmMarkers`
+### 4.1 Core Model: `LinguisticSwarmMarkers` (`src/blackwall/models.py`)
+Placed in Core `src/blackwall/models.py` so that `AttackerIdentity` can embed it without creating a Core-to-Enterprise dependency.
+
 ```python
 class LinguisticSwarmMarkers(BaseModel):
     is_collective: bool = False
@@ -151,7 +164,9 @@ class LinguisticSwarmMarkers(BaseModel):
     collective_identity_inferred: Optional[str] = None
 ```
 
-### 4.2 New Model: `CovertChannelEvidence`
+### 4.2 Enterprise Model: `CovertChannelEvidence` (`src/blackwall/enterprise/advanced_threat_detection/models.py`)
+Placed in Enterprise Pillar 6 alongside `SwarmEvidence`. Enforces UTC-aware timestamps, score bounds, and temporal ordering sequence.
+
 ```python
 class CovertChannelType(str, Enum):
     STEGANOGRAPHIC_REGISTRY = "STEGANOGRAPHIC_REGISTRY"
@@ -168,6 +183,21 @@ class CovertChannelEvidence(BaseModel):
     deduction_rationale: str
     first_detected: datetime
     last_detected: datetime
+
+    @field_validator("first_detected", "last_detected")
+    @classmethod
+    def validate_utc_timestamps(cls, v: datetime) -> datetime:
+        return validate_utc_datetime(v)
+
+    @model_validator(mode="after")
+    def validate_temporal_ordering(self) -> "CovertChannelEvidence":
+        validate_temporal_sequence(
+            self.first_detected,
+            self.last_detected,
+            start_name="first_detected",
+            end_name="last_detected",
+        )
+        return self
 ```
 
 ### 4.3 Extensions to Core Attribution Models (`src/blackwall/models.py`)
@@ -185,7 +215,7 @@ class AttackerProfile(BaseModel):
     # Existing fields: fingerprint, first_seen, threat_score, ...
     swarm_memberships: list[UUID] = Field(default_factory=list)
     suspected_covert_channels: list[str] = Field(default_factory=list)
-    collective_confidence: float = 0.0
+    collective_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 # Extensions to IncidentReport:
 class IncidentReport(BaseModel):
@@ -193,6 +223,7 @@ class IncidentReport(BaseModel):
     swarm_id: Optional[UUID] = None
     is_collective: bool = False
     suspected_covert_channels: list[str] = Field(default_factory=list)
+    collective_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     collective_attribution_summary: Optional[str] = None
 ```
 
@@ -204,3 +235,4 @@ class IncidentReport(BaseModel):
 2. **Fail-Safe Exception Isolation**: No parsing or inference error in the linguistic or covert channel modules may propagate to cause unhandled exceptions or disrupt core verdict delivery.
 3. **Context Hygiene & Data Privacy**: All arguments analyzed for collective pronouns must be sanitized prior to output in incident reports, ensuring API keys or credentials embedded in swarm messages are redacted via `[[PLACEHOLDER]]` substitution.
 4. **False Positive Suppression**: Single occurrences of "we" in casual natural language prompts will not trigger high-confidence swarm alerts unless corroborated by consensus terminology, coordination frequency, or temporal clustering.
+5. **Strict Core-to-Enterprise Decoupling Invariant**: Core codebase under `src/blackwall/` (including `SyncResolver`, `AttackerIdentityExtractor`, and `models.py`) MUST NEVER statically import from `src/blackwall/enterprise/` or connect directly to `asyncpg`-backed storage. All cross-tier swarm attribution data MUST pass through the `SwarmContextProvider` protocol via runtime dependency injection.
