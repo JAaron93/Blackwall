@@ -7,6 +7,7 @@ ResourceThrottler, and all detection engines into a unified system entry point.
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 import logging
@@ -261,7 +262,7 @@ class AdvancedThreatDetection:
             )
         )
         self._published_covert_keys: dict[tuple[Any, frozenset[str], datetime, datetime], datetime] = {}
-        self._published_covert_cycle_keys: set[tuple[str, tuple[Any, frozenset[str], datetime, datetime]]] = set()
+        self._published_covert_cycles: OrderedDict[str, set[tuple[Any, frozenset[str], datetime, datetime]]] = OrderedDict()
 
     @property
     def reaction_engine(self) -> Optional[ActiveReactionEngine]:
@@ -399,7 +400,7 @@ class AdvancedThreatDetection:
             await self.alert_bus.stop()
             await self.store.close()
             self._published_covert_keys.clear()
-            self._published_covert_cycle_keys.clear()
+            self._published_covert_cycles.clear()
             logger.info("AdvancedThreatDetection orchestrator stopped")
 
     async def __aenter__(self) -> "AdvancedThreatDetection":
@@ -824,14 +825,20 @@ class AdvancedThreatDetection:
                             # Suppress per-agent duplicates within one correlation cycle without suppressing subsequent detections of an ongoing channel
                             is_duplicate = False
                             if cycle_id is not None:
-                                is_duplicate = (cycle_id, dedup_key) in self._published_covert_cycle_keys
+                                cycle_keys = self._published_covert_cycles.get(cycle_id)
+                                is_duplicate = cycle_keys is not None and dedup_key in cycle_keys
                             elif last_published is not None:
                                 is_duplicate = (now - last_published).total_seconds() < cooldown
 
                             if not is_duplicate:
                                 self._published_covert_keys[dedup_key] = now
                                 if cycle_id is not None:
-                                    self._published_covert_cycle_keys.add((cycle_id, dedup_key))
+                                    if cycle_id not in self._published_covert_cycles:
+                                        self._published_covert_cycles[cycle_id] = set()
+                                        # Evict oldest completed cycles beyond 100 to prevent unbounded growth without touching active cycles
+                                        while len(self._published_covert_cycles) > 100:
+                                            self._published_covert_cycles.popitem(last=False)
+                                    self._published_covert_cycles[cycle_id].add(dedup_key)
                                 covert_alert = self.alert_bus.generate_covert_channel_alert(covert_channel)
                                 await self._publish_alert(covert_alert, new_alerts)
 
@@ -841,8 +848,6 @@ class AdvancedThreatDetection:
                                 self._published_covert_keys = {
                                     k: v for k, v in self._published_covert_keys.items() if v >= cutoff
                                 }
-                            if len(self._published_covert_cycle_keys) > 1000:
-                                self._published_covert_cycle_keys.clear()
 
         # 7. Package Registry Exploit Probing & Monitoring
         if self.registry_monitor is not None:
