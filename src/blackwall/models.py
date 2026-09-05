@@ -236,6 +236,45 @@ class IdentitySource(str, Enum):
     VAULT_TOKEN = "VAULT_TOKEN"
 
 
+class LinguisticSwarmMarkers(BaseModel):
+    is_collective: bool = False
+    confidence_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    detected_pronouns: List[str] = Field(default_factory=list)
+    consensus_keywords: List[str] = Field(default_factory=list)
+    collective_identity_inferred: Optional[str] = None
+
+
+class SwarmContextSummary(BaseModel):
+    swarm_id: Optional[UUID] = None
+    is_collective: bool = False
+    collective_name: Optional[str] = None
+    collective_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    coordinating_agents: List[str] = Field(default_factory=list)
+    suspected_covert_channels: List[str] = Field(default_factory=list)
+    covert_channel_type: Optional[str] = None
+    deduction_rationale: Optional[str] = None
+    first_detected: Optional[datetime] = None
+    last_detected: Optional[datetime] = None
+
+    @field_validator("first_detected", "last_detected")
+    @classmethod
+    def validate_utc_timestamps(cls, v: Optional[datetime]) -> Optional[datetime]:
+        if v is None:
+            return None
+        return validate_utc_datetime(v)
+
+    @model_validator(mode="after")
+    def validate_temporal_ordering(self) -> "SwarmContextSummary":
+        if self.first_detected is not None and self.last_detected is not None:
+            validate_temporal_sequence(
+                self.first_detected,
+                self.last_detected,
+                start_name="first_detected",
+                end_name="last_detected",
+            )
+        return self
+
+
 class AttackerIdentity(BaseModel):
     identity_id: UUID = Field(default_factory=uuid4)
     agent_id: Optional[str] = None
@@ -251,6 +290,9 @@ class AttackerIdentity(BaseModel):
     vault_token_accessor: Optional[str] = None
     primary_source: IdentitySource = IdentitySource.ADK_METADATA
     identity_fingerprint: str = ""
+    is_collective: bool = False
+    collective_name: Optional[str] = None
+    linguistic_markers: Optional[LinguisticSwarmMarkers] = None
 
     @model_validator(mode="after")
     def compute_fingerprint(self) -> "AttackerIdentity":
@@ -274,6 +316,10 @@ class AttackerProfile(BaseModel):
     associated_signatures: List[str] = Field(default_factory=list)
     targeted_tools: List[str] = Field(default_factory=list)
     risk_category: str = "HIGH"
+    swarm_memberships: List[UUID] = Field(default_factory=list)
+    suspected_covert_channels: List[str] = Field(default_factory=list)
+    collective_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    collective_name: Optional[str] = None
 
     @field_validator("first_seen", "last_seen")
     @classmethod
@@ -304,6 +350,11 @@ class IncidentReport(BaseModel):
     mitigation_action: str
     recommended_user_action: str
     attribution_confidence: float = Field(..., ge=0.0, le=1.0)
+    swarm_id: Optional[UUID] = None
+    is_collective: bool = False
+    suspected_covert_channels: List[str] = Field(default_factory=list)
+    collective_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    collective_attribution_summary: Optional[str] = None
 
     @field_validator("timestamp")
     @classmethod
@@ -314,7 +365,7 @@ class IncidentReport(BaseModel):
         return self.model_dump_json(indent=2)
 
     def to_markdown(self) -> str:
-        return f"""# Blackwall Incident Attribution Report
+        base = f"""# Blackwall Incident Attribution Report
 - **Report ID**: `{self.report_id}`
 - **Timestamp**: {self.timestamp.isoformat()}
 - **Verdict**: `{self.verdict.value}`
@@ -326,5 +377,20 @@ class IncidentReport(BaseModel):
 - **Recommended Action**: {self.recommended_user_action}
 - **Attribution Confidence**: {self.attribution_confidence * 100:.1f}%
 """
+        if self.is_collective:
+            collective_name_str = (
+                self.attacker_identity.collective_name
+                or self.attacker_profile.collective_name
+                or "Unknown Fleet"
+            )
+            base += f"""- **Swarm Attribution**: Collective Swarm Detected (`{collective_name_str}`)
+- **Swarm ID**: `{self.swarm_id or 'Unassigned'}`
+- **Collective Confidence**: {self.collective_confidence * 100:.1f}%
+- **Suspected Covert Channels**: {', '.join(self.suspected_covert_channels) if self.suspected_covert_channels else 'None'}
+"""
+            if self.collective_attribution_summary:
+                base += f"- **Summary**: {self.collective_attribution_summary}\n"
+        return base
+
 
 

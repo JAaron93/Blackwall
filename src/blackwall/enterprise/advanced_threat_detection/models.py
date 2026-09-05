@@ -9,6 +9,7 @@ from pydantic import UUID4, BaseModel, Field, field_validator, model_validator
 
 from blackwall.enterprise.advanced_threat_detection.enums import (
     AlertSeverity,
+    CovertChannelType,
     EventSource,
     ExploitCategory,
     InboundMethodType,
@@ -138,6 +139,52 @@ class SwarmEvidence(BaseModel):
             self.last_seen,
             start_name="first_seen",
             end_name="last_seen",
+        )
+        return self
+
+
+class CovertChannelEvidence(BaseModel):
+    """Evidence structure for covert coordination channels and latent message boards."""
+
+    channel_id: UUID4 = Field(default_factory=uuid4)
+    channel_type: CovertChannelType
+    confidence_score: float = Field(..., ge=0.0, le=1.0)
+    coordinating_agents: set[str] = Field(..., min_length=2)
+    observed_artifacts: list[str] = Field(default_factory=list)
+    deduction_rationale: str
+    first_detected: datetime
+    last_detected: datetime
+
+    @field_validator("channel_id")
+    @classmethod
+    def validate_channel_id(cls, v: Any) -> UUID:
+        """Validate channel_id is a valid UUID v4."""
+        return validate_uuid_v4_format(v, field_name="channel_id")
+
+    @field_validator("first_detected", "last_detected")
+    @classmethod
+    def validate_utc_timestamps(cls, v: datetime) -> datetime:
+        """Validate first_detected and last_detected are UTC timezone-aware."""
+        return validate_utc_datetime(v)
+
+    @field_validator("coordinating_agents")
+    @classmethod
+    def validate_min_agents(cls, v: set[str]) -> set[str]:
+        """Validate coordinating_agents contains at least 2 agents."""
+        return validate_min_items(
+            v,
+            min_items=2,
+            custom_msg="CovertChannelEvidence coordinating_agents must contain at least 2 agents",
+        )
+
+    @model_validator(mode="after")
+    def validate_temporal_ordering(self) -> "CovertChannelEvidence":
+        """Validate last_detected >= first_detected."""
+        validate_temporal_sequence(
+            self.first_detected,
+            self.last_detected,
+            start_name="first_detected",
+            end_name="last_detected",
         )
         return self
 

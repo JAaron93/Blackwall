@@ -20,6 +20,7 @@ from blackwall.enterprise.advanced_threat_detection.config import (
 from blackwall.enterprise.advanced_threat_detection.correlator import PathCorrelator
 from blackwall.enterprise.advanced_threat_detection.enums import (
     AlertSeverity,
+    CovertChannelType,
     EventSource,
     ExploitCategory,
     InboundMethodType,
@@ -48,6 +49,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     AttackNode,
     AttackPath,
     C2Evidence,
+    CovertChannelEvidence,
     ExploitChainEvidence,
     InboundProtocolMessage,
     K8sThreatEvidence,
@@ -115,6 +117,8 @@ __all__ = [
     "AttackPath",
     "C2Evidence",
     "C2InfrastructureDetector",
+    "CovertChannelEvidence",
+    "CovertChannelType",
     "EvaluationAttackGraphStore",
     "EvaluationEnvironment",
     "EvaluationEnvironmentManager",
