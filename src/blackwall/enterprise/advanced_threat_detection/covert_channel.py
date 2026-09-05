@@ -34,6 +34,7 @@ from blackwall.validators import (
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.covert_channel")
 
 import ipaddress
+from urllib.parse import urlsplit
 
 # Regex pattern for external IP addresses (IPv4)
 IP_REGEX = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
@@ -48,7 +49,7 @@ REGISTRY_KEYWORDS = ("artifactory", "/api/storage", "npm-local", "pypi-local", "
 # Shared dead-drop staging directory prefixes
 DEAD_DROP_DIR_PREFIXES = ("/tmp", "/dev/shm", ".cache")
 
-RFC1918_NETWORKS = (
+PRIVATE_OR_LOCAL_NETWORKS = (
     ipaddress.ip_network("10.0.0.0/8"),
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.168.0.0/16"),
@@ -56,16 +57,53 @@ RFC1918_NETWORKS = (
     ipaddress.ip_network("169.254.0.0/16"),
     ipaddress.ip_network("::1/128"),
     ipaddress.ip_network("fe80::/10"),
+    ipaddress.ip_network("fc00::/7"),
 )
 
 
-def _is_rfc1918_or_local_ip(ip_str: str) -> bool:
-    """Return True if IP is RFC1918 private, loopback, or link-local."""
+def _is_private_or_local_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Return True if IP is in RFC1918 private, loopback, link-local, or IPv6 ULA networks."""
+    return any(ip in net for net in PRIVATE_OR_LOCAL_NETWORKS)
+
+
+def _extract_ip(pattern: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """Extract and parse an IPv4 or IPv6 address from a pattern string if present."""
+    p = pattern.strip()
+    for prefix in ("ip:", "endpoint:", "domain:", "resource:", "target:", "host:"):
+        if p.lower().startswith(prefix):
+            p = p[len(prefix):].strip()
+            break
+
+    if "://" in p or p.startswith("//"):
+        try:
+            parsed = urlsplit(p)
+            if parsed.hostname:
+                p = parsed.hostname
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+    if "]:" in p:
+        raw = p.split("]:")[0].lstrip("[")
+    elif p.startswith("[") and p.endswith("]"):
+        raw = p[1:-1]
+    else:
+        raw = p.split("/")[0].split(":")[0] if "." in p else p.split("/")[0]
+
     try:
-        ip = ipaddress.ip_address(ip_str.strip())
-        return any(ip in net for net in RFC1918_NETWORKS)
+        return ipaddress.ip_address(raw)
     except ValueError:
-        return False
+        pass
+
+    tokens = re.findall(r"[0-9a-fA-F:.]+", pattern)
+    for tok in tokens:
+        if "." in tok or ":" in tok:
+            t = tok.strip("[]/:")
+            try:
+                return ipaddress.ip_address(t)
+            except ValueError:
+                pass
+
+    return None
 
 
 def _is_base64_string(s: str) -> bool:
@@ -80,19 +118,18 @@ def _is_base64_string(s: str) -> bool:
 
 
 def _has_external_c2_endpoints(shared_patterns: list[str]) -> bool:
-    """Return True if shared_patterns contains external IP or domain indicators."""
+    """Return True if shared_patterns contains external IPv4/IPv6 or domain indicators."""
     for pattern in shared_patterns:
         p_lower = pattern.lower()
 
-        # Check for IP address in pattern
-        ip_match = IP_REGEX.search(pattern)
-        if ip_match:
-            candidate_ip = ip_match.group(0)
-            if not _is_rfc1918_or_local_ip(candidate_ip):
+        # Check for IP address (IPv4 or IPv6)
+        ip_obj = _extract_ip(pattern)
+        if ip_obj is not None:
+            if not _is_private_or_local_ip(ip_obj):
                 return True
             continue
 
-        if p_lower.startswith(("endpoint:", "domain:")):
+        if p_lower.startswith(("endpoint:", "domain:", "host:")):
             target = pattern.split(":", 1)[1].strip().lower()
             if "localhost" in target or target.endswith((".local", ".internal", ".lan")):
                 continue

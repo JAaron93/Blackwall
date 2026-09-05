@@ -302,9 +302,6 @@ class AgentSwarmDetector:
                     swarm, events_by_agent=comp_events_by_agent
                 )
                 self.last_detected_covert_channels.extend(evidences)
-                if self.alert_bus is not None:
-                    for ev in evidences:
-                        await self.alert_bus.publish_covert_channel_alert(ev)
 
         return swarms
 

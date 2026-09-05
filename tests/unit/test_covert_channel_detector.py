@@ -120,6 +120,41 @@ class TestUnlocatedMessageBoardInference:
         assert len(evidences) == 1
         assert evidences[0].channel_type == CovertChannelType.UNLOCATED_MESSAGE_BOARD
 
+    def test_public_ipv6_detected_as_c2_suppresses_unlocated_board(
+        self, detector: CovertChannelDetector
+    ):
+        now = datetime.now(UTC)
+        swarm = SwarmEvidence(
+            swarm_id=uuid.uuid4(),
+            agent_ids={"agent-1", "agent-2"},
+            shared_patterns=["2607:f8b0:4005:805::200e"],
+            temporal_correlation=0.90,
+            coordination_score=0.88,
+            first_seen=now - timedelta(minutes=5),
+            last_seen=now,
+        )
+
+        evidences = detector.detect_for_swarm(swarm)
+        assert len(evidences) == 0
+
+    def test_private_ipv6_does_not_suppress_unlocated_board(
+        self, detector: CovertChannelDetector
+    ):
+        now = datetime.now(UTC)
+        swarm = SwarmEvidence(
+            swarm_id=uuid.uuid4(),
+            agent_ids={"agent-1", "agent-2"},
+            shared_patterns=["fe80::1", "::1"],
+            temporal_correlation=0.90,
+            coordination_score=0.88,
+            first_seen=now - timedelta(minutes=5),
+            last_seen=now,
+        )
+
+        evidences = detector.detect_for_swarm(swarm)
+        assert len(evidences) == 1
+        assert evidences[0].channel_type == CovertChannelType.UNLOCATED_MESSAGE_BOARD
+
 
 class TestSteganographicRegistryDetection:
     """FR-4: Steganographic storage and package registry dead-drop detection."""

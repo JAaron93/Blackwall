@@ -320,15 +320,20 @@ async def test_covert_channel_alerts():
 
 
 @pytest.mark.asyncio
-async def test_detect_swarms_publishes_covert_channel_alert():
-    """Verify that AgentSwarmDetector publishes covert channel alerts to AlertBus (P1 fix)."""
+async def test_detect_swarms_and_orchestrator_publishes_covert_channel_alert():
+    """Verify that detect_swarms identifies covert channels and orchestrator publishes them to AlertBus without duplicates (P1 fix)."""
+    from blackwall.enterprise.advanced_threat_detection.config import (
+        AdvancedThreatDetectionConfig,
+    )
     from blackwall.enterprise.advanced_threat_detection.covert_channel import (
         CovertChannelDetector,
+    )
+    from blackwall.enterprise.advanced_threat_detection.orchestrator import (
+        AdvancedThreatDetection,
     )
     from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
     from blackwall.enterprise.advanced_threat_detection.swarm import AgentSwarmDetector
 
-    bus = AlertBus()
     store = AttackGraphStore(in_memory=True)
     await store.initialize()
 
@@ -346,22 +351,60 @@ async def test_detect_swarms_publishes_covert_channel_alert():
         await store.insert_event(ev1)
         await store.insert_event(ev2)
 
+    # 1. Verify detector produces covert channel evidence
     detector = AgentSwarmDetector(
         store=store,
-        alert_bus=bus,
         covert_channel_detector=CovertChannelDetector(
             min_agents=2, min_correlation_threshold=0.70, min_coordination_threshold=0.70
         ),
     )
-
     swarms = await detector.detect_swarms(
         time_window=(now - timedelta(seconds=100), now + timedelta(seconds=10)),
         min_agents=2,
         correlation_threshold=0.75,
     )
-
     assert len(swarms) >= 1
-    covert_alerts = bus.get_alerts(severity=AlertSeverity.CRITICAL)
-    assert any(a.threat_type == "covert_channel" for a in covert_alerts)
+    assert len(detector.last_detected_covert_channels) >= 1
+
+    # 2. Verify orchestrator publishes covert channel alert without duplicates
+    cfg = AdvancedThreatDetectionConfig(
+        in_memory=True,
+        enable_swarm_detection=True,
+        enable_path_correlation=False,
+        enable_exploit_analysis=False,
+        enable_ailm_tracking=False,
+        enable_c2_detection=False,
+        enable_k8s_defense=False,
+        enable_registry_monitoring=False,
+        swarm_min_agents=2,
+        swarm_correlation_threshold=0.70,
+        temporal_window_seconds=120.0,
+    )
+    orch = AdvancedThreatDetection(config=cfg)
+    await orch.start()
+    try:
+        for i in range(5):
+            t = now - timedelta(seconds=50 - i * 10)
+            e1 = create_normalized_event(
+                agent_id="agent-01", action="action_1", target="/bin/sh", risk_score=0.8
+            )
+            e1.timestamp = t
+            e2 = create_normalized_event(
+                agent_id="agent-02", action="action_1", target="/bin/sh", risk_score=0.8
+            )
+            e2.timestamp = t
+            await orch.store.insert_event(e1)
+            await orch.store.insert_event(e2)
+
+        alerts = await orch.correlate_agent_threats(
+            agent_id="agent-01",
+            time_window=(now - timedelta(seconds=100), now + timedelta(seconds=10)),
+        )
+        covert_alerts = [a for a in alerts if a.threat_type == "covert_channel"]
+        assert len(covert_alerts) == 1
+        bus_covert = orch.alert_bus.get_alerts(threat_type="covert_channel")
+        assert len(bus_covert) == 1
+    finally:
+        await orch.stop()
 
 
