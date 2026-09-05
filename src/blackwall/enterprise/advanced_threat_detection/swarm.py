@@ -36,13 +36,57 @@ IP_REGEX = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 DOMAIN_REGEX = re.compile(r"\b[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b")
 
 
-def _extract_all_ips(text: str) -> set[str]:
-    """Extract and normalize all IPv4 and IPv6 addresses from a target string or metadata value."""
-    found: set[str] = set()
-    if not text:
-        return found
+def _extract_ip_from_host_port(host_port: str) -> str | None:
+    """Extract and validate an IPv4 or IPv6 address string from a host[:port] string."""
+    hp = host_port.strip()
+    if not hp:
+        return None
 
-    t = text.strip()
+    # 1. Bracketed IPv6 (e.g. [2607:f8b0:4005:805::200e]:8080 or [::1])
+    if hp.startswith("[") and "]" in hp:
+        raw = hp.split("]")[0][1:]
+        try:
+            return str(ipaddress.IPv6Address(raw))
+        except ValueError:
+            return None
+
+    # 2. IPv4 (with or without port, e.g. 198.51.100.5:8080 or 198.51.100.5)
+    if ":" in hp and hp.count(":") == 1:
+        cand_ipv4, port_str = hp.split(":", 1)
+        if port_str.isdigit() and 1 <= int(port_str) <= 65535:
+            try:
+                return str(ipaddress.IPv4Address(cand_ipv4))
+            except ValueError:
+                pass
+    else:
+        try:
+            return str(ipaddress.IPv4Address(hp))
+        except ValueError:
+            pass
+
+    # 3. Unbracketed IPv6 (with or without port, e.g. 2607:f8b0:4005:805::200e:8080 or 2607:f8b0:4005:805::200e)
+    if ":" in hp:
+        parts = hp.rsplit(":", 1)
+        if len(parts) == 2 and parts[1].isdigit() and 1 <= int(parts[1]) <= 65535:
+            try:
+                return str(ipaddress.IPv6Address(parts[0]))
+            except ValueError:
+                pass
+
+        try:
+            return str(ipaddress.IPv6Address(hp))
+        except ValueError:
+            pass
+
+    return None
+
+
+def _extract_ip_from_token(tok: str) -> str | None:
+    """Extract an IPv4 or IPv6 address string from a single token/host if valid."""
+    t = tok.strip()
+    if not t:
+        return None
+
     for prefix in (
         "ip:",
         "endpoint:",
@@ -56,57 +100,48 @@ def _extract_all_ips(text: str) -> set[str]:
             t = t[len(prefix) :].strip()
             break
 
-    # 1. URL hostname extraction if text is a URL
-    if "://" in t or t.startswith("//"):
-        try:
-            parsed = urlsplit(t)
-            if parsed.hostname:
-                clean_host = parsed.hostname.strip("[]")
-                try:
-                    found.add(str(ipaddress.ip_address(clean_host)))
-                except ValueError:
-                    pass
-                return found
-        except Exception:  # noqa: BLE001, S110
-            pass
-
     # If it is a local filesystem path, do not extract path components as IP endpoints
     if t.startswith("/"):
+        return None
+
+    # URL with scheme or double slashes (e.g. https://..., tcp://..., //...)
+    if "://" in t or t.startswith("//"):
+        if "://" in t:
+            _, rest = t.split("://", 1)
+        else:
+            rest = t[2:]
+        host_port = rest.split("/")[0].split("?")[0].split("#")[0].strip()
+        if "@" in host_port:
+            host_port = host_port.split("@", 1)[1]
+        return _extract_ip_from_host_port(host_port)
+
+    # Non-scheme target/endpoint: isolate host portion before path, query, or fragment
+    host_port = t.split("/")[0].split("?")[0].split("#")[0].strip()
+    if not host_port:
+        return None
+
+    return _extract_ip_from_host_port(host_port)
+
+
+def _extract_all_ips(text: str) -> set[str]:
+    """Extract and normalize all IPv4 and IPv6 addresses from a target string or metadata value."""
+    found: set[str] = set()
+    if not text:
         return found
 
-    # 2. Bracketed IPv6 (e.g. [2607:f8b0:4005:805::200e]:8080 or [::1])
-    for b in re.findall(r"\[([0-9a-fA-F:]+)\]", t):
-        try:
-            found.add(str(ipaddress.IPv6Address(b)))
-        except ValueError:
-            pass
+    # Check whole text first as a single target/endpoint
+    single_ip = _extract_ip_from_token(text)
+    if single_ip is not None:
+        found.add(single_ip)
+        return found
 
-    # 3. IPv4 addresses (dotted quad)
-    for ip_str in IP_REGEX.findall(t):
-        try:
-            found.add(str(ipaddress.IPv4Address(ip_str)))
-        except ValueError:
-            pass
-
-    # 4. Unbracketed IPv6 candidates
-    tokens = re.split(r"[\s,;\"'<>\[\]\(\)/]+", t)
-    for raw_tok in tokens:
-        tok = raw_tok.strip()
-        if not tok:
-            continue
-        for prefix in ("ip:", "endpoint:", "host:", "target:", "resource:", "url:"):
-            if tok.lower().startswith(prefix):
-                tok = tok[len(prefix) :].strip()
-        if tok.count(":") >= 2:
-            try:
-                found.add(str(ipaddress.IPv6Address(tok)))
-            except ValueError:
-                parts = tok.rsplit(":", 1)
-                if len(parts) == 2 and parts[1].isdigit():
-                    try:
-                        found.add(str(ipaddress.IPv6Address(parts[0])))
-                    except ValueError:
-                        pass
+    # If text has whitespace or delimiter-separated tokens, inspect each token
+    tokens = re.split(r"[\s,;]+", text.strip())
+    if len(tokens) > 1:
+        for tok in tokens:
+            ip = _extract_ip_from_token(tok)
+            if ip is not None:
+                found.add(ip)
 
     return found
 

@@ -300,6 +300,64 @@ async def test_public_ipv6_target_suppresses_false_covert_channel_alert():
 
 
 @pytest.mark.asyncio
+async def test_public_unbracketed_ipv6_target_suppresses_false_covert_channel_alert():
+    """Verify that unbracketed public IPv6 targets (with/without port and URLs) populate shared_patterns and suppress false alerts."""
+    from blackwall.enterprise.advanced_threat_detection.covert_channel import (
+        CovertChannelDetector,
+        CovertChannelType,
+    )
+
+    store = AttackGraphStore(in_memory=True)
+    await store.initialize()
+    covert_detector = CovertChannelDetector(
+        min_agents=2,
+        min_correlation_threshold=0.5,
+        min_coordination_threshold=0.5,
+    )
+    detector = AgentSwarmDetector(store=store, covert_channel_detector=covert_detector)
+
+    base_time = datetime(2026, 8, 5, 12, 0, 0, tzinfo=UTC)
+
+    # Agents communicating using raw unbracketed IPv6 with port and URL
+    for offset in [0, 5, 10]:
+        await store.insert_event(
+            create_event(
+                agent_id="agent-ipv6-raw-a",
+                action="probe",
+                target="connect 2607:f8b0:4005:805::200e:8080",
+                metadata={"url": "https://2607:f8b0:4005:805::200e:8080/c2"},
+                offset_seconds=offset,
+                base_time=base_time,
+            )
+        )
+        await store.insert_event(
+            create_event(
+                agent_id="agent-ipv6-raw-b",
+                action="probe",
+                target="tcp://2607:f8b0:4005:805::200e:8080",
+                metadata={"url": "https://2607:f8b0:4005:805::200e/c2"},
+                offset_seconds=offset + 0.1,
+                base_time=base_time,
+            )
+        )
+
+    time_win = (base_time, base_time + timedelta(seconds=60))
+    swarms = await detector.detect_swarms(
+        time_win, min_agents=2, correlation_threshold=0.5
+    )
+
+    assert len(swarms) >= 1
+    swarm = swarms[0]
+    assert "ip:2607:f8b0:4005:805::200e" in swarm.shared_patterns
+    unlocated_alerts = [
+        c
+        for c in swarm.covert_channels
+        if c.channel_type == CovertChannelType.UNLOCATED_MESSAGE_BOARD
+    ]
+    assert len(unlocated_alerts) == 0
+
+
+@pytest.mark.asyncio
 async def test_private_ipv6_target_does_not_suppress_covert_channel_alert():
     """Verify that private IPv6 targets (e.g. fe80::1) do NOT suppress UNLOCATED_MESSAGE_BOARD alerts."""
     from blackwall.enterprise.advanced_threat_detection.covert_channel import (

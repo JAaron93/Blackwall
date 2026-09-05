@@ -109,7 +109,19 @@ def _extract_ip(pattern: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address |
     if host_part.startswith("[") and "]" in host_part:
         raw = host_part.split("]")[0].lstrip("[")
     elif ":" in host_part and host_part.count(":") == 1:
-        raw = host_part.split(":")[0]
+        cand = host_part.split(":")[0]
+        try:
+            return ipaddress.ip_address(cand)
+        except ValueError:
+            raw = host_part
+    elif ":" in host_part:
+        parts = host_part.rsplit(":", 1)
+        if len(parts) == 2 and parts[1].isdigit() and 1 <= int(parts[1]) <= 65535:
+            try:
+                return ipaddress.IPv6Address(parts[0])
+            except ValueError:
+                pass
+        raw = host_part
     else:
         raw = host_part
 
