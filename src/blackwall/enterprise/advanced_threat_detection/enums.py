@@ -63,5 +63,15 @@ class InjectionSourceType(str, Enum):
     INCOMING_A2A_MSG = "incoming_a2a_msg"
 
 
+class CovertChannelType(str, Enum):
+    """Classification of covert communication media used by coordinating swarms."""
+
+    STEGANOGRAPHIC_REGISTRY = "STEGANOGRAPHIC_REGISTRY"
+    FILESYSTEM_DEAD_DROP = "FILESYSTEM_DEAD_DROP"
+    UNLOCATED_MESSAGE_BOARD = "UNLOCATED_MESSAGE_BOARD"
+    RESTRUCTURED_METADATA_IPC = "RESTRUCTURED_METADATA_IPC"
+
+
+
 
 

@@ -8,9 +8,9 @@ This task implementation plan structures the development of Blackwall's Agent Sw
 
 | Task ID | Component | Requirements Covered | Dependencies | Execution Mode | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **TASK-1.1** | Swarm Attribution Models (Core & Enterprise) | FR-1, FR-2, FR-4 | None | Sequential | [ ] PENDING |
-| **TASK-1.2** | Model Property & Validation Tests (TDD) | FR-1, FR-2, FR-4 | TASK-1.1 | Sequential | [ ] PENDING |
-| **TASK-1.3** | Data Models BDD Gherkin Scenarios | FR-1, FR-2, FR-4, BDD | TASK-1.2 | Sequential | [ ] PENDING |
+| **TASK-1.1** | Swarm Attribution Models (Core & Enterprise) | FR-1, FR-2, FR-4 | None | Sequential | [x] COMPLETED |
+| **TASK-1.2** | Model Property & Validation Tests (TDD) | FR-1, FR-2, FR-4 | TASK-1.1 | Sequential | [x] COMPLETED |
+| **TASK-1.3** | Data Models BDD Gherkin Scenarios | FR-1, FR-2, FR-4, BDD | TASK-1.2 | Sequential | [x] COMPLETED |
 | **TASK-2A.1**| Implement `LinguisticSwarmClassifier` (TDD) | FR-1, FR-2, NFR-1 | TASK-1.3 | Parallel Track 2A | [ ] PENDING |
 | **TASK-2A.2**| Linguistic Classifier Unit Tests | FR-1, FR-2, NFR-1 | TASK-2A.1 | Parallel Track 2A | [ ] PENDING |
 | **TASK-2A.3**| Integrate Classifier into `AttackerIdentityExtractor` | FR-1, FR-2, NFR-2 | TASK-2A.2 | Parallel Track 2A | [ ] PENDING |
@@ -31,19 +31,19 @@ This task implementation plan structures the development of Blackwall's Agent Sw
 
 ## Track 1: Foundation Data Models & Validation
 
-### [ ] TASK-1.1: Implement Swarm Attribution Models & Extensions (TDD)
+### [x] TASK-1.1: Implement Swarm Attribution Models & Extensions (TDD)
 - **Description**: Add `LinguisticSwarmMarkers` and `SwarmContextSummary` directly to Core models (`src/blackwall/models.py`) to prevent Core-to-Enterprise coupling and provide a unified provider return contract. Add `CovertChannelEvidence` to Enterprise models (`src/blackwall/enterprise/advanced_threat_detection/models.py`). Extend `AttackerIdentity`, `AttackerProfile`, and `IncidentReport` in `src/blackwall/models.py` with collective fields (`is_collective`, `collective_name`, `swarm_id`, `suspected_covert_channels`, and bounded `collective_confidence: float = Field(default=0.0, ge=0.0, le=1.0)`).
 - **Dependencies**: None.
 - **Traceability**: FR-1, FR-2, FR-4, FR-5.
 - **TDD Requirement**: Write failing unit tests in `tests/unit/test_swarm_attribution_models.py` asserting field presence, UTC timezone validation, score bounds (`[0.0, 1.0]`), and default empty list factories before implementing models.
 
-### [ ] TASK-1.2: Implement Model Property & Validation Tests
+### [x] TASK-1.2: Implement Model Property & Validation Tests
 - **Description**: Add Hypothesis property tests verifying score boundary validation (`[0.0, 1.0]`), minimal agent set lengths ($N \ge 2$), timezone-aware UTC datetime validation via `validate_utc_datetime` (for `CovertChannelEvidence` and `SwarmContextSummary`), and temporal sequence ordering (`last_detected >= first_detected`).
 - **Dependencies**: TASK-1.1.
 - **Traceability**: FR-1, FR-2, FR-4, FR-5.
 - **TDD Requirement**: Verify all property checks pass via `pytest tests/property/test_swarm_attribution_properties.py`.
 
-### [ ] TASK-1.3: Implement Data Models BDD Gherkin Scenarios
+### [x] TASK-1.3: Implement Data Models BDD Gherkin Scenarios
 - **Description**: Create `tests/features/agent_swarm_attribution_models.feature` and step definitions in `tests/step_defs/test_agent_swarm_attribution_models_bdd.py` validating data models under Gherkin scenarios.
 - **Dependencies**: TASK-1.2.
 - **Traceability**: FR-1, FR-2, FR-4, BDD Scenarios.

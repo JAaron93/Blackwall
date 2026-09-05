@@ -380,5 +380,20 @@
   - If `raise_on_error=False`: log a warning and record `applied_thinking_level = "sdk_default"` in evaluation results and Cloud Trace / OpenTelemetry span attributes (`gen_ai.request.thinking_level`), ensuring telemetry accurately reflects executed capabilities.
 * **Rationale:** Discovered during PR #113 Greptile reviews. Toggling only `include_thoughts` omits the reasoning budget, while masking attachment failures produces false-positive evaluation claims and misleading telemetry in production benchmarks.
 
+## 58. Core vs. Enterprise Tier Boundary Isolation in Swarm Attribution & Data Models
+* **Rule (Strict Downward Tier Dependency & Zero-Enterprise Core Imports):**
+  - Data models and services in Blackwall Core (`src/blackwall/models.py`, `src/blackwall/attribution/`, `src/blackwall/db/`) MUST NOT import from or depend upon Enterprise modules (`src/blackwall/enterprise/`).
+  - Cross-tier exchange models and protocol contracts (such as `LinguisticSwarmMarkers`, `SwarmContextSummary`, and provider protocols) MUST reside in Core (`src/blackwall/models.py`) so Enterprise modules can import and implement them without circular or inverted dependencies.
+  - Core attribution enrichment and resolution logic MUST query process-local storage (`SQLiteThreatRepository` in `src/blackwall/db/repository.py`), whereas distributed or cluster-mesh graph queries remain isolated within Enterprise (`AttackGraphStore` via `asyncpg`).
+* **Rationale:** Violating downward tier dependency undermines Blackwall Core as an independent, single-host developer firewall and forces non-enterprise workstations to depend on enterprise database and networking infrastructure.
 
-
+## 59. Multi-Agent Swarm Cardinality, Bounded Confidence, & Temporal Invariants
+* **Rule (Minimal Coordination Cardinality $N \ge 2$):**
+  - Pydantic models representing multi-agent coordination or covert communication channels (`CovertChannelEvidence`, `SwarmEvidence`, etc.) MUST enforce that coordinating agent collections contain at least two agents (`validate_min_items(coordinating_agents, min_items=2)`). Single-agent coordination is semantically invalid.
+* **Rule (Strict Confidence Clamping $[0.0, 1.0]$):**
+  - All collective confidence scores and linguistic marker scores MUST be declared as bounded floats within `[0.0, 1.0]` using Pydantic `Field(ge=0.0, le=1.0)`.
+* **Rule (Temporal Detection Window Ordering & Zero-Offset UTC):**
+  - Models defining detection windows with start and end timestamps (`first_detected`, `last_detected` or `first_seen`, `last_seen`) MUST enforce zero-offset UTC validation (`validate_utc_datetime`) and temporal sequence ordering (`validate_temporal_sequence`, requiring `end_time >= start_time`).
+* **Rule (Non-Breaking Single-Agent Backward Compatibility):**
+  - Extending base attribution models (`AttackerIdentity`, `AttackerProfile`, `IncidentReport`) with collective attributes MUST maintain backward compatibility for single-agent workflows by defaulting `is_collective=False`, `swarm_id=None`, `collective_confidence=0.0`, and empty list factories (`default_factory=list`).
+* **Rationale:** Discovered during PR #114 review and Track 1 implementation. Unconstrained confidence scores permit invalid probabilities, naive timestamps break event graph correlation, and missing coordination cardinality checks allow single-agent operations to produce false swarm alerts.

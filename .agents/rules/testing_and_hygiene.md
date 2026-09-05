@@ -374,6 +374,11 @@
 * **Rule (DGX Co-Existence Test Scoping):** Conformance tests checking `/proc/<daemon_pid>/fd/` for `/dev/nvidia*` character devices MUST target the running daemon process (resolved via `~/.blackwall/blackwall.pid`, `/run/blackwall/blackwall.pid`, or the daemon subprocess handle), rather than inspecting the test runner (`/proc/self/fd/`).
 * **Rationale:** Ensures systemd unit generation, process supervision, and hardware co-existence tests catch syntax violations, permission leaks, and false-positive test runner assertions prior to deployment.
 
-
-
-
+## 48. Hypothesis Property Cardinality & Temporal Sequence Fuzzing for Multi-Agent Models
+* **Rule (Multi-Agent Property Test Coverage Matrix):**
+  - Property test suites (`tests/property/test_*_properties.py`) covering multi-agent attribution or coordination evidence models MUST explicitly verify:
+    1. **Cardinality Fuzzing**: Test that agent lists with $N < 2$ (e.g. 0 or 1 agent) raise `pydantic.ValidationError`, while lists with $N \ge 2$ valid agents succeed.
+    2. **Score Clamping**: Test that floats outside `[0.0, 1.0]` (e.g. `< 0.0` or `> 1.0`) raise `ValidationError`, while floats within $[0.0, 1.0]$ are accepted.
+    3. **Timezone Rejection**: Test that naive datetimes and datetimes with non-UTC timezone offsets raise `ValidationError`.
+    4. **Temporal Ordering Inversion**: Test that inverted temporal windows (`last_detected < first_detected`) raise `ValidationError`, while valid ordering (`last_detected >= first_detected`) succeeds.
+* **Rationale:** Unit tests with fixed examples often test only $N=2$ or single valid timestamps. Property-based fuzzing guarantees that the entire boundary spectrum across cardinality, score limits, and temporal invariants is continuously verified against regression.
