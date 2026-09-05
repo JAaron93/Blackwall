@@ -216,6 +216,8 @@ alert_bus = AlertBus(max_retries=5)
 alert_bus.subscribe(lambda alert: print(f"[{alert.severity}] {alert.title}: {alert.description}"))
 if swarms:
     await alert_bus.publish_swarm_alert(swarms[0])
+    if swarms[0].covert_channels:
+        await alert_bus.publish_covert_channel_alert(swarms[0].covert_channels[0])
 
 # Inbound Protocol Interception & Cross-Agent Inspection (Pillar 6 Task 25)
 from blackwall.enterprise.advanced_threat_detection import (

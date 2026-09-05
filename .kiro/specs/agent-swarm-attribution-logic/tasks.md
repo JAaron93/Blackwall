@@ -11,14 +11,14 @@ This task implementation plan structures the development of Blackwall's Agent Sw
 | **TASK-1.1** | Swarm Attribution Models (Core & Enterprise) | FR-1, FR-2, FR-4 | None | Sequential | [x] COMPLETED |
 | **TASK-1.2** | Model Property & Validation Tests (TDD) | FR-1, FR-2, FR-4 | TASK-1.1 | Sequential | [x] COMPLETED |
 | **TASK-1.3** | Data Models BDD Gherkin Scenarios | FR-1, FR-2, FR-4, BDD | TASK-1.2 | Sequential | [x] COMPLETED |
-| **TASK-2A.1**| Implement `LinguisticSwarmClassifier` (TDD) | FR-1, FR-2, NFR-1 | TASK-1.3 | Parallel Track 2A | [ ] PENDING |
-| **TASK-2A.2**| Linguistic Classifier Unit Tests | FR-1, FR-2, NFR-1 | TASK-2A.1 | Parallel Track 2A | [ ] PENDING |
-| **TASK-2A.3**| Integrate Classifier into `AttackerIdentityExtractor` | FR-1, FR-2, NFR-2 | TASK-2A.2 | Parallel Track 2A | [ ] PENDING |
-| **TASK-2A.4**| Linguistic Attribution BDD Scenarios | FR-1, FR-2, US-1 | TASK-2A.3 | Parallel Track 2A | [ ] PENDING |
-| **TASK-2B.1**| Implement `CovertChannelDetector` (TDD) | FR-3, FR-4, NFR-4 | TASK-1.3 | Parallel Track 2B | [ ] PENDING |
-| **TASK-2B.2**| Covert Channel Inference Unit Tests | FR-3, FR-4, NFR-4 | TASK-2B.1 | Parallel Track 2B | [ ] PENDING |
-| **TASK-2B.3**| Integrate Detector with `AgentSwarmDetector` & `AlertBus` | FR-3, FR-4, NFR-2 | TASK-2B.2 | Parallel Track 2B | [ ] PENDING |
-| **TASK-2B.4**| Covert Channel BDD Gherkin Scenarios | FR-3, FR-4, US-2 | TASK-2B.3 | Parallel Track 2B | [ ] PENDING |
+| **TASK-2A.1**| Implement `LinguisticSwarmClassifier` (TDD) | FR-1, FR-2, NFR-1 | TASK-1.3 | Parallel Track 2A | [x] COMPLETED |
+| **TASK-2A.2**| Linguistic Classifier Unit Tests | FR-1, FR-2, NFR-1 | TASK-2A.1 | Parallel Track 2A | [x] COMPLETED |
+| **TASK-2A.3**| Integrate Classifier into `AttackerIdentityExtractor` | FR-1, FR-2, NFR-2 | TASK-2A.2 | Parallel Track 2A | [x] COMPLETED |
+| **TASK-2A.4**| Linguistic Attribution BDD Scenarios | FR-1, FR-2, US-1 | TASK-2A.3 | Parallel Track 2A | [x] COMPLETED |
+| **TASK-2B.1**| Implement `CovertChannelDetector` (TDD) | FR-3, FR-4, NFR-4 | TASK-1.3 | Parallel Track 2B | [x] COMPLETED |
+| **TASK-2B.2**| Covert Channel Inference Unit Tests | FR-3, FR-4, NFR-4 | TASK-2B.1 | Parallel Track 2B | [x] COMPLETED |
+| **TASK-2B.3**| Integrate Detector with `AgentSwarmDetector` & `AlertBus` | FR-3, FR-4, NFR-2 | TASK-2B.2 | Parallel Track 2B | [x] COMPLETED |
+| **TASK-2B.4**| Covert Channel BDD Gherkin Scenarios | FR-3, FR-4, US-2 | TASK-2B.3 | Parallel Track 2B | [x] COMPLETED |
 | **TASK-3.1** | SQLite Swarm Lineage Schema Migration | FR-5, NFR-3 | TASK-1.3 | Sequential | [ ] PENDING |
 | **TASK-3.2** | Implement `SwarmContextProvider` Protocol (TDD) | FR-5, NFR-3, NFR-4 | TASK-2A.4, TASK-2B.4, TASK-3.1 | Sequential | [ ] PENDING |
 | **TASK-3.3** | Swarm Attribution Provider Unit & BDD Tests | FR-5, NFR-4 | TASK-3.2 | Sequential | [ ] PENDING |
