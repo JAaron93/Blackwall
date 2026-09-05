@@ -801,21 +801,19 @@ class AdvancedThreatDetection:
                             except Exception as exc:
                                 logger.error("Active reaction (vault revocation) failed for swarm agent %s: %s", aid, exc)
 
-            if hasattr(self.swarm_detector, "last_detected_covert_channels"):
-                for covert_channel in self.swarm_detector.last_detected_covert_channels:
-                    dedup_key = (
-                        covert_channel.channel_type,
-                        frozenset(covert_channel.coordinating_agents),
-                        covert_channel.first_detected,
-                        covert_channel.last_detected,
-                    )
-                    if (
-                        agent_id in covert_channel.coordinating_agents
-                        and dedup_key not in self._published_covert_keys
-                    ):
-                        self._published_covert_keys.add(dedup_key)
-                        covert_alert = self.alert_bus.generate_covert_channel_alert(covert_channel)
-                        await self._publish_alert(covert_alert, new_alerts)
+                    # Publish covert channel alerts directly from this swarm's scoped evidence
+                    for covert_channel in getattr(swarm, "covert_channels", []):
+                        if agent_id in covert_channel.coordinating_agents:
+                            dedup_key = (
+                                covert_channel.channel_type,
+                                frozenset(covert_channel.coordinating_agents),
+                                covert_channel.first_detected,
+                                covert_channel.last_detected,
+                            )
+                            if dedup_key not in self._published_covert_keys:
+                                self._published_covert_keys.add(dedup_key)
+                                covert_alert = self.alert_bus.generate_covert_channel_alert(covert_channel)
+                                await self._publish_alert(covert_alert, new_alerts)
 
         # 7. Package Registry Exploit Probing & Monitoring
         if self.registry_monitor is not None:

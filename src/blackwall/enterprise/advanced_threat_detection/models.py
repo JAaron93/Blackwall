@@ -104,45 +104,6 @@ class AttackPath(BaseModel):
         return self
 
 
-class SwarmEvidence(BaseModel):
-    """Evidence structure for coordinated multi-agent swarm behavior."""
-
-    swarm_id: UUID4
-    agent_ids: set[str] = Field(..., min_length=2)
-    shared_patterns: list[str] = Field(default_factory=list)
-    temporal_correlation: float = Field(..., ge=0.0, le=1.0)
-    coordination_score: float = Field(..., ge=0.0, le=1.0)
-    first_seen: datetime
-    last_seen: datetime
-
-    @field_validator("first_seen", "last_seen")
-    @classmethod
-    def validate_utc_timestamps(cls, v: datetime) -> datetime:
-        """Validate first_seen and last_seen are UTC timezone-aware."""
-        return validate_utc_datetime(v)
-
-    @field_validator("agent_ids")
-    @classmethod
-    def validate_min_agents(cls, v: set[str]) -> set[str]:
-        """Validate agent_ids contains at least 2 agents."""
-        return validate_min_items(
-            v,
-            min_items=2,
-            custom_msg="SwarmEvidence agent_ids must contain at least 2 agents",
-        )
-
-    @model_validator(mode="after")
-    def validate_temporal_ordering(self) -> "SwarmEvidence":
-        """Validate last_seen >= first_seen."""
-        validate_temporal_sequence(
-            self.first_seen,
-            self.last_seen,
-            start_name="first_seen",
-            end_name="last_seen",
-        )
-        return self
-
-
 class CovertChannelEvidence(BaseModel):
     """Evidence structure for covert coordination channels and latent message boards."""
 
@@ -185,6 +146,46 @@ class CovertChannelEvidence(BaseModel):
             self.last_detected,
             start_name="first_detected",
             end_name="last_detected",
+        )
+        return self
+
+
+class SwarmEvidence(BaseModel):
+    """Evidence structure for coordinated multi-agent swarm behavior."""
+
+    swarm_id: UUID4
+    agent_ids: set[str] = Field(..., min_length=2)
+    shared_patterns: list[str] = Field(default_factory=list)
+    temporal_correlation: float = Field(..., ge=0.0, le=1.0)
+    coordination_score: float = Field(..., ge=0.0, le=1.0)
+    first_seen: datetime
+    last_seen: datetime
+    covert_channels: list[CovertChannelEvidence] = Field(default_factory=list)
+
+    @field_validator("first_seen", "last_seen")
+    @classmethod
+    def validate_utc_timestamps(cls, v: datetime) -> datetime:
+        """Validate first_seen and last_seen are UTC timezone-aware."""
+        return validate_utc_datetime(v)
+
+    @field_validator("agent_ids")
+    @classmethod
+    def validate_min_agents(cls, v: set[str]) -> set[str]:
+        """Validate agent_ids contains at least 2 agents."""
+        return validate_min_items(
+            v,
+            min_items=2,
+            custom_msg="SwarmEvidence agent_ids must contain at least 2 agents",
+        )
+
+    @model_validator(mode="after")
+    def validate_temporal_ordering(self) -> "SwarmEvidence":
+        """Validate last_seen >= first_seen."""
+        validate_temporal_sequence(
+            self.first_seen,
+            self.last_seen,
+            start_name="first_seen",
+            end_name="last_seen",
         )
         return self
 

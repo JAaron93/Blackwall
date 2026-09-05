@@ -117,11 +117,45 @@ def _is_base64_string(s: str) -> bool:
         return False
 
 
+def _extract_hostname_or_domain(pattern: str) -> str | None:
+    """Extract host or domain from an endpoint, resource, domain, or raw URL pattern."""
+    p = pattern.strip()
+    for prefix in ("endpoint:", "domain:", "host:", "resource:", "target:", "url:"):
+        if p.lower().startswith(prefix):
+            p = p[len(prefix):].strip()
+            break
+
+    if "://" in p or p.startswith("//"):
+        try:
+            parsed = urlsplit(p)
+            if parsed.hostname:
+                return parsed.hostname.lower()
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+    # Strip path and port if present
+    cleaned = p.split("/")[0].split(":")[0].strip().lower()
+    if cleaned and ("." in cleaned or cleaned == "localhost"):
+        return cleaned
+
+    m = DOMAIN_REGEX.search(pattern)
+    if m:
+        return m.group(0).lower()
+    return None
+
+
+def _is_internal_domain(hostname: str) -> bool:
+    """Return True if hostname is internal or local."""
+    h = hostname.lower().strip(".")
+    return (
+        h == "localhost"
+        or h.endswith((".localhost", ".local", ".internal", ".lan"))
+    )
+
+
 def _has_external_c2_endpoints(shared_patterns: list[str]) -> bool:
     """Return True if shared_patterns contains external IPv4/IPv6 or domain indicators."""
     for pattern in shared_patterns:
-        p_lower = pattern.lower()
-
         # Check for IP address (IPv4 or IPv6)
         ip_obj = _extract_ip(pattern)
         if ip_obj is not None:
@@ -129,14 +163,9 @@ def _has_external_c2_endpoints(shared_patterns: list[str]) -> bool:
                 return True
             continue
 
-        if p_lower.startswith(("endpoint:", "domain:", "host:")):
-            target = pattern.split(":", 1)[1].strip().lower()
-            if "localhost" in target or target.endswith((".local", ".internal", ".lan")):
-                continue
-            return True
-
-        if DOMAIN_REGEX.search(pattern):
-            if "localhost" in p_lower or p_lower.endswith((".local", ".internal", ".lan")):
+        hostname = _extract_hostname_or_domain(pattern)
+        if hostname is not None:
+            if _is_internal_domain(hostname):
                 continue
             return True
     return False

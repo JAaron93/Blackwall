@@ -297,15 +297,17 @@ class AgentSwarmDetector:
             swarms.append(swarm)
 
         # Evaluate covert channel evidence for detected swarms (TASK-2B.3, FR-3, FR-4)
-        self.last_detected_covert_channels.clear()
+        all_covert_evidences: list[CovertChannelEvidence] = []
         if self.covert_channel_detector is not None:
             for swarm in swarms:
                 comp_events_by_agent = {a: events_by_agent.get(a, []) for a in swarm.agent_ids}
                 evidences = self.covert_channel_detector.detect_for_swarm(
                     swarm, events_by_agent=comp_events_by_agent
                 )
-                self.last_detected_covert_channels.extend(evidences)
+                swarm.covert_channels = evidences
+                all_covert_evidences.extend(evidences)
 
+        self.last_detected_covert_channels = all_covert_evidences
         return swarms
 
     async def compute_coordination_score(

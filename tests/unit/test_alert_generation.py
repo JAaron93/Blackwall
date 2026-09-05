@@ -423,3 +423,59 @@ async def test_detect_swarms_and_orchestrator_publishes_covert_channel_alert():
         await orch.stop()
 
 
+@pytest.mark.asyncio
+async def test_concurrent_correlation_does_not_corrupt_covert_evidence():
+    """Verify concurrent correlate_agent_threats calls do not lose or cross-contaminate covert alerts (Issue 2)."""
+    import asyncio
+
+    from blackwall.enterprise.advanced_threat_detection.config import (
+        AdvancedThreatDetectionConfig,
+    )
+    from blackwall.enterprise.advanced_threat_detection.orchestrator import (
+        AdvancedThreatDetection,
+    )
+
+    cfg = AdvancedThreatDetectionConfig(
+        in_memory=True,
+        enable_swarm_detection=True,
+        enable_path_correlation=False,
+        enable_exploit_analysis=False,
+        enable_ailm_tracking=False,
+        enable_c2_detection=False,
+        enable_k8s_defense=False,
+        enable_registry_monitoring=False,
+        swarm_min_agents=2,
+        swarm_correlation_threshold=0.70,
+        temporal_window_seconds=120.0,
+    )
+    orch = AdvancedThreatDetection(config=cfg)
+    await orch.start()
+    try:
+        now = datetime.now(UTC)
+        for i in range(5):
+            t = now - timedelta(seconds=50 - i * 10)
+            e1 = create_normalized_event(
+                agent_id="agent-A", action="action_1", target="/bin/sh", risk_score=0.8
+            )
+            e1.timestamp = t
+            e2 = create_normalized_event(
+                agent_id="agent-B", action="action_1", target="/bin/sh", risk_score=0.8
+            )
+            e2.timestamp = t
+            await orch.store.insert_event(e1)
+            await orch.store.insert_event(e2)
+
+        t_win = (now - timedelta(seconds=100), now + timedelta(seconds=10))
+        results = await asyncio.gather(
+            orch.correlate_agent_threats(agent_id="agent-A", time_window=t_win),
+            orch.correlate_agent_threats(agent_id="agent-B", time_window=t_win),
+        )
+
+        all_covert = [a for res in results for a in res if a.threat_type == "covert_channel"]
+        assert len(all_covert) >= 1
+        bus_covert = orch.alert_bus.get_alerts(threat_type="covert_channel")
+        assert len(bus_covert) == 1
+    finally:
+        await orch.stop()
+
+

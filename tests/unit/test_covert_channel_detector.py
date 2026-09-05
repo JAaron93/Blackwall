@@ -155,6 +155,45 @@ class TestUnlocatedMessageBoardInference:
         assert len(evidences) == 1
         assert evidences[0].channel_type == CovertChannelType.UNLOCATED_MESSAGE_BOARD
 
+    def test_internal_url_with_path_and_port_does_not_suppress_unlocated_board(
+        self, detector: CovertChannelDetector
+    ):
+        now = datetime.now(UTC)
+        swarm = SwarmEvidence(
+            swarm_id=uuid.uuid4(),
+            agent_ids={"agent-1", "agent-2"},
+            shared_patterns=[
+                "resource:https://artifactory.internal/api/storage",
+                "endpoint:https://artifactory.internal:8080/api/storage",
+                "http://localhost:9229/mcp",
+            ],
+            temporal_correlation=0.90,
+            coordination_score=0.88,
+            first_seen=now - timedelta(minutes=5),
+            last_seen=now,
+        )
+
+        evidences = detector.detect_for_swarm(swarm)
+        assert len(evidences) == 1
+        assert evidences[0].channel_type == CovertChannelType.UNLOCATED_MESSAGE_BOARD
+
+    def test_external_url_with_path_suppresses_unlocated_board(
+        self, detector: CovertChannelDetector
+    ):
+        now = datetime.now(UTC)
+        swarm = SwarmEvidence(
+            swarm_id=uuid.uuid4(),
+            agent_ids={"agent-1", "agent-2"},
+            shared_patterns=["resource:https://c2.evil-attacker.com:8443/beacon"],
+            temporal_correlation=0.90,
+            coordination_score=0.88,
+            first_seen=now - timedelta(minutes=5),
+            last_seen=now,
+        )
+
+        evidences = detector.detect_for_swarm(swarm)
+        assert len(evidences) == 0
+
 
 class TestSteganographicRegistryDetection:
     """FR-4: Steganographic storage and package registry dead-drop detection."""
