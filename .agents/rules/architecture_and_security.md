@@ -397,3 +397,15 @@
 * **Rule (Non-Breaking Single-Agent Backward Compatibility):**
   - Extending base attribution models (`AttackerIdentity`, `AttackerProfile`, `IncidentReport`) with collective attributes MUST maintain backward compatibility for single-agent workflows by defaulting `is_collective=False`, `swarm_id=None`, `collective_confidence=0.0`, and empty list factories (`default_factory=list`).
 * **Rationale:** Discovered during PR #114 review and Track 1 implementation. Unconstrained confidence scores permit invalid probabilities, naive timestamps break event graph correlation, and missing coordination cardinality checks allow single-agent operations to produce false swarm alerts.
+
+## 60. Endpoint Host Isolation vs. Path Literal Parsing & RFC 4291 IPv6 Normalization
+* **Rule (Host Component Isolation Before Path/Query/Fragment):**
+  - Security detection components extracting network target endpoints, IOCs, and shared infrastructure (`_extract_all_ips`, `_extract_ip`, `C2InfrastructureDetector`, `CovertChannelDetector`, `AgentSwarmDetector`) MUST strictly isolate the network host component before any path (`/`), query (`?`), or fragment (`#`) delimiters.
+  - Path literals (e.g. `https://artifactory.internal/api/198.51.100.5/storage` or non-scheme `resource:artifactory.internal/api/198.51.100.5/storage`) represent application data or REST resources, not network routing infrastructure. Parsers MUST NOT scan entire target strings with broad IP regex patterns that promote path literals to external C2 endpoints.
+* **Rule (First-Class IPv6 Endpoint Extraction):**
+  - Endpoint parsers MUST support RFC 4291 IPv6 addresses across all formats:
+    1. Bracketed IPv6 with and without ports (e.g. `[2607:f8b0:4005:805::200e]:8080` -> `2607:f8b0:4005:805::200e`).
+    2. Unbracketed IPv6 with and without ports (e.g. `connect 2607:f8b0:4005:805::200e:8080` or `tcp://2607:...:8080`).
+    3. URLs with scheme (`http://`, `https://`, `tcp://`) and protocol-relative URLs (`//`).
+  - Extracted IPv6 endpoints MUST populate `shared_patterns` with canonical `ip:<normalized_ipv6>` prefixes. Valid public IPv6 targets MUST be recognized as external infrastructure to avoid false-positive `UNLOCATED_MESSAGE_BOARD` covert channel alerts.
+* **Rationale:** Discovered on PR #116. Broad regex scans mistakenly elevated internal REST URL path literals to external C2, while omitting unbracketed IPv6 targets from swarm extraction caused normal public IPv6 traffic to be falsely flagged as covert communication boards.
