@@ -345,6 +345,8 @@
   2. **Synthesize Reviewer Rulebooks**: Update repository-level reviewer instructions (e.g. `.greptile/rules.md` Anti-Oscillation Directive and explicit grammar/RFC boundaries) to clarify design invariants.
   3. **Strict Standard Invariants**: Enforce unambiguous standard protocol/RFC boundaries (such as Rust `std::net::Ipv6Addr` whole-token validation) without fallback heuristics that manufacture invalid data.
   4. **Verification & Resolution**: Verify full test suite pass rates, push configuration updates, resolve GraphQL review threads, and re-trigger review to achieve passing status with zero churn.
+* **Extension (Correlation Cycle Deduplication Invariant):**
+  - Deduplication caches for multi-agent correlation passes (e.g. `_published_covert_cycles` in `orchestrator.py`) MUST pair memory limits (e.g. 100-entry capacity ceiling) with activity TTL (`max(300.0, temporal_window * 2)`) and explicit completion methods (`complete_correlation_cycle`). AI review comments that oscillate between demanding memory caps and flagging TTL eviction of inactive cycles must be halted via the circuit breaker and resolved via `.greptile/rules.md` rather than cyclic code refactoring.
 * **Rationale:** AI reviewers evaluate PR diffs statelessly and can fall into contradictory loops or micro-edge-case spirals. Establishing clear repository-level reviewer rules breaks churn loops and stabilizes review confidence scores deterministically.
 
 ## 45. MCP Gateway Transport & Remote Authentication Testing Invariants
@@ -382,3 +384,12 @@
     3. **Timezone Rejection**: Test that naive datetimes and datetimes with non-UTC timezone offsets raise `ValidationError`.
     4. **Temporal Ordering Inversion**: Test that inverted temporal windows (`last_detected < first_detected`) raise `ValidationError`, while valid ordering (`last_detected >= first_detected`) succeeds.
 * **Rationale:** Unit tests with fixed examples often test only $N=2$ or single valid timestamps. Property-based fuzzing guarantees that the entire boundary spectrum across cardinality, score limits, and temporal invariants is continuously verified against regression.
+
+## 49. Large Test Suite Execution Monitoring & Incremental Verification Protocol
+* **Rule (Targeted Local Scoping for Fast TDD):**
+  - During rapid TDD iterations and bug reproduction loops, test executions MUST be scoped to the relevant unit or feature test modules (e.g. `pytest tests/unit/test_agent_swarm_detector.py tests/unit/test_covert_channel_detector.py`) rather than launching the entire 2,200+ test repository suite for minor intermediate edits.
+* **Rule (Full Suite Upfront Announcement & Telemetry):**
+  - When executing the full repository test suite (e.g. for final pre-commit/pre-push gates or regression checks), agents MUST announce the collected item count (e.g. `collected 2,249 items`) and estimated runtime (3-5 minutes) upfront to users so long execution times are not mistaken for deadlocks or process hangs.
+* **Rule (Active Progress Monitoring Timers):**
+  - When running test suites in the background, agents MUST use the `schedule` tool with incremental intervals (15–30 seconds) to inspect progress (`manage_task status`), check execution percentages in log tails, and report current progress to the user. Agents MUST NEVER poll in tight loops or wait blindly without status visibility.
+* **Rationale:** Full test runs in large repositories execute thousands of property tests, database transactions, and BDD scenarios. Active progress telemetry gives users transparency and prevents premature abortion of healthy test runs.
