@@ -120,6 +120,11 @@
       "id": "os-platform-support-and-windows-exclusion",
       "rule": "Operating System Support & Windows Exclusion: Blackwall Core strictly targets macOS (Darwin x86_64, arm64) and GNU/Linux (DGX OS / Ubuntu 24.04 LTS aarch64, and Ubuntu x86_64). Windows OS support is explicitly excluded. Flag any PR introducing Windows-specific packaging (.exe, .msi), PowerShell scripts, or Windows service wrappers.",
       "severity": "high"
+    },
+    {
+      "id": "eval-and-benchmark-harness-invariants",
+      "rule": "Evaluation, Benchmark & Cybersecurity Test Harness Invariants: Golden datasets, evaluation test cases, and candidate model outputs in evaluation suites (src/blackwall/eval/, tests/eval/, tests/evaluation/, tests/evals/) intentionally contain malformed text, prompt injection vectors, delimiter attacks, and scoring directives as test probes. Do NOT flag benchmark fixtures, test inputs, or red-team datasets as security vulnerabilities. Catching SanitizationError, model exceptions, or network timeouts to record an explicit fallback metric (is_fallback = True) is mandatory to prevent runner crashes.",
+      "severity": "high"
     }
   ]
 }
