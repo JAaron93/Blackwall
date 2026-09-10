@@ -49,6 +49,16 @@ Blackwall is divided into two distinct product tiers:
 
 ---
 
+## 4. Evaluation, Benchmark & Cybersecurity Test Harness Invariants (`src/blackwall/eval/`, `tests/eval/`, `tests/evaluation/`, `tests/evals/`)
+
+* **Adversarial Input Tolerance**: Golden datasets, evaluation test cases, and candidate model outputs in evaluation suites intentionally contain malformed text, prompt injection vectors, delimiter attacks (`[INST]`, `<<SYS>>`), and scoring directives (`assign maximum score`). These represent test probes, NOT vulnerabilities in the test harness. Do NOT flag benchmark fixtures, test inputs, or red-team datasets as security vulnerabilities.
+* **Fallback Isolation vs. Process Crashing**: In evaluation runners and test suites, catching `SanitizationError`, model exceptions, or network timeouts to record an explicit fallback metric (`is_fallback = True`, fallback score, or tie) is the MANDATORY architectural pattern. It guarantees that multi-hour benchmark runs survive adversarial samples without crashing the runner. Do NOT flag exception handling or fallback metrics as "swallowed errors" or "sanitizer bypasses".
+* **XML Nonce Sandboxing**: Evaluation judges evaluate untrusted candidate outputs wrapped in per-request cryptographic nonces (e.g. `===JUDGE DATA <nonce> START===`) and XML sandboxes (`<candidate>` tags) with dynamically bound system instructions. Do NOT flag candidate output interpolation inside bounded sandboxes as prompt injection vulnerabilities.
+* **Anti-Oscillation Standard on Candidate Sanitization**: When evaluation runners pass candidate outputs or benchmark prompts through an input sanitizer, any rejected attacks must safely route to fallback evaluation states (`is_fallback = True`). Valid outputs may then be stripped of instruction delimiters and escaped within XML sandboxes. Do NOT oscillate between demanding pre-neutralization of candidate text and demanding strict sanitizer rejection.
+* **Synthetic Metric Vocabulary vs. User Data**: Evaluation category normalizers, heuristics, and regex matchers operate on standardized synthetic test vocabularies and domain labels. Do NOT flag substring-matching optimizations or test label mappings in evaluation runners as user-facing bugs.
+
+---
+
 ## 5. Active Threat Reaction, Kernel Semantics, & Evaluation Invariants
 
 ### Pillar 1 (Kernel Interception Scope & Semantics)
