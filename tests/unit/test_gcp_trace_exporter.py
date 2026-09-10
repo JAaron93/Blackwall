@@ -57,7 +57,7 @@ def test_gcp_cloud_trace_exporter_error_recording():
     exporter = GCPCloudTraceExporter(project_id="unit-test-proj")
     span = exporter.start_span(
         name="vertex_eval.failed_task",
-        model="gemini-3.7-flash",
+        model="gemini-3.8-flash",
     )
     exporter.record_evaluation_error(
         span=span,

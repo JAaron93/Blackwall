@@ -17,8 +17,8 @@
 * **Rationale:** Suppressing configuration errors in production allows daemons to launch in invalid or unmonitored security states.
 
 ## 5. Unconditional Credential Purging
-* **Rule:** Provider configuration helpers (`configure_provider_env()`) MUST purge legacy API keys (`GEMINI_API_KEY`, `LLM_API_KEY`) and re-assert required mode variables (`GOOGLE_GENAI_USE_VERTEXAI="true"`, `GEMINI_TIER="paid"`) on *every* call, regardless of module-level caching flags.
-* **Rationale:** Prevents credential leakage and ensures GCP Vertex AI enterprise mode compliance across all sub-processes.
+* **Rule:** Provider configuration helpers (`configure_provider_env()`) MUST purge legacy API keys (`GEMINI_API_KEY`, `LLM_API_KEY`) and re-assert required mode variables (`GOOGLE_GENAI_USE_VERTEXAI="true"`, `GEMINI_TIER="paid"`) on *every* call, regardless of module-level caching flags. Vertex AI has NO free tier; it operates exclusively on paid billing quota (300+ RPM). Free-tier or 15 RPM fallback logic must never be introduced for Vertex AI. Third-party rate limiters (e.g. VirusTotal GTI 4 queries/60s) remain separate and preserved.
+* **Rationale:** Prevents credential leakage and ensures GCP Vertex AI enterprise mode compliance across all sub-processes without artificial rate throttling.
 
 ## 6. Context Hygiene & Sanitization
 * **Rule:** `ContextResolver` middleware must replace sensitive environment variable patterns with generic placeholders (`[[VARIABLE_NAME]]`). Integration tests querying external hostnames (e.g. GTI / VirusTotal) must use un-redacted standalone hostnames (e.g. `wd-bouygues.com`) to prevent accidental sanitization matching.
@@ -111,10 +111,11 @@
 * **Rationale:** VirusTotal commercial enterprise API subscriptions cost >$1,000/month and are an explicit non-goal. Conflating third-party Threat Intelligence rate limits with Gemini LLM model quotas creates catastrophic financial exposure.
 
 ## 26. Network Security Detector Endpoint Parsing & IPv4/IPv6 Loopback Range Filtering
-* **Rule:** Security detection modules parsing network targets or hostnames (e.g. `C2InfrastructureDetector`, network event correlators) MUST:
+* **Rule:** Security detection modules parsing network targets or hostnames (e.g. `C2InfrastructureDetector`, network event correlators, `InboundProtocolFilter`) MUST:
   1. Enclose unbracketed IPv6 target strings (e.g. `::1`, `::1:8080`) in brackets (`[::1]`, `[::1]:8080`) before passing to URL parsers (`urlparse`) to prevent colons from being split into empty host components.
-  2. Treat the entire `127.0.0.0/8` IPv4 loopback block (e.g. `127.0.0.2`), IPv6 loopback (`::1`, `[::1]`), and IPv4-mapped IPv6 loopback addresses (`::ffff:127.0.0.0/8`, e.g. `[::ffff:127.0.0.1]:8080`) as local loopback endpoints (`_is_local_host` / `_is_local_endpoint`) alongside `localhost`.
-* **Rationale:** Single IP exact-string comparisons (e.g., checking only `"127.0.0.1"` or `"::1"`) allow unbracketed IPv6 ports, alternative IPv4 loopback subnets (`127.0.0.2`), or IPv4-mapped IPv6 loopbacks (`::ffff:127.0.0.1`) to bypass local endpoint filtering, resulting in false cross-pillar persistence indicators and false `C2Evidence`.
+  2. Treat the entire `127.0.0.0/8` IPv4 loopback block (e.g. `127.0.0.2`), IPv6 loopback (`::1`, `[::1]`), and IPv4-mapped IPv6 loopback addresses (`::ffff:127.0.0.0/8`, e.g. `[::ffff:127.0.0.1]:8080`) as local loopback endpoints (`_is_local_host` / `_is_local_endpoint` / `_is_loopback`) alongside `localhost`.
+  3. Extract IP literals from bracketed IPv6 host headers with ports (e.g. `[::1]:8000` -> `::1` or `[::1]`) by parsing bracket delimiters (`clean[1:clean.index("]")]`) before port stripping or IP address parsing. Naive colon splitting (`split(":")[0]`) leaves trailing colons or corrupted IPv6 addresses.
+* **Rationale:** Single IP exact-string comparisons and naive colon splitting allow valid bracketed IPv6 requests with ports (`[::1]:8000`) or alternative loopback subnets (`127.0.0.2`) to be rejected or misclassified as remote traffic.
 
 ## 27. Destination Metadata Extraction Isolation in Security Event Correlation
 * **Rule:** Cross-pillar security correlation components and endpoint classifiers extracting target endpoints from event metadata MUST restrict metadata extraction strictly to explicit, known network destination keys (`DESTINATION_KEYS = {"url", "uri", "endpoint", "domain", "host", "target", "c2_url", "remote_url", "destination", "dest_url", "server"}`) or validated HTTP/HTTPS URLs. Security engines MUST NOT perform loose substring searches (e.g. searching for `"http"`, `"bin"`, or `"paste"`) over arbitrary string metadata values.
@@ -205,10 +206,11 @@
 
 ## 42. Production LLM Model Standards (Gemini 3.X Generation)
 * **Rule (Main Interception & Rapid Triage Model):** MUST default to `gemini-3.5-flash-lite` for sub-100ms synchronous anomaly classification, structural policy escalation, and tool interception.
-* **Rule (Deep Reasoning & Forensic Attribution Model):** MUST default to `gemini-3.7-flash` for frontier semantic reasoning, attack path decompilation, and threat signature synthesis.
+* **Rule (Deep Reasoning & Forensic Attribution Model):** MUST default to `gemini-3.8-flash` for frontier semantic reasoning, attack path decompilation, and threat signature synthesis.
+* **Rule (Flash-Only Architecture & Prohibition of Pro Models):** Blackwall operates exclusively on Gemini Flash models. All Gemini Pro models (`gemini-*-pro*`) and unverified/hallucinated model identifiers are strictly prohibited in production, test suites, evaluation judges, benchmarks, mocks, and property tests.
 * **Rule (Embeddings Model):** MUST default to `gemini-embedding-001` (768 dimensions).
 * **Rule (Deprecated Models Deny List):** All legacy model identifiers (`gemini-1.5-*`, `gemini-2.0-*`, `gemini-2.5-*`, and `gemini-3.1-pro-preview`) are strictly deprecated and prohibited in production and test configurations.
-* **Rationale:** `gemini-3.5-flash-lite` provides sub-100ms SLA compliance for the hot synchronous path, while `gemini-3.7-flash` delivers frontier reasoning speed and depth without the latency penalties of legacy preview models.
+* **Rationale:** `gemini-3.5-flash-lite` provides sub-100ms SLA compliance for the hot synchronous path, while `gemini-3.8-flash` delivers frontier reasoning speed and depth without the latency penalties of legacy preview models.
 
 ## 43. GCP Vertex AI EvalTask Failure Escalation & Cloud Trace Telemetry Invariants
 * **Rule (Explicit EvalTask Failure Escalation):**
@@ -228,10 +230,182 @@
   - Dataset utilities providing tabular outputs (`as_dataframe=True`) MUST gracefully handle missing optional dependencies (`pandas`) with safe `ImportError` fallback to standard dictionaries, without referencing uninitialized loggers.
 * **Rationale:** Enforces deterministic evaluation reporting in Vertex AI mode, guarantees end-to-end telemetry capture in Google Cloud Trace, prevents silent false positives during security harness runs, and preserves pristine isolation between evaluation artifacts and persistent threat graphs.
 
+## 44. Ingress Payload Scanning, Literal Substitution, & Positive Threshold Validation Invariants
+* **Rule (Strictly Positive Confidence Thresholds & Benign Alert Guarding):**
+  - Parameter validators for security confidence thresholds (e.g. `confidence_threshold`, `critical_confidence_threshold`) MUST enforce strictly positive values (`0.0 < threshold <= 1.0`), raising `ValueError` when `0.0` or negative values are provided.
+  - Alert publishing routines MUST explicitly verify that threat indicators were matched (`if matched_patterns and confidence >= self.confidence_threshold:`) before publishing alerts to the `AlertBus`, ensuring benign inputs receiving baseline `0.0` confidence never trigger false-positive security alerts with `NO_INJECTION_DETECTED` evidence.
+* **Rule (Literal Replacement in Regex Sanitization & Redaction):**
+  - When replacing detected malicious payloads or injection vectors via `Pattern.sub` or `re.sub` with configurable user-provided or default placeholders (e.g., `redaction_placeholder`), replacement MUST be performed using a callable (`pattern.sub(lambda _match: self.redaction_placeholder, text)`) or `re.escape`-protected string.
+  - Passing unescaped replacement strings directly to `re.sub` is strictly prohibited to prevent regex template/group backreference injection (e.g., `\g<0>`, `\1`) from re-inserting malicious payloads or raising syntax errors that leave exploit vectors unredacted in host execution contexts.
+* **Rationale:** Permitting `0.0` threshold values allows benign inputs to satisfy `>= 0.0` comparisons and emit spurious `HIGH`/`CRITICAL` alerts that flood SOC pipelines. Passing unescaped replacement strings to regex engines allows crafted placeholders with backreferences to reconstitute stripped exploit spans, defeating prompt injection and data poisoning containment.
+
+## 45. Non-Finite Numeric Limit Validation & Resource Quota Invariants
+* **Rule (Finite Float Validation on Numeric Thresholds, Rates, and Durations):**
+  - All numeric constructor and method parameters representing security limits, rate caps, sliding windows, timeouts, multipliers, and durations (e.g. `token_burn_rate_limit`, `request_velocity_limit`, `sliding_window_sec`, `quarantine_duration_sec`, `critical_burn_rate_multiplier`, `duration_sec`, `confidence_threshold`) MUST be explicitly validated with `math.isfinite(x)` in addition to type and positivity checks:
+    ```python
+    if (
+        isinstance(x, bool)
+        or not isinstance(x, (int, float))
+        or not math.isfinite(x)
+        or x <= 0.0
+    ):
+        raise ValueError("x must be a finite float greater than 0.0")
+    ```
+  - **Configuration and Environment Variable Resolvers**: Resolvers reading numeric settings from environment variables (e.g. `get_gemini_http_timeout`, `get_gemini_max_output_tokens`) MUST validate parsed floats/ints with `math.isfinite(val) and val > 0`. Because Python's `float("nan")` and `float("inf")` parse without raising `ValueError`, resolvers MUST catch non-finite or non-positive values and fall back to safe architectural defaults rather than passing invalid values to downstream SDKs.
+  - Relying solely on `x <= 0.0` or `x < 1.0` is strictly prohibited because comparisons with `NaN` (e.g. `float('nan') <= 0.0`) evaluate to `False` in Python, accepting invalid inputs. Similarly, positive infinity (`float('inf')`) passes `> 0.0` checks and breaks enforcement: infinite rate/velocity limits prevent threshold comparisons from triggering, while infinite timeouts and quarantine durations produce holds that never expire automatically.
+* **Rationale:** Accepting `NaN` breaks mathematical comparisons in sliding-window calculations and alert severity evaluation, causing silent security failures. Accepting `+inf` disables throttling and creates unexpiring quarantines, causing denial of service for benign workloads or unmitigated Denial of Wallet (DoW) exposure for adversarial workloads.
+
+## 46. Low-Level Syscall vs. Container Orchestrator Lifecycle Separation
+* **Rule:** Container and Kubernetes security detectors (`KubernetesDefenseLayer`, container sandbox monitors) MUST strictly separate low-level kernel/process syscall actions (`sys_clone`, `sys_fork`, `clone`) from high-level orchestrator lifecycle actions (`POD_CREATE_ACTIONS`, `POD_TERM_ACTIONS`, `FLEET_SPAWN_ACTIONS`).
+* **Rule:** Low-level process creation syscalls captured via eBPF tracepoints or audit hooks MUST NOT be included in pod creation or pod self-respawn action sets.
+* **Rationale:** Generic process/thread cloning inside sandbox containers (e.g. worker process forks during CyBench executions) shares the same process namespace or container ID. Treating `sys_clone` as pod creation produces false `fleet_spawning` and `self_respawning_pod` threat evidence.
+
+## 48. Active Enforcement Method Fail-Closed Contract
+
+* **Rule (Fail-Closed Success Initialization):** Every action method in `ActiveReactionEngine` (`execute_ebpf_socket_drop`, `broadcast_fleet_signature`, `revoke_identity_session`) MUST initialize `success = False` unconditionally before any conditional dispatch. `success` MUST be set to `True` only inside a branch that *completes an enforcement action without exception*. The following initializations are strictly prohibited:
+  - `success = True` — leaves `success` unchanged when a branch is silently skipped (e.g. unsupported interface, absent dependency)
+  - `success = self.dep is not None` — leaves `success = True` when the dependency is present but its interface matches no dispatch branch
+
+* **Rule (Dispatcher Return Value Capture):** Dispatch branches that optionally await a coroutine MUST assign the awaited result back to the same variable before inspecting it:
+  ```python
+  res = self.mesh_broadcaster(payload)
+  if asyncio.iscoroutine(res):
+      res = await res          # ← captured, not discarded
+  success = bool(res) if res is not None else True
+  ```
+  The return value of `await` MUST NOT be discarded with a bare `await res` statement. Success semantics: `None` → completed without explicit failure signal (success); any other falsy value (e.g. `False`, `0`) → caller-signalled failure.
+
+* **Rule (Empty-Result Oracle Guard for Token Revocation):** When a vault-style adapter returns an empty collection from `revoke_agent_tokens`, the failure condition MUST apply unless the local token registry confirms zero tokens were ever issued:
+  ```python
+  if len(revoked_tokens) == 0 and not (
+      isinstance(adapter_tokens, dict) and len(adapter_tokens) == 0
+  ):
+      success = False   # absent registry, non-dict, or non-empty dict → failure
+  # else: empty dict registry → no tokens existed, empty return is correct
+  ```
+  An absent registry (`None`), a non-dict registry, or a non-empty registry all require treating zero revocations as a failure; only a confirmed empty dict (`{}`) is a legitimate "nothing to revoke" result.
+
+* **Rationale:** Fail-open enforcement methods produce false `COMPLETED` audit records for actions that never occurred (socket drops, Threat Mesh broadcasts, credential revocations). Discovered across PR #93 review cycles: (a) initializing `success = dep is not None` still reports COMPLETED when a non-None dep exposes an unsupported interface; (b) discarding `await res` ignores a broadcaster's explicit `False` failure signal; (c) guarding empty-revocation failure only on a non-empty `_issued_tokens` dict silently passes when the adapter has no local registry. Each flaw allows adversaries whose mitigations were not actually enforced to continue operating while the SOC log shows `COMPLETED`.
+
+## 47. Multi-Day Retrospective Semantic Edge Decay & MITRE Technique Gating
+* **Rule:** Retrospective attack path correlators (`RetrospectiveAnalyzer.reconstruct_causal_graph`) constructing semantic and temporal edges across multi-day analysis windows MUST:
+  1. Scale non-causal same-target edge weights strictly by continuous exponential decay ($w = \text{base} \cdot e^{-\Delta t / \tau}$), requiring $w \ge 0.4$ for edge creation without applying artificial constant baselines that keep weights $\ge 0.4$ as $\Delta t \to \infty$.
+  2. Gate base edge multipliers on MITRE ATT&CK technique matches (e.g. $\text{base} = 0.8$ for MITRE-matched actions, $\text{base} = 0.5$ for non-MITRE routine actions).
+  3. Traverse all identified root nodes without artificial finite result collection caps that terminate DFS early and starve sibling branches.
+* **Rationale:** Constant baseline additions connect unrelated routine actions occurring days apart, while un-gated decay severs multi-stage stealth campaigns. Gating decay on MITRE technique relevance preserves genuine multi-day attack paths while rejecting disconnected benign activity.
+
+## 49. Structured Logging via `extra` Dictionary & Logger Keyword Hygiene
+* **Rule:** When emitting structured metadata or event objects via standard Python `logging.Logger` instances, custom payload dictionaries MUST be passed through the `extra={...}` parameter (e.g. `logger.info("EVENT", extra={"event": payload.model_dump()})`) or formatted into the log message string. Passing arbitrary keyword arguments directly to standard logger methods (`logger.info("...", event=...)`) is strictly prohibited to prevent runtime `TypeError` exceptions.
+* **Rationale:** Standard Python `logging.Logger._log()` does not accept arbitrary keyword arguments. Passing custom keywords directly raises `TypeError: Logger._log() got an unexpected keyword argument '...'` at runtime when log statements are triggered in production or test paths.
 
 
 
+## 48. Inbound RPC Origin Validation — Always Enforced
+* **Rule:** `InboundProtocolFilter.validate_headers_and_origin()` MUST be called unconditionally on every inbound RPC request, regardless of whether `headers` or `remote_addr` are provided by the caller. Callers that omit these optional parameters MUST receive safe defaults (`headers={}`, `remote_addr=""`) before the validation gate so that loopback enforcement and Origin/Host restrictions are never bypassed by simply omitting arguments.
+* **Rationale:** When `validate_headers_and_origin` was gated on `headers is not None and remote_addr is not None`, an unauthenticated non-loopback caller could skip the entire authorization layer by omitting either parameter, proceed to the rate limiter and RPC parser, and receive a sanitized but authorized response.
 
+## 49. Active Reaction Dispatch Fault Isolation
+* **Rule:** Every `await active_reaction.*()` call within `correlate_agent_threats()` (eBPF socket drop, ZeroMQ mesh broadcast, Vault token revocation) MUST be wrapped individually in a `try/except Exception` block. Exceptions from the reaction adapter layer MUST be logged via `logger.error()` and MUST NOT propagate to abort the detection correlation loop or suppress alerts that were already generated.
+* **Rationale:** A transient kernel driver failure, mesh broadcaster outage, or Vault connectivity error must not prevent the remaining detectors and correlation engines from completing and returning their alerts. Fault isolation ensures that partial adapter failures degrade gracefully without silently discarding security intelligence.
 
+## 50. Independent Security Gate Bypass-Proofing
+* **Rule:** Multi-layer security validation sequences (e.g. loopback check → allow-list check → header presence check) MUST be designed so that disabling one gate (e.g. `enforce_loopback=False`) does not implicitly open a free path through the remaining gates. Each gate MUST independently provide a baseline rejection for the "no identifying information" case:
+  1. When loopback enforcement is disabled AND the caller is unauthenticated, require at least one other identifying signal (Origin or Host header) to be present — regardless of whether allow-lists are configured.
+  2. When allow-lists are configured (strict mode), absent headers MUST fail the check; header absence must never be treated as implicit allowance in strict mode.
+  3. Gates that combine boolean `enforce_*` flags with optional allow-list sets MUST be audited for all 2^N flag combinations to verify each combination has a correct accept/reject outcome for both authenticated and unauthenticated callers.
+* **Rationale:** The three-iteration fix on `InboundProtocolFilter.validate_headers_and_origin` demonstrated that optional-parameter disablement (`enforce_loopback=False`) combined with unconfigured allow-lists (`allowed_origins=None`, `allowed_hosts=None`) created a silent "all gates off" path that passed unauthenticated callers with zero headers. Each gate must provide independent rejection rather than relying on the others to catch what it does not.
 
+## 51. Evaluation Judge Agents & Antigravity SDK Invariants
+* **Rule (Mandatory Paid-Tier Contract Validation at Startup):**
+  `GEMINI_TIER=paid`, `BLACKWALL_TIER=paid`, and `GCP_PROJECT` (or `GOOGLE_CLOUD_PROJECT`) must be verified at judge agent creation time. Tier contract violations MUST raise `ValueError` immediately; they must NOT be caught inside candidate evaluation retry loops or converted into heuristic fallbacks.
+* **Rule (Asynchronous Agent Lifecycle Management):**
+  Autonomous Antigravity SDK agents must be invoked within an async context manager (`async with agent as active_agent:`) to guarantee proper session initialization and runtime resource cleanup across evaluation retries.
+* **Rule (Resilient Heuristic Fallback Ground-Truth Mapping):**
+  Fallback scorers must check both canonical scenario schema fields (e.g. `stages`, `c2_endpoints`, `ground_truth_coordination` with `agents`/`score`) and legacy aliases to prevent inverted scoring during degraded-mode execution.
+* **Rationale:** Discovered during Track B implementation and PR #100 review cycles:
+  1. Catching tier contract errors inside the evaluation loop allowed misconfigured environments to silently fall back to heuristic scoring instead of failing at startup.
+  2. Skipping agent `__aenter__`/`__aexit__` leaked runtime resources and caused Vertex AI agents to fail repeatedly.
+  3. Fallback ground truth key mismatches caused fallback scorers to evaluate empty expected sets, penalizing correct detections and rewarding candidates that detected nothing.
 
+## 52. AILM Security Trust Boundary Domain Scoping vs. Resource Labels
+* **Rule:**
+  - `AILMTracker.identify_boundary_crossing()` and evaluation datasets targeting AI-Induced Lateral Movement must strictly scope trust boundaries to recognized architectural, system-isolation, and network-perimeter domains (`user_space`, `kernel_space`, `sandbox`, `host`, `untrusted`, `trusted`, `public`, `private`, `internal_api`, `external_net`, `external_network`, `tenant_a`, `tenant_b`).
+  - Fine-grained workload, queue, or resource-level identifiers (e.g., specific database names, support queues, or table names) must NOT be classified as security trust boundaries.
+* **Rationale:** Treating arbitrary resource scopes or workload labels as security trust boundaries causes legitimate multi-service or multi-tenant agents to accumulate false-positive crossing counts, escalating risk to `HIGH` or `CRITICAL` and inadvertently triggering automated identity session revocation (`revoke_identity_session()`).
+
+## 53. Blackwall MCP Gateway Architecture & Transport Security Invariants
+* **Rule (Agent Agnosticism):** Gateway components (`src/blackwall/gateway/`, `src/blackwall/cli.py`) MUST NOT include hardcoded rules, special casing, or coupling for any specific agent runtime (Hermes Agent, Antigravity, Warp Terminal, Claude Desktop, Cursor). All communication must adhere strictly to the generic Model Context Protocol (MCP) JSON-RPC specification.
+* **Rule (Transport Security & Loopback Default):** The MCP Streamable HTTP transport MUST default to `127.0.0.1:9229` with `Origin` and `Host` header validation to prevent DNS rebinding attacks.
+* **Rule (Remote Authentication Boundary & Startup Guard):** When `--host` binds to a non-loopback address, a pre-shared bearer token (`--auth-token` or `BLACKWALL_AUTH_TOKEN`) is mandatory. Inbound requests missing a valid `Authorization: Bearer <token>` header MUST be rejected with HTTP 401 before JSON-RPC processing. The gateway daemon MUST refuse to start if configured with a non-loopback host without an auth token.
+* **Rule (JSON-RPC Request ID Concurrency Isolation):** The gateway stream layer MUST track all in-flight requests by JSON-RPC `id` to ensure responses, cancellations, and errors are mapped deterministically during concurrent evaluation.
+* **Rule (Downstream Tool Proxying & Verdict Synthesis):** ALLOW'd tool calls MUST be forwarded intact to downstream tool servers (spawned via `--wrap` or configured in `gateway.yaml`). BLOCK verdicts MUST synthesize a JSON-RPC error `-32603` with a generic message, reusing the incoming `id` and never exposing internal threat telemetry to the agent.
+* **Rationale:** Discovered during MCP Gateway spec rebaseline and Greptile PR #108 review cycles: clear transport security boundaries, loopback defaults, startup guards, and protocol-level synthesis prevent unauthorized network exposure of downstream tools and prevent leaking sensitive threat intelligence to calling agents.
+
+## 54. Cross-Platform Background Service Management (`launchd` & `systemd`) & Supervision Invariants
+* **Rule (Non-Interactive Environment Variable Injection):** Because macOS `launchd` and Linux `systemd` execute service units in clean non-interactive shells that do not source terminal startup scripts (`.zshrc`, `.bash_profile`), service installation commands (`blackwall service install`) MUST capture active cloud credentials (`GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, `PATH`) and embed them in the service configuration (plist `<key>EnvironmentVariables</key>` block or systemd `Environment=` directives).
+* **Rule (Install-Time Validation & Fail-Fast Guard):** `blackwall service install` MUST validate that required cloud credentials (e.g. `GCP_PROJECT`) are configured at install time (or supplied via `--project`). If missing, installation MUST fail immediately with an exit code != 0 and a clear error message, preventing the creation of a broken service.
+* **Rule (Crash-Loop Throttling & systemd Syntax):** Services MUST configure crash throttling to prevent tight restart storms. On macOS `launchd`, configure `<key>ThrottleInterval</key><integer>30</integer>` and `<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>`. On Linux `systemd`, configure `StartLimitBurst=5` and `StartLimitIntervalSec=60s` strictly under the `[Unit]` section (where systemd rate limits belong), and `Restart=on-failure` / `RestartSec=5s` under `[Service]`. Placing rate limits under `[Service]` is invalid systemd syntax.
+* **Rule (Absolute Path Resolution & Non-Tilde Invariant):** Because systemd `ExecStart` and daemon runners do not execute in a shell and do not expand tildes (`~`), `blackwall service install` MUST resolve all configuration paths, executable paths, log file locations, and credential paths to absolute filesystem paths (`Path.resolve()`) at install time. Raw `~` characters MUST NOT appear in generated service definitions.
+* **Rule (Foreground Supervision & PID File Invariant):** Supervised services on both macOS (`launchd`) and Linux (`systemd`) MUST execute `blackwall serve --foreground` (with `Type=exec` and `PIDFile=` in systemd), ensuring the supervisor directly monitors the primary process rather than tracking an exiting parent process. In `--foreground` mode, whenever `--pidfile <path>` is supplied, `blackwall serve` MUST write its active PID to the designated file upon startup and delete it upon termination.
+* **Rule (Authoritative Upstream Specification):** Service definitions MUST explicitly include an upstream configuration flag (e.g. `--config <resolved-path>` or `--wrap <cmd>`), ensuring allowed tool requests are deterministically forwarded to downstream tool servers.
+* **Rationale:** Discovered during PR #110 and PR #111 review cycles. Running a gateway under `launchd` without an `EnvironmentVariables` dictionary caused instant authentication failures, omitting `ThrottleInterval` caused `launchd` to restart the crashed daemon in a tight loop, and omitting `--foreground` caused systemd/launchd to track an exiting parent process.
+
+## 55. Linux Systemd System Services vs. User Units & FHS Directory Separation
+* **Rule (User vs. System Service Separation):** User services (`~/.config/systemd/user/blackwall.service`) run as `$USER` and store configuration/state in `~/.blackwall/`. System services (`/etc/systemd/system/blackwall.service`) run under a system service account and MUST NEVER reference `~/.blackwall/` user home directory paths.
+* **Rule (FHS Directory Provisioning):** When `--system` is specified, the systemd unit MUST configure standard FHS directories: `/etc/blackwall/gateway.yaml` (config), `/run/blackwall/blackwall.pid` via `RuntimeDirectory=blackwall`, `/var/log/blackwall/blackwall.log` via `LogsDirectory=blackwall`, and `/var/lib/blackwall/threat_signatures.db` via `StateDirectory=blackwall`.
+* **Rule (Non-Root Identity Derivation & Account Creation):** System services MUST NOT run as root (`User=root`). The installer derives non-root execution identity in order: (1) explicit `--user <name>`, (2) `SUDO_USER` under `sudo`, or (3) dedicated system user `blackwall` (group `blackwall`). If the `blackwall` system account is created, it MUST be provisioned with a home directory: `useradd --system --home-dir /var/lib/blackwall --create-home blackwall`.
+* **Rule (Explicit FHS Path Wiring in ExecStart):** System units MUST explicitly pass FHS paths in `ExecStart` (`--pidfile /run/blackwall/blackwall.pid --logfile /var/log/blackwall/blackwall.log --db /var/lib/blackwall/threat_signatures.db`) and inject `Environment="BLACKWALL_DB_PATH=/var/lib/blackwall/threat_signatures.db"`, ensuring runtime daemon components never fall back to user-space defaults.
+* **Rule (Fallback ADC Resolution for Service Users):** Fallback ADC resolution (`application_default_credentials.json`) under `sudo` or `--system` MUST resolve against the derived service user's home directory. In direct-root mode with the dedicated `blackwall` user, the installer accepts `--credentials <path>` and copies credentials to `/etc/blackwall/credentials.json` owned by `blackwall:blackwall` (`0600`).
+* **Rationale:** Discovered during PR #111 Greptile review iterations: running system units with user home paths causes crashes when the service user lacks access to `~/.blackwall`, and running as root violates the principle of least privilege.
+
+## 56. NVIDIA DGX Spark Co-Existence, Unified Memory Bounding & Zero-GPU VRAM Conformance
+* **Rule (Unified Memory Guarantee & RSS Ceiling):** On unified memory architectures (NVIDIA DGX Spark / Grace Blackwell GB10, 128GB LPDDR5x), Blackwall Core MUST run 100% in CPU user-space threads with 0MB allocated in CUDA contexts/VRAM. Its host process RSS memory MUST NOT exceed 350MB (<0.28% of the unified pool), strictly preserving >127.6GB (>99.7%) of the unified memory for local LLM inference engines (vLLM, Ollama, TensorRT-LLM) or model fine-tuning.
+* **Rule (Port Non-Collision Invariant):** The default gateway port `9229` MUST NOT collide with standard DGX OS AI serving ports: `11434` (Ollama), `8000`/`8001`/`8002` (vLLM, Triton), or `8888`/`8080` (JupyterLab).
+* **Rule (Multi-Layer Zero-CUDA Verification):** Conformance testing MUST assert non-encroachment across multiple layers:
+  1. Character device file descriptors: verify 0 open file descriptors to `/dev/nvidia*`, `/dev/nvidiactl`, `/dev/nvidia-uvm` in the daemon's `/proc/<daemon_pid>/fd/` (resolving daemon PID via `blackwall.pid` across user and FHS paths, or subprocess handle — NOT `/proc/self/fd/` which inspects the test runner).
+  2. NVML compute process registration: verify daemon PID is absent from `nvmlDeviceGetComputeRunningProcesses`.
+  3. Framework context: `torch.cuda.is_initialized() is False` if torch is present.
+  4. cgroup & host RSS bounds: `MemoryHigh=320M` and `MemoryMax=350M` in systemd unit, and host process RSS ≤ 350MB under active evaluation load.
+* **Rule (Windows Strictly Excluded):** Windows packaging (`.exe`, `.msi`, PowerShell) is explicitly barred from all release and maintenance workflows.
+* **Rationale:** Discovered during DGX Spark spec review on PR #111. Unified memory pools require strict co-existence guarantees and multi-layer verification to ensure agent security firewalls never starve colocated AI models.
+
+## 57. GCP Vertex AI Thinking Budget Mapping & Telemetry Truthfulness
+* **Rule (Vertex AI Thinking Budget Mapping):** In Google Cloud Vertex AI evaluations and models (`vertexai.generative_models`, `vertexai.preview.evaluation.EvalTask`), configuring reasoning levels MUST NOT merely set `include_thoughts=True`. The `thinking_level` string MUST be translated to `ThinkingConfig.thinking_budget`:
+  - `"high"` → `thinking_budget = -1` (dynamic unthrottled reasoning)
+  - `"medium"` → `thinking_budget = 16384`
+  - `"low"` → `thinking_budget = 2048`
+  - `"off"` → `thinking_budget = 0`
+* **Rule (Fail-Safe Capability Attachment & Telemetry Truthfulness):** When attaching `ThinkingConfig` or private configuration overrides to Vertex AI models, code MUST NOT silently suppress attachment errors while reporting requested capabilities as active:
+  - If `raise_on_error=True`: raise a descriptive `RuntimeError` immediately.
+  - If `raise_on_error=False`: log a warning and record `applied_thinking_level = "sdk_default"` in evaluation results and Cloud Trace / OpenTelemetry span attributes (`gen_ai.request.thinking_level`), ensuring telemetry accurately reflects executed capabilities.
+* **Rationale:** Discovered during PR #113 Greptile reviews. Toggling only `include_thoughts` omits the reasoning budget, while masking attachment failures produces false-positive evaluation claims and misleading telemetry in production benchmarks.
+
+## 58. Core vs. Enterprise Tier Boundary Isolation in Swarm Attribution & Data Models
+* **Rule (Strict Downward Tier Dependency & Zero-Enterprise Core Imports):**
+  - Data models and services in Blackwall Core (`src/blackwall/models.py`, `src/blackwall/attribution/`, `src/blackwall/db/`) MUST NOT import from or depend upon Enterprise modules (`src/blackwall/enterprise/`).
+  - Cross-tier exchange models and protocol contracts (such as `LinguisticSwarmMarkers`, `SwarmContextSummary`, and provider protocols) MUST reside in Core (`src/blackwall/models.py`) so Enterprise modules can import and implement them without circular or inverted dependencies.
+  - Core attribution enrichment and resolution logic MUST query process-local storage (`SQLiteThreatRepository` in `src/blackwall/db/repository.py`), whereas distributed or cluster-mesh graph queries remain isolated within Enterprise (`AttackGraphStore` via `asyncpg`).
+* **Rationale:** Violating downward tier dependency undermines Blackwall Core as an independent, single-host developer firewall and forces non-enterprise workstations to depend on enterprise database and networking infrastructure.
+
+## 59. Multi-Agent Swarm Cardinality, Bounded Confidence, & Temporal Invariants
+* **Rule (Minimal Coordination Cardinality $N \ge 2$):**
+  - Pydantic models representing multi-agent coordination or covert communication channels (`CovertChannelEvidence`, `SwarmEvidence`, etc.) MUST enforce that coordinating agent collections contain at least two agents (`validate_min_items(coordinating_agents, min_items=2)`). Single-agent coordination is semantically invalid.
+* **Rule (Strict Confidence Clamping $[0.0, 1.0]$):**
+  - All collective confidence scores and linguistic marker scores MUST be declared as bounded floats within `[0.0, 1.0]` using Pydantic `Field(ge=0.0, le=1.0)`.
+* **Rule (Temporal Detection Window Ordering & Zero-Offset UTC):**
+  - Models defining detection windows with start and end timestamps (`first_detected`, `last_detected` or `first_seen`, `last_seen`) MUST enforce zero-offset UTC validation (`validate_utc_datetime`) and temporal sequence ordering (`validate_temporal_sequence`, requiring `end_time >= start_time`).
+* **Rule (Non-Breaking Single-Agent Backward Compatibility):**
+  - Extending base attribution models (`AttackerIdentity`, `AttackerProfile`, `IncidentReport`) with collective attributes MUST maintain backward compatibility for single-agent workflows by defaulting `is_collective=False`, `swarm_id=None`, `collective_confidence=0.0`, and empty list factories (`default_factory=list`).
+* **Rationale:** Discovered during PR #114 review and Track 1 implementation. Unconstrained confidence scores permit invalid probabilities, naive timestamps break event graph correlation, and missing coordination cardinality checks allow single-agent operations to produce false swarm alerts.
+
+## 60. Endpoint Host Isolation vs. Path Literal Parsing & RFC 4291 IPv6 Normalization
+* **Rule (Host Component Isolation Before Path/Query/Fragment):**
+  - Security detection components extracting network target endpoints, IOCs, and shared infrastructure (`_extract_all_ips`, `_extract_ip`, `C2InfrastructureDetector`, `CovertChannelDetector`, `AgentSwarmDetector`) MUST strictly isolate the network host component before any path (`/`), query (`?`), or fragment (`#`) delimiters.
+  - Path literals (e.g. `https://artifactory.internal/api/198.51.100.5/storage` or non-scheme `resource:artifactory.internal/api/198.51.100.5/storage`) represent application data or REST resources, not network routing infrastructure. Parsers MUST NOT scan entire target strings with broad IP regex patterns that promote path literals to external C2 endpoints.
+* **Rule (First-Class IPv6 Endpoint Extraction):**
+  - Endpoint parsers MUST support RFC 4291 IPv6 addresses across all formats:
+    1. Bracketed IPv6 with and without ports (e.g. `[2607:f8b0:4005:805::200e]:8080` -> `2607:f8b0:4005:805::200e`).
+    2. Unbracketed IPv6 with and without ports (e.g. `connect 2607:f8b0:4005:805::200e:8080` or `tcp://2607:...:8080`).
+    3. URLs with scheme (`http://`, `https://`, `tcp://`) and protocol-relative URLs (`//`).
+  - Extracted IPv6 endpoints MUST populate `shared_patterns` with canonical `ip:<normalized_ipv6>` prefixes. Valid public IPv6 targets MUST be recognized as external infrastructure to avoid false-positive `UNLOCATED_MESSAGE_BOARD` covert channel alerts.
+* **Rationale:** Discovered on PR #116. Broad regex scans mistakenly elevated internal REST URL path literals to external C2, while omitting unbracketed IPv6 targets from swarm extraction caused normal public IPv6 traffic to be falsely flagged as covert communication boards.

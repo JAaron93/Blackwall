@@ -1,7 +1,8 @@
-from datetime import datetime, timezone
-from enum import Enum
 import hashlib
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from datetime import UTC, datetime
+from enum import Enum
+from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -53,34 +54,34 @@ class Verdict(BaseModel):
 
 class ToolCallContext(BaseModel):
     tool_name: str
-    arguments: Dict[str, Any]
-    metadata: Optional[Dict[str, Any]] = None
+    arguments: dict[str, Any]
+    metadata: dict[str, Any] | None = None
 
 
 class CallbackToken(BaseModel):
     token_id: UUID = Field(default_factory=uuid4)
     thread_id: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    tool_context: Optional[ToolCallContext] = None
-    resumeCallback: Optional[Callable[[Verdict], Any]] = Field(
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    tool_context: ToolCallContext | None = None
+    resumeCallback: Callable[[Verdict], Any] | None = Field(
         default=None, exclude=True
     )
-    correlation_id: Optional[str] = None
-    telemetry_span_id: Optional[str] = None
+    correlation_id: str | None = None
+    telemetry_span_id: str | None = None
 
     model_config = {"arbitrary_types_allowed": True}
 
 
 class BatchPayload(BaseModel):
     batch_id: UUID = Field(default_factory=uuid4)
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    sanitized_contexts: List[ToolCallContext]
-    policy_snapshot: Dict[str, Any]
-    previous_interaction_id: Optional[str] = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    sanitized_contexts: list[ToolCallContext]
+    policy_snapshot: dict[str, Any]
+    previous_interaction_id: str | None = None
 
 
 class BatchResponse(BaseModel):
-    verdicts: List[Verdict]
+    verdicts: list[Verdict]
     processing_time: float
     tokens_consumed: int
     cache_hit_count: int
@@ -89,7 +90,7 @@ class BatchResponse(BaseModel):
 class ThreatSignature(BaseModel):
     signature_id: UUID = Field(default_factory=uuid4)
     pattern: str
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     description: str
     sink_type: SinkType
 
@@ -103,9 +104,9 @@ class RefactoringHint(BaseModel):
     hint_id: UUID = Field(default_factory=uuid4)
     suggestion: str
     confidence: float = Field(..., ge=0.0, le=1.0)
-    target_code: Optional[str] = None
-    vulnerability_type: Optional[str] = None
-    suggested_fix: Optional[str] = None
+    target_code: str | None = None
+    vulnerability_type: str | None = None
+    suggested_fix: str | None = None
 
 
 class IndicatorType(str, Enum):
@@ -118,16 +119,16 @@ class IndicatorType(str, Enum):
 class GTIResponse(BaseModel):
     indicator: str
     is_malicious: bool
-    threat_categories: List[str] = Field(default_factory=list)
+    threat_categories: list[str] = Field(default_factory=list)
     detection_rate: float = Field(default=0.0)
-    last_analysis_date: Optional[str] = None
-    related_campaigns: List[str] = Field(default_factory=list)
+    last_analysis_date: str | None = None
+    related_campaigns: list[str] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class CBMResponse(BaseModel):
     blast_radius: int
-    critical_sinks: List[SinkType]
+    critical_sinks: list[SinkType]
 
 
 class SecurityMetrics(BaseModel):
@@ -188,22 +189,22 @@ class PolicyServerState(BaseModel):
 class SecurityEvent(BaseModel):
     event_id: UUID = Field(default_factory=uuid4)
     event_type: EventType
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     tool_context: ToolCallContext
-    verdict: Optional[Verdict] = None
-    behavior_score: Optional[BehaviorScore] = None
-    agent_id: Optional[str] = None
-    gti_response: Optional[GTIResponse] = None
-    cbm_response: Optional[CBMResponse] = None
-    related_signatures: List[UUID] = Field(default_factory=list)
-    telemetry_span_id: Optional[str] = None
+    verdict: Verdict | None = None
+    behavior_score: BehaviorScore | None = None
+    agent_id: str | None = None
+    gti_response: GTIResponse | None = None
+    cbm_response: CBMResponse | None = None
+    related_signatures: list[UUID] = Field(default_factory=list)
+    telemetry_span_id: str | None = None
 
     @field_validator("timestamp")
     @classmethod
     def validate_timestamp(cls, v: datetime) -> datetime:
-        if v.tzinfo is None or v.utcoffset() != timezone.utc.utcoffset(v):
+        if v.tzinfo is None or v.utcoffset() != UTC.utcoffset(v):
             raise ValueError("Timestamp must be timezone-aware")
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         diff = abs((now - v).total_seconds())
         if diff > 5.0:
             raise ValueError(
@@ -236,26 +237,70 @@ class IdentitySource(str, Enum):
     VAULT_TOKEN = "VAULT_TOKEN"
 
 
+class LinguisticSwarmMarkers(BaseModel):
+    is_collective: bool = False
+    confidence_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    detected_pronouns: list[str] = Field(default_factory=list)
+    consensus_keywords: list[str] = Field(default_factory=list)
+    collective_identity_inferred: str | None = None
+
+
+class SwarmContextSummary(BaseModel):
+    swarm_id: UUID | None = None
+    is_collective: bool = False
+    collective_name: str | None = None
+    collective_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    coordinating_agents: list[str] = Field(default_factory=list)
+    suspected_covert_channels: list[str] = Field(default_factory=list)
+    covert_channel_type: str | None = None
+    deduction_rationale: str | None = None
+    first_detected: datetime | None = None
+    last_detected: datetime | None = None
+
+    @field_validator("first_detected", "last_detected")
+    @classmethod
+    def validate_utc_timestamps(cls, v: datetime | None) -> datetime | None:
+        if v is None:
+            return None
+        return validate_utc_datetime(v)
+
+    @model_validator(mode="after")
+    def validate_temporal_ordering(self) -> "SwarmContextSummary":
+        if self.first_detected is not None and self.last_detected is not None:
+            validate_temporal_sequence(
+                self.first_detected,
+                self.last_detected,
+                start_name="first_detected",
+                end_name="last_detected",
+            )
+        return self
+
+
 class AttackerIdentity(BaseModel):
     identity_id: UUID = Field(default_factory=uuid4)
-    agent_id: Optional[str] = None
-    agent_name: Optional[str] = None
-    agent_model: Optional[str] = None
-    thread_id: Optional[str] = None
-    process_pid: Optional[int] = None
-    process_uid: Optional[int] = None
-    process_name: Optional[str] = None
-    process_cmdline: Optional[str] = None
-    container_id: Optional[str] = None
-    source_ip: Optional[str] = None
-    vault_token_accessor: Optional[str] = None
+    agent_id: str | None = None
+    agent_name: str | None = None
+    agent_model: str | None = None
+    thread_id: str | None = None
+    process_pid: int | None = None
+    process_uid: int | None = None
+    process_name: str | None = None
+    process_cmdline: str | None = None
+    container_id: str | None = None
+    source_ip: str | None = None
+    vault_token_accessor: str | None = None
     primary_source: IdentitySource = IdentitySource.ADK_METADATA
     identity_fingerprint: str = ""
+    is_collective: bool = False
+    collective_name: str | None = None
+    linguistic_markers: LinguisticSwarmMarkers | None = None
+    session_salt: str | None = None
 
     @model_validator(mode="after")
     def compute_fingerprint(self) -> "AttackerIdentity":
         uid_str = "" if self.process_uid is None else str(self.process_uid)
-        raw = f"{self.agent_id or ''}:{self.agent_name or ''}:{self.thread_id or ''}:{uid_str}:{self.source_ip or ''}:{self.primary_source.value}"
+        salt_str = f":{self.session_salt}" if self.session_salt else ""
+        raw = f"{self.agent_id or ''}:{self.agent_name or ''}:{self.thread_id or ''}:{uid_str}:{self.source_ip or ''}:{self.primary_source.value}{salt_str}"
         computed = hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
         if self.identity_fingerprint and self.identity_fingerprint != computed:
@@ -267,13 +312,17 @@ class AttackerIdentity(BaseModel):
 
 class AttackerProfile(BaseModel):
     fingerprint: str
-    first_seen: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    last_seen: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    first_seen: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_seen: datetime = Field(default_factory=lambda: datetime.now(UTC))
     total_attacks: int = Field(default=1, ge=1)
     threat_score: float = Field(default=0.5, ge=0.0, le=1.0)
-    associated_signatures: List[str] = Field(default_factory=list)
-    targeted_tools: List[str] = Field(default_factory=list)
+    associated_signatures: list[str] = Field(default_factory=list)
+    targeted_tools: list[str] = Field(default_factory=list)
     risk_category: str = "HIGH"
+    swarm_memberships: list[UUID] = Field(default_factory=list)
+    suspected_covert_channels: list[str] = Field(default_factory=list)
+    collective_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    collective_name: str | None = None
 
     @field_validator("first_seen", "last_seen")
     @classmethod
@@ -293,17 +342,22 @@ class AttackerProfile(BaseModel):
 
 class IncidentReport(BaseModel):
     report_id: UUID = Field(default_factory=uuid4)
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     event_id: UUID
     verdict: VerdictDecision
     attacker_identity: AttackerIdentity
     attacker_profile: AttackerProfile
     exploited_tool: str
-    sanitized_arguments: Dict[str, Any] = Field(default_factory=dict)
+    sanitized_arguments: dict[str, Any] = Field(default_factory=dict)
     attack_technique: str
     mitigation_action: str
     recommended_user_action: str
     attribution_confidence: float = Field(..., ge=0.0, le=1.0)
+    swarm_id: UUID | None = None
+    is_collective: bool = False
+    suspected_covert_channels: list[str] = Field(default_factory=list)
+    collective_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    collective_attribution_summary: str | None = None
 
     @field_validator("timestamp")
     @classmethod
@@ -314,7 +368,7 @@ class IncidentReport(BaseModel):
         return self.model_dump_json(indent=2)
 
     def to_markdown(self) -> str:
-        return f"""# Blackwall Incident Attribution Report
+        base = f"""# Blackwall Incident Attribution Report
 - **Report ID**: `{self.report_id}`
 - **Timestamp**: {self.timestamp.isoformat()}
 - **Verdict**: `{self.verdict.value}`
@@ -326,5 +380,20 @@ class IncidentReport(BaseModel):
 - **Recommended Action**: {self.recommended_user_action}
 - **Attribution Confidence**: {self.attribution_confidence * 100:.1f}%
 """
+        if self.is_collective:
+            collective_name_str = (
+                self.attacker_identity.collective_name
+                or self.attacker_profile.collective_name
+                or "Unknown Fleet"
+            )
+            base += f"""- **Swarm Attribution**: Collective Swarm Detected (`{collective_name_str}`)
+- **Swarm ID**: `{self.swarm_id or 'Unassigned'}`
+- **Collective Confidence**: {self.collective_confidence * 100:.1f}%
+- **Suspected Covert Channels**: {', '.join(self.suspected_covert_channels) if self.suspected_covert_channels else 'None'}
+"""
+            if self.collective_attribution_summary:
+                base += f"- **Summary**: {self.collective_attribution_summary}\n"
+        return base
+
 
 

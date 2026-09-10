@@ -38,7 +38,7 @@ class AgentBehavioralAnalytics:
             # Assuming google-genai 2.3.0+ supports aio for interactions
             if hasattr(self.client, "aio"):
                 interaction = await self.client.aio.interactions.create(
-                    model="gemini-3.7-flash",
+                    model="gemini-3.8-flash",
                     input=prompt,
                     background=True,
                     webhook_config={"uris": [self.webhook_url]},
@@ -48,7 +48,7 @@ class AgentBehavioralAnalytics:
 
                 interaction = await asyncio.to_thread(
                     self.client.interactions.create,
-                    model="gemini-3.7-flash",
+                    model="gemini-3.8-flash",
                     input=prompt,
                     background=True,
                     webhook_config={"uris": [self.webhook_url]},

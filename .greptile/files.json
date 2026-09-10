@@ -2,5 +2,37 @@
   {
     "path": "AGENTS.md",
     "description": "Root AGENTS.md constitution defining Blackwall product tier identity, Core vs Enterprise invariants, and architectural guidelines."
+  },
+  {
+    "path": ".agents/rules/architecture_and_security.md",
+    "description": "Project architectural, database, security, and service supervision rules (Sections 54-56: launchd/systemd supervision, FHS separation, DGX Spark unified memory)."
+  },
+  {
+    "path": ".agents/rules/testing_and_hygiene.md",
+    "description": "Project testing hygiene, TDD, and test matrix rules (Section 47: systemd unit testing matrix and DGX co-existence test scoping)."
+  },
+  {
+    "path": ".kiro/specs/blackwall-mcp-gateway/design.md",
+    "description": "MCP Gateway architectural design — standalone daemon, transport layer, SyncResolver pipeline, upstream management, daemon lifecycle, resource constraints."
+  },
+  {
+    "path": ".kiro/specs/blackwall-mcp-gateway/requirements.md",
+    "description": "MCP Gateway functional and non-functional requirements — transport security, verdict enforcement, CLI entry point, daemon management, agent agnosticism, resource budgets."
+  },
+  {
+    "path": ".kiro/specs/blackwall-mcp-gateway/tasks.md",
+    "description": "MCP Gateway implementation tasks — 13 tasks across 4 phases covering gateway infrastructure, interceptor, synthesizer, CLI, BDD tests, and resource profiling."
+  },
+  {
+    "path": ".kiro/specs/blackwall-rust-acceleration/design.md",
+    "description": "System architecture design for Blackwall Rust Acceleration Subsystem."
+  },
+  {
+    "path": ".kiro/specs/blackwall-rust-acceleration/requirements.md",
+    "description": "Requirements document for Blackwall Rust Acceleration Subsystem."
+  },
+  {
+    "path": ".kiro/specs/blackwall-rust-acceleration/tasks.md",
+    "description": "Task implementation plan for Blackwall Rust Acceleration Subsystem."
   }
 ]

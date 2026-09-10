@@ -71,7 +71,7 @@ async def test_submitBackgroundAnalysis_success(mock_repo, mock_client, security
     mock_client.aio.interactions.create.assert_called_once()
 
     call_kwargs = mock_client.aio.interactions.create.call_args.kwargs
-    assert call_kwargs["model"] == "gemini-3.7-flash"
+    assert call_kwargs["model"] == "gemini-3.8-flash"
     assert call_kwargs["background"] is True
     assert call_kwargs["webhook_config"] == {
         "uris": ["http://localhost:8090/webhook/analysis_complete"]
