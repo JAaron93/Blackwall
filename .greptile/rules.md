@@ -18,9 +18,9 @@ Blackwall is divided into two distinct product tiers:
 - **Isolated Location**: All enterprise capabilities must reside exclusively under `src/blackwall/enterprise/`.
 - **Subsystem Breakdown**:
   - **Pillar 1 (Kernel Interception)**: `src/blackwall/enterprise/kernel/` (`LinuxeBPFDriver` with fallback to `UserSpaceAuditDriver`).
-  - **Pillar 2 (Threat Mesh)**: `src/blackwall/enterprise/mesh/` (ZeroMQ/NATS pub/sub socket communication with <15ms persistence).
+  - **Pillar 2 (Threat Mesh Specification)**: Distributed Threat Mesh architecture (ZeroMQ/NATS pub/sub socket communication with <15ms persistence specification; duck-typed interface in `ActiveReactionEngine`).
   - **Pillar 3 (Ephemeral Identity Sidecar)**: `src/blackwall/enterprise/identity/` (Honey-tokens `BW_SYNTHETIC_*` and Vault MCP JIT STS tokens).
-  - **Pillar 4 (Pipeline Interception & Sandboxes)**: `src/blackwall/enterprise/pipeline/` (`@blackwall.guard_pipeline` and container sandboxes).
+  - **Pillar 4 (Pipeline Interception & Sandboxes)**: `src/blackwall/enterprise/pipeline/` (`guard_pipeline` decorator and container sandboxes).
   - **Pillar 5 (Forensic Engine & OpenTelemetry)**: `src/blackwall/enterprise/forensics/` (Dual-mode LLM triage with regex/AST fallback, OpenTelemetry exporter).
   - **Pillar 6 (Advanced Threat Detection & Swarm Analysis)**: `src/blackwall/enterprise/advanced_threat_detection/` (`EventStreamCollector`, `AttackGraphStore`, `AgentSwarmDetector`, `ExploitChainAnalyzer`, `AILMTracker`, `C2InfrastructureDetector`, `K8sDefenseLayer`, `RegistryMonitor`, `ActiveReactionEngine`, `InboundProtocolFilter`, `PromptInjectionScanner`, `AgentQuotaEnforcer`).
 
