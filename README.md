@@ -99,6 +99,9 @@ await broadcaster.broadcast({
     "mitigation_action": "BLOCK",
 })
 
+# Ingest and retrieve synchronized signature from local node queue (< 15 ms sync SLA)
+received = await receiver.receive_one(timeout=1.0)
+
 # Track 3: Secret Masking & Ephemeral Identity Sidecar
 from blackwall.enterprise.identity import SecretVaultSidecar
 
