@@ -24,7 +24,7 @@
 * **Rule:** `ContextHygiene` middleware (`src/blackwall/middleware/context_hygiene.py`, re-exported in `src/blackwall/resolver.py`) must replace sensitive environment variable patterns with generic placeholders (`[[VARIABLE_NAME]]`). Integration tests querying external hostnames (e.g. GTI / VirusTotal) must use un-redacted standalone hostnames (e.g. `wd-bouygues.com`) to prevent accidental sanitization matching.
 
 ## 7. Pydantic Model Import Preservation
-* **Rule:** When modifying imports in Pydantic schema files (`models.py`, `policy/models.py`), core Pydantic symbols (`BaseModel`, `Field`, `field_validator`, `model_validator`) MUST NOT be deleted or replaced. Always preserve Pydantic imports alongside newly added utility imports to avoid import-time `NameError` failures.
+* **Rule:** When modifying imports in Pydantic schema files (`models.py`, `src/blackwall/policy/models.py`), core Pydantic symbols (`BaseModel`, `Field`, `field_validator`, `model_validator`) MUST NOT be deleted or replaced. Always preserve Pydantic imports alongside newly added utility imports to avoid import-time `NameError` failures.
 
 ## 8. Telemetry Ingestion & Stream Reconnection Invariants
 * **Rule:** Telemetry normalization MUST use explicit `val is None` checks instead of truthiness fallbacks (`or`) to prevent dropping valid falsy identifiers (e.g. `agent_id = 0`).
@@ -263,12 +263,17 @@
 * **Rule:** Low-level process creation syscalls captured via eBPF tracepoints or audit hooks MUST NOT be included in pod creation or pod self-respawn action sets.
 * **Rationale:** Generic process/thread cloning inside sandbox containers (e.g. worker process forks during CyBench executions) shares the same process namespace or container ID. Treating `sys_clone` as pod creation produces false `fleet_spawning` and `self_respawning_pod` threat evidence.
 
-## 48. Active Enforcement Method Fail-Closed Contract
+## 47. Multi-Day Retrospective Semantic Edge Decay & MITRE Technique Gating
+* **Rule:** Retrospective attack path correlators (`RetrospectiveAnalyzer.reconstruct_causal_graph`) constructing semantic and temporal edges across multi-day analysis windows MUST:
+  1. Scale non-causal same-target edge weights strictly by continuous exponential decay ($w = \text{base} \cdot e^{-\Delta t / \tau}$), requiring $w \ge 0.4$ for edge creation without applying artificial constant baselines that keep weights $\ge 0.4$ as $\Delta t \to \infty$.
+  2. Gate base edge multipliers on MITRE ATT&CK technique matches (e.g. $\text{base} = 0.8$ for MITRE-matched actions, $\text{base} = 0.5$ for non-MITRE routine actions).
+  3. Traverse all identified root nodes without artificial finite result collection caps that terminate DFS early and starve sibling branches.
+* **Rationale:** Constant baseline additions connect unrelated routine actions occurring days apart, while un-gated decay severs multi-stage stealth campaigns. Gating decay on MITRE technique relevance preserves genuine multi-day attack paths while rejecting disconnected benign activity.
 
+## 48. Active Enforcement Method Fail-Closed Contract & Inbound RPC Origin Validation
 * **Rule (Fail-Closed Success Initialization):** Every action method in `ActiveReactionEngine` (`execute_ebpf_socket_drop`, `broadcast_fleet_signature`, `revoke_identity_session`) MUST initialize `success = False` unconditionally before any conditional dispatch. `success` MUST be set to `True` only inside a branch that *completes an enforcement action without exception*. The following initializations are strictly prohibited:
   - `success = True` — leaves `success` unchanged when a branch is silently skipped (e.g. unsupported interface, absent dependency)
   - `success = self.dep is not None` — leaves `success = True` when the dependency is present but its interface matches no dispatch branch
-
 * **Rule (Dispatcher Return Value Capture):** Dispatch branches that optionally await a coroutine MUST assign the awaited result back to the same variable before inspecting it:
   ```python
   res = self.mesh_broadcaster(payload)
@@ -277,7 +282,6 @@
   success = bool(res) if res is not None else True
   ```
   The return value of `await` MUST NOT be discarded with a bare `await res` statement. Success semantics: `None` → completed without explicit failure signal (success); any other falsy value (e.g. `False`, `0`) → caller-signalled failure.
-
 * **Rule (Empty-Result Oracle Guard for Token Revocation):** When a vault-style adapter returns an empty collection from `revoke_agent_tokens`, the failure condition MUST apply unless the local token registry confirms zero tokens were ever issued:
   ```python
   if len(revoked_tokens) == 0 and not (
@@ -287,29 +291,14 @@
   # else: empty dict registry → no tokens existed, empty return is correct
   ```
   An absent registry (`None`), a non-dict registry, or a non-empty registry all require treating zero revocations as a failure; only a confirmed empty dict (`{}`) is a legitimate "nothing to revoke" result.
+* **Rule (Inbound RPC Origin Validation — Always Enforced):** `InboundProtocolFilter.validate_headers_and_origin()` MUST be called unconditionally on every inbound RPC request, regardless of whether `headers` or `remote_addr` are provided by the caller. Callers that omit these optional parameters MUST receive safe defaults (`headers={}`, `remote_addr=""`) before the validation gate so that loopback enforcement and Origin/Host restrictions are never bypassed by simply omitting arguments.
+* **Rationale:** Fail-open enforcement methods produce false `COMPLETED` audit records for actions that never occurred. Gating RPC header validation on presence allowed unauthenticated non-loopback callers to bypass authorization by omitting arguments.
 
-* **Rationale:** Fail-open enforcement methods produce false `COMPLETED` audit records for actions that never occurred (socket drops, Threat Mesh broadcasts, credential revocations). Discovered across PR #93 review cycles: (a) initializing `success = dep is not None` still reports COMPLETED when a non-None dep exposes an unsupported interface; (b) discarding `await res` ignores a broadcaster's explicit `False` failure signal; (c) guarding empty-revocation failure only on a non-empty `_issued_tokens` dict silently passes when the adapter has no local registry. Each flaw allows adversaries whose mitigations were not actually enforced to continue operating while the SOC log shows `COMPLETED`.
+## 49. Active Reaction Dispatch Fault Isolation & Structured Logging Hygiene
+* **Rule (Reaction Dispatch Fault Isolation):** Every `await active_reaction.*()` call within `correlate_agent_threats()` (eBPF socket drop, ZeroMQ mesh broadcast, Vault token revocation) MUST be wrapped individually in a `try/except Exception` block. Exceptions from the reaction adapter layer MUST be logged via `logger.error()` and MUST NOT propagate to abort the detection correlation loop or suppress alerts that were already generated.
+* **Rule (Structured Logging via `extra` Dictionary):** When emitting structured metadata or event objects via standard Python `logging.Logger` instances, custom payload dictionaries MUST be passed through the `extra={...}` parameter (e.g. `logger.info("EVENT", extra={"event": payload.model_dump()})`) or formatted into the log message string. Passing arbitrary keyword arguments directly to standard logger methods (`logger.info("...", event=...)`) is strictly prohibited to prevent runtime `TypeError` exceptions.
+* **Rationale:** Fault isolation ensures that partial adapter failures degrade gracefully without silently discarding security intelligence. Standard Python `logging.Logger._log()` does not accept arbitrary keyword arguments and raises `TypeError` if custom keywords are passed directly.
 
-## 47. Multi-Day Retrospective Semantic Edge Decay & MITRE Technique Gating
-* **Rule:** Retrospective attack path correlators (`RetrospectiveAnalyzer.reconstruct_causal_graph`) constructing semantic and temporal edges across multi-day analysis windows MUST:
-  1. Scale non-causal same-target edge weights strictly by continuous exponential decay ($w = \text{base} \cdot e^{-\Delta t / \tau}$), requiring $w \ge 0.4$ for edge creation without applying artificial constant baselines that keep weights $\ge 0.4$ as $\Delta t \to \infty$.
-  2. Gate base edge multipliers on MITRE ATT&CK technique matches (e.g. $\text{base} = 0.8$ for MITRE-matched actions, $\text{base} = 0.5$ for non-MITRE routine actions).
-  3. Traverse all identified root nodes without artificial finite result collection caps that terminate DFS early and starve sibling branches.
-* **Rationale:** Constant baseline additions connect unrelated routine actions occurring days apart, while un-gated decay severs multi-stage stealth campaigns. Gating decay on MITRE technique relevance preserves genuine multi-day attack paths while rejecting disconnected benign activity.
-
-## 49. Structured Logging via `extra` Dictionary & Logger Keyword Hygiene
-* **Rule:** When emitting structured metadata or event objects via standard Python `logging.Logger` instances, custom payload dictionaries MUST be passed through the `extra={...}` parameter (e.g. `logger.info("EVENT", extra={"event": payload.model_dump()})`) or formatted into the log message string. Passing arbitrary keyword arguments directly to standard logger methods (`logger.info("...", event=...)`) is strictly prohibited to prevent runtime `TypeError` exceptions.
-* **Rationale:** Standard Python `logging.Logger._log()` does not accept arbitrary keyword arguments. Passing custom keywords directly raises `TypeError: Logger._log() got an unexpected keyword argument '...'` at runtime when log statements are triggered in production or test paths.
-
-
-
-## 48. Inbound RPC Origin Validation — Always Enforced
-* **Rule:** `InboundProtocolFilter.validate_headers_and_origin()` MUST be called unconditionally on every inbound RPC request, regardless of whether `headers` or `remote_addr` are provided by the caller. Callers that omit these optional parameters MUST receive safe defaults (`headers={}`, `remote_addr=""`) before the validation gate so that loopback enforcement and Origin/Host restrictions are never bypassed by simply omitting arguments.
-* **Rationale:** When `validate_headers_and_origin` was gated on `headers is not None and remote_addr is not None`, an unauthenticated non-loopback caller could skip the entire authorization layer by omitting either parameter, proceed to the rate limiter and RPC parser, and receive a sanitized but authorized response.
-
-## 49. Active Reaction Dispatch Fault Isolation
-* **Rule:** Every `await active_reaction.*()` call within `correlate_agent_threats()` (eBPF socket drop, ZeroMQ mesh broadcast, Vault token revocation) MUST be wrapped individually in a `try/except Exception` block. Exceptions from the reaction adapter layer MUST be logged via `logger.error()` and MUST NOT propagate to abort the detection correlation loop or suppress alerts that were already generated.
-* **Rationale:** A transient kernel driver failure, mesh broadcaster outage, or Vault connectivity error must not prevent the remaining detectors and correlation engines from completing and returning their alerts. Fault isolation ensures that partial adapter failures degrade gracefully without silently discarding security intelligence.
 
 ## 50. Independent Security Gate Bypass-Proofing
 * **Rule:** Multi-layer security validation sequences (e.g. loopback check → allow-list check → header presence check) MUST be designed so that disabling one gate (e.g. `enforce_loopback=False`) does not implicitly open a free path through the remaining gates. Each gate MUST independently provide a baseline rejection for the "no identifying information" case:
@@ -337,11 +326,11 @@
 * **Rationale:** Treating arbitrary resource scopes or workload labels as security trust boundaries causes legitimate multi-service or multi-tenant agents to accumulate false-positive crossing counts, escalating risk to `HIGH` or `CRITICAL` and inadvertently triggering automated identity session revocation (`revoke_identity_session()`).
 
 ## 53. Blackwall MCP Gateway Architecture & Transport Security Invariants
-* **Rule (Agent Agnosticism):** Gateway components (`src/blackwall/gateway/`, `src/blackwall/cli.py`) MUST NOT include hardcoded rules, special casing, or coupling for any specific agent runtime (Hermes Agent, Antigravity, Warp Terminal, Claude Desktop, Cursor). All communication must adhere strictly to the generic Model Context Protocol (MCP) JSON-RPC specification.
+* **Rule (Agent Agnosticism):** Gateway specification components (`src/blackwall/gateway/`, `src/blackwall/cli.py` governed by `.kiro/specs/blackwall-mcp-gateway/`) MUST NOT include hardcoded rules, special casing, or coupling for any specific agent runtime (Hermes Agent, Antigravity, Warp Terminal, Claude Desktop, Cursor). All communication must adhere strictly to the generic Model Context Protocol (MCP) JSON-RPC specification.
 * **Rule (Transport Security & Loopback Default):** The MCP Streamable HTTP transport MUST default to `127.0.0.1:9229` with `Origin` and `Host` header validation to prevent DNS rebinding attacks.
 * **Rule (Remote Authentication Boundary & Startup Guard):** When `--host` binds to a non-loopback address, a pre-shared bearer token (`--auth-token` or `BLACKWALL_AUTH_TOKEN`) is mandatory. Inbound requests missing a valid `Authorization: Bearer <token>` header MUST be rejected with HTTP 401 before JSON-RPC processing. The gateway daemon MUST refuse to start if configured with a non-loopback host without an auth token.
 * **Rule (JSON-RPC Request ID Concurrency Isolation):** The gateway stream layer MUST track all in-flight requests by JSON-RPC `id` to ensure responses, cancellations, and errors are mapped deterministically during concurrent evaluation.
-* **Rule (Downstream Tool Proxying & Verdict Synthesis):** ALLOW'd tool calls MUST be forwarded intact to downstream tool servers (spawned via `--wrap` or configured in `gateway.yaml`). BLOCK verdicts MUST synthesize a JSON-RPC error `-32603` with a generic message, reusing the incoming `id` and never exposing internal threat telemetry to the agent.
+* **Rule (Downstream Tool Proxying & Verdict Synthesis):** ALLOW'd tool calls MUST be forwarded intact to downstream tool servers (spawned via `--wrap` or configured in specification `gateway.yaml`). BLOCK verdicts MUST synthesize a JSON-RPC error `-32603` with a generic message, reusing the incoming `id` and never exposing internal threat telemetry to the agent.
 * **Rationale:** Discovered during MCP Gateway spec rebaseline and Greptile PR #108 review cycles: clear transport security boundaries, loopback defaults, startup guards, and protocol-level synthesis prevent unauthorized network exposure of downstream tools and prevent leaking sensitive threat intelligence to calling agents.
 
 ## 54. Cross-Platform Background Service Management (`launchd` & `systemd`) & Supervision Invariants
@@ -358,7 +347,7 @@
 * **Rule (FHS Directory Provisioning):** When `--system` is specified, the systemd unit MUST configure standard FHS directories: `/etc/blackwall/gateway.yaml` (config), `/run/blackwall/blackwall.pid` via `RuntimeDirectory=blackwall`, `/var/log/blackwall/blackwall.log` via `LogsDirectory=blackwall`, and `/var/lib/blackwall/threat_signatures.db` via `StateDirectory=blackwall`.
 * **Rule (Non-Root Identity Derivation & Account Creation):** System services MUST NOT run as root (`User=root`). The installer derives non-root execution identity in order: (1) explicit `--user <name>`, (2) `SUDO_USER` under `sudo`, or (3) dedicated system user `blackwall` (group `blackwall`). If the `blackwall` system account is created, it MUST be provisioned with a home directory: `useradd --system --home-dir /var/lib/blackwall --create-home blackwall`.
 * **Rule (Explicit FHS Path Wiring in ExecStart):** System units MUST explicitly pass FHS paths in `ExecStart` (`--pidfile /run/blackwall/blackwall.pid --logfile /var/log/blackwall/blackwall.log --db /var/lib/blackwall/threat_signatures.db`) and inject `Environment="BLACKWALL_DB_PATH=/var/lib/blackwall/threat_signatures.db"`, ensuring runtime daemon components never fall back to user-space defaults.
-* **Rule (Fallback ADC Resolution for Service Users):** Fallback ADC resolution (`application_default_credentials.json`) under `sudo` or `--system` MUST resolve against the derived service user's home directory. In direct-root mode with the dedicated `blackwall` user, the installer accepts `--credentials <path>` and copies credentials to `/etc/blackwall/credentials.json` owned by `blackwall:blackwall` (`0600`).
+* **Rule (Fallback ADC Resolution for Service Users):** Fallback ADC resolution (Application Default Credentials JSON schema) under `sudo` or `--system` MUST resolve against the derived service user's home directory. In direct-root mode with the dedicated `blackwall` user, the installer accepts `--credentials <path>` and copies credentials to `/etc/blackwall/credentials.json` owned by `blackwall:blackwall` (`0600`).
 * **Rationale:** Discovered during PR #111 Greptile review iterations: running system units with user home paths causes crashes when the service user lacks access to `~/.blackwall`, and running as root violates the principle of least privilege.
 
 ## 56. NVIDIA DGX Spark Co-Existence, Unified Memory Bounding & Zero-GPU VRAM Conformance
@@ -437,3 +426,31 @@
   - Public-facing documentation snippets (e.g. `README.md`) and orchestration scripts demonstrating pub/sub broadcast MUST NOT emit messages immediately after calling `receiver.start()` without demonstrating the required readiness sequence (`await receiver.wait_until_ready()`).
   - Snippets MUST illustrate end-to-end lifecycle closure by demonstrating both publication and ingestion retrieval (`received = await receiver.receive_one(timeout=1.0)`).
 * **Rationale:** ZeroMQ PUB/SUB sockets exhibit the classic "slow joiner" race condition: messages sent immediately after socket creation or connection are dropped by the underlying transport before subscriber peers complete TCP connection handshakes and subscription frame exchanges. Enforcing bidirectional readiness tracking, bounded lifecycle helpers, and end-to-end documentation patterns guarantees that distributed cluster nodes receive broadcasted threat signatures without message drops or misleading quickstart experiences.
+
+## 65. GitHub CLI (`gh`) & Git Operational Guardrails
+* **Rule (Feature Branches Only):** All code modifications must occur within an isolated git worktree and be pushed to a dedicated feature branch. Direct commits or pushes to `main` and `master` are strictly prohibited.
+* **Rule (No Autonomous Merging):** Automated agents may create Pull Requests via `gh pr create` and inspect reviews via `gh pr view`, but are strictly barred from merging Pull Requests via the terminal (`gh pr merge` is prohibited) or any API. A human developer must review and merge all code.
+* **Rule (Pre-Commit Hygiene):** Before staging files via `git add`, verify that no `.env` files, API keys, credentials, or `.sqlite` WAL files are included in the commit payload.
+* **Rule (No Destructive API / CLI Actions):** Repository deletion, branch protection tampering, and visibility modifications are blocked at the token level and strictly prohibited.
+* **Rationale:** Prevents repository corruption, credential leakage, and bypassing of human-in-the-loop review guardrails.
+
+## 66. CLI Output Hygiene & Token Conservation Protocol
+* **Rule (Mandatory Projection Flags):** Terminal commands supporting structured outputs (`gh`, `gcloud`, `aws`, `docker`) MUST specify projection flags:
+  - `gh`: Use `--json <field1,field2>` and `--limit <N>` (or `--template`).
+  - `gcloud`: Use `--format="value(field)"` or `--format="table(field1,field2)"`.
+  - `docker`: Use `--format "{{.ID}}: {{.Names}} ({{.Status}})"`.
+* **Rule (Unix Pipeline Filtering):** Filter raw text streams before they reach model context. Pipe through `jq`, `head -n <N>`, `grep`, `awk`, or `cut` (e.g. `gh run view <id> --log-failed | head -n 50`).
+* **Rule (Scratch Buffering for Large Outputs):** If a diagnostic command or test run generates more than 100 lines of logs, redirect or tee it to the conversation scratch directory and inspect targeted segments rather than dumping the full trace into context.
+* **Rule (Atomic Pipelines):** Prefer chaining commands in a single shell invocation using `&&` or pipelines (`|`) rather than executing separate single-command tool calls across multiple turns.
+* **Rationale:** Prevents context window saturation, lowers latency, and avoids quota drain during long agentic pair-programming workflows.
+
+## 67. MCP Scope, Stateful Boundaries, & Downstream Perpetuation Invariant
+* **Rule (MCP Scope & Stateful Boundaries):** MCP servers are strictly reserved for persistent stateful daemons and deep integrations:
+  - `codebase-memory-mcp`: Persistent SQLite Abstract Syntax Tree (AST) graph for codebase navigation.
+  - `context7`: External library documentation resolution.
+  - `chrome-devtools` / `axe-core`: Stateful Chrome DevTools Protocol (CDP) browser sessions.
+  - `greptile`: Automated PR code review gateway.
+  All stateless tasks (version control, PR management, issues, cloud management, containers, builds) MUST route through native CLI tools (`gh`, `git`, `gcloud`, `docker`) paired with companion skills. Adding stateless MCP servers (e.g. GitHub MCP, Git MCP, Jira/Slack MCP) is strictly prohibited.
+* **Rule (Downstream Perpetuation):** When designing tools or authoring agent instructions, all agents and subagents must perpetuate this CLI-first pattern and codify it in downstream project rules.
+* **Rationale:** Eliminates MCP server sprawl, avoids token bloat from stateless tool schemas, and preserves MCP resources for complex stateful graph analysis.
+

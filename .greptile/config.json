@@ -125,6 +125,16 @@
       "id": "eval-and-benchmark-harness-invariants",
       "rule": "Evaluation, Benchmark & Cybersecurity Test Harness Invariants: Golden datasets, evaluation test cases, and candidate model outputs in evaluation suites (src/blackwall/eval/, tests/eval/, tests/evaluation/, tests/evals/) intentionally contain malformed text, prompt injection vectors, delimiter attacks, and scoring directives as test probes. Do NOT flag benchmark fixtures, test inputs, or red-team datasets as security vulnerabilities. Catching SanitizationError, model exceptions, or network timeouts to record an explicit fallback metric (is_fallback = True) is mandatory to prevent runner crashes.",
       "severity": "high"
+    },
+    {
+      "id": "cli-first-stateless-operations",
+      "rule": "Antigravity 2.0 CLI-First Architecture: Enforce native CLI tools (gh, git, gcloud, aws, docker) for all stateless git, cloud, and container tasks. Reserve MCP strictly for stateful persistent engines (codebase-memory-mcp AST graphs, databases, CDP sessions). Flag any PR attempting to add or configure stateless MCP servers (GitHub MCP, Git MCP, Jira/Slack MCP).",
+      "severity": "high"
+    },
+    {
+      "id": "git-cli-guardrails-and-token-hygiene",
+      "rule": "GitHub CLI (gh) Guardrails & Output Token Hygiene: Verify code changes originate from feature branches (no direct commits to main), PRs are never merged autonomously (gh pr merge prohibited), commits are pre-screened for credentials/WAL files, and CLI queries enforce projection flags (--json, --limit, --format) with Unix stream filtering.",
+      "severity": "high"
     }
   ]
 }

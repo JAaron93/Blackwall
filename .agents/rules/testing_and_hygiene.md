@@ -20,7 +20,8 @@
 * **Rule:** In `tests/` subdirectories (e.g. `tests/integration/`, `tests/unit/`), always use absolute imports from the repository root (e.g. `from tests.integration.helpers import ...`) rather than relative imports (`from .helpers import ...`). Relative imports in test submodules cause `ImportError` during pytest collection.
 
 ## 7. Portable Documentation Links
-* **Rule:** Markdown documentation files in `docs/` must use **repo-relative markdown paths** (e.g. `[helpers.py](../tests/integration/helpers.py)`), and must **never** hard-code local environment `file:///Users/...` or `file:///C:/...` URLs.
+* **Rule:** Markdown documentation files in `docs/` must use **repo-relative markdown paths** (e.g. `tests/integration/helpers.py`), and must **never** hard-code local environment URI patterns (such as `file:///<local_user_path>/...` or `C:\<local_user_path>\...`).
+
 
 ## 8. Mock Type Signature Alignment
 * **Rule:** Test helper functions creating mock objects must ensure the return type annotation matches the actual mock class instantiated (e.g. `AsyncMock` vs `MagicMock`). Async side-effect handlers assigned to mock methods should be wrapped with `AsyncMock(side_effect=_fn)`.

@@ -14,13 +14,13 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 - **Zero Cluster-Mesh / eBPF Dependencies**: Core must contain zero imports or dependencies on ZeroMQ, NATS, or eBPF C headers.
 - **Support**: Core fully supports 100% GCP Vertex AI Mode (`google-genai` with `vertexai=True`).
 
-### Blackwall MCP Gateway (Core Entry Point)
-- **Location**: `src/blackwall/gateway/` (server, interceptor, synthesizer, upstream manager) + `src/blackwall/cli.py`.
+### Blackwall MCP Gateway (Core Entry Point Specification)
+- **Location (Specification)**: Architecture governed by `.kiro/specs/blackwall-mcp-gateway/`, targeting `src/blackwall/gateway/` (server, interceptor, synthesizer, upstream manager) + `src/blackwall/cli.py`.
 - **Standalone Daemon**: The gateway is the primary way Blackwall runs — a local background daemon on `localhost:9229` with PID file management (`~/.blackwall/blackwall.pid`). It is NOT a sidecar or proxy for any specific agent runtime.
 - **Agent Agnosticism**: The gateway MUST NOT contain hardcoded rules or references specific to any particular agent (no Hermes, no Antigravity-specific, no Warp-specific logic). It operates purely at the MCP protocol level.
 - **Transport Security**: HTTP transport MUST bind to `127.0.0.1` by default. `Origin` and `Host` header validation is mandatory. Network-bound requests require authentication.
 - **JSON-RPC `id` Tracking**: The stream layer MUST track all in-flight requests by their JSON-RPC `id` to prevent concurrent call mismatching.
-- **Upstream Management**: Supports `--wrap` (single downstream tool server as child process) and `gateway.yaml` (multi-server configuration). ALLOW'd requests are forwarded; BLOCK'd requests return synthesized JSON-RPC errors.
+- **Upstream Management**: Supports `--wrap` (single downstream tool server as child process) and specification config `gateway.yaml` (multi-server configuration). ALLOW'd requests are forwarded; BLOCK'd requests return synthesized JSON-RPC errors.
 - **Resource Budget**: Gateway components MUST operate within the 2019 Intel MacBook Pro baseline: ≤60MB idle RAM, ~0% idle CPU, <2s startup, ≤150MB active RAM during evaluation.
 - **Hardware Targets**: Blackwall Core targets the 2019 Intel MacBook Pro as its baseline (<=60MB idle RAM, <=150MB active RAM) and the NVIDIA DGX Spark (Grace Blackwell GB10 ARM64, 128GB unified memory) as top-of-the-line (0MB CUDA contexts, host RSS <= 350MB, preserving >127.6GB unified memory for AI models).
 - **Spec Reference**: Architecture governed by `.kiro/specs/blackwall-mcp-gateway/` (design.md, requirements.md, tasks.md).
@@ -161,6 +161,22 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 * **XML Nonce Sandboxing**: Evaluation judges evaluate untrusted candidate outputs wrapped in per-request cryptographic nonces (e.g. `===JUDGE DATA <nonce> START===`) and XML sandboxes (`<candidate>` tags) with dynamically bound system instructions. Do NOT flag candidate output interpolation inside bounded sandboxes as prompt injection vulnerabilities.
 * **Anti-Oscillation Standard on Candidate Sanitization**: When evaluation runners pass candidate outputs or benchmark prompts through an input sanitizer, any rejected attacks must safely route to fallback evaluation states (`is_fallback = True`). Valid outputs may then be stripped of instruction delimiters and escaped within XML sandboxes. Do NOT oscillate between demanding pre-neutralization of candidate text and demanding strict sanitizer rejection.
 * **Synthetic Metric Vocabulary vs. User Data**: Evaluation category normalizers, heuristics, and regex matchers operate on standardized synthetic test vocabularies and domain labels. Do NOT flag substring-matching optimizations or test label mappings in evaluation runners as user-facing bugs.
+
+---
+
+## 11. Antigravity 2.0 CLI-First Architecture & Operational Guardrails
+
+- **CLI-First Architecture**: Version control, PR triage, and cloud/container management MUST execute through native CLI binaries (`gh`, `git`, `gcloud`, `docker`) paired with lightweight skills. PRs introducing stateless MCP servers (e.g. GitHub MCP, Git MCP, Jira/Slack MCP) are prohibited and must be rejected.
+- **MCP Scope & Stateful Boundaries**: MCP is reserved exclusively for stateful engines: `codebase-memory-mcp` (AST memory graphs), persistent database connections, and CDP browser sessions.
+- **GitHub CLI (`gh`) Guardrails**:
+  - All work must be conducted on dedicated feature branches. Direct commits or pushes to `main` and `master` are strictly prohibited.
+  - Autonomous merging via CLI (`gh pr merge`) or API is forbidden. All PRs require human review and approval.
+  - Pre-commit hygiene must verify zero `.env` files, API keys, credentials, or `.sqlite` WAL files are staged.
+- **CLI Output Hygiene & Token Conservation**:
+  - Terminal queries with structured output support must use projection flags: `gh` queries MUST use `--json <fields>` and `--limit <N>`; `gcloud` MUST use `--format`; `docker` MUST use `--format`.
+  - Unbounded streams must be piped through Unix filters (`jq`, `head -n <N>`, `grep`).
+- **Architectural Perpetuation**: All subagents and child workflows must perpetuate this CLI-first standard and codify it in any newly authored instruction files.
+
 
 
 

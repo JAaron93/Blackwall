@@ -8,11 +8,11 @@ Blackwall is structured into **two distinct product tiers**:
 
 1. **Blackwall Core (Individual Developer Edition)**:
    - Single-host Python daemon centered around ADK callbacks (`before_tool_callback`), Python runtime audit hooks (`sys.addaudithook`), local SQLite threat graph, native compiled Rust acceleration extension (`crates/blackwall_core_rs/` / `blackwall._core_rs` with pure-Python fallback), and baseline single-host Attacker Attribution (`src/blackwall/attribution/` & `SyncResolver`).
-   - Primary local entry point: **Blackwall MCP Gateway** (`src/blackwall/gateway/` + `src/blackwall/cli.py`), providing an agent-agnostic stdio/HTTP security proxy on `localhost:9229` with background PID daemon management (`~/.blackwall/blackwall.pid`) and macOS LaunchAgent service integration.
+   - Primary local entry point: **Blackwall MCP Gateway** (specification governed by `.kiro/specs/blackwall-mcp-gateway/`, targeting `src/blackwall/gateway/` + `src/blackwall/cli.py`), providing an agent-agnostic stdio/HTTP security proxy on `localhost:9229` with background PID daemon management (`~/.blackwall/blackwall.pid`) and macOS LaunchAgent service integration.
    - Zero cluster-mesh/peer-to-peer networking (ZeroMQ/NATS) or C-kernel eBPF dependencies (exemption: 100% GCP Vertex AI Mode clients for Gemini Enterprise Agent Platform and VirusTotal GTI MCP are fully supported in Core; red-teamer attack agents in demo harness use Hyperbolic API).
 2. **Blackwall Enterprise Mesh (Enterprise Edition)**:
    - Multi-host security mesh isolated under `src/blackwall/enterprise/`.
-   - Features C/Python eBPF kernel probes, Ephemeral Identity Sidecar, Data Pipeline Wrappers, Dual-Mode Local Forensic Triage Engine, 4 Open-Source Local MCP adapters, and Distributed Threat Mesh architecture (Pillar 2 specification / interface).
+   - Features C/Python eBPF kernel probes, Ephemeral Identity Sidecar, Data Pipeline Wrappers, Dual-Mode Local Forensic Triage Engine, 4 Open-Source Local MCP adapters, and Distributed Threat Mesh (`src/blackwall/enterprise/mesh/`).
 
 ---
 
@@ -88,4 +88,43 @@ Agents updating or expanding project rules (e.g. via `/learn` or code review res
    - Detailed implementation guardrails, DB transaction guidelines, logging privacy, BDD execution patterns, and test hygiene MUST be added to (or updated within) modular rule files under `.agents/rules/` (e.g. `architecture_and_security.md`, `testing_and_hygiene.md`).
 
 3. **Learning & Proposal Workflow**:
-   - Before modifying project rules, agents MUST draft a proposal (`learning_proposal.md` or `implementation_plan.md`) outlining the classification, rationale, and exact diffs, and obtain explicit user approval before staging changes.
+   - Before modifying project rules, agents MUST draft a proposal artifact (`learning_proposal` or `implementation_plan`) outlining the classification, rationale, and exact diffs, and obtain explicit user approval before staging changes.
+
+
+---
+
+## 7. Antigravity 2.0 CLI-First Architecture & Tool Governance
+
+Antigravity operates on a **CLI-first, stateful-MCP-sparing architecture**:
+
+### 1. GitHub CLI (`gh`) & Git Operational Guardrails
+* **Feature Branches Only**: All code modifications must occur within an isolated git worktree and be pushed to a dedicated feature branch. Direct commits or pushes to `main` and `master` are strictly prohibited.
+* **No Autonomous Merging**: Agents may create Pull Requests via `gh pr create` and inspect reviews via `gh pr view`, but are strictly forbidden from merging Pull Requests via the terminal (`gh pr merge` is prohibited) or any API. A human must review and merge all code.
+* **Pre-Commit Hygiene**: Before staging files via `git add`, verify that no `.env` files, API keys, credentials, or `.sqlite` WAL files are included in the commit payload.
+* **No Destructive API / CLI Actions**: Repository deletion, branch protection tampering, and visibility modifications are blocked at the token level and strictly prohibited by rule.
+
+### 2. CLI Output Hygiene & Token Conservation Protocol
+To maintain strict token economy across long-running sessions, agents must adhere to output-limiting practices:
+* **Mandatory Projection Flags**: On tools with structured output support (`gh`, `gcloud`, `aws`, `docker`), always specify output projections:
+  - `gh`: Use `--json <fields>` and `--limit <N>` (e.g. `gh pr list --limit 10 --json number,title,author,headRefName,state`).
+  - `gcloud`: Use `--format="value(field)"` or `--format="table(field1,field2)"`.
+  - `docker`: Use `--format "{{.ID}}: {{.Names}} ({{.Status}})"`.
+* **Unix Pipeline Filtering**: Filter raw text streams before they reach model context. Pipe through `jq`, `head -n <N>`, `grep`, `awk`, or `cut` (e.g. `gh run view <id> --log-failed | head -n 50`).
+* **Scratch File Buffering for Large Outputs**: If a diagnostic command or test run generates more than 100 lines of logs, redirect or tee it to the conversation scratch directory and inspect targeted segments with `grep` or `head` rather than dumping full traces into context.
+* **Atomic Pipelines Over Chatty Turns**: Prefer chaining commands in a single shell invocation using `&&` or pipelines (`|`) rather than executing separate single-command tool calls across multiple turns.
+
+### 3. MCP Scope & Stateful Boundaries
+* **MCP Reserved Tier (Stateful & Daemon Integrations Only)**:
+  - **AST Knowledge Graph**: `codebase-memory-mcp` maintains the persistent SQLite Abstract Syntax Tree graph for codebase navigation and call-graph tracing.
+  - **External Library Documentation**: `context7` resolves third-party package syntax and API definitions.
+  - **Live Browser Sessions**: `chrome-devtools` and `axe-core` manage interactive Chrome DevTools Protocol (CDP) sessions and accessibility validation.
+  - **Automated Review Agent Gateways**: `greptile` triggers and manages PR code reviews.
+* **CLI Tier (Stateless Operations)**:
+  - All version control, pull requests, issues, cloud infrastructure, container management, and build tasks MUST execute through native CLI tools (`gh`, `git`, `gcloud`, `aws`, `docker`, `cargo`, `npm`, etc.) paired with lightweight companion skills rather than stateless MCP servers.
+
+### 4. Architectural Perpetuation & Downstream Agent Invariant
+This CLI-first, MCP-sparing doctrine is a permanent, indefinite architectural standard. All future agents, subagents, and automated workflows governed by this constitution must:
+1. **Perpetuate the Pattern**: Prioritize CLI binaries paired with lightweight skills rather than introducing new MCP servers.
+2. **Defend the Boundaries**: Strictly reject the addition of stateless MCP servers (e.g. for Jira, Slack, Linear, Stripe, or cloud providers) whenever a mature CLI tool or scriptable API exists. Reserve MCP exclusively for persistent stateful daemons, database connections, and AST memory graphs.
+3. **Propagate to Project Invariants**: When authoring repository-level `AGENTS.md`, `.cursor/rules/`, or subagent system prompts, agents must explicitly codify this CLI-first discipline to ensure child agents and subagents inherit identical token hygiene.
+
