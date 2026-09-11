@@ -55,6 +55,7 @@ class MeshReceiver:
         self.signatures_ingested_count: int = 0
         self.last_latency_ms: float = 0.0
         self.on_signature_received: Callable[[dict[str, Any]], Any] | None = None
+        self._inbound_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=1000)
 
     @property
     def is_active(self) -> bool:
@@ -158,12 +159,23 @@ class MeshReceiver:
             logger.warning("Failed to parse mesh message: %s", exc)
             return None
 
-    def _normalize_signature(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Normalizes incoming payload into SQLiteThreatRepository signature schema."""
+    def _normalize_signature(self, data: dict[str, Any]) -> dict[str, Any] | None:
+        """Normalizes incoming payload into SQLiteThreatRepository signature schema.
+
+        Rejects signatures with missing or empty payload patterns to prevent wildcard
+        matching vulnerabilities.
+        """
+        pattern = str(data.get("payload_pattern") or data.get("pattern") or "").strip()
+        if not pattern:
+            logger.warning(
+                "Rejecting invalid threat signature: empty or missing payload pattern in message: %s",
+                data,
+            )
+            return None
+
         raw_id = data.get("signature_id") or data.get("signatureId")
         sig_id = str(raw_id) if raw_id else f"mesh_sig_{uuid.uuid4().hex[:12]}"
 
-        pattern = str(data.get("payload_pattern") or data.get("pattern") or "")
         intent = str(data.get("attacker_intent") or data.get("intent") or data.get("threat_level") or "UNKNOWN")
         tool = str(data.get("target_tool") or data.get("tool") or "ANY")
         sink = str(data.get("target_sink") or data.get("sink") or "PROCESS")
@@ -192,9 +204,12 @@ class MeshReceiver:
             "metadata": data.get("metadata", {}),
         }
 
-    async def _ingest_signature(self, raw_data: dict[str, Any]) -> str:
+    async def _ingest_signature(self, raw_data: dict[str, Any]) -> str | None:
         """Normalizes and writes signature to SQLite repository."""
         normalized = self._normalize_signature(raw_data)
+        if normalized is None:
+            return None
+
         sig_id = await self.repository.writeSignature(normalized)
         self.signatures_ingested_count += 1
 
@@ -216,7 +231,16 @@ class MeshReceiver:
 
                 data = self._parse_message(frames)
                 if data is not None:
-                    await self._ingest_signature(data)
+                    sig_id = await self._ingest_signature(data)
+                    if sig_id is not None:
+                        try:
+                            self._inbound_queue.put_nowait(data)
+                        except asyncio.QueueFull:
+                            try:
+                                self._inbound_queue.get_nowait()
+                                self._inbound_queue.put_nowait(data)
+                            except (asyncio.QueueEmpty, asyncio.QueueFull):
+                                pass
 
                     # Update latency metric if created_at exists
                     created_at = data.get("created_at") or data.get("timestamp")
@@ -230,24 +254,13 @@ class MeshReceiver:
                     await asyncio.sleep(0.01)
 
     async def receive_one(self, timeout: float = 1.0) -> dict[str, Any] | None:
-        """Awaits and returns a single ingested signature (useful for tests/synchronous verification)."""
+        """Awaits and returns a single ingested signature from the background ingestion queue."""
         if not self._is_active:
             await self.start()
 
-        if self._socket is None:
-            return None
-
         try:
-            frames = await asyncio.wait_for(self._socket.recv_multipart(), timeout=timeout)
-            data = self._parse_message(frames)
-            if data is not None:
-                await self._ingest_signature(data)
-                return data
-            return None
+            return await asyncio.wait_for(self._inbound_queue.get(), timeout=timeout)
         except TimeoutError:
-            return None
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Error in receive_one: %s", exc)
             return None
 
     async def __aenter__(self) -> Self:

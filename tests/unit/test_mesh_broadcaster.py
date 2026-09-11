@@ -126,3 +126,18 @@ async def test_mesh_broadcaster_duck_typed_reaction_engine_contract():
         assert payload.execution_duration_ms < 15.0
     finally:
         await broadcaster.stop()
+
+
+@pytest.mark.asyncio
+async def test_mesh_broadcaster_warmup_and_readiness():
+    """Verify broadcaster warmup delay ensures socket readiness before publishing."""
+    broadcaster = MeshBroadcaster(
+        endpoint="inproc://test-mesh-warmup",
+        warmup_delay_s=0.05,
+    )
+    assert broadcaster.is_ready is False
+    await broadcaster.start()
+    assert broadcaster.is_ready is True
+    await broadcaster.stop()
+    assert broadcaster.is_ready is False
+

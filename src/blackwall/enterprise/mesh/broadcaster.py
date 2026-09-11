@@ -34,15 +34,18 @@ class MeshBroadcaster:
         endpoint: str = DEFAULT_MESH_ENDPOINT,
         topic: str = DEFAULT_MESH_TOPIC,
         bind: bool = True,
+        warmup_delay_s: float = 0.05,
     ) -> None:
         self.endpoint = endpoint
         self.topic = topic
         self.bind = bind
+        self.warmup_delay_s = warmup_delay_s
         self._context: Any | None = None
         self._socket: Any | None = None
         self._sync_context: Any | None = None
         self._sync_socket: Any | None = None
         self._is_active: bool = False
+        self._is_ready: bool = False
         self._lock = asyncio.Lock()
 
     @property
@@ -50,9 +53,14 @@ class MeshBroadcaster:
         """Returns True if the async broadcaster socket is initialized and active."""
         return self._is_active
 
+    @property
+    def is_ready(self) -> bool:
+        """Returns True if the broadcaster has completed its warmup handshake period."""
+        return self._is_active and self._is_ready
+
     async def start(self) -> None:
-        """Initializes the ZeroMQ PUB socket and binds or connects to the endpoint."""
-        if self._is_active:
+        """Initializes the ZeroMQ PUB socket, binds/connects, and allows warmup handshake."""
+        if self._is_active and self._is_ready:
             return
 
         if not HAS_ZMQ:
@@ -62,21 +70,28 @@ class MeshBroadcaster:
             )
 
         async with self._lock:
-            if self._is_active:
+            if self._is_active and self._is_ready:
                 return
 
             try:
-                self._context = zmq.asyncio.Context()
-                self._socket = self._context.socket(zmq.PUB)
-                self._socket.setsockopt(zmq.LINGER, 0)
+                if not self._is_active:
+                    self._context = zmq.asyncio.Context()
+                    self._socket = self._context.socket(zmq.PUB)
+                    self._socket.setsockopt(zmq.LINGER, 0)
 
-                if self.bind:
-                    self._socket.bind(self.endpoint)
-                else:
-                    self._socket.connect(self.endpoint)
+                    if self.bind:
+                        self._socket.bind(self.endpoint)
+                    else:
+                        self._socket.connect(self.endpoint)
 
-                self._is_active = True
-                logger.debug("MeshBroadcaster active on endpoint %s (bind=%s)", self.endpoint, self.bind)
+                    self._is_active = True
+                    logger.debug("MeshBroadcaster active on endpoint %s (bind=%s)", self.endpoint, self.bind)
+
+                # Slow joiner mitigation: allow ZeroMQ PUB/SUB handshake to settle
+                if self.warmup_delay_s > 0 and not self._is_ready:
+                    await asyncio.sleep(self.warmup_delay_s)
+
+                self._is_ready = True
             except Exception as exc:
                 logger.error("Failed to start MeshBroadcaster on %s: %s", self.endpoint, exc)
                 await self.stop()
@@ -88,6 +103,7 @@ class MeshBroadcaster:
             return
 
         self._is_active = False
+        self._is_ready = False
 
         if self._socket is not None:
             try:
@@ -145,7 +161,7 @@ class MeshBroadcaster:
 
     async def broadcast(self, payload: Any, topic: str | None = None) -> bool:
         """Asynchronously publishes threat signature payload over ZeroMQ pub/sub sockets."""
-        if not self._is_active:
+        if not self._is_active or not self._is_ready:
             await self.start()
 
         if self._socket is None:
@@ -179,6 +195,10 @@ class MeshBroadcaster:
                     self._sync_socket.bind(self.endpoint)
                 else:
                     self._sync_socket.connect(self.endpoint)
+
+                if self.warmup_delay_s > 0:
+                    import time
+                    time.sleep(self.warmup_delay_s)
 
             target_topic = (topic or self.topic).encode("utf-8")
             payload_bytes = self._serialize_payload(payload)

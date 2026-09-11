@@ -202,3 +202,88 @@ async def test_mesh_sync_burst_throughput(temp_db):
     await broadcaster.stop()
     await receiver.stop()
     await repo.close()
+
+
+@pytest.mark.asyncio
+async def test_mesh_receiver_rejects_empty_payload_pattern(temp_db):
+    """Verify receiver rejects signatures with empty or whitespace-only patterns to avoid matching all commands."""
+    repo = SQLiteThreatRepository(db_path=temp_db)
+    await repo.initialize()
+
+    endpoint = "tcp://127.0.0.1:5595"
+    broadcaster = MeshBroadcaster(endpoint=endpoint, bind=True)
+    receiver = MeshReceiver(endpoint=endpoint, repository=repo, connect=True)
+
+    await broadcaster.start()
+    await receiver.start()
+    await asyncio.sleep(0.1)
+
+    empty_sig_id = "sig_empty_pattern"
+    valid_sig_id = "sig_valid_pattern"
+
+    # Message with target_tool but empty pattern
+    await broadcaster.broadcast({
+        "signature_id": empty_sig_id,
+        "payload_pattern": "   ",
+        "target_tool": "bash",
+        "threat_level": "CRITICAL",
+        "mitigation_action": "BLOCK",
+    })
+
+    # Valid message
+    await broadcaster.broadcast({
+        "signature_id": valid_sig_id,
+        "payload_pattern": "cat /etc/shadow",
+        "target_tool": "bash",
+        "threat_level": "CRITICAL",
+        "mitigation_action": "BLOCK",
+    })
+
+    await asyncio.sleep(0.1)
+
+    async with repo.pool.connection() as conn:
+        # Empty pattern signature must NOT be ingested
+        cursor = await conn.execute("SELECT signature_id FROM signatures WHERE signature_id = ?", (empty_sig_id,))
+        assert await cursor.fetchone() is None, "Empty payload pattern must be rejected to prevent wildcard match"
+
+        # Valid pattern signature must be ingested
+        cursor = await conn.execute("SELECT signature_id FROM signatures WHERE signature_id = ?", (valid_sig_id,))
+        assert await cursor.fetchone() is not None
+
+    await broadcaster.stop()
+    await receiver.stop()
+    await repo.close()
+
+
+@pytest.mark.asyncio
+async def test_mesh_receiver_receive_one_queue_without_socket_race(temp_db):
+    """Verify receive_one safely consumes messages via internal queue without racing against background worker."""
+    repo = SQLiteThreatRepository(db_path=temp_db)
+    await repo.initialize()
+
+    endpoint = "tcp://127.0.0.1:5596"
+    broadcaster = MeshBroadcaster(endpoint=endpoint, bind=True)
+    receiver = MeshReceiver(endpoint=endpoint, repository=repo, connect=True)
+
+    await broadcaster.start()
+    await receiver.start()
+    await asyncio.sleep(0.1)
+
+    test_payload = {
+        "signature_id": "sig_queue_race_test",
+        "payload_pattern": "rm -rf /",
+        "threat_level": "CRITICAL",
+    }
+
+    # Broadcast message
+    await broadcaster.broadcast(test_payload)
+
+    # receive_one should cleanly obtain the message from queue without timing out or racing on socket
+    received = await receiver.receive_one(timeout=1.0)
+    assert received is not None
+    assert received.get("signature_id") == "sig_queue_race_test"
+
+    await broadcaster.stop()
+    await receiver.stop()
+    await repo.close()
+
