@@ -10,7 +10,7 @@ This document details the test-driven implementation plan for **Blackwall Enterp
 graph TD
     Track0["Track 0: Product Tier Isolation (TASK-T01) [COMPLETED]"]
     Track1["Track 1: Kernel Interception & Falco MCP (TASK-K01..K02) [COMPLETED]"]
-    Track2["Track 2: Distributed Mesh (TASK-M01..M02) [COMPLETED]"]
+    Track2["Track 2: Distributed Mesh (TASK-M01..M02) [PENDING]"]
     Track3["Track 3: Identity Sidecar & Vault MCP (TASK-I01..I02) [COMPLETED]"]
     Track4["Track 4: Pipeline Wrappers & Sandbox MCP (TASK-P01..P02) [COMPLETED]"]
     Track5["Track 5: Local Forensics & OTel MCP (TASK-F01..F02) [COMPLETED]"]
@@ -65,15 +65,15 @@ graph TD
 
 ## Track 2: Distributed Threat Mesh (`blackwall.enterprise.mesh`)
 
-### [x] TASK-M01: ZeroMQ Pub/Sub Mesh Broadcaster
-- **Status**: Completed
+### [ ] TASK-M01: ZeroMQ Pub/Sub Mesh Broadcaster
+- **Status**: Pending Implementation
 - **Description**: Build `MeshBroadcaster` service in `src/blackwall/enterprise/mesh/broadcaster.py` publishing signatures over ZeroMQ sockets.
 - **Traceability**: `FR-04`, `NFR-02`
 - **Dependencies**: `TASK-T01`
 - **Verification Command**: `pytest -v tests/unit/test_mesh_broadcaster.py`
 
-### [x] TASK-M02: Mesh Receiver & SQLite Ingestion Worker
-- **Status**: Completed
+### [ ] TASK-M02: Mesh Receiver & SQLite Ingestion Worker
+- **Status**: Pending Implementation
 - **Description**: Implement `MeshReceiver` service in `src/blackwall/enterprise/mesh/receiver.py` ingesting incoming mesh signatures into SQLite.
 - **Traceability**: `FR-05`, `FR-06`, `NFR-01`, `NFR-02`
 - **Dependencies**: `TASK-M01`
