@@ -24,6 +24,7 @@ from blackwall.enterprise.mcp import (
     OpenTelemetryMCPAdapter,
     VaultMCPAdapter,
 )
+from blackwall.enterprise.mesh import MeshBroadcaster, MeshReceiver
 from blackwall.enterprise.pipeline import (
     ASTPipelineFilter,
     PipelineSandboxManager,
@@ -38,6 +39,8 @@ __all__ = [
     "ContainerSandboxMCPAdapter",
     "FalcoMCPAdapter",
     "OpenTelemetryMCPAdapter",
+    "MeshBroadcaster",
+    "MeshReceiver",
     "ASTPipelineFilter",
     "PipelineSandboxManager",
     "guard_pipeline",

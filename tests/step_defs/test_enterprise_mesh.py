@@ -2,7 +2,8 @@
 BDD Step Definitions for Blackwall Enterprise Security Mesh (`tests/features/blackwall_enterprise_mesh.feature`).
 """
 
-from datetime import datetime, timezone, timedelta
+import asyncio
+from datetime import datetime, timedelta, timezone
 import time
 import uuid
 
@@ -10,12 +11,15 @@ import pytest
 from pydantic import ValidationError
 from pytest_bdd import given, scenarios, then, when
 
+from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.enterprise import (
     ASTPipelineFilter,
     ContainerSandboxMCPAdapter,
     FalcoMCPAdapter,
     ForensicTriageManager,
     LightweightForensicParser,
+    MeshBroadcaster,
+    MeshReceiver,
     OpenTelemetryMCPAdapter,
     SecretVaultSidecar,
     VaultMCPAdapter,
@@ -31,7 +35,6 @@ from blackwall.enterprise.advanced_threat_detection import (
     NormalizedEvent,
     RetrospectiveAnalyzer,
 )
-
 from tests.step_defs.async_utils import run_async
 
 # Link to Gherkin feature file
@@ -139,35 +142,99 @@ def verify_zero_cost(state):
 
 @given("an Enterprise Threat Mesh node with ZeroMQ broadcaster and receiver")
 def setup_mesh_nodes(state):
-    state.broadcast_signature = {
-        "signature_id": "sig_rce_nc_001",
-        "pattern": "nc -e /bin/sh",
-        "threat_level": "CRITICAL",
-        "timestamp": time.time(),
-    }
+    import tempfile
+
+    state.temp_db_dir = tempfile.mkdtemp()
+    state.temp_db_path = f"{state.temp_db_dir}/test_mesh.db"
+    state.mesh_endpoint = "tcp://127.0.0.1:5599"
 
 
 @given("a local SQLite threat signature graph operating in WAL mode")
 def setup_sqlite_wal(state):
-    assert True
+    state.mesh_repo = SQLiteThreatRepository(db_path=state.temp_db_path)
+    state.mesh_broadcaster = MeshBroadcaster(endpoint=state.mesh_endpoint, bind=True)
+    state.mesh_receiver = MeshReceiver(
+        endpoint=state.mesh_endpoint,
+        repository=state.mesh_repo,
+        connect=True,
+    )
 
 
 @when('Node 1 generates a dynamic threat signature "sig_rce_nc_001"')
 def generate_threat_signature(state):
-    start_time = time.time()
-    state.ingested_signature = dict(state.broadcast_signature)
-    state.sync_duration_ms = (time.time() - start_time) * 1000.0
+    state.broadcast_signature = {
+        "signature_id": "sig_rce_nc_001",
+        "payload_pattern": "nc -e /bin/sh",
+        "threat_level": "CRITICAL",
+        "attacker_intent": "REMOTE_SHELL",
+        "target_tool": "bash",
+        "mitigation_action": "BLOCK",
+        "created_at": time.time(),
+    }
+
+    async def _execute_sync():
+        await state.mesh_repo.initialize()
+
+        ingested_event = asyncio.Event()
+
+        def _on_ingested(payload):
+            if payload.get("signature_id") == "sig_rce_nc_001":
+                state.ingested_signature = payload
+                ingested_event.set()
+
+        state.mesh_receiver.on_signature_received = _on_ingested
+
+        await state.mesh_broadcaster.start()
+        await state.mesh_receiver.start()
+        await asyncio.sleep(0.08)
+
+        start_time = time.perf_counter()
+        published = await state.mesh_broadcaster.broadcast(state.broadcast_signature)
+
+        await asyncio.wait_for(ingested_event.wait(), timeout=1.0)
+        duration_ms = (time.perf_counter() - start_time) * 1000.0
+
+        async with state.mesh_repo.pool.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT signature_id, payload_pattern, mitigation_action FROM signatures WHERE signature_id = ?",
+                ("sig_rce_nc_001",),
+            )
+            row = await cursor.fetchone()
+
+        await state.mesh_broadcaster.stop()
+        await state.mesh_receiver.stop()
+        await state.mesh_repo.close()
+
+        return published, duration_ms, row
+
+    (
+        state.broadcast_published,
+        state.sync_duration_ms,
+        state.db_row,
+    ) = run_async(_execute_sync())
 
 
 @then("the signature is published over ZeroMQ pub/sub sockets")
 def verify_zmq_broadcast(state):
-    assert state.ingested_signature["signature_id"] == "sig_rce_nc_001"
+    assert state.broadcast_published is True
 
 
 @then("Node 2 ingests the signature into its local SQLite database within 15 ms")
 def verify_sync_latency(state):
-    assert state.sync_duration_ms < 15.0
-    assert state.ingested_signature["threat_level"] == "CRITICAL"
+    try:
+        assert state.sync_duration_ms < 15.0, (
+            f"Sync duration was {state.sync_duration_ms:.2f} ms; expected < 15.0 ms"
+        )
+        assert state.ingested_signature is not None
+        assert state.db_row is not None
+        assert state.db_row[0] == "sig_rce_nc_001"
+        assert state.db_row[1] == "nc -e /bin/sh"
+        assert state.db_row[2] == "BLOCK"
+    finally:
+        if state.temp_db_dir:
+            import shutil
+
+            shutil.rmtree(state.temp_db_dir, ignore_errors=True)
 
 
 # --- Scenario: Secret masking sidecar and Vault JIT token exchange ---
