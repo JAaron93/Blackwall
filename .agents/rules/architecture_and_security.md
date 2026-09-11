@@ -13,7 +13,7 @@
 * **Rationale:** Silently falling back to in-memory storage hides infrastructure misconfigurations and leads to data loss upon process restarts.
 
 ## 4. Production Import Error Enforcement
-* **Rule:** Module entrypoints (`agent/__init__.py`, `blackwall/__init__.py`) MUST NOT swallow missing configuration `ValueError` exceptions in production. Exception suppression is permitted ONLY when `PYTEST_CURRENT_TEST` or `BLACKWALL_TEST_MODE` is present in `os.environ`.
+* **Rule:** Module entrypoints (`agent/__init__.py`) MUST NOT swallow missing configuration `ValueError` exceptions in production. Exception suppression is permitted ONLY when `PYTEST_CURRENT_TEST` or `BLACKWALL_TEST_MODE` is present in `os.environ`.
 * **Rationale:** Suppressing configuration errors in production allows daemons to launch in invalid or unmonitored security states.
 
 ## 5. Unconditional Credential Purging
@@ -21,7 +21,7 @@
 * **Rationale:** Prevents credential leakage and ensures GCP Vertex AI enterprise mode compliance across all sub-processes without artificial rate throttling.
 
 ## 6. Context Hygiene & Sanitization
-* **Rule:** `ContextResolver` middleware must replace sensitive environment variable patterns with generic placeholders (`[[VARIABLE_NAME]]`). Integration tests querying external hostnames (e.g. GTI / VirusTotal) must use un-redacted standalone hostnames (e.g. `wd-bouygues.com`) to prevent accidental sanitization matching.
+* **Rule:** `ContextHygiene` middleware (`src/blackwall/middleware/context_hygiene.py`, re-exported in `src/blackwall/resolver.py`) must replace sensitive environment variable patterns with generic placeholders (`[[VARIABLE_NAME]]`). Integration tests querying external hostnames (e.g. GTI / VirusTotal) must use un-redacted standalone hostnames (e.g. `wd-bouygues.com`) to prevent accidental sanitization matching.
 
 ## 7. Pydantic Model Import Preservation
 * **Rule:** When modifying imports in Pydantic schema files (`models.py`, `policy/models.py`), core Pydantic symbols (`BaseModel`, `Field`, `field_validator`, `model_validator`) MUST NOT be deleted or replaced. Always preserve Pydantic imports alongside newly added utility imports to avoid import-time `NameError` failures.
@@ -42,6 +42,9 @@
 * **Rule (Fingerprint Integrity & Tampering Prevention):** Identity fingerprinting methods (e.g. `compute_fingerprint()`) MUST recompute expected SHA-256 hashes unconditionally from canonical identity fields. If a caller supplies an explicit fingerprint parameter, it MUST be validated against the recomputed hash and raise a `ValueError` on mismatch. Numerical identity attributes (e.g. `process_uid`, `agent_id`) MUST use explicit `val is None` checks rather than `or` truthiness fallbacks to prevent collapsing valid falsy identifiers (e.g., `process_uid=0` for root).
 * **Rule (Freshness & Temporal Sequence Invariants):** Model timestamp validators MUST NOT drop freshness window bounds (e.g. ±5.0 second delta limit on `SecurityEvent`) when applying UTC timezone validation (`validate_utc_datetime`). Models containing multi-timestamp lifecycles (e.g. `AttackerProfile` with `first_seen` and `last_seen`) MUST enforce `last_seen >= first_seen` via `@model_validator` and `validate_temporal_sequence()`.
 
+## 12. Chronological Causal Edges & O(1) Directed Edge Resolution
+* **Rule (Chronological Causal Edges):** Causal edges in temporal adjacency graph construction MUST enforce `target_node.event.timestamp >= node_a.event.timestamp`. Path materialization loops MUST skip reverse-ordered sequences (`end_time < start_time`) and catch `ValueError` during `AttackPath` model instantiation to prevent invalid edge data from failing correlation calls.
+* **Rule (O(1) Causal Edge Resolution):** Temporal window iteration MUST break unconditionally when temporal distance exceeds the 300-second window (`delta_sec > 300`). Explicit causal edges MUST be resolved via a precomputed incoming edge index (`Dict[uuid.UUID, List[AttackNode]]`) for $O(1)$ directed edge lookup regardless of time separation.
 
 ## 13. Pydantic Configuration Model Declarations & Field Optionality Invariants
 * **Rule:** In Pydantic configuration models (`src/blackwall/policy/models.py`, `src/blackwall/models.py`), nested configuration sections MUST NOT combine `Optional[T]` type annotations with `default_factory=T`.
@@ -174,7 +177,7 @@
 
 ## 38. Evaluation Environment Support & Mandatory Production Containment Gate (Architecture Rule 20)
 * **Rule (When and How to Use Evaluation Environments):**
-  1. **When to Use:** Security testing agents, eval suites, and red-team benchmarks (e.g. CyberGym, synthetic prompt injections, Weave evals) MUST route telemetry through `EvaluationEnvironmentManager` / `EvaluationEnvironment` (`blackwall.enterprise.advanced_threat_detection.evaluation`) to isolate synthetic attacks from production databases and active incident response.
+  1. **When to Use:** Security testing agents, eval suites, and red-team benchmarks (e.g. CyberGym, synthetic prompt injections, GCP Vertex AI evals) MUST route telemetry through `EvaluationEnvironmentManager` / `EvaluationEnvironment` (`blackwall.enterprise.advanced_threat_detection.evaluation`) to isolate synthetic attacks from production databases and active incident response.
   2. **Mandatory Containment Gate:** Live mitigation handlers (e.g., eBPF socket drops, Threat Mesh broadcasts, Vault honeytoken revocations) MUST evaluate `await manager.is_evaluation_mode(evidence_id)` or `manager.should_suppress_production_reaction(alert_or_event)` before executing active production mitigations. If containment evaluates to `True`, active production disruption MUST be suppressed.
   3. **Multi-Tenant Deterministic ID Derivation:** Evaluation environments ingesting events MUST deterministically derive scoped UUIDv4 identifiers per environment (`blackwall://eval/{env_id}/{event_id}`) using SHA-256 derivation while preserving `original_event_id` in metadata. This guarantees zero identifier collisions and prevents cross-tenant state leakage when multiple evaluation environments share a single PostgreSQL database.
   4. **Scoped PostgreSQL Reset & Edge Cleanup:** Environment state resets (`env.reset()`) MUST scope deletions strictly to `metadata->>'evaluation_env_id' = $1` inside atomic transactions and clean up deleted edge IDs from surviving nodes' `incoming_edges` and `outgoing_edges` JSONB arrays.

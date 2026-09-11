@@ -12,7 +12,7 @@ Blackwall is structured into **two distinct product tiers**:
    - Zero cluster-mesh/peer-to-peer networking (ZeroMQ/NATS) or C-kernel eBPF dependencies (exemption: 100% GCP Vertex AI Mode clients for Gemini Enterprise Agent Platform and VirusTotal GTI MCP are fully supported in Core; red-teamer attack agents in demo harness use Hyperbolic API).
 2. **Blackwall Enterprise Mesh (Enterprise Edition)**:
    - Multi-host security mesh isolated under `src/blackwall/enterprise/`.
-   - Features C/Python eBPF kernel probes, ZeroMQ pub/sub signature sync, Ephemeral Identity Sidecar, Data Pipeline Wrappers, Dual-Mode Local Forensic Triage Engine, and 4 Open-Source Local MCP adapters.
+   - Features C/Python eBPF kernel probes, Ephemeral Identity Sidecar, Data Pipeline Wrappers, Dual-Mode Local Forensic Triage Engine, 4 Open-Source Local MCP adapters, and Distributed Threat Mesh architecture (Pillar 2 specification / interface).
 
 ---
 
@@ -21,7 +21,7 @@ Blackwall is structured into **two distinct product tiers**:
 All code submitted via pull requests or feature branches must be reviewed against these Greptile agent guardrails:
 
 * **Greptile Review Directives**: Enforce Greptile agent review standards configured in `.greptile/config.json`, `.greptile/rules.md`, and `.greptile/files.json`. Greptile reviews must verify both Core and Enterprise architecture invariants.
-* **Spec-Driven Consistency**: All edits must align with `.kiro/specs/blackwall-mcp-gateway/`, `.kiro/specs/blackwall-enterprise-security-mesh/`, `.kiro/specs/blackwall-advanced-threat-detection/`, `.kiro/specs/blackwall-attacker-attribution/`, `.kiro/specs/agent-swarm-attribution-logic/`, `.kiro/specs/blackwall-test-coverage-remediation/`, `.kiro/specs/blackwall-gcp-evaluation-coverage/`, and `.kiro/specs/blackwall-rust-acceleration/` (`design.md`, `requirements.md`, `tasks.md`).
+* **Spec-Driven Consistency**: All edits must align with `.kiro/specs/` (`agent-swarm-attribution-logic`, `blackwall-advanced-threat-detection`, `blackwall-agentic-firewall`, `blackwall-attacker-attribution`, `blackwall-enterprise-security-mesh`, `blackwall-gcp-evaluation-coverage`, `blackwall-mcp-gateway`, `blackwall-rust-acceleration`, `blackwall-test-coverage-remediation` — `design.md`, `requirements.md`, `tasks.md`).
 
 * **Behavior-Driven Specifications**: Verify all security behavior contracts using Gherkin syntax via `pytest-bdd` scenarios in `tests/features/`.
 * **Strict Test-Driven Development (TDD)**: Every feature addition or bug fix must include a failing unit test or reproduction script before code changes are staged.
@@ -37,7 +37,7 @@ Greptile reviews must enforce the existing base branch architectural patterns:
 2. **FTS5 Similarity Scoring & Match Quality**:
    - SQLite Threat Signature Graph queries MUST use word-level intersection match quality calculation (`match_quality = len(intersection) / min_len`) scaled by FTS fallback score and capped by dynamic threshold limits to prevent false positives.
 3. **Context Hygiene & Sanitization**:
-   - `ContextResolver` middleware must replace sensitive environment variable patterns with generic placeholders (`[[VARIABLE_NAME]]`).
+   - `ContextHygiene` middleware (`src/blackwall/middleware/context_hygiene.py`, re-exported in `src/blackwall/resolver.py`) must replace sensitive environment variable patterns with generic placeholders (`[[VARIABLE_NAME]]`).
    - Integration tests querying external hostnames (e.g. GTI / VirusTotal) must use un-redacted standalone hostnames (e.g. `wd-bouygues.com`) to prevent accidental sanitization matching.
 4. **VirusTotal GTI Free-Tier Rate Limit Invariant**:
    - VirusTotal Google Threat Intelligence (GTI) MCP queries MUST remain strictly capped at the 4 queries per 60-second sliding window free-tier limit via `GTIQueryBudgetTracker` token bucket rate limiting (1 token replenished every 15 seconds). GTI validation is reserved exclusively for high-risk events with graceful degradation upon budget exhaustion.
@@ -50,12 +50,12 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
 
 * **Pillar 1: Kernel-Level Interception (`blackwall.enterprise.kernel`) & `ebpf-falco-mcp`**
   - Dual-driver kernel probe: `LinuxeBPFDriver` (Linux kernel >= 5.4) with fallback to `UserSpaceAuditDriver` (`sys.addaudithook` on macOS).
-* **Pillar 2: Distributed Threat Mesh (`blackwall.enterprise.mesh`)**
-  - `MeshBroadcaster` and `MeshReceiver` communicating over ZeroMQ/NATS pub/sub sockets with <15ms signature persistence.
+* **Pillar 2: Distributed Threat Mesh (`blackwall.enterprise.mesh` Specification)**
+  - Architectural specification for `MeshBroadcaster` and `MeshReceiver` communicating over ZeroMQ/NATS pub/sub sockets with <15ms signature persistence (currently an abstracted duck-typed interface in `ActiveReactionEngine`; ZeroMQ networking is an architectural specification rather than an active module).
 * **Pillar 3: Ephemeral Identity Sidecar (`blackwall.enterprise.identity`) & `hashicorp-vault-mcp`**
   - Honey-token interception (`BW_SYNTHETIC_*`) triggering instant `CRITICAL` verdicts, with short-lived STS tokens issued via Vault MCP.
 * **Pillar 4: Application Pipeline Interception Wrappers (`blackwall.enterprise.pipeline`) & `container-sandbox-mcp`**
-  - `@blackwall.guard_pipeline` decorator and AST parser protecting dataset loaders, pickle parsers, and microVM container sandboxes.
+  - `guard_pipeline` decorator (`from blackwall.enterprise.pipeline import guard_pipeline`) and AST parser protecting dataset loaders, pickle parsers, and microVM container sandboxes.
 * **Pillar 5: Native Local Forensic Triage Engine (`blackwall.enterprise.forensics`) & `opentelemetry-mcp`**
   - Dual-mode out-of-band telemetry log analyzer (local Ollama LLM with AST/regex fallback) and OpenTelemetry exporter.
 * **Pillar 6: Advanced Threat Detection & Evaluation (`blackwall.enterprise.advanced_threat_detection`)**

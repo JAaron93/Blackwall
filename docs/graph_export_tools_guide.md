@@ -1,6 +1,6 @@
 # Blackwall Attack Graph Export: External Tools Guide
 
-This guide details how to consume, analyze, and visualize Blackwall Attack Graph exports ([`AttackGraphExporter`](file:///Users/pretermodernist/.gemini/antigravity/worktrees/Blackwall/implement_blackwall_seventeen_advanced/src/blackwall/enterprise/advanced_threat_detection/graph_export.py)) using external graph analysis and visualization tools: **NetworkX**, **Gephi**, and **Cytoscape / Cytoscape.js**.
+This guide details how to consume, analyze, and visualize Blackwall Attack Graph exports ([`AttackGraphExporter`](../src/blackwall/enterprise/advanced_threat_detection/graph_export.py)) using external graph analysis and visualization tools: **NetworkX**, **Gephi**, and **Cytoscape / Cytoscape.js**.
 
 ---
 
