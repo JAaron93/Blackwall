@@ -72,13 +72,18 @@ class MeshReceiver:
 
     async def wait_until_ready(self, timeout: float = 0.08) -> None:
         """Awaits ZeroMQ subscription handshake settlement across nodes."""
+        if self._is_ready:
+            return
         if not self._is_active:
             await self.start()
-        if not self._is_ready and self.warmup_delay_s > 0:
-            await asyncio.sleep(self.warmup_delay_s)
-            self._is_ready = True
-        elif timeout > 0:
-            await asyncio.sleep(timeout)
+            if self._is_ready:
+                return
+
+        delay = self.warmup_delay_s if self.warmup_delay_s > 0 else timeout
+        wait_time = min(delay, timeout) if timeout > 0 else delay
+        if wait_time > 0:
+            await asyncio.sleep(wait_time)
+        self._is_ready = True
 
     async def start(self) -> None:
         """Initializes SUB socket, connects/binds, and launches background ingestion loop."""
@@ -119,10 +124,10 @@ class MeshReceiver:
                         self.connect,
                     )
 
-                if self.warmup_delay_s > 0 and not self._is_ready:
-                    await asyncio.sleep(self.warmup_delay_s)
-
-                self._is_ready = True
+                if self.warmup_delay_s > 0:
+                    if not self._is_ready:
+                        await asyncio.sleep(self.warmup_delay_s)
+                    self._is_ready = True
             except Exception as exc:
                 logger.error("Failed to start MeshReceiver on %s: %s", self.endpoint, exc)
                 await self.stop()
