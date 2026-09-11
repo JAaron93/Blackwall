@@ -72,7 +72,36 @@ Blackwall is structured into **two distinct product tiers** to serve both develo
 
 ### ⚡ Enterprise Security Mesh Quick Start
 
+```bash
+# Install with Enterprise extras (ZeroMQ Threat Mesh)
+pip install -e ".[enterprise]"
+```
+
 ```python
+# Track 2: Distributed Threat Mesh Broadcast & Ingestion (ZeroMQ)
+from blackwall.enterprise.mesh import MeshBroadcaster, MeshReceiver
+
+broadcaster = MeshBroadcaster(endpoint="tcp://127.0.0.1:5555", bind=True)
+receiver = MeshReceiver(endpoint="tcp://127.0.0.1:5555", connect=True)
+
+await broadcaster.start()
+await receiver.start()
+
+# Await ZeroMQ subscription handshake settlement before broadcasting
+await receiver.wait_until_ready()
+
+# Asynchronously broadcast threat signature across cluster nodes (< 15 ms sync SLA)
+await broadcaster.broadcast({
+    "signature_id": "sig_mesh_001",
+    "payload_pattern": "nc -e /bin/sh",
+    "threat_level": "CRITICAL",
+    "target_tool": "bash",
+    "mitigation_action": "BLOCK",
+})
+
+# Ingest and retrieve synchronized signature from local node queue (< 15 ms sync SLA)
+received = await receiver.receive_one(timeout=1.0)
+
 # Track 3: Secret Masking & Ephemeral Identity Sidecar
 from blackwall.enterprise.identity import SecretVaultSidecar
 

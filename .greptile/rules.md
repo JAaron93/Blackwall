@@ -29,7 +29,7 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 - **Isolated Location**: All enterprise capabilities must reside exclusively under `src/blackwall/enterprise/`.
 - **Subsystem Breakdown**:
   - **Pillar 1 (Kernel Interception)**: `src/blackwall/enterprise/kernel/` (`LinuxeBPFDriver` with fallback to `UserSpaceAuditDriver`).
-  - **Pillar 2 (Threat Mesh Specification)**: Distributed Threat Mesh architecture (ZeroMQ/NATS pub/sub socket communication with <15ms persistence specification; duck-typed interface in `ActiveReactionEngine`).
+  - **Pillar 2 (Distributed Threat Mesh)**: `src/blackwall/enterprise/mesh/` (`MeshBroadcaster` and `MeshReceiver` communicating over ZeroMQ pub/sub sockets with <15ms SQLite persistence).
   - **Pillar 3 (Ephemeral Identity Sidecar)**: `src/blackwall/enterprise/identity/` (Honey-tokens `BW_SYNTHETIC_*` and Vault MCP JIT STS tokens).
   - **Pillar 4 (Pipeline Interception & Sandboxes)**: `src/blackwall/enterprise/pipeline/` (`guard_pipeline` decorator and container sandboxes).
   - **Pillar 5 (Forensic Engine & OpenTelemetry)**: `src/blackwall/enterprise/forensics/` (Dual-mode LLM triage with regex/AST fallback, OpenTelemetry exporter).

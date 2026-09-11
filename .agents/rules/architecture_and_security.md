@@ -412,3 +412,28 @@
     3. URLs with scheme (`http://`, `https://`, `tcp://`) and protocol-relative URLs (`//`).
   - Extracted IPv6 endpoints MUST populate `shared_patterns` with canonical `ip:<normalized_ipv6>` prefixes. Valid public IPv6 targets MUST be recognized as external infrastructure to avoid false-positive `UNLOCATED_MESSAGE_BOARD` covert channel alerts.
 * **Rationale:** Discovered on PR #116. Broad regex scans mistakenly elevated internal REST URL path literals to external C2, while omitting unbracketed IPv6 targets from swarm extraction caused normal public IPv6 traffic to be falsely flagged as covert communication boards.
+
+## 61. Core Tier Dependency Scoping & Enterprise Extra Isolation (`pyproject.toml`)
+* **Rule:** Enterprise-specific dependencies—including ZeroMQ (`pyzmq`), NATS, or eBPF libraries—MUST NEVER be listed in base `[project.dependencies]` in `pyproject.toml`. Enterprise dependencies MUST be declared strictly within `[project.optional-dependencies].enterprise` (and mirrored in `dev` for testing). Blackwall Core (`src/blackwall/` outside `src/blackwall/enterprise/`) MUST remain a lightweight, single-host daemon with zero imports or installation dependencies on distributed clustering or kernel interception libraries.
+* **Rationale:** Adding distributed networking or kernel libraries to base dependencies forces all single-host developer installations to compile and install heavy C/extension dependencies, breaking Core tier isolation and tripping Greptile architectural review invariants.
+
+## 62. Threat Signature Non-Empty Pattern Validation & Wildcard Defense
+* **Rule:** Threat signature normalizers, ingestion workers, and repository persistence interfaces MUST strictly reject messages or inputs where `payload_pattern` (or `pattern`) is missing, empty, or whitespace-only (`not pattern or not pattern.strip()`), returning `None` or raising `ValueError`. They MUST NOT substitute empty default patterns (`""`) into blocking threat signatures.
+* **Rationale:** In signature repository lookups, substring matching evaluates an empty pattern as matching any string (`"" in args_str` is `True`). Ingesting an empty pattern with action `BLOCK` creates a critical false-positive security vulnerability that indiscriminately blocks all subsequent tool calls for the affected tool or sink.
+
+## 63. ZeroMQ Socket Concurrency & Single Ownership Pattern
+* **Rule:** A ZeroMQ socket (e.g., `zmq.SUB`, `zmq.PULL`) MUST be exclusively owned and polled by a single background worker task (e.g., `_ingestion_loop()`). Multiple coroutines or external query methods MUST NOT call `recv_multipart()` or `recv()` directly on the shared socket. Ingestion components exposing synchronous or ad-hoc retrieval methods (e.g., `receive_one()`) MUST buffer incoming messages into an internal bounded queue (`asyncio.Queue(maxsize=...)`) populated solely by the background worker, and consume from that queue.
+* **Rationale:** Direct concurrent polling on a shared ZeroMQ socket creates race conditions where the background worker consumes messages meant for the ad-hoc caller, leading to false timeouts, dropped signatures, and non-deterministic behavior.
+
+## 64. ZeroMQ Pub/Sub Slow-Joiner Mitigation, Bidirectional Readiness Lifecycle, & Quickstart Documentation Contract
+* **Rule (Warmup Delay & Readiness Tracking):**
+  - Both publisher (`MeshBroadcaster`) and subscriber (`MeshReceiver`) components managing ZeroMQ sockets MUST implement a configurable warmup grace period (`warmup_delay_s: float = 0.05` default) and explicit readiness state tracking (`is_ready: bool`).
+  - Sockets MUST allow the warmup period to elapse after `bind()` or `connect()` before transmitting payloads. Any `broadcast()` or `broadcast_sync()` call invoked on an uninitialized or unready broadcaster MUST ensure the warmup grace period is satisfied prior to message transmission.
+* **Rule (Bounded Lifecycle Helper & Immediate Ready Return):**
+  - Distributed messaging components MUST expose an explicit async lifecycle helper `wait_until_ready(timeout: float = 0.08) -> None`.
+  - If the socket is already ready (`self._is_ready is True`), `wait_until_ready()` MUST return immediately (0 ms) to avoid injecting unnecessary latency.
+  - The wait duration MUST be strictly bounded by `timeout` using `min(warmup_delay, timeout)` if `timeout > 0`, preventing callers from exceeding lifecycle deadlines or waiting indefinitely.
+* **Rule (Quickstart Documentation & Orchestration Contract):**
+  - Public-facing documentation snippets (e.g. `README.md`) and orchestration scripts demonstrating pub/sub broadcast MUST NOT emit messages immediately after calling `receiver.start()` without demonstrating the required readiness sequence (`await receiver.wait_until_ready()`).
+  - Snippets MUST illustrate end-to-end lifecycle closure by demonstrating both publication and ingestion retrieval (`received = await receiver.receive_one(timeout=1.0)`).
+* **Rationale:** ZeroMQ PUB/SUB sockets exhibit the classic "slow joiner" race condition: messages sent immediately after socket creation or connection are dropped by the underlying transport before subscriber peers complete TCP connection handshakes and subscription frame exchanges. Enforcing bidirectional readiness tracking, bounded lifecycle helpers, and end-to-end documentation patterns guarantees that distributed cluster nodes receive broadcasted threat signatures without message drops or misleading quickstart experiences.

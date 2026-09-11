@@ -50,8 +50,8 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
 
 * **Pillar 1: Kernel-Level Interception (`blackwall.enterprise.kernel`) & `ebpf-falco-mcp`**
   - Dual-driver kernel probe: `LinuxeBPFDriver` (Linux kernel >= 5.4) with fallback to `UserSpaceAuditDriver` (`sys.addaudithook` on macOS).
-* **Pillar 2: Distributed Threat Mesh (`blackwall.enterprise.mesh` Specification)**
-  - Architectural specification for `MeshBroadcaster` and `MeshReceiver` communicating over ZeroMQ/NATS pub/sub sockets with <15ms signature persistence (currently an abstracted duck-typed interface in `ActiveReactionEngine`; ZeroMQ networking is an architectural specification rather than an active module).
+* **Pillar 2: Distributed Threat Mesh (`blackwall.enterprise.mesh`)**
+  - `MeshBroadcaster` and `MeshReceiver` communicating over ZeroMQ pub/sub sockets with <15ms SQLite signature persistence (integrated with `ActiveReactionEngine` reactions and `SQLiteThreatRepository` in WAL mode).
 * **Pillar 3: Ephemeral Identity Sidecar (`blackwall.enterprise.identity`) & `hashicorp-vault-mcp`**
   - Honey-token interception (`BW_SYNTHETIC_*`) triggering instant `CRITICAL` verdicts, with short-lived STS tokens issued via Vault MCP.
 * **Pillar 4: Application Pipeline Interception Wrappers (`blackwall.enterprise.pipeline`) & `container-sandbox-mcp`**
