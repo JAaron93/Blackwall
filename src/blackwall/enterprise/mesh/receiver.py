@@ -38,17 +38,20 @@ class MeshReceiver:
         db_path: str = "./blackwall.db",
         topic: str = "",
         connect: bool = True,
+        warmup_delay_s: float = 0.05,
     ) -> None:
         self.endpoint = endpoint
         self.topic = topic
         self.connect = connect
         self.db_path = db_path
         self.repository = repository or SQLiteThreatRepository(db_path=db_path)
+        self.warmup_delay_s = warmup_delay_s
 
         self._context: Any | None = None
         self._socket: Any | None = None
         self._worker_task: asyncio.Task[None] | None = None
         self._is_active: bool = False
+        self._is_ready: bool = False
         self._lock = asyncio.Lock()
 
         # Telemetry & Callbacks
@@ -62,9 +65,24 @@ class MeshReceiver:
         """Returns True if the receiver socket and ingestion worker are active."""
         return self._is_active
 
+    @property
+    def is_ready(self) -> bool:
+        """Returns True if the receiver socket has connected and completed warmup."""
+        return self._is_active and self._is_ready
+
+    async def wait_until_ready(self, timeout: float = 0.08) -> None:
+        """Awaits ZeroMQ subscription handshake settlement across nodes."""
+        if not self._is_active:
+            await self.start()
+        if not self._is_ready and self.warmup_delay_s > 0:
+            await asyncio.sleep(self.warmup_delay_s)
+            self._is_ready = True
+        elif timeout > 0:
+            await asyncio.sleep(timeout)
+
     async def start(self) -> None:
         """Initializes SUB socket, connects/binds, and launches background ingestion loop."""
-        if self._is_active:
+        if self._is_active and self._is_ready:
             return
 
         if not HAS_ZMQ:
@@ -74,31 +92,37 @@ class MeshReceiver:
             )
 
         async with self._lock:
-            if self._is_active:
+            if self._is_active and self._is_ready:
                 return
 
             try:
-                await self.repository.initialize()
+                if not self._is_active:
+                    await self.repository.initialize()
 
-                self._context = zmq.asyncio.Context()
-                self._socket = self._context.socket(zmq.SUB)
-                self._socket.setsockopt(zmq.LINGER, 0)
-                # Subscribe to topic prefix (empty string subscribes to all messages)
-                self._socket.setsockopt(zmq.SUBSCRIBE, self.topic.encode("utf-8"))
+                    self._context = zmq.asyncio.Context()
+                    self._socket = self._context.socket(zmq.SUB)
+                    self._socket.setsockopt(zmq.LINGER, 0)
+                    # Subscribe to topic prefix (empty string subscribes to all messages)
+                    self._socket.setsockopt(zmq.SUBSCRIBE, self.topic.encode("utf-8"))
 
-                if self.connect:
-                    self._socket.connect(self.endpoint)
-                else:
-                    self._socket.bind(self.endpoint)
+                    if self.connect:
+                        self._socket.connect(self.endpoint)
+                    else:
+                        self._socket.bind(self.endpoint)
 
-                self._is_active = True
-                self._worker_task = asyncio.create_task(self._ingestion_loop())
-                logger.debug(
-                    "MeshReceiver active on %s (topic=%r, connect=%s)",
-                    self.endpoint,
-                    self.topic,
-                    self.connect,
-                )
+                    self._is_active = True
+                    self._worker_task = asyncio.create_task(self._ingestion_loop())
+                    logger.debug(
+                        "MeshReceiver active on %s (topic=%r, connect=%s)",
+                        self.endpoint,
+                        self.topic,
+                        self.connect,
+                    )
+
+                if self.warmup_delay_s > 0 and not self._is_ready:
+                    await asyncio.sleep(self.warmup_delay_s)
+
+                self._is_ready = True
             except Exception as exc:
                 logger.error("Failed to start MeshReceiver on %s: %s", self.endpoint, exc)
                 await self.stop()
@@ -110,6 +134,7 @@ class MeshReceiver:
             return
 
         self._is_active = False
+        self._is_ready = False
 
         if self._worker_task is not None:
             try:

@@ -58,6 +58,16 @@ class MeshBroadcaster:
         """Returns True if the broadcaster has completed its warmup handshake period."""
         return self._is_active and self._is_ready
 
+    async def wait_until_ready(self, timeout: float = 0.08) -> None:
+        """Awaits ZeroMQ publisher socket warmup settlement."""
+        if not self._is_active:
+            await self.start()
+        if not self._is_ready and self.warmup_delay_s > 0:
+            await asyncio.sleep(self.warmup_delay_s)
+            self._is_ready = True
+        elif timeout > 0:
+            await asyncio.sleep(timeout)
+
     async def start(self) -> None:
         """Initializes the ZeroMQ PUB socket, binds/connects, and allows warmup handshake."""
         if self._is_active and self._is_ready:

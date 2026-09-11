@@ -87,6 +87,9 @@ receiver = MeshReceiver(endpoint="tcp://127.0.0.1:5555", connect=True)
 await broadcaster.start()
 await receiver.start()
 
+# Await ZeroMQ subscription handshake settlement before broadcasting
+await receiver.wait_until_ready()
+
 # Asynchronously broadcast threat signature across cluster nodes (< 15 ms sync SLA)
 await broadcaster.broadcast({
     "signature_id": "sig_mesh_001",
