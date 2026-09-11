@@ -393,3 +393,10 @@
 * **Rule (Active Progress Monitoring Timers):**
   - When running test suites in the background, agents MUST use the `schedule` tool with incremental intervals (15–30 seconds) to inspect progress (`manage_task status`), check execution percentages in log tails, and report current progress to the user. Agents MUST NEVER poll in tight loops or wait blindly without status visibility.
 * **Rationale:** Full test runs in large repositories execute thousands of property tests, database transactions, and BDD scenarios. Active progress telemetry gives users transparency and prevents premature abortion of healthy test runs.
+
+## 50. `pytest-bdd` Event Loop Scoping & Async Worker Lifecycle Guards with `run_async`
+* **Rule (Lifecycle Cancellation Guard):**
+  - Background worker components containing `asyncio.Task` references (e.g., `MeshReceiver._worker_task`) MUST check `if not loop.is_closed():` before calling `task.cancel()` or awaiting tasks in `stop()` methods.
+* **Rule (Unified Scenario Async Coroutines):**
+  - Multi-step asynchronous workflows that simulate multi-node pub/sub sync, event emission, and database ingestion MUST encapsulate the complete async lifecycle (start nodes, register event callbacks, publish, await delivery event, query database records, and stop nodes) within a single unified coroutine invoked by `run_async` in a step, rather than spawning worker tasks in a `Given` step and attempting to cancel or query them in subsequent `When` or `Then` steps.
+* **Rationale:** `tests.step_defs.async_utils.run_async` creates, runs, and closes a new `asyncio` event loop on every step execution. Worker tasks created on Loop 1 become orphaned when Loop 1 closes at the end of the step; attempting to cancel or await them on Loop 2 in a later step raises `RuntimeError: Event loop is closed`.
