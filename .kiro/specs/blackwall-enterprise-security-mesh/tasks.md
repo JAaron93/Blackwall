@@ -10,12 +10,12 @@ This document details the test-driven implementation plan for **Blackwall Enterp
 graph TD
     Track0["Track 0: Product Tier Isolation (TASK-T01) [COMPLETED]"]
     Track1["Track 1: Kernel Interception & Falco MCP (TASK-K01..K02) [COMPLETED]"]
-    Track2["Track 2: Distributed Mesh (TASK-M01..M02) [COMPLETED]"]
+    Track2["Track 2: Distributed Mesh (TASK-M01..M02) [PENDING]"]
     Track3["Track 3: Identity Sidecar & Vault MCP (TASK-I01..I02) [COMPLETED]"]
     Track4["Track 4: Pipeline Wrappers & Sandbox MCP (TASK-P01..P02) [COMPLETED]"]
     Track5["Track 5: Local Forensics & OTel MCP (TASK-F01..F02) [COMPLETED]"]
     Track6["Track 6: End-to-End BDD (TASK-E01) [COMPLETED]"]
-    Track7["Track 7: GCP Vertex AI Evaluation Suite (TASK-V01..V05) [COMPLETED]"]
+    Track7["Track 7: GCP Vertex AI Evaluation Suite (TASK-V01..V05) [PENDING]"]
 
     Track0 --> Track1
     Track0 --> Track2
@@ -65,15 +65,15 @@ graph TD
 
 ## Track 2: Distributed Threat Mesh (`blackwall.enterprise.mesh`)
 
-### [x] TASK-M01: ZeroMQ Pub/Sub Mesh Broadcaster
-- **Status**: Completed
+### [ ] TASK-M01: ZeroMQ Pub/Sub Mesh Broadcaster
+- **Status**: Pending Implementation
 - **Description**: Build `MeshBroadcaster` service in `src/blackwall/enterprise/mesh/broadcaster.py` publishing signatures over ZeroMQ sockets.
 - **Traceability**: `FR-04`, `NFR-02`
 - **Dependencies**: `TASK-T01`
 - **Verification Command**: `pytest -v tests/unit/test_mesh_broadcaster.py`
 
-### [x] TASK-M02: Mesh Receiver & SQLite Ingestion Worker
-- **Status**: Completed
+### [ ] TASK-M02: Mesh Receiver & SQLite Ingestion Worker
+- **Status**: Pending Implementation
 - **Description**: Implement `MeshReceiver` service in `src/blackwall/enterprise/mesh/receiver.py` ingesting incoming mesh signatures into SQLite.
 - **Traceability**: `FR-05`, `FR-06`, `NFR-01`, `NFR-02`
 - **Dependencies**: `TASK-M01`
@@ -138,37 +138,37 @@ graph TD
 ## Track 6: End-to-End Integration & BDD Verification
 
 ### [x] TASK-E01: Behavior-Driven Development (BDD) Feature Test Suite
-- **Status**: Completed
-- **Description**: Implement `tests/features/blackwall_enterprise_mesh.feature` and step definitions covering Core vs Enterprise tiers, 4 open-source MCP adapters, and forensic fallback.
+- **Status**: Completed (with In-Memory Mock Mesh Fixtures)
+- **Description**: Implement `tests/features/blackwall_enterprise_mesh.feature` and step definitions covering Core vs Enterprise tiers, 4 open-source MCP adapters, and forensic fallback. *(Note: Track 2 Distributed Threat Mesh scenario is verified via in-memory mock signatures pending TASK-M01/M02 concrete socket implementation).*
 - **Traceability**: `US-01`, `US-02`, `NFR-03`, `NFR-04`
-- **Dependencies**: `TASK-T01`, `TASK-K02`, `TASK-M02`, `TASK-I02`, `TASK-P02`, `TASK-F02`
+- **Dependencies**: `TASK-T01`, `TASK-K02`, `TASK-M02` (in-memory mock), `TASK-I02`, `TASK-P02`, `TASK-F02`
 - **Verification Command**: `pytest -v tests/step_defs/test_enterprise_mesh.py`
 
 ---
 
 ## Track 7: GCP Vertex AI Evaluation & Cybench Suite (`tests/evaluation/`)
 
-### [x] TASK-V01: GCP Vertex AI Track 1 Eval (Kernel Interception Accuracy)
-- **Status**: Completed
+### [ ] TASK-V01: GCP Vertex AI Track 1 Eval (Kernel Interception Accuracy)
+- **Status**: Pending Implementation
 - **Description**: Implement `test_eval_kernel_interception` evaluating system call interception accuracy across eBPF and Audit Hook drivers via `EvalTask`.
 - **Verification Command**: `pytest tests/evaluation/test_tier1_adk_harness.py`
 
-### [x] TASK-V02: GCP Vertex AI Track 2 Eval (Threat Mesh Sync Latency)
-- **Status**: Completed
+### [ ] TASK-V02: GCP Vertex AI Track 2 Eval (Threat Mesh Sync Latency)
+- **Status**: Pending Implementation
 - **Description**: Implement `test_eval_mesh_sync_latency` benchmarking multi-node signature broadcast and SQLite ingestion speed against the `< 15 ms` SLA.
 - **Verification Command**: `pytest tests/evaluation/test_tier1_adk_harness.py`
 
-### [x] TASK-V03: GCP Vertex AI Track 3 Eval (Honey-Token & Secret Vault Exchange)
-- **Status**: Completed
+### [ ] TASK-V03: GCP Vertex AI Track 3 Eval (Honey-Token & Secret Vault Exchange)
+- **Status**: Pending Implementation
 - **Description**: Implement `test_eval_identity_honeytoken` evaluating synthetic credential exfiltration detection rate (100%) and JIT token swap accuracy.
 - **Verification Command**: `pytest tests/evaluation/test_tier1_adk_harness.py`
 
-### [x] TASK-V04: Cybench Track 4 Eval (Pipeline Micro-Sandbox Containment)
-- **Status**: Completed
+### [ ] TASK-V04: Cybench Track 4 Eval (Pipeline Micro-Sandbox Containment)
+- **Status**: Pending Implementation
 - **Description**: Implement `test_eval_pipeline_containment` evaluating dataset loader RCE and Jinja template injection neutralization score in gVisor microVM sandbox.
 - **Verification Command**: `pytest tests/evaluation/test_tier2_gvisor_scenarios.py`
 
-### [x] TASK-V05: GCP Vertex AI Track 5 Eval (Dual-Mode Local Forensic Triage)
-- **Status**: Completed
+### [ ] TASK-V05: GCP Vertex AI Track 5 Eval (Dual-Mode Local Forensic Triage)
+- **Status**: Pending Implementation
 - **Description**: Implement `test_eval_forensics_dual_mode` evaluating log triage accuracy across Primary Ollama LLM and Standalone Fallback modes with 0% safety refusal.
 - **Verification Command**: `pytest tests/evaluation/test_tier1_adk_harness.py`
