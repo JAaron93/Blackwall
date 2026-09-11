@@ -11,7 +11,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from blackwall.policy.models import PolicyConfig
-from blackwall.validators import validate_temporal_sequence, validate_utc_datetime
+from blackwall.validators import normalize_time_window, validate_utc_datetime
 
 TOKEN_PATH_PATTERN = r"/var/run/secrets/kubernetes.io/serviceaccount/token"
 K8S_SECRET_API_REGEX = re.compile(
@@ -23,21 +23,28 @@ POD_TERM_ACTIONS = {
     "terminate_pod",
     "delete_pod",
     "kill_pod",
-    "pod_terminate",
-    "pod_delete",
-    "sys_kill_pod",
+    "destroy_pod",
+    "pod_deleted",
+    "pod_terminated",
+    "pod_killed",
 }
+
 POD_CREATE_ACTIONS = {
     "create_pod",
     "spawn_pod",
     "pod_create",
+    "pod_created",
+    "pod_spawned",
+}
+
+FLEET_SPAWN_ACTIONS = POD_CREATE_ACTIONS | {
     "run_pod",
     "sys_create_pod",
 }
 
 
 class KubernetesDefenseLayer:
-    """Detects Kubernetes-specific threats including token theft, fleet spawning, secrets exfiltration, and self-respawning pods."""
+    """Detects Kubernetes-specific attack vectors including token theft, fleet spawning, and secret exfiltration."""
 
     def __init__(
         self,
@@ -49,12 +56,16 @@ class KubernetesDefenseLayer:
         self._tracked_api_calls: Dict[str, List[NormalizedEvent]] = {}
 
     async def track_k8s_api_access(self, event: NormalizedEvent) -> None:
-        """Track a Kubernetes API access event (successful or failed)."""
-        event.timestamp = validate_utc_datetime(event.timestamp)
-        agent_id = event.agent_id
-        if agent_id not in self._tracked_api_calls:
-            self._tracked_api_calls[agent_id] = []
-        self._tracked_api_calls[agent_id].append(event)
+        """Track Kubernetes API access events for telemetry correlation."""
+        if not event.agent_id:
+            return
+        if event.agent_id not in self._tracked_api_calls:
+            self._tracked_api_calls[event.agent_id] = []
+        self._tracked_api_calls[event.agent_id].append(event)
+
+    async def get_k8s_api_access(self, agent_id: str) -> List[NormalizedEvent]:
+        """Retrieve tracked Kubernetes API access events for an agent."""
+        return list(self._tracked_api_calls.get(agent_id, []))
 
     def get_tracked_api_calls(self, agent_id: str) -> List[NormalizedEvent]:
         """Retrieve tracked Kubernetes API access events for an agent."""
@@ -67,20 +78,17 @@ class KubernetesDefenseLayer:
     ) -> List[K8sThreatEvidence]:
         """Detect unauthorized access to service account token path /var/run/secrets/kubernetes.io/serviceaccount/token."""
         evidences: List[K8sThreatEvidence] = []
-        if time_window:
-            start_w, end_w = time_window
-            validate_temporal_sequence(start_w, end_w)
-            start_w = validate_utc_datetime(start_w)
-            end_w = validate_utc_datetime(end_w)
+        start_w, end_w = (
+            normalize_time_window(time_window) if time_window else (None, None)
+        )
 
         nodes = self.store._nodes.values() if hasattr(self.store, "_nodes") else []
         for node in nodes:
             event = node.event
             if agent_id and event.agent_id != agent_id:
                 continue
-            if time_window:
-                if not (start_w <= event.timestamp <= end_w):
-                    continue
+            if time_window and not (start_w <= event.timestamp <= end_w):
+                continue
 
             target_str = (event.target or "").lower()
             metadata_path = str(event.metadata.get("path") or "").lower()
@@ -124,17 +132,15 @@ class KubernetesDefenseLayer:
     async def detect_fleet_spawning(
         self,
         time_window: Tuple[datetime, datetime] | None = None,
-        min_pods: int = 10,
-        min_nodes: int = 5,
         time_window_seconds: float = 60.0,
+        min_pods: int = 10,
+        min_nodes: int = 2,
     ) -> List[K8sThreatEvidence]:
-        """Detect rapid pod creation patterns across multiple nodes within a short time window."""
+        """Detect rapid pod creation patterns across multiple nodes within a short time window using linear sliding window."""
         evidences: List[K8sThreatEvidence] = []
-        if time_window:
-            start_w, end_w = time_window
-            validate_temporal_sequence(start_w, end_w)
-            start_w = validate_utc_datetime(start_w)
-            end_w = validate_utc_datetime(end_w)
+        start_w, end_w = (
+            normalize_time_window(time_window) if time_window else (None, None)
+        )
 
         nodes = self.store._nodes.values() if hasattr(self.store, "_nodes") else []
         spawn_events: List[NormalizedEvent] = []
@@ -144,7 +150,7 @@ class KubernetesDefenseLayer:
             if time_window and not (start_w <= event.timestamp <= end_w):
                 continue
             act = (event.action or "").lower()
-            if act in {"create_pod", "spawn_pod", "pod_create", "sys_clone"} or "create" in act:
+            if act in FLEET_SPAWN_ACTIONS:
                 spawn_events.append(event)
 
         if not spawn_events:
@@ -153,33 +159,29 @@ class KubernetesDefenseLayer:
         spawn_events = sorted(spawn_events, key=lambda e: e.timestamp)
         detected_windows: Set[Tuple[str, ...]] = set()
 
-        for i in range(len(spawn_events)):
-            window_events: List[NormalizedEvent] = []
-            start_t = spawn_events[i].timestamp
-            for j in range(i, len(spawn_events)):
-                delta = (spawn_events[j].timestamp - start_t).total_seconds()
-                if delta <= time_window_seconds:
-                    window_events.append(spawn_events[j])
-                else:
-                    break
+        left = 0
+        for right in range(len(spawn_events)):
+            while (spawn_events[right].timestamp - spawn_events[left].timestamp).total_seconds() > time_window_seconds:
+                left += 1
 
+            window_slice = spawn_events[left : right + 1]
             created_pods: Set[str] = {
-                str(ev.metadata.get("pod_name") or ev.target) for ev in window_events
+                str(ev.metadata.get("pod_name") or ev.target) for ev in window_slice
             }
             nodes_used: Set[str] = {
-                str(ev.metadata.get("node_id") or "node-default") for ev in window_events
-            }
-            namespaces: Set[str] = {
-                str(ev.metadata.get("namespace") or "default") for ev in window_events
-            }
-            service_accounts: Set[str] = {
-                str(ev.metadata.get("service_account") or "default") for ev in window_events
+                str(ev.metadata.get("node_id") or "node-default") for ev in window_slice
             }
 
             if len(created_pods) >= min_pods and len(nodes_used) >= min_nodes:
                 pod_key = tuple(sorted(created_pods))
                 if pod_key not in detected_windows:
                     detected_windows.add(pod_key)
+                    namespaces: Set[str] = {
+                        str(ev.metadata.get("namespace") or "default") for ev in window_slice
+                    }
+                    service_accounts: Set[str] = {
+                        str(ev.metadata.get("service_account") or "default") for ev in window_slice
+                    }
                     ns_val = next(iter(namespaces)) if namespaces else "default"
                     sa_val = next(iter(service_accounts)) if service_accounts else "default"
                     evidences.append(
@@ -208,11 +210,9 @@ class KubernetesDefenseLayer:
     ) -> List[K8sThreatEvidence]:
         """Detect bulk secret reads strictly from Kubernetes API (tracking successful & failed calls)."""
         evidences: List[K8sThreatEvidence] = []
-        if time_window:
-            start_w, end_w = time_window
-            validate_temporal_sequence(start_w, end_w)
-            start_w = validate_utc_datetime(start_w)
-            end_w = validate_utc_datetime(end_w)
+        start_w, end_w = (
+            normalize_time_window(time_window) if time_window else (None, None)
+        )
 
         nodes = self.store._nodes.values() if hasattr(self.store, "_nodes") else []
         secret_events: List[NormalizedEvent] = []
@@ -307,11 +307,9 @@ class KubernetesDefenseLayer:
     ) -> List[K8sThreatEvidence]:
         """Detect pods that automatically recreate themselves after termination (restart loops)."""
         evidences: List[K8sThreatEvidence] = []
-        if time_window:
-            start_w, end_w = time_window
-            validate_temporal_sequence(start_w, end_w)
-            start_w = validate_utc_datetime(start_w)
-            end_w = validate_utc_datetime(end_w)
+        start_w, end_w = (
+            normalize_time_window(time_window) if time_window else (None, None)
+        )
 
         nodes = self.store._nodes.values() if hasattr(self.store, "_nodes") else []
         pod_events: Dict[str, List[NormalizedEvent]] = {}

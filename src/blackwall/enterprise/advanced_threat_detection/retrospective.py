@@ -11,6 +11,7 @@ from blackwall.enterprise.advanced_threat_detection.correlator import (
     MITRE_PATTERNS,
     SEMANTIC_TIERS,
     PathCorrelator,
+    map_mitre_attack_techniques,
 )
 from blackwall.enterprise.advanced_threat_detection.graph_export import (
     AttackGraphExporter,
@@ -23,7 +24,12 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from blackwall.enterprise.advanced_threat_detection.swarm import AgentSwarmDetector
-from blackwall.validators import validate_temporal_sequence, validate_utc_datetime
+from blackwall.validators import (
+    clamp_score,
+    compute_exponential_decay,
+    normalize_time_window,
+    validate_utc_datetime,
+)
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.retrospective")
 
@@ -74,12 +80,7 @@ class RetrospectiveAnalyzer:
         if max_depth <= 0:
             raise ValueError("max_depth must be positive")
 
-        start_raw, end_raw = time_window
-        validate_temporal_sequence(
-            start_raw, end_raw, start_name="start_time", end_name="end_time"
-        )
-        start_win = validate_utc_datetime(start_raw)
-        end_win = validate_utc_datetime(end_raw)
+        start_win, end_win = normalize_time_window(time_window)
 
         if agent_id is not None:
             return await self.correlator.correlate_attack_paths(
@@ -107,40 +108,38 @@ class RetrospectiveAnalyzer:
             )
             combined_paths.extend(paths)
 
+        # Re-sort across all agents and limit to max_paths
         combined_paths.sort(key=lambda p: p.risk_score, reverse=True)
         return combined_paths[:max_paths]
 
-    async def detect_retrospective_paths(
+    async def reconstruct_causal_graph(
         self,
-        agent_id: str | None = None,
+        agent_id: str | None,
         time_window: tuple[datetime, datetime] | None = None,
-        batch_size: int = 100,
         min_path_length: int = 2,
-        max_time_gap_seconds: int = 86400 * 7,
         min_risk_score: float = 0.0,
+        max_time_gap_seconds: float = 86400.0 * 7,
     ) -> list[AttackPath]:
-        """Perform retrospective analysis on historical events to identify attack paths missed by real-time short-window detection.
+        """Reconstruct multi-day or multi-week attack paths with extended causal linking.
 
-        Reconstructs multi-day stealth campaigns by evaluating causal relationships and behavioral/semantic affinity
-        without omitting cross-window causal links or dropping paths.
+        Args:
+            agent_id: Identifier of target agent, or None across all agents.
+            time_window: Optional tuple of (start_time, end_time) UTC timezone-aware datetimes.
+            min_path_length: Minimum nodes per path (>= 2).
+            min_risk_score: Minimum aggregate risk score.
+            max_time_gap_seconds: Maximum allowable time gap for semantic transitions (defaults to 7 days).
+
+        Returns:
+            List of reconstructed AttackPath objects with full causal fidelity.
         """
-        if batch_size <= 0:
-            raise ValueError("batch_size must be positive")
         if min_path_length < 2:
             raise ValueError("min_path_length must be at least 2")
         if max_time_gap_seconds <= 0:
             raise ValueError("max_time_gap_seconds must be positive")
 
-        if time_window is not None:
-            start_raw, end_raw = time_window
-            validate_temporal_sequence(
-                start_raw, end_raw, start_name="start_time", end_name="end_time"
-            )
-            start_win = validate_utc_datetime(start_raw)
-            end_win = validate_utc_datetime(end_raw)
-        else:
-            end_win = datetime.now(UTC)
-            start_win = end_win - timedelta(days=30)
+        start_win, end_win = normalize_time_window(
+            time_window, default_duration_seconds=30 * 86400.0
+        )
 
         all_nodes = await self.store.query_nodes(agent_id, (start_win, end_win))
         if not all_nodes:
@@ -179,64 +178,64 @@ class RetrospectiveAnalyzer:
                             and target_node.node_id not in added_target_ids
                             and target_node.event.timestamp >= n_a.event.timestamp
                         ):
-                            adj[n_a.node_id].append((target_node, 1.0))
+                            adj[n_a.node_id].append((target_node, 0.95))
                             in_degree[target_node.node_id] += 1
                             added_target_ids.add(target_node.node_id)
 
-                # 2. Behavioral/Semantic affinity: connect to qualifying same-target or tier-escalation nodes
-                tier_a = SEMANTIC_TIERS.get(n_a.event.source, 1)
+                # 2. Semantic and temporal sequence links across extended gap (up to max_time_gap_seconds)
+                for j in range(i + 1, len(sorted_nodes)):
+                    n_b = sorted_nodes[j]
+                    if n_b.node_id in added_target_ids:
+                        continue
 
-                for n_b in sorted_nodes[i + 1 :]:
                     delta = (n_b.event.timestamp - n_a.event.timestamp).total_seconds()
                     if delta > max_time_gap_seconds:
                         break
 
-                    if n_b.node_id in added_target_ids:
-                        continue
-
+                    tier_a = SEMANTIC_TIERS.get(n_a.event.source, 1)
                     tier_b = SEMANTIC_TIERS.get(n_b.event.source, 1)
-                    same_target = bool(n_a.event.target and n_a.event.target == n_b.event.target)
 
-                    # Match ATT&CK patterns
+                    same_target = bool(n_a.event.target and n_a.event.target == n_b.event.target)
                     a_has_mitre = any(pat.search(n_a.event.action) or pat.search(n_a.event.target) for pat, _ in MITRE_PATTERNS)
                     b_has_mitre = any(pat.search(n_b.event.action) or pat.search(n_b.event.target) for pat, _ in MITRE_PATTERNS)
                     is_strict_tier_escalation = (tier_b > tier_a) and (tier_b - tier_a <= 3) and (a_has_mitre or b_has_mitre)
 
                     if same_target:
-                        decay = math.exp(-delta / max(300.0, max_time_gap_seconds / 10.0))
-                        weight = min(1.0, 0.3 * decay + 0.7 * 0.8)
-                        adj[n_a.node_id].append((n_b, weight))
-                        in_degree[n_b.node_id] += 1
-                        added_target_ids.add(n_b.node_id)
+                        decay = compute_exponential_decay(delta, max(300.0, max_time_gap_seconds / 2.0))
+                        base_score = 0.8 if (a_has_mitre or b_has_mitre) else 0.5
+                        weight = clamp_score(base_score * decay, 0.0, 1.0, decimals=4)
+                        if weight >= 0.4:
+                            adj[n_a.node_id].append((n_b, weight))
+                            in_degree[n_b.node_id] += 1
+                            added_target_ids.add(n_b.node_id)
 
                     elif is_strict_tier_escalation:
-                        decay = math.exp(-delta / max(300.0, max_time_gap_seconds / 10.0))
+                        decay = compute_exponential_decay(delta, max(300.0, max_time_gap_seconds / 2.0))
                         semantic_base = 0.5 + (0.1 * abs(tier_b - tier_a))
-                        weight = min(1.0, 0.3 * decay + 0.7 * semantic_base)
-                        adj[n_a.node_id].append((n_b, weight))
-                        in_degree[n_b.node_id] += 1
-                        added_target_ids.add(n_b.node_id)
+                        weight = clamp_score(semantic_base * decay, 0.0, 1.0, decimals=4)
+                        if weight >= 0.4:
+                            adj[n_a.node_id].append((n_b, weight))
+                            in_degree[n_b.node_id] += 1
+                            added_target_ids.add(n_b.node_id)
 
-            # Determine root / starting nodes to prevent redundant combinatorial sub-path enumeration
+            # Traverse paths using DFS starting from root nodes (in_degree == 0)
             root_nodes = [n for n in sorted_nodes if in_degree[n.node_id] == 0]
             if not root_nodes:
                 root_nodes = sorted_nodes
 
-            # Traverse from root nodes across the acyclic / causal graph
-            all_paths: list[list[AttackNode]] = []
-            for start_node in root_nodes:
+            paths_for_agent: list[list[AttackNode]] = []
+            for root in root_nodes:
                 self._dfs_retrospective(
-                    current_node=start_node,
-                    current_path=[start_node],
+                    current_node=root,
+                    current_path=[root],
                     adj=adj,
                     min_path_length=min_path_length,
-                    visited_in_path={start_node.node_id},
-                    results=all_paths,
+                    visited_in_path={root.node_id},
+                    results=paths_for_agent,
                     max_depth=15,
                 )
 
-            # Materialize AttackPath instances
-            for path_nodes in all_paths:
+            for path_nodes in paths_for_agent:
                 sig = tuple(n.node_id for n in path_nodes)
                 if sig in seen_signatures or len(path_nodes) < min_path_length:
                     continue
@@ -257,14 +256,8 @@ class RetrospectiveAnalyzer:
                     )
                     weights.append(matched_w)
 
-                correlation_score = min(1.0, max(0.0, sum(weights) / max(1, len(weights))))
-
-                stages = []
-                for n in path_nodes:
-                    for pattern, code in MITRE_PATTERNS:
-                        if pattern.search(n.event.action) or pattern.search(n.event.target):
-                            if code not in stages:
-                                stages.append(code)
+                correlation_score = clamp_score(sum(weights) / max(1, len(weights)), 0.0, 1.0)
+                stages = map_mitre_attack_techniques(path_nodes, default_fallback=None)
 
                 try:
                     path_obj = AttackPath(
@@ -273,7 +266,7 @@ class RetrospectiveAnalyzer:
                         nodes=path_nodes,
                         start_time=path_nodes[0].event.timestamp,
                         end_time=path_nodes[-1].event.timestamp,
-                        risk_score=min(1.0, max(0.0, max_risk)),
+                        risk_score=clamp_score(max_risk, 0.0, 1.0),
                         attack_stages=stages,
                         correlation_score=correlation_score,
                     )
@@ -283,6 +276,26 @@ class RetrospectiveAnalyzer:
 
         identified_paths.sort(key=lambda p: p.risk_score, reverse=True)
         return identified_paths
+
+    async def detect_retrospective_paths(
+        self,
+        agent_id: str | None = None,
+        time_window: tuple[datetime, datetime] | None = None,
+        batch_size: int = 100,
+        min_path_length: int = 2,
+        max_time_gap_seconds: int = 86400 * 7,
+        min_risk_score: float = 0.0,
+    ) -> list[AttackPath]:
+        """Perform retrospective analysis on historical events to identify attack paths missed by real-time detection."""
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive")
+        return await self.reconstruct_causal_graph(
+            agent_id=agent_id,
+            time_window=time_window,
+            min_path_length=min_path_length,
+            min_risk_score=min_risk_score,
+            max_time_gap_seconds=float(max_time_gap_seconds),
+        )
 
     def _dfs_retrospective(
         self,
@@ -294,18 +307,18 @@ class RetrospectiveAnalyzer:
         results: list[list[AttackNode]],
         max_depth: int = 15,
     ) -> None:
-        """DFS exploration for retrospective multi-stage path reconstruction."""
+        """Depth-first search traversing causal and semantic relationships across extended historical time horizons."""
         if len(current_path) >= min_path_length:
             results.append(list(current_path))
 
         if len(current_path) >= max_depth:
             return
 
-        for neighbor, _ in adj.get(current_node.node_id, []):
+        neighbors = adj.get(current_node.node_id, [])
+        for neighbor, _ in neighbors:
             if neighbor.node_id not in visited_in_path:
                 visited_in_path.add(neighbor.node_id)
                 current_path.append(neighbor)
-
                 self._dfs_retrospective(
                     neighbor,
                     current_path,
@@ -315,7 +328,6 @@ class RetrospectiveAnalyzer:
                     results,
                     max_depth,
                 )
-
                 current_path.pop()
                 visited_in_path.remove(neighbor.node_id)
 
@@ -340,12 +352,7 @@ class RetrospectiveAnalyzer:
         if min_agents < 2:
             raise ValueError("min_agents must be at least 2")
 
-        start_raw, end_raw = time_window
-        validate_temporal_sequence(
-            start_raw, end_raw, start_name="start_time", end_name="end_time"
-        )
-        start_win = validate_utc_datetime(start_raw)
-        end_win = validate_utc_datetime(end_raw)
+        start_win, end_win = normalize_time_window(time_window)
 
         all_nodes = await self.store.query_nodes(None, (start_win, end_win))
         if not all_nodes:
@@ -378,12 +385,8 @@ class RetrospectiveAnalyzer:
                 shared_action_ratio = len(common_actions) / max(1, max(len(a_set) for a_set in all_actions))
                 agent_weight = min(1.0, len(agents) / 4.0)
 
-                coordination_score = min(
-                    1.0,
-                    max(
-                        0.0,
-                        0.4 + (0.3 * shared_action_ratio) + (0.3 * agent_weight),
-                    ),
+                coordination_score = clamp_score(
+                    0.4 + (0.3 * shared_action_ratio) + (0.3 * agent_weight), 0.0, 1.0
                 )
 
                 if coordination_score >= similarity_threshold:

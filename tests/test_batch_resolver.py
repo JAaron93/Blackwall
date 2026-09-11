@@ -261,7 +261,7 @@ async def test_batch_resolver_background_submission():
     # Verify parameters passed
     client.interactions.create.assert_called_once()
     call_kwargs = client.interactions.create.call_args[1]
-    assert call_kwargs["model"] == "gemini-3.7-flash"
+    assert call_kwargs["model"] == "gemini-3.8-flash"
     assert call_kwargs["background"] is True
     assert call_kwargs["webhook_config"]["uris"] == [
         "http://localhost:9090/webhook/analysis_complete"

@@ -2,6 +2,7 @@
 
 Provides isolated attack graph instances, event labeling, alert isolation,
 state resets, and evidence-derived containment checks for evaluation environments.
+Aligned with Gemini 3.8 Flash capability maximization (thinking_level="high", max_output_tokens=65536).
 (Requirements 14.1 - 14.5, 22.5 & Properties 69 - 72).
 """
 
@@ -20,6 +21,8 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from blackwall.validators import (
+    is_evaluation_metadata,
+    stamp_evaluation_metadata,
     validate_non_empty_string,
     validate_uuid_v4_format,
 )
@@ -557,31 +560,19 @@ class EvaluationEnvironmentManager:
 
     def label_event(self, event: NormalizedEvent, env_id: str) -> NormalizedEvent:
         """Label an event with the given evaluation environment ID."""
-        clean_id = validate_non_empty_string(env_id, field_name="env_id")
-        meta = dict(event.metadata)
-        meta["evaluation_env_id"] = clean_id
-        meta["is_evaluation"] = True
-        meta["eval_mode"] = True
+        meta = stamp_evaluation_metadata(event.metadata, env_id)
         return event.model_copy(update={"metadata": meta})
 
     def label_raw_event(self, raw_event: dict[str, Any], env_id: str) -> dict[str, Any]:
         """Label a raw event dictionary with the given evaluation environment ID."""
-        clean_id = validate_non_empty_string(env_id, field_name="env_id")
         stamped = dict(raw_event)
-        meta = dict(stamped.get("metadata", {})) if isinstance(stamped.get("metadata"), dict) else {}
-        meta["evaluation_env_id"] = clean_id
-        meta["is_evaluation"] = True
-        meta["eval_mode"] = True
+        meta = stamp_evaluation_metadata(stamped.get("metadata"), env_id)
         stamped["metadata"] = meta
         return stamped
 
     def label_alert(self, alert: Alert, env_id: str) -> Alert:
         """Label an alert with the given evaluation environment ID."""
-        clean_id = validate_non_empty_string(env_id, field_name="env_id")
-        meta = dict(alert.metadata)
-        meta["evaluation_env_id"] = clean_id
-        meta["is_evaluation"] = True
-        meta["eval_mode"] = True
+        meta = stamp_evaluation_metadata(alert.metadata, env_id)
         return alert.model_copy(update={"metadata": meta})
 
     def is_evaluation_event(self, event: NormalizedEvent | dict[str, Any]) -> bool:
@@ -593,11 +584,7 @@ class EvaluationEnvironmentManager:
         else:
             return False
 
-        return bool(
-            meta.get("is_evaluation") is True
-            or meta.get("eval_mode") is True
-            or (isinstance(meta.get("evaluation_env_id"), str) and meta["evaluation_env_id"].strip())
-        )
+        return is_evaluation_metadata(meta)
 
     def is_evaluation_alert(self, alert: Alert | dict[str, Any]) -> bool:
         """Check if an alert was generated from evaluation mode."""
@@ -608,11 +595,7 @@ class EvaluationEnvironmentManager:
         else:
             return False
 
-        return bool(
-            meta.get("is_evaluation") is True
-            or meta.get("eval_mode") is True
-            or (isinstance(meta.get("evaluation_env_id"), str) and meta["evaluation_env_id"].strip())
-        )
+        return is_evaluation_metadata(meta)
 
     def should_suppress_production_reaction(self, alert_or_evidence: Any) -> bool:
         """Determine if an alert or evidence should suppress production mitigation actions.
@@ -632,14 +615,7 @@ class EvaluationEnvironmentManager:
 
         # For object instances with metadata
         if hasattr(alert_or_evidence, "metadata") and isinstance(alert_or_evidence.metadata, dict):
-            return bool(
-                alert_or_evidence.metadata.get("is_evaluation") is True
-                or alert_or_evidence.metadata.get("eval_mode") is True
-                or (
-                    isinstance(alert_or_evidence.metadata.get("evaluation_env_id"), str)
-                    and alert_or_evidence.metadata["evaluation_env_id"].strip()
-                )
-            )
+            return is_evaluation_metadata(alert_or_evidence.metadata)
 
         return False
 

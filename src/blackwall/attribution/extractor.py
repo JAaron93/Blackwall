@@ -15,8 +15,13 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, Optional
+import time
+from typing import Any
 
+from blackwall.attribution.linguistic import (
+    GENERIC_COLLECTIVE_HANDLES,
+    LinguisticSwarmClassifier,
+)
 from blackwall.models import AttackerIdentity, IdentitySource, ToolCallContext
 
 logger = logging.getLogger(__name__)
@@ -26,7 +31,7 @@ _UNRESOLVED_AGENT_ID = "UNRESOLVED_ATTACKER"
 _UNRESOLVED_AGENT_NAME = "UNRESOLVED_ATTACKER"
 
 
-def _has_adk_fields(metadata: Optional[Dict[str, Any]]) -> bool:
+def _has_adk_fields(metadata: dict[str, Any] | None) -> bool:
     """Return True if any meaningful ADK identity field is present in metadata."""
     if not metadata:
         return False
@@ -61,10 +66,13 @@ class AttackerIdentityExtractor:
       - Stateless: all resolution is performed in-call, no shared mutable state.
     """
 
+    def __init__(self, classifier: LinguisticSwarmClassifier | None = None) -> None:
+        self.classifier = classifier or LinguisticSwarmClassifier()
+
     def extract(
         self,
         context: ToolCallContext,
-        metadata: Optional[Dict[str, Any]],
+        metadata: dict[str, Any] | None,
     ) -> AttackerIdentity:
         """
         Extract an ``AttackerIdentity`` from the current interception context.
@@ -79,9 +87,47 @@ class AttackerIdentityExtractor:
         """
         try:
             if _has_adk_fields(metadata):
-                return self._extract_from_adk(metadata)  # type: ignore[arg-type]
-            return self._extract_from_process()
-        except Exception as exc:  # noqa: BLE001
+                identity = self._extract_from_adk(metadata)  # type: ignore[arg-type]
+            else:
+                identity = self._extract_from_process()
+
+            # Linguistic Swarm Classification (TASK-2A.3, FR-1)
+            markers = self.classifier.classify(context, metadata)
+            identity.linguistic_markers = markers
+            if markers.is_collective:
+                identity.is_collective = True
+                identity.collective_name = markers.collective_identity_inferred
+
+            # False-monolith disambiguation with session-salted fingerprinting (FR-2)
+            clean_id = (identity.agent_id or "").strip().lower()
+            clean_name = (identity.agent_name or "").strip().lower()
+            is_generic_handle = (
+                clean_id in GENERIC_COLLECTIVE_HANDLES
+                or clean_name in GENERIC_COLLECTIVE_HANDLES
+                or any(token in clean_name for token in ("swarm", "collective", "hive"))
+            )
+
+            if identity.is_collective or is_generic_handle:
+                identity.is_collective = True
+                if not identity.collective_name:
+                    identity.collective_name = markers.collective_identity_inferred or f"collective:{identity.agent_id or 'unknown'}"
+
+                merged_meta = dict(context.metadata or {})
+                if metadata:
+                    merged_meta.update(metadata)
+
+                session_id = (
+                    merged_meta.get("session_id")
+                    or merged_meta.get("session_salt")
+                    or identity.thread_id
+                    or f"epoch-{int(time.time() // 3600)}-pid-{identity.process_pid or os.getpid()}"
+                )
+                identity.session_salt = str(session_id)
+                identity.identity_fingerprint = ""
+                identity.compute_fingerprint()
+
+            return identity
+        except Exception as exc:
             logger.warning(
                 "AttackerIdentityExtractor: extraction failed, returning UNRESOLVED_ATTACKER",
                 exc_info=exc,
@@ -92,7 +138,7 @@ class AttackerIdentityExtractor:
     # Internal extraction paths
     # ------------------------------------------------------------------
 
-    def _extract_from_adk(self, metadata: Dict[str, Any]) -> AttackerIdentity:
+    def _extract_from_adk(self, metadata: dict[str, Any]) -> AttackerIdentity:
         """
         Parse ADK agent identity fields from tool call metadata.
 
@@ -118,10 +164,10 @@ class AttackerIdentityExtractor:
         Falls back gracefully if ``psutil`` is unavailable or if OS calls fail
         (e.g. restricted environments, Windows UID absence).
         """
-        pid: Optional[int] = None
-        uid: Optional[int] = None
-        process_name: Optional[str] = None
-        cmdline: Optional[str] = None
+        pid: int | None = None
+        uid: int | None = None
+        process_name: str | None = None
+        cmdline: str | None = None
 
         try:
             pid = os.getpid()
@@ -139,7 +185,7 @@ class AttackerIdentityExtractor:
             process_name = proc.name()
             raw_cmdline = proc.cmdline()
             cmdline = " ".join(raw_cmdline) if raw_cmdline else None
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001, S110
             # psutil may be unavailable or the process may have short-lived
             pass
 

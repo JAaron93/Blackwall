@@ -22,6 +22,14 @@ from blackwall.mcp.gti_client import (
 from blackwall.mcp.gti_client import GTIQueryBudgetTracker as AsyncGTIQueryBudgetTracker
 from blackwall.mcp.codebase_memory import CodebaseMemoryClient
 
+try:
+    try:
+        from blackwall import _core_rs
+    except ImportError:
+        import _core_rs
+except (ImportError, AttributeError):
+    _core_rs = None
+
 logger = logging.getLogger("blackwall.policy.semantic")
 
 IP_PATTERN = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
@@ -47,10 +55,17 @@ def extract_strings(val: Any) -> List[str]:
 
 
 def extract_iocs(context: ToolCallContext) -> Dict[str, List[str]]:
-    iocs: Dict[str, List[str]] = {"ips": [], "domains": [], "urls": [], "hashes": []}
     all_strings = extract_strings(context.arguments)
     all_strings.append(context.tool_name)
 
+    if _core_rs is not None and hasattr(_core_rs, "extract_iocs"):
+        try:
+            raw_iocs = _core_rs.extract_iocs(all_strings)
+            return {k: list(v) for k, v in raw_iocs.items()}
+        except Exception:
+            pass
+
+    iocs: Dict[str, List[str]] = {"ips": [], "domains": [], "urls": [], "hashes": []}
     for s in all_strings:
         # Extract IPs
         for ip in IP_PATTERN.findall(s):
@@ -88,6 +103,11 @@ def is_external_ip(ip_str: str) -> bool:
 def calculate_entropy(s: str) -> float:
     if not s:
         return 0.0
+    if _core_rs is not None and hasattr(_core_rs, "calculate_entropy"):
+        try:
+            return float(_core_rs.calculate_entropy(s))
+        except Exception:
+            pass
     counts = Counter(s)
     entropy = 0.0
     for count in counts.values():

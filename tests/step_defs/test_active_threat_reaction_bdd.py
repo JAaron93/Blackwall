@@ -64,6 +64,8 @@ def given_engine_with_kernel(bdd_state: ActiveReactionBDDState) -> None:
 def when_dispatch_swarm_payload(
     bdd_state: ActiveReactionBDDState, pid: int, ip: str
 ) -> None:
+    from unittest.mock import patch
+
     payload = ActiveReactionPayload(
         trigger_evidence_id=uuid.uuid4(),
         target_agent_id="swarm-agent-99",
@@ -72,7 +74,8 @@ def when_dispatch_swarm_payload(
         action_type=ReactionActionType.EBPF_DROP,
     )
     bdd_state.last_payload = payload
-    bdd_state.last_result = run_async(bdd_state.engine.execute_ebpf_socket_drop(payload))
+    with patch("os.kill"):
+        bdd_state.last_result = run_async(bdd_state.engine.execute_ebpf_socket_drop(payload))
 
 
 @then(

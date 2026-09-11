@@ -192,6 +192,24 @@ These datasets integrate with:
    - False Negative Rate (FNR) / Evasion Rate < 10%
    - Detection accuracy > 95%
 
+## GCP Vertex AI & Judge Scenarios (Agent-as-a-Judge)
+
+### ADK-to-EvalTask Bridge Scenarios
+**Path**: `tests/eval/judge_scenarios/adk_bridged_scenarios.json`
+**Generator**: `scripts/bridge_adk_to_eval.py`
+**Schema**: `ThreatInterceptionScenario` (`src/blackwall/eval/scenarios.py`)
+- Maps 157+ ADK eval cases into judge-consumable format.
+- Extracts `scenario_id`, `domain: "threat_interception"`, `ground_truth_verdict`, `ground_truth_label`, `reference_trajectory`, and preserved metadata.
+
+### Domain-Specific Curated Datasets
+**Module**: `blackwall.enterprise.advanced_threat_detection.gcp_eval_datasets`
+- **AILM (AI-Induced Lateral Movement)** (`get_ailm_eval_samples`): 12 scenarios testing single-boundary, multi-boundary, and 3+ boundary CRITICAL risk level cases.
+- **Prompt Injection & Jailbreaks** (`get_prompt_injection_eval_samples`): 16 scenarios testing structural tag injections (`[INST]`, `<<SYS>>`, `<|im_start|>`), role-play overrides, system prompt exfiltration, and benign false-positive controls.
+- **Inbound Protocol Filter** (`get_inbound_filter_eval_samples`): 12 scenarios covering loopback authorized origins, remote CORS rejects, burst rate limits, and malformed RPC.
+- **Agent Quota Enforcement** (`get_quota_enforcement_eval_samples`): 12 scenarios covering token velocity bursts (>500 tok/sec), boundary threshold cases (499 vs 501 tok/sec), and sustained burn.
+- **Context Hygiene & Secret Sanitization** (`get_context_hygiene_eval_samples`): 14 scenarios covering API keys, JWTs, AWS credentials, GCP tokens, and benign metadata with `[[VARIABLE_NAME]]` placeholders.
+- **SyncResolver Threat Interception** (`get_sync_resolver_eval_samples`): 22 scenarios covering scoring boundaries, high-confidence benign, ambiguous, and multi-stage attack patterns.
+
 ## References
 
 - **Malicious Cases**: Based on OWASP Top 10, CWE/CVSS standards

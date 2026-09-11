@@ -3,10 +3,9 @@ Unit tests for GCP Evaluation Datasets (Task 22).
 """
 
 from blackwall.enterprise.advanced_threat_detection.gcp_eval_datasets import (
-    load_gcp_eval_datasets,
     get_adversarial_prompt_injection_samples,
     get_agent_trajectory_samples,
-    get_swarm_and_exploit_chain_samples,
+    load_gcp_eval_datasets,
 )
 
 

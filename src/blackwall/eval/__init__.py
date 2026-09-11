@@ -1,0 +1,156 @@
+"""
+Blackwall Evaluation Subsystem (`blackwall.eval`).
+
+Provides evaluation metrics, report generation, scenario definitions, Pydantic rubrics,
+and autonomous Antigravity SDK Judge Agents running in Vertex AI Standard Mode.
+"""
+
+from blackwall.eval.aggregator import (
+    AggregateSummary,
+    DomainSummary,
+    EvaluationAggregator,
+    EvaluationResultRecord,
+)
+from blackwall.eval.fallback_scorer import (
+    AILMDetectionFallbackScorer,
+    C2DetectionFallbackScorer,
+    ContextHygieneFallbackScorer,
+    ExploitChainFallbackScorer,
+    HeuristicFallbackScorer,
+    InboundFilterFallbackScorer,
+    PromptInjectionFallbackScorer,
+    QuotaEnforcementFallbackScorer,
+    RegressionComparisonFallbackScorer,
+    SwarmDetectionFallbackScorer,
+    ThreatInterceptionFallbackScorer,
+    get_fallback_scorer_for_domain,
+)
+from blackwall.eval.judge_factory import (
+    create_judge_agent,
+    validate_evaluation_tier_contract,
+)
+from blackwall.eval.judges import (
+    AILMDetectionJudge,
+    BaseJudgeAgent,
+    C2DetectionJudge,
+    ContextHygieneJudge,
+    ExploitChainJudge,
+    InboundFilterJudge,
+    PromptInjectionJudge,
+    QuotaEnforcementJudge,
+    RegressionComparisonJudge,
+    SwarmDetectionJudge,
+    ThreatInterceptionJudge,
+    get_judge_for_domain,
+)
+from blackwall.eval.metrics import calculateMetrics
+from blackwall.eval.prompt_sanitizer import (
+    escape_xml_payload,
+    sanitize_for_prompt,
+    sanitize_text,
+)
+from blackwall.eval.prompt_template import build_judge_prompt
+from blackwall.eval.regression_tracker import (
+    EvalRunSummary,
+    HistoricalRegressionTracker,
+    RegressionReport,
+)
+from blackwall.eval.report_generator import ReportGenerator
+from blackwall.eval.rubrics import (
+    AILMDetectionRubric,
+    C2DetectionRubric,
+    ContextHygieneRubric,
+    ExploitChainRubric,
+    InboundFilterRubric,
+    PromptInjectionRubric,
+    QuotaEnforcementRubric,
+    RegressionComparisonRubric,
+    SwarmDetectionRubric,
+    ThreatInterceptionRubric,
+    get_rubric_for_domain,
+)
+from blackwall.eval.scenarios import (
+    AILMScenario,
+    C2DetectionScenario,
+    ContextHygieneScenario,
+    EvalScenarioBase,
+    ExploitChainScenario,
+    InboundFilterScenario,
+    PromptInjectionScenario,
+    QuotaEnforcementScenario,
+    SwarmDetectionScenario,
+    ThreatInterceptionScenario,
+    parse_eval_scenario,
+)
+from blackwall.eval.sla_validator import (
+    DEFAULT_SLA_THRESHOLDS_MS,
+    SLAMeasurement,
+    SLAValidator,
+)
+
+__all__ = [
+    "AILMDetectionFallbackScorer",
+    "AILMDetectionJudge",
+    "AILMDetectionRubric",
+    "AILMScenario",
+    "AggregateSummary",
+    "BaseJudgeAgent",
+    "C2DetectionFallbackScorer",
+    "C2DetectionJudge",
+    "C2DetectionRubric",
+    "C2DetectionScenario",
+    "ContextHygieneFallbackScorer",
+    "ContextHygieneJudge",
+    "ContextHygieneRubric",
+    "ContextHygieneScenario",
+    "DEFAULT_SLA_THRESHOLDS_MS",
+    "DomainSummary",
+    "EvalRunSummary",
+    "EvalScenarioBase",
+    "EvaluationAggregator",
+    "EvaluationResultRecord",
+    "ExploitChainFallbackScorer",
+    "ExploitChainJudge",
+    "ExploitChainRubric",
+    "ExploitChainScenario",
+    "HeuristicFallbackScorer",
+    "HistoricalRegressionTracker",
+    "InboundFilterFallbackScorer",
+    "InboundFilterJudge",
+    "InboundFilterRubric",
+    "InboundFilterScenario",
+    "PromptInjectionFallbackScorer",
+    "PromptInjectionJudge",
+    "PromptInjectionRubric",
+    "PromptInjectionScenario",
+    "QuotaEnforcementFallbackScorer",
+    "QuotaEnforcementJudge",
+    "QuotaEnforcementRubric",
+    "QuotaEnforcementScenario",
+    "RegressionComparisonFallbackScorer",
+    "RegressionComparisonJudge",
+    "RegressionComparisonRubric",
+    "RegressionReport",
+    "ReportGenerator",
+    "SLAMeasurement",
+    "SLAValidator",
+    "SwarmDetectionFallbackScorer",
+    "SwarmDetectionJudge",
+    "SwarmDetectionRubric",
+    "SwarmDetectionScenario",
+    "ThreatInterceptionFallbackScorer",
+    "ThreatInterceptionJudge",
+    "ThreatInterceptionRubric",
+    "ThreatInterceptionScenario",
+    "build_judge_prompt",
+    "calculateMetrics",
+    "create_judge_agent",
+    "escape_xml_payload",
+    "get_fallback_scorer_for_domain",
+    "get_judge_for_domain",
+    "get_rubric_for_domain",
+    "parse_eval_scenario",
+    "sanitize_for_prompt",
+    "sanitize_text",
+    "validate_evaluation_tier_contract",
+]

@@ -40,3 +40,38 @@ class ReactionActionType(str, Enum):
     REVOKE_IDENTITY_TOKENS = "REVOKE_IDENTITY_TOKENS"
 
 
+class InboundProtocolType(str, Enum):
+    """Protocol types for incoming agent-to-agent and MCP communication."""
+
+    MCP_SSE = "MCP_SSE"
+    MCP_STDIO = "MCP_STDIO"
+    A2A_REST = "A2A_REST"
+
+
+class InboundMethodType(str, Enum):
+    """RPC method types for incoming protocol requests."""
+
+    TOOLS_CALL = "tools/call"
+    PROMPT_SUBMIT = "prompt/submit"
+
+
+class InjectionSourceType(str, Enum):
+    """Source context of content analyzed for indirect prompt injection."""
+
+    GIT_DIFF = "git_diff"
+    WEB_SCRAPE = "web_scrape"
+    INCOMING_A2A_MSG = "incoming_a2a_msg"
+
+
+class CovertChannelType(str, Enum):
+    """Classification of covert communication media used by coordinating swarms."""
+
+    STEGANOGRAPHIC_REGISTRY = "STEGANOGRAPHIC_REGISTRY"
+    FILESYSTEM_DEAD_DROP = "FILESYSTEM_DEAD_DROP"
+    UNLOCATED_MESSAGE_BOARD = "UNLOCATED_MESSAGE_BOARD"
+    RESTRUCTURED_METADATA_IPC = "RESTRUCTURED_METADATA_IPC"
+
+
+
+
+
