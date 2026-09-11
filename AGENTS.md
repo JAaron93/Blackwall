@@ -95,7 +95,11 @@ Agents updating or expanding project rules (e.g. via `/learn` or code review res
 
 ## 7. Antigravity 2.0 CLI-First Architecture & Tool Governance
 
-Antigravity operates on a **CLI-first, stateful-MCP-sparing architecture**:
+> [!NOTE]
+> **Developer Tooling Scope vs. Blackwall Product Architecture**:
+> This CLI-first protocol strictly governs **agentic developer workflows** (how AI coding assistants, subagents, and review bots develop and operate on this codebase using CLI tools rather than stateless MCP servers). It does **NOT** restrict the runtime architecture of Blackwall itself. The Blackwall agent is an **agent-agnostic MCP Gateway security proxy** (`localhost:9229`, background daemon, macOS LaunchAgent service) that actively integrates with `codebase-memory-mcp` AST knowledge graphs, VirusTotal Google Threat Intelligence (GTI), and enterprise MCP adapters (Falco, Vault, Container Sandbox, OpenTelemetry).
+
+Antigravity operates on a **CLI-first, stateful-MCP-sparing architecture** for repository development:
 
 ### 1. GitHub CLI (`gh`) & Git Operational Guardrails
 * **Feature Branches Only**: All code modifications must occur within an isolated git worktree and be pushed to a dedicated feature branch. Direct commits or pushes to `main` and `master` are strictly prohibited.

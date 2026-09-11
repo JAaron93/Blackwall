@@ -445,12 +445,13 @@
 * **Rationale:** Prevents context window saturation, lowers latency, and avoids quota drain during long agentic pair-programming workflows.
 
 ## 67. MCP Scope, Stateful Boundaries, & Downstream Perpetuation Invariant
-* **Rule (MCP Scope & Stateful Boundaries):** MCP servers are strictly reserved for persistent stateful daemons and deep integrations:
+* **Rule (Developer Tooling vs. Blackwall Product Runtime Scope):** This invariant strictly governs **agentic development tool selection** (how AI coding assistants, subagents, and review bots interact with development environments). It does **NOT** restrict Blackwall's own product runtime architecture. The Blackwall agent and daemon are explicitly designed as an **MCP Gateway security proxy** on `localhost:9229` (background daemon with macOS LaunchAgent integration), actively utilizing `codebase-memory-mcp` AST knowledge graphs and Google Threat Intelligence (GTI) MCP during interception resolution, alongside enterprise MCP adapters (Falco, Vault, Container Sandbox, OpenTelemetry).
+* **Rule (MCP Scope & Stateful Boundaries for Development):** For AI coding assistants developing this codebase, MCP servers are strictly reserved for persistent stateful daemons and deep integrations:
   - `codebase-memory-mcp`: Persistent SQLite Abstract Syntax Tree (AST) graph for codebase navigation.
   - `context7`: External library documentation resolution.
   - `chrome-devtools` / `axe-core`: Stateful Chrome DevTools Protocol (CDP) browser sessions.
   - `greptile`: Automated PR code review gateway.
-  All stateless tasks (version control, PR management, issues, cloud management, containers, builds) MUST route through native CLI tools (`gh`, `git`, `gcloud`, `docker`) paired with companion skills. Adding stateless MCP servers (e.g. GitHub MCP, Git MCP, Jira/Slack MCP) is strictly prohibited.
-* **Rule (Downstream Perpetuation):** When designing tools or authoring agent instructions, all agents and subagents must perpetuate this CLI-first pattern and codify it in downstream project rules.
-* **Rationale:** Eliminates MCP server sprawl, avoids token bloat from stateless tool schemas, and preserves MCP resources for complex stateful graph analysis.
+  All stateless development tasks (version control, PR management, issues, cloud management, containers, builds) MUST route through native CLI tools (`gh`, `git`, `gcloud`, `docker`) paired with companion skills. Adding stateless developer MCP servers (e.g. GitHub MCP, Git MCP, Jira/Slack MCP) to agent environments is strictly prohibited.
+* **Rule (Downstream Perpetuation):** When designing developer tools or authoring agent instructions, all agents and subagents must perpetuate this CLI-first pattern and codify it in downstream project rules.
+* **Rationale:** Eliminates developer MCP server sprawl, avoids token bloat from stateless tool schemas, and preserves MCP resources for complex stateful graph analysis, while keeping Blackwall's core security firewall gateway architecture intact.
 

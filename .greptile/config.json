@@ -128,7 +128,7 @@
     },
     {
       "id": "cli-first-stateless-operations",
-      "rule": "Antigravity 2.0 CLI-First Architecture: Enforce native CLI tools (gh, git, gcloud, aws, docker) for all stateless git, cloud, and container tasks. Reserve MCP strictly for stateful persistent engines (codebase-memory-mcp AST graphs, databases, CDP sessions). Flag any PR attempting to add or configure stateless MCP servers (GitHub MCP, Git MCP, Jira/Slack MCP).",
+      "rule": "Antigravity 2.0 CLI-First Architecture (Developer Tooling Scope): Enforce native CLI tools (gh, git, gcloud, aws, docker) for all stateless developer git, cloud, and container tasks. Reserve developer MCP strictly for stateful persistent engines (codebase-memory-mcp AST graphs, databases, CDP sessions). Flag any PR attempting to add or configure stateless developer MCP servers (GitHub MCP, Git MCP, Jira/Slack MCP). Note: This rule governs developer agent tooling and does NOT restrict Blackwall's own MCP Gateway architecture or its use of codebase-memory-mcp and GTI.",
       "severity": "high"
     },
     {

@@ -166,7 +166,11 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 
 ## 11. Antigravity 2.0 CLI-First Architecture & Operational Guardrails
 
-- **CLI-First Architecture**: Version control, PR triage, and cloud/container management MUST execute through native CLI binaries (`gh`, `git`, `gcloud`, `docker`) paired with lightweight skills. PRs introducing stateless MCP servers (e.g. GitHub MCP, Git MCP, Jira/Slack MCP) are prohibited and must be rejected.
+> [!NOTE]
+> **Developer Tooling Scope vs. Blackwall Product Architecture**:
+> This section governs **developer agent workflows** (how AI coding assistants, subagents, and review bots develop and operate on this codebase using CLI tools rather than stateless MCP servers). It does **NOT** apply to Blackwall's product runtime. The Blackwall agent is an **agent-agnostic MCP Gateway security proxy** (`localhost:9229`, background daemon, macOS LaunchAgent service) that actively integrates with `codebase-memory-mcp` AST knowledge graphs, VirusTotal Google Threat Intelligence (GTI), and enterprise MCP adapters.
+
+- **CLI-First Developer Architecture**: For repository development tasks, version control, PR triage, and cloud/container management MUST execute through native CLI binaries (`gh`, `git`, `gcloud`, `docker`) paired with lightweight skills. PRs introducing stateless developer MCP servers (e.g. GitHub MCP, Git MCP, Jira/Slack MCP) for agent pair-programming are prohibited and must be rejected.
 - **MCP Scope & Stateful Boundaries**: MCP is reserved exclusively for stateful engines: `codebase-memory-mcp` (AST memory graphs), persistent database connections, and CDP browser sessions.
 - **GitHub CLI (`gh`) Guardrails**:
   - All work must be conducted on dedicated feature branches. Direct commits or pushes to `main` and `master` are strictly prohibited.
