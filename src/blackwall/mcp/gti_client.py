@@ -16,6 +16,7 @@ import aiohttp
 import certifi
 
 from blackwall.db.repository import SQLiteThreatRepository
+from blackwall.mcp.transport import call_mcp_tool_http
 from blackwall.models import GTIResponse, IndicatorType, ToolCallContext
 
 logger = logging.getLogger("blackwall.mcp.gti_client")
@@ -365,10 +366,104 @@ class GTIMCPClient:
                     "GTI MCP Client reached 5 consecutive failures. Switching to OPEN (degraded) mode."
                 )
 
+    def _is_mcp_endpoint(self) -> bool:
+        """Checks if the configured base_url targets an MCP endpoint rather than VirusTotal REST."""
+        if not self.base_url:
+            return False
+        clean = self.base_url.rstrip("/").lower()
+        return clean.endswith("/mcp") or "/mcp" in clean
+
+    def _normalize_mcp_response(
+        self, indicator: str, raw_result: Any
+    ) -> Dict[str, Any]:
+        """Normalizes MCP tool result into the dictionary structure expected by GTIResponse."""
+        import json
+
+        data = raw_result
+        if isinstance(data, dict):
+            content = data.get("content")
+            if isinstance(content, list) and len(content) > 0:
+                first = content[0]
+                if isinstance(first, dict) and "text" in first:
+                    try:
+                        parsed = json.loads(first["text"])
+                        if isinstance(parsed, dict):
+                            data = parsed
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+            if (
+                "data" in data
+                and isinstance(data["data"], dict)
+                and "attributes" in data["data"]
+            ):
+                return self._parse_vt_response(indicator, data)
+
+            is_malicious = bool(data.get("is_malicious", False))
+            threat_categories = list(data.get("threat_categories", []))
+            detection_rate = float(data.get("detection_rate", 0.0))
+            last_analysis_date = data.get("last_analysis_date")
+            related_campaigns = list(data.get("related_campaigns", []))
+            confidence = float(data.get("confidence", 0.0))
+            return {
+                "indicator": str(data.get("indicator", indicator)),
+                "is_malicious": is_malicious,
+                "threat_categories": threat_categories,
+                "detection_rate": detection_rate,
+                "last_analysis_date": last_analysis_date,
+                "related_campaigns": related_campaigns,
+                "confidence": min(max(confidence, 0.0), 1.0),
+            }
+
+        return {
+            "indicator": indicator,
+            "is_malicious": False,
+            "threat_categories": [],
+            "detection_rate": 0.0,
+            "last_analysis_date": None,
+            "related_campaigns": [],
+            "confidence": 0.0,
+        }
+
+    async def _execute_mcp_query(
+        self, indicator: str, indicator_type: IndicatorType
+    ) -> Dict[str, Any]:
+        """Performs MCP JSON-RPC 2.0 query against remote MCP server."""
+        api_key: Optional[str] = None
+        if self.api_key:
+            try:
+                resolved_key = self.api_key
+                if resolved_key.startswith("tmp_"):
+                    from blackwall.security import get_global_credential_manager
+
+                    manager = get_global_credential_manager()
+                    resolved_key = manager.resolve_token(resolved_key)
+                elif resolved_key.startswith("vault://"):
+                    from blackwall.security import get_global_vault
+
+                    vault = get_global_vault()
+                    resolved_key = vault.get_secret(resolved_key)
+                api_key = resolved_key
+            except Exception as e:
+                logger.warning("Could not resolve API key for MCP GTI query: %s", e)
+
+        raw_result = await call_mcp_tool_http(
+            endpoint_url=self.base_url,
+            tool_name="lookup_indicator",
+            arguments={"indicator": indicator, "type": indicator_type.value},
+            api_key=api_key,
+            timeout=5.0,
+        )
+
+        return self._normalize_mcp_response(indicator, raw_result)
+
     async def _execute_api_query(
         self, indicator: str, indicator_type: IndicatorType
     ) -> Dict[str, Any]:
-        """Performs actual HTTP request to VirusTotal API."""
+        """Performs actual HTTP request to either MCP endpoint or VirusTotal REST API."""
+        if self._is_mcp_endpoint():
+            return await self._execute_mcp_query(indicator, indicator_type)
+
         # Resolve credentials before entering timeout/breaker flow
         try:
             api_key = self.api_key or ""

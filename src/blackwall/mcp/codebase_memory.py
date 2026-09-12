@@ -1,9 +1,29 @@
 import asyncio
+import json
 import os
 from datetime import datetime, timezone
 from enum import Enum
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
+
+from blackwall.mcp.transport import call_mcp_tool_http
+
+
+def _parse_mcp_result(raw: Any) -> Any:
+    """Unpacks JSON-RPC 2.0 MCP result payloads if wrapped in content text."""
+    if (
+        isinstance(raw, dict)
+        and "content" in raw
+        and isinstance(raw["content"], list)
+        and raw["content"]
+    ):
+        item = raw["content"][0]
+        if isinstance(item, dict) and "text" in item:
+            try:
+                return json.loads(item["text"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+    return raw
 
 
 # Pydantic models representing the design spec structures
@@ -170,7 +190,8 @@ class CodebaseMemoryClient:
     async def _execute_mcp_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
         """
         Low-level executor. In production, this communicates with the MCP server
-        using subprocess JSON-RPC or HTTP. In the absence of live servers, it uses mock data.
+        using HTTP JSON-RPC 2.0 (tools/call). In the absence of live servers or configuration,
+        it raises or uses mock data.
         """
         # If no real transport is configured, raise or return mock indicators
         if not self.base_url and not self.command:
@@ -178,8 +199,16 @@ class CodebaseMemoryClient:
                 "Real MCP transport not configured. Mocking required."
             )
 
-        # Real transport would be implemented here. For testing, we mock or raise.
-        raise ConnectionError("MCP server is currently unavailable.")
+        if self.base_url:
+            return await call_mcp_tool_http(
+                endpoint_url=self.base_url,
+                tool_name=tool_name,
+                arguments=arguments,
+                timeout=self.timeout_seconds,
+            )
+
+        # Subprocess command transport (future extension)
+        raise ConnectionError("Subprocess MCP server transport is not configured.")
 
     async def _safe_execute(self, coro, fallback: Any) -> Any:
         """
@@ -210,7 +239,44 @@ class CodebaseMemoryClient:
                     ),
                 )
             # Real path (might fail, triggers fallback)
-            await self._execute_mcp_tool("trace_path", {"qualified_name": functionName})
+            res = await self._execute_mcp_tool(
+                "trace_path", {"qualified_name": functionName}
+            )
+            parsed = _parse_mcp_result(res)
+            if isinstance(parsed, DependencyChain):
+                return parsed
+            if isinstance(parsed, dict):
+                if (
+                    "data" in parsed
+                    and isinstance(parsed["data"], dict)
+                    and "rootFunction" in parsed["data"]
+                ):
+                    parsed = parsed["data"]
+                if "rootFunction" in parsed:
+                    return DependencyChain.model_validate(parsed)
+                call_chain = (
+                    parsed.get("call_chain")
+                    or parsed.get("callChain")
+                    or [functionName]
+                )
+                critical_sinks = (
+                    parsed.get("critical_sinks") or parsed.get("criticalSinks") or []
+                )
+                return DependencyChain(
+                    rootFunction=parsed.get("root_function")
+                    or parsed.get("rootFunction")
+                    or functionName,
+                    callChain=list(call_chain),
+                    depth=int(parsed.get("depth", len(call_chain))),
+                    hasCriticalSink=bool(
+                        parsed.get(
+                            "has_critical_sink",
+                            parsed.get("hasCriticalSink", bool(critical_sinks)),
+                        )
+                    ),
+                    criticalSinks=list(critical_sinks),
+                )
+            return fallback
 
         # Graceful fallback: Default to safe/empty DependencyChain
         fallback = DependencyChain(
@@ -231,10 +297,35 @@ class CodebaseMemoryClient:
         async def _query():
             if not self.base_url and not self.command:
                 return self.mock_data["identifyCriticalSinks"].get(moduleName, [])
-            await self._execute_mcp_tool(
+            res = await self._execute_mcp_tool(
                 "query_graph",
                 {"query": f"MATCH (m:Module {{name: '{moduleName}'}})..."},
             )
+            parsed = _parse_mcp_result(res)
+            if isinstance(parsed, list):
+                sinks = []
+                for s in parsed:
+                    if isinstance(s, CriticalSink):
+                        sinks.append(s)
+                    elif isinstance(s, dict):
+                        sinks.append(CriticalSink.model_validate(s))
+                return sinks
+            if isinstance(parsed, dict):
+                sinks_raw = (
+                    parsed.get("sinks")
+                    or parsed.get("criticalSinks")
+                    or parsed.get("data")
+                    or []
+                )
+                if isinstance(sinks_raw, list):
+                    return [
+                        s
+                        if isinstance(s, CriticalSink)
+                        else CriticalSink.model_validate(s)
+                        for s in sinks_raw
+                        if isinstance(s, (dict, CriticalSink))
+                    ]
+            return []
 
         return await self._safe_execute(_query(), [])
 
@@ -255,9 +346,41 @@ class CodebaseMemoryClient:
                         sanitizationPoints=[],
                     ),
                 )
-            await self._execute_mcp_tool(
+            res = await self._execute_mcp_tool(
                 "trace_path", {"variable": variableName, "context": context}
             )
+            parsed = _parse_mcp_result(res)
+            if isinstance(parsed, DataFlowPath):
+                return parsed
+            if isinstance(parsed, dict):
+                if (
+                    "data" in parsed
+                    and isinstance(parsed["data"], dict)
+                    and "sourceNode" in parsed["data"]
+                ):
+                    parsed = parsed["data"]
+                if "sourceNode" in parsed:
+                    return DataFlowPath.model_validate(parsed)
+                return DataFlowPath(
+                    sourceNode=parsed.get(
+                        "source_node", parsed.get("sourceNode", variableName)
+                    ),
+                    sinkNode=parsed.get("sink_node", parsed.get("sinkNode", context)),
+                    intermediateNodes=list(
+                        parsed.get(
+                            "intermediate_nodes", parsed.get("intermediateNodes", [])
+                        )
+                    ),
+                    isTainted=bool(
+                        parsed.get("is_tainted", parsed.get("isTainted", False))
+                    ),
+                    sanitizationPoints=list(
+                        parsed.get(
+                            "sanitization_points", parsed.get("sanitizationPoints", [])
+                        )
+                    ),
+                )
+            return fallback
 
         fallback = DataFlowPath(
             sourceNode=variableName,
@@ -285,7 +408,41 @@ class CodebaseMemoryClient:
                         isolation=BlastRadiusIsolation.HIGH,
                     ),
                 )
-            await self._execute_mcp_tool("get_architecture", {"node": targetNode})
+            res = await self._execute_mcp_tool("get_architecture", {"node": targetNode})
+            parsed = _parse_mcp_result(res)
+            if isinstance(parsed, BlastRadiusReport):
+                return parsed
+            if isinstance(parsed, dict):
+                if (
+                    "data" in parsed
+                    and isinstance(parsed["data"], dict)
+                    and "targetNode" in parsed["data"]
+                ):
+                    parsed = parsed["data"]
+                if "targetNode" in parsed:
+                    return BlastRadiusReport.model_validate(parsed)
+                return BlastRadiusReport(
+                    targetNode=parsed.get(
+                        "target_node", parsed.get("targetNode", targetNode)
+                    ),
+                    affectedModules=list(
+                        parsed.get(
+                            "affected_modules",
+                            parsed.get("affectedModules", [targetNode]),
+                        )
+                    ),
+                    affectedFunctions=list(
+                        parsed.get(
+                            "affected_functions",
+                            parsed.get("affectedFunctions", [targetNode]),
+                        )
+                    ),
+                    riskScore=float(
+                        parsed.get("risk_score", parsed.get("riskScore", 0.0))
+                    ),
+                    isolation=BlastRadiusIsolation(parsed.get("isolation", "HIGH")),
+                )
+            return fallback
 
         fallback = BlastRadiusReport(
             targetNode=targetNode,
