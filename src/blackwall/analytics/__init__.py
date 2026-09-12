@@ -9,6 +9,11 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 from uuid import uuid4
 
+from blackwall.config import (
+    DEFAULT_RAPID_TRIAGE_MODEL,
+    get_gemini_http_timeout,
+    get_gemini_thinking_level,
+)
 from blackwall.models import (
     BehaviorScore,
     EventType,
@@ -180,23 +185,34 @@ class AgentBehavioralAnalytics:
             )
             try:
                 create_fn = self.client.interactions.create
+                create_kwargs = {
+                    "model": DEFAULT_RAPID_TRIAGE_MODEL,
+                    "input": prompt,
+                }
                 if asyncio.iscoroutinefunction(create_fn):
-                    interaction = await create_fn(
-                        model="gemini-3.5-flash-lite",
-                        input=prompt,
-                    )
+                    interaction = await create_fn(**create_kwargs)
                 else:
-                    interaction = create_fn(
-                        model="gemini-3.5-flash-lite",
-                        input=prompt,
-                    )
-                output_text = getattr(interaction, "output_text", "") or ""
-                # Clean markdown blocks
-                if output_text.strip().startswith("```"):
-                    lines = output_text.strip().splitlines()
-                    if len(lines) > 2:
-                        output_text = "\n".join(lines[1:-1])
-                data = json.loads(output_text)
+                    interaction = create_fn(**create_kwargs)
+
+                data = None
+                if hasattr(interaction, "parsed") and interaction.parsed is not None:
+                    parsed = interaction.parsed
+                    if isinstance(parsed, dict):
+                        data = parsed
+                    elif hasattr(parsed, "model_dump"):
+                        data = parsed.model_dump()
+                    elif hasattr(parsed, "score") and hasattr(parsed, "risk_level"):
+                        data = {"score": parsed.score, "risk_level": parsed.risk_level}
+
+                if data is None:
+                    output_text = getattr(interaction, "output_text", "") or ""
+                    # Clean markdown blocks
+                    if output_text.strip().startswith("```"):
+                        lines = output_text.strip().splitlines()
+                        if len(lines) > 2:
+                            output_text = "\n".join(lines[1:-1])
+                    data = json.loads(output_text)
+
                 score_0_5 = float(data["score"])
                 # Normalize to [0.0, 1.0]
                 normalized_score = max(0.0, min(score_0_5 / 5.0, 1.0))
@@ -417,26 +433,54 @@ class AgentBehavioralAnalytics:
                 "- suggested_fix: string (concrete code fix description)"
             )
             try:
-                # 4.8s timeout limit to guarantee returning within 5.0 seconds
+                configured_timeout = get_gemini_http_timeout(
+                    configured=10.0, task_type="analysis"
+                )
+                remaining_timeout = max(
+                    0.1, configured_timeout - (time.time() - start_time)
+                )
+
+                create_kwargs = {
+                    "model": DEFAULT_RAPID_TRIAGE_MODEL,
+                    "input": prompt,
+                }
                 create_fn = self.client.interactions.create
                 if asyncio.iscoroutinefunction(create_fn):
                     interaction = await asyncio.wait_for(
-                        create_fn(model="gemini-3.5-flash-lite", input=prompt),
-                        timeout=max(0.1, 4.8 - (time.time() - start_time)),
+                        create_fn(**create_kwargs),
+                        timeout=remaining_timeout,
                     )
                 else:
                     interaction = await asyncio.wait_for(
-                        asyncio.to_thread(
-                            create_fn, model="gemini-3.5-flash-lite", input=prompt
-                        ),
-                        timeout=max(0.1, 4.8 - (time.time() - start_time)),
+                        asyncio.to_thread(create_fn, **create_kwargs),
+                        timeout=remaining_timeout,
                     )
-                output_text = getattr(interaction, "output_text", "") or ""
-                if output_text.strip().startswith("```"):
-                    lines = output_text.strip().splitlines()
-                    if len(lines) > 2:
-                        output_text = "\n".join(lines[1:-1])
-                data = json.loads(output_text)
+
+                data = None
+                if hasattr(interaction, "parsed") and interaction.parsed is not None:
+                    parsed = interaction.parsed
+                    if isinstance(parsed, dict):
+                        data = parsed
+                    elif hasattr(parsed, "model_dump"):
+                        data = parsed.model_dump()
+                    elif hasattr(parsed, "confidence"):
+                        data = {
+                            "suggestion": getattr(parsed, "suggestion", ""),
+                            "confidence": parsed.confidence,
+                            "vulnerability_type": getattr(
+                                parsed, "vulnerability_type", ""
+                            ),
+                            "suggested_fix": getattr(parsed, "suggested_fix", ""),
+                        }
+
+                if data is None:
+                    output_text = getattr(interaction, "output_text", "") or ""
+                    if output_text.strip().startswith("```"):
+                        lines = output_text.strip().splitlines()
+                        if len(lines) > 2:
+                            output_text = "\n".join(lines[1:-1])
+                    data = json.loads(output_text)
+
                 confidence = float(data["confidence"])
                 vulnerability_type = str(data["vulnerability_type"])
                 suggested_fix = str(data["suggested_fix"])

@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Optional
 from google import genai
 
@@ -11,11 +12,25 @@ logger = logging.getLogger(__name__)
 
 class AgentBehavioralAnalytics:
     def __init__(
-        self, repo: SQLiteThreatRepository, client: Optional[genai.Client] = None
+        self,
+        repo: SQLiteThreatRepository,
+        client: Optional[genai.Client] = None,
+        webhook_url: Optional[str] = None,
+        in_process: Optional[bool] = None,
     ):
         self.repo = repo
         self.client = client or get_genai_client()
-        self.webhook_url = "http://localhost:8090/webhook/analysis_complete"
+        self.webhook_url = (
+            webhook_url
+            or os.getenv("BLACKWALL_WEBHOOK_URL")
+            or "http://localhost:8090/webhook/analysis_complete"
+        )
+        if in_process is None:
+            self.in_process = os.getenv(
+                "BLACKWALL_IN_PROCESS_BACKGROUND_ANALYSIS", ""
+            ).strip().lower() in ("true", "1", "yes")
+        else:
+            self.in_process = bool(in_process)
 
     async def submitBackgroundAnalysis(self, event: SecurityEvent) -> Optional[str]:
         if not event.verdict or event.verdict.decision not in {
@@ -34,29 +49,32 @@ class AgentBehavioralAnalytics:
         )
 
         try:
+            create_kwargs = {
+                "model": "gemini-3.8-flash",
+                "input": prompt,
+            }
+            if not self.in_process:
+                create_kwargs["background"] = True
+                create_kwargs["webhook_config"] = {"uris": [self.webhook_url]}
+
             # Using the async client 'aio' if available, otherwise defaulting to synchronous client running in a thread.
             # Assuming google-genai 2.3.0+ supports aio for interactions
             if hasattr(self.client, "aio"):
-                interaction = await self.client.aio.interactions.create(
-                    model="gemini-3.8-flash",
-                    input=prompt,
-                    background=True,
-                    webhook_config={"uris": [self.webhook_url]},
-                )
+                interaction = await self.client.aio.interactions.create(**create_kwargs)
             else:
                 import asyncio
 
                 interaction = await asyncio.to_thread(
                     self.client.interactions.create,
-                    model="gemini-3.8-flash",
-                    input=prompt,
-                    background=True,
-                    webhook_config={"uris": [self.webhook_url]},
+                    **create_kwargs,
                 )
 
             task_id = interaction.id
 
-            await self.repo.add_background_task(task_id, "PENDING_WEBHOOK_CALLBACK")
+            status = (
+                "PENDING_IN_PROCESS" if self.in_process else "PENDING_WEBHOOK_CALLBACK"
+            )
+            await self.repo.add_background_task(task_id, status)
 
             logger.info(
                 f"Submitted background analysis task. task_id={task_id}, timestamp={event.timestamp.isoformat()}"
