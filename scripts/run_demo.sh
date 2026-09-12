@@ -106,12 +106,12 @@ else
   # 1. Start mock FastAPI app
   echo "📦 Starting mock FastAPI application..."
   mkdir -p logs
-  python scripts/mock_app.py 2>&1 | tee logs/mock_app.log &
+  python scripts/mock_app.py > logs/mock_app.log 2>&1 &
   PIDS+=($!)
 
   # 2. Start Blackwall daemon
   echo "🛡️  Starting Blackwall ADK daemon..."
-  adk run --reset-state 2>&1 | tee logs/blackwall_daemon.log &
+  adk run --reset-state > logs/blackwall_daemon.log 2>&1 &
   PIDS+=($!)
 
   # Wait for services to warm up

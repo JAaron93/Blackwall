@@ -263,15 +263,25 @@ def build_defender_panel(
     # Verdict summary
     if verdict is not None:
         dec = verdict.decision.value if hasattr(verdict.decision, "value") else str(verdict.decision)
-        v_panel_style = "bold red on grey15" if dec == "BLOCK" else "bold green on grey15"
-        v_title = "🚫 INTERCEPTION VERDICT: BLOCK" if dec == "BLOCK" else "✅ INTERCEPTION VERDICT: ALLOW"
-        
+        if dec == "BLOCK":
+            v_panel_style = "bold red on grey15"
+            v_title = "🚫 INTERCEPTION VERDICT: BLOCK"
+            mitigation = "Threat signature generated & committed to SQLite WAL"
+        elif dec == "QUARANTINE":
+            v_panel_style = "bold yellow on grey15"
+            v_title = "⚠️ INTERCEPTION VERDICT: QUARANTINE"
+            mitigation = "Routed to isolated sandbox execution mock"
+        else:
+            v_panel_style = "bold green on grey15"
+            v_title = "✅ INTERCEPTION VERDICT: ALLOW"
+            mitigation = "Request permitted (below threat score threshold)"
+
         v_body = (
             f"[bold]Decision:[/bold] {dec}  |  "
             f"[bold]Confidence:[/bold] {verdict.confidence_score:.3f}  |  "
             f"[bold]Latency:[/bold] {elapsed:.3f}s\n"
             f"[bold]Reasoning:[/bold] {verdict.reasoning[:120]}...\n"
-            f"[bold]Mitigation:[/bold] Threat signature generated & committed to SQLite WAL"
+            f"[bold]Mitigation:[/bold] {mitigation}"
         )
         content.append(Panel(v_body, title=v_title, style=v_panel_style, box=ROUNDED))
 
@@ -290,25 +300,29 @@ def build_scoreboard_panel(
     """Build bottom summary scoreboard showing accuracy, latency, and signature count."""
     total = len(results)
     blocked = sum(1 for r in results if r["decision"] == "BLOCK")
+    quarantined = sum(1 for r in results if r["decision"] == "QUARANTINE")
     allowed = sum(1 for r in results if r["decision"] == "ALLOW")
+    evasion_rate = (allowed / total * 100.0) if total > 0 else 0.0
     avg_latency = (sum(r["time"] for r in results) / total) if total > 0 else 0.0
     db_size = (os.path.getsize(db_path) / 1024) if os.path.exists(db_path) else 0.0
 
     t = Table(box=DOUBLE, show_header=True, expand=True)
     t.add_column("Scenarios", justify="center", style="bold white")
     t.add_column("Threats Blocked", justify="center", style="bold red")
-    t.add_column("Benign Allowed", justify="center", style="bold green")
-    t.add_column("False Refusal (FRR)", justify="center", style="bold green")
-    t.add_column("Evasion Rate", justify="center", style="bold green")
+    t.add_column("Quarantined", justify="center", style="bold yellow")
+    t.add_column("Evasions (Allowed)", justify="center", style="bold red" if allowed > 0 else "bold green")
+    t.add_column("Evasion Rate", justify="center", style="bold red" if evasion_rate > 10.0 else "bold green")
+    t.add_column("FRR", justify="center", style="dim white")
     t.add_column("Avg Latency", justify="center", style="bold cyan")
     t.add_column("Threat Database", justify="center", style="bold yellow")
 
     t.add_row(
         str(total),
-        f"{blocked} ({100.0 if total else 0:.1f}%)",
-        str(allowed),
-        "0.00% ✅ (<10%)",
-        "0.00% ✅ (<10%)",
+        f"{blocked} ({(blocked / total * 100.0) if total else 0:.1f}%)",
+        f"{quarantined}",
+        f"{allowed}",
+        f"{evasion_rate:.2f}% {'✅' if evasion_rate <= 10.0 else '⚠️'}",
+        "N/A (Adversarial)",
         f"{avg_latency:.3f}s",
         f"SQLite ({db_size:.1f} KB)",
     )
@@ -446,7 +460,13 @@ async def run_showdown(
                 layout["defender"].update(build_defender_panel(stages, verdict=verdict, elapsed=elapsed))
 
                 # Update attacker status
-                status = "blocked" if verdict.decision == VerdictDecision.BLOCK else "allowed"
+                if verdict.decision == VerdictDecision.BLOCK:
+                    status = "blocked"
+                elif verdict.decision == VerdictDecision.QUARANTINE:
+                    status = "quarantined"
+                else:
+                    status = "allowed"
+
                 layout["attacker"].update(
                     build_attacker_panel(attack, i, len(attacks), status=status)
                 )
@@ -464,10 +484,22 @@ async def run_showdown(
                 await asyncio.sleep(step_delay * 1.5)
 
         # Print final completion banner
-        console.print(
-            "\n[bold green]✓ All attack scenarios intercepted and neutralized![/bold green] "
-            "[cyan]Blackwall is defending your AI agent runtime.[/cyan]\n"
-        )
+        total_runs = len(results)
+        blocked_cnt = sum(1 for r in results if r["decision"] == "BLOCK")
+        quarantined_cnt = sum(1 for r in results if r["decision"] == "QUARANTINE")
+        allowed_cnt = sum(1 for r in results if r["decision"] == "ALLOW")
+        evasion_pct = (allowed_cnt / total_runs * 100.0) if total_runs > 0 else 0.0
+
+        if allowed_cnt == 0:
+            console.print(
+                f"\n[bold green]✓ All {total_runs} attack scenarios neutralized ({blocked_cnt} blocked, {quarantined_cnt} quarantined)![/bold green] "
+                "[cyan]Blackwall is defending your AI agent runtime (0.00% evasion rate).[/cyan]\n"
+            )
+        else:
+            console.print(
+                f"\n[bold yellow]⚠️ Showdown complete: {blocked_cnt} blocked, {quarantined_cnt} quarantined, {allowed_cnt} allowed "
+                f"(evasion rate: {evasion_pct:.1f}%).[/bold yellow]\n"
+            )
     else:
         # Fallback ANSI execution
         print_ansi_header("🔥 BLACKWALL AGENTIC FIREWALL 🔥")
@@ -517,12 +549,17 @@ async def run_showdown(
 
         # ANSI summary
         print_ansi_header("📊 EVALUATION SCOREBOARD")
+        total_runs = len(results)
         blocked = sum(1 for r in results if r["decision"] == "BLOCK")
-        allowed = len(results) - blocked
-        avg_time = sum(r["time"] for r in results) / len(results) if results else 0.0
+        quarantined = sum(1 for r in results if r["decision"] == "QUARANTINE")
+        allowed = sum(1 for r in results if r["decision"] == "ALLOW")
+        evasion_pct = (allowed / total_runs * 100.0) if total_runs else 0.0
+        avg_time = sum(r["time"] for r in results) / total_runs if total_runs else 0.0
 
         print(f"  🚫 {Colors.BOLD}Blocked (Threats):{Colors.ENDC} {Colors.RED}{blocked}{Colors.ENDC}")
-        print(f"  ✅ {Colors.BOLD}Allowed (Benign):{Colors.ENDC} {Colors.GREEN}{allowed}{Colors.ENDC}")
+        print(f"  ⚠️  {Colors.BOLD}Quarantined (Mocked):{Colors.ENDC} {Colors.YELLOW}{quarantined}{Colors.ENDC}")
+        print(f"  🔓 {Colors.BOLD}Evasions (Allowed):{Colors.ENDC} {Colors.RED if allowed else Colors.GREEN}{allowed}{Colors.ENDC}")
+        print(f"  📊 {Colors.BOLD}Evasion Rate:{Colors.ENDC} {Colors.RED if evasion_pct > 10.0 else Colors.GREEN}{evasion_pct:.2f}%{Colors.ENDC}")
         print(f"  ⚡ {Colors.BOLD}Avg Latency:{Colors.ENDC} {avg_time:.3f}s per evaluation")
         print(f"  🛡️  {Colors.BOLD}Zero Ambient Authority:{Colors.ENDC} Verified\n")
 
