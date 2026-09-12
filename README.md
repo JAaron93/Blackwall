@@ -699,7 +699,7 @@ The pipeline routes scenarios from `tests/eval/judge_scenarios/` and the GCP nat
 - Single-request synchronous evaluation with optional LLM semantic triage (`BLACKWALL_ENABLE_SYNC_SEMANTIC_TRIAGE=true`)
 - Structured semantic intent evaluation via Gemini 3.5 Flash-Lite (`response_schema=Verdict`, `thinking_level="minimal"`)
 - Native structured signature synthesis producing typed `ThreatSignaturePayload` models after `BLOCK` verdicts
-- 15 RPM rate limiter in free-tier fallback mode (fail-closed QUARANTINE)
+- 300 RPM token bucket rate limiter under 100% GCP Vertex AI Mode (fail-closed QUARANTINE)
 - Serial GTI → CBM queries (no parallelism)
 - All 14 unit tests passing ✅
 

@@ -2,8 +2,11 @@
 sync_resolver.py — Free-tier single-request synchronous resolver.
 
 Uses client.models.generate_content() (NOT interactions.create()).
-No InterceptionQueue, no BatchResolver, no webhooks.
-Rate limited to 15 RPM via a token bucket (capacity=15, refill=0.25/s).
+Single-request synchronous evaluation resolver for inline tool-call gating.
+Rate limited to 300 RPM via a token bucket (capacity=300, refill=5.0/s) under 100% GCP Vertex AI Mode.
+Performs ContextHygiene sanitization, Threat Signature Graph lookup,
+CBM AST query, GTI external threat intelligence check, optional Gemini 3.5 Flash-Lite
+semantic triage, threat score aggregation, and threshold-based verdict dispatch.
 
 Verdict thresholds (DEMO MODE - tuned for standalone testing):
   >= 0.20  → BLOCK
@@ -198,18 +201,13 @@ class SyncResolver:
             max_workers=2, thread_name_prefix="bw_callback"
         )
 
-        # Rate limiter: Paid tier (300 RPM → capacity=300, refill_rate=5.0 t/s) vs Free tier (15 RPM)
-        tier = (
-            os.getenv("GEMINI_TIER") or os.getenv("BLACKWALL_TIER") or "paid"
-        ).lower()
-        capacity = 300.0 if tier == "paid" else 15.0
-        refill = 5.0 if tier == "paid" else 0.25
+        # Rate limiter: 100% GCP Vertex AI Mode (Paid Tier Exclusively: 300 RPM capacity, 5.0 t/s refill)
         self._rate_limiter = TokenBucketRateLimiter(
-            capacity=capacity, refill_rate=refill
+            capacity=300.0, refill_rate=5.0
         )
 
-        # Context hygiene sanitizer
-        self._hygiene = ContextHygiene()
+        # Context hygiene sanitizer with security IOC preservation mode enabled
+        self._hygiene = ContextHygiene(preserve_iocs=True)
 
         # True only when the GTI budget tracker explicitly denied the last query.
         self._gti_budget_exhausted: bool = False
@@ -252,7 +250,7 @@ class SyncResolver:
             return Verdict(
                 decision=VerdictDecision.QUARANTINE,
                 reasoning=(
-                    "Rate limit exhausted (15 RPM). "
+                    "Rate limit exhausted (300 RPM). "
                     "Fail-closed: QUARANTINE pending retry."
                 ),
                 confidence_score=1.0,
@@ -856,15 +854,20 @@ class SyncResolver:
         arguments: Dict[str, Any],
         semantic_score: Optional[float] = None,
     ) -> float:
-        """Counts suspicious keywords found in stringified argument values or uses semantic score if provided."""
-        if semantic_score is not None:
-            return max(0.0, min(1.0, float(semantic_score)))
+        """Counts suspicious keywords found in stringified argument values and combines with semantic score (fail-closed max)."""
         combined = " ".join(str(v) for v in arguments.values()).lower()
         count = sum(1 for kw in _SUSPICIOUS_KEYWORDS if kw in combined)
         if self.demo_mode:
-            return min(count * 0.25, 1.0)  # Boosted from 0.2
+            deterministic_novelty = min(count * 0.25, 1.0)  # Boosted from 0.2
         else:
-            return min(count * 0.2, 1.0)  # Specification-mandated multiplier
+            deterministic_novelty = min(count * 0.2, 1.0)  # Specification-mandated multiplier
+
+        if semantic_score is not None:
+            bounded_semantic = max(0.0, min(1.0, float(semantic_score)))
+            # Fail-closed: semantic triage must never lower the deterministic risk signal
+            return max(deterministic_novelty, bounded_semantic)
+
+        return deterministic_novelty
 
     def _extract_indicator(self, context: ToolCallContext) -> Optional[str]:
         """Extracts the most useful GTI indicator from the context arguments."""

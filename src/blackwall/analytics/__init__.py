@@ -433,8 +433,10 @@ class AgentBehavioralAnalytics:
                 "- suggested_fix: string (concrete code fix description)"
             )
             try:
-                configured_timeout = get_gemini_http_timeout(
-                    configured=10.0, task_type="analysis"
+                # 4.8s timeout limit to guarantee returning within 5.0 seconds
+                configured_timeout = min(
+                    4.8,
+                    get_gemini_http_timeout(configured=4.8, task_type="refactoring"),
                 )
                 remaining_timeout = max(
                     0.1, configured_timeout - (time.time() - start_time)

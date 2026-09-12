@@ -143,3 +143,33 @@ async def test_inline_generate_signature_structured():
     assert payload["attackerIntent"] == "Automated credential harvesting via shadow file"
     assert payload["payloadPattern"] == "cat /etc/shadow"
     assert payload["mitigationAction"] == "BLOCK"
+
+
+def test_score_argument_novelty_fail_closed_prevents_risk_reduction():
+    """Verify that a low semantic score cannot reduce the deterministic risk signal."""
+    resolver = SyncResolver(client=MagicMock())
+    args = {"file": "/etc/shadow", "other": "passwd"}
+
+    det_score = resolver._score_argument_novelty(args)
+    assert det_score >= 0.4
+
+    # With a lower semantic score (0.0), fail-closed max preserves deterministic score
+    combined_low = resolver._score_argument_novelty(args, semantic_score=0.0)
+    assert combined_low == det_score
+
+    # With a higher semantic score (0.8), risk is elevated
+    combined_high = resolver._score_argument_novelty(args, semantic_score=0.8)
+    assert combined_high == 0.8
+
+
+def test_sync_resolver_hygiene_preserves_iocs():
+    """Verify SyncResolver initializes ContextHygiene with preserve_iocs=True."""
+    resolver = SyncResolver(client=MagicMock())
+    ctx = ToolCallContext(
+        tool_name="read_file",
+        arguments={"path": "/etc/shadow", "token": "sk-1234567890abcdef1234567890"},
+    )
+    sanitized = resolver._hygiene.sanitize_context(ctx)
+    assert sanitized.arguments["path"] == "/etc/shadow"
+    assert "sk-1234567890abcdef1234567890" not in str(sanitized.arguments)
+

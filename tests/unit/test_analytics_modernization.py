@@ -105,5 +105,5 @@ async def test_background_task_submitter_in_process_fallback():
     task_id = await submitter.submitBackgroundAnalysis(event)
     assert task_id == "in-proc-task-999"
     mock_repo.add_background_task.assert_called_once_with(
-        "in-proc-task-999", "PENDING_IN_PROCESS"
+        "in-proc-task-999", "COMPLETED"
     )

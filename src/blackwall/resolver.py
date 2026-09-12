@@ -279,7 +279,7 @@ class BatchResolver:
 
         # Components
         self.rate_limiter = TokenBucketRateLimiter(capacity=300.0, refill_rate=5.0)
-        self.hygiene = ContextHygiene()
+        self.hygiene = ContextHygiene(preserve_iocs=True)
 
         # Cache Tracking
         self.last_interaction_id: Optional[str] = None

@@ -71,10 +71,43 @@ class AgentBehavioralAnalytics:
 
             task_id = interaction.id
 
-            status = (
-                "PENDING_IN_PROCESS" if self.in_process else "PENDING_WEBHOOK_CALLBACK"
-            )
-            await self.repo.add_background_task(task_id, status)
+            if self.in_process:
+                # In-process mode: consume completed interaction immediately
+                candidates = []
+                if isinstance(interaction, dict):
+                    candidates = interaction.get("threat_signature_candidates", [])
+                elif hasattr(interaction, "parsed") and interaction.parsed is not None:
+                    parsed = interaction.parsed
+                    if hasattr(parsed, "threat_signature_candidates"):
+                        candidates = parsed.threat_signature_candidates
+                    elif isinstance(parsed, dict):
+                        candidates = parsed.get("threat_signature_candidates", [])
+                elif hasattr(interaction, "threat_signature_candidates"):
+                    candidates = interaction.threat_signature_candidates
+
+                signatures = []
+                for candidate in candidates:
+                    try:
+                        from blackwall.analytics import AgentBehavioralAnalytics as ABA
+                        aba_inst = ABA()
+                        sig = await aba_inst.generate_signature(candidate)
+                        signatures.append(sig)
+                    except Exception as sig_err:
+                        logger.warning(
+                            f"Failed to generate signature for candidate in in-process mode: {sig_err}"
+                        )
+
+                if signatures and hasattr(self.repo, "write_signatures_batch"):
+                    try:
+                        await self.repo.write_signatures_batch(signatures)
+                    except Exception as db_err:
+                        logger.error(
+                            f"Failed to persist signatures in in-process mode: {db_err}"
+                        )
+
+                await self.repo.add_background_task(task_id, "COMPLETED")
+            else:
+                await self.repo.add_background_task(task_id, "PENDING_WEBHOOK_CALLBACK")
 
             logger.info(
                 f"Submitted background analysis task. task_id={task_id}, timestamp={event.timestamp.isoformat()}"
