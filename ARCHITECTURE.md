@@ -99,6 +99,8 @@ $$\text{ThreatScore} = w_{\text{GTI}} \cdot S_{\text{GTI}} + w_{\text{CBM}} \cdo
   - $\text{ThreatScore} \ge 0.75 \implies \mathbf{BLOCK}$
   - $0.50 \le \text{ThreatScore} < 0.75 \implies \mathbf{QUARANTINE}$
   - $\text{ThreatScore} < 0.50 \implies \mathbf{ALLOW}$
+- **Structured Output Schema Enforcement**: When delegating semantic intent analysis to Gemini 3.5 Flash-Lite, Blackwall enforces Pydantic schemas via `response_schema=Verdict` (or `list[Verdict]`) with `response_mime_type="application/json"`. The model directly outputs structured verdict instances, eliminating markdown fence parsing and regex recovery heuristics.
+- **Thinking Level Routing**: Inline fast-path resolution operates with `thinking_level="minimal"` to satisfy the `<150ms` TTFT budget, while complex out-of-band forensics and behavioral analytics dynamically leverage `thinking_level="high"` or `None` on frontier reasoning models (e.g., Gemini 3.8 Flash).
 
 ---
 
@@ -139,7 +141,9 @@ sequenceDiagram
 - **Fail-Closed Guarantees**: If the queue experiences an unexpected shutdown or exhaustion, in-flight callbacks default strictly to `QUARANTINE` or `BLOCK`, never `ALLOW`.
 
 ### 3.2 Batch Resolver & Rate Limiting
-- **Interactions API**: Uses the Gemini Interactions API (`client.interactions.create`) for multi-request evaluation.
+- **Interactions API**: Uses the Gemini Interactions API (`client.interactions.create`) for multi-request evaluation with Gemini 3.5 Flash-Lite.
+- **Structured Output Decoding**: Interception batches enforce typed output contracts via `response_schema=list[Verdict]` and `response_mime_type="application/json"`. The resolver deserializes model responses directly into typed `Verdict` objects.
+- **Thinking Level Routing**: Batch requests dynamically specify `thinking_level="minimal"` during inline tool triage to prevent thinking token latency overhead.
 - **Token Bucket Limiter**: Enforces a 300 RPM limit across a 60-second sliding window.
 - **Context Caching**: Reuses server-side context via `previous_interaction_id`, reducing prompt token costs by over 50%.
 - **Exponential Backoff**: When handling `APIRateLimitException`, requests back off dynamically at 100ms, 200ms, and 400ms before failing closed.
@@ -214,6 +218,7 @@ Untrusted agent payloads frequently contain sensitive environment credentials, p
   - Passwords / Tokens $\to$ `[[PASSWORD]]`
   - Private IP addresses $\to$ `[[INTERNAL_IP]]`
   - File paths $\to$ `[[FILE_PATH]]`
+- **Selective IOC Preservation Mode (`preserve_iocs=True`)**: When analyzing security events, Context Hygiene supports selective IOC preservation. Target filesystem attack surfaces (e.g., `/etc/shadow`, `/etc/passwd`, command binary paths) and network domain names are preserved un-redacted so the downstream LLM semantic gating engine can accurately evaluate threat context, while sensitive credentials (passwords, bearer tokens, API keys, private keys, and query parameter tokens) remain strictly redacted.
 - **Idempotence**: Guaranteed $\text{sanitize}(\text{sanitize}(x)) = \text{sanitize}(x)$.
 - **Non-Invertible Audit Trail**: Logs SHA-256 hashes of original values to preserve auditability without storing raw plaintext secrets.
 
@@ -268,9 +273,10 @@ stateDiagram-v2
 
 1. **Trigger Event**: Whenever a tool call receives a `BLOCK` verdict from Tier 2 semantic evaluation, `AgentBehavioralAnalytics.generate_signature()` is invoked.
 2. **Payload Generalization**: Extracts invariant structural tokens from the malicious payload while stripping dynamic session parameters (e.g., ports, ephemeral timestamps, temporary process IDs).
-3. **Vector Synthesis**: Calls the Gemini Embedding API (`text-embedding-004`) to generate a 768-dimensional normalized embedding vector.
-4. **Graph Persistence**: Atomically writes the signature, payload regex, and vector to the SQLite `threat_signatures` table and broadcasts the event across OpenTelemetry.
-5. **Adaptive Immunity**: When an attacker subsequently attempts a polymorphic variant of the same exploit, Tier 2 vector similarity matches the stored signature and blocks the attack locally in **~12ms**.
+3. **Structured Signature Synthesis**: Invokes Gemini with a typed schema (`ThreatSignaturePayload`), natively synthesizing pattern, threat level, mitigation action, and structured reasoning without regex or markdown repair heuristics.
+4. **Vector Synthesis**: Calls the Gemini Embedding API (`text-embedding-004`) to generate a 768-dimensional normalized embedding vector.
+5. **Graph Persistence**: Atomically writes the signature, payload regex, and vector to the SQLite `threat_signatures` table and broadcasts the event across OpenTelemetry.
+6. **Adaptive Immunity**: When an attacker subsequently attempts a polymorphic variant of the same exploit, Tier 2 vector similarity matches the stored signature and blocks the attack locally in **~12ms**.
 
 ---
 
@@ -287,7 +293,7 @@ Blackwall instruments every stage of the interception lifecycle using OpenTeleme
       - `blackwall.gti_query` (VirusTotal IOC check)
       - `blackwall.cbm_query` (Codebase AST query)
     - `blackwall.signature_generation` (Self-learning loop)
-- **Trace Attributes**: Emits `blackwall.verdict`, `blackwall.threat_score`, `blackwall.rule_id`, `blackwall.agent_id`, and `blackwall.tool_name`.
+- **Trace Attributes**: Emits `blackwall.verdict`, `blackwall.threat_score`, `blackwall.rule_id`, `blackwall.agent_id`, and `blackwall.tool_name`, as well as OpenTelemetry GenAI semantic conventions: `gen_ai.request.model`, `gen_ai.request.thinking_level`, and `gen_ai.usage.thought_tokens`.
 - **Cloud Export**: Direct export to **Google Cloud Trace** and local Jaeger collectors via `opentelemetry-mcp`.
 
 ---
