@@ -974,8 +974,8 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Enforce high-throughput concurrency execution across evaluation and diagnostic scripts (`scripts/verify_environment.py`, `scripts/burst_test.py`)
     - _Requirements: 2.1, 9.1, 9.2, 15.1, 15.2, 26.1, 26.2_
 
-- [ ] 22. Implement demo harness and dual-agent showdown setup (Building upon `demo_live.py`)
-  - [ ] 22.1 Enhance `demo_live.py` and orchestration script for dual-agent showdown
+- [x] 22. Implement demo harness and dual-agent showdown setup (Building upon `demo_live.py`)
+  - [x] 22.1 Enhance `demo_live.py` and orchestration script for dual-agent showdown
     - Build upon **`demo_live.py`** as the live demonstration entrypoint
     - Utilize `scripts/run_demo.sh` launching Blackwall as ambient daemon via `adk run`
     - Utilize `scripts/run_rogue.py` launching adversarial agent with configured attack sequences
@@ -984,7 +984,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Configure rogue agent to stream attack attempts, tool inputs, and payload failures into TUI
     - _Requirements: 27.1, 27.2, 27.3, 28.1, 28.2_
 
-  - [ ] 22.2 Configure sandbox environment with Python audit hooks
+  - [x] 22.2 Configure sandbox environment with Python audit hooks
     - Register `sys.addaudithook` blocking raw os/subprocess/pty calls at process start
     - Configure Blackwall to run as unprivileged user (dropped OS privileges)
     - Set up mock vulnerable target application (`scripts/mock_app.py`)
@@ -992,7 +992,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Validate audit hooks active before demo execution
     - _Requirements: 10.6, 10.7, 10.8, 27.4, 27.5_
 
-  - [ ] 22.3 Write smoke tests for demo harness
+  - [x] 22.3 Write smoke tests for demo harness
     - Test Blackwall daemon starts successfully via `adk run`
     - Test audit hook blocks raw subprocess calls
     - Test rogue agent tool calls are intercepted by `before_tool_callback`
