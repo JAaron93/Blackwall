@@ -1000,8 +1000,8 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Test second-attempt attack blocked by signature match
     - _Requirements: 27.1, 27.2, 26.1, 26.2_
 
-- [ ] 23. Implement YAML policy configuration for demo scenarios
-  - [ ] 23.1 Create `policy.yaml` with production-ready rules for demo
+- [x] 23. Implement YAML policy configuration for demo scenarios
+  - [x] 23.1 Create `policy.yaml` with production-ready rules for demo
     - Define environment roles: PRODUCTION, STAGING, DEVELOPMENT, SANDBOX
     - Write structural rules blocking known dangerous tool names immediately (BLOCK)
     - Write structural rules for privileged operations requiring semantic review (ESCALATE_TO_SEMANTIC)
@@ -1011,7 +1011,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Set policy version with semantic versioning (1.0.0)
     - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7_
 
-  - [ ] 23.2 Write YAML policy validation tests
+  - [x] 23.2 Write YAML policy validation tests
     - Test all rule IDs are unique in `policy.yaml`
     - Test schema validation passes for all rules
     - Test priority ordering covers expected evaluation sequence

@@ -45,6 +45,7 @@ class StructuralRule(BaseModel):
 
 class MCPServerConfig(BaseModel):
     enabled: bool
+    url: str | None = None
     apiKey: str | None = None
     cacheEnabled: bool
     cacheTTL: int = Field(..., ge=0)
