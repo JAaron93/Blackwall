@@ -78,3 +78,25 @@ def test_gcp_cloud_trace_exporter_disable_flag(monkeypatch):
     exporter = GCPCloudTraceExporter(project_id="unit-test-proj")
     assert exporter._export_to_cloud is False
     assert exporter.is_cloud_trace_available is False
+
+
+def test_gcp_cloud_trace_exporter_thinking_level_and_thought_tokens():
+    """Verify trace exporter records gen_ai.request.thinking_level and gen_ai.usage.thought_tokens."""
+    exporter = GCPCloudTraceExporter(project_id="unit-test-proj")
+    span = exporter.start_span(
+        name="vertex_eval.reasoning_task",
+        model="gemini-3.5-flash-lite",
+        thinking_level="minimal",
+    )
+    assert span.attributes["gen_ai.request.thinking_level"] == "minimal"
+
+    exporter.record_evaluation_result(
+        span=span,
+        score=4.8,
+        verdict="BLOCK",
+        thought_tokens=256,
+        thinking_level="minimal",
+    )
+    assert span.attributes["gen_ai.usage.thought_tokens"] == 256
+    assert span.attributes["gen_ai.request.thinking_level"] == "minimal"
+
