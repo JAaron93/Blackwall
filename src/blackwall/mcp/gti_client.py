@@ -16,6 +16,7 @@ import aiohttp
 import certifi
 
 from blackwall.db.repository import SQLiteThreatRepository
+from blackwall.mcp.transport import call_mcp_tool_http
 from blackwall.models import GTIResponse, IndicatorType, ToolCallContext
 
 logger = logging.getLogger("blackwall.mcp.gti_client")
@@ -170,8 +171,23 @@ class GTIQueryBudgetTracker:
 class GTIClient:
     """Client for querying Google Threat Intelligence MCP server."""
 
-    def __init__(self, api_key: str | None = None) -> None:
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        policy: Any | None = None,
+    ) -> None:
         self.api_key = api_key
+        if not base_url and policy:
+            mcp = getattr(policy, "mcpServers", None)
+            gti = getattr(mcp, "gti", None) if mcp else None
+            base_url = getattr(gti, "url", None) if gti else None
+        self.base_url = base_url
+
+    @classmethod
+    def from_policy(cls, policy: Any, **kwargs: Any) -> "GTIClient":
+        """Instantiates GTIClient using endpoints configured in policy."""
+        return cls(policy=policy, **kwargs)
 
     async def lookup_ip(self, ip: str) -> GTIResponse:
         """Lookup threat reputation for an IP address."""
@@ -213,9 +229,16 @@ class GTIMCPClient:
         api_key: str = "",
         base_url: str = "https://www.virustotal.com/api/v3",
         budget_tracker: Optional[GTIQueryBudgetTracker] = None,
+        policy: Optional[Any] = None,
     ):
         self.repo = repo
         self.api_key = api_key
+        if policy and (base_url == "https://www.virustotal.com/api/v3" or not base_url):
+            mcp = getattr(policy, "mcpServers", None)
+            gti = getattr(mcp, "gti", None) if mcp else None
+            policy_url = getattr(gti, "url", None) if gti else None
+            if policy_url:
+                base_url = policy_url
         self.base_url = base_url
         self.consecutive_failures = 0
         self.state = "CLOSED"  # CLOSED, OPEN (degraded), HALF-OPEN
@@ -223,6 +246,16 @@ class GTIMCPClient:
         self.cooldown = 60.0  # seconds
         self.successful_retries = 0
         self._budget_tracker = budget_tracker
+
+    @classmethod
+    def from_policy(
+        cls,
+        repo: SQLiteThreatRepository,
+        policy: Any,
+        **kwargs: Any,
+    ) -> "GTIMCPClient":
+        """Instantiates GTIMCPClient using endpoints configured in policy."""
+        return cls(repo=repo, policy=policy, **kwargs)
 
     @property
     def budget_tracker(self) -> GTIQueryBudgetTracker:
@@ -333,11 +366,67 @@ class GTIMCPClient:
                     "GTI MCP Client reached 5 consecutive failures. Switching to OPEN (degraded) mode."
                 )
 
-    async def _execute_api_query(
-        self, indicator: str, indicator_type: IndicatorType
+    def _is_mcp_endpoint(self) -> bool:
+        """Checks if the configured base_url targets an MCP endpoint rather than VirusTotal REST."""
+        if not self.base_url:
+            return False
+        clean = self.base_url.rstrip("/").lower()
+        return clean.endswith("/mcp") or "/mcp" in clean
+
+    def _normalize_mcp_response(
+        self, indicator: str, raw_result: Any
     ) -> Dict[str, Any]:
-        """Performs actual HTTP request to VirusTotal API."""
-        # Resolve credentials before entering timeout/breaker flow
+        """Normalizes MCP tool result into the dictionary structure expected by GTIResponse."""
+        import json
+
+        data = raw_result
+        if isinstance(data, dict):
+            content = data.get("content")
+            if isinstance(content, list) and len(content) > 0:
+                first = content[0]
+                if isinstance(first, dict) and "text" in first:
+                    try:
+                        parsed = json.loads(first["text"])
+                        if isinstance(parsed, dict):
+                            data = parsed
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+            if (
+                "data" in data
+                and isinstance(data["data"], dict)
+                and "attributes" in data["data"]
+            ):
+                return self._parse_vt_response(indicator, data)
+
+            is_malicious = bool(data.get("is_malicious", False))
+            threat_categories = list(data.get("threat_categories", []))
+            detection_rate = float(data.get("detection_rate", 0.0))
+            last_analysis_date = data.get("last_analysis_date")
+            related_campaigns = list(data.get("related_campaigns", []))
+            confidence = float(data.get("confidence", 0.0))
+            return {
+                "indicator": str(data.get("indicator", indicator)),
+                "is_malicious": is_malicious,
+                "threat_categories": threat_categories,
+                "detection_rate": detection_rate,
+                "last_analysis_date": last_analysis_date,
+                "related_campaigns": related_campaigns,
+                "confidence": min(max(confidence, 0.0), 1.0),
+            }
+
+        return {
+            "indicator": indicator,
+            "is_malicious": False,
+            "threat_categories": [],
+            "detection_rate": 0.0,
+            "last_analysis_date": None,
+            "related_campaigns": [],
+            "confidence": 0.0,
+        }
+
+    def _resolve_api_key(self) -> str:
+        """Resolves API credentials from temporary tokens or Vault STS."""
         try:
             api_key = self.api_key or ""
             if api_key.startswith("tmp_"):
@@ -350,14 +439,38 @@ class GTIMCPClient:
 
                 vault = get_global_vault()
                 api_key = vault.get_secret(api_key)
-
-            # Validate API key is not empty after resolution
-            if not api_key:
-                raise ValueError("API key is missing or empty")
+            return api_key
         except (ValueError, KeyError) as e:
             # Credential resolution failures should not trigger circuit breaker
             logger.error(f"Failed to resolve API credentials: {str(e)}")
             raise ValueError(f"API credential resolution failed: {str(e)}") from e
+
+    async def _execute_mcp_query(
+        self, indicator: str, indicator_type: IndicatorType
+    ) -> Dict[str, Any]:
+        """Performs MCP JSON-RPC 2.0 query against remote MCP server."""
+        api_key: Optional[str] = self._resolve_api_key() if self.api_key else None
+
+        raw_result = await call_mcp_tool_http(
+            endpoint_url=self.base_url,
+            tool_name="lookup_indicator",
+            arguments={"indicator": indicator, "type": indicator_type.value},
+            api_key=api_key,
+            timeout=5.0,
+        )
+
+        return self._normalize_mcp_response(indicator, raw_result)
+
+    async def _execute_api_query(
+        self, indicator: str, indicator_type: IndicatorType
+    ) -> Dict[str, Any]:
+        """Performs actual HTTP request to either MCP endpoint or VirusTotal REST API."""
+        if self._is_mcp_endpoint():
+            return await self._execute_mcp_query(indicator, indicator_type)
+
+        api_key = self._resolve_api_key()
+        if not api_key:
+            raise ValueError("API key is missing or empty")
 
         headers = {
             "x-apikey": api_key,

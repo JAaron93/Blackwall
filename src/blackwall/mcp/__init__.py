@@ -22,6 +22,13 @@ from blackwall.mcp.mcp_routing import (
     GTIRouter,
     MCPRoutingViolation,
 )
+from blackwall.mcp.transport import (
+    MCPConnectionError,
+    MCPRemoteError,
+    MCPTimeoutError,
+    MCPTransportError,
+    call_mcp_tool_http,
+)
 
 __all__ = [
     "CodebaseMemoryClient",
@@ -39,4 +46,9 @@ __all__ = [
     "CodebaseMemoryRouter",
     "GTIRouter",
     "MCPRoutingViolation",
+    "call_mcp_tool_http",
+    "MCPTransportError",
+    "MCPConnectionError",
+    "MCPTimeoutError",
+    "MCPRemoteError",
 ]

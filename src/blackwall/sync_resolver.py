@@ -141,6 +141,27 @@ class SyncResolver:
         self.on_attacker_identified = on_attacker_identified
         self.telemetry = telemetry
 
+        # Wire MCP client URLs from policy server if configured
+        policy = getattr(
+            getattr(self.policy_server, "structural_engine", None), "_policy", None
+        )
+        if policy and hasattr(policy, "mcpServers"):
+            mcp = policy.mcpServers
+            if (
+                getattr(mcp, "gti", None)
+                and getattr(mcp.gti, "url", None)
+                and self.gti_client
+            ):
+                if hasattr(self.gti_client, "base_url"):
+                    self.gti_client.base_url = mcp.gti.url
+            if (
+                getattr(mcp, "codebaseMemory", None)
+                and getattr(mcp.codebaseMemory, "url", None)
+                and self.cbm_client
+            ):
+                if hasattr(self.cbm_client, "base_url"):
+                    self.cbm_client.base_url = mcp.codebaseMemory.url
+
         # Background tasks set & callback executor pool for non-blocking lifecycle management
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._callback_executor = concurrent.futures.ThreadPoolExecutor(
@@ -287,9 +308,7 @@ class SyncResolver:
 
         return verdict
 
-    def _schedule_attribution(
-        self, context: ToolCallContext, verdict: Verdict
-    ) -> None:
+    def _schedule_attribution(self, context: ToolCallContext, verdict: Verdict) -> None:
         """Schedules attacker attribution non-blockingly in a background task to preserve verdict SLA (<5ms)."""
         try:
             loop = asyncio.get_running_loop()
@@ -360,7 +379,9 @@ class SyncResolver:
             await self._emit_sinks(report, identity, profile)
 
         except Exception as exc:
-            logger.warning("Attacker attribution failed gracefully (fail-safe mode): %s", exc)
+            logger.warning(
+                "Attacker attribution failed gracefully (fail-safe mode): %s", exc
+            )
 
     async def _emit_sinks(
         self, report: IncidentReport, identity: Any, profile: AttackerProfile
@@ -377,7 +398,9 @@ class SyncResolver:
         if self.on_attacker_identified is not None:
             try:
                 if asyncio.iscoroutinefunction(self.on_attacker_identified):
-                    await asyncio.wait_for(self.on_attacker_identified(report), timeout=0.05)
+                    await asyncio.wait_for(
+                        self.on_attacker_identified(report), timeout=0.05
+                    )
                 else:
                     loop = asyncio.get_running_loop()
                     await asyncio.wait_for(

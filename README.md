@@ -323,10 +323,18 @@ Structural Layer (fast path)              Semantic Layer (deep analysis)
 ```
 
 ### 3. **Zero Ambient Authority**
-- **OS-Level Enforcement**: Python runtime audit hooks (`sys.addaudithook`) intercept and block raw `subprocess`, `socket`, `os.exec` calls before kernel execution
-- **Unprivileged Execution**: Blackwall daemon runs as non-root user with dropped privileges
-- **Forced Tool Layer**: Rogue agents cannot bypass ADK 2.0 tool layer — all execution paths through `before_tool_callback` interception
-- **PermissionError Barrier**: Attackers encounter `PermissionError` before any kernel-level damage
+Operating on the principle that **no agent process should ever possess ambient authority to execute OS syscalls directly**:
+- **Runtime Audit Hooks (`AuditHookManager`)**: Managed via `AuditHookManager` and low-level `sys.addaudithook`, the runtime hook intercepts sensitive interpreter events (`subprocess.Popen`, `socket.connect`, `os.system`, `os.spawn*`, `pty.spawn`) and raises a `PermissionError` before execution can proceed:
+  ```python
+  from blackwall.audit import AuditHookManager
+
+  # Initialize and register runtime audit hook
+  manager = AuditHookManager(db_path="./blackwall.db")
+  manager.start()
+  ```
+- **Inescapable Tool Boundary**: By blocking direct process spawning and socket creation in monitored environments, rogue or hijacked agents are physically coerced into routing all operations through registered ADK tool interfaces (`execute_bash`, `http_request`, `write_file`).
+- **Pre-Execution Interception**: Once coerced into the tool layer, Blackwall's `before_tool_callback` (and local MCP gateway proxy) pauses and evaluates intent *before* any tool executes.
+- **Unprivileged Daemon Execution**: The Blackwall daemon drops root/administrator privileges upon boot, executing under an unprivileged dedicated service account.
 
 ### 4. **Sub-10% False Positive/Negative Rates**
 - **FRR (False Refusal Rate)**: <10% benign actions incorrectly blocked — maintains usability
@@ -359,7 +367,119 @@ Structural Layer (fast path)              Semantic Layer (deep analysis)
 - Generates detailed threat signatures, behavioral patterns, mitigation recommendations
 - **Zero added latency** to interception path (runs asynchronously)
 
-### System Architecture Diagram
+### System Architecture Diagrams
+
+#### 1. End-to-End Component Graph
+```mermaid
+flowchart TD
+    subgraph ClientLayer["AI Developer Tool & Agent Execution Layer"]
+        AgentClient["Agentic Client / Process<br/>(ADK / Warp / Claude / Cursor / Antigravity)"]
+    end
+
+    subgraph CoreBoundary["Blackwall Core Security Boundary"]
+        AuditHook["Python Runtime Audit Hook<br/>(sys.addaudithook)"]
+        ContextHygiene["Context Hygiene Redaction<br/>(Rust SIMD / Python)"]
+        StructuralEngine{"Structural Gating Engine<br/>(YAML Policy &lt;5ms)"}
+        TSG[("SQLite Threat Signature Graph<br/>(WAL Mode &lt;10ms)")]
+        SemanticEngine["Semantic Gating Engine<br/>(Multi-Signal Scoring &lt;100ms)"]
+    end
+
+    subgraph MCPLayer["Context & Threat Intelligence MCP Tier"]
+        CBM["Codebase Memory MCP<br/>(AST & Critical Sinks)"]
+        GTI["VirusTotal GTI MCP<br/>(Token Bucket Rate Limiter)"]
+    end
+
+    subgraph LLMLayer["100% GCP Vertex AI Mode"]
+        GeminiFlash["Gemini 3.5 Flash-Lite<br/>(Rapid Triage)"]
+        GeminiReason["Gemini 3.8 Flash<br/>(ABA Signature Synthesis)"]
+    end
+
+    AgentClient -->|"before_tool_callback / stdio / HTTP:9229"| AuditHook
+    AuditHook --> ContextHygiene
+    ContextHygiene --> StructuralEngine
+    StructuralEngine -- "ESCALATE" --> TSG
+    TSG -- "Novel Variant" --> SemanticEngine
+    SemanticEngine <--> CBM
+    SemanticEngine <--> GTI
+    SemanticEngine --> GeminiFlash
+    SemanticEngine -- "On BLOCK" --> GeminiReason
+    GeminiReason --> TSG
+```
+
+#### 2. Main Execution Sequence Diagram (Interception Flow)
+```mermaid
+sequenceDiagram
+    autonumber
+    participant HostProcess as Host OS / Agent Process
+    participant AuditHook as sys.addaudithook
+    participant Middleware as ContextHygiene Middleware
+    participant Structural as Structural Policy Engine
+    participant TSG as SQLite Threat Graph
+    participant Semantic as Semantic Gating Engine
+    participant LLM as Vertex AI (Gemini)
+
+    HostProcess->>AuditHook: Raw OS Syscall / Tool Call
+    alt Raw Subprocess / OS Bypass
+        AuditHook-->>HostProcess: PermissionError (Blocked at interpreter)
+    else ADK / Gateway Tool Call
+        AuditHook->>Middleware: Sanitize arguments (Redact credentials)
+        Middleware->>Structural: Evaluate YAML policy
+        alt Structural Rule Match (ALLOW / BLOCK)
+            Structural-->>HostProcess: Immediate Verdict (&lt;5ms)
+        else Structural ESCALATE
+            Structural->>TSG: Check local cosine similarity
+            alt Signature Match (&gt;= 0.85)
+                TSG-->>HostProcess: Instant BLOCK (~12ms)
+            else Novel Attack (No Match)
+                TSG->>Semantic: Aggregate GTI + CBM + Context
+                Semantic->>LLM: Score intent & evaluate risk
+                LLM-->>Semantic: Threat Score [0.0, 1.0]
+                alt Threat Score &gt;= 0.75
+                    Semantic-->>HostProcess: VERDICT: BLOCK
+                    Semantic->>TSG: Auto-generate learned signature
+                else 0.50 &lt;= Threat Score &lt; 0.75
+                    Semantic-->>HostProcess: VERDICT: QUARANTINE
+                else Threat Score &lt; 0.50
+                    Semantic-->>HostProcess: VERDICT: ALLOW
+                end
+            end
+        end
+    end
+```
+
+#### 3. Dual-Agent Showdown Flow
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Spectator as Terminal Spectator / Judge
+    participant Rogue as Rogue Agent (Qwen3-Coder 480B)
+    participant Arena as Target Sandbox (FastAPI :8000)
+    participant Guardian as Blackwall Guardian
+    participant TSG as Local SQLite TSG
+
+    Spectator->>Guardian: python3 demo_live.py (Rich Dual-Column TUI)
+    
+    rect rgb(35, 15, 15)
+        Note over Rogue,Guardian: Wave 1: Novel Attack Vector
+        Rogue->>Arena: Exploit 1: Reverse shell via bash injection
+        Arena-->>Guardian: Intercept tool call
+        Guardian->>Guardian: Structural check: ESCALATE
+        Guardian->>TSG: Local signature check: NO MATCH (Novel)
+        Guardian->>Guardian: Semantic evaluation (Threat Score 0.92)
+        Guardian-->>Rogue: BLOCK (PermissionError)
+        Guardian->>TSG: Auto-generate threat signature (768-dim vector)
+    end
+
+    rect rgb(15, 35, 15)
+        Note over Rogue,Guardian: Wave 2: Polymorphic Evasion Variant
+        Rogue->>Arena: Exploit 2: Base64-encoded polymorphic variant
+        Arena-->>Guardian: Intercept tool call
+        Guardian->>TSG: Cosine vector search
+        TSG-->>Guardian: Signature Match (Similarity 0.91 &gt;= 0.85)
+        Guardian-->>Rogue: Instant BLOCK via Signature (~12ms)
+        Note over Guardian,Spectator: 118x faster response time with zero LLM inference!
+    end
+```
 
 ![Blackwall Guardian Agent: Experimental Interception Architecture](assets/Blackwall_mermaid_diagram_gradient_theme.png)
 
@@ -391,6 +511,31 @@ cp .env.example .env
 nano .env
 # Set: GCP_PROJECT, GTI_MCP_API_KEY, BLACKWALL_VAULT_KEY
 ```
+
+### 🎮 Run the Live Dual-Agent Showdown (Rich Dual-Column TUI)
+
+Witness the real-time battle between an adversarial red-teamer agent and the Blackwall Guardian Defender:
+
+```bash
+# Standard interactive execution with Rich dual-column terminal layout
+python3 demo_live.py
+
+# Or run in rapid mode with minimal animation delays
+python3 demo_live.py --fast
+
+# Or run using plain ANSI streaming (for non-interactive CI or raw terminals)
+python3 demo_live.py --plain
+```
+
+#### Showdown Terminal Layout:
+- **Left Column (🔴 Rogue Attacker)**: Displays raw adversarial actions (reverse shells, credential exfiltration, SQL injection, token theft) attempting to exploit the local environment.
+- **Right Column (🛡️ Blackwall Guardian)**: Streams real-time multi-signal interception stages:
+  1. *OS Runtime Audit Hook* (`sys.addaudithook`) verifying tool layer containment.
+  2. *Context Hygiene* redacting API keys and passwords (`[[API_KEY]]`).
+  3. *Structural Policy Gating* checking YAML rules.
+  4. *Threat Signature Graph (TSG)* searching local vectors (<15ms).
+  5. *Semantic Gating* aggregating GTI, CBM, and intent analysis.
+- **Footer Scoreboard**: Tracks real-time decisions (BLOCK, QUARANTINE, ALLOW), Evasion Rate (<10% target), average latency, and Zero Ambient Authority verification.
 
 ### Run the Evaluation
 
@@ -647,6 +792,9 @@ pytest tests/features/blackwall_guardrails.feature -v
 
 | Document | Purpose |
 |----------|---------|
+| **[ARCHITECTURE.md](ARCHITECTURE.md)** | Technical deep-dive into Blackwall Core (Hybrid Gating, Async Batching, SQLite TSG, MCPs) |
+| **[ENTERPRISE_ARCHITECTURE.md](ENTERPRISE_ARCHITECTURE.md)** | Technical overview of Blackwall Enterprise Mesh (Pillars 1–6, eBPF, ZeroMQ, Vault sidecars) |
+| **[DEMO_HARNESS_ARCHITECTURE.md](DEMO_HARNESS_ARCHITECTURE.md)** | Dual-agent adversarial showdown architecture and Rich TUI specifications |
 | **[LIVE_CYBENCH_CLOUD_TRACE_EVAL_GUIDE.md](LIVE_CYBENCH_CLOUD_TRACE_EVAL_GUIDE.md)** | Live evaluation & Cloud Trace guide (100% GCP Vertex AI Mode) |
 | **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** | Known issues and workarounds (evaluation performance) |
 | **[design.md](.kiro/specs/blackwall-agentic-firewall/design.md)** | Full technical design (40+ pages, all architectural details) |

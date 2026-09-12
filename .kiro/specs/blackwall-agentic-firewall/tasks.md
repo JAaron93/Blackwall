@@ -1000,8 +1000,8 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Test second-attempt attack blocked by signature match
     - _Requirements: 27.1, 27.2, 26.1, 26.2_
 
-- [ ] 23. Implement YAML policy configuration for demo scenarios
-  - [ ] 23.1 Create `policy.yaml` with production-ready rules for demo
+- [x] 23. Implement YAML policy configuration for demo scenarios
+  - [x] 23.1 Create `policy.yaml` with production-ready rules for demo
     - Define environment roles: PRODUCTION, STAGING, DEVELOPMENT, SANDBOX
     - Write structural rules blocking known dangerous tool names immediately (BLOCK)
     - Write structural rules for privileged operations requiring semantic review (ESCALATE_TO_SEMANTIC)
@@ -1011,7 +1011,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Set policy version with semantic versioning (1.0.0)
     - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7_
 
-  - [ ] 23.2 Write YAML policy validation tests
+  - [x] 23.2 Write YAML policy validation tests
     - Test all rule IDs are unique in `policy.yaml`
     - Test schema validation passes for all rules
     - Test priority ordering covers expected evaluation sequence
@@ -1020,8 +1020,8 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Test ALLOW rules fire for safe read-only operations
     - _Requirements: 14.1, 14.2, 14.10, 22.1, 22.2, 22.7_
 
-- [ ] 24. Write project documentation and README
-  - [ ] 24.1 Maintain comprehensive README.md
+- [x] 24. Write project documentation and README
+  - [x] 24.1 Maintain comprehensive README.md
     - Overview describing Blackwall's mission, product tiers, and architecture
     - Mermaid diagrams showing all components and data flow
     - Setup instructions: dependencies, GCP_PROJECT, environment variables
@@ -1030,7 +1030,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Add security architecture section explaining Zero Ambient Authority
     - _Requirements: 28.1, 28.2, 28.3_
 
-  - [ ] 24.2 Create ARCHITECTURE.md with technical deep-dive
+  - [x] 24.2 Create ARCHITECTURE.md with technical deep-dive
     - Document Hybrid Policy Server dual-layer evaluation flow
     - Explain asynchronous batching architecture and callback queue management
     - Describe SQLite Threat Signature Graph schema and query patterns
@@ -1040,7 +1040,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Document security constraints: fail-closed defaults, Zero Ambient Authority
     - _Requirements: 28.3, 28.4_
 
-  - [ ] 24.3 Write ENTERPRISE_ARCHITECTURE.md with Enterprise Mesh technical overview
+  - [x] 24.3 Write ENTERPRISE_ARCHITECTURE.md with Enterprise Mesh technical overview
     - Describe the dual-agent showdown scenario and key design decisions
     - Highlight innovative aspects: self-learning signatures, eBPF probes, ZeroMQ threat mesh, Vault sidecars
     - Summarize evaluation results and performance benchmarks
