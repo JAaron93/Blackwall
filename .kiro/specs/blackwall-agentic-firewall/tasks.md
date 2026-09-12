@@ -979,9 +979,9 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Build upon **`demo_live.py`** as the live demonstration entrypoint
     - Utilize `scripts/run_demo.sh` launching Blackwall as ambient daemon via `adk run`
     - Utilize `scripts/run_rogue.py` launching adversarial agent with configured attack sequences
-    - Implement split-screen terminal recording setup
-    - Configure Blackwall daemon to log to visible terminal output
-    - Configure rogue agent to show attempt outputs and failures
+    - Implement Rich dual-column TUI layout (`rich.layout.Layout` / `rich.live.Live`) inside single native terminal (Left: Rogue Agent attacks, Right: Blackwall Firewall Defense & Decision Stream, Bottom: Status Bar) with graceful ANSI fallback
+    - Configure Blackwall daemon to stream structured interception events to visible TUI panel
+    - Configure rogue agent to stream attack attempts, tool inputs, and payload failures into TUI
     - _Requirements: 27.1, 27.2, 27.3, 28.1, 28.2_
 
   - [ ] 22.2 Configure sandbox environment with Python audit hooks
