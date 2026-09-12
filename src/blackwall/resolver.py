@@ -16,6 +16,11 @@ from blackwall.models import (
     ResolverMetrics,
 )
 from blackwall.exceptions import APIRateLimitException
+from blackwall.config import (
+    DEFAULT_RAPID_TRIAGE_MODEL,
+    DEFAULT_GEMINI_MODEL,
+    get_gemini_thinking_level,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -542,7 +547,7 @@ class BatchResolver:
     async def submit_to_gemini_sync(
         self, sanitized_contexts: List[ToolCallContext]
     ) -> BatchResponse:
-        """Submits the sanitized batch synchronously to Gemini 3.1 Flash-Lite."""
+        """Submits the sanitized batch synchronously to Gemini 3.5 Flash-Lite."""
         start_time = time.time()
 
         # Network-level timeout for the Gemini API call (25 seconds).
@@ -568,7 +573,7 @@ class BatchResolver:
             create_fn = self.client.interactions.create
             if asyncio.iscoroutinefunction(create_fn):
                 interaction = await create_fn(
-                    model="gemini-3.5-flash-lite",
+                    model=DEFAULT_RAPID_TRIAGE_MODEL,
                     input=payload_json,
                     previous_interaction_id=payload.previous_interaction_id,
                     timeout=API_CALL_TIMEOUT,
@@ -579,7 +584,7 @@ class BatchResolver:
                 interaction = await loop.run_in_executor(
                     None,
                     lambda: create_fn(
-                        model="gemini-3.5-flash-lite",
+                        model=DEFAULT_RAPID_TRIAGE_MODEL,
                         input=payload_json,
                         previous_interaction_id=payload.previous_interaction_id,
                         timeout=API_CALL_TIMEOUT,
@@ -705,33 +710,60 @@ class BatchResolver:
                 raise APIRateLimitException(f"Gemini API rate limit: {e}") from e
             raise e
 
-    def _parse_verdicts(self, output_text: str, batch_size: int) -> List[Verdict]:
+    def _parse_verdicts(self, output_text: Any, batch_size: int) -> List[Verdict]:
         """Cleans and parses the LLM output into a list of Verdicts matching the batch size."""
-        cleaned_text = output_text.strip()
+        if batch_size == 0:
+            return []
 
-        # Clean markdown code blocks if any
-        if cleaned_text.startswith("```"):
-            first_line_end = cleaned_text.find("\n")
-            if first_line_end != -1:
-                cleaned_text = cleaned_text[first_line_end:]
-            if cleaned_text.endswith("```"):
-                cleaned_text = cleaned_text[:-3]
-            cleaned_text = cleaned_text.strip()
+        # If output is already structured (e.g. from native structured outputs)
+        if isinstance(output_text, list):
+            data = output_text
+        elif isinstance(output_text, dict) and "verdicts" in output_text:
+            data = output_text["verdicts"]
+        else:
+            cleaned_text = str(output_text).strip() if output_text is not None else ""
+
+            # Clean markdown code blocks if any
+            if cleaned_text.startswith("```"):
+                first_line_end = cleaned_text.find("\n")
+                if first_line_end != -1:
+                    cleaned_text = cleaned_text[first_line_end:]
+                if cleaned_text.endswith("```"):
+                    cleaned_text = cleaned_text[:-3]
+                cleaned_text = cleaned_text.strip()
+
+            try:
+                data = json.loads(cleaned_text)
+                if not isinstance(data, list):
+                    raise ValueError("Expected a JSON list of verdicts")
+            except Exception as e:
+                logger.error(
+                    f"Failed to parse LLM verdicts: {e}. Output was: {output_text}"
+                )
+                return [
+                    Verdict(
+                        decision=VerdictDecision.QUARANTINE,
+                        reasoning=f"Failed to parse model response: {e}",
+                        confidence_score=1.0,
+                    )
+                    for _ in range(batch_size)
+                ]
 
         try:
-            data = json.loads(cleaned_text)
-            if not isinstance(data, list):
-                raise ValueError("Expected a JSON list of verdicts")
-
             verdicts = []
             for item in data:
-                verdicts.append(
-                    Verdict(
-                        decision=VerdictDecision(item.get("decision", "QUARANTINE")),
-                        reasoning=item.get("reasoning", "Parsed from model response"),
-                        confidence_score=float(item.get("confidence_score", 0.5)),
+                if isinstance(item, Verdict):
+                    verdicts.append(item)
+                elif isinstance(item, dict):
+                    verdicts.append(
+                        Verdict(
+                            decision=VerdictDecision(item.get("decision", "QUARANTINE")),
+                            reasoning=item.get("reasoning", "Parsed from model response"),
+                            confidence_score=float(item.get("confidence_score", 0.5)),
+                        )
                     )
-                )
+                else:
+                    raise ValueError(f"Unsupported verdict item type: {type(item)}")
 
             # Check for size mismatch
             if len(verdicts) != batch_size:

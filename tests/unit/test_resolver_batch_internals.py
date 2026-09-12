@@ -292,6 +292,32 @@ class TestParseVerdicts:
         verdicts = resolver._parse_verdicts("invalid", 0)
         assert verdicts == []
 
+    def test_parse_verdicts_from_structured_list(self):
+        """Native list input from response_schema → parsed correctly."""
+        resolver = make_batch_resolver()
+        data = [
+            {"decision": "ALLOW", "reasoning": "Benign tool call", "confidence_score": 0.95},
+            {"decision": "BLOCK", "reasoning": "Malicious payload", "confidence_score": 0.99},
+        ]
+        verdicts = resolver._parse_verdicts(data, 2)
+        assert len(verdicts) == 2
+        assert verdicts[0].decision == VerdictDecision.ALLOW
+        assert verdicts[1].decision == VerdictDecision.BLOCK
+        assert verdicts[1].confidence_score == 0.99
+
+    def test_parse_verdicts_from_structured_dict(self):
+        """Native dict with 'verdicts' key → parsed correctly."""
+        resolver = make_batch_resolver()
+        data = {
+            "verdicts": [
+                {"decision": "QUARANTINE", "reasoning": "Ambiguous action", "confidence_score": 0.65}
+            ]
+        }
+        verdicts = resolver._parse_verdicts(data, 1)
+        assert len(verdicts) == 1
+        assert verdicts[0].decision == VerdictDecision.QUARANTINE
+
+
 
 # ===========================================================================
 # Section 4: BatchResolver._acquire_rate_limit_token() tests
