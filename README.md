@@ -19,10 +19,10 @@ git clone https://github.com/JAaron93/Blackwall.git
 cd Blackwall
 pip install -e . && pip install certifi
 cp .env.example .env  # Add your GCP_PROJECT
-python3 demo_live.py
+python3 demo_live.py  # Launches Rich dual-column TUI showdown (or ./scripts/run_demo.sh --live)
 ```
 
-**Expected output:** Real-time threat evaluation with colorful progress display, showing BLOCK/QUARANTINE/ALLOW decisions for 5 attacks.
+**Expected output:** Real-time dual-column terminal showdown (Left: Rogue Agent attacker, Right: Blackwall multi-signal defense, Bottom: Live Scoreboard) showing real-time BLOCK/QUARANTINE/ALLOW decisions across adversarial attack scenarios.
 
 ### 🔌 Local MCP Security Gateway Quickstart
 
