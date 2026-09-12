@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 from uuid import uuid4
 
+from pydantic import BaseModel
+
 from blackwall.config import (
     DEFAULT_RAPID_TRIAGE_MODEL,
     get_gemini_http_timeout,
@@ -24,6 +26,18 @@ from blackwall.models import (
 )
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.mcp.embeddings import GeminiEmbeddingClient
+
+
+class BehavioralDriftScorePayload(BaseModel):
+    score: float
+    risk_level: str
+
+
+class RefactoringHintPayload(BaseModel):
+    suggestion: str
+    confidence: float
+    vulnerability_type: str
+    suggested_fix: str
 
 logger = logging.getLogger("blackwall.analytics")
 
@@ -188,6 +202,11 @@ class AgentBehavioralAnalytics:
                 create_kwargs = {
                     "model": DEFAULT_RAPID_TRIAGE_MODEL,
                     "input": prompt,
+                    "response_schema": BehavioralDriftScorePayload,
+                    "response_mime_type": "application/json",
+                    "thinking_level": get_gemini_thinking_level(
+                        model=DEFAULT_RAPID_TRIAGE_MODEL, task_type="analytics"
+                    ),
                 }
                 if asyncio.iscoroutinefunction(create_fn):
                     interaction = await create_fn(**create_kwargs)
@@ -445,6 +464,11 @@ class AgentBehavioralAnalytics:
                 create_kwargs = {
                     "model": DEFAULT_RAPID_TRIAGE_MODEL,
                     "input": prompt,
+                    "response_schema": RefactoringHintPayload,
+                    "response_mime_type": "application/json",
+                    "thinking_level": get_gemini_thinking_level(
+                        model=DEFAULT_RAPID_TRIAGE_MODEL, task_type="refactoring"
+                    ),
                 }
                 create_fn = self.client.interactions.create
                 if asyncio.iscoroutinefunction(create_fn):

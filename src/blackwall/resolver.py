@@ -571,33 +571,45 @@ class BatchResolver:
             # If the client library has sync methods, we run them in an executor so the timeout can be enforced.
             # If the client library has async methods, we call them directly.
             create_fn = self.client.interactions.create
+            thinking_lvl = get_gemini_thinking_level(
+                model=DEFAULT_RAPID_TRIAGE_MODEL, task_type="rapid_triage"
+            )
+            create_kwargs = {
+                "model": DEFAULT_RAPID_TRIAGE_MODEL,
+                "input": payload_json,
+                "previous_interaction_id": payload.previous_interaction_id,
+                "response_schema": list[Verdict],
+                "response_mime_type": "application/json",
+                "thinking_level": thinking_lvl,
+                "timeout": API_CALL_TIMEOUT,
+            }
             if asyncio.iscoroutinefunction(create_fn):
-                interaction = await create_fn(
-                    model=DEFAULT_RAPID_TRIAGE_MODEL,
-                    input=payload_json,
-                    previous_interaction_id=payload.previous_interaction_id,
-                    timeout=API_CALL_TIMEOUT,
-                )
+                interaction = await create_fn(**create_kwargs)
             else:
                 # Run synchronous call in executor with network-level timeout
                 loop = asyncio.get_event_loop()
                 interaction = await loop.run_in_executor(
                     None,
-                    lambda: create_fn(
-                        model=DEFAULT_RAPID_TRIAGE_MODEL,
-                        input=payload_json,
-                        previous_interaction_id=payload.previous_interaction_id,
-                        timeout=API_CALL_TIMEOUT,
-                    ),
+                    lambda: create_fn(**create_kwargs),
                 )
 
             # Update last interaction ID for server-side context caching
             if hasattr(interaction, "id"):
                 self.last_interaction_id = interaction.id
 
-            # Parse verdicts
-            output_text = getattr(interaction, "output_text", "") or ""
-            verdicts = self._parse_verdicts(output_text, len(sanitized_contexts))
+            # Parse verdicts: first check native structured outputs (parsed / outputs), falling back to output_text
+            parsed_output = getattr(interaction, "parsed", None)
+            if not isinstance(parsed_output, (list, dict)):
+                parsed_output = None
+            if parsed_output is None and hasattr(interaction, "outputs") and isinstance(interaction.outputs, (list, dict)):
+                parsed_output = interaction.outputs
+
+            if parsed_output is not None:
+                verdicts = self._parse_verdicts(parsed_output, len(sanitized_contexts))
+            else:
+                raw_text = getattr(interaction, "output_text", "")
+                output_text = raw_text if isinstance(raw_text, str) else ""
+                verdicts = self._parse_verdicts(output_text, len(sanitized_contexts))
 
             # Retrieve usage details
             usage = getattr(interaction, "usage", None)
