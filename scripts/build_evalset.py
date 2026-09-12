@@ -182,8 +182,10 @@ def build_evasion_cases(cases: list[dict]) -> list[dict]:
 
 EVAL_CONFIG: dict = {
     "metrics_to_run": [
+        "tool_trajectory_avg_score",
         "rubric_based_tool_use_quality_v1",
     ],
+    "tool_trajectory_avg_score": 1.0,
     "custom_metrics": [
         {
             "name": "rubric_based_tool_use_quality_v1",
