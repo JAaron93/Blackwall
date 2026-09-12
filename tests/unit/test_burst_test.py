@@ -33,6 +33,7 @@ async def test_run_burst_test_missing_gcp_project(monkeypatch):
     import blackwall.config
 
     blackwall.config._env_configured = False
+    monkeypatch.setattr("burst_test.load_dotenv", lambda: None)
     monkeypatch.delenv("GCP_PROJECT", raising=False)
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)

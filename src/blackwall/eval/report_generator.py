@@ -300,7 +300,16 @@ class ReportGenerator:
             ground_truth = _parse_ground_truth(meta.get("ground_truth", "BENIGN"))
             scenario_type = meta.get("scenario_type", "benign")
             tool_name = meta.get("tool_name", "")
-            expected_verdict = gt_case.get("reference", "ALLOW")
+            raw_exp = gt_case.get("expected_verdict") or gt_case.get("reference", "ALLOW")
+            if isinstance(raw_exp, dict):
+                resp = raw_exp.get("response", {})
+                if isinstance(resp, dict) and "parts" in resp:
+                    parts = resp.get("parts", [])
+                    expected_verdict = parts[0].get("text", "ALLOW") if parts else "ALLOW"
+                else:
+                    expected_verdict = resp.get("verdict", "ALLOW")
+            else:
+                expected_verdict = str(raw_exp)
 
             # Extract actual verdict from the ADK result record
             # ADK may place the verdict under different keys depending on the runner

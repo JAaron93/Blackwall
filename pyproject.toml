@@ -26,7 +26,7 @@ dependencies = [
     "opentelemetry-api>=1.24.0",
     "opentelemetry-sdk>=1.24.0",
     "opentelemetry-exporter-otlp>=1.24.0",
-    "opentelemetry-exporter-prometheus>=0.45b0,<0.46",
+    "opentelemetry-exporter-prometheus>=0.45b0",
     "prometheus-client>=0.20.0",
     "google-genai>=0.1.0",
     "cryptography>=42.0.0",
@@ -60,6 +60,14 @@ evaluation = [
     "google-cloud-trace>=1.11.0",
     "opentelemetry-exporter-gcp-trace>=1.6.0",
 ]
+eval = [
+    "google-adk>=0.1.0",
+    "google-cloud-aiplatform[evaluation]>=1.160.0",
+    "pandas>=2.0.0",
+    "tqdm>=4.66.0",
+]
+
+
 
 
 [tool.pytest.ini_options]
@@ -97,3 +105,7 @@ target-version = "py311"
 [tool.mypy]
 python_version = "3.11"
 strict = true
+
+[tool.uv]
+prerelease = "allow"
+
