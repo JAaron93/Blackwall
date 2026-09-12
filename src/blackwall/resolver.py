@@ -98,18 +98,95 @@ class ContextHygiene:
         ("email", r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "[[EMAIL]]"),
     ]
 
+    IOC_PRESERVED_PATTERNS = [
+        (
+            "gcp_sa_json",
+            r'\{\s*"type"\s*:\s*"service_account"[\s\S]+?\}',
+            "[[GCP_SERVICE_ACCOUNT_KEY]]",
+        ),
+        (
+            "rsa_key",
+            r"-----BEGIN (?:RSA )?PRIVATE KEY-----[\s\S]+?-----END (?:RSA )?PRIVATE KEY-----",
+            "[[RSA_PRIVATE_KEY]]",
+        ),
+        (
+            "openai_key",
+            r"sk-[a-zA-Z0-9_\-]{10,}",
+            "[[OPENAI_API_KEY]]",
+        ),
+        (
+            "stripe_key",
+            r"sk_test_[a-zA-Z0-9_\-]+",
+            "[[STRIPE_SECRET_KEY]]",
+        ),
+        (
+            "jwt_token",
+            r"eyJ[a-zA-Z0-9_\-]{5,}(?:\.eyJ[a-zA-Z0-9_\-]{5,})?(?:\.[a-zA-Z0-9_\-]+)?",
+            "[[JWT_TOKEN]]",
+        ),
+        (
+            "aws_access_key",
+            r"(?i)aws_access_key_id[\s:=]+['\"]?([^\s'\"]+)",
+            "AWS_ACCESS_KEY_ID=[[AWS_ACCESS_KEY_ID]]",
+        ),
+        (
+            "aws_secret_key",
+            r"(?i)aws_secret_access_key[\s:=]+['\"]?([^\s'\"]+)",
+            "AWS_SECRET_ACCESS_KEY=[[AWS_SECRET_ACCESS_KEY]]",
+        ),
+        (
+            "bearer_token",
+            r"(?i)(bearer\s+)([a-zA-Z0-9_\-\.]{10,})",
+            "[[API_KEY]]",
+        ),
+        (
+            "url_query_secret",
+            r"([?&](?:token|key|secret|password|api_key|auth)=)([^&\s'\"]+)",
+            "[[API_KEY]]",
+        ),
+        (
+            "api_key",
+            r"(?i)(api[_-]?key|apikey|token)[\s:=]+['\"]?([a-zA-Z0-9_\-]{10,})",
+            "[[API_KEY]]",
+        ),
+        (
+            "password",
+            r"(?i)(password|passwd|pwd)[\s:=]+['\"]?([^\s'\"]+)",
+            "[[PASSWORD]]",
+        ),
+        ("email", r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "[[EMAIL]]"),
+    ]
+
     _COMPILED_DEFAULT_PATTERNS = []
     _name = _pat = _placeholder = None
     for _name, _pat, _placeholder in DEFAULT_PATTERNS:
         _COMPILED_DEFAULT_PATTERNS.append((_name, re.compile(_pat), _placeholder))
     del _name, _pat, _placeholder
 
-    def __init__(self, patterns: Optional[List[tuple[str, str, str]]] = None):
+    _COMPILED_IOC_PRESERVED_PATTERNS = []
+    for _name, _pat, _placeholder in IOC_PRESERVED_PATTERNS:
+        _COMPILED_IOC_PRESERVED_PATTERNS.append((_name, re.compile(_pat), _placeholder))
+    del _name, _pat, _placeholder
+
+    def __init__(
+        self,
+        patterns: Optional[List[tuple[str, str, str]]] = None,
+        preserve_iocs: bool = False,
+    ):
+        self.preserve_iocs = preserve_iocs
         if patterns is None:
-            self.patterns = list(self._COMPILED_DEFAULT_PATTERNS)
-            raw_patterns = [
-                (name, pat, placeholder) for name, pat, placeholder in self.DEFAULT_PATTERNS
-            ]
+            if self.preserve_iocs:
+                self.patterns = list(self._COMPILED_IOC_PRESERVED_PATTERNS)
+                raw_patterns = [
+                    (name, pat, placeholder)
+                    for name, pat, placeholder in self.IOC_PRESERVED_PATTERNS
+                ]
+            else:
+                self.patterns = list(self._COMPILED_DEFAULT_PATTERNS)
+                raw_patterns = [
+                    (name, pat, placeholder)
+                    for name, pat, placeholder in self.DEFAULT_PATTERNS
+                ]
         else:
             self.patterns = []
             raw_patterns = []
@@ -126,7 +203,6 @@ class ContextHygiene:
         except (ImportError, AttributeError):
             self._rust_sanitizer = None
 
-
     def _repl(self, match: Any, placeholder_str: str) -> str:
         full: str = str(match.group(0))
         prefix: str = str(match.group(1))
@@ -140,9 +216,12 @@ class ContextHygiene:
             )
         return full
 
-
     def sanitize_string(self, text: str) -> str:
-        if self._rust_sanitizer is not None and len(self.patterns) == len(self._COMPILED_DEFAULT_PATTERNS):
+        if (
+            not self.preserve_iocs
+            and self._rust_sanitizer is not None
+            and len(self.patterns) == len(self._COMPILED_DEFAULT_PATTERNS)
+        ):
             try:
                 return self._rust_sanitizer.sanitize_string(text, True)
             except Exception as e:
@@ -151,7 +230,7 @@ class ContextHygiene:
                 )
 
         for name, regex, placeholder in self.patterns:
-            if name in ("password", "api_key"):
+            if name in ("password", "api_key", "bearer_token", "url_query_secret"):
                 # Capture current placeholder via default-argument to avoid late-binding
                 # of the loop variable during regex substitution callbacks.
                 text = regex.sub(lambda m, p=placeholder: self._repl(m, p), text)
