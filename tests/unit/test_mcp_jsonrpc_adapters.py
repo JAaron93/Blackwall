@@ -538,3 +538,88 @@ async def test_gti_virustotal_rest_backward_compatibility():
         assert "c2-network" in response.related_campaigns
 
     tracker.close()
+
+
+@pytest.mark.asyncio
+async def test_call_mcp_tool_http_tool_execution_error_is_error():
+    """Verify call_mcp_tool_http raises MCPRemoteError when result.isError is true."""
+    error_payload = {
+        "jsonrpc": "2.0",
+        "id": "test-uuid",
+        "result": {
+            "isError": True,
+            "content": [{"type": "text", "text": "Indicator lookup failed on server"}],
+        },
+    }
+    mock_resp = MockHttpResponse(200, json_data=error_payload)
+    mock_session = MockHttpSession(mock_resp)
+
+    with (
+        patch("aiohttp.ClientSession", return_value=mock_session),
+        pytest.raises(MCPRemoteError) as exc_info,
+    ):
+        await call_mcp_tool_http(
+            endpoint_url="http://localhost:8080/mcp",
+            tool_name="lookup_indicator",
+            arguments={"indicator": "bad.com"},
+        )
+
+    assert "Indicator lookup failed on server" in exc_info.value.message
+    assert exc_info.value.code == -32000
+
+
+@pytest.mark.asyncio
+async def test_gti_mcp_credential_resolution_failure_stops_request():
+    """Verify GTIMCPClient raises ValueError on credential resolution failure without sending request."""
+    mock_repo = MagicMock()
+    mock_repo.get_cached_gti_response = AsyncMock(return_value=None)
+
+    tracker = GTIQueryBudgetTracker(capacity=10)
+    client = GTIMCPClient(
+        repo=mock_repo,
+        api_key="tmp_invalid_or_expired_token",
+        base_url="https://gti.googleapis.com/mcp",
+        budget_tracker=tracker,
+    )
+    client.is_high_risk = AsyncMock(return_value=True)
+
+    with (
+        patch(
+            "blackwall.mcp.gti_client.call_mcp_tool_http", new_callable=AsyncMock
+        ) as mock_call,
+        pytest.raises(ValueError) as exc_info,
+    ):
+        await client.queryIOC("198.51.100.1", IndicatorType.IP_ADDRESS)
+
+    assert "API credential resolution failed" in str(exc_info.value)
+    mock_call.assert_not_called()
+    tracker.close()
+
+
+@pytest.mark.asyncio
+async def test_gti_mcp_tool_error_triggers_failure_handling():
+    """Verify GTIMCPClient records failure when remote MCP tool raises MCPRemoteError."""
+    mock_repo = MagicMock()
+    mock_repo.get_cached_gti_response = AsyncMock(return_value=None)
+
+    tracker = GTIQueryBudgetTracker(capacity=10)
+    client = GTIMCPClient(
+        repo=mock_repo,
+        api_key="valid-key",
+        base_url="https://gti.googleapis.com/mcp",
+        budget_tracker=tracker,
+    )
+    client.is_high_risk = AsyncMock(return_value=True)
+
+    with (
+        patch(
+            "blackwall.mcp.gti_client.call_mcp_tool_http",
+            side_effect=MCPRemoteError(-32000, "Tool failure"),
+        ),
+        pytest.raises(MCPRemoteError),
+    ):
+        await client.queryIOC("198.51.100.1", IndicatorType.IP_ADDRESS)
+
+    assert client.consecutive_failures == 1
+    tracker.close()
+

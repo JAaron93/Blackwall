@@ -6,7 +6,7 @@ from enum import Enum
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 
-from blackwall.mcp.transport import call_mcp_tool_http
+from blackwall.mcp.transport import MCPTransportError, call_mcp_tool_http
 
 
 def _parse_mcp_result(raw: Any) -> Any:
@@ -216,7 +216,13 @@ class CodebaseMemoryClient:
         """
         try:
             return await asyncio.wait_for(coro, timeout=self.timeout_seconds)
-        except (asyncio.TimeoutError, ConnectionError, NotImplementedError, OSError):
+        except (
+            asyncio.TimeoutError,
+            ConnectionError,
+            NotImplementedError,
+            OSError,
+            MCPTransportError,
+        ):
             # Graceful degradation: return the fallback when CBM is unavailable
             return fallback
 

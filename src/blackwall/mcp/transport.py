@@ -114,6 +114,19 @@ async def call_mcp_tool_http(
             )
 
         result = data.get("result", {})
+        if isinstance(result, dict) and (
+            result.get("isError") or result.get("is_error")
+        ):
+            msg = "MCP tool execution failed"
+            content = result.get("content")
+            if isinstance(content, list) and content:
+                first = content[0]
+                if isinstance(first, dict) and "text" in first:
+                    msg = str(first["text"])
+            elif "message" in result:
+                msg = str(result["message"])
+            raise MCPRemoteError(code=-32000, message=msg, data=result)
+
         return result if isinstance(result, dict) else {"data": result}
 
     except TimeoutError as exc:

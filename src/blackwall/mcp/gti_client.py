@@ -425,27 +425,31 @@ class GTIMCPClient:
             "confidence": 0.0,
         }
 
+    def _resolve_api_key(self) -> str:
+        """Resolves API credentials from temporary tokens or Vault STS."""
+        try:
+            api_key = self.api_key or ""
+            if api_key.startswith("tmp_"):
+                from blackwall.security import get_global_credential_manager
+
+                manager = get_global_credential_manager()
+                api_key = manager.resolve_token(api_key)
+            elif api_key.startswith("vault://"):
+                from blackwall.security import get_global_vault
+
+                vault = get_global_vault()
+                api_key = vault.get_secret(api_key)
+            return api_key
+        except (ValueError, KeyError) as e:
+            # Credential resolution failures should not trigger circuit breaker
+            logger.error(f"Failed to resolve API credentials: {str(e)}")
+            raise ValueError(f"API credential resolution failed: {str(e)}") from e
+
     async def _execute_mcp_query(
         self, indicator: str, indicator_type: IndicatorType
     ) -> Dict[str, Any]:
         """Performs MCP JSON-RPC 2.0 query against remote MCP server."""
-        api_key: Optional[str] = None
-        if self.api_key:
-            try:
-                resolved_key = self.api_key
-                if resolved_key.startswith("tmp_"):
-                    from blackwall.security import get_global_credential_manager
-
-                    manager = get_global_credential_manager()
-                    resolved_key = manager.resolve_token(resolved_key)
-                elif resolved_key.startswith("vault://"):
-                    from blackwall.security import get_global_vault
-
-                    vault = get_global_vault()
-                    resolved_key = vault.get_secret(resolved_key)
-                api_key = resolved_key
-            except Exception as e:
-                logger.warning("Could not resolve API key for MCP GTI query: %s", e)
+        api_key: Optional[str] = self._resolve_api_key() if self.api_key else None
 
         raw_result = await call_mcp_tool_http(
             endpoint_url=self.base_url,
@@ -464,27 +468,9 @@ class GTIMCPClient:
         if self._is_mcp_endpoint():
             return await self._execute_mcp_query(indicator, indicator_type)
 
-        # Resolve credentials before entering timeout/breaker flow
-        try:
-            api_key = self.api_key or ""
-            if api_key.startswith("tmp_"):
-                from blackwall.security import get_global_credential_manager
-
-                manager = get_global_credential_manager()
-                api_key = manager.resolve_token(api_key)
-            elif api_key.startswith("vault://"):
-                from blackwall.security import get_global_vault
-
-                vault = get_global_vault()
-                api_key = vault.get_secret(api_key)
-
-            # Validate API key is not empty after resolution
-            if not api_key:
-                raise ValueError("API key is missing or empty")
-        except (ValueError, KeyError) as e:
-            # Credential resolution failures should not trigger circuit breaker
-            logger.error(f"Failed to resolve API credentials: {str(e)}")
-            raise ValueError(f"API credential resolution failed: {str(e)}") from e
+        api_key = self._resolve_api_key()
+        if not api_key:
+            raise ValueError("API key is missing or empty")
 
         headers = {
             "x-apikey": api_key,
