@@ -29,6 +29,7 @@ ANALYTICAL_TASK_TYPES: frozenset[str] = frozenset({
     "judge",
     "attribution",
     "forensics",
+    "signature_generation",
 })
 
 ROUTER_TASK_TYPES: frozenset[str] = frozenset({
@@ -36,6 +37,8 @@ ROUTER_TASK_TYPES: frozenset[str] = frozenset({
     "router",
     "classifier",
     "rapid_triage",
+    "analytics",
+    "refactoring",
 })
 
 # Telemetry keys that must be preserved across sanitizers and agent memory
