@@ -401,3 +401,16 @@
 * **Rule (Unified Scenario Async Coroutines):**
   - Multi-step asynchronous workflows that simulate multi-node pub/sub sync, event emission, and database ingestion MUST encapsulate the complete async lifecycle (start nodes, register event callbacks, publish, await delivery event, query database records, and stop nodes) within a single unified coroutine invoked by `run_async` in a step, rather than spawning worker tasks in a `Given` step and attempting to cancel or query them in subsequent `When` or `Then` steps.
 * **Rationale:** `tests.step_defs.async_utils.run_async` creates, runs, and closes a new `asyncio` event loop on every step execution. Worker tasks created on Loop 1 become orphaned when Loop 1 closes at the end of the step; attempting to cancel or await them on Loop 2 in a later step raises `RuntimeError: Event loop is closed`.
+
+## 51. ADK Security Evaluation Trajectory Gating & Non-Crashing Callback Protocol
+* **Rule (Non-Crashing Callback Dictionary Return Contract):**
+  - Callbacks intercepting tool execution (e.g., `before_tool_callback`) in Google ADK agent environments MUST NOT raise `PermissionError` or unhandled exceptions when blocking malicious tool execution. Raising exceptions crashes the underlying ADK execution graph with an unhandled `DynamicNodeFailError`.
+  - Instead, blocking callbacks MUST return an interception dictionary payload: `{"status": "blocked", "verdict": "BLOCK", "error": f"[BLACKWALL BLOCK] {reasoning}"}`. This cleanly halts tool execution, records the interception event in the trajectory trace, and completes the evaluation cycle.
+* **Rule (Dual-Gate ADK Trajectory & Rubric Validation):**
+  - Formal ADK security evaluations in `eval_config.json` and `build_evalset.py` MUST enforce a dual gate:
+    1. **Deterministic Trajectory Gate**: `tool_trajectory_avg_score: 1.0` (asserting that `before_tool_callback` is the first tool evaluated in the trajectory and produces the exact expected verdict on 100% of test cases).
+    2. **LLM-as-a-Judge Quality Gate**: `rubric_based_tool_use_quality_v1` (asserting parameter containment, quarantine mock routing, and zero execution of blocked payloads).
+  - Raw evaluation results (`raw_adk_results.json`) and report generators (`ReportGenerator`) MUST record and assert both gates for formal security certification.
+* **Rule (Agent Entrypoint Knowledge Graph Invariant):**
+  - Production agent entrypoints (`agent/__init__.py`) MUST instantiate `SyncResolver` with an active `CodebaseMemoryClient` (`cbm_client=CodebaseMemoryClient(base_url=os.getenv("CBM_MCP_BASE_URL"))`) to satisfy the mandatory interception sequence: `Rate Check` -> `Context Hygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Conditional GTI Validation (High-Risk Only)` -> `Score Aggregation` -> `Threshold Verdict`.
+* **Rationale:** Discovered during Task 21 implementation and PR #123 review cycles. Raising exceptions in callbacks crashes ADK benchmark runs, evaluating trajectory scores without LLM rubrics misses semantic bypasses, and omitting `cbm_client` in `agent/__init__.py` breaks the core interception sequence.
