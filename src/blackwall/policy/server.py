@@ -29,6 +29,14 @@ class HybridPolicyServer:
         self.structural_engine = structural_engine
         self.semantic_engine = semantic_engine
         self.last_updated = datetime.now(timezone.utc)
+        self._apply_policy_mcp_config()
+
+    def _apply_policy_mcp_config(self) -> None:
+        """Propagates MCP server endpoints from loaded policy to active semantic clients."""
+        policy = getattr(self.structural_engine, "_policy", None)
+        if policy and hasattr(policy, "mcpServers"):
+            if hasattr(self.semantic_engine, "apply_policy_mcp_config"):
+                self.semantic_engine.apply_policy_mcp_config(policy.mcpServers)
 
     async def evaluate(
         self, context: ToolCallContext, environment_role: str
@@ -151,5 +159,6 @@ class HybridPolicyServer:
         Hot-reloads the policy config using the structural gating engine.
         """
         self.structural_engine.load_policy(yaml_path)
+        self._apply_policy_mcp_config()
         self.last_updated = datetime.now(timezone.utc)
         logger.info("Hybrid Policy Server reloaded policy successfully", path=yaml_path)

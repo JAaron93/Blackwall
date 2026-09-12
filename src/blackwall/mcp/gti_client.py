@@ -170,8 +170,23 @@ class GTIQueryBudgetTracker:
 class GTIClient:
     """Client for querying Google Threat Intelligence MCP server."""
 
-    def __init__(self, api_key: str | None = None) -> None:
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        policy: Any | None = None,
+    ) -> None:
         self.api_key = api_key
+        if not base_url and policy:
+            mcp = getattr(policy, "mcpServers", None)
+            gti = getattr(mcp, "gti", None) if mcp else None
+            base_url = getattr(gti, "url", None) if gti else None
+        self.base_url = base_url
+
+    @classmethod
+    def from_policy(cls, policy: Any, **kwargs: Any) -> "GTIClient":
+        """Instantiates GTIClient using endpoints configured in policy."""
+        return cls(policy=policy, **kwargs)
 
     async def lookup_ip(self, ip: str) -> GTIResponse:
         """Lookup threat reputation for an IP address."""
@@ -213,9 +228,16 @@ class GTIMCPClient:
         api_key: str = "",
         base_url: str = "https://www.virustotal.com/api/v3",
         budget_tracker: Optional[GTIQueryBudgetTracker] = None,
+        policy: Optional[Any] = None,
     ):
         self.repo = repo
         self.api_key = api_key
+        if policy and (base_url == "https://www.virustotal.com/api/v3" or not base_url):
+            mcp = getattr(policy, "mcpServers", None)
+            gti = getattr(mcp, "gti", None) if mcp else None
+            policy_url = getattr(gti, "url", None) if gti else None
+            if policy_url:
+                base_url = policy_url
         self.base_url = base_url
         self.consecutive_failures = 0
         self.state = "CLOSED"  # CLOSED, OPEN (degraded), HALF-OPEN
@@ -223,6 +245,16 @@ class GTIMCPClient:
         self.cooldown = 60.0  # seconds
         self.successful_retries = 0
         self._budget_tracker = budget_tracker
+
+    @classmethod
+    def from_policy(
+        cls,
+        repo: SQLiteThreatRepository,
+        policy: Any,
+        **kwargs: Any,
+    ) -> "GTIMCPClient":
+        """Instantiates GTIMCPClient using endpoints configured in policy."""
+        return cls(repo=repo, policy=policy, **kwargs)
 
     @property
     def budget_tracker(self) -> GTIQueryBudgetTracker:

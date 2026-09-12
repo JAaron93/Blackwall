@@ -137,6 +137,19 @@ class SemanticGatingEngine:
             tracker = None
         self.budget_tracker = tracker
 
+    def apply_policy_mcp_config(self, mcp_config: Any) -> None:
+        """Applies MCP server configurations from policy to active MCP clients."""
+        if not mcp_config:
+            return
+        gti_conf = getattr(mcp_config, "gti", None)
+        if gti_conf and getattr(gti_conf, "url", None) and self.gti_client:
+            if hasattr(self.gti_client, "base_url"):
+                self.gti_client.base_url = gti_conf.url
+        cbm_conf = getattr(mcp_config, "codebaseMemory", None)
+        if cbm_conf and getattr(cbm_conf, "url", None) and self.cbm_client:
+            if hasattr(self.cbm_client, "base_url"):
+                self.cbm_client.base_url = cbm_conf.url
+
     async def is_high_risk(
         self,
         context: ToolCallContext,
@@ -267,7 +280,9 @@ class SemanticGatingEngine:
             if is_external_ip(ip):
                 geo = ""
                 if context.metadata:
-                    geo = context.metadata.get("country", "") or context.metadata.get("geolocation", "")
+                    geo = context.metadata.get("country", "") or context.metadata.get(
+                        "geolocation", ""
+                    )
                 if geo in HIGH_RISK_GEOLOCATIONS:
                     geo_points = 0.2
                 else:

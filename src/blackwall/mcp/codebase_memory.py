@@ -63,13 +63,23 @@ class CodebaseMemoryClient:
         command: Optional[List[str]] = None,
         last_updated: Optional[datetime] = None,
         timeout_seconds: float = 2.0,
+        policy: Optional[Any] = None,
     ):
+        if not base_url and policy:
+            mcp = getattr(policy, "mcpServers", None)
+            cbm = getattr(mcp, "codebaseMemory", None) if mcp else None
+            base_url = getattr(cbm, "url", None) if cbm else None
         self.base_url = base_url or os.getenv("CBM_MCP_BASE_URL")
         self.command = command
         self.last_updated = last_updated or datetime.now(timezone.utc)
         self.timeout_seconds = timeout_seconds
         self.mock_data: Dict[str, Any] = {}
         self._init_mocks()
+
+    @classmethod
+    def from_policy(cls, policy: Any, **kwargs: Any) -> "CodebaseMemoryClient":
+        """Instantiates CodebaseMemoryClient using endpoints configured in policy."""
+        return cls(policy=policy, **kwargs)
 
     def _init_mocks(self) -> None:
         # Predefined mock data for deterministic unit and integration testing

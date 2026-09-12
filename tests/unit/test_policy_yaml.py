@@ -39,7 +39,7 @@ def test_concrete_policy_yaml_loading() -> None:
     assert "file_read" in sandbox_role.allowedTools
     assert "list_dir" in sandbox_role.allowedTools
     assert "web_search" not in sandbox_role.allowedTools
-    assert sandbox_role.requireSemanticReview is False
+    assert sandbox_role.requireSemanticReview is True
     assert sandbox_role.maxThreatScore == 0.8
 
     # Verify development config
@@ -47,7 +47,7 @@ def test_concrete_policy_yaml_loading() -> None:
     assert "read_file" in dev_role.allowedTools
     assert "file_read" in dev_role.allowedTools
     assert "list_dir" in dev_role.allowedTools
-    assert dev_role.requireSemanticReview is False
+    assert dev_role.requireSemanticReview is True
     assert dev_role.maxThreatScore == 0.7
 
     # Verify staging config
@@ -278,7 +278,7 @@ def test_policy_yaml_allow_rules_fire() -> None:
         assert res.decision == StructuralAction.ALLOW, (
             f"Expected ALLOW for {tool} in development"
         )
-        assert res.requireSemanticReview is False
+        assert res.requireSemanticReview is True
         assert res.ruleId == "rule-allow-safe-read-dev"
 
     # In sandbox
@@ -288,7 +288,7 @@ def test_policy_yaml_allow_rules_fire() -> None:
         assert res.decision == StructuralAction.ALLOW, (
             f"Expected ALLOW for {tool} in sandbox"
         )
-        assert res.requireSemanticReview is False
+        assert res.requireSemanticReview is True
         assert res.ruleId == "rule-allow-safe-read-sandbox"
 
 
@@ -345,16 +345,67 @@ def test_concrete_policy_rules_evaluation() -> None:
     assert res_escalate2_sandbox.requireSemanticReview is True
     assert res_escalate2_sandbox.ruleId == "rule-escalate-network-operations"
 
-    # 5. ALLOW rule: read_file in development
+    # 5. ALLOW rule: read_file in development (with requireSemanticReview=True to protect system/config files)
     ctx_allow1 = ToolCallContext(tool_name="read_file", arguments={"path": "README.md"})
     res_allow1 = engine.evaluate(ctx_allow1, "development")
     assert res_allow1.decision == StructuralAction.ALLOW
-    assert res_allow1.requireSemanticReview is False
+    assert res_allow1.requireSemanticReview is True
     assert res_allow1.ruleId == "rule-allow-safe-read-dev"
 
-    # 6. ALLOW rule: list_dir in sandbox
+    # 6. ALLOW rule: list_dir in sandbox (with requireSemanticReview=True)
     ctx_allow2 = ToolCallContext(tool_name="list_dir", arguments={"path": "."})
     res_allow2 = engine.evaluate(ctx_allow2, "sandbox")
     assert res_allow2.decision == StructuralAction.ALLOW
-    assert res_allow2.requireSemanticReview is False
+    assert res_allow2.requireSemanticReview is True
     assert res_allow2.ruleId == "rule-allow-safe-read-sandbox"
+
+
+def test_policy_mcp_endpoints_applied_to_clients() -> None:
+    """Verifies that configured MCP endpoints in policy.yaml are read and applied to runtime clients."""
+    from blackwall.mcp.codebase_memory import CodebaseMemoryClient
+    from blackwall.mcp.gti_client import GTIClient, GTIMCPClient
+    from blackwall.policy.semantic import SemanticGatingEngine
+    from blackwall.policy.server import HybridPolicyServer
+    from blackwall.sync_resolver import SyncResolver
+
+    policy_path = os.path.join(
+        os.path.dirname(__file__), "..", "..", "config", "policy.yaml"
+    )
+    engine = StructuralGatingEngine()
+    engine.load_policy(policy_path)
+    policy = engine._policy
+    assert policy is not None
+
+    # 1. Test CodebaseMemoryClient.from_policy
+    cbm_client = CodebaseMemoryClient.from_policy(policy)
+    assert cbm_client.base_url == "http://localhost:8080/mcp"
+
+    # 2. Test GTIClient.from_policy
+    gti_client = GTIClient.from_policy(policy)
+    assert gti_client.base_url == "https://gti.googleapis.com/mcp"
+
+    # 3. Test GTIMCPClient.from_policy
+    mock_repo = None  # type: ignore[assignment]
+    gti_mcp_client = GTIMCPClient.from_policy(mock_repo, policy)
+    assert gti_mcp_client.base_url == "https://gti.googleapis.com/mcp"
+
+    # 4. Test HybridPolicyServer propagation to semantic engine
+    sem_engine = SemanticGatingEngine(
+        gti_client=GTIMCPClient(mock_repo, base_url=""),
+        cbm_client=CodebaseMemoryClient(base_url=""),
+    )
+    server = HybridPolicyServer(structural_engine=engine, semantic_engine=sem_engine)
+    assert sem_engine.gti_client.base_url == "https://gti.googleapis.com/mcp"
+    assert sem_engine.cbm_client.base_url == "http://localhost:8080/mcp"
+
+    # 5. Test SyncResolver propagation
+    sync_gti = GTIClient()
+    sync_cbm = CodebaseMemoryClient()
+    resolver = SyncResolver(
+        client=None,
+        policy_server=server,
+        gti_client=sync_gti,
+        cbm_client=sync_cbm,
+    )
+    assert resolver.gti_client.base_url == "https://gti.googleapis.com/mcp"
+    assert resolver.cbm_client.base_url == "http://localhost:8080/mcp"

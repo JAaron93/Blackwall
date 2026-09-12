@@ -11,12 +11,12 @@ environmentRoles:
   sandbox:
     allowedTools: ["read_file", "file_read", "list_dir"]
     blockedTools: []
-    requireSemanticReview: false
+    requireSemanticReview: true
     maxThreatScore: 0.8
   development:
     allowedTools: ["read_file", "file_read", "list_dir"]
     blockedTools: []
-    requireSemanticReview: false
+    requireSemanticReview: true
     maxThreatScore: 0.7
   staging:
     allowedTools: ["read_file", "file_read", "list_dir"]
@@ -55,13 +55,13 @@ structuralRules:
     action: ALLOW
     priority: 5
     enabled: true
-    requireSemanticReview: false
+    requireSemanticReview: true
   - ruleId: "rule-allow-safe-read-sandbox"
     condition: "(toolName == 'read_file' or toolName == 'file_read' or toolName == 'list_dir') and environmentRole == 'sandbox'"
     action: ALLOW
     priority: 6
     enabled: true
-    requireSemanticReview: false
+    requireSemanticReview: true
 
 semanticGuidelines:
   - "Do not allow execution of shell commands containing piping, redirection, or command chaining operators (|, &&, ||, ;, `)."
