@@ -61,7 +61,7 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
 * **Pillar 6: Advanced Threat Detection & Evaluation (`blackwall.enterprise.advanced_threat_detection`)**
   - Cross-pillar swarm, exploit chain, AILM, and C2 detection with `ActiveReactionEngine`.
   - **Dual-Tiered Evaluation Strategy**: Tier 1 (ADK Adversarial Harness in 100% GCP Vertex AI Mode) + Tier 2 (Cybench on Cloud Run with gVisor container isolation).
-  - **100% Cloud-Native GCP Evaluation**: Zero-SaaS evaluation using GCP Vertex AI Gen AI Evaluation Service (`vertexai.preview.evaluation` / `EvalTask`) and Google Cloud Trace, fully replacing legacy Weights & Biases (Weave).
+  - **100% Cloud-Native GCP Evaluation**: Zero-SaaS evaluation using GCP Vertex AI Gen AI Evaluation Service (`vertexai.preview.evaluation` / `EvalTask`), Google Cloud Trace, and ADK Trajectory Gating (`tool_trajectory_avg_score: 1.0` dual-gate protocol governed by `.agents/rules/testing_and_hygiene.md#51`), fully replacing legacy Weights & Biases (Weave).
   - **Agent-as-a-Judge Evaluation Pipeline**: 9 domain-specific autonomous Antigravity SDK judge agents (`google.antigravity.Agent`, `vertex=True`, `AgentBehavior.AUTONOMOUS`) producing structured Pydantic rubric scores under zero-trust XML prompt delimitation. Requires `GEMINI_TIER=paid` for 300+ RPM quota contract.
   - **Tier-1 CI Entry Point**: `scripts/run_gcp_eval.py` orchestrates domain judges, `SLAValidator` component latency measurement, the managed Vertex AI `EvalTask` gate (`COMPLETED` required), and `HistoricalRegressionTracker` baselines, exiting 0/1 as the CI gate.
 
@@ -129,6 +129,6 @@ To maintain strict token economy across long-running sessions, agents must adher
 ### 4. Architectural Perpetuation & Downstream Agent Invariant
 This CLI-first, MCP-sparing doctrine is a permanent, indefinite architectural standard. All future agents, subagents, and automated workflows governed by this constitution must:
 1. **Perpetuate the Pattern**: Prioritize CLI binaries paired with lightweight skills rather than introducing new MCP servers.
-2. **Defend the Boundaries**: Strictly reject the addition of stateless MCP servers (e.g. for Jira, Slack, Linear, Stripe, or cloud providers) whenever a mature CLI tool or scriptable API exists. Reserve MCP exclusively for persistent stateful daemons, database connections, and AST memory graphs.
+2. **Defend the Boundaries**: Strictly reject the addition of stateless MCP servers (e.g. for Jira, Slack, Linear, Stripe, or cloud providers) whenever a mature CLI tool or scriptable API exists. Reserve MCP exclusively for persistent stateful daemons, database connections, AST memory graphs, and the designated Reserved Tier.
 3. **Propagate to Project Invariants**: When authoring repository-level `AGENTS.md`, `.cursor/rules/`, or subagent system prompts, agents must explicitly codify this CLI-first discipline to ensure child agents and subagents inherit identical token hygiene.
 

@@ -1,0 +1,12 @@
+name: "blackwall"
+agent_directory: "agent"
+region: "global"
+base_template: "adk"
+language: "python"
+acli_version: "1.0.0"
+create_params:
+  deployment_target: "none"
+  is_a2a: false
+  session_type: "none"
+  cicd_runner: "skip"
+  agent_guidance_filename: "AGENTS.md"

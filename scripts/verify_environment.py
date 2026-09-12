@@ -72,16 +72,17 @@ async def verify_environment() -> bool:
 
         # Verify authenticated endpoint connectivity if not running with dummy project in tests
         if settings.effective_gcp_project != "dummy-gcp-project":
+            test_model = os.getenv("BLACKWALL_MODEL", "gemini-3.5-flash-lite").strip() or "gemini-3.5-flash-lite"
             try:
                 res = await asyncio.wait_for(
                     client.aio.models.generate_content(
-                        model="gemini-3.5-flash-lite",
+                        model=test_model,
                         contents="ping",
                     ),
                     timeout=10.0,
                 )
                 if res and res.text:
-                    print("  ✓ Authenticated Vertex AI model inference call succeeded")
+                    print(f"  ✓ Authenticated Vertex AI model inference call succeeded ({test_model})")
             except Exception as conn_err:
                 print(
                     f"  ❌ Authenticated Vertex AI Connectivity Failed: {conn_err}",

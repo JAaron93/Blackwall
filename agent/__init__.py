@@ -33,6 +33,7 @@ from typing import Any, Optional
 import structlog
 try:
     from google.adk.agents import LlmAgent
+    from google.adk.apps import App
     from google.adk.tools import FunctionTool
     from google.adk.tools.base_tool import BaseTool
     from google.adk.tools.tool_context import ToolContext
@@ -41,6 +42,7 @@ try:
 except ImportError:
     try:
         from google.genai.adk.agents import LlmAgent
+        from google.genai.adk.apps import App
         from google.genai.adk.tools import FunctionTool
         from google.genai.adk.tools.base_tool import BaseTool
         from google.genai.adk.tools.tool_context import ToolContext
@@ -48,6 +50,11 @@ except ImportError:
         ADK_AVAILABLE = True
     except ImportError:
         ADK_AVAILABLE = False
+
+        class App:  # type: ignore
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                self.root_agent = kwargs.get("root_agent")
+                self.name = kwargs.get("name")
 
         class LlmAgent:  # type: ignore
             def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -72,17 +79,14 @@ except ImportError:
 
 logger = structlog.get_logger("blackwall.agent")
 
-# ---------------------------------------------------------------------------
-# Lazy-initialised SyncResolver singleton
-# ---------------------------------------------------------------------------
-_resolver: Any = None  # SyncResolver
+import threading
+_tls = threading.local()
 
 
 def _get_resolver() -> Any:
-    """Initialise SyncResolver once and return it."""
-    global _resolver
-    if _resolver is not None:
-        return _resolver
+    """Initialise SyncResolver per-thread and return it."""
+    if hasattr(_tls, "resolver") and _tls.resolver is not None:
+        return _tls.resolver
 
     # Inline import to keep module-level startup fast
     from dotenv import load_dotenv
@@ -104,7 +108,7 @@ def _get_resolver() -> Any:
         api_key=os.getenv("GTI_MCP_API_KEY", ""),
     )
     cbm_client = CodebaseMemoryClient(
-        command=["/Users/pretermodernist/.local/bin/codebase-memory-mcp"],
+        base_url=os.getenv("CBM_MCP_BASE_URL"),
     )
 
     _resolver = SyncResolver(
@@ -113,6 +117,7 @@ def _get_resolver() -> Any:
         gti_client=gti_client,
         cbm_client=cbm_client,
     )
+    _tls.resolver = _resolver
     return _resolver
 
 
@@ -185,7 +190,7 @@ def http_request(url: str, method: str = "GET", body: str = "") -> dict[str, Any
 # ---------------------------------------------------------------------------
 # ADK cli_eval does agent_module.agent.root_agent — expose self-reference
 # ---------------------------------------------------------------------------
-agent = _sys.modules[__name__]
+agent = _sys.modules.get(__name__) or _sys.modules.get("agent")
 
 from blackwall.config import configure_provider_env
 
@@ -228,3 +233,6 @@ root_agent = LlmAgent(
     ],
     before_tool_callback=blackwall_before_tool_callback,
 )
+
+app = App(root_agent=root_agent, name="agent")
+

@@ -16,6 +16,8 @@ sys.path.insert(
     0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
 )
 
+from dotenv import load_dotenv
+
 from blackwall.config import configure_provider_env, get_genai_client, Settings
 
 
@@ -50,6 +52,8 @@ async def run_burst_test(
     print(
         f"🚀 Launching {concurrency_count} parallel async requests (Paid Tier Burst Test)..."
     )
+
+    load_dotenv()
 
     try:
         settings = Settings(_env_file=None)
