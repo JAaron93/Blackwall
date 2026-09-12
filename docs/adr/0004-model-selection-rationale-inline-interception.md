@@ -30,6 +30,8 @@ For synchronous inline resolution (`submit_to_gemini_sync` in `BatchResolver`), 
 - **Sub-150ms TTFT**: Delivers deterministic sub-150ms Time-to-First-Token, fitting comfortably within the 250ms end-to-end P99 latency budget alongside local AST and SQLite threat graph checks.
 - **Micro-Cent Unit Economics**: Enables continuous, non-sampled inspection across high-frequency tool invocations without cost exhaustion.
 - **Server-Side Context Caching (`previous_interaction_id`)**: Natively persists policy snapshots and tool context server-side across interaction turns, guaranteeing a `>=50%` token reduction on cache hits and eliminating redundant payload serialization.
+- **Native Structured Output Decoding**: Enforces typed `list[Verdict]` response schemas (`response_mime_type="application/json"`), ensuring model outputs deserialize directly into Pydantic models and completely eliminating regex extraction heuristics, markdown stripping, or fallback repair loops.
+- **Thinking Level Routing (`thinking_level="minimal"`)**: Bypasses extended reasoning phases during inline gating to preserve the critical `<150ms` TTFT budget without generating unnecessary thinking token overhead.
 
 ### 2. Asynchronous Out-of-Band Engine: Gemini 3.8 Flash
 For quarantined events requiring deep threat correlation (`submit_to_gemini_background`), Blackwall standardizes on **Gemini 3.8 Flash**:

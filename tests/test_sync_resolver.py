@@ -5,9 +5,9 @@ Tests:
   - Single-request eval with mocked Gemini
   - Serial GTI / CBM query ordering
   - Threat score formula correctness
-  - Inline signature generation after BLOCK
-  - 15 RPM rate limit enforcement (16th request → QUARANTINE)
-  - GTI weight redistribution when budget exhausted
+  - TokenBucketRateLimiter integration (<5ms SLA)
+  - Rate limit enforcement (exhaustion → QUARANTINE)
+  - GTI budget degradation (-0.2 penalty, weight shift)
   - Verdict thresholds (0.8→BLOCK, 0.6→QUARANTINE, 0.3→ALLOW)
 """
 
@@ -241,15 +241,13 @@ async def test_inline_signature_generation_after_block():
 
 
 @pytest.mark.asyncio
-async def test_15_rpm_rate_limit_enforcement(monkeypatch):
+async def test_rate_limit_enforcement():
     """
-    Sending 16 rapid requests on the free tier (15 RPM) — the first 15
-    pass, and the 16th receives QUARANTINE due to bucket exhaustion.
+    When token bucket is exhausted, subsequent requests receive QUARANTINE.
     """
-    monkeypatch.setenv("BLACKWALL_TIER", "free")
-    monkeypatch.setenv("GEMINI_TIER", "free")
-
     resolver = _make_resolver()
+    resolver._rate_limiter.tokens = 5.0
+    resolver._rate_limiter.refill_rate = 0.0
 
     results = []
 
@@ -259,22 +257,22 @@ async def test_15_rpm_rate_limit_enforcement(monkeypatch):
         return 0.1
 
     with patch.object(resolver, "_compute_threat_score", side_effect=low_score):
-        for i in range(16):
+        for i in range(6):
             context = _make_context(arguments={"i": i})
             v = await resolver.evaluate(context)
             results.append(v)
 
-    # First 15 decisions are ALLOW (not rate limited)
-    for i in range(15):
+    # First 5 decisions are ALLOW (not rate limited)
+    for i in range(5):
         assert (
             results[i].decision == VerdictDecision.ALLOW
         ), f"Request {i+1} should be ALLOW but got {results[i].decision}"
 
-    # 16th decision is QUARANTINE due to rate limit exhaustion
+    # 6th decision is QUARANTINE due to rate limit exhaustion
     assert (
-        results[15].decision == VerdictDecision.QUARANTINE
-    ), f"Expected 16th request to be QUARANTINE, got {results[15].decision}"
-    assert "Rate limit exhausted" in results[15].reasoning
+        results[5].decision == VerdictDecision.QUARANTINE
+    ), f"Expected 6th request to be QUARANTINE, got {results[5].decision}"
+    assert "Rate limit exhausted" in results[5].reasoning
 
     # Verify rate_limit_hits counter was incremented
     assert resolver._rate_limit_hits == 1

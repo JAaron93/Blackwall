@@ -165,9 +165,16 @@ async def test_attack_sequences() -> None:
         # Instantiate a clean SyncResolver in demo mode
         from blackwall.sync_resolver import SyncResolver
 
+        import json
         mock_client = MagicMock()
         mock_response = MagicMock()
-        mock_response.text = "[[URL]]"
+        mock_response.text = json.dumps(
+            {
+                "attacker_intent": "SQL Injection",
+                "payload_pattern": "UNION SELECT",
+                "mitigation_action": "BLOCK",
+            }
+        )
         mock_client.models.generate_content.return_value = mock_response
 
         resolver = SyncResolver(

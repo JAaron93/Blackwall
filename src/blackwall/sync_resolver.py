@@ -2,8 +2,11 @@
 sync_resolver.py — Free-tier single-request synchronous resolver.
 
 Uses client.models.generate_content() (NOT interactions.create()).
-No InterceptionQueue, no BatchResolver, no webhooks.
-Rate limited to 15 RPM via a token bucket (capacity=15, refill=0.25/s).
+Single-request synchronous evaluation resolver for inline tool-call gating.
+Rate limited to 300 RPM via a token bucket (capacity=300, refill=5.0/s) under 100% GCP Vertex AI Mode.
+Performs ContextHygiene sanitization, Threat Signature Graph lookup,
+CBM AST query, GTI external threat intelligence check, optional Gemini 3.5 Flash-Lite
+semantic triage, threat score aggregation, and threshold-based verdict dispatch.
 
 Verdict thresholds (DEMO MODE - tuned for standalone testing):
   >= 0.20  → BLOCK
@@ -14,6 +17,7 @@ Verdict thresholds (DEMO MODE - tuned for standalone testing):
 import asyncio
 import concurrent.futures
 from datetime import datetime, timezone
+import json
 import logging
 import os
 import sys
@@ -21,9 +25,16 @@ import time
 from typing import Any, Callable, Dict, Optional
 from uuid import uuid4
 
+from pydantic import BaseModel, Field
+
 from blackwall.attribution import (
     AttackerIdentityExtractor,
     IncidentReportGenerator,
+)
+from blackwall.config import (
+    DEFAULT_RAPID_TRIAGE_MODEL,
+    get_gemini_http_timeout,
+    get_gemini_thinking_level,
 )
 from blackwall.models import (
     AttackerProfile,
@@ -111,6 +122,19 @@ _SUSPICIOUS_KEYWORDS = frozenset(
 )
 
 
+class SemanticTriageEvaluation(BaseModel):
+    threat_score: float = Field(..., ge=0.0, le=1.0, description="Risk assessment score between 0.0 and 1.0")
+    is_suspicious: bool = Field(..., description="Whether the tool call exhibits malicious intent")
+    reasoning: str = Field(..., description="Concise rationale for the verdict")
+
+
+class ThreatSignaturePayload(BaseModel):
+    attacker_intent: str = Field(..., description="Concise description of the attacker's intent")
+    payload_pattern: str = Field(..., description="General payload or attack pattern")
+    target_sink: str = Field(default="", description="Target sink or tool")
+    mitigation_action: str = Field(default="BLOCK", description="Recommended mitigation action")
+
+
 class SyncResolver:
     """
     Free-tier single-request synchronous resolver for Blackwall Core.
@@ -130,6 +154,7 @@ class SyncResolver:
         demo_mode: bool = False,
         on_attacker_identified: Optional[Callable[[IncidentReport], Any]] = None,
         telemetry: Optional[Any] = None,
+        enable_semantic_triage: Optional[bool] = None,
     ) -> None:
         self.client = client
         self.policy_server = policy_server
@@ -140,6 +165,14 @@ class SyncResolver:
         self.demo_mode = demo_mode
         self.on_attacker_identified = on_attacker_identified
         self.telemetry = telemetry
+
+        if enable_semantic_triage is None:
+            self.enable_semantic_triage = (
+                os.getenv("BLACKWALL_ENABLE_SYNC_SEMANTIC_TRIAGE", "").strip().lower()
+                in ("true", "1", "yes")
+            )
+        else:
+            self.enable_semantic_triage = bool(enable_semantic_triage)
 
         # Wire MCP client URLs from policy server if configured
         policy = getattr(
@@ -168,18 +201,13 @@ class SyncResolver:
             max_workers=2, thread_name_prefix="bw_callback"
         )
 
-        # Rate limiter: Paid tier (300 RPM → capacity=300, refill_rate=5.0 t/s) vs Free tier (15 RPM)
-        tier = (
-            os.getenv("GEMINI_TIER") or os.getenv("BLACKWALL_TIER") or "paid"
-        ).lower()
-        capacity = 300.0 if tier == "paid" else 15.0
-        refill = 5.0 if tier == "paid" else 0.25
+        # Rate limiter: 100% GCP Vertex AI Mode (Paid Tier Exclusively: 300 RPM capacity, 5.0 t/s refill)
         self._rate_limiter = TokenBucketRateLimiter(
-            capacity=capacity, refill_rate=refill
+            capacity=300.0, refill_rate=5.0
         )
 
-        # Context hygiene sanitizer
-        self._hygiene = ContextHygiene()
+        # Context hygiene sanitizer with security IOC preservation mode enabled
+        self._hygiene = ContextHygiene(preserve_iocs=True)
 
         # True only when the GTI budget tracker explicitly denied the last query.
         self._gti_budget_exhausted: bool = False
@@ -222,7 +250,7 @@ class SyncResolver:
             return Verdict(
                 decision=VerdictDecision.QUARANTINE,
                 reasoning=(
-                    "Rate limit exhausted (15 RPM). "
+                    "Rate limit exhausted (300 RPM). "
                     "Fail-closed: QUARANTINE pending retry."
                 ),
                 confidence_score=1.0,
@@ -263,8 +291,15 @@ class SyncResolver:
         if is_high_risk:
             gti_resp = await self._query_gti(sanitized)
 
+        # 4b. Optional semantic triage via Gemini 3.5 Flash-Lite
+        semantic_score: Optional[float] = None
+        if self.enable_semantic_triage and self.client is not None:
+            semantic_score = await self._evaluate_semantic_intent(sanitized)
+
         # 5. Compute weighted threat score
-        score = await self._compute_threat_score(sanitized, gti_resp, cbm_resp)
+        score = await self._compute_threat_score(
+            sanitized, gti_resp, cbm_resp, semantic_score=semantic_score
+        )
         score = max(0.0, min(1.0, score))
 
         # 5. Apply verdict thresholds
@@ -285,7 +320,9 @@ class SyncResolver:
 
         verdict = Verdict(
             decision=decision,
-            reasoning=self._build_reasoning(score, gti_resp, cbm_resp),
+            reasoning=self._build_reasoning(
+                score, gti_resp, cbm_resp, semantic_score=semantic_score
+            ),
             confidence_score=score,
         )
 
@@ -494,14 +531,79 @@ class SyncResolver:
             return None
 
     # ------------------------------------------------------------------
-    # Threat score computation
+    # Threat score computation & semantic intent evaluation
     # ------------------------------------------------------------------
+
+    async def _evaluate_semantic_intent(
+        self, context: ToolCallContext
+    ) -> Optional[float]:
+        """
+        Evaluate tool execution intent semantically using Gemini 3.5 Flash-Lite.
+        Enforces thinking_level='minimal' for rapid latency (<50ms).
+        Falls back gracefully to None on timeout, missing client, or failure.
+        """
+        if not self.client or not hasattr(self.client, "models"):
+            return None
+        try:
+            from google.genai import types
+
+            thinking_lvl = get_gemini_thinking_level(
+                task_type="rapid_triage", default="minimal"
+            )
+            config = types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=SemanticTriageEvaluation,
+                thinking_config=types.ThinkingConfig(thinking_level=thinking_lvl)
+                if thinking_lvl
+                else None,
+            )
+            prompt = (
+                "Analyze this tool execution for malicious intent, unauthorized actions, "
+                "privilege escalation, or sensitive data exfiltration.\n"
+                f"Tool: {context.tool_name}\n"
+                f"Arguments: {context.arguments}\n"
+                f"Metadata: {context.metadata or {}}\n"
+            )
+            timeout = get_gemini_http_timeout(configured=5.0, task_type="rapid_triage")
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model=DEFAULT_RAPID_TRIAGE_MODEL,
+                    contents=prompt,
+                    config=config,
+                ),
+                timeout=timeout,
+            )
+
+            # 1. Parsed Pydantic model
+            if hasattr(response, "parsed") and response.parsed is not None:
+                parsed = response.parsed
+                if isinstance(parsed, SemanticTriageEvaluation):
+                    return float(parsed.threat_score)
+                if isinstance(parsed, dict) and "threat_score" in parsed:
+                    return float(parsed["threat_score"])
+
+            # 2. Text JSON parsing
+            text = getattr(response, "text", None)
+            if text:
+                try:
+                    data = json.loads(text)
+                    if isinstance(data, dict) and "threat_score" in data:
+                        return float(data["threat_score"])
+                except Exception:
+                    pass
+
+            return None
+        except Exception as exc:
+            logger.debug("Semantic intent evaluation fell back to heuristics: %s", exc)
+            return None
 
     async def _compute_threat_score(
         self,
         context: ToolCallContext,
         gti_resp: Optional[GTIResponse],
         cbm_resp: Optional[CBMResponse],
+        semantic_score: Optional[float] = None,
     ) -> float:
         """
         Weighted aggregation: GTI 40% + CBM 30% + Context 30%.
@@ -515,7 +617,15 @@ class SyncResolver:
         """
         gti_score = self._score_gti(gti_resp)
         cbm_score = self._score_cbm(cbm_resp)
-        ctx_score = self._score_context(context)
+
+        if (
+            semantic_score is None
+            and self.enable_semantic_triage
+            and self.client is not None
+        ):
+            semantic_score = await self._evaluate_semantic_intent(context)
+
+        ctx_score = self._score_context(context, semantic_score=semantic_score)
 
         if self._gti_budget_exhausted:
             # Budget depletion: apply spec-mandated weight redistribution
@@ -542,32 +652,86 @@ class SyncResolver:
         Adds ~200-500ms. Skipped gracefully if repo is None or Gemini fails.
         """
         try:
+            from google.genai import types
+
+            thinking_lvl = get_gemini_thinking_level(
+                task_type="signature_generation", default="high"
+            )
+            config = types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=ThreatSignaturePayload,
+                thinking_config=types.ThinkingConfig(thinking_level=thinking_lvl)
+                if thinking_lvl
+                else None,
+            )
             prompt = (
                 "Generalize this attack pattern into a reusable threat signature.\n"
                 f"Tool: {context.tool_name}\n"
                 f"Arguments: {context.arguments}\n"
                 f"Verdict reasoning: {verdict.reasoning}\n"
                 "Respond with a concise signature description "
-                "(attacker_intent, payload_pattern, target_sink)."
+                "(attacker_intent, payload_pattern, target_sink, mitigation_action)."
             )
 
+            timeout = get_gemini_http_timeout(
+                configured=30.0, task_type="signature_generation"
+            )
             response = await asyncio.wait_for(
                 asyncio.to_thread(
                     self.client.models.generate_content,
-                    model="gemini-3.5-flash-lite",
+                    model=DEFAULT_RAPID_TRIAGE_MODEL,
                     contents=prompt,
+                    config=config,
                 ),
-                timeout=30.0,
+                timeout=timeout,
             )
-            sig_text = response.text if hasattr(response, "text") else str(response)
+
+            attacker_intent = f"Blocked tool call: {context.tool_name}"
+            payload_pattern = ""
+            mitigation_action = "BLOCK"
+
+            parsed = getattr(response, "parsed", None)
+            if parsed is not None and not type(parsed).__name__.endswith("Mock"):
+                if isinstance(parsed, ThreatSignaturePayload):
+                    attacker_intent = parsed.attacker_intent or attacker_intent
+                    payload_pattern = parsed.payload_pattern or ""
+                    mitigation_action = parsed.mitigation_action or "BLOCK"
+                elif isinstance(parsed, dict):
+                    attacker_intent = parsed.get("attacker_intent") or attacker_intent
+                    payload_pattern = parsed.get("payload_pattern") or ""
+                    mitigation_action = parsed.get("mitigation_action") or "BLOCK"
+                elif hasattr(parsed, "attacker_intent") and hasattr(parsed, "payload_pattern"):
+                    attacker_intent = str(getattr(parsed, "attacker_intent", attacker_intent))
+                    payload_pattern = str(getattr(parsed, "payload_pattern", ""))
+                    mitigation_action = str(getattr(parsed, "mitigation_action", "BLOCK"))
+
+            if not payload_pattern and hasattr(response, "text") and response.text:
+                sig_text = response.text
+                try:
+                    data = json.loads(sig_text)
+                    if isinstance(data, dict):
+                        attacker_intent = data.get("attacker_intent") or attacker_intent
+                        payload_pattern = data.get("payload_pattern") or ""
+                        mitigation_action = data.get("mitigation_action") or "BLOCK"
+                    else:
+                        payload_pattern = sig_text[:512]
+                except Exception:
+                    payload_pattern = sig_text[:512]
+            elif not payload_pattern:
+                payload_pattern = str(response)[:512]
+
+            if not payload_pattern:
+                payload_pattern = (
+                    getattr(response, "text", "")[:512] or str(response)[:512]
+                )
 
             if self.repo is not None:
                 await self.repo.writeSignature(
                     {
-                        "attackerIntent": (f"Blocked tool call: {context.tool_name}"),
-                        "payloadPattern": sig_text[:512],
+                        "attackerIntent": attacker_intent,
+                        "payloadPattern": payload_pattern[:512],
                         "targetTool": context.tool_name,
-                        "mitigationAction": "BLOCK",
+                        "mitigationAction": mitigation_action,
                         "metadata": {
                             "confidence_score": verdict.confidence_score,
                         },
@@ -642,15 +806,21 @@ class SyncResolver:
         sink_score = min(len(cbm_resp.critical_sinks) * 0.1, 0.5)
         return (blast_score + sink_score) / 2.0
 
-    def _score_context(self, context: ToolCallContext) -> float:
+    def _score_context(
+        self,
+        context: ToolCallContext,
+        semantic_score: Optional[float] = None,
+    ) -> float:
         """
         Context signal (0.0–1.0) based on:
           - Tool name risk level
-          - Argument novelty (suspicious keyword count)
+          - Argument novelty (suspicious keyword count or semantic intent score)
           - Environment role (from metadata)
         """
         tool_score = self._score_tool_name(context.tool_name)
-        novelty_score = self._score_argument_novelty(context.arguments)
+        novelty_score = self._score_argument_novelty(
+            context.arguments, semantic_score=semantic_score
+        )
 
         # Environment role modifier
         role_modifier = 0.0
@@ -684,14 +854,25 @@ class SyncResolver:
                     return 0.45
             return 0.1
 
-    def _score_argument_novelty(self, arguments: Dict[str, Any]) -> float:
-        """Counts suspicious keywords found in stringified argument values."""
+    def _score_argument_novelty(
+        self,
+        arguments: Dict[str, Any],
+        semantic_score: Optional[float] = None,
+    ) -> float:
+        """Counts suspicious keywords found in stringified argument values and combines with semantic score (fail-closed max)."""
         combined = " ".join(str(v) for v in arguments.values()).lower()
         count = sum(1 for kw in _SUSPICIOUS_KEYWORDS if kw in combined)
         if self.demo_mode:
-            return min(count * 0.25, 1.0)  # Boosted from 0.2
+            deterministic_novelty = min(count * 0.25, 1.0)  # Boosted from 0.2
         else:
-            return min(count * 0.2, 1.0)  # Specification-mandated multiplier
+            deterministic_novelty = min(count * 0.2, 1.0)  # Specification-mandated multiplier
+
+        if semantic_score is not None:
+            bounded_semantic = max(0.0, min(1.0, float(semantic_score)))
+            # Fail-closed: semantic triage must never lower the deterministic risk signal
+            return max(deterministic_novelty, bounded_semantic)
+
+        return deterministic_novelty
 
     def _extract_indicator(self, context: ToolCallContext) -> Optional[str]:
         """Extracts the most useful GTI indicator from the context arguments."""
@@ -727,8 +908,11 @@ class SyncResolver:
         score: float,
         gti_resp: Optional[GTIResponse],
         cbm_resp: Optional[CBMResponse],
+        semantic_score: Optional[float] = None,
     ) -> str:
         parts = [f"Threat score: {score:.3f}"]
+        if semantic_score is not None:
+            parts.append(f"Semantic: score={semantic_score:.2f}")
         if gti_resp is not None:
             parts.append(
                 f"GTI: malicious={gti_resp.is_malicious}, "

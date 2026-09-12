@@ -16,6 +16,11 @@ from blackwall.models import (
     ResolverMetrics,
 )
 from blackwall.exceptions import APIRateLimitException
+from blackwall.config import (
+    DEFAULT_RAPID_TRIAGE_MODEL,
+    DEFAULT_GEMINI_MODEL,
+    get_gemini_thinking_level,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,18 +103,95 @@ class ContextHygiene:
         ("email", r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "[[EMAIL]]"),
     ]
 
+    IOC_PRESERVED_PATTERNS = [
+        (
+            "gcp_sa_json",
+            r'\{\s*"type"\s*:\s*"service_account"[\s\S]+?\}',
+            "[[GCP_SERVICE_ACCOUNT_KEY]]",
+        ),
+        (
+            "rsa_key",
+            r"-----BEGIN (?:RSA )?PRIVATE KEY-----[\s\S]+?-----END (?:RSA )?PRIVATE KEY-----",
+            "[[RSA_PRIVATE_KEY]]",
+        ),
+        (
+            "openai_key",
+            r"sk-[a-zA-Z0-9_\-]{10,}",
+            "[[OPENAI_API_KEY]]",
+        ),
+        (
+            "stripe_key",
+            r"sk_test_[a-zA-Z0-9_\-]+",
+            "[[STRIPE_SECRET_KEY]]",
+        ),
+        (
+            "jwt_token",
+            r"eyJ[a-zA-Z0-9_\-]{5,}(?:\.eyJ[a-zA-Z0-9_\-]{5,})?(?:\.[a-zA-Z0-9_\-]+)?",
+            "[[JWT_TOKEN]]",
+        ),
+        (
+            "aws_access_key",
+            r"(?i)aws_access_key_id[\s:=]+['\"]?([^\s'\"]+)",
+            "AWS_ACCESS_KEY_ID=[[AWS_ACCESS_KEY_ID]]",
+        ),
+        (
+            "aws_secret_key",
+            r"(?i)aws_secret_access_key[\s:=]+['\"]?([^\s'\"]+)",
+            "AWS_SECRET_ACCESS_KEY=[[AWS_SECRET_ACCESS_KEY]]",
+        ),
+        (
+            "bearer_token",
+            r"(?i)(bearer\s+)([a-zA-Z0-9_\-\.]{10,})",
+            "[[API_KEY]]",
+        ),
+        (
+            "url_query_secret",
+            r"([?&](?:token|key|secret|password|api_key|auth)=)([^&\s'\"]+)",
+            "[[API_KEY]]",
+        ),
+        (
+            "api_key",
+            r"(?i)(api[_-]?key|apikey|token)[\s:=]+['\"]?([a-zA-Z0-9_\-]{10,})",
+            "[[API_KEY]]",
+        ),
+        (
+            "password",
+            r"(?i)(password|passwd|pwd)[\s:=]+['\"]?([^\s'\"]+)",
+            "[[PASSWORD]]",
+        ),
+        ("email", r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "[[EMAIL]]"),
+    ]
+
     _COMPILED_DEFAULT_PATTERNS = []
     _name = _pat = _placeholder = None
     for _name, _pat, _placeholder in DEFAULT_PATTERNS:
         _COMPILED_DEFAULT_PATTERNS.append((_name, re.compile(_pat), _placeholder))
     del _name, _pat, _placeholder
 
-    def __init__(self, patterns: Optional[List[tuple[str, str, str]]] = None):
+    _COMPILED_IOC_PRESERVED_PATTERNS = []
+    for _name, _pat, _placeholder in IOC_PRESERVED_PATTERNS:
+        _COMPILED_IOC_PRESERVED_PATTERNS.append((_name, re.compile(_pat), _placeholder))
+    del _name, _pat, _placeholder
+
+    def __init__(
+        self,
+        patterns: Optional[List[tuple[str, str, str]]] = None,
+        preserve_iocs: bool = False,
+    ):
+        self.preserve_iocs = preserve_iocs
         if patterns is None:
-            self.patterns = list(self._COMPILED_DEFAULT_PATTERNS)
-            raw_patterns = [
-                (name, pat, placeholder) for name, pat, placeholder in self.DEFAULT_PATTERNS
-            ]
+            if self.preserve_iocs:
+                self.patterns = list(self._COMPILED_IOC_PRESERVED_PATTERNS)
+                raw_patterns = [
+                    (name, pat, placeholder)
+                    for name, pat, placeholder in self.IOC_PRESERVED_PATTERNS
+                ]
+            else:
+                self.patterns = list(self._COMPILED_DEFAULT_PATTERNS)
+                raw_patterns = [
+                    (name, pat, placeholder)
+                    for name, pat, placeholder in self.DEFAULT_PATTERNS
+                ]
         else:
             self.patterns = []
             raw_patterns = []
@@ -126,7 +208,6 @@ class ContextHygiene:
         except (ImportError, AttributeError):
             self._rust_sanitizer = None
 
-
     def _repl(self, match: Any, placeholder_str: str) -> str:
         full: str = str(match.group(0))
         prefix: str = str(match.group(1))
@@ -140,9 +221,12 @@ class ContextHygiene:
             )
         return full
 
-
     def sanitize_string(self, text: str) -> str:
-        if self._rust_sanitizer is not None and len(self.patterns) == len(self._COMPILED_DEFAULT_PATTERNS):
+        if (
+            not self.preserve_iocs
+            and self._rust_sanitizer is not None
+            and len(self.patterns) == len(self._COMPILED_DEFAULT_PATTERNS)
+        ):
             try:
                 return self._rust_sanitizer.sanitize_string(text, True)
             except Exception as e:
@@ -151,7 +235,7 @@ class ContextHygiene:
                 )
 
         for name, regex, placeholder in self.patterns:
-            if name in ("password", "api_key"):
+            if name in ("password", "api_key", "bearer_token", "url_query_secret"):
                 # Capture current placeholder via default-argument to avoid late-binding
                 # of the loop variable during regex substitution callbacks.
                 text = regex.sub(lambda m, p=placeholder: self._repl(m, p), text)
@@ -195,7 +279,7 @@ class BatchResolver:
 
         # Components
         self.rate_limiter = TokenBucketRateLimiter(capacity=300.0, refill_rate=5.0)
-        self.hygiene = ContextHygiene()
+        self.hygiene = ContextHygiene(preserve_iocs=True)
 
         # Cache Tracking
         self.last_interaction_id: Optional[str] = None
@@ -463,7 +547,7 @@ class BatchResolver:
     async def submit_to_gemini_sync(
         self, sanitized_contexts: List[ToolCallContext]
     ) -> BatchResponse:
-        """Submits the sanitized batch synchronously to Gemini 3.1 Flash-Lite."""
+        """Submits the sanitized batch synchronously to Gemini 3.5 Flash-Lite."""
         start_time = time.time()
 
         # Network-level timeout for the Gemini API call (25 seconds).
@@ -487,33 +571,45 @@ class BatchResolver:
             # If the client library has sync methods, we run them in an executor so the timeout can be enforced.
             # If the client library has async methods, we call them directly.
             create_fn = self.client.interactions.create
+            thinking_lvl = get_gemini_thinking_level(
+                model=DEFAULT_RAPID_TRIAGE_MODEL, task_type="rapid_triage"
+            )
+            create_kwargs = {
+                "model": DEFAULT_RAPID_TRIAGE_MODEL,
+                "input": payload_json,
+                "previous_interaction_id": payload.previous_interaction_id,
+                "response_schema": list[Verdict],
+                "response_mime_type": "application/json",
+                "thinking_level": thinking_lvl,
+                "timeout": API_CALL_TIMEOUT,
+            }
             if asyncio.iscoroutinefunction(create_fn):
-                interaction = await create_fn(
-                    model="gemini-3.5-flash-lite",
-                    input=payload_json,
-                    previous_interaction_id=payload.previous_interaction_id,
-                    timeout=API_CALL_TIMEOUT,
-                )
+                interaction = await create_fn(**create_kwargs)
             else:
                 # Run synchronous call in executor with network-level timeout
                 loop = asyncio.get_event_loop()
                 interaction = await loop.run_in_executor(
                     None,
-                    lambda: create_fn(
-                        model="gemini-3.5-flash-lite",
-                        input=payload_json,
-                        previous_interaction_id=payload.previous_interaction_id,
-                        timeout=API_CALL_TIMEOUT,
-                    ),
+                    lambda: create_fn(**create_kwargs),
                 )
 
             # Update last interaction ID for server-side context caching
             if hasattr(interaction, "id"):
                 self.last_interaction_id = interaction.id
 
-            # Parse verdicts
-            output_text = getattr(interaction, "output_text", "") or ""
-            verdicts = self._parse_verdicts(output_text, len(sanitized_contexts))
+            # Parse verdicts: first check native structured outputs (parsed / outputs), falling back to output_text
+            parsed_output = getattr(interaction, "parsed", None)
+            if not isinstance(parsed_output, (list, dict)):
+                parsed_output = None
+            if parsed_output is None and hasattr(interaction, "outputs") and isinstance(interaction.outputs, (list, dict)):
+                parsed_output = interaction.outputs
+
+            if parsed_output is not None:
+                verdicts = self._parse_verdicts(parsed_output, len(sanitized_contexts))
+            else:
+                raw_text = getattr(interaction, "output_text", "")
+                output_text = raw_text if isinstance(raw_text, str) else ""
+                verdicts = self._parse_verdicts(output_text, len(sanitized_contexts))
 
             # Retrieve usage details
             usage = getattr(interaction, "usage", None)
@@ -626,33 +722,60 @@ class BatchResolver:
                 raise APIRateLimitException(f"Gemini API rate limit: {e}") from e
             raise e
 
-    def _parse_verdicts(self, output_text: str, batch_size: int) -> List[Verdict]:
+    def _parse_verdicts(self, output_text: Any, batch_size: int) -> List[Verdict]:
         """Cleans and parses the LLM output into a list of Verdicts matching the batch size."""
-        cleaned_text = output_text.strip()
+        if batch_size == 0:
+            return []
 
-        # Clean markdown code blocks if any
-        if cleaned_text.startswith("```"):
-            first_line_end = cleaned_text.find("\n")
-            if first_line_end != -1:
-                cleaned_text = cleaned_text[first_line_end:]
-            if cleaned_text.endswith("```"):
-                cleaned_text = cleaned_text[:-3]
-            cleaned_text = cleaned_text.strip()
+        # If output is already structured (e.g. from native structured outputs)
+        if isinstance(output_text, list):
+            data = output_text
+        elif isinstance(output_text, dict) and "verdicts" in output_text:
+            data = output_text["verdicts"]
+        else:
+            cleaned_text = str(output_text).strip() if output_text is not None else ""
+
+            # Clean markdown code blocks if any
+            if cleaned_text.startswith("```"):
+                first_line_end = cleaned_text.find("\n")
+                if first_line_end != -1:
+                    cleaned_text = cleaned_text[first_line_end:]
+                if cleaned_text.endswith("```"):
+                    cleaned_text = cleaned_text[:-3]
+                cleaned_text = cleaned_text.strip()
+
+            try:
+                data = json.loads(cleaned_text)
+                if not isinstance(data, list):
+                    raise ValueError("Expected a JSON list of verdicts")
+            except Exception as e:
+                logger.error(
+                    f"Failed to parse LLM verdicts: {e}. Output was: {output_text}"
+                )
+                return [
+                    Verdict(
+                        decision=VerdictDecision.QUARANTINE,
+                        reasoning=f"Failed to parse model response: {e}",
+                        confidence_score=1.0,
+                    )
+                    for _ in range(batch_size)
+                ]
 
         try:
-            data = json.loads(cleaned_text)
-            if not isinstance(data, list):
-                raise ValueError("Expected a JSON list of verdicts")
-
             verdicts = []
             for item in data:
-                verdicts.append(
-                    Verdict(
-                        decision=VerdictDecision(item.get("decision", "QUARANTINE")),
-                        reasoning=item.get("reasoning", "Parsed from model response"),
-                        confidence_score=float(item.get("confidence_score", 0.5)),
+                if isinstance(item, Verdict):
+                    verdicts.append(item)
+                elif isinstance(item, dict):
+                    verdicts.append(
+                        Verdict(
+                            decision=VerdictDecision(item.get("decision", "QUARANTINE")),
+                            reasoning=item.get("reasoning", "Parsed from model response"),
+                            confidence_score=float(item.get("confidence_score", 0.5)),
+                        )
                     )
-                )
+                else:
+                    raise ValueError(f"Unsupported verdict item type: {type(item)}")
 
             # Check for size mismatch
             if len(verdicts) != batch_size:

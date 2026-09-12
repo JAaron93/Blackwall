@@ -867,9 +867,16 @@ class SQLiteThreatRepository:
         await self.initialize()
 
         # Construct query text for similarity & FTS5 matching from payload/intent terms only
+        import urllib.parse
+
         # Exclude tool_name from tokenization to prevent cross-tool matches
         args_values = " ".join(str(v) for v in arguments.values())
-        query_text = args_values  # Only use argument values for FTS MATCH
+        decoded_values = urllib.parse.unquote(args_values)
+        query_text = (
+            f"{args_values} {decoded_values}"
+            if decoded_values != args_values
+            else args_values
+        )  # Include unquoted values to detect encoded evasion attempts
 
         # 1. Query similar signatures (Vector similarity + FTS5 fallback)
         matches = await self.querySimilarSignatures(
@@ -889,6 +896,7 @@ class SQLiteThreatRepository:
 
         # 2. Substring fallback to maintain backward compatibility
         args_str = json.dumps(arguments)
+        decoded_args_str = urllib.parse.unquote(args_str)
         async with self.pool.connection() as conn:
             cursor = await conn.execute(
                 "SELECT signature_id, target_tool, payload_pattern, mitigation_action, attacker_intent FROM signatures WHERE target_tool = ?",
@@ -897,7 +905,7 @@ class SQLiteThreatRepository:
             rows = await cursor.fetchall()
             for row in rows:
                 sig_id, tool, pattern, mitigation, intent = row
-                if pattern in args_str:
+                if pattern in args_str or (decoded_args_str != args_str and pattern in decoded_args_str):
                     await self.increment_match_count(sig_id)
                     return {
                         "signature_id": sig_id,
@@ -972,18 +980,18 @@ class SQLiteThreatRepository:
             try:
                 values_to_insert = []
                 for signature_data in signatures:
-                    raw_intent = signature_data.get("attackerIntent")
+                    raw_intent = signature_data.get("attackerIntent") or signature_data.get("attacker_intent") or signature_data.get("description")
                     attacker_intent = str(raw_intent) if raw_intent is not None else ""
 
-                    raw_pattern = signature_data.get("payloadPattern")
+                    raw_pattern = signature_data.get("payloadPattern") or signature_data.get("payload_pattern") or signature_data.get("pattern")
                     payload_pattern = (
                         str(raw_pattern) if raw_pattern is not None else ""
                     )
 
-                    raw_tool = signature_data.get("targetTool")
+                    raw_tool = signature_data.get("targetTool") or signature_data.get("target_tool")
                     target_tool = str(raw_tool) if raw_tool is not None else ""
 
-                    raw_sig_id = signature_data.get("signatureId")
+                    raw_sig_id = signature_data.get("signatureId") or signature_data.get("signature_id")
                     if raw_sig_id is not None:
                         sig_id = str(raw_sig_id)
                     else:
@@ -995,47 +1003,58 @@ class SQLiteThreatRepository:
                             )
                         )
 
-                    raw_created_at = signature_data.get("createdAt")
-                    created_at = (
-                        int(raw_created_at)
-                        if raw_created_at is not None
-                        else int(time.time())
-                    )
+                    raw_created_at = signature_data.get("createdAt") or signature_data.get("created_at")
+                    if raw_created_at is not None:
+                        if hasattr(raw_created_at, "timestamp"):
+                            created_at = int(raw_created_at.timestamp())
+                        else:
+                            try:
+                                created_at = int(raw_created_at)
+                            except Exception:
+                                created_at = int(time.time())
+                    else:
+                        created_at = int(time.time())
 
-                    _raw_last_matched_at = signature_data.get("lastMatchedAt")
-                    last_matched_at = (
-                        int(_raw_last_matched_at)
-                        if _raw_last_matched_at is not None
-                        else None
-                    )
+                    _raw_last_matched_at = signature_data.get("lastMatchedAt") or signature_data.get("last_matched_at")
+                    if _raw_last_matched_at is not None:
+                        if hasattr(_raw_last_matched_at, "timestamp"):
+                            last_matched_at = int(_raw_last_matched_at.timestamp())
+                        else:
+                            try:
+                                last_matched_at = int(_raw_last_matched_at)
+                            except Exception:
+                                last_matched_at = None
+                    else:
+                        last_matched_at = None
 
+                    target_sink_val = signature_data.get("targetSink") or signature_data.get("target_sink") or signature_data.get("sink_type")
                     target_sink = (
-                        str(signature_data.get("targetSink"))
-                        if signature_data.get("targetSink") is not None
+                        str(target_sink_val)
+                        if target_sink_val is not None
                         else None
                     )
 
-                    raw_chain = signature_data.get("dependencyChain")
+                    raw_chain = signature_data.get("dependencyChain") or signature_data.get("dependency_chain")
                     dependency_chain = (
                         json.dumps(raw_chain) if raw_chain is not None else None
                     )
 
-                    raw_mitigation = signature_data.get("mitigationAction")
+                    raw_mitigation = signature_data.get("mitigationAction") or signature_data.get("mitigation_action")
                     mitigation_action = (
                         str(raw_mitigation) if raw_mitigation is not None else ""
                     )
 
-                    raw_match_count = signature_data.get("matchCount")
+                    raw_match_count = signature_data.get("matchCount") or signature_data.get("match_count")
                     match_count = (
                         int(raw_match_count) if raw_match_count is not None else 0
                     )
 
-                    raw_fp_count = signature_data.get("falsePositiveCount")
+                    raw_fp_count = signature_data.get("falsePositiveCount") or signature_data.get("false_positive_count")
                     false_positive_count = (
                         int(raw_fp_count) if raw_fp_count is not None else 0
                     )
 
-                    similarity_vector = signature_data.get("similarityVector")
+                    similarity_vector = signature_data.get("similarityVector") or signature_data.get("similarity_vector")
                     if similarity_vector is not None:
                         if isinstance(similarity_vector, (bytes, bytearray)):
                             vector_blob = similarity_vector

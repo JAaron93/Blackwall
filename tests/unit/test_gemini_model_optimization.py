@@ -49,8 +49,11 @@ def test_runtime_constants() -> None:
     assert "judge" in ANALYTICAL_TASK_TYPES
     assert "evaluator" in ANALYTICAL_TASK_TYPES
     assert "analysis" in ANALYTICAL_TASK_TYPES
+    assert "signature_generation" in ANALYTICAL_TASK_TYPES
     assert "router" in ROUTER_TASK_TYPES
     assert "rapid_triage" in ROUTER_TASK_TYPES
+    assert "analytics" in ROUTER_TASK_TYPES
+    assert "refactoring" in ROUTER_TASK_TYPES
 
 
 def test_thinking_level_analytical_floor(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -58,7 +61,7 @@ def test_thinking_level_analytical_floor(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setenv("GEMINI_THINKING_LEVEL", "low")
 
     # Analytical tasks must ignore the "low" env override and enforce "high" floor
-    for task in ["judge", "evaluator", "analysis", "attribution", "forensics"]:
+    for task in ["judge", "evaluator", "analysis", "attribution", "forensics", "signature_generation"]:
         assert get_gemini_thinking_level(task_type=task) == "high"
 
 

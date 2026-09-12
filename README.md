@@ -652,6 +652,7 @@ The pipeline routes scenarios from `tests/eval/judge_scenarios/` and the GCP nat
 #### **Context Hygiene Middleware**
 - Regex-based PII/secret redaction (API keys, IPs, passwords, emails, URLs, file paths)
 - Idempotent sanitization: `sanitize(sanitize(x)) == sanitize(x)`
+- Selective IOC preservation (`preserve_iocs=True`): preserves target filesystem paths (`/etc/shadow`) and network domains for accurate downstream threat classification, while strictly redacting sensitive credentials, bearer tokens, and URL query secrets
 - Audit trail with SHA256 hashes (no reverse mapping)
 - 100ms timeout per regex pattern (prevents ReDoS attacks)
 
@@ -686,17 +687,20 @@ The pipeline routes scenarios from `tests/eval/judge_scenarios/` and the GCP nat
 - Emergency flush when queue size > 50
 
 #### **Batch Resolver** (Paid Tier)
-- Asynchronous batched API calls to Gemini Interactions API
+- Asynchronous batched API calls to Gemini Interactions API using Gemini 3.5 Flash-Lite
+- Native structured output decoding: enforces `response_schema=list[Verdict]` with `response_mime_type="application/json"` directly into Pydantic models (zero markdown stripping or regex repair heuristics)
+- Dynamic thinking level routing: enforces `thinking_level="minimal"` for rapid inline triage under 150ms TTFT
 - 300 RPM token bucket rate limiter (sliding 60-second window)
 - Exponential backoff on `APIRateLimitException` (100ms, 200ms, 400ms)
 - Server-side context caching: 50%+ token cost reduction via `previous_interaction_id`
 - Fail-closed: returns QUARANTINE verdicts on exhaustion (never ALLOW)
 
-#### **SyncResolver** (Free Tier)
-- Single-request synchronous evaluation
-- 15 RPM rate limiter (fail-closed QUARANTINE)
+#### **SyncResolver** (Synchronous / Edge Mode)
+- Single-request synchronous evaluation with optional LLM semantic triage (`BLACKWALL_ENABLE_SYNC_SEMANTIC_TRIAGE=true`)
+- Structured semantic intent evaluation via Gemini 3.5 Flash-Lite (`response_schema=Verdict`, `thinking_level="minimal"`)
+- Native structured signature synthesis producing typed `ThreatSignaturePayload` models after `BLOCK` verdicts
+- 300 RPM token bucket rate limiter under 100% GCP Vertex AI Mode (fail-closed QUARANTINE)
 - Serial GTI → CBM queries (no parallelism)
-- Inline threat signature generation after BLOCK
 - All 14 unit tests passing ✅
 
 ---
