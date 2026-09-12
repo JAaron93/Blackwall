@@ -124,7 +124,7 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 
 ## Requirements
 
-### Requirement 1: Rapid Triage with Gemini 3.1 Flash-Lite
+### Requirement 1: Rapid Triage with Gemini 3.5 Flash-Lite
 
 **User Story:** As a system architect, I want inline threat classification using high-throughput Gemini models to make rapid BLOCK/ALLOW decisions during tool interception, so that benign operations complete within 100ms latency.
 
@@ -134,7 +134,7 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 2. THE synchronous API call SHALL complete within 100ms at 99th percentile
 3. THE Batch_Resolver SHALL include `previous_interaction_id` in the request payload for server-side context caching
 4. WHEN the API returns cached results (cache hit), THE token consumption SHALL be reduced by at least 50%
-5. THE system SHALL extract verdict, threat_score, and suggested_action from the Gemini response
+5. THE system SHALL extract verdict, threat_score, and suggested_action from the Gemini response via native structured output decoding (`response_schema=list[Verdict]`) with dynamic `thinking_level` routing (`thinking_level="minimal"` for rapid triage latency)
 6. THE verdict SHALL map to ALLOW, BLOCK, or QUARANTINE decision for interception
 7. IF the threat_score is >= 0.75, THE verdict SHALL be BLOCK
 8. IF the threat_score is >= 0.5 and < 0.75, THE verdict SHALL be QUARANTINE
