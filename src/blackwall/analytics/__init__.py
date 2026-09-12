@@ -6,7 +6,7 @@ import random
 import re
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Union
 from uuid import uuid4
 
 from pydantic import BaseModel
@@ -23,6 +23,9 @@ from blackwall.models import (
     SecurityEvent,
     ThreatSignature,
     SinkType,
+    ToolCallContext,
+    Verdict,
+    VerdictDecision,
 )
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.mcp.embeddings import GeminiEmbeddingClient
@@ -272,11 +275,41 @@ class AgentBehavioralAnalytics:
         drift = abs(current_val - base)
         return drift > 0.5
 
-    async def generateSignature(self, event: SecurityEvent) -> ThreatSignature:
+    async def generateSignature(
+        self, event: Union[SecurityEvent, Dict[str, Any]]
+    ) -> ThreatSignature:
         """
         Extracts attacker intent, generalizes payload, computes similarity vector,
         determines mitigation action, and returns a ThreatSignature.
         """
+        if isinstance(event, dict):
+            if "signature_id" in event and "pattern" in event:
+                try:
+                    return ThreatSignature(**event)
+                except Exception:
+                    pass
+            try:
+                event = SecurityEvent(**event)
+            except Exception:
+                raw_args = event.get("arguments", event.get("raw_args", {}))
+                tool_name = event.get("tool_name", "unknown_tool")
+                reasoning = event.get(
+                    "reasoning",
+                    event.get("attacker_intent", "Candidate threat signature"),
+                )
+                event = SecurityEvent(
+                    event_type=event.get("event_type", EventType.BLOCK),
+                    tool_context=ToolCallContext(
+                        tool_name=tool_name,
+                        arguments=raw_args if isinstance(raw_args, dict) else {},
+                    ),
+                    verdict=Verdict(
+                        decision=VerdictDecision.BLOCK,
+                        reasoning=reasoning,
+                        confidence_score=0.9,
+                    ),
+                )
+
         tool_name = event.tool_context.tool_name
         raw_args = event.tool_context.arguments
 
@@ -392,6 +425,9 @@ class AgentBehavioralAnalytics:
                 span.set_attribute("mitigation_action", mitigation_action)
 
         return signature
+
+    # Alias for snake_case compatibility
+    generate_signature = generateSignature
 
     async def triggerRefactoring(self, event: SecurityEvent) -> RefactoringHint:
         """
@@ -620,3 +656,6 @@ class Agent_Behavioral_Analytics:
         """
         # For now, just return the candidate as the signature.
         return candidate
+
+    generate_signature = generateSignature
+

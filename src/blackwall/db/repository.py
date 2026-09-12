@@ -867,9 +867,16 @@ class SQLiteThreatRepository:
         await self.initialize()
 
         # Construct query text for similarity & FTS5 matching from payload/intent terms only
+        import urllib.parse
+
         # Exclude tool_name from tokenization to prevent cross-tool matches
         args_values = " ".join(str(v) for v in arguments.values())
-        query_text = args_values  # Only use argument values for FTS MATCH
+        decoded_values = urllib.parse.unquote(args_values)
+        query_text = (
+            f"{args_values} {decoded_values}"
+            if decoded_values != args_values
+            else args_values
+        )  # Include unquoted values to detect encoded evasion attempts
 
         # 1. Query similar signatures (Vector similarity + FTS5 fallback)
         matches = await self.querySimilarSignatures(
@@ -889,6 +896,7 @@ class SQLiteThreatRepository:
 
         # 2. Substring fallback to maintain backward compatibility
         args_str = json.dumps(arguments)
+        decoded_args_str = urllib.parse.unquote(args_str)
         async with self.pool.connection() as conn:
             cursor = await conn.execute(
                 "SELECT signature_id, target_tool, payload_pattern, mitigation_action, attacker_intent FROM signatures WHERE target_tool = ?",
@@ -897,7 +905,7 @@ class SQLiteThreatRepository:
             rows = await cursor.fetchall()
             for row in rows:
                 sig_id, tool, pattern, mitigation, intent = row
-                if pattern in args_str:
+                if pattern in args_str or (decoded_args_str != args_str and pattern in decoded_args_str):
                     await self.increment_match_count(sig_id)
                     return {
                         "signature_id": sig_id,

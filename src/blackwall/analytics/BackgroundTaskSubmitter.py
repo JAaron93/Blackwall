@@ -90,8 +90,23 @@ class AgentBehavioralAnalytics:
                     try:
                         from blackwall.analytics import AgentBehavioralAnalytics as ABA
                         aba_inst = ABA()
-                        sig = await aba_inst.generate_signature(candidate)
-                        signatures.append(sig)
+                        if hasattr(aba_inst, "generateSignature"):
+                            sig = await aba_inst.generateSignature(candidate)
+                        elif hasattr(aba_inst, "generate_signature"):
+                            sig = await aba_inst.generate_signature(candidate)
+                        else:
+                            sig = candidate
+
+                        if hasattr(sig, "model_dump"):
+                            sig_payload = sig.model_dump()
+                            sig_payload.setdefault("attackerIntent", getattr(sig, "description", ""))
+                            sig_payload.setdefault("payloadPattern", getattr(sig, "pattern", ""))
+                            sig_payload.setdefault("targetSink", str(getattr(sig, "sink_type", "")))
+                            signatures.append(sig_payload)
+                        elif isinstance(sig, dict):
+                            signatures.append(sig)
+                        else:
+                            signatures.append(sig)
                     except Exception as sig_err:
                         logger.warning(
                             f"Failed to generate signature for candidate in in-process mode: {sig_err}"

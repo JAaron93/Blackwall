@@ -690,8 +690,8 @@ class SyncResolver:
             payload_pattern = ""
             mitigation_action = "BLOCK"
 
-            if hasattr(response, "parsed") and response.parsed is not None:
-                parsed = response.parsed
+            parsed = getattr(response, "parsed", None)
+            if parsed is not None and not type(parsed).__name__.endswith("Mock"):
                 if isinstance(parsed, ThreatSignaturePayload):
                     attacker_intent = parsed.attacker_intent or attacker_intent
                     payload_pattern = parsed.payload_pattern or ""
@@ -700,7 +700,12 @@ class SyncResolver:
                     attacker_intent = parsed.get("attacker_intent") or attacker_intent
                     payload_pattern = parsed.get("payload_pattern") or ""
                     mitigation_action = parsed.get("mitigation_action") or "BLOCK"
-            elif hasattr(response, "text") and response.text:
+                elif hasattr(parsed, "attacker_intent") and hasattr(parsed, "payload_pattern"):
+                    attacker_intent = str(getattr(parsed, "attacker_intent", attacker_intent))
+                    payload_pattern = str(getattr(parsed, "payload_pattern", ""))
+                    mitigation_action = str(getattr(parsed, "mitigation_action", "BLOCK"))
+
+            if not payload_pattern and hasattr(response, "text") and response.text:
                 sig_text = response.text
                 try:
                     data = json.loads(sig_text)
@@ -712,7 +717,7 @@ class SyncResolver:
                         payload_pattern = sig_text[:512]
                 except Exception:
                     payload_pattern = sig_text[:512]
-            else:
+            elif not payload_pattern:
                 payload_pattern = str(response)[:512]
 
             if not payload_pattern:
