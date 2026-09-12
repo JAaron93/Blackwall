@@ -72,7 +72,7 @@ async def verify_environment() -> bool:
 
         # Verify authenticated endpoint connectivity if not running with dummy project in tests
         if settings.effective_gcp_project != "dummy-gcp-project":
-            test_model = os.getenv("BLACKWALL_MODEL", "gemini-3.8-flash").strip() or "gemini-3.8-flash"
+            test_model = os.getenv("BLACKWALL_MODEL", "gemini-3.5-flash-lite").strip() or "gemini-3.5-flash-lite"
             try:
                 res = await asyncio.wait_for(
                     client.aio.models.generate_content(
