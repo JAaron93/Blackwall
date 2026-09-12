@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import re
 from datetime import datetime, timezone
 from enum import Enum
 from typing import List, Dict, Any, Optional
@@ -299,13 +300,19 @@ class CodebaseMemoryClient:
         Detects: SQL_QUERY, COMMAND_EXEC, FILE_WRITE, NETWORK_CALL
         Identifies unsafe sinks accepting unsanitized input.
         """
+        # Validate moduleName against injection characters (quotes, semicolons, brackets, etc.)
+        if not moduleName or re.search(r"['\"`\x00-\x1f;{}\\]", moduleName):
+            return []
 
         async def _query():
             if not self.base_url and not self.command:
                 return self.mock_data["identifyCriticalSinks"].get(moduleName, [])
             res = await self._execute_mcp_tool(
                 "query_graph",
-                {"query": f"MATCH (m:Module {{name: '{moduleName}'}})..."},
+                {
+                    "query": "MATCH (m:Module {name: $module_name}) RETURN m",
+                    "params": {"module_name": moduleName},
+                },
             )
             parsed = _parse_mcp_result(res)
             if isinstance(parsed, list):

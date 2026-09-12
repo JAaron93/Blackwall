@@ -324,15 +324,15 @@ Structural Layer (fast path)              Semantic Layer (deep analysis)
 
 ### 3. **Zero Ambient Authority**
 Operating on the principle that **no agent process should ever possess ambient authority to execute OS syscalls directly**:
-- **Runtime Audit Hooks (`sys.addaudithook`)**: Installed at interpreter initialization, the runtime audit hook intercepts low-level events (`subprocess.Popen`, `socket.connect`, `os.exec*`, `pty.spawn`) and raises an immediate, uncatchable `PermissionError` before any syscall can reach the kernel:
+- **Runtime Audit Hooks (`AuditHookManager`)**: Managed via `AuditHookManager` and low-level `sys.addaudithook`, the runtime hook intercepts sensitive interpreter events (`subprocess.Popen`, `socket.connect`, `os.system`, `os.spawn*`, `pty.spawn`) and raises a `PermissionError` before execution can proceed:
   ```python
-  def blackwall_audit_hook(event: str, args: tuple) -> None:
-      if event in {"subprocess.Popen", "os.system", "os.posix_spawn", "socket.connect"}:
-          if not is_inside_approved_tool_execution():
-              raise PermissionError(f"Blackwall Zero Ambient Authority: '{event}' blocked.")
-  sys.addaudithook(blackwall_audit_hook)
+  from blackwall.audit import AuditHookManager
+
+  # Initialize and register runtime audit hook
+  manager = AuditHookManager(db_path="./blackwall.db")
+  manager.start()
   ```
-- **Inescapable Tool Boundary**: By blocking direct process spawning and socket creation, rogue or hijacked agents are physically coerced into routing all operations through registered ADK tool interfaces (`execute_bash`, `http_request`, `write_file`).
+- **Inescapable Tool Boundary**: By blocking direct process spawning and socket creation in monitored environments, rogue or hijacked agents are physically coerced into routing all operations through registered ADK tool interfaces (`execute_bash`, `http_request`, `write_file`).
 - **Pre-Execution Interception**: Once coerced into the tool layer, Blackwall's `before_tool_callback` (and local MCP gateway proxy) pauses and evaluates intent *before* any tool executes.
 - **Unprivileged Daemon Execution**: The Blackwall daemon drops root/administrator privileges upon boot, executing under an unprivileged dedicated service account.
 
