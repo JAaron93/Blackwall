@@ -1,6 +1,9 @@
 import logging
 import os
+import time
 from typing import Optional
+from uuid import uuid4
+
 from google import genai
 
 from blackwall.models import SecurityEvent, VerdictDecision
@@ -99,12 +102,48 @@ class AgentBehavioralAnalytics:
 
                         if hasattr(sig, "model_dump"):
                             sig_payload = sig.model_dump()
-                            sig_payload.setdefault("attackerIntent", getattr(sig, "description", ""))
-                            sig_payload.setdefault("payloadPattern", getattr(sig, "pattern", ""))
-                            sig_payload.setdefault("targetSink", str(getattr(sig, "sink_type", "")))
+                            sig_payload["signatureId"] = str(getattr(sig, "signature_id", sig_payload.get("signature_id", "")) or uuid4())
+                            created_at_val = getattr(sig, "created_at", sig_payload.get("created_at", None))
+                            if created_at_val:
+                                if hasattr(created_at_val, "timestamp"):
+                                    sig_payload["createdAt"] = int(created_at_val.timestamp())
+                                else:
+                                    try:
+                                        sig_payload["createdAt"] = int(created_at_val)
+                                    except Exception:
+                                        sig_payload["createdAt"] = int(time.time())
+                            else:
+                                sig_payload["createdAt"] = int(time.time())
+                            sig_payload["attackerIntent"] = getattr(sig, "description", getattr(sig, "attacker_intent", sig_payload.get("attacker_intent", sig_payload.get("description", ""))))
+                            sig_payload["payloadPattern"] = getattr(sig, "pattern", getattr(sig, "payload_pattern", sig_payload.get("payload_pattern", sig_payload.get("pattern", ""))))
+                            tool_val = getattr(sig, "target_tool", sig_payload.get("target_tool", None))
+                            if not tool_val and event.tool_context:
+                                tool_val = event.tool_context.tool_name
+                            sig_payload["targetTool"] = tool_val or "unknown_tool"
+                            sig_payload["targetSink"] = str(getattr(sig, "sink_type", getattr(sig, "target_sink", sig_payload.get("target_sink", sig_payload.get("sink_type", "")))))
+                            sig_payload["mitigationAction"] = getattr(sig, "mitigation_action", sig_payload.get("mitigation_action", "BLOCK"))
+                            sig_payload["dependencyChain"] = getattr(sig, "dependency_chain", sig_payload.get("dependency_chain", None))
+                            sig_payload["similarityVector"] = getattr(sig, "similarity_vector", sig_payload.get("similarity_vector", None))
+                            sig_payload["metadata"] = getattr(sig, "metadata", sig_payload.get("metadata", None))
                             signatures.append(sig_payload)
                         elif isinstance(sig, dict):
-                            signatures.append(sig)
+                            sig_dict = dict(sig)
+                            sig_dict.setdefault("signatureId", str(sig.get("signature_id") or sig.get("signatureId") or uuid4()))
+                            created = sig.get("createdAt") or sig.get("created_at")
+                            if created and hasattr(created, "timestamp"):
+                                sig_dict["createdAt"] = int(created.timestamp())
+                            sig_dict.setdefault("attackerIntent", sig.get("attacker_intent") or sig.get("attackerIntent") or sig.get("description", ""))
+                            sig_dict.setdefault("payloadPattern", sig.get("payload_pattern") or sig.get("payloadPattern") or sig.get("pattern", ""))
+                            tool_val = sig.get("target_tool") or sig.get("targetTool")
+                            if not tool_val and event.tool_context:
+                                tool_val = event.tool_context.tool_name
+                            sig_dict.setdefault("targetTool", tool_val or "unknown_tool")
+                            sig_dict.setdefault("targetSink", str(sig.get("target_sink") or sig.get("targetSink") or sig.get("sink_type", "")))
+                            sig_dict.setdefault("mitigationAction", sig.get("mitigation_action") or sig.get("mitigationAction", "BLOCK"))
+                            sig_dict.setdefault("dependencyChain", sig.get("dependency_chain") or sig.get("dependencyChain"))
+                            sig_dict.setdefault("similarityVector", sig.get("similarity_vector") or sig.get("similarityVector"))
+                            sig_dict.setdefault("metadata", sig.get("metadata"))
+                            signatures.append(sig_dict)
                         else:
                             signatures.append(sig)
                     except Exception as sig_err:

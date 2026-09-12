@@ -150,5 +150,12 @@ async def test_background_task_submitter_in_process_with_candidates():
     mock_repo.write_signatures_batch.assert_called_once()
     saved_batch = mock_repo.write_signatures_batch.call_args[0][0]
     assert len(saved_batch) == 1
-    assert "payloadPattern" in saved_batch[0] or "pattern" in saved_batch[0]
+    sig_entry = saved_batch[0]
+    assert "signatureId" in sig_entry and sig_entry["signatureId"]
+    assert "createdAt" in sig_entry and isinstance(sig_entry["createdAt"], int)
+    assert "targetTool" in sig_entry and sig_entry["targetTool"] == "run_command"
+    assert "mitigationAction" in sig_entry and sig_entry["mitigationAction"]
+    assert "attackerIntent" in sig_entry and sig_entry["attackerIntent"]
+    assert "payloadPattern" in sig_entry and sig_entry["payloadPattern"]
+
 
