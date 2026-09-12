@@ -455,3 +455,19 @@
 * **Rule (Downstream Perpetuation):** When designing developer tools or authoring agent instructions, all agents and subagents must perpetuate this CLI-first pattern and codify it in downstream project rules.
 * **Rationale:** Eliminates developer MCP server sprawl, avoids token bloat from stateless tool schemas, and preserves MCP resources for complex stateful graph analysis, while keeping Blackwall's core security firewall gateway architecture intact.
 
+## 68. Shell Background Daemon Orchestration & Process-Group PID Preservation
+* **Rule (Direct Leader PID Capture):** Shell orchestration scripts managing background ambient services (e.g. `scripts/run_demo.sh` launching mock servers or agent daemons with `set -m`) MUST ensure that recorded process IDs (`$!`) capture the actual service process-group leader. Scripts MUST NOT pipe background commands directly into `tee` (e.g. `cmd 2>&1 | tee log.txt &`), which causes `$!` to evaluate to the PID of `tee` rather than the service process. Background services MUST use direct file redirection (`cmd > log.txt 2>&1 &` or process substitution) so that `$!` records the service process group ID.
+* **Rule (Robust Process-Group Termination):** Cleanup traps MUST send `SIGTERM` followed by `SIGKILL` to the entire process group (negative PID, e.g. `kill -TERM "-${pid}" 2>/dev/null || kill -TERM "${pid}" 2>/dev/null`) to guarantee that all child processes (e.g. Uvicorn worker threads, ADK daemon subprocesses) are cleanly terminated upon script exit or interruption.
+* **Rationale:** Pipelining a background service into `tee` makes `$!` reference `tee`. When the script exits, cleanup targets a non-existent process group and terminates only `tee`, leaving background applications and listening socket daemons orphaned in the OS.
+
+## 69. Live Demo Scoreboard Derivation & Adversarial Metric Accounting
+* **Rule (Dynamic Metric Derivation):** Interactive demonstration TUIs, terminal showdown scoreboards, and live evaluators (`demo_live.py`) MUST NOT hardcode security metrics (such as 0% FRR or 0% evasion rate) or treat non-`BLOCK` results unconditionally as `ALLOW`. Scoreboards MUST derive metrics directly from resolver verdict objects (`verdict.decision`):
+  - **Threats Blocked**: Count of `VerdictDecision.BLOCK` verdicts.
+  - **Quarantined**: Count of `VerdictDecision.QUARANTINE` verdicts (isolated sandboxed execution).
+  - **Evasions (Allowed)**: Count of malicious attack scenarios receiving `VerdictDecision.ALLOW`.
+  - **Evasion Rate**: Strictly computed as `(allowed_count / total_scenarios) * 100.0`.
+  - **False Refusal Rate (FRR)**: In purely adversarial attack test suites containing zero benign requests, FRR cannot be measured and MUST be explicitly reported as `N/A (Adversarial Suite)` rather than advertising false `0.00% FRR`.
+* **Rule (Multi-Verdict Visual Representation):** UI panels, status indicators, and completion banners MUST visually distinguish `QUARANTINE` (warning yellow, mock sandboxing) from both `BLOCK` (red, signature persistence) and `ALLOW` (green, target execution). Completion banners MUST report actual neutralization counts (`blocked + quarantined`) and warn if evasions occurred, rather than unconditionally claiming 100% protection.
+* **Rationale:** Discovered during PR #124 Greptile review. Hardcoding metrics or ignoring `QUARANTINE` states causes live demonstration scoreboards to report false security assurances when attacks bypass thresholds or are diverted to mock sandboxes.
+
+

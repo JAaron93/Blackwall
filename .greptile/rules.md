@@ -184,6 +184,14 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
   - Unbounded streams must be piped through Unix filters (`jq`, `head -n <N>`, `grep`).
 - **Architectural Perpetuation**: All subagents and child workflows must perpetuate this CLI-first standard and codify it in any newly authored instruction files.
 
+---
+
+## 12. Shell Background Daemon Orchestration & Live Demo Scoreboard Standards
+
+* **Process-Group PID Capture in Shell Launchers**: Shell scripts orchestrating background services (`scripts/run_demo.sh`, `set -m`) MUST capture the actual service PID in `$!` (using `cmd > log.txt 2>&1 &`) rather than piping through `tee` (`cmd 2>&1 | tee log.txt &`), ensuring cleanup traps terminate the service process group and prevent orphaned background daemons.
+* **Dynamic Demo Scoreboard Derivation**: Interactive demonstration TUIs and scoreboards (`demo_live.py`) MUST derive all metrics dynamically from actual resolver verdicts. Evasion rate MUST be calculated as `(allowed / total) * 100.0`, FRR on purely adversarial suites MUST report `N/A (Adversarial Suite)`, and `QUARANTINE` verdicts must be explicitly tracked and displayed rather than collapsed into `ALLOW` or `BLOCK`.
+
+
 
 
 
