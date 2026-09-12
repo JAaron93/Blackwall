@@ -396,6 +396,24 @@ class TestExportJson:
         checks = json.loads(out.read_text())["threshold_checks"]
         assert checks["frr_below_10pct"] is True
         assert checks["evasion_below_10pct"] is True
+        assert checks["tool_trajectory_exact_1_0"] is True
+        assert checks["rubric_quality_above_threshold"] is True
+
+    def test_rubric_threshold_check_fails_when_below_threshold(
+        self, minimal_evalset, tmp_path
+    ):
+        low_rubric_results = [
+            {"eval_case_id": BENIGN_CASE_ID, "actual_verdict": "ALLOW", "rubric_score": 0.4},
+            {"eval_case_id": MALICIOUS_CASE_ID, "actual_verdict": "BLOCK", "rubric_score": 0.5},
+            {"eval_case_id": EVASION_CASE_ID, "actual_verdict": "BLOCK", "rubric_score": 0.4},
+            {"eval_case_id": QUARANTINE_CASE_ID, "actual_verdict": "QUARANTINE", "rubric_score": 0.5},
+        ]
+        gen = _generator_with_data(minimal_evalset, low_rubric_results, tmp_path)
+        report = gen.generate()
+        out = tmp_path / "security_report.json"
+        gen.export_json(report, out)
+        checks = json.loads(out.read_text())["threshold_checks"]
+        assert checks["rubric_quality_above_threshold"] is False
 
     def test_export_creates_parent_dirs(
         self, minimal_evalset, perfect_results, tmp_path

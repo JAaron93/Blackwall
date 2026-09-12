@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-12T05:01:08.382268+00:00",
+  "generated_at": "2026-09-12T05:21:50.498246+00:00",
   "evalset_path": "tests/eval/evalsets/blackwall_security.evalset.json",
   "results_path": "tests/eval/results/raw_adk_results.json",
   "summary": {
@@ -28,7 +28,8 @@
   "threshold_checks": {
     "frr_below_10pct": true,
     "evasion_below_10pct": true,
-    "tool_trajectory_exact_1_0": true
+    "tool_trajectory_exact_1_0": true,
+    "rubric_quality_above_threshold": true
   },
   "case_results": [
     {
