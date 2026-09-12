@@ -152,7 +152,11 @@ async def blackwall_before_tool_callback(
         return None  # let ADK execute the tool
 
     if verdict.decision == VerdictDecision.BLOCK:
-        raise PermissionError(f"[BLACKWALL BLOCK] {verdict.reasoning}")
+        return {
+            "status": "blocked",
+            "verdict": "BLOCK",
+            "error": f"[BLACKWALL BLOCK] {verdict.reasoning}",
+        }
 
     # QUARANTINE — return a safe mock response, don't execute the real tool
     return {

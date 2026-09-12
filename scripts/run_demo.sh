@@ -9,13 +9,27 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 SESSION_NAME="blackwall_showdown"
 USE_TMUX=true
+USE_LIVE=false
+LIVE_ARGS=()
 
 # Parse flags
 while [[ $# -gt 0 ]]; do
   case $1 in
+    --live)
+      USE_LIVE=true
+      shift
+      ;;
     --no-tmux)
       USE_TMUX=false
       shift
+      ;;
+    --plain|--fast)
+      LIVE_ARGS+=("$1")
+      shift
+      ;;
+    --db|--delay)
+      LIVE_ARGS+=("$1" "$2")
+      shift 2
       ;;
     *)
       echo "Unknown argument: $1"
@@ -29,6 +43,11 @@ cd "${REPO_ROOT}"
 # Ensure we're in the virtual environment
 if [[ -f "${REPO_ROOT}/.venv/bin/activate" ]]; then
   source "${REPO_ROOT}/.venv/bin/activate"
+fi
+
+if [[ "${USE_LIVE}" == "true" ]]; then
+  echo "🚀 Launching Blackwall Dual-Agent Showdown Live TUI..."
+  exec python demo_live.py "${LIVE_ARGS[@]}"
 fi
 
 # Ensure tmux is installed if we want to use it
