@@ -818,25 +818,21 @@ def create_resolver(
     policy_snapshot: Optional[Dict[str, Any]] = None,
 ) -> Any:
     """
-    Factory: returns SyncResolver (free tier) or BatchResolver (paid tier)
-    based on BLACKWALL_TIER env var. Defaults to 'free' (judge-friendly).
+    Factory: returns BatchResolver (default, 300 RPM batch mode) or SyncResolver
+    (300 RPM synchronous mode) based on BLACKWALL_TIER or BLACKWALL_RESOLVER_MODE.
+    Defaults to 'paid' (BatchResolver, 300 RPM) under 100% GCP Vertex AI Mode.
 
     Usage:
         resolver = create_resolver(client, policy_server=server, repo=repo)
 
     Environment:
-        BLACKWALL_TIER=free   → SyncResolver  (default)
-        BLACKWALL_TIER=paid   → BatchResolver
+        BLACKWALL_TIER=paid             → BatchResolver (default, 300 RPM)
+        BLACKWALL_RESOLVER_MODE=sync    → SyncResolver (300 RPM)
     """
-    tier = os.getenv("BLACKWALL_TIER", "free").lower().strip()
+    mode = os.getenv("BLACKWALL_RESOLVER_MODE", "").lower().strip()
+    tier = os.getenv("BLACKWALL_TIER", "paid").lower().strip()
 
-    if tier == "paid":
-        return BatchResolver(
-            client=client,
-            policy_snapshot=policy_snapshot or {},
-            webhook_port=webhook_port,
-        )
-    else:
+    if mode == "sync" or tier in ("sync", "free"):
         from blackwall.sync_resolver import SyncResolver
 
         return SyncResolver(
@@ -847,3 +843,8 @@ def create_resolver(
             cbm_client=cbm_client,
             gti_budget_tracker=gti_budget_tracker,
         )
+    return BatchResolver(
+        client=client,
+        policy_snapshot=policy_snapshot or {},
+        webhook_port=webhook_port,
+    )
