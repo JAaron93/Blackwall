@@ -24,6 +24,66 @@ def test_policy_file_handler_debouncing():
         time.sleep(0.01)
 
     assert callback.call_count == 1
+    handler.cancel_pending()
+
+
+def test_policy_file_handler_retries_on_failure_and_does_not_drop_subsequent_event():
+    """Verify an event within 50ms is NOT dropped if the initial callback failed on incomplete YAML."""
+    call_attempts = []
+
+    def failing_then_succeeding_callback(path: str) -> None:
+        call_attempts.append(path)
+        if len(call_attempts) == 1:
+            raise ValueError("Incomplete YAML during in-progress write")
+
+    file_path = "/tmp/test_policy.yaml"
+    handler = PolicyFileHandler(file_path, failing_then_succeeding_callback, debounce_interval=0.1)
+
+    mock_event = MagicMock()
+    mock_event.is_directory = False
+    mock_event.src_path = file_path
+    mock_event.dest_path = None
+
+    # First event fails (e.g. incomplete YAML)
+    handler.on_modified(mock_event)
+    assert len(call_attempts) == 1
+
+    # Second event arrives 20ms later (well within 100ms debounce window)
+    time.sleep(0.02)
+    handler.on_modified(mock_event)
+
+    # Must NOT be dropped: second event executes immediately and succeeds
+    assert len(call_attempts) == 2
+    handler.cancel_pending()
+
+
+def test_policy_file_handler_trailing_retry_on_failure():
+    """Verify a trailing retry automatically executes if an event fails and no further events arrive."""
+    call_attempts = []
+
+    def failing_then_succeeding_callback(path: str) -> None:
+        call_attempts.append(path)
+        if len(call_attempts) == 1:
+            raise ValueError("Incomplete YAML during in-progress write")
+
+    file_path = "/tmp/test_policy.yaml"
+    handler = PolicyFileHandler(file_path, failing_then_succeeding_callback, debounce_interval=0.05)
+
+    mock_event = MagicMock()
+    mock_event.is_directory = False
+    mock_event.src_path = file_path
+    mock_event.dest_path = None
+
+    # First event fails
+    handler.on_modified(mock_event)
+    assert len(call_attempts) == 1
+
+    # Wait for trailing retry timer (0.05s interval + margin)
+    time.sleep(0.1)
+
+    # Trailing retry must have fired
+    assert len(call_attempts) == 2
+    handler.cancel_pending()
 
 
 def test_policy_watcher_context_manager(tmp_path):
