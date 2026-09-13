@@ -1,9 +1,8 @@
 """Unit tests for modernized PolicyWatcher with debouncing and context manager."""
 
-import os
 import time
 from unittest.mock import MagicMock
-import pytest
+
 from blackwall.policy.watcher import PolicyFileHandler, PolicyWatcher
 
 
@@ -129,3 +128,26 @@ def test_policy_watcher_stop_waits_for_active_timer():
 
     # Must wait: reload_finished must be set when cancel_pending returns
     assert reload_finished.is_set() is True
+
+
+def test_policy_watcher_stop_stops_observer_before_canceling_handler():
+    """Verify stop() stops and joins observer before calling handler cancel_pending."""
+    callback = MagicMock()
+    watcher = PolicyWatcher("/tmp/policy.yaml", callback)
+
+    mock_observer = MagicMock()
+    mock_handler = MagicMock()
+
+    order = []
+    mock_observer.stop.side_effect = lambda: order.append("observer_stop")
+    mock_observer.join.side_effect = lambda: order.append("observer_join")
+    mock_handler.cancel_pending.side_effect = lambda: order.append("handler_cancel")
+
+    watcher.observer = mock_observer
+    watcher.handler = mock_handler
+
+    watcher.stop()
+
+    assert order == ["observer_stop", "observer_join", "handler_cancel"]
+    assert watcher.observer is None
+    assert watcher.handler is None

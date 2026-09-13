@@ -27,6 +27,7 @@ class PolicyFileHandler(FileSystemEventHandler):
         self._lock = threading.Lock()
         self._reload_lock = threading.Lock()
         self._trailing_timer: Optional[threading.Timer] = None
+        self._is_stopped: bool = False
 
     def _execute_reload(self, event_type: str = "update") -> bool:
         """Executes the reload callback under lock, serializing reloads across event triggers."""
@@ -50,6 +51,8 @@ class PolicyFileHandler(FileSystemEventHandler):
     def _schedule_trailing_reload(self, event_type: str = "trailing update") -> None:
         """Schedules a trailing reload to ensure any changes during the debounce window are applied."""
         with self._lock:
+            if self._is_stopped:
+                return
             if self._trailing_timer is not None:
                 self._trailing_timer.cancel()
             timer = threading.Timer(
@@ -64,12 +67,15 @@ class PolicyFileHandler(FileSystemEventHandler):
     def _on_trailing_timeout(self, event_type: str) -> None:
         with self._lock:
             self._trailing_timer = None
+            if self._is_stopped:
+                return
         self._execute_reload(event_type)
 
     def cancel_pending(self) -> None:
         """Cancels any pending trailing reload timer and waits for any active reload to complete."""
         timer_to_join: Optional[threading.Timer] = None
         with self._lock:
+            self._is_stopped = True
             if self._trailing_timer is not None:
                 self._trailing_timer.cancel()
                 timer_to_join = self._trailing_timer
@@ -83,6 +89,10 @@ class PolicyFileHandler(FileSystemEventHandler):
             pass
 
     def _handle_event(self, event: Any, event_type: str) -> None:
+        with self._lock:
+            if self._is_stopped:
+                return
+
         if getattr(event, "is_directory", False):
             return
 
@@ -148,15 +158,16 @@ class PolicyWatcher:
         logger.info("Policy watcher started", watch_path=self.file_path)
 
     def stop(self) -> None:
-        """Stops and joins the watcher thread."""
+        """Stops and joins the watcher thread, then drains and cancels any pending handler timers."""
+        if self.observer is not None:
+            self.observer.stop()
+            self.observer.join()
+            self.observer = None
+
         if self.handler is not None:
             self.handler.cancel_pending()
             self.handler = None
-        if self.observer is None:
-            return
-        self.observer.stop()
-        self.observer.join()
-        self.observer = None
+
         logger.info("Policy watcher stopped")
 
     def __enter__(self) -> "PolicyWatcher":
