@@ -101,3 +101,31 @@ def test_policy_watcher_context_manager(tmp_path):
         assert watcher.observer.is_alive()
 
     assert watcher.observer is None
+
+
+def test_policy_watcher_stop_waits_for_active_timer():
+    """Verify stop/cancel_pending waits for any running reload timer to finish before returning."""
+    import threading
+
+    reload_started = threading.Event()
+    reload_finished = threading.Event()
+
+    def slow_reload(path: str) -> None:
+        reload_started.set()
+        time.sleep(0.05)
+        reload_finished.set()
+
+    file_path = "/tmp/test_slow_policy.yaml"
+    handler = PolicyFileHandler(file_path, slow_reload, debounce_interval=0.01)
+
+    # Schedule a trailing reload
+    handler._schedule_trailing_reload()
+
+    # Wait until the timer starts executing the reload callback
+    assert reload_started.wait(timeout=1.0) is True
+
+    # Call cancel_pending while slow_reload is actively executing
+    handler.cancel_pending()
+
+    # Must wait: reload_finished must be set when cancel_pending returns
+    assert reload_finished.is_set() is True

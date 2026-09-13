@@ -11,7 +11,7 @@ logger = structlog.get_logger("blackwall.policy")
 
 
 class PolicyFileHandler(FileSystemEventHandler):
-    """File system event handler that listens for modifications to the policy YAML file with debouncing and trailing retries."""
+    """File system event handler that listens for modifications to the policy YAML file with debouncing, trailing retries, and serialized reloads."""
 
     def __init__(
         self,
@@ -24,26 +24,46 @@ class PolicyFileHandler(FileSystemEventHandler):
         self.reload_callback = reload_callback
         self.debounce_interval = float(debounce_interval)
         self._last_reload_time: float = 0.0
+        self._last_loaded_mtime: float = 0.0
         self._lock = threading.Lock()
+        self._reload_lock = threading.Lock()
         self._trailing_timer: Optional[threading.Timer] = None
 
     def _execute_reload(self, event_type: str = "update") -> bool:
-        """Executes the reload callback. Returns True if successful, False otherwise."""
-        logger.info(
-            f"Policy file {event_type} detected on disk. Triggering hot-reload...",
-            file_path=self.file_path,
-        )
-        try:
-            self.reload_callback(self.file_path)
-            self._last_reload_time = time.time()
-            return True
-        except Exception as e:
-            logger.error(
-                "Failed to hot-reload policy file; retaining previous valid policy.",
-                error=str(e),
+        """Executes the reload callback under lock, serializing reloads and guarding against out-of-order replacements."""
+        with self._reload_lock:
+            try:
+                current_mtime = os.path.getmtime(self.file_path)
+            except OSError:
+                current_mtime = 0.0
+
+            # Guard against stale/out-of-order reloads replacing newer policy states
+            if current_mtime > 0 and self._last_loaded_mtime > 0 and current_mtime < self._last_loaded_mtime:
+                logger.debug(
+                    "Skipping stale policy reload as a newer file state was already loaded",
+                    current_mtime=current_mtime,
+                    last_loaded_mtime=self._last_loaded_mtime,
+                    file_path=self.file_path,
+                )
+                return True
+
+            logger.info(
+                f"Policy file {event_type} detected on disk. Triggering hot-reload...",
                 file_path=self.file_path,
             )
-            return False
+            try:
+                self.reload_callback(self.file_path)
+                self._last_reload_time = time.time()
+                if current_mtime > 0:
+                    self._last_loaded_mtime = current_mtime
+                return True
+            except Exception as e:
+                logger.error(
+                    "Failed to hot-reload policy file; retaining previous valid policy.",
+                    error=str(e),
+                    file_path=self.file_path,
+                )
+                return False
 
     def _schedule_trailing_reload(self, event_type: str = "trailing update") -> None:
         """Schedules a trailing reload to ensure any changes during the debounce window are applied."""
@@ -65,11 +85,20 @@ class PolicyFileHandler(FileSystemEventHandler):
         self._execute_reload(event_type)
 
     def cancel_pending(self) -> None:
-        """Cancels any pending trailing reload timer."""
+        """Cancels any pending trailing reload timer and waits for any active reload to complete."""
+        timer_to_join: Optional[threading.Timer] = None
         with self._lock:
             if self._trailing_timer is not None:
                 self._trailing_timer.cancel()
+                timer_to_join = self._trailing_timer
                 self._trailing_timer = None
+
+        if timer_to_join is not None and timer_to_join.is_alive():
+            timer_to_join.join(timeout=2.0)
+
+        # Wait for any in-flight reload execution to complete
+        with self._reload_lock:
+            pass
 
     def _handle_event(self, event: Any, event_type: str) -> None:
         if getattr(event, "is_directory", False):
