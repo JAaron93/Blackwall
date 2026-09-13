@@ -542,7 +542,10 @@ class SyncResolver:
         Enforces thinking_level='minimal' for rapid latency (<50ms).
         Falls back gracefully to None on timeout, missing client, or failure.
         """
-        if not self.client or not hasattr(self.client, "models"):
+        if not self.client or not (
+            hasattr(self.client, "models")
+            or (hasattr(self.client, "aio") and hasattr(self.client.aio, "models"))
+        ):
             return None
         try:
             from google.genai import types
@@ -565,15 +568,22 @@ class SyncResolver:
                 f"Metadata: {context.metadata or {}}\n"
             )
             timeout = get_gemini_http_timeout(configured=5.0, task_type="rapid_triage")
-            response = await asyncio.wait_for(
-                asyncio.to_thread(
+            aio_models = getattr(getattr(self.client, "aio", None), "models", None)
+            aio_gen = getattr(aio_models, "generate_content", None)
+            if aio_gen is not None and asyncio.iscoroutinefunction(aio_gen):
+                coro = aio_gen(
+                    model=DEFAULT_RAPID_TRIAGE_MODEL,
+                    contents=prompt,
+                    config=config,
+                )
+            else:
+                coro = asyncio.to_thread(
                     self.client.models.generate_content,
                     model=DEFAULT_RAPID_TRIAGE_MODEL,
                     contents=prompt,
                     config=config,
-                ),
-                timeout=timeout,
-            )
+                )
+            response = await asyncio.wait_for(coro, timeout=timeout)
 
             # 1. Parsed Pydantic model
             if hasattr(response, "parsed") and response.parsed is not None:
@@ -582,6 +592,11 @@ class SyncResolver:
                     return float(parsed.threat_score)
                 if isinstance(parsed, dict) and "threat_score" in parsed:
                     return float(parsed["threat_score"])
+                if hasattr(parsed, "threat_score"):
+                    try:
+                        return float(parsed.threat_score)
+                    except (TypeError, ValueError):
+                        pass
 
             # 2. Text JSON parsing
             text = getattr(response, "text", None)
@@ -676,15 +691,22 @@ class SyncResolver:
             timeout = get_gemini_http_timeout(
                 configured=30.0, task_type="signature_generation"
             )
-            response = await asyncio.wait_for(
-                asyncio.to_thread(
+            aio_models = getattr(getattr(self.client, "aio", None), "models", None)
+            aio_gen = getattr(aio_models, "generate_content", None)
+            if aio_gen is not None and asyncio.iscoroutinefunction(aio_gen):
+                coro = aio_gen(
+                    model=DEFAULT_RAPID_TRIAGE_MODEL,
+                    contents=prompt,
+                    config=config,
+                )
+            else:
+                coro = asyncio.to_thread(
                     self.client.models.generate_content,
                     model=DEFAULT_RAPID_TRIAGE_MODEL,
                     contents=prompt,
                     config=config,
-                ),
-                timeout=timeout,
-            )
+                )
+            response = await asyncio.wait_for(coro, timeout=timeout)
 
             attacker_intent = f"Blocked tool call: {context.tool_name}"
             payload_pattern = ""

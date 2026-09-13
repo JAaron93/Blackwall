@@ -567,10 +567,7 @@ class BatchResolver:
 
         # Call Gemini Interactions API
         try:
-            # We call the client.interactions.create asynchronously to prevent blocking the event loop
-            # If the client library has sync methods, we run them in an executor so the timeout can be enforced.
-            # If the client library has async methods, we call them directly.
-            create_fn = self.client.interactions.create
+            # Call Gemini Interactions API
             thinking_lvl = get_gemini_thinking_level(
                 model=DEFAULT_RAPID_TRIAGE_MODEL, task_type="rapid_triage"
             )
@@ -583,14 +580,20 @@ class BatchResolver:
                 "thinking_level": thinking_lvl,
                 "timeout": API_CALL_TIMEOUT,
             }
-            if asyncio.iscoroutinefunction(create_fn):
-                interaction = await create_fn(**create_kwargs)
+            aio_interactions = getattr(getattr(self.client, "aio", None), "interactions", None)
+            aio_create = getattr(aio_interactions, "create", None)
+            sync_create = getattr(getattr(self.client, "interactions", None), "create", None)
+
+            if aio_create is not None and asyncio.iscoroutinefunction(aio_create):
+                interaction = await aio_create(**create_kwargs)
+            elif sync_create is not None and asyncio.iscoroutinefunction(sync_create):
+                interaction = await sync_create(**create_kwargs)
             else:
                 # Run synchronous call in executor with network-level timeout
                 loop = asyncio.get_event_loop()
                 interaction = await loop.run_in_executor(
                     None,
-                    lambda: create_fn(**create_kwargs),
+                    lambda: self.client.interactions.create(**create_kwargs),
                 )
 
             # Update last interaction ID for server-side context caching
@@ -613,10 +616,12 @@ class BatchResolver:
 
             # Retrieve usage details
             usage = getattr(interaction, "usage", None)
-            tokens_consumed = getattr(usage, "total_tokens", 0) if usage else 0
-            cached_tokens = (
+            raw_tokens = getattr(usage, "total_tokens", 0) if usage else 0
+            tokens_consumed = int(raw_tokens) if isinstance(raw_tokens, (int, float)) else 0
+            raw_cached = (
                 getattr(usage, "cached_content_token_count", 0) if usage else 0
             )
+            cached_tokens = int(raw_cached) if isinstance(raw_cached, (int, float)) else 0
 
             # Target >=50% token reduction on cache hits
             cache_hit_count = (

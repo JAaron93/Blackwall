@@ -497,8 +497,10 @@ class GTIMCPClient:
         backoff = 0.1  # 100ms starting backoff
         max_retries = 3
 
-        # Create SSL context with certifi CA bundle for macOS compatibility
-        ssl_context = ssl.create_default_context(cafile=certifi.where())
+        # Use cached SSL context with certifi CA bundle for macOS compatibility
+        from blackwall.mcp.transport import get_certifi_ssl_context
+
+        ssl_context = get_certifi_ssl_context()
 
         async with aiohttp.ClientSession(
             connector=aiohttp.TCPConnector(ssl=ssl_context)

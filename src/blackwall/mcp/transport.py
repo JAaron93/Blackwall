@@ -7,6 +7,7 @@ servers over HTTP POST using JSON-RPC 2.0 standards.
 
 from __future__ import annotations
 
+import functools
 import logging
 import ssl
 import uuid
@@ -16,6 +17,13 @@ import aiohttp
 import certifi
 
 logger = logging.getLogger("blackwall.mcp.transport")
+
+
+@functools.lru_cache(maxsize=4)
+def get_certifi_ssl_context(cafile: str | None = None) -> ssl.SSLContext:
+    """Return a cached, reusable SSLContext backed by certifi's CA trust bundle."""
+    resolved_ca = cafile or certifi.where()
+    return ssl.create_default_context(cafile=resolved_ca)
 
 
 class MCPTransportError(Exception):
@@ -84,7 +92,7 @@ async def call_mcp_tool_http(
         else:
             headers["x-apikey"] = api_key
 
-    ssl_context = ssl.create_default_context(cafile=certifi.where())
+    ssl_context = get_certifi_ssl_context()
 
     try:
         async with aiohttp.ClientSession(
