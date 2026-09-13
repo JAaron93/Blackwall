@@ -414,3 +414,12 @@
 * **Rule (Agent Entrypoint Knowledge Graph Invariant):**
   - Production agent entrypoints (`agent/__init__.py`) MUST instantiate `SyncResolver` with an active `CodebaseMemoryClient` (`cbm_client=CodebaseMemoryClient(base_url=os.getenv("CBM_MCP_BASE_URL"))`) to satisfy the mandatory interception sequence: `Rate Check` -> `Context Hygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Conditional GTI Validation (High-Risk Only)` -> `Score Aggregation` -> `Threshold Verdict`.
 * **Rationale:** Discovered during Task 21 implementation and PR #123 review cycles. Raising exceptions in callbacks crashes ADK benchmark runs, evaluating trajectory scores without LLM rubrics misses semantic bypasses, and omitting `cbm_client` in `agent/__init__.py` breaks the core interception sequence.
+
+## 52. Testing Triad Invariant for Core Source Code Modifications
+* **Rule (Three-Layer Test Coverage):**
+  Any PR introducing new capabilities, refactoring logic, or modifying behavior in `src/` MUST include test coverage across all three testing layers before triggering automated reviews:
+  1. **Unit / Integration Tests (`tests/unit/`, `tests/`)**: Deterministic assertion of components, error branches, and edge cases.
+  2. **Hypothesis Property-Based Tests (`tests/property/`)**: Fuzzing invariants, round-trip serialization (`save` $\to$ `load`), and boundary stability across random inputs.
+  3. **Behavior-Driven Specifications (`tests/features/` & `tests/step_defs/`)**: Gherkin behavioral contracts evaluated using `pytest-bdd` and `run_async`.
+* **Rule (First-Review Cleanliness):** Omitting any of the three layers trips the repository's automated review rules (`Test-Driven Development (TDD) & BDD Coverage`), resulting in score drops below the 4/5 threshold and review churn.
+* **Rationale:** Codified after Greptile review on PR #130. Automated AI review agents enforce complete test parity across unit, property, and BDD specifications for every modified source module.

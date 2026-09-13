@@ -637,6 +637,8 @@ The pipeline routes scenarios from `tests/eval/judge_scenarios/` and the GCP nat
 - Tool name matching, environment role-based access control
 - Supports priority-ordered rules with AND/OR operators
 - Hot-reload support without restart
+- Debounced file watcher (`PolicyWatcher`) with trailing retries to prevent dropped updates during multi-stage atomic disk writes
+- Context manager protocol (`with PolicyWatcher(...):`) for clean thread lifecycle management
 - Target latency: <5ms @ 99th percentile ✅
 
 #### **Threat Signature Graph** (~10ms)
@@ -653,13 +655,20 @@ The pipeline routes scenarios from `tests/eval/judge_scenarios/` and the GCP nat
 - Audit trail with SHA256 hashes (no reverse mapping)
 - 100ms timeout per regex pattern (prevents ReDoS attacks)
 
-#### **GTI Query Budget Tracker**
+#### **GTI Query Budget Tracker & MCP Transport**
 - Token bucket algorithm: 4 tokens, 15-second replenishment
 - High-risk event classification (new IPs, suspicious hashes, unknown domains)
+- Zero-disk-I/O cached SSLContext singleton (`get_certifi_ssl_context`) using `@functools.lru_cache` across all outbound GTI and MCP transport calls
 - Graceful degradation: weight redistribution when budget exhausted
   * Normal: GTI 40% + CBM 30% + Context 30%
   * Degraded: GTI 0% (penalty -0.2) + CBM 50% + Context 50%
 - Circuit breaker for service failures (distinct from budget exhaustion)
+
+#### **Local Vault & JIT Credentials**
+- Authenticated encryption store (`EncryptedLocalStore` / `LocalVault`) using standard `HKDF-SHA256` key derivation
+- Seamless dual-cipher decryption fallback for legacy SHA-256 stores
+- Atomic file saves with restricted `0o600` file permissions (owner read/write only)
+- Short-lived scoped token generation (`tmp_<scope>_<uuid>`) with strict TTL expiration
 
 #### **Semantic Gating Engine** (<100ms @ P99)
 - Multi-source threat score aggregation:
@@ -687,6 +696,7 @@ The pipeline routes scenarios from `tests/eval/judge_scenarios/` and the GCP nat
 - Asynchronous batched API calls to Gemini Interactions API using Gemini 3.5 Flash-Lite
 - Native structured output decoding: enforces `response_schema=list[Verdict]` with `response_mime_type="application/json"` directly into Pydantic models (zero markdown stripping or regex repair heuristics)
 - Dynamic thinking level routing: enforces `thinking_level="minimal"` for rapid inline triage under 150ms TTFT
+- Native non-blocking async calling: prioritizes `client.aio.interactions.create` coroutines over thread executor dispatch
 - 300 RPM token bucket rate limiter (sliding 60-second window)
 - Exponential backoff on `APIRateLimitException` (100ms, 200ms, 400ms)
 - Server-side context caching: 50%+ token cost reduction via `previous_interaction_id`
@@ -696,9 +706,10 @@ The pipeline routes scenarios from `tests/eval/judge_scenarios/` and the GCP nat
 - Single-request synchronous evaluation with optional LLM semantic triage (`BLACKWALL_ENABLE_SYNC_SEMANTIC_TRIAGE=true`)
 - Structured semantic intent evaluation via Gemini 3.5 Flash-Lite (`response_schema=Verdict`, `thinking_level="minimal"`)
 - Native structured signature synthesis producing typed `ThreatSignaturePayload` models after `BLOCK` verdicts
+- Native non-blocking async calling: directly awaits `client.aio.models.generate_content` coroutines without thread-pool context switches
 - 300 RPM token bucket rate limiter under 100% GCP Vertex AI Mode (fail-closed QUARANTINE)
 - Serial GTI → CBM queries (no parallelism)
-- All 14 unit tests passing ✅
+- All 18 unit tests passing ✅
 
 ---
 
@@ -756,11 +767,11 @@ Wave 2 (Next variant): attacker attempts port 9443
 
 ## 🧪 Testing & Verification
 
-### Unit Tests (16 Passing)
+### Unit Tests (18 Passing)
 ```bash
-pytest tests/test_sync_resolver.py -v
+pytest tests/test_sync_resolver.py tests/unit/test_sync_resolver_async_aio.py -v
 # Covers: single-request eval, serial queries, threat scoring,
-# inline signatures, 300 RPM rate limit, budget redistribution
+# inline signatures, 300 RPM rate limit, native client.aio dispatch, budget redistribution
 ```
 
 ### Property-Based Tests (12 Properties, 1,000+ Cases Each)
