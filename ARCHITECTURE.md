@@ -86,6 +86,7 @@ flowchart TD
   - `BLOCK`: Immediate reject for dangerous execution tools (e.g., `execute_bash`, `run_python`, `install_package` in `production`).
   - `ESCALATE`: Routes sensitive operations (e.g., `write_file`, `http_request`, `database_query`) to Tier 2 for semantic analysis.
 - **Zero API Overhead**: Evaluates purely in-process in `< 5ms` with hot-reload capabilities.
+- **Debounced Hot-Reload Engine (`PolicyWatcher`)**: Watches policy YAML on disk using `watchdog` with 50ms timestamp-based debouncing and trailing retries. Prevents policy thrashing and ensures segmented/atomic file writes (e.g., temp-file creation, truncation, flush, and rename) do not drop subsequent completed writes. Supports context management via `with PolicyWatcher(...):` for clean lifecycle teardown.
 
 ### 2.2 Tier 2: Semantic Gating Engine (<100ms @ P99)
 For escalated operations, Blackwall aggregates signals from three independent vectors:
@@ -101,6 +102,7 @@ $$\text{ThreatScore} = w_{\text{GTI}} \cdot S_{\text{GTI}} + w_{\text{CBM}} \cdo
   - $\text{ThreatScore} < 0.50 \implies \mathbf{ALLOW}$
 - **Structured Output Schema Enforcement**: When delegating semantic intent analysis to Gemini 3.5 Flash-Lite, Blackwall enforces Pydantic schemas via `response_schema=Verdict` (or `list[Verdict]`) with `response_mime_type="application/json"`. The model directly outputs structured verdict instances, eliminating markdown fence parsing and regex recovery heuristics.
 - **Thinking Level Routing**: Inline fast-path resolution operates with `thinking_level="minimal"` to satisfy the `<150ms` TTFT budget, while complex out-of-band forensics and behavioral analytics dynamically leverage `thinking_level="high"` or `None` on frontier reasoning models (e.g., Gemini 3.8 Flash).
+- **Native Non-Blocking Async Calling (`client.aio`)**: Both `SyncResolver` and `BatchResolver` directly await native Google GenAI SDK `client.aio.models.generate_content` and `client.aio.interactions.create` coroutines. Eliminates thread-pool worker context switches, reduces memory overhead, and enforces the strict async non-blocking I/O standard across all high-throughput evaluation loops.
 
 ---
 
@@ -250,6 +252,10 @@ To ensure sanitization does not add latency to the critical path:
   - Network egress (`socket.connect`, `requests.post`)
 - **Taint Flow & Blast Radius**: Calculates taint propagation and blast radius [0.0, 1.0] across dependent modules to inform the semantic threat score.
 
+### 6.3 Zero-Disk-I/O Cached SSL Context Factory
+- **Shared Transport Caching (`get_certifi_ssl_context`)**: Outbound Model Context Protocol (MCP) HTTP calls and external GTI queries route through a centralized SSLContext factory in `src/blackwall/mcp/transport.py`.
+- **LRU Cache Singleton**: Backed by `@functools.lru_cache(maxsize=4)`, the factory initializes and caches the `certifi.where()` CA bundle once per process, reducing $O(N)$ filesystem reads and certificate parsing overhead to $O(1)$ on the hot interception path.
+
 ---
 
 ## 7. Agent Behavioral Analytics (ABA) & Self-Learning Pipeline
@@ -304,3 +310,4 @@ Blackwall instruments every stage of the interception lifecycle using OpenTeleme
 2. **Fail-Closed Principle**: Any unexpected exception (e.g., database lock, network timeout, Gemini API quota exhaustion) strictly results in a `BLOCK` or `QUARANTINE` verdict. Under no circumstances does a failure fail open to `ALLOW`.
 3. **Least-Privilege Execution**: The Blackwall daemon drops root privileges and executes as an unprivileged service user.
 4. **Token Hygiene & Credential Scrubbing**: Context hygiene is guaranteed to run before any telemetry export, remote API invocation, or database write.
+5. **Hardened Local Vault & Cryptographic Key Derivation**: The local encrypted secrets store (`EncryptedLocalStore` / `LocalVault` in `src/blackwall/security/vault.py`) uses standard `HKDF-SHA256` key derivation (`cryptography.hazmat.primitives.kdf.hkdf.HKDF`) to resist dictionary and brute-force attacks on master keys. It enforces atomic file writes and restricted `0o600` file permissions (owner read/write only) via `os.open`, while maintaining automatic dual-cipher decryption fallback for legacy SHA-256 stores.

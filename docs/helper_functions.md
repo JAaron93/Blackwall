@@ -32,7 +32,17 @@ Module Location: [`src/blackwall/validators.py`](../src/blackwall/validators.py)
 
 ---
 
-## 2. Threat Detection Domain Helpers (`src/blackwall/enterprise/advanced_threat_detection/correlator.py`)
+## 2. MCP Transport & Security Helpers (`src/blackwall/mcp/transport.py`)
+
+Module Location: [`src/blackwall/mcp/transport.py`](../src/blackwall/mcp/transport.py)
+
+| Function | Signature | Description / Purpose | Use Cases & Applied Locations |
+| :--- | :--- | :--- | :--- |
+| `get_certifi_ssl_context` | `(cafile: Optional[str] = None) -> ssl.SSLContext` | Returns a cached, reusable SSLContext backed by certifi's CA trust bundle using `@functools.lru_cache(maxsize=4)` to eliminate repeated disk I/O from parsing `cacert.pem`. | `call_mcp_tool_http` ([mcp/transport.py](../src/blackwall/mcp/transport.py)), `GTIMCPClient` ([mcp/gti_client.py](../src/blackwall/mcp/gti_client.py)). |
+
+---
+
+## 3. Threat Detection Domain Helpers (`src/blackwall/enterprise/advanced_threat_detection/correlator.py`)
 
 Module Location: [`src/blackwall/enterprise/advanced_threat_detection/correlator.py`](../src/blackwall/enterprise/advanced_threat_detection/correlator.py)
 
@@ -42,7 +52,7 @@ Module Location: [`src/blackwall/enterprise/advanced_threat_detection/correlator
 
 ---
 
-## 3. Test Step Async Helper (`tests/step_defs/async_utils.py`)
+## 4. Test Step Async Helper (`tests/step_defs/async_utils.py`)
 
 Module Location: [`tests/step_defs/async_utils.py`](../tests/step_defs/async_utils.py)
 
@@ -53,7 +63,7 @@ Module Location: [`tests/step_defs/async_utils.py`](../tests/step_defs/async_uti
 
 ---
 
-## 4. BDD Security Contract Helpers (`tests/step_defs/test_security_contract_validators_steps.py`)
+## 5. BDD Security Contract Helpers (`tests/step_defs/test_security_contract_validators_steps.py`)
 
 Module Location: [`tests/step_defs/test_security_contract_validators_steps.py`](../tests/step_defs/test_security_contract_validators_steps.py)
 Feature Location: [`tests/features/security_contract_validators.feature`](../tests/features/security_contract_validators.feature)
@@ -79,7 +89,7 @@ Feature Location: [`tests/features/security_contract_validators.feature`](../tes
 
 ---
 
-## 5. Guidelines for Adding New Helpers
+## 6. Guidelines for Adding New Helpers
 1. Place general domain/validation helpers in `src/blackwall/validators.py` or dedicated sub-package utility modules.
 2. Ensure all helper functions follow the **Single Responsibility Principle**.
 3. Always add unit tests for new helper functions in `tests/unit/test_validators.py`.

@@ -1,13 +1,32 @@
 import base64
+import hashlib
 import json
 import os
 import uuid
 import time
 import structlog
 from typing import Dict, Any, Optional
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 logger = structlog.get_logger(__name__)
+
+
+def _derive_hkdf_key(master_key: str) -> bytes:
+    """Derive a 32-byte urlsafe-base64 Fernet key using HKDF-SHA256."""
+    hkdf = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=b"blackwall-local-vault-key-derivation",
+    )
+    return base64.urlsafe_b64encode(hkdf.derive(master_key.encode("utf-8")))
+
+
+def _derive_legacy_sha256_key(master_key: str) -> bytes:
+    """Legacy raw SHA-256 derivation kept for backward-compatible vault loading."""
+    return base64.urlsafe_b64encode(hashlib.sha256(master_key.encode("utf-8")).digest())
 
 
 class EncryptedLocalStore:
@@ -15,14 +34,9 @@ class EncryptedLocalStore:
 
     def __init__(self, filepath: str, master_key: str):
         self.filepath = filepath
-        # Derive a valid Fernet key from the master key
-        # Fernet requires a 32-byte base64-encoded key
-        key_bytes = master_key.encode("utf-8")
-        # Use a simple but deterministic derivation: SHA256 hash gives 32 bytes
-        import hashlib
-
-        derived_key = base64.urlsafe_b64encode(hashlib.sha256(key_bytes).digest())
-        self.cipher = Fernet(derived_key)
+        self.master_key = master_key
+        self.cipher = Fernet(_derive_hkdf_key(master_key))
+        self._legacy_cipher = Fernet(_derive_legacy_sha256_key(master_key))
 
     def load(self) -> Dict[str, str]:
         if not os.path.exists(self.filepath):
@@ -33,7 +47,11 @@ class EncryptedLocalStore:
             if not encrypted_data:
                 # Empty file is treated as empty vault
                 return {}
-            decrypted_data = self.cipher.decrypt(encrypted_data)
+            try:
+                decrypted_data = self.cipher.decrypt(encrypted_data)
+            except InvalidToken:
+                # Fall back to legacy SHA-256 derived cipher for backward compatibility
+                decrypted_data = self._legacy_cipher.decrypt(encrypted_data)
             return json.loads(decrypted_data.decode("utf-8"))
         except Exception as e:
             # Fail closed: decryption/authentication failures must not return empty vault
@@ -51,8 +69,25 @@ class EncryptedLocalStore:
             db_dir = os.path.dirname(os.path.abspath(self.filepath))
             if db_dir and not os.path.exists(db_dir):
                 os.makedirs(db_dir, exist_ok=True)
-            with open(self.filepath, "wb") as f:
-                f.write(encrypted_data)
+
+            # Atomic save with restricted file permissions (0o600 - owner read/write only)
+            tmp_filepath = f"{self.filepath}.{uuid.uuid4().hex}.tmp"
+            fd = os.open(
+                tmp_filepath,
+                os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                0o600,
+            )
+            try:
+                with os.fdopen(fd, "wb") as f:
+                    f.write(encrypted_data)
+                os.replace(tmp_filepath, self.filepath)
+            except Exception:
+                if os.path.exists(tmp_filepath):
+                    try:
+                        os.unlink(tmp_filepath)
+                    except OSError:
+                        pass
+                raise
         except Exception as e:
             logger.error("Failed to save or encrypt secrets store", error=str(e))
             raise

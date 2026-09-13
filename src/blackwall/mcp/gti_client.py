@@ -7,16 +7,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import ssl
 import time
-from typing import Any, Dict, Optional
 from dataclasses import dataclass
+from typing import Any, Dict, Optional
 
 import aiohttp
-import certifi
 
 from blackwall.db.repository import SQLiteThreatRepository
-from blackwall.mcp.transport import call_mcp_tool_http
+from blackwall.mcp.transport import call_mcp_tool_http, get_certifi_ssl_context
 from blackwall.models import GTIResponse, IndicatorType, ToolCallContext
 
 logger = logging.getLogger("blackwall.mcp.gti_client")
@@ -497,8 +495,8 @@ class GTIMCPClient:
         backoff = 0.1  # 100ms starting backoff
         max_retries = 3
 
-        # Create SSL context with certifi CA bundle for macOS compatibility
-        ssl_context = ssl.create_default_context(cafile=certifi.where())
+        # Use cached SSL context with certifi CA bundle for macOS compatibility
+        ssl_context = get_certifi_ssl_context()
 
         async with aiohttp.ClientSession(
             connector=aiohttp.TCPConnector(ssl=ssl_context)
