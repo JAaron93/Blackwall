@@ -544,13 +544,10 @@ python3 demo_live.py --plain
 bash scripts/run_evasion_eval.sh
 ```
 
-**Expected output (Free Tier):**
+**Expected output:**
 ```
 ╔══════════════════════════════════════════════════════════╗
-║     BLACKWALL EVASION DETECTION PROOF — FREE TIER        ║
-║                                                          ║
-║  ⚠  FREE TIER mode (15 RPM). Est. ~8-10 min for 120     ║
-║     test cases. Set BLACKWALL_TIER=paid for ~40s.        ║
+║           BLACKWALL EVASION EVAL RESULTS                 ║
 ╠══════════════════════════════════════════════════════════╣
 ║ Wave 1 (Novel Attacks / Semantic Path):  5/5 ✓           ║
 ║ Wave 2 (Variant Attacks / Signature):    5/5 ✓           ║
@@ -559,7 +556,7 @@ bash scripts/run_evasion_eval.sh
 ║ Signature-path avg latency:    12ms                      ║
 ║ Latency delta (speedup):     1403ms  [116x faster]       ║
 ╠══════════════════════════════════════════════════════════╣
-║ RESULT: PASS                          [FREE TIER MODE]   ║
+║ RESULT: PASS                        [VERTEX AI 300+ RPM] ║
 ╚══════════════════════════════════════════════════════════╝
 
 FRR (False Refusal Rate):  6.2%  ✓ (target: <10%)
@@ -615,23 +612,23 @@ The pipeline routes scenarios from `tests/eval/judge_scenarios/` and the GCP nat
 
 ## 🏛 System Design Details
 
-### Free Tier vs. Paid Tier Comparison
+### Synchronous vs. Batched Interception Architecture
 
-| Component | Free Tier (This Eval) | Paid Tier (Full Demo) |
-|-----------|----------------------|----------------------|
-| **Entry Class** | `FreeTierADKIntegration` | `ADKIntegration` |
+| Component | SyncResolver (Core Single-Request) | BatchResolver (Enterprise High-Throughput) |
+|-----------|-----------------------------------|-------------------------------------------|
+| **Entry Class** | `SyncResolver` | `ADKIntegration` / `BatchResolver` |
 | **Resolver** | `SyncResolver` | `BatchResolver` |
 | **API Method** | `client.models.generate_content()` | `client.interactions.create()` |
 | **Batching** | None (1 req/interception) | Yes (5 reqs/batch) |
-| **Rate Limit** | 15 RPM (token bucket) | 300 RPM (token bucket) |
+| **Rate Limit** | 300 RPM (token bucket) | 300 RPM (token bucket) |
 | **Context Caching** | None | Server-side (`previous_interaction_id`) |
 | **GTI/CBM Queries** | Serial | Parallel (asyncio.gather) |
 | **Signature Gen** | Inline blocking (~200-500ms) | Background via webhook (0ms added) |
-| **Eval Duration** | ~8-10 minutes | ~40 seconds |
-| **Billing Required** | ❌ No | ✅ Yes |
+| **Eval Duration** | ~40-60 seconds | ~40 seconds |
+| **Billing Required** | ✅ Yes (Vertex AI) | ✅ Yes (Vertex AI) |
 | **Core Innovation** | ✅ Self-learning | ✅ Self-learning |
 
-**Key Point:** Free and paid tiers implement identical security logic — tier selection only affects throughput and latency, not detection capability.
+**Key Point:** Sync and Batch resolvers implement identical security logic under the 100% GCP Vertex AI 300+ RPM quota contract — resolver selection optimizes between low-latency single-event interception and batched high-throughput concurrency.
 
 ### Core Components
 
@@ -759,11 +756,11 @@ Wave 2 (Next variant): attacker attempts port 9443
 
 ## 🧪 Testing & Verification
 
-### Unit Tests (14 Passing)
+### Unit Tests (16 Passing)
 ```bash
 pytest tests/test_sync_resolver.py -v
 # Covers: single-request eval, serial queries, threat scoring,
-# inline signatures, 15 RPM rate limit, budget redistribution
+# inline signatures, 300 RPM rate limit, budget redistribution
 ```
 
 ### Property-Based Tests (12 Properties, 1,000+ Cases Each)

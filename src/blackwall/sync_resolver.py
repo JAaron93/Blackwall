@@ -1,5 +1,5 @@
 """
-sync_resolver.py — Free-tier single-request synchronous resolver.
+sync_resolver.py — Synchronous single-request resolver (100% GCP Vertex AI 300 RPM Mode).
 
 Uses client.models.generate_content() (NOT interactions.create()).
 Single-request synchronous evaluation resolver for inline tool-call gating.
@@ -137,7 +137,7 @@ class ThreatSignaturePayload(BaseModel):
 
 class SyncResolver:
     """
-    Free-tier single-request synchronous resolver for Blackwall Core.
+    Synchronous single-request resolver for Blackwall Core (300 RPM Vertex AI Mode).
 
     Performs interception, evaluation, self-learning threat signature creation,
     and non-blocking attacker attribution (<5ms SLA, NFR-1 & NFR-2).

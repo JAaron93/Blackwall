@@ -1,11 +1,11 @@
 """
-Unit tests for SyncResolver (free-tier evaluation mode).
+Unit tests for SyncResolver (100% GCP Vertex AI 300 RPM mode).
 
 Tests:
   - Single-request eval with mocked Gemini
   - Serial GTI / CBM query ordering
   - Threat score formula correctness
-  - TokenBucketRateLimiter integration (<5ms SLA)
+  - TokenBucketRateLimiter integration (<5ms SLA, 300 RPM)
   - Rate limit enforcement (exhaustion → QUARANTINE)
   - GTI budget degradation (-0.2 penalty, weight shift)
   - Verdict thresholds (0.8→BLOCK, 0.6→QUARANTINE, 0.3→ALLOW)
@@ -236,8 +236,18 @@ async def test_inline_signature_generation_after_block():
 
 
 # ---------------------------------------------------------------------------
-# Test 5: 15 RPM Rate Limit Enforcement
+# Test 5: 300 RPM Rate Limit Enforcement
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sync_resolver_300_rpm_defaults():
+    """
+    Verify SyncResolver defaults to 300 RPM capacity and 5.0 refill rate under Vertex AI Mode.
+    """
+    resolver = _make_resolver()
+    assert resolver._rate_limiter.capacity == 300.0
+    assert resolver._rate_limiter.refill_rate == 5.0
 
 
 @pytest.mark.asyncio
@@ -272,7 +282,7 @@ async def test_rate_limit_enforcement():
     assert (
         results[5].decision == VerdictDecision.QUARANTINE
     ), f"Expected 6th request to be QUARANTINE, got {results[5].decision}"
-    assert "Rate limit exhausted" in results[5].reasoning
+    assert "Rate limit exhausted (300 RPM)" in results[5].reasoning
 
     # Verify rate_limit_hits counter was incremented
     assert resolver._rate_limit_hits == 1

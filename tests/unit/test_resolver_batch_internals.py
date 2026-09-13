@@ -654,3 +654,13 @@ class TestGetMetrics:
         resolver = make_batch_resolver()
         metrics = resolver.get_metrics()
         assert isinstance(metrics, ResolverMetrics)
+
+    def test_create_resolver_defaults_to_paid_tier(self, monkeypatch):
+        """create_resolver defaults to 300 RPM BatchResolver under 100% GCP Vertex AI Mode."""
+        from blackwall.resolver import create_resolver
+        monkeypatch.delenv("BLACKWALL_TIER", raising=False)
+        monkeypatch.delenv("BLACKWALL_RESOLVER_MODE", raising=False)
+        resolver = create_resolver(client=MagicMock())
+        assert isinstance(resolver, BatchResolver)
+        assert resolver.rate_limiter.capacity == 300.0
+        assert resolver.rate_limiter.refill_rate == 5.0
