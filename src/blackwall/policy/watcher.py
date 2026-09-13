@@ -24,29 +24,13 @@ class PolicyFileHandler(FileSystemEventHandler):
         self.reload_callback = reload_callback
         self.debounce_interval = float(debounce_interval)
         self._last_reload_time: float = 0.0
-        self._last_loaded_mtime: float = 0.0
         self._lock = threading.Lock()
         self._reload_lock = threading.Lock()
         self._trailing_timer: Optional[threading.Timer] = None
 
     def _execute_reload(self, event_type: str = "update") -> bool:
-        """Executes the reload callback under lock, serializing reloads and guarding against out-of-order replacements."""
+        """Executes the reload callback under lock, serializing reloads across event triggers."""
         with self._reload_lock:
-            try:
-                current_mtime = os.path.getmtime(self.file_path)
-            except OSError:
-                current_mtime = 0.0
-
-            # Guard against stale/out-of-order reloads replacing newer policy states
-            if current_mtime > 0 and self._last_loaded_mtime > 0 and current_mtime < self._last_loaded_mtime:
-                logger.debug(
-                    "Skipping stale policy reload as a newer file state was already loaded",
-                    current_mtime=current_mtime,
-                    last_loaded_mtime=self._last_loaded_mtime,
-                    file_path=self.file_path,
-                )
-                return True
-
             logger.info(
                 f"Policy file {event_type} detected on disk. Triggering hot-reload...",
                 file_path=self.file_path,
@@ -54,8 +38,6 @@ class PolicyFileHandler(FileSystemEventHandler):
             try:
                 self.reload_callback(self.file_path)
                 self._last_reload_time = time.time()
-                if current_mtime > 0:
-                    self._last_loaded_mtime = current_mtime
                 return True
             except Exception as e:
                 logger.error(
