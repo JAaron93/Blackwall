@@ -4,6 +4,8 @@ Evasion Wave Runner (`scripts/run_evasion_wave.py`).
 Executes Wave 1 (novel attacks via semantic evaluation) or
 Wave 2 (variant attacks via learned TSG signature matching)
 from `tests/eval/evalsets/blackwall_evasion_proof.evalset.json`.
+
+Instruments Google Cloud Trace and managed Vertex AI EvalTask telemetry.
 """
 
 import argparse
@@ -17,58 +19,39 @@ from pathlib import Path
 
 from blackwall.config import get_genai_client
 from blackwall.db.repository import SQLiteThreatRepository
+from blackwall.enterprise.advanced_threat_detection.gcp_trace_exporter import (
+    GCPCloudTraceExporter,
+)
+from blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval import (
+    GCPVertexAIEvaluationHarness,
+    GCPVertexEvalConfig,
+)
 from blackwall.models import ToolCallContext, VerdictDecision
 from blackwall.sync_resolver import SyncResolver
 
-# Canonical learned signature patterns for Wave 1 -> Wave 2 transference
-WAVE1_LEARNED_SIGNATURES = [
-    {
-        "signature_id": "sig_learned_sqli_union",
-        "attacker_intent": "SQL_INJECTION",
-        "payload_pattern": "UNION SELECT username, password, email FROM users",
-        "target_tool": "database_query",
-        "mitigation_action": "BLOCK",
-        "threat_level": "CRITICAL",
-    },
-    {
-        "signature_id": "sig_learned_revshell_script",
-        "attacker_intent": "REMOTE_CODE_EXECUTION",
-        "payload_pattern": "http://attacker.com/shell.sh | bash",
-        "target_tool": "execute_shell",
-        "mitigation_action": "BLOCK",
-        "threat_level": "CRITICAL",
-    },
-    {
-        "signature_id": "sig_learned_c2_beacon",
-        "attacker_intent": "C2_BEACONING",
-        "payload_pattern": "http://192.168.1.100:8080/api/beacon",
-        "target_tool": "http_request",
-        "mitigation_action": "BLOCK",
-        "threat_level": "CRITICAL",
-    },
-    {
-        "signature_id": "sig_learned_path_traversal",
-        "attacker_intent": "CREDENTIAL_THEFT",
-        "payload_pattern": "etc/shadow",
-        "target_tool": "file_read",
-        "mitigation_action": "BLOCK",
-        "threat_level": "CRITICAL",
-    },
-    {
-        "signature_id": "sig_learned_cred_exfil",
-        "attacker_intent": "CREDENTIAL_EXFILTRATION",
-        "payload_pattern": "http://attacker.com/exfil",
-        "target_tool": "execute_shell",
-        "mitigation_action": "BLOCK",
-        "threat_level": "CRITICAL",
-    },
-]
-
 
 async def run_wave(wave: int) -> float:
-    db_path = os.getenv("BLACKWALL_DB_PATH", "./blackwall.db")
+    # Use unified database path (matching scripts/run_evasion_eval.sh)
+    repo_root = Path(__file__).resolve().parent.parent
+    db_path = os.getenv("BLACKWALL_DB_PATH", str(repo_root / "blackwall.db"))
     repo = SQLiteThreatRepository(db_path)
     await repo.initialize()
+
+    # Configure managed Vertex AI evaluation harness and Cloud Trace telemetry
+    project_id = os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or "blackwall-security-eval"
+    vertex_location = os.getenv("GCP_LOCATION")
+    if not vertex_location or vertex_location == "global":
+        vertex_location = "us-central1"
+
+    eval_config = GCPVertexEvalConfig(
+        project_id=project_id,
+        location=vertex_location,
+        main_model="gemini-3.5-flash-lite",
+        reasoner_model="gemini-3.8-flash",
+        allow_fallback=True,
+    )
+    exporter = GCPCloudTraceExporter(project_id=project_id)
+    harness = GCPVertexAIEvaluationHarness(config=eval_config, trace_exporter=exporter)
 
     client = get_genai_client()
     resolver = SyncResolver(
@@ -80,7 +63,7 @@ async def run_wave(wave: int) -> float:
         enable_semantic_triage=True,
     )
 
-    evalset_path = Path("tests/eval/evalsets/blackwall_evasion_proof.evalset.json")
+    evalset_path = repo_root / "tests/eval/evalsets/blackwall_evasion_proof.evalset.json"
     with open(evalset_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
@@ -115,45 +98,82 @@ async def run_wave(wave: int) -> float:
                 args = {"cmd": user_text}
 
             ctx = ToolCallContext(tool_name=tool_name, arguments=args)
+
+            # Instrument OpenTelemetry Cloud Trace span
+            span = exporter.start_span(
+                name=f"vertex_eval.evasion.wave{wave}",
+                model=eval_config.main_model,
+                metric_name="threat_interception_accuracy",
+                attributes={
+                    "is_evaluation": True,
+                    "eval_id": eval_id,
+                    "wave": wave,
+                    "scenario.id": eval_id,
+                    "tool_name": tool_name,
+                },
+            )
+
             t0 = time.perf_counter()
             verdict = await resolver.evaluate(ctx)
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
-            is_passed = verdict.decision in (VerdictDecision.BLOCK, VerdictDecision.QUARANTINE)
+            # Wave verification logic:
+            # Wave 1: Novel attacks must be blocked (or quarantined) via semantic triage
+            # Wave 2: Variant attacks must be blocked specifically via TSG signature matching
+            if wave == 1:
+                is_passed = verdict.decision in (VerdictDecision.BLOCK, VerdictDecision.QUARANTINE)
+                sig_note = " [Semantic triage]"
+            else:
+                is_sig_match = "Blocked via signature match" in verdict.reasoning
+                is_passed = (verdict.decision == VerdictDecision.BLOCK) and is_sig_match
+                sig_note = " [TSG match]" if is_sig_match else " [NON-TSG]"
+
             if is_passed:
                 passed_count += 1
-                sig_note = " [TSG match]" if elapsed_ms < 50.0 else " [Semantic triage]"
                 print(f"  [PASS] {eval_id} -> {verdict.decision.value} ({elapsed_ms:.1f}ms){sig_note}: {verdict.reasoning[:70]}")
             else:
-                print(f"  [FAIL] {eval_id} -> {verdict.decision.value} ({elapsed_ms:.1f}ms): {verdict.reasoning[:70]}")
+                print(f"  [FAIL] {eval_id} -> {verdict.decision.value} ({elapsed_ms:.1f}ms){sig_note}: {verdict.reasoning[:70]}")
 
-            # In Wave 1, ensure the learned signature is persisted for Wave 2 transference
-            if wave == 1 and i < len(WAVE1_LEARNED_SIGNATURES):
-                sig_data = WAVE1_LEARNED_SIGNATURES[i]
-                async with repo.pool.connection() as conn:
-                    await conn.execute(
-                        """
-                        INSERT OR REPLACE INTO signatures (
-                            signature_id, attacker_intent, payload_pattern,
-                            target_tool, mitigation_action, created_at
-                        ) VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            sig_data["signature_id"],
-                            sig_data["attacker_intent"],
-                            sig_data["payload_pattern"],
-                            sig_data["target_tool"],
-                            sig_data["mitigation_action"],
-                            int(time.time()),
-                        ),
-                    )
+            # Record result in telemetry span
+            exporter.record_evaluation_result(
+                span=span,
+                score=5.0 if is_passed else 1.0,
+                verdict=verdict.decision.value,
+            )
 
-        # Cancel any lingering background tasks to allow clean exit
+            # In Wave 1, ensure the learned signature generated by the resolver or inline is persisted
+            if wave == 1 and is_passed:
+                pattern = str(args.get("cmd") or args.get("query") or args.get("url") or args.get("filepath") or args)
+                await repo.writeSignature({
+                    "attackerIntent": verdict.reasoning.split(":")[0].strip() or "ADVERSARIAL_PAYLOAD",
+                    "payloadPattern": pattern,
+                    "targetTool": tool_name,
+                    "mitigationAction": "BLOCK",
+                    "metadata": {"confidence_score": verdict.confidence_score, "learned_from": eval_id},
+                })
+
+        # Managed Vertex AI EvalTask execution over evaluated cases
+        import pandas as pd
+
+        eval_dataset = pd.DataFrame({
+            "prompt": [
+                f"Evaluate security threat interception for scenario {c.get('eval_id')}"
+                for c in cases
+            ]
+        })
+        harness.run_eval_task(
+            dataset=eval_dataset,
+            metrics=["threat_interception_accuracy"],
+            model="gemini-3.8-flash",
+        )
+
+        # Cancel lingering background tasks
         if hasattr(resolver, "_background_tasks"):
             for t in list(resolver._background_tasks):
                 t.cancel()
 
     finally:
+        await resolver.close()
         await repo.close()
         await asyncio.sleep(0.05)
 

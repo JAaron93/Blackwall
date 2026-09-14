@@ -91,9 +91,10 @@ echo -e "${BOLD}[2/8] Starting fresh Blackwall daemon (clean state)...${RESET}"
 cd "${REPO_ROOT}"
 
 # Remove stale DB so signatures start empty
-BLACKWALL_DB="${REPO_ROOT}/blackwall.db"
+BLACKWALL_DB="${BLACKWALL_DB_PATH:-${REPO_ROOT}/blackwall.db}"
+export BLACKWALL_DB_PATH="${BLACKWALL_DB}"
 if [[ -f "${BLACKWALL_DB}" ]]; then
-  echo "  Removing stale blackwall.db to ensure clean TSG state"
+  echo "  Removing stale ${BLACKWALL_DB} to ensure clean TSG state"
   rm -f "${BLACKWALL_DB}"
 fi
 
