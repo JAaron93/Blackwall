@@ -22,6 +22,7 @@
 
 ## 6. Context Hygiene & Sanitization
 * **Rule:** `ContextHygiene` middleware (`src/blackwall/middleware/context_hygiene.py`, re-exported in `src/blackwall/resolver.py`) must replace sensitive environment variable patterns with generic placeholders (`[[VARIABLE_NAME]]`). Integration tests querying external hostnames (e.g. GTI / VirusTotal) must use un-redacted standalone hostnames (e.g. `wd-bouygues.com`) to prevent accidental sanitization matching.
+* **Rule (IoC Preservation for Semantic Triage):** When context is sanitized for model-based semantic triage (`SyncResolver`), callers MUST set `preserve_iocs=True`. This preserves critical target file paths (e.g., `/etc/shadow`, `/etc/passwd`) and remote network indicators (e.g., `http://evil-c2.com/payload.sh`) while strictly redacting secrets, Bearer tokens, private keys, and query parameter credentials (`?token=...`, `?key=...`), enabling Gemini 3.5 Flash-Lite to accurately evaluate intent without evaluating dummy placeholders.
 
 ## 7. Pydantic Model Import Preservation
 * **Rule:** When modifying imports in Pydantic schema files (`models.py`, `src/blackwall/policy/models.py`), core Pydantic symbols (`BaseModel`, `Field`, `field_validator`, `model_validator`) MUST NOT be deleted or replaced. Always preserve Pydantic imports alongside newly added utility imports to avoid import-time `NameError` failures.
@@ -212,7 +213,7 @@
 * **Rule (Deep Reasoning & Forensic Attribution Model):** MUST default to `gemini-3.8-flash` for frontier semantic reasoning, attack path decompilation, and threat signature synthesis.
 * **Rule (Flash-Only Architecture & Prohibition of Pro Models):** Blackwall operates exclusively on Gemini Flash models. All Gemini Pro models (`gemini-*-pro*`) and unverified/hallucinated model identifiers are strictly prohibited in production, test suites, evaluation judges, benchmarks, mocks, and property tests.
 * **Rule (Embeddings Model):** MUST default to `gemini-embedding-001` (768 dimensions).
-* **Rule (Deprecated Models Deny List):** All legacy model identifiers (`gemini-1.5-*`, `gemini-2.0-*`, `gemini-2.5-*`, and `gemini-3.1-pro-preview`) are strictly deprecated and prohibited in production and test configurations.
+* **Rule (Deprecated Models Deny List):** All legacy model identifiers (`gemini-1.5-*`, `gemini-2.0-*`, `gemini-2.5-*`, and `gemini-3.1-*` including `gemini-3.1-flash-lite` and `gemini-3.1-pro-preview`) are strictly deprecated and prohibited in production and test configurations.
 * **Rationale:** `gemini-3.5-flash-lite` provides sub-100ms SLA compliance for the hot synchronous path, while `gemini-3.8-flash` delivers frontier reasoning speed and depth without the latency penalties of legacy preview models.
 
 ## 43. GCP Vertex AI EvalTask Failure Escalation & Cloud Trace Telemetry Invariants
@@ -326,7 +327,7 @@
 * **Rationale:** Treating arbitrary resource scopes or workload labels as security trust boundaries causes legitimate multi-service or multi-tenant agents to accumulate false-positive crossing counts, escalating risk to `HIGH` or `CRITICAL` and inadvertently triggering automated identity session revocation (`revoke_identity_session()`).
 
 ## 53. Blackwall MCP Gateway Architecture & Transport Security Invariants
-* **Rule (Agent Agnosticism):** Gateway specification components (`src/blackwall/gateway/`, `src/blackwall/cli.py` governed by `.kiro/specs/blackwall-mcp-gateway/`) MUST NOT include hardcoded rules, special casing, or coupling for any specific agent runtime (Hermes Agent, Antigravity, Warp Terminal, Claude Desktop, Cursor). All communication must adhere strictly to the generic Model Context Protocol (MCP) JSON-RPC specification.
+* **Rule (Agent Agnosticism & Specification Boundaries):** Gateway specification components (`src/blackwall/gateway/`, `src/blackwall/cli.py`, and `gateway.yaml` representing the Blackwall MCP Gateway Architectural Specification governed by `.kiro/specs/blackwall-mcp-gateway/`) MUST NOT include hardcoded rules, special casing, or coupling for any specific agent runtime (Hermes Agent, Antigravity, Warp Terminal, Claude Desktop, Cursor). All communication must adhere strictly to the generic Model Context Protocol (MCP) JSON-RPC specification.
 * **Rule (Transport Security & Loopback Default):** The MCP Streamable HTTP transport MUST default to `127.0.0.1:9229` with `Origin` and `Host` header validation to prevent DNS rebinding attacks.
 * **Rule (Remote Authentication Boundary & Startup Guard):** When `--host` binds to a non-loopback address, a pre-shared bearer token (`--auth-token` or `BLACKWALL_AUTH_TOKEN`) is mandatory. Inbound requests missing a valid `Authorization: Bearer <token>` header MUST be rejected with HTTP 401 before JSON-RPC processing. The gateway daemon MUST refuse to start if configured with a non-loopback host without an auth token.
 * **Rule (JSON-RPC Request ID Concurrency Isolation):** The gateway stream layer MUST track all in-flight requests by JSON-RPC `id` to ensure responses, cancellations, and errors are mapped deterministically during concurrent evaluation.
@@ -477,30 +478,68 @@
 * **Rationale:** Discovered during PR #125 review. Greptile and automated security review bots enforce AST-level parameterization hygiene across all query dialects (including Cypher). Interpolating dynamic strings into graph query f-strings triggers immediate P1 security findings for query injection.
 
 ## 71. Security Boundary Documentation Integrity & Verified API Contracts
-* **Rule (Production API Alignment):** High-level project documentation (e.g. `README.md`, `ARCHITECTURE.md`, `SECURITY.md`) explaining OS-level interception, runtime audit hooks (`sys.addaudithook`), or kernel boundaries MUST strictly reflect verified production code APIs rather than speculative pseudo-code.
+* **Rule (Production API Alignment):** High-level project documentation (e.g. `README.md`, `ARCHITECTURE.md`, `ENTERPRISE_ARCHITECTURE.md`) explaining OS-level interception, runtime audit hooks (`sys.addaudithook`), or kernel boundaries MUST strictly reflect verified production code APIs rather than speculative pseudo-code.
 * **Rule (No Fictional Helper Functions):** Documented code snippets MUST import and reference actual codebase classes and entrypoints (e.g., `AuditHookManager(db_path=...).start()`) rather than fictional helper functions (e.g., `is_inside_approved_tool_execution()`).
 * **Rule (Accurate Exception Semantics):** Documentation MUST accurately state error-handling semantics (e.g., `PermissionError` is raised before OS syscall dispatch; never claim standard Python runtime exceptions are "uncatchable").
 * **Rationale:** Discovered during PR #125 review. Automated AI review bots (Greptile, CodeRabbit) cross-reference documentation code snippets against repository AST definitions. Introducing imaginary functions or claiming standard Python exceptions cannot be caught triggers P1 accuracy and security boundary review failures.
 
-## 72. Filesystem Watcher Concurrency, Trailing Retries, & Rollback Invariants
+## 72. Pydantic v2 `model_dump()` Serialization & Database Key Casing Invariants
+* **Rule (Explicit Key Casing & Aliasing):** When serializing Pydantic v2 data models (which use idiomatic Python `snake_case` attributes like `signature_id`, `created_at`, `target_tool`, `mitigation_action`) for ingestion into SQLite repositories, key-value stores, or legacy subsystems expecting `camelCase` (e.g. `signatureId`, `createdAt`, `targetTool`), code MUST NEVER perform bare `model.model_dump()` without key transformation or aliasing (`by_alias=True`).
+* **Rule (Defensive Repository Ingestion):** Database batch insertion methods (e.g. `write_signatures_batch`) MUST defensively accept both `snake_case` and `camelCase` field names using fallback key extraction (`row.get("signatureId") or row.get("signature_id")`) and resilient timestamp parsing (`datetime.fromisoformat` and `str` fallback).
+* **Rule (No Silent Data Loss / Phantom Success):** Serialization layers must never drop metadata or payload fields (e.g. dropping `targetTool`, `mitigationAction`, or similarity vectors) while still marking the task as `COMPLETED`.
+* **Rationale:** Discovered during PR #126 Greptile review (Finding `PRRT_kwDOTIJot86h0QHO`). `ThreatSignature.model_dump()` produced snake_case keys that were silently omitted by the existing SQLite repository, persisting hollow records while falsely reporting `COMPLETED`.
+
+## 73. Gemini Client HTTP Timeout Floor vs. Caller Synchronous Deadline Scoping
+* **Rule (Client Timeout vs. Caller Contract Separation):** The mandatory 120.0s HTTP client request timeout floor for Gemini API models (configured to allow sufficient runway for deep reasoning, tool chaining, and batch analysis) applies strictly to the underlying Gemini network transport (`types.HttpOptions(timeout=...)` or `google.genai.Client` configurations).
+* **Rule (No Caller Timeout Inflation):** Helper methods, background submitters, or task orchestrators that accept a caller-specified execution timeout (e.g. `triggerRefactoring(timeout=5.0)`) MUST NEVER overwrite or inflate the caller's timeout with the 120s HTTP floor. The caller's synchronous deadline contract must be honored independently of the underlying network timeout ceiling.
+* **Rationale:** Discovered during PR #126 Greptile review (Finding `PRRT_kwDOTIJot86hzGD2`). Applying `max(configured, 120.0)` to the caller's parameter caused synchronous helper methods with a 5.0s contract to block for up to 120s, failing SLA assertions.
+
+## 74. In-Process Agentic Execution Lifecycle & Candidate Result Consumption
+* **Rule (Explicit Candidate Extraction & Dispatch):** When an agentic task submitter executes in synchronous or in-process mode (`in_process=True`, `background=False`), the submitter MUST actively extract candidate responses from the interaction object and dispatch them to the downstream analysis or signature generation pipeline.
+* **Rule (No Abandoned In-Process Tasks):** The submitter MUST NOT mark an in-process task as `PENDING_IN_PROCESS` or `COMPLETED` without actually consuming the result and persisting downstream side effects. If an unhandled error occurs during candidate consumption, the task status must transition to `FAILED` with an explicit error record rather than silently reporting `COMPLETED`.
+* **Rule (Method Name Contract Verification):** Inter-component calls between task dispatchers and analytics engines must strictly adhere to exported class interfaces (e.g. supporting both camelCase `generateSignature` and snake_case `generate_signature` aliases where dual-convention consumers exist).
+* **Rationale:** Discovered during PR #126 Greptile review (Findings `PRRT_kwDOTIJot86hzGD4` and `PRRT_kwDOTIJot86hzLMq`). The new in-process path omitted candidate output processing, leaving tasks in a pending state without generating threat signatures, and subsequently encountered a naming mismatch (`generate_signature` vs `generateSignature`).
+
+## 75. Threat Signature Graph URL-Encoded Evasion Normalization
+* **Rule (Bounded Iterative URL-Decoding):** SQLite Threat Signature Graph queries (FTS5 and pattern matching) and in-memory signature lookup resolvers MUST perform **bounded iterative URL-decoding** on candidate queries and tool arguments prior to pattern matching. A single `urllib.parse.unquote(query)` call is insufficient — double- and triple-encoded evasion payloads (e.g. `%2520UNION%2520SELECT` → `%20UNION%20SELECT` → `UNION SELECT`) remain encoded after one pass. Implementations MUST loop until the decoded value stabilizes or a maximum of **3 iterations** is reached, whichever comes first:
+  ```python
+  def normalize_url_encoded(query: str, max_passes: int = 3) -> str:
+      from urllib.parse import unquote
+      for _ in range(max_passes):
+          decoded = unquote(query)
+          if decoded == query:
+              break
+          query = decoded
+      return query
+  ```
+* **Rule (Evasion Resilience):** Security resolvers must ensure that URL-encoded attack variants at any nesting depth up to 3 levels (e.g. `%2527%2520OR%25201%253D1`) match persisted plaintext threat signatures (`' OR 1=1`) without requiring duplicate encoded signature entries in the database.
+* **Rationale:** Discovered during PR #126 review and Greptile security audit (PRRT_kwDOTIJot86h0UA8). Single-pass decoding is insufficient when the evasion corpus includes double- and triple-encoded payloads; codifying a single `unquote()` as compliant leaves multi-pass encoded attacks able to bypass plaintext TSG signatures.
+
+## 76. Native Structured Outputs & Prompt Scaffolding Prohibition
+* **Rule (Structured Outputs Mandatory):** All Gemini Interactions API and generative model invocations for triage, verdict resolution, or entity synthesis (e.g. `BatchResolver`, `SyncResolver`, `BackgroundTaskSubmitter`) MUST enforce native structured output schemas using `response_schema=<PydanticModel>` and `response_mime_type="application/json"`.
+* **Rule (No Manual Regex JSON Extraction):** Codebases and evaluation pipelines MUST NOT use manual regex JSON extractors, markdown code fence strippers (e.g. `r'```json\\s*(\\{.*?\\})\\s*```'`), or bracket-counting heuristic parsers to parse model responses. Responses must be accessed via native `response.parsed` or strict JSON parsing.
+* **Rule (No Negative Prompt Scaffolding):** System and developer prompts for Gemini 3.5+ models MUST NOT contain defensive negative constraints or conversational scaffolding instructing the model not to emit markdown delimiters, conversational commentary, or duplicate scratchpads. Schema constraints belong strictly in `response_schema`.
+* **Rationale:** Gemini 3.5 Flash-Lite natively adheres to Pydantic schemas. Legacy regex extractors and defensive prompt clutter from Gemini 3.1 Flash-Lite waste context tokens, inflate latency, and introduce brittle parsing edge cases.
+
+## 77. Filesystem Watcher Concurrency, Trailing Retries, & Rollback Invariants
 * **Rule (Serialized Reload Lock):** Filesystem watcher event handlers (such as `PolicyFileHandler` in `src/blackwall/policy/watcher.py`) that trigger asynchronous or background reloading MUST serialize execution using a dedicated `_reload_lock = threading.Lock()`. Never drop locks before invoking reload callbacks, as OS observer threads and timer threads can otherwise execute callbacks concurrently and cause out-of-order race conditions.
 * **Rule (Non-Dropping Failure Retries):** Debounced file handlers MUST only advance `_last_reload_time` AFTER a reload callback succeeds. If an initial event reads an incomplete, truncated, or invalid file during an atomic write sequence, the handler MUST schedule a trailing retry and MUST NOT drop subsequent write-completion events within the debounce window.
 * **Rule (Rollback Timestamp Preservation):** Handlers MUST NOT discard reload events based on lower file modification timestamps (`mtime < last_loaded_mtime`). Valid administrative rollbacks (e.g. restoring backups, `git checkout`, `rsync -a`) preserve older file timestamps; discarding them leaves systems stuck on stale policies.
 * **Rule (Bounded Shutdown Teardown):** Watcher `stop()` and `cancel_pending()` methods MUST cancel pending timers, wait for active timer threads (`timer.join(timeout=2.0)`), and acquire `with self._reload_lock: pass` to ensure in-flight reloads finish before returning, preventing background thread leaks.
 * **Rationale:** Discovered during Greptile review on PR #130. Atomic saves in text editors emit multi-event bursts (truncate, write, flush, rename) over 10–30ms. Naive debouncers drop completed writes after early failures, unjoined timers leak daemon threads, and timestamp gating prevents legitimate rollbacks.
 
-## 73. Native SDK Async Client Dispatch & Mock Duck-Typing Invariants
+## 78. Native SDK Async Client Dispatch & Mock Duck-Typing Invariants
 * **Rule (Coroutine Function Pre-Check):** When branching to invoke native async surfaces on SDK clients (e.g. `client.aio.models.generate_content` or `client.aio.interactions.create` in Google GenAI SDK v2), code MUST NOT rely solely on `hasattr(client, "aio")`. In Python, standard `unittest.mock.MagicMock` objects evaluate `hasattr(...)` to `True` for any attribute and return a new `MagicMock` (which is not awaitable), causing `TypeError: object MagicMock can't be used in 'await' expression`.
 * **Rule (Safe Coroutine Detection):** Code MUST verify `asyncio.iscoroutinefunction(method)` (or duck-typed `hasattr(method, "assert_awaited")` in tests) before awaiting the coroutine directly. If `iscoroutinefunction` is `False`, fall back to synchronous execution or `asyncio.to_thread`.
 * **Rationale:** Discovered during google-genai 2.23.0 client.aio refactoring. Python's `asyncio.iscoroutinefunction` returns `True` for both native `async def` functions and `unittest.mock.AsyncMock`, but `False` for plain `MagicMock`, guaranteeing 100% test mock compatibility without thread-pool overhead in production.
 
-## 74. Local Secret Storage at Rest: HKDF Derivation & Atomic 0o600 Permission Hardening
+## 79. Local Secret Storage at Rest: HKDF Derivation & Atomic 0o600 Permission Hardening
 * **Rule (Standard Key Derivation):** Encrypted local credential stores (`EncryptedLocalStore` / `LocalVault`) MUST use standard key derivation functions (e.g. `cryptography.hazmat.primitives.kdf.hkdf.HKDF` with `hashes.SHA256()`) to derive symmetric cipher keys from master secrets, rather than raw unsalted hashes (`hashlib.sha256(key).digest()`).
 * **Rule (Backward-Compatible Decryption Fallback):** When upgrading cryptographic key derivation algorithms, the store's `load()` method MUST implement dual-cipher fallback: attempt modern HKDF decryption first, and if `InvalidToken` is raised, fall back to the legacy cipher to preserve seamless backward compatibility for existing stores.
 * **Rule (Atomic 0o600 File Creation):** Sensitive credential stores written to disk MUST NOT use default `open()` (which inherits the ambient process umask, often leaving files world-readable at `0o644`). Saves MUST write to a temporary file created via `os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)` and atomically replace the destination using `os.replace`.
 * **Rationale:** Raw unsalted SHA-256 key derivation is vulnerable to dictionary attacks, while standard file writers expose plaintext or ciphertext credentials to other users on shared host filesystems.
 
-## 75. Post-Verdict Self-Learning Side Effects Outside Synchronous Critical Path
+## 80. Post-Verdict Self-Learning Side Effects Outside Synchronous Critical Path
 * **Rule (Non-Blocking Post-Verdict Dispatch):** Interception resolvers governed by strict latency budgets (<5ms SLA, such as `SyncResolver`) MUST NOT await long-running operations (e.g. `AgentBehavioralAnalytics.generateSignature()` embedding generation, LLM refactoring triage, or external threat queries) inside the synchronous `evaluate()` return path. Verdict decisions (ALLOW, BLOCK, QUARANTINE) must be returned to the client immediately.
 * **Rule (Lifecycle Tracking & Background Task Registry):** Background side effects MUST NOT use bare, unmonitored `asyncio.create_task()` calls. Resolvers MUST maintain an active `self._background_tasks: set[asyncio.Task[Any]]` registry with a `_done(task)` callback that:
   1. Discards completed tasks from the registry.
@@ -508,7 +547,7 @@
 * **Rule (Shutdown & Flush Control):** Resolvers MUST provide `flush_background_tasks()` and `close()` methods that `asyncio.gather` all pending tasks, ensuring that in-flight signatures and refactoring hints are not cancelled or lost during process shutdown or test teardown.
 * **Rationale:** Discovered during Greptile review on PR #132 (Tasks 25 & 26). Awaiting multi-second Gemini API calls in `evaluate()` violates the <5ms verdict delivery SLA, while untracked fire-and-forget tasks leak errors and cause silent signature loss during shutdown.
 
-## 76. `aiosqlite` Connection Pool Lifecycle & Asynchronous Teardown
+## 81. `aiosqlite` Connection Pool Lifecycle & Asynchronous Teardown
 * **Rule (Asynchronous Connection Teardown):** Connection pools managing `aiosqlite` connections (`AsyncConnectionPool`) MUST always invoke the asynchronous `await conn.close()` method during pool shutdown and connection draining. Calling synchronous `conn._connection.close()` directly from the event loop thread bypasses `aiosqlite`'s internal worker thread queue, causing `_connection_worker_thread` to hang or raise unhandled thread exceptions (`RuntimeError: Event loop is closed`).
 * **Rule (Multi-Loop Re-initialization):** In environments where asynchronous tasks execute across different event loops (such as sequential `pytest-bdd` steps using `run_async`), the pool MUST track the active loop (`asyncio.get_running_loop()`). If the running loop changes, the pool MUST drain and close old connections asynchronously and reinitialize the pool queue on the active loop.
 * **Rationale:** Discovered during PR #132 test execution. Synchronous sqlite3 connection closures leave background worker threads attempting to post callbacks to closed event loops, producing unhandled `PytestUnhandledThreadExceptionWarning` failures.

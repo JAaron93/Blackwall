@@ -33,7 +33,12 @@
     },
     {
       "id": "async-resolver-interception-order",
-      "rule": "Async Interception Pipeline Resolver Order: Verify SyncResolver execution flow strictly maintains: Rate Check -> ContextHygiene Sanitization -> Threat Signature Graph (TSG) Check -> Codebase Memory MCP AST Query -> Conditional GTI Validation -> Score Aggregation -> Threshold Verdict.",
+      "rule": "Async Interception Pipeline Resolver Order: Verify SyncResolver execution flow strictly maintains: Rate Check -> ContextHygiene Sanitization -> Threat Signature Graph (TSG) Check -> Codebase Memory MCP AST Query -> Conditional GTI Validation -> Optional Semantic Triage (Gemini 3.5 Flash-Lite) -> Score Aggregation -> Threshold Verdict.",
+      "severity": "high"
+    },
+    {
+      "id": "model-standards-and-structured-outputs",
+      "rule": "Production Model Standards & Structured Outputs: Production models default strictly to gemini-3.5-flash-lite (rapid triage) and gemini-3.8-flash (deep reasoning). Flag any PR using legacy/deprecated models (gemini-3.1-*, gemini-2.*, gemini-1.5-*, or Gemini Pro models). All model triage and signature generation must enforce native structured outputs (response_schema, response_mime_type=\"application/json\") and prohibit manual regex JSON extraction and defensive negative prompt scaffolding.",
       "severity": "high"
     },
     {

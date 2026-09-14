@@ -33,7 +33,7 @@ All code submitted via pull requests or feature branches must be reviewed agains
 Greptile reviews must enforce the existing base branch architectural patterns:
 
 1. **Async Interception Resolver (`SyncResolver`) Sequence**:
-   - Execution flow MUST follow: `Rate Check` -> `ContextHygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Conditional GTI Validation (High-Risk Only)` -> `Score Aggregation` -> `Threshold Verdict` -> `Optional Inline Signature Generation`.
+   - Execution flow MUST follow: `Rate Check` -> `ContextHygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Conditional GTI Validation (High-Risk Only)` -> `Optional Semantic Triage (Gemini 3.5 Flash-Lite)` -> `Score Aggregation` -> `Threshold Verdict` -> `Optional Inline Signature Generation`.
 2. **FTS5 Similarity Scoring & Match Quality**:
    - SQLite Threat Signature Graph queries MUST use word-level intersection match quality calculation (`match_quality = len(intersection) / min_len`) scaled by FTS fallback score and capped by dynamic threshold limits to prevent false positives.
 3. **Context Hygiene & Sanitization**:

@@ -40,9 +40,10 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 ## 2. Interception Resolver & Scoring Rules
 
 - **Execution Flow**: In `SyncResolver`, execution flow MUST follow:
-  `Rate Check` -> `ContextHygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Conditional GTI Validation (High-Risk Only)` -> `Score Aggregation` -> `Threshold Verdict` -> `Optional Inline Signature Generation`.
-- **Context Hygiene**: Sensitivity maskers MUST replace credentials with generic placeholders (`[[VARIABLE_NAME]]`).
+  `Rate Check` -> `ContextHygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Conditional GTI Validation (High-Risk Only)` -> `Optional Semantic Triage (Gemini 3.5 Flash-Lite)` -> `Score Aggregation` -> `Threshold Verdict` -> `Optional Inline Signature Generation`.
+- **Context Hygiene**: Sensitivity maskers MUST replace credentials with generic placeholders (`[[VARIABLE_NAME]]`). For semantic triage, `preserve_iocs=True` preserves target URLs, domains, and filesystem paths (`/etc/shadow`) while strictly redacting secrets and credentials.
 - **FTS5 Similarity Scoring**: SQLite Threat Signature Graph queries MUST use word-level intersection match quality calculation scaled by BM25 rank score: `fts_rank_scale = min(max(1.0 + abs(bm25_rank) / 10.0, 1.0), 1.5)`.
+- **Threat Signature Graph URL-Decoding**: SQLite TSG queries and pattern matching MUST perform URL-decoding (`urllib.parse.unquote`) on candidate queries/arguments prior to pattern matching to detect encoded evasion attempts against persisted plaintext patterns.
 
 ---
 
@@ -57,6 +58,11 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
   - String Enums: Validate `ReactionActionType`, `InboundProtocolType`, `InboundMethodType`, `InjectionSourceType`.
   - Mandatory Evaluation Containment: `ActiveReactionEngine` methods MUST query `is_evaluation_mode(payload.trigger_evidence_id)` from the evidence graph and quash production actions in eval mode.
 - **Fail-Closed Behavior**: Attacker attribution and security resolvers MUST fail closed cleanly without raising unhandled exceptions.
+- **Serialization & Persistence Casing**: When serializing Pydantic models for SQLite or database persistence, keys must map to expected column conventions without silent field dropping. Batch insertion methods must defensively accept both snake_case and camelCase field aliases.
+- **In-Process Task Dispatch**: When executing background analysis tasks in-process, candidate responses must be consumed and dispatched to downstream generators rather than abandoned in a pending state.
+- **Timeout Contract Scoping**: Mandatory HTTP client request timeout floors for LLM APIs (e.g. 120s) must never overwrite or inflate explicit caller synchronous execution deadlines.
+- **Native Structured Outputs & Model Standards**: Interception triage and signature generation must use native `response_schema` and `response_mime_type="application/json"`. Manual regex JSON extractors and defensive prompt scaffolding are strictly prohibited. Production models default to `gemini-3.5-flash-lite` (rapid triage) and `gemini-3.8-flash` (deep reasoning); all `gemini-3.1-*` models, Pro models, and preview variants are deprecated.
+
 
 ---
 

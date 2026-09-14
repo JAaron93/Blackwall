@@ -13,8 +13,8 @@ description: Use this skill when building applications with Gemini API hosted mo
 ### Current Models (Use These)
 
 - `gemini-3.5-flash`: 1M tokens, fast, balanced performance, multimodal
-- `gemini-3.1-pro-preview`: 1M tokens, complex reasoning, coding, research
-- `gemini-3.1-flash-lite-preview`: cost-efficient, fastest performance for high-frequency, lightweight tasks
+- `gemini-3.8-flash`: frontier reasoning, autonomous agency, coding, research
+- `gemini-3.5-flash-lite`: cost-efficient, fastest performance for high-frequency, lightweight tasks
 - `gemini-3-pro-image-preview` (Nano Banana Pro): 65k / 32k tokens, image generation and editing
 - `gemini-3.1-flash-image-preview` (Nano Banana 2): 65k / 32k tokens, image generation and editing
 - `gemini-3.1-flash-lite-image-preview` (Nano Banana 2 Lite): 65k / 32k tokens, ultra-fast image generation and editing
@@ -22,7 +22,7 @@ description: Use this skill when building applications with Gemini API hosted mo
 - `gemma-4-26b-a4b-it`: Gemma 4 MoE model, 26B total with 4B active parameters
 
 > [!WARNING]
-> Models like `gemini-2.5-*`, `gemini-2.0-*`, `gemini-1.5-*` are **legacy and deprecated**. Never use them.
+> Models like `gemini-3.1-*`, `gemini-2.5-*`, `gemini-2.0-*`, `gemini-1.5-*` are **legacy and deprecated**. Never use them.
 
 ### Current SDKs (Use These)
 
