@@ -12,6 +12,7 @@ from blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval import GCPVe
 from blackwall.enterprise.advanced_threat_detection.models import NormalizedEvent, EventSource
 
 
+@pytest.mark.gcp_eval
 @pytest.mark.asyncio
 async def test_k8s_pod_token_theft_scenario_vertex_evaluation():
     """Simulate K8s service account token theft followed by rapid pod creation."""

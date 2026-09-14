@@ -23,6 +23,7 @@ from blackwall.enterprise.pipeline import (
 )
 
 
+@pytest.mark.gcp_eval
 @pytest.mark.asyncio
 async def test_tier2_gvisor_multi_pillar_containment_lifecycle():
     """Verify combined socket drop, mesh broadcast, and token revocation under gVisor microVM sandbox."""
@@ -57,6 +58,7 @@ async def test_tier2_gvisor_multi_pillar_containment_lifecycle():
         driver.stop_tracing()
 
 
+@pytest.mark.gcp_eval
 @pytest.mark.asyncio
 async def test_eval_pipeline_containment(monkeypatch):
     """
