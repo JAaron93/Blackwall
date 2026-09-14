@@ -430,3 +430,19 @@
 * **Rule (Real Pacing Over Synthetic Time):** Sustained throughput and rate benchmarks (e.g. 300 RPM) MUST actively pace requests at the claimed interval (`interval = 60.0 / rate_rpm`) rather than running back-to-back in an unpaced tight loop and dividing CPU time by an arbitrary synthetic duration. CPU utilization must be calculated against the actual elapsed wall time.
 * **Rule (Dual-Hardware Gateway Resource Enforcement):** Performance benchmarks MUST enforce the strict repository resource budgets in `.greptile/config.json`: memory RSS must not exceed 350.0 MB and sustained CPU must not exceed 2.0% on a 2-core baseline.
 * **Rationale:** Discovered during Greptile review on PR #132. Review bots flag loose resource limits, unpaced tight loops masquerading as sustained rate tests, and packaging breakage caused by cross-directory test imports.
+
+## 54. Evaluation Harness & Review Agent Verification Invariants (Dynamic Interception, Real Replacement & Transport Mocking)
+* **Rule (Dynamic Prediction Derivation over Ground-Truth Copying):**
+  - In evaluation test suites (e.g. `tests/evaluation/test_tier1_adk_harness.py`), `predicted_blocked` MUST NEVER be copied directly from `ground_truth_threat` or sample labels.
+  - Predictions MUST be derived dynamically by executing the driver, audit hook, or resolver under test (`eval_driver.audit_event_handler(...)` or `resolver.evaluate(...)`) and checking whether an interception exception or block verdict was actually generated. If the driver fails to intercept, `predicted_blocked` must evaluate to `False`, allowing the evaluation metric to correctly register a false negative.
+* **Rule (Real Credential Replacement Verification):**
+  - When testing environment sterilization and honey-token masking (`SecretVaultSidecar.sterilize_environment`), test inputs MUST NOT already be prefixed with `BW_SYNTHETIC_`. Inputs must be unsterilized mock values (e.g. `raw_unsterilized_mock_secret_key_9999`) that avoid cloud secret scanner keywords while lacking the synthetic prefix.
+  - Tests MUST assert both:
+    1. Pre-sterilization non-honeytoken status: `evaluate_access(...)["is_honeytoken"] is False`.
+    2. Real substitution: `sterilized[key] != raw_unsterilized_env[key]` AND `sterilized[key].startswith(f"BW_SYNTHETIC_{key}_")`.
+* **Rule (Transport-Level Mocking for Local LLMs):**
+  - When testing local LLM engines (e.g. `OllamaForensicEngine`), tests MUST NOT monkeypatch high-level entrypoints (`analyze_log_stream`) with preselected report dictionaries.
+  - Tests MUST mock at the HTTP transport boundary (`aiohttp.ClientSession.post`), returning simulated raw LLM text so that prompt formulation, payload construction, HTTP status checking, JSON code fence stripping, and `_parse_llm_json_response` error/refusal handling execute 100% of their production code paths.
+* **Rule (Managed Cloud Evaluation Gates):**
+  - In Tier 1 evaluation tests, evaluation tasks targeting `GCPVertexAIEvaluationHarness` MUST assert `eval_result["status"] == "COMPLETED"`. In test environments where live GCP credentials or real project resources are unconfigured, tests must mock the Vertex AI SDK `EvalTask` module to return completed evaluation tables rather than accepting `LOCAL_FALLBACK` as a passing evaluation gate.
+* **Rationale:** Discovered during Greptile review on PR #133. Review agents flag derived evaluation metrics that mask broken interception paths, no-op environment sterilization, and preselected mock reports that bypass real LLM response parsing.
