@@ -58,15 +58,19 @@ async def test_tier2_gvisor_multi_pillar_containment_lifecycle():
 
 
 @pytest.mark.asyncio
-async def test_eval_pipeline_containment():
+async def test_eval_pipeline_containment(monkeypatch):
     """
     TASK-V04: Evaluate dataset loader RCE and Jinja template injection neutralization score in gVisor microVM sandbox.
     Verifies that ASTPipelineFilter detects dangerous function aliases, bare calls, and SSTI patterns,
-    and PipelineSandboxManager blocks unsafe routines while safely routing benign data loaders into gVisor microVMs.
+    and PipelineSandboxManager blocks unsafe routines while safely routing benign data loaders into
+    Cybench Cloud Run gVisor microVM container runtimes under BLACKWALL_EVAL_TIER='tier2'.
     """
+    monkeypatch.setenv("BLACKWALL_EVAL_TIER", "tier2")
+    cybench_endpoint = "https://cybench-gvisor-sandbox-uc.a.run.app"
     ast_filter = ASTPipelineFilter()
-    sandbox_adapter = ContainerSandboxMCPAdapter()
+    sandbox_adapter = ContainerSandboxMCPAdapter(endpoint=cybench_endpoint)
     await sandbox_adapter.connect()
+    assert sandbox_adapter.endpoint == cybench_endpoint
     manager = PipelineSandboxManager(sandbox_adapter=sandbox_adapter, ast_filter=ast_filter)
 
     # 1. Dataset Loader RCE Attack Scenarios (indirect alias, bare eval, unsafe pickle)
@@ -114,12 +118,19 @@ async def test_eval_pipeline_containment():
     neutralization_score = neutralized_count / len(attacks)
     assert neutralization_score == 1.0, f"Neutralization score was {neutralization_score:.2f}; expected 1.0 (100%)"
 
-    # Evaluate Safe Benign Routine Execution in gVisor MicroVM Sandbox
+    # Evaluate Safe Benign Routine Execution in Cybench Cloud Run gVisor MicroVM Sandbox
     benign_result = await manager.execute_guarded(benign_loader, sandbox_type="gvisor")
     assert benign_result["status"] == "EXECUTED"
     assert benign_result["contained"] is True
     assert benign_result["sandbox_type"] == "gvisor"
     assert "sandbox_id" in benign_result
+    sandbox_id = benign_result["sandbox_id"]
+    assert sandbox_adapter.endpoint == cybench_endpoint
+    assert sandbox_adapter._active_sandboxes[sandbox_id]["endpoint"] == cybench_endpoint
+
+    # Verify ephemeral sandbox destruction
+    destroy_ok = await sandbox_adapter.destroy_sandbox(sandbox_id)
+    assert destroy_ok is True
 
     # Evaluate @guard_pipeline decorator interface
     @guard_pipeline(sandbox_type="gvisor")
