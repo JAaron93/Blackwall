@@ -276,7 +276,22 @@ else
   WAVE2_ICON="✗"
 fi
 
-if [[ "${WAVE1_PASS}" == "yes" && "${WAVE2_PASS}" == "yes" ]]; then
+# Check Wave-2 signature matching latency against the < 50ms fast-path SLA threshold
+WAVE2_LATENCY_THRESHOLD_MS="${WAVE2_LATENCY_THRESHOLD_MS:-50}"
+WAVE2_LATENCY_PASS=$(python3 -c "
+lat = float('${WAVE2_AVG_LATENCY_MS}' or '9999.0')
+thresh = float('${WAVE2_LATENCY_THRESHOLD_MS}')
+print('yes' if lat < thresh else 'no')
+" 2>/dev/null || echo "no")
+
+if [[ "${WAVE2_LATENCY_PASS}" == "yes" ]]; then
+  WAVE2_LAT_ICON="✓"
+else
+  WAVE2_LAT_ICON="✗"
+fi
+
+# Overall success requires 100% pass rate on both waves AND signature matching latency < 50ms
+if [[ "${WAVE1_PASS}" == "yes" && "${WAVE2_PASS}" == "yes" && "${WAVE2_LATENCY_PASS}" == "yes" ]]; then
   OVERALL_RESULT="PASS"
   RESULT_COLOR="${GREEN}"
 else
@@ -296,7 +311,7 @@ printf "║ Wave 1 (Novel Attacks / Semantic Path):  %s/5 %s        ║\n" "${WA
 printf "║ Wave 2 (Variant Attacks / Signature):    %s/5 %s        ║\n" "${WAVE2_PASS_COUNT}" "${WAVE2_ICON}"
 echo "╠══════════════════════════════════════════════════════════╣"
 printf "║ Semantic-path avg latency:  %5dms                    ║\n" "${WAVE1_AVG_LATENCY_MS}"
-printf "║ Signature-path avg latency: %5dms                    ║\n" "${WAVE2_AVG_LATENCY_MS}"
+printf "║ Signature-path avg latency: %5dms %s                 ║\n" "${WAVE2_AVG_LATENCY_MS}" "${WAVE2_LAT_ICON}"
 printf "║ Latency delta (speedup):    %5dms                    ║\n" "${LATENCY_DELTA_MS}"
 echo "╠══════════════════════════════════════════════════════════╣"
 echo -e "║ RESULT: ${RESULT_COLOR}${OVERALL_RESULT}${CYAN}                                               ║"
@@ -312,6 +327,9 @@ else
     echo ""
     echo "  Details:"
     echo "${WAVE2_OUTPUT}" | grep -E 'FAIL|fail|ERROR|error' | head -20 || true
+  fi
+  if [[ "${WAVE2_LATENCY_PASS}" != "yes" ]]; then
+    echo -e "${RED}Wave-2 LATENCY SLA FAILED — average signature matching latency ${WAVE2_AVG_LATENCY_MS}ms >= ${WAVE2_LATENCY_THRESHOLD_MS}ms threshold${RESET}"
   fi
   exit 1
 fi
