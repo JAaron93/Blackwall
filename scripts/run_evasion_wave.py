@@ -38,7 +38,12 @@ async def run_wave(wave: int) -> float:
     await repo.initialize()
 
     # Configure managed Vertex AI evaluation harness and Cloud Trace telemetry
-    project_id = os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or "blackwall-security-eval"
+    project_id = os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT")
+    if not project_id:
+        raise ValueError(
+            "GCP_PROJECT (or GOOGLE_CLOUD_PROJECT) environment variable must be set for Vertex AI evaluation."
+        )
+
     vertex_location = os.getenv("GCP_LOCATION")
     if not vertex_location or vertex_location == "global":
         vertex_location = "us-central1"
