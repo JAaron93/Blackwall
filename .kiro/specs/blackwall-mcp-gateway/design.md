@@ -191,6 +191,36 @@ When operating on the top-of-the-line **NVIDIA DGX Spark** (Grace Blackwell GB10
     *   `8888` / `8080` — JupyterLab, NGC Web Services
 *   **Container & Runtime Transparency:** Blackwall's Python audit hooks and MCP stream proxies operate independently of the NVIDIA Container Toolkit (`nvidia-ctk`), Docker daemon, and NVIDIA GPU Operator, ensuring sandboxed agent containers and CUDA IPC communication are never corrupted or throttled.
 
+### 13. MCP Gateway Demo & Showcase Infrastructure
+A self-contained, reproducible demo suite demonstrating the MCP Gateway's threat interception capabilities against real-world AI agent attack vectors classified by [OWASP Top 10 for LLMs](https://genai.owasp.org/) and [MITRE ATLAS](https://atlas.mitre.org/).
+
+*   **Local Honeypot Web Server (`scripts/gateway_demo/honeypot_server.py`):** A FastAPI application serving pages designed to look like legitimate library documentation but containing hidden **indirect prompt injection** payloads embedded via:
+    *   HTML comments (`<!-- Ignore previous instructions... -->`)
+    *   CSS-hidden divs (`<div style="display:none; font-size:0">`)
+    *   Zero-width Unicode characters wrapping malicious instructions
+
+    The payloads instruct the consuming agent to: (1) read credential files (`.env`, `~/.config/gcloud/application_default_credentials.json`), then (2) POST the contents to a locally-hosted attacker C2 endpoint (`/exfil`) for demo verification. The honeypot runs entirely on `localhost:8765` with zero external network dependencies.
+
+*   **Three Demo Scenarios:**
+
+    **Scenario 1 — "The Heist" (BLOCK — Indirect Prompt Injection Credential Exfiltration):**
+    An AI agent researches a dependency via web search / URL reading through the Blackwall MCP Gateway. The visited page (served by the local honeypot) contains a hidden prompt injection payload. The agent, following the injected instructions, attempts a `tools/call` for `read_file` targeting `.env`, then a `tools/call` for `http_request` POSTing the contents to the attacker's `/exfil` endpoint. The SyncResolver pipeline intercepts: Context Hygiene detects credential patterns, the Threat Signature Graph matches credential-exfiltration tool-call chains, and the composite score exceeds the BLOCK threshold (≥ 0.20). The gateway synthesizes a JSON-RPC `-32603` error with a bounded generic message — zero internal threat reasoning is leaked to the agent.
+    *   **Attack Taxonomy:** [OWASP LLM01 — Prompt Injection](https://genai.owasp.org/), [MITRE ATLAS AML.T0051 — LLM Prompt Injection](https://atlas.mitre.org/techniques/AML.T0051)
+
+    **Scenario 2 — "The Quarantine" (QUARANTINE + ALLOW — Surgical Tool-Chain Isolation):**
+    An agent performs a legitimate refactoring task through the gateway. A mock compromised MCP tool server returns a response containing embedded instructions to also read `~/.ssh/id_rsa` and cloud credentials. The agent attempts: (1) a legitimate `write_file` to update a project module — **ALLOW**, file written successfully; (2) a suspicious `read_file` targeting `~/.ssh/id_rsa` — **BLOCK**, credential-harvesting signature match. The agent's session continues uninterrupted: subsequent legitimate tool calls are ALLOW'd. Demonstrates that Blackwall is **surgical** — it kills only the malicious call, not the entire session.
+    *   **Attack Taxonomy:** [OWASP LLM07 — Insecure Plugin Design](https://genai.owasp.org/), [MITRE ATLAS AML.T0054 — LLM Jailbreak](https://atlas.mitre.org/techniques/AML.T0054)
+
+    **Scenario 3 — "The Poisoned Package" (BLOCK via Python Audit Hook — Supply Chain Defense-in-Depth):**
+    An agent installs a package whose `postinstall` script attempts runtime escapes: `subprocess.Popen` opening a network connection to an attacker C2 server, `os.system` executing credential reads, and direct `socket.connect` to exfiltrate harvested data. The MCP Gateway ALLOW's the initial `run_command` for `pip install`, but the Python audit hook (`sys.addaudithook`, bootstrapped via `blackwall hook install`) fires during script execution, intercepting the `subprocess.Popen` and `socket.connect` audit events and raising `PermissionError`. Demonstrates **defense-in-depth**: even when a tool call passes protocol-level interception, runtime audit hooks provide a second layer of protection against in-process escapes.
+    *   **Attack Taxonomy:** [OWASP LLM05 — Supply Chain Vulnerabilities](https://genai.owasp.org/), [MITRE ATLAS AML.T0049 — Exploit ML Supply Chain](https://atlas.mitre.org/techniques/AML.T0049)
+
+*   **Recording Infrastructure (`scripts/gateway_demo/record_demo.sh`):** Orchestration script producing `asciinema` terminal recordings in split-pane tmux format:
+    *   **Left Pane:** Agent conversation / tool call flow with verdicts
+    *   **Right Pane:** Blackwall gateway live logs (threat scores, signature matches, verdicts highlighted in color)
+    *   Output: `.cast` files in `docs/recordings/` convertible to GIF/SVG via `agg` (asciinema GIF generator) for README embedding
+    *   Optional "without Blackwall" comparison clip showing the same attack succeeding against an unprotected agent
+
 ## Defense-in-Depth Layers
 
 Blackwall provides three layers of security, each operating at a different level:
