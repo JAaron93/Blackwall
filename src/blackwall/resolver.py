@@ -8,6 +8,8 @@ from uuid import uuid4
 
 from blackwall.models import (
     CallbackToken,
+    EventType,
+    SecurityEvent,
     ToolCallContext,
     Verdict,
     VerdictDecision,
@@ -272,10 +274,21 @@ class BatchResolver:
         client: Any,
         policy_snapshot: Optional[Dict[str, Any]] = None,
         webhook_port: int = 8090,
+        repo: Any = None,
+        aba: Any = None,
     ):
         self.client = client
         self.policy_snapshot = policy_snapshot or {}
         self.webhook_port = webhook_port
+        self.repo = repo
+        if aba is not None:
+            self.aba = aba
+        elif self.repo is not None:
+            from blackwall.analytics import AgentBehavioralAnalytics
+
+            self.aba = AgentBehavioralAnalytics(repo=self.repo, client=self.client)
+        else:
+            self.aba = None
 
         # Components
         self.rate_limiter = TokenBucketRateLimiter(capacity=300.0, refill_rate=5.0)
@@ -450,6 +463,32 @@ class BatchResolver:
                         logger.debug(
                             "Failed to attach span ID to callback tokens", exc_info=True
                         )
+
+                    # Wire self-learning loop (ABA) after batch verdicts are produced
+                    if self.aba:
+                        for token, verdict in zip(callback_tokens, response.verdicts):
+                            if verdict.decision == VerdictDecision.BLOCK:
+                                try:
+                                    sec_event = SecurityEvent(
+                                        event_type=EventType.BLOCK,
+                                        tool_context=token.tool_context or ToolCallContext(tool_name="unknown", arguments={}),
+                                        verdict=verdict,
+                                        telemetry_span_id=getattr(token, "telemetry_span_id", None),
+                                    )
+                                    asyncio.create_task(self.aba.generateSignature(sec_event))
+                                except Exception as aba_err:
+                                    logger.debug("Failed to dispatch ABA generateSignature: %s", aba_err)
+                            elif verdict.decision == VerdictDecision.QUARANTINE:
+                                try:
+                                    sec_event = SecurityEvent(
+                                        event_type=EventType.QUARANTINE,
+                                        tool_context=token.tool_context or ToolCallContext(tool_name="unknown", arguments={}),
+                                        verdict=verdict,
+                                        telemetry_span_id=getattr(token, "telemetry_span_id", None),
+                                    )
+                                    asyncio.create_task(self.aba.triggerRefactoring(sec_event))
+                                except Exception as aba_err:
+                                    logger.debug("Failed to dispatch ABA triggerRefactoring: %s", aba_err)
 
                     return response
 
@@ -852,4 +891,5 @@ def create_resolver(
         client=client,
         policy_snapshot=policy_snapshot or {},
         webhook_port=webhook_port,
+        repo=repo,
     )

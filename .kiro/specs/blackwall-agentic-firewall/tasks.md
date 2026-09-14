@@ -1046,8 +1046,8 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Summarize evaluation results and performance benchmarks
     - _Requirements: 28.5_
 
-- [ ] 25. Implement self-learning loop integration and end-to-end validation
-  - [ ] 25.1 Integrate signature generation into live interception pipeline
+- [x] 25. Implement self-learning loop integration and end-to-end validation
+  - [x] 25.1 Integrate signature generation into live interception pipeline
     - Wire `ABA.generateSignature()` to fire after every BLOCK verdict in the pipeline
     - Wire `ABA.triggerRefactoring()` to fire after every QUARANTINE verdict
     - Confirm ThreatSignature written to TSG with correct 768-dimensional embedding vector and metadata
@@ -1055,7 +1055,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Confirm SecurityEvent logged with eventType=SIGNATURE_CREATED and verdict=None
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.12, 11.1_
 
-  - [ ] 25.2 Validate adaptive defense against repeated attacks
+  - [x] 25.2 Validate adaptive defense against repeated attacks
     - Execute first novel attack → verify BLOCK via semantic evaluation
     - Verify ThreatSignature created in TSG for that attack
     - Execute structurally-similar second attack → verify BLOCK via signature match (TSG)
@@ -1063,7 +1063,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Verify match_count incremented on signature after second match
     - _Requirements: 5.1, 6.9, 6.10, 6.11, 26.1, 26.2, 26.3_
 
-  - [ ] 25.3 Write end-to-end integration tests for self-learning loop
+  - [x] 25.3 Write end-to-end integration tests for self-learning loop
     - Test full pipeline: intercept → evaluate → block → generate signature → block similar
     - Test signature 768-dimensional embedding generated correctly from BLOCK event fields via Gemini Embedding API
     - Test second attack matches with similarity >= 0.85
@@ -1071,8 +1071,8 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Test QUARANTINE events trigger Green Team refactoring hints
     - _Requirements: 5.1, 5.2, 5.3, 5.7, 5.8, 6.9, 16.3_
 
-- [ ] 26. Performance benchmarking and resource validation
-  - [ ] 26.1 Create performance benchmark suite
+- [x] 26. Performance benchmarking and resource validation
+  - [x] 26.1 Create performance benchmark suite
     - Benchmark structural gating latency under simulated load (100 concurrent requests)
     - Benchmark semantic gating latency with GTI/CBM mock responses
     - Benchmark TSG query latency with 10,000 signatures in database
@@ -1081,7 +1081,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
     - Generate percentile report: p50, p95, p99 for all latency measurements
     - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7, 13.8, 13.9_
 
-  - [ ] 26.2 Validate performance targets
+  - [x] 26.2 Validate performance targets
     - Assert structural gating p99 latency < 5ms
     - Assert semantic gating p99 latency < 300ms
     - Assert TSG query p99 latency < 10ms

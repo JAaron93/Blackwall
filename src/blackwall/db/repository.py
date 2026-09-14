@@ -34,6 +34,12 @@ class SQLiteThreatRepository:
         self.pool = AsyncConnectionPool(db_path, max_connections=10)
         self._schema_initialized = False
         self._init_lock = asyncio.Lock()
+        self._query_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+        self._query_cache_ttl: float = 300.0
+        self._cache_hits: int = 0
+        self._cache_misses: int = 0
+        self._total_query_time_ms: float = 0.0
+        self._total_queries: int = 0
 
     async def initialize(self) -> None:
         """Initializes the database schema if it doesn't exist."""
@@ -461,6 +467,7 @@ class SQLiteThreatRepository:
                 ),
             )
 
+        self._query_cache.clear()
         return sig_id
 
     async def getStatistics(self) -> dict[str, Any]:
@@ -470,6 +477,10 @@ class SQLiteThreatRepository:
             cursor = await conn.execute("SELECT COUNT(*) FROM signatures")
             row = await cursor.fetchone()
             total_signatures = row[0] if row else 0
+
+            cursor_avg = await conn.execute("SELECT COALESCE(AVG(match_count), 0.0) FROM signatures")
+            avg_row = await cursor_avg.fetchone()
+            avg_matches = float(avg_row[0]) if avg_row else 0.0
 
             # Read cumulative eviction count written by EvictionManager
             eviction_count = 0
@@ -483,12 +494,20 @@ class SQLiteThreatRepository:
                 # Table may not yet exist if EvictionManager hasn't started
                 pass
 
+        total_q = self._cache_hits + self._cache_misses
+        cache_hit_rate = (self._cache_hits / total_q) if total_q > 0 else 0.0
+        avg_query_time = (
+            (self._total_query_time_ms / self._total_queries)
+            if self._total_queries > 0
+            else 0.0
+        )
+
         return {
             "totalSignatures": total_signatures,
-            "avgQueryTimeMs": 0.0,
-            "cacheHitRate": 0.0,
+            "avgQueryTimeMs": avg_query_time,
+            "cacheHitRate": cache_hit_rate,
             "evictionCount": eviction_count,
-            "avgMatchesPerSignature": 0.0,
+            "avgMatchesPerSignature": avg_matches,
         }
 
     async def addBlockedExecutable(self, executable: str) -> None:
@@ -583,12 +602,40 @@ class SQLiteThreatRepository:
         fts_fallback_score: float = 0.75,
         fts_threshold_cap: float = 0.70,
         target_tool: Optional[str] = None,
+        limit: int = 50,
     ) -> List[Dict[str, Any]]:
         """
         Computes cosine similarity between query_vector and stored signatures.
         Falls back to FTS5 full-text search if the signature lacks a vector or if
         no query_vector is provided.
         """
+        t0 = time.perf_counter()
+        import array
+        import hashlib
+
+        # Check in-memory query cache
+        cache_key_elements = [
+            str(target_tool or ""),
+            str(threshold),
+            str(fts_fallback_score),
+            str(fts_threshold_cap),
+            str(limit),
+            query_text,
+        ]
+        if query_vector is not None:
+            vec_hash = hashlib.sha256(array.array("f", query_vector).tobytes()).hexdigest()[:16]
+            cache_key_elements.append(vec_hash)
+        cache_key = ":".join(cache_key_elements)
+
+        if cache_key in self._query_cache:
+            ts, cached_matches = self._query_cache[cache_key]
+            if time.time() - ts < self._query_cache_ttl:
+                self._cache_hits += 1
+                self._total_queries += 1
+                elapsed = (time.perf_counter() - t0) * 1000.0
+                self._total_query_time_ms += elapsed
+                return [dict(m) for m in cached_matches]
+
         await self.initialize()
         matches = []
 
@@ -600,7 +647,7 @@ class SQLiteThreatRepository:
                 last_matched_at,
                 attacker_intent,
                 payload_pattern,
-                target_tool,
+                target_tool_name,
                 target_sink,
                 dependency_chain,
                 mitigation_action,
@@ -615,7 +662,7 @@ class SQLiteThreatRepository:
                 "last_matched_at": last_matched_at,
                 "attacker_intent": attacker_intent,
                 "payload_pattern": payload_pattern,
-                "target_tool": target_tool,
+                "target_tool": target_tool_name,
                 "target_sink": target_sink,
                 "dependency_chain": (
                     json.loads(dependency_chain) if dependency_chain else None
@@ -643,12 +690,21 @@ class SQLiteThreatRepository:
         async with self.pool.connection() as conn:
             if query_vector is not None:
                 # 1. Load signatures with vectors for cosine similarity
-                cursor = await conn.execute(
-                    "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
-                    "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
-                    "false_positive_count, similarity_vector, metadata FROM signatures "
-                    "WHERE similarity_vector IS NOT NULL"
-                )
+                if target_tool:
+                    cursor = await conn.execute(
+                        "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
+                        "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
+                        "false_positive_count, similarity_vector, metadata FROM signatures "
+                        "WHERE similarity_vector IS NOT NULL AND target_tool = ?",
+                        (target_tool,),
+                    )
+                else:
+                    cursor = await conn.execute(
+                        "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
+                        "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
+                        "false_positive_count, similarity_vector, metadata FROM signatures "
+                        "WHERE similarity_vector IS NOT NULL"
+                    )
                 vector_rows = await cursor.fetchall()
 
                 # Validate query_vector dimension and finite values
@@ -675,7 +731,7 @@ class SQLiteThreatRepository:
                             signature_id=sig_id,
                             error=err_str,
                         )
-                    for sig_id, score in batch_matches:
+                    for sig_id, score in batch_matches[:limit]:
                         if sig_id in row_map:
                             matches.append(_parse_row(row_map[sig_id], score))
                 else:
@@ -686,8 +742,6 @@ class SQLiteThreatRepository:
                         is_valid_vector = False
                         vector_floats = None
                         try:
-                            import array
-
                             arr = array.array("f")
                             arr.frombytes(similarity_vector)
                             vector_floats = arr.tolist()
@@ -729,6 +783,8 @@ class SQLiteThreatRepository:
 
                         if similarity_score >= threshold:
                             matches.append(_parse_row(row, similarity_score))
+                            if len(matches) >= limit:
+                                break
 
                 # 2. For signatures without vectors, query them via FTS5 if there's a query
                 # Use target_tool as a separate WHERE predicate, not in MATCH
@@ -744,8 +800,8 @@ class SQLiteThreatRepository:
                             "WHERE s.similarity_vector IS NULL "
                             "AND s.target_tool = ? "
                             "AND fts.signature_fts MATCH ? "
-                            "ORDER BY fts.rank",
-                            (target_tool, fts_query),
+                            "ORDER BY fts.rank LIMIT ?",
+                            (target_tool, fts_query, limit),
                         )
                     else:
                         cursor = await conn.execute(
@@ -756,8 +812,8 @@ class SQLiteThreatRepository:
                             "JOIN signature_fts fts ON s.signature_id = fts.signature_id "
                             "WHERE s.similarity_vector IS NULL "
                             "AND fts.signature_fts MATCH ? "
-                            "ORDER BY fts.rank",
-                            (fts_query,),
+                            "ORDER BY fts.rank LIMIT ?",
+                            (fts_query, limit),
                         )
                     fts_rows = await cursor.fetchall()
                     query_words = set(re.findall(r"\w+", query_text.lower()))
@@ -777,7 +833,7 @@ class SQLiteThreatRepository:
                             match_quality * fts_fallback_score * fts_rank_scale, fts_threshold_cap
                         )
 
-                        logger.warning(
+                        logger.debug(
                             "FTS5 fallback triggered for signature similarity match",
                             signature_id=sig_id,
                             reason="missing or invalid vector",
@@ -805,8 +861,8 @@ class SQLiteThreatRepository:
                             "JOIN signature_fts fts ON s.signature_id = fts.signature_id "
                             "WHERE s.target_tool = ? "
                             "AND fts.signature_fts MATCH ? "
-                            "ORDER BY fts.rank",
-                            (target_tool, fts_query),
+                            "ORDER BY fts.rank LIMIT ?",
+                            (target_tool, fts_query, limit),
                         )
                     else:
                         cursor = await conn.execute(
@@ -816,8 +872,8 @@ class SQLiteThreatRepository:
                             "FROM signatures s "
                             "JOIN signature_fts fts ON s.signature_id = fts.signature_id "
                             "WHERE fts.signature_fts MATCH ? "
-                            "ORDER BY fts.rank",
-                            (fts_query,),
+                            "ORDER BY fts.rank LIMIT ?",
+                            (fts_query, limit),
                         )
                     fts_rows = await cursor.fetchall()
                     query_words = set(re.findall(r"\w+", query_text.lower()))
@@ -837,7 +893,7 @@ class SQLiteThreatRepository:
                             match_quality * fts_fallback_score * fts_rank_scale, fts_threshold_cap
                         )
 
-                        logger.warning(
+                        logger.debug(
                             "FTS5 fallback triggered for signature similarity match",
                             signature_id=sig_id,
                             reason="missing query vector",
@@ -853,6 +909,19 @@ class SQLiteThreatRepository:
                             matches.append(_parse_row(row[:13], normalized_score))
 
             matches.sort(key=lambda x: x.get("similarity_score", 0.0), reverse=True)
+            if limit > 0:
+                matches = matches[:limit]
+
+            self._cache_misses += 1
+            self._total_queries += 1
+            elapsed = (time.perf_counter() - t0) * 1000.0
+            self._total_query_time_ms += elapsed
+
+            if len(self._query_cache) >= 1000:
+                oldest_key = next(iter(self._query_cache))
+                del self._query_cache[oldest_key]
+            self._query_cache[cache_key] = (time.time(), [dict(m) for m in matches])
+
             return matches
 
     async def find_matching_signature(
@@ -915,6 +984,67 @@ class SQLiteThreatRepository:
                         "attacker_intent": intent,
                     }
         return None
+
+    async def get_signature(self, signature_id: str) -> Optional[dict[str, Any]]:
+        """Retrieves a single threat signature by signature_id."""
+        await self.initialize()
+        async with self.pool.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
+                "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
+                "false_positive_count, similarity_vector, metadata FROM signatures WHERE signature_id = ?",
+                (str(signature_id),),
+            )
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            return {
+                "signature_id": row[0],
+                "created_at": row[1],
+                "last_matched_at": row[2],
+                "attacker_intent": row[3],
+                "payload_pattern": row[4],
+                "target_tool": row[5],
+                "target_sink": row[6],
+                "dependency_chain": json.loads(row[7]) if row[7] else None,
+                "mitigation_action": row[8],
+                "match_count": row[9],
+                "false_positive_count": row[10],
+                "similarity_vector": row[11],
+                "metadata": json.loads(row[12]) if row[12] else None,
+            }
+
+    async def get_all_signatures(self) -> list[dict[str, Any]]:
+        """Retrieves all threat signatures from the repository."""
+        await self.initialize()
+        async with self.pool.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT signature_id, created_at, last_matched_at, attacker_intent, payload_pattern, "
+                "target_tool, target_sink, dependency_chain, mitigation_action, match_count, "
+                "false_positive_count, similarity_vector, metadata FROM signatures"
+            )
+            rows = await cursor.fetchall()
+            return [
+                {
+                    "signature_id": row[0],
+                    "created_at": row[1],
+                    "last_matched_at": row[2],
+                    "attacker_intent": row[3],
+                    "payload_pattern": row[4],
+                    "target_tool": row[5],
+                    "target_sink": row[6],
+                    "dependency_chain": json.loads(row[7]) if row[7] else None,
+                    "mitigation_action": row[8],
+                    "match_count": row[9],
+                    "false_positive_count": row[10],
+                    "similarity_vector": row[11],
+                    "metadata": json.loads(row[12]) if row[12] else None,
+                }
+                for row in rows
+            ]
+
+    # Alias for camelCase
+    getAllSignatures = get_all_signatures
 
     async def add_background_task(
         self, task_id: str, status: str = "PENDING_WEBHOOK_CALLBACK"
@@ -1106,6 +1236,7 @@ class SQLiteThreatRepository:
                     values_to_insert,
                 )
                 await conn.commit()
+                self._query_cache.clear()
             except Exception as e:
                 await conn.rollback()
                 logger.error(f"Failed to batch write signatures: {e}")
