@@ -313,27 +313,41 @@ class AgentBehavioralAnalytics:
         tool_name = event.tool_context.tool_name
         raw_args = event.tool_context.arguments
 
-        # 1. Extract attacker intent from semantic gating reason field
+        # 1. Extract attacker intent from semantic gating reason field or metadata
         attacker_intent = "Suspicious tool usage"
-        if event.verdict and event.verdict.reasoning:
+        if event.tool_context.metadata and event.tool_context.metadata.get("attacker_intent"):
+            attacker_intent = str(event.tool_context.metadata["attacker_intent"])
+        elif event.verdict and event.verdict.reasoning:
             attacker_intent = event.verdict.reasoning
 
-        # 2. Generalize payload pattern (handle CommandLine in run_command specifically)
-        cmd = (
-            raw_args.get("CommandLine")
-            or raw_args.get("command")
-            or raw_args.get("cmd")
-        )
-        if tool_name == "run_command" and isinstance(cmd, str):
-            payload_pattern = self._generalize_string(cmd)
+        # 2. Generalize payload pattern (handle command lines specifically or metadata)
+        if event.tool_context.metadata and event.tool_context.metadata.get("payload_pattern"):
+            payload_pattern = str(event.tool_context.metadata["payload_pattern"])
         else:
-            payload_pattern = self._generalize_payload(raw_args)
+            cmd = (
+                raw_args.get("CommandLine")
+                or raw_args.get("command")
+                or raw_args.get("cmd")
+            )
+            if (
+                tool_name in ("run_command", "execute_bash", "execute_terminal", "execute_shell")
+                and isinstance(cmd, str)
+            ):
+                payload_pattern = self._generalize_string(cmd)
+            else:
+                payload_pattern = self._generalize_payload(raw_args)
 
         # 3. NO REDUNDANT CBM QUERY: read directly from cbm_response
         has_critical_sink = False
         sink_type = SinkType.PROCESS
         dep_chain = []
-        if event.cbm_response:
+        if event.tool_context.metadata and event.tool_context.metadata.get("target_sink"):
+            raw_target_sink = event.tool_context.metadata["target_sink"]
+            try:
+                sink_type = SinkType(raw_target_sink)
+            except Exception:
+                sink_type = raw_target_sink
+        elif event.cbm_response:
             # Check hasCriticalSink directly if present, or infer from list of critical sinks
             if hasattr(event.cbm_response, "hasCriticalSink"):
                 has_critical_sink = getattr(event.cbm_response, "hasCriticalSink")
@@ -355,16 +369,19 @@ class AgentBehavioralAnalytics:
                 dep_chain = getattr(event.cbm_response, "dependency_chain")
 
         # 4. Determine mitigation action
-        is_gti_malicious = False
-        if event.gti_response:
-            is_gti_malicious = event.gti_response.is_malicious
-
-        if has_critical_sink:
-            mitigation_action = "BLOCK_AND_QUARANTINE_CODE_PATH"
-        elif is_gti_malicious:
-            mitigation_action = "BLOCK_AND_ALERT_SECURITY_TEAM"
+        if event.tool_context.metadata and event.tool_context.metadata.get("mitigation_action"):
+            mitigation_action = str(event.tool_context.metadata["mitigation_action"])
         else:
-            mitigation_action = "BLOCK_AND_LOG"
+            is_gti_malicious = False
+            if event.gti_response:
+                is_gti_malicious = event.gti_response.is_malicious
+
+            if has_critical_sink:
+                mitigation_action = "BLOCK_AND_QUARANTINE_CODE_PATH"
+            elif is_gti_malicious:
+                mitigation_action = "BLOCK_AND_ALERT_SECURITY_TEAM"
+            else:
+                mitigation_action = "BLOCK_AND_LOG"
 
         # 5. Generate similarity vector
         combined_text = f"{attacker_intent} {payload_pattern} {tool_name}"
@@ -418,11 +435,55 @@ class AgentBehavioralAnalytics:
             await self.repo.writeSignature(sig_data)
 
         # OpenTelemetry Instrumentation (emit span if tracer is present)
-        if self.tracer:
-            with self.tracer.start_as_current_span("generate_signature") as span:
+        tracer = self.tracer
+        if not tracer and _has_otel:
+            try:
+                tracer = trace.get_tracer("blackwall.analytics")
+            except Exception:
+                pass
+
+        if tracer:
+            with tracer.start_as_current_span("generate_signature") as span:
                 span.set_attribute("signature_id", str(sig_id))
                 span.set_attribute("tool_name", tool_name)
                 span.set_attribute("mitigation_action", mitigation_action)
+                span.add_event(
+                    "signature_created",
+                    attributes={
+                        "signature_id": str(sig_id),
+                        "tool_name": tool_name,
+                        "mitigation_action": mitigation_action,
+                    },
+                )
+
+        # Log SecurityEvent with event_type=SIGNATURE_CREATED and verdict=None
+        try:
+            sig_event = SecurityEvent(
+                event_type=EventType.SIGNATURE_CREATED,
+                tool_context=event.tool_context,
+                verdict=None,
+                agent_id=event.agent_id,
+                related_signatures=[sig_id],
+                telemetry_span_id=event.telemetry_span_id,
+            )
+            logger.info(
+                "SecurityEvent: signature created",
+                extra={"security_event": sig_event.model_dump(mode="json")},
+            )
+            try:
+                import structlog
+                s_logger = structlog.get_logger("blackwall.analytics")
+                s_logger.info(
+                    "SecurityEvent: signature created",
+                    event_type="SIGNATURE_CREATED",
+                    signature_id=str(sig_id),
+                    tool_name=tool_name,
+                    mitigation_action=mitigation_action,
+                )
+            except Exception:
+                pass
+        except Exception as e:
+            logger.warning("Failed to log SIGNATURE_CREATED SecurityEvent: %s", e)
 
         return signature
 

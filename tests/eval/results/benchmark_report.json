@@ -1,0 +1,23 @@
+{
+  "structural_p50_ms": 3.2032350136432797,
+  "structural_p95_ms": 4.578476015012711,
+  "structural_p99_ms": 4.752303007990122,
+  "semantic_p50_ms": 1.1139429989270866,
+  "semantic_p95_ms": 1.2589629914145917,
+  "semantic_p99_ms": 1.6580339870415628,
+  "tsg_query_p50_ms": 0.0031389936339110136,
+  "tsg_query_p95_ms": 0.6348979950416833,
+  "tsg_query_p99_ms": 0.9238320053555071,
+  "memory_rss_mb": 118.32421875,
+  "cpu_utilization_percent": 1.3088522292321765,
+  "average_batch_size": 4.0,
+  "targets_met": {
+    "structural_p99_under_5ms": true,
+    "semantic_p99_under_300ms": true,
+    "tsg_query_p99_under_10ms": true,
+    "memory_rss_under_350mb": true,
+    "cpu_under_2_percent": true,
+    "average_batch_size_gte_3": true
+  },
+  "passed": true
+}

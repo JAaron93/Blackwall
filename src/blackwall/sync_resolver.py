@@ -27,6 +27,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from blackwall.analytics import AgentBehavioralAnalytics
 from blackwall.attribution import (
     AttackerIdentityExtractor,
     IncidentReportGenerator,
@@ -39,8 +40,11 @@ from blackwall.config import (
 from blackwall.models import (
     AttackerProfile,
     CBMResponse,
+    EventType,
     GTIResponse,
     IncidentReport,
+    RefactoringHint,
+    SecurityEvent,
     SyncResolverMetrics,
     ToolCallContext,
     Verdict,
@@ -155,6 +159,7 @@ class SyncResolver:
         on_attacker_identified: Optional[Callable[[IncidentReport], Any]] = None,
         telemetry: Optional[Any] = None,
         enable_semantic_triage: Optional[bool] = None,
+        aba: Optional[Any] = None,
     ) -> None:
         self.client = client
         self.policy_server = policy_server
@@ -165,6 +170,10 @@ class SyncResolver:
         self.demo_mode = demo_mode
         self.on_attacker_identified = on_attacker_identified
         self.telemetry = telemetry
+        self.aba = aba or AgentBehavioralAnalytics(
+            repo=self.repo,
+            client=self.client,
+        )
 
         if enable_semantic_triage is None:
             self.enable_semantic_triage = (
@@ -332,9 +341,18 @@ class SyncResolver:
 
         if decision == VerdictDecision.BLOCK:
             self._block_count += 1
-            await self._inline_generate_signature(sanitized, verdict)
+            self._schedule_task(
+                self._inline_generate_signature(
+                    sanitized, verdict, gti_resp=gti_resp, cbm_resp=cbm_resp
+                )
+            )
         elif decision == VerdictDecision.QUARANTINE:
             self._quarantine_count += 1
+            self._schedule_task(
+                self._handle_quarantine_refactoring(
+                    sanitized, verdict, gti_resp=gti_resp, cbm_resp=cbm_resp
+                )
+            )
         else:
             self._allow_count += 1
 
@@ -345,15 +363,25 @@ class SyncResolver:
 
         return verdict
 
-    def _schedule_attribution(self, context: ToolCallContext, verdict: Verdict) -> None:
-        """Schedules attacker attribution non-blockingly in a background task to preserve verdict SLA (<5ms)."""
+    def _schedule_task(self, coro: Any) -> None:
+        """Schedules background work non-blockingly with lifecycle tracking (<5ms SLA)."""
         try:
             loop = asyncio.get_running_loop()
-            task = loop.create_task(self._process_attribution(context, verdict))
+            task = loop.create_task(coro)
             self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
+
+            def _done(t: asyncio.Task[Any]) -> None:
+                self._background_tasks.discard(t)
+                if not t.cancelled() and t.exception():
+                    logger.warning("Background task failed: %s", t.exception())
+
+            task.add_done_callback(_done)
         except RuntimeError:
             pass
+
+    def _schedule_attribution(self, context: ToolCallContext, verdict: Verdict) -> None:
+        """Schedules attacker attribution non-blockingly in a background task to preserve verdict SLA (<5ms)."""
+        self._schedule_task(self._process_attribution(context, verdict))
 
     async def flush_background_tasks(self) -> None:
         """Awaits all pending background attribution tasks to complete."""
@@ -659,95 +687,127 @@ class SyncResolver:
     # ------------------------------------------------------------------
 
     async def _inline_generate_signature(
-        self, context: ToolCallContext, verdict: Verdict
+        self,
+        context: ToolCallContext,
+        verdict: Verdict,
+        gti_resp: Optional[GTIResponse] = None,
+        cbm_resp: Optional[CBMResponse] = None,
     ) -> None:
         """
         After BLOCK: generate a threat signature inline using
-        generate_content() and write it to the SQLite repo.
+        ABA.generateSignature() and write it to the SQLite repo.
         Adds ~200-500ms. Skipped gracefully if repo is None or Gemini fails.
         """
         try:
             from google.genai import types
 
-            thinking_lvl = get_gemini_thinking_level(
-                task_type="signature_generation", default="high"
-            )
-            config = types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=ThreatSignaturePayload,
-                thinking_config=types.ThinkingConfig(thinking_level=thinking_lvl)
-                if thinking_lvl
-                else None,
-            )
-            prompt = (
-                "Generalize this attack pattern into a reusable threat signature.\n"
-                f"Tool: {context.tool_name}\n"
-                f"Arguments: {context.arguments}\n"
-                f"Verdict reasoning: {verdict.reasoning}\n"
-                "Respond with a concise signature description "
-                "(attacker_intent, payload_pattern, target_sink, mitigation_action)."
-            )
-
-            timeout = get_gemini_http_timeout(
-                configured=30.0, task_type="signature_generation"
-            )
-            aio_models = getattr(getattr(self.client, "aio", None), "models", None)
-            aio_gen = getattr(aio_models, "generate_content", None)
-            if aio_gen is not None and asyncio.iscoroutinefunction(aio_gen):
-                coro = aio_gen(
-                    model=DEFAULT_RAPID_TRIAGE_MODEL,
-                    contents=prompt,
-                    config=config,
-                )
-            else:
-                coro = asyncio.to_thread(
-                    self.client.models.generate_content,
-                    model=DEFAULT_RAPID_TRIAGE_MODEL,
-                    contents=prompt,
-                    config=config,
-                )
-            response = await asyncio.wait_for(coro, timeout=timeout)
-
             attacker_intent = f"Blocked tool call: {context.tool_name}"
             payload_pattern = ""
             mitigation_action = "BLOCK"
 
-            parsed = getattr(response, "parsed", None)
-            if parsed is not None and not type(parsed).__name__.endswith("Mock"):
-                if isinstance(parsed, ThreatSignaturePayload):
-                    attacker_intent = parsed.attacker_intent or attacker_intent
-                    payload_pattern = parsed.payload_pattern or ""
-                    mitigation_action = parsed.mitigation_action or "BLOCK"
-                elif isinstance(parsed, dict):
-                    attacker_intent = parsed.get("attacker_intent") or attacker_intent
-                    payload_pattern = parsed.get("payload_pattern") or ""
-                    mitigation_action = parsed.get("mitigation_action") or "BLOCK"
-                elif hasattr(parsed, "attacker_intent") and hasattr(parsed, "payload_pattern"):
-                    attacker_intent = str(getattr(parsed, "attacker_intent", attacker_intent))
-                    payload_pattern = str(getattr(parsed, "payload_pattern", ""))
-                    mitigation_action = str(getattr(parsed, "mitigation_action", "BLOCK"))
-
-            if not payload_pattern and hasattr(response, "text") and response.text:
-                sig_text = response.text
-                try:
-                    data = json.loads(sig_text)
-                    if isinstance(data, dict):
-                        attacker_intent = data.get("attacker_intent") or attacker_intent
-                        payload_pattern = data.get("payload_pattern") or ""
-                        mitigation_action = data.get("mitigation_action") or "BLOCK"
-                    else:
-                        payload_pattern = sig_text[:512]
-                except Exception:
-                    payload_pattern = sig_text[:512]
-            elif not payload_pattern:
-                payload_pattern = str(response)[:512]
-
-            if not payload_pattern:
-                payload_pattern = (
-                    getattr(response, "text", "")[:512] or str(response)[:512]
+            # 1. If client has models.generate_content, invoke it to support prompt-based summarization
+            if self.client and (
+                hasattr(self.client, "models")
+                or (hasattr(self.client, "aio") and hasattr(self.client.aio, "models"))
+            ):
+                thinking_lvl = get_gemini_thinking_level(
+                    task_type="signature_generation", default="high"
+                )
+                config = types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=ThreatSignaturePayload,
+                    thinking_config=types.ThinkingConfig(thinking_level=thinking_lvl)
+                    if thinking_lvl
+                    else None,
+                )
+                prompt = (
+                    "Generalize this attack pattern into a reusable threat signature.\n"
+                    f"Tool: {context.tool_name}\n"
+                    f"Arguments: {context.arguments}\n"
+                    f"Verdict reasoning: {verdict.reasoning}\n"
+                    "Respond with a concise signature description "
+                    "(attacker_intent, payload_pattern, target_sink, mitigation_action)."
                 )
 
-            if self.repo is not None:
+                timeout = get_gemini_http_timeout(
+                    configured=30.0, task_type="signature_generation"
+                )
+                aio_models = getattr(getattr(self.client, "aio", None), "models", None)
+                aio_gen = getattr(aio_models, "generate_content", None)
+                if aio_gen is not None and asyncio.iscoroutinefunction(aio_gen):
+                    coro = aio_gen(
+                        model=DEFAULT_RAPID_TRIAGE_MODEL,
+                        contents=prompt,
+                        config=config,
+                    )
+                else:
+                    coro = asyncio.to_thread(
+                        self.client.models.generate_content,
+                        model=DEFAULT_RAPID_TRIAGE_MODEL,
+                        contents=prompt,
+                        config=config,
+                    )
+                response = await asyncio.wait_for(coro, timeout=timeout)
+
+                parsed = getattr(response, "parsed", None)
+                if parsed is not None and not type(parsed).__name__.endswith("Mock"):
+                    if isinstance(parsed, ThreatSignaturePayload):
+                        attacker_intent = parsed.attacker_intent or attacker_intent
+                        payload_pattern = parsed.payload_pattern or ""
+                        mitigation_action = parsed.mitigation_action or "BLOCK"
+                    elif isinstance(parsed, dict):
+                        attacker_intent = parsed.get("attacker_intent") or attacker_intent
+                        payload_pattern = parsed.get("payload_pattern") or ""
+                        mitigation_action = parsed.get("mitigation_action") or "BLOCK"
+                    elif hasattr(parsed, "attacker_intent") and hasattr(parsed, "payload_pattern"):
+                        attacker_intent = str(getattr(parsed, "attacker_intent", attacker_intent))
+                        payload_pattern = str(getattr(parsed, "payload_pattern", ""))
+                        mitigation_action = str(getattr(parsed, "mitigation_action", "BLOCK"))
+
+                if not payload_pattern and hasattr(response, "text") and response.text:
+                    sig_text = response.text
+                    try:
+                        data = json.loads(sig_text)
+                        if isinstance(data, dict):
+                            attacker_intent = data.get("attacker_intent") or attacker_intent
+                            payload_pattern = data.get("payload_pattern") or ""
+                            mitigation_action = data.get("mitigation_action") or "BLOCK"
+                        else:
+                            payload_pattern = sig_text[:512]
+                    except Exception:
+                        payload_pattern = sig_text[:512]
+                elif not payload_pattern:
+                    payload_pattern = str(response)[:512]
+
+            # 2. Wire ABA.generateSignature() to produce 768-dim embedding and persist to TSG
+            ctx_copy = context.model_copy(deep=True)
+            if ctx_copy.metadata is None:
+                ctx_copy.metadata = {}
+            if payload_pattern:
+                ctx_copy.metadata["payload_pattern"] = payload_pattern
+            if attacker_intent and attacker_intent != f"Blocked tool call: {context.tool_name}":
+                ctx_copy.metadata["attacker_intent"] = attacker_intent
+            if mitigation_action:
+                ctx_copy.metadata["mitigation_action"] = mitigation_action
+
+            sec_event = SecurityEvent(
+                event_type=EventType.BLOCK,
+                tool_context=ctx_copy,
+                verdict=Verdict(
+                    decision=verdict.decision,
+                    reasoning=attacker_intent,
+                    confidence_score=verdict.confidence_score,
+                ),
+                gti_response=gti_resp,
+                cbm_response=cbm_resp,
+                agent_id=context.metadata.get("agent_id") if context.metadata else None,
+            )
+
+            if self.aba is not None:
+                await self.aba.generateSignature(sec_event)
+            elif self.repo is not None:
+                if not payload_pattern:
+                    payload_pattern = str(context.arguments)[:512]
                 await self.repo.writeSignature(
                     {
                         "attackerIntent": attacker_intent,
@@ -767,6 +827,32 @@ class SyncResolver:
                 "Inline signature generation failed — skipping: %s",
                 exc,
             )
+
+    async def _handle_quarantine_refactoring(
+        self,
+        context: ToolCallContext,
+        verdict: Verdict,
+        gti_resp: Optional[GTIResponse] = None,
+        cbm_resp: Optional[CBMResponse] = None,
+    ) -> Optional[RefactoringHint]:
+        """
+        After QUARANTINE: trigger Green Team auto-refactoring via ABA.triggerRefactoring().
+        """
+        if not self.aba:
+            return None
+        try:
+            sec_event = SecurityEvent(
+                event_type=EventType.QUARANTINE,
+                tool_context=context,
+                verdict=verdict,
+                gti_response=gti_resp,
+                cbm_response=cbm_resp,
+                agent_id=context.metadata.get("agent_id") if context.metadata else None,
+            )
+            return await self.aba.triggerRefactoring(sec_event)
+        except Exception as exc:
+            logger.warning("Quarantine refactoring generation failed: %s", exc)
+            return None
 
     # ------------------------------------------------------------------
     # Metrics

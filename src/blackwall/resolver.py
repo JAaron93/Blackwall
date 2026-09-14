@@ -8,6 +8,8 @@ from uuid import uuid4
 
 from blackwall.models import (
     CallbackToken,
+    EventType,
+    SecurityEvent,
     ToolCallContext,
     Verdict,
     VerdictDecision,
@@ -272,14 +274,28 @@ class BatchResolver:
         client: Any,
         policy_snapshot: Optional[Dict[str, Any]] = None,
         webhook_port: int = 8090,
+        repo: Any = None,
+        aba: Any = None,
     ):
         self.client = client
         self.policy_snapshot = policy_snapshot or {}
         self.webhook_port = webhook_port
+        self.repo = repo
+        if aba is not None:
+            self.aba = aba
+        elif self.repo is not None:
+            from blackwall.analytics import AgentBehavioralAnalytics
+
+            self.aba = AgentBehavioralAnalytics(repo=self.repo, client=self.client)
+        else:
+            self.aba = None
 
         # Components
         self.rate_limiter = TokenBucketRateLimiter(capacity=300.0, refill_rate=5.0)
         self.hygiene = ContextHygiene(preserve_iocs=True)
+
+        # Background task registry for self-learning loop lifecycle tracking
+        self._background_tasks: set[asyncio.Task[Any]] = set()
 
         # Cache Tracking
         self.last_interaction_id: Optional[str] = None
@@ -331,6 +347,31 @@ class BatchResolver:
         """Metrics tracking hook for webhook completions."""
         self.webhook_callbacks_received += 1
         self.total_webhook_latency_ms += latency_ms
+
+    def _schedule_task(self, coro: Any) -> None:
+        """Schedules background learning work with lifecycle tracking and error logging."""
+        try:
+            loop = asyncio.get_running_loop()
+            task = loop.create_task(coro)
+            self._background_tasks.add(task)
+
+            def _done(t: asyncio.Task[Any]) -> None:
+                self._background_tasks.discard(t)
+                if not t.cancelled() and t.exception():
+                    logger.warning("Background learning task failed: %s", t.exception())
+
+            task.add_done_callback(_done)
+        except RuntimeError:
+            pass
+
+    async def flush_background_tasks(self) -> None:
+        """Awaits all pending background learning tasks to complete."""
+        if self._background_tasks:
+            await asyncio.gather(*list(self._background_tasks), return_exceptions=True)
+
+    async def close(self) -> None:
+        """Flushes background tasks before closing."""
+        await self.flush_background_tasks()
 
     async def process_batch(
         self, callback_tokens: List[CallbackToken]
@@ -450,6 +491,32 @@ class BatchResolver:
                         logger.debug(
                             "Failed to attach span ID to callback tokens", exc_info=True
                         )
+
+                    # Wire self-learning loop (ABA) after batch verdicts are produced
+                    if self.aba:
+                        for token, verdict in zip(callback_tokens, response.verdicts):
+                            if verdict.decision == VerdictDecision.BLOCK:
+                                try:
+                                    sec_event = SecurityEvent(
+                                        event_type=EventType.BLOCK,
+                                        tool_context=token.tool_context or ToolCallContext(tool_name="unknown", arguments={}),
+                                        verdict=verdict,
+                                        telemetry_span_id=getattr(token, "telemetry_span_id", None),
+                                    )
+                                    self._schedule_task(self.aba.generateSignature(sec_event))
+                                except Exception as aba_err:
+                                    logger.debug("Failed to dispatch ABA generateSignature: %s", aba_err)
+                            elif verdict.decision == VerdictDecision.QUARANTINE:
+                                try:
+                                    sec_event = SecurityEvent(
+                                        event_type=EventType.QUARANTINE,
+                                        tool_context=token.tool_context or ToolCallContext(tool_name="unknown", arguments={}),
+                                        verdict=verdict,
+                                        telemetry_span_id=getattr(token, "telemetry_span_id", None),
+                                    )
+                                    self._schedule_task(self.aba.triggerRefactoring(sec_event))
+                                except Exception as aba_err:
+                                    logger.debug("Failed to dispatch ABA triggerRefactoring: %s", aba_err)
 
                     return response
 
@@ -852,4 +919,5 @@ def create_resolver(
         client=client,
         policy_snapshot=policy_snapshot or {},
         webhook_port=webhook_port,
+        repo=repo,
     )
