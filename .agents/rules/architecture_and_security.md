@@ -501,9 +501,19 @@
 * **Rationale:** Discovered during PR #126 Greptile review (Findings `PRRT_kwDOTIJot86hzGD4` and `PRRT_kwDOTIJot86hzLMq`). The new in-process path omitted candidate output processing, leaving tasks in a pending state without generating threat signatures, and subsequently encountered a naming mismatch (`generate_signature` vs `generateSignature`).
 
 ## 75. Threat Signature Graph URL-Encoded Evasion Normalization
-* **Rule (URL-Decoding Pre-Pass):** SQLite Threat Signature Graph queries (FTS5 and pattern matching) and in-memory signature lookup resolvers MUST perform URL-decoding (`urllib.parse.unquote(query)`) on candidate queries and tool arguments prior to pattern matching.
-* **Rule (Evasion Resilience):** Security resolvers must ensure that URL-encoded attack variants (e.g. `%20UNION%20SELECT`, `%27%20OR%201=1`) match persisted plaintext threat signatures (`UNION SELECT`, `' OR 1=1`) without requiring duplicate URL-encoded signature entries in the database.
-* **Rationale:** Discovered during PR #126 review and security regression testing. Attack payloads attempting evasion via URL encoding bypass literal string matching unless decoded before database lookup.
+* **Rule (Bounded Iterative URL-Decoding):** SQLite Threat Signature Graph queries (FTS5 and pattern matching) and in-memory signature lookup resolvers MUST perform **bounded iterative URL-decoding** on candidate queries and tool arguments prior to pattern matching. A single `urllib.parse.unquote(query)` call is insufficient — double- and triple-encoded evasion payloads (e.g. `%2520UNION%2520SELECT` → `%20UNION%20SELECT` → `UNION SELECT`) remain encoded after one pass. Implementations MUST loop until the decoded value stabilizes or a maximum of **3 iterations** is reached, whichever comes first:
+  ```python
+  def normalize_url_encoded(query: str, max_passes: int = 3) -> str:
+      from urllib.parse import unquote
+      for _ in range(max_passes):
+          decoded = unquote(query)
+          if decoded == query:
+              break
+          query = decoded
+      return query
+  ```
+* **Rule (Evasion Resilience):** Security resolvers must ensure that URL-encoded attack variants at any nesting depth up to 3 levels (e.g. `%2527%2520OR%25201%253D1`) match persisted plaintext threat signatures (`' OR 1=1`) without requiring duplicate encoded signature entries in the database.
+* **Rationale:** Discovered during PR #126 review and Greptile security audit (PRRT_kwDOTIJot86h0UA8). Single-pass decoding is insufficient when the evasion corpus includes double- and triple-encoded payloads; codifying a single `unquote()` as compliant leaves multi-pass encoded attacks able to bypass plaintext TSG signatures.
 
 ## 76. Native Structured Outputs & Prompt Scaffolding Prohibition
 * **Rule (Structured Outputs Mandatory):** All Gemini Interactions API and generative model invocations for triage, verdict resolution, or entity synthesis (e.g. `BatchResolver`, `SyncResolver`, `BackgroundTaskSubmitter`) MUST enforce native structured output schemas using `response_schema=<PydanticModel>` and `response_mime_type="application/json"`.
