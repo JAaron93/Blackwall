@@ -98,13 +98,14 @@ if [[ -f "${BLACKWALL_DB}" ]]; then
   rm -f "${BLACKWALL_DB}"
 fi
 
-# Start the ADK API server daemon in the background
+# Start the ADK API server daemon in its own process group
+set -m
 adk api_server agent/ --port 8080 >/dev/null 2>&1 &
 DAEMON_PID=$!
 echo -e "  ${GREEN}✓${RESET} Daemon started (PID: ${DAEMON_PID})"
 
-# Ensure daemon is killed on script exit (normal or error)
-trap 'echo -e "\n${YELLOW}[cleanup]${RESET} Stopping daemon (PID: ${DAEMON_PID})..."; kill "${DAEMON_PID}" 2>/dev/null || true' EXIT
+# Ensure entire daemon process group is killed on script exit (normal or error)
+trap 'echo -e "\n${YELLOW}[cleanup]${RESET} Stopping daemon process group (PGID: ${DAEMON_PID})..."; kill -TERM -"${DAEMON_PID}" 2>/dev/null || kill "${DAEMON_PID}" 2>/dev/null || true' EXIT
 
 # ---------------------------------------------------------------------------
 # 3. Wait for daemon to be ready (max 10s)
