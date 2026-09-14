@@ -58,7 +58,17 @@ def transform_adk_case(case: dict[str, Any]) -> dict[str, Any]:
 
     # Extract verdicts and labels
     reference_verdict = case.get("reference") or case.get("expected_verdict") or "ALLOW"
-    ground_truth_verdict = str(reference_verdict).upper()
+    if isinstance(reference_verdict, dict):
+        resp = reference_verdict.get("response") or reference_verdict
+        if isinstance(resp, dict):
+            parts = resp.get("parts", [])
+            if parts and isinstance(parts, list) and isinstance(parts[0], dict):
+                reference_verdict = parts[0].get("text", "ALLOW")
+            elif "verdict" in resp:
+                reference_verdict = resp["verdict"]
+            elif "text" in resp:
+                reference_verdict = resp["text"]
+    ground_truth_verdict = str(reference_verdict).strip().upper()
 
     metadata = dict(case.get("metadata", {}))
     ground_truth_label = metadata.get("ground_truth")

@@ -792,6 +792,16 @@ bash scripts/run_evasion_eval.sh
 # Wave 2: 5 structural variants → signature matching → 100x+ speedup
 ```
 
+### Cloud-Native Vertex AI Evaluation Suite (36 Scenarios)
+```bash
+# Run all evaluation scenarios across Enterprise pillars, e2e integration, and BDD gates
+pytest -v -m gcp_eval tests/evaluation/ tests/integration/test_eval_pipeline_e2e.py tests/step_defs/test_eval_pipeline_bdd.py
+
+# Or execute the automated Agent-as-a-Judge pipeline runner
+python3 scripts/run_gcp_eval.py --eval-threshold 3.5
+```
+For architecture comparisons between the Cloud-Native Suite and the ADK Evalset Layer, see **[docs/evaluation_guide.md](docs/evaluation_guide.md)**.
+
 ### BDD Feature Tests
 ```bash
 pytest tests/features/blackwall_guardrails.feature -v
@@ -808,6 +818,8 @@ pytest tests/features/blackwall_guardrails.feature -v
 | **[ENTERPRISE_ARCHITECTURE.md](ENTERPRISE_ARCHITECTURE.md)** | Technical overview of Blackwall Enterprise Mesh (Pillars 1–6, eBPF, ZeroMQ, Vault sidecars) |
 | **[DEMO_HARNESS_ARCHITECTURE.md](DEMO_HARNESS_ARCHITECTURE.md)** | Dual-agent adversarial showdown architecture and Rich TUI specifications |
 | **[LIVE_CYBENCH_CLOUD_TRACE_EVAL_GUIDE.md](LIVE_CYBENCH_CLOUD_TRACE_EVAL_GUIDE.md)** | Live evaluation & Cloud Trace guide (100% GCP Vertex AI Mode) |
+| **[evaluation_guide.md](docs/evaluation_guide.md)** | Comprehensive comparison of the Cloud-Native Pytest Suite vs. ADK agents-cli Evalset Layer |
+| **[ci_evaluation_stage_template.md](docs/ci_evaluation_stage_template.md)** | Production CI/CD stage integration template and Google Cloud WIF setup |
 | **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** | Known issues and workarounds (evaluation performance) |
 | **[design.md](.kiro/specs/blackwall-agentic-firewall/design.md)** | Full technical design (40+ pages, all architectural details) |
 | **[requirements.md](.kiro/specs/blackwall-agentic-firewall/requirements.md)** | 28 EARS-compliant requirements with acceptance criteria |
