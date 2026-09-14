@@ -73,6 +73,11 @@ fi
 
 export GOOGLE_GENAI_USE_VERTEXAI="true"
 export GEMINI_TIER="paid"
+export BLACKWALL_TIER="paid"
+export GOOGLE_CLOUD_LOCATION="${GOOGLE_CLOUD_LOCATION:-global}"
+export GCP_LOCATION="${GCP_LOCATION:-global}"
+export BLACKWALL_ENABLE_SYNC_SEMANTIC_TRIAGE="true"
+export PATH="${REPO_ROOT}/.venv/bin:${PATH}"
 
 echo -e "  ${GREEN}✓${RESET} GCP_PROJECT is set (${GCP_PROJ})"
 echo -e "  ${GREEN}✓${RESET} 100% GCP Vertex AI Mode (Paid Tier) active"
@@ -92,8 +97,8 @@ if [[ -f "${BLACKWALL_DB}" ]]; then
   rm -f "${BLACKWALL_DB}"
 fi
 
-# Start the daemon in the background
-adk run --reset-state &
+# Start the ADK API server daemon in the background
+adk api_server agent/ --port 8080 >/dev/null 2>&1 &
 DAEMON_PID=$!
 echo -e "  ${GREEN}✓${RESET} Daemon started (PID: ${DAEMON_PID})"
 
@@ -131,11 +136,7 @@ echo -e "${BOLD}[4/8] Running Wave-1 eval (novel attacks)...${RESET}"
 
 WAVE1_START_MS=$(python3 -c "import time; print(int(time.time() * 1000))")
 
-WAVE1_OUTPUT=$(agents-cli eval run \
-  tests/eval/evalsets/blackwall_evasion_proof.evalset.json \
-  --config tests/eval/eval_config_evasion.json \
-  --filter wave=1 \
-  --print_detailed_results 2>&1) || true
+WAVE1_OUTPUT=$(python3 "${SCRIPT_DIR}/run_evasion_wave.py" --wave 1 2>&1) || true
 
 WAVE1_END_MS=$(python3 -c "import time; print(int(time.time() * 1000))")
 WAVE1_LATENCY_MS=$(( WAVE1_END_MS - WAVE1_START_MS ))
@@ -219,11 +220,7 @@ echo -e "${BOLD}[7/8] Running Wave-2 eval (variant attacks — TSG path)...${RES
 
 WAVE2_START_MS=$(python3 -c "import time; print(int(time.time() * 1000))")
 
-WAVE2_OUTPUT=$(agents-cli eval run \
-  tests/eval/evalsets/blackwall_evasion_proof.evalset.json \
-  --config tests/eval/eval_config_evasion.json \
-  --filter wave=2 \
-  --print_detailed_results 2>&1) || true
+WAVE2_OUTPUT=$(python3 "${SCRIPT_DIR}/run_evasion_wave.py" --wave 2 2>&1) || true
 
 WAVE2_END_MS=$(python3 -c "import time; print(int(time.time() * 1000))")
 WAVE2_LATENCY_MS=$(( WAVE2_END_MS - WAVE2_START_MS ))
