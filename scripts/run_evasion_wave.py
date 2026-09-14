@@ -26,7 +26,7 @@ from blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval import (
     GCPVertexAIEvaluationHarness,
     GCPVertexEvalConfig,
 )
-from blackwall.models import ToolCallContext, VerdictDecision
+from blackwall.models import ToolCallContext, Verdict, VerdictDecision
 from blackwall.sync_resolver import SyncResolver
 
 
@@ -131,6 +131,8 @@ async def run_wave(wave: int) -> float:
                     reasoning=f"Fail-closed fallback: {exc}",
                     confidence_score=1.0,
                 )
+                span.attributes["is_fallback"] = True
+                span.attributes["blackwall.is_fallback"] = True
                 case_responses.append(f"BLOCK: Fail-closed fallback: {exc}")
                 exporter.record_evaluation_error(span=span, error=exc)
                 print(f"  [FALLBACK] {eval_id} -> BLOCK ({elapsed_ms:.1f}ms): Fallback on {exc}")
