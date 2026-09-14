@@ -221,6 +221,7 @@ async def test_inline_signature_generation_after_block():
             arguments={"cmd": "rm -rf /"},
         )
         verdict = await resolver.evaluate(context)
+        await resolver.flush_background_tasks()
 
     assert verdict.decision == VerdictDecision.BLOCK
 

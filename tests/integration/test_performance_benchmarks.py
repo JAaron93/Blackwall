@@ -92,34 +92,34 @@ async def test_tsg_query_latency_10k_signatures_p99(
 @pytest.mark.asyncio
 async def test_memory_rss_sustained_load() -> None:
     """
-    Subtask 26.2: Assert memory RSS < 512MB under sustained 300 RPM processing.
-    Validates Requirement 16.11.
+    Subtask 26.2: Assert memory RSS <= 350MB under sustained 300 RPM processing.
+    Validates Gateway Resource Budgets and Requirement 16.11.
     """
     runner = BenchmarkRunner()
-    memory_rss_mb, _ = await runner.benchmark_sustained_load(count=15, rate_rpm=300)
+    memory_rss_mb, _ = await runner.benchmark_sustained_load(count=100, rate_rpm=300)
 
     assert (
-        memory_rss_mb < 512.0
-    ), f"Memory RSS was {memory_rss_mb:.2f}MB (target < 512.0MB)"
+        memory_rss_mb <= 350.0
+    ), f"Memory RSS was {memory_rss_mb:.2f}MB (target <= 350.0MB)"
 
 
 # ===========================================================================
-# Test 5: CPU usage < 50% on 2-core under 300 RPM
+# Test 5: CPU usage < 2% on 2-core under 300 RPM
 # ===========================================================================
 
 
 @pytest.mark.asyncio
 async def test_cpu_usage_sustained_load() -> None:
     """
-    Subtask 26.2: Assert CPU usage < 50% on 2-core VM during sustained 300 RPM load.
-    Validates Requirement 16.12.
+    Subtask 26.2: Assert CPU usage < 2% on 2-core VM during sustained 300 RPM load.
+    Validates Gateway Resource Budgets and Requirement 16.12.
     """
     runner = BenchmarkRunner()
-    _, cpu_percent = await runner.benchmark_sustained_load(count=15, rate_rpm=300)
+    _, cpu_percent = await runner.benchmark_sustained_load(count=100, rate_rpm=300)
 
     assert (
-        cpu_percent < 50.0
-    ), f"CPU usage was {cpu_percent:.2f}% (target < 50.0% on 2-core)"
+        cpu_percent < 2.0
+    ), f"CPU usage was {cpu_percent:.2f}% (target < 2.0% on 2-core)"
 
 
 # ===========================================================================

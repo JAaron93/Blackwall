@@ -34,10 +34,9 @@ class AsyncConnectionPool:
         if hasattr(self, "_loop") and self._loop is not None and self._loop is not current_loop:
             if self._pool is not None:
                 while not self._pool.empty():
+                    conn = self._pool.get_nowait()
                     try:
-                        conn = self._pool.get_nowait()
-                        if hasattr(conn, "_connection") and conn._connection:
-                            conn._connection.close()
+                        await conn.close()
                     except Exception:
                         pass
             self._initialized = False
@@ -63,16 +62,16 @@ class AsyncConnectionPool:
         if not self._initialized or self._pool is None:
             return
 
-        while not self._pool.empty():
-            conn = self._pool.get_nowait()
-            try:
-                if hasattr(conn, "_connection") and conn._connection:
-                    conn._connection.close()
-            except Exception:
-                pass
+        async with self._init_lock:
+            while self._pool and not self._pool.empty():
+                conn = self._pool.get_nowait()
+                try:
+                    await conn.close()
+                except Exception as e:
+                    logger.debug("Error closing connection: %s", e)
 
-        self._initialized = False
-        self._pool = None
+            self._initialized = False
+            self._pool = None
 
     async def acquire(self) -> aiosqlite.Connection:
         try:

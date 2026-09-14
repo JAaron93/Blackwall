@@ -18,11 +18,11 @@ Feature: Performance Benchmarking and Resource Validation
     When 100 similarity queries are executed
     Then the TSG query p99 latency must be under 10.0 milliseconds
 
-  Scenario: Firewall resource consumption remains under 512MB RSS and 50% CPU during sustained load
+  Scenario: Firewall resource consumption remains under 350MB RSS and 2% CPU during sustained load
     Given an active Blackwall firewall instance under sustained 300 RPM load
     When 100 tool calls are processed at sustained rate
-    Then the resident memory RSS must remain under 512.0 megabytes
-    And the CPU utilization on a 2-core baseline must remain under 50.0 percent
+    Then the resident memory RSS must remain under 350.0 megabytes
+    And the CPU utilization on a 2-core baseline must remain under 2.0 percent
 
   Scenario: Batch Resolver achieves average batch size of at least 3 under full load
     Given a BatchResolver receiving concurrent tool call batches

@@ -141,24 +141,24 @@ def active_firewall_instance(bdd_bench_state: PerformanceBenchmarkState) -> None
 @when("100 tool calls are processed at sustained rate")
 def process_sustained_load(bdd_bench_state: PerformanceBenchmarkState) -> None:
     mem_rss, cpu_pct = run_async(
-        bdd_bench_state.runner.benchmark_sustained_load(count=15, rate_rpm=300)
+        bdd_bench_state.runner.benchmark_sustained_load(count=100, rate_rpm=300)
     )
     bdd_bench_state.memory_rss_mb = mem_rss
     bdd_bench_state.cpu_percent = cpu_pct
 
 
-@then("the resident memory RSS must remain under 512.0 megabytes")
+@then("the resident memory RSS must remain under 350.0 megabytes")
 def verify_memory_rss(bdd_bench_state: PerformanceBenchmarkState) -> None:
     assert (
-        bdd_bench_state.memory_rss_mb < 512.0
-    ), f"Memory RSS was {bdd_bench_state.memory_rss_mb:.2f}MB (target < 512.0MB)"
+        bdd_bench_state.memory_rss_mb <= 350.0
+    ), f"Memory RSS was {bdd_bench_state.memory_rss_mb:.2f}MB (target <= 350.0MB)"
 
 
-@then("the CPU utilization on a 2-core baseline must remain under 50.0 percent")
+@then("the CPU utilization on a 2-core baseline must remain under 2.0 percent")
 def verify_cpu_usage(bdd_bench_state: PerformanceBenchmarkState) -> None:
     assert (
-        bdd_bench_state.cpu_percent < 50.0
-    ), f"CPU usage was {bdd_bench_state.cpu_percent:.2f}% (target < 50.0%)"
+        bdd_bench_state.cpu_percent < 2.0
+    ), f"CPU usage was {bdd_bench_state.cpu_percent:.2f}% (target < 2.0%)"
 
 
 # ---------------------------------------------------------------------------
