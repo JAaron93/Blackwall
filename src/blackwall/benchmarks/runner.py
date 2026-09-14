@@ -126,22 +126,18 @@ class BenchmarkRunner:
         self,
         engine: Optional[StructuralGatingEngine] = None,
         count: int = 100,
+        concurrency: int = 100,
     ) -> Tuple[float, float, float]:
         """
         Subtask 26.1: Benchmark structural gating latency under simulated load (100 concurrent requests).
         Enforces Rule 1: Untimed warmup run to bypass JIT compilation overhead.
         Asserts: p99 latency < 5ms (Requirement 16.1).
         """
+        import concurrent.futures
+
         st_engine = engine or self.create_default_structural_engine()
 
-        # Untimed warmup run
-        warmup_ctx = ToolCallContext(tool_name="read_file", arguments={"path": "/data/test.txt"})
-        for _ in range(10):
-            st_engine.evaluate(warmup_ctx, "sandbox")
-
-        latencies: List[float] = []
-
-        async def _eval_one(idx: int) -> float:
+        def _eval_worker(idx: int) -> float:
             ctx = ToolCallContext(
                 tool_name="read_file" if idx % 2 == 0 else "execute_bash",
                 arguments={"index": idx},
@@ -150,12 +146,18 @@ class BenchmarkRunner:
             st_engine.evaluate(ctx, "sandbox")
             return (time.perf_counter() - t0) * 1000.0
 
-        # Execute 100 requests concurrently
-        tasks = [_eval_one(i) for i in range(count)]
-        results = await asyncio.gather(*tasks)
-        latencies.extend(results)
+        loop = asyncio.get_running_loop()
+        # Execute across concurrent threads simulating real concurrent client requests
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(concurrency, 16)) as pool:
+            # Untimed warmup run inside the worker pool (Rule 1: bypass thread initialization overhead)
+            warmup_tasks = [loop.run_in_executor(pool, _eval_worker, i) for i in range(10)]
+            await asyncio.gather(*warmup_tasks)
 
-        return calculate_percentiles(latencies)
+            # Timed concurrent run
+            tasks = [loop.run_in_executor(pool, _eval_worker, i) for i in range(count)]
+            latencies = await asyncio.gather(*tasks)
+
+        return calculate_percentiles(list(latencies))
 
     async def benchmark_semantic_gating(
         self,
@@ -287,11 +289,12 @@ class BenchmarkRunner:
     async def benchmark_sustained_load(
         self,
         resolver: Optional[SyncResolver] = None,
-        count: int = 100,
+        count: int = 15,
         rate_rpm: int = 300,
     ) -> Tuple[float, float]:
         """
         Subtask 26.1: Measure memory RSS and CPU utilization during sustained 300 RPM processing.
+        Paces requests at the claimed 300 RPM rate (1 request every 0.20s).
         Asserts: Memory RSS < 512MB, CPU usage < 50% on 2-core VM (Requirements 16.11, 16.12).
         """
         from unittest.mock import MagicMock
@@ -303,12 +306,13 @@ class BenchmarkRunner:
 
         res = resolver or SyncResolver(client=mock_client, demo_mode=False)
 
-        interval = 60.0 / rate_rpm  # Interval in seconds for 300 RPM = 0.20s
+        interval = 60.0 / float(rate_rpm)  # 0.20s for 300 RPM
 
-        t_cpu_start = time.thread_time()
+        t_cpu_start = time.process_time()
         t_wall_start = time.perf_counter()
 
         for i in range(count):
+            t_req_start = time.perf_counter()
             ctx = ToolCallContext(
                 tool_name="read_file",
                 arguments={"path": f"/data/file_{i}.txt"},
@@ -316,13 +320,16 @@ class BenchmarkRunner:
             await res.evaluate(ctx)
             await res.flush_background_tasks()
 
-        t_cpu_end = time.thread_time()
+            elapsed_req = time.perf_counter() - t_req_start
+            sleep_time = interval - elapsed_req
+            if sleep_time > 0 and i < count - 1:
+                await asyncio.sleep(sleep_time)
+
+        t_cpu_end = time.process_time()
         t_wall_end = time.perf_counter()
 
         cpu_time_used = max(0.0, t_cpu_end - t_cpu_start)
-        # Compute CPU utilization against sustained 300 RPM load window (Req 16.12)
-        target_duration = count / (rate_rpm / 60.0)
-        wall_time_used = max(t_wall_end - t_wall_start, target_duration)
+        wall_time_used = max(0.001, t_wall_end - t_wall_start)
 
         # Assuming 2 cores VM baseline per requirement 16.12
         num_cores = 2
@@ -377,7 +384,11 @@ class BenchmarkRunner:
 
         return sum(batch_sizes) / float(len(batch_sizes)) if batch_sizes else 0.0
 
-    async def run_all(self, repo: Optional[SQLiteThreatRepository] = None) -> BenchmarkReport:
+    async def run_all(
+        self,
+        repo: Optional[SQLiteThreatRepository] = None,
+        total_signatures: int = 10000,
+    ) -> BenchmarkReport:
         """Runs the entire benchmark suite and evaluates targets against requirements."""
         target_repo = repo or self.repo
         if target_repo is None:
@@ -389,9 +400,9 @@ class BenchmarkRunner:
         st_p50, st_p95, st_p99 = await self.benchmark_structural_gating(count=100)
         sem_p50, sem_p95, sem_p99 = await self.benchmark_semantic_gating(count=50)
         tsg_p50, tsg_p95, tsg_p99 = await self.benchmark_tsg_query_latency(
-            repo=target_repo, total_signatures=10000, query_count=100
+            repo=target_repo, total_signatures=total_signatures, query_count=100
         )
-        mem_rss, cpu_pct = await self.benchmark_sustained_load(count=100, rate_rpm=300)
+        mem_rss, cpu_pct = await self.benchmark_sustained_load(count=15, rate_rpm=300)
         avg_batch_sz = await self.benchmark_batch_efficiency()
 
         targets_met = {

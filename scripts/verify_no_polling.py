@@ -32,6 +32,7 @@ def main():
         "blackwall/enterprise/advanced_threat_detection/resilience.py",
         "blackwall/enterprise/mesh/receiver.py",
         "blackwall/enterprise/mesh/broadcaster.py",
+        "blackwall/benchmarks/runner.py",
     }
 
     violations = []

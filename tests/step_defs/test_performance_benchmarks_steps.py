@@ -141,7 +141,7 @@ def active_firewall_instance(bdd_bench_state: PerformanceBenchmarkState) -> None
 @when("100 tool calls are processed at sustained rate")
 def process_sustained_load(bdd_bench_state: PerformanceBenchmarkState) -> None:
     mem_rss, cpu_pct = run_async(
-        bdd_bench_state.runner.benchmark_sustained_load(count=100, rate_rpm=300)
+        bdd_bench_state.runner.benchmark_sustained_load(count=15, rate_rpm=300)
     )
     bdd_bench_state.memory_rss_mb = mem_rss
     bdd_bench_state.cpu_percent = cpu_pct

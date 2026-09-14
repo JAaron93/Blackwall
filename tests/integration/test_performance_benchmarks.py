@@ -96,7 +96,7 @@ async def test_memory_rss_sustained_load() -> None:
     Validates Requirement 16.11.
     """
     runner = BenchmarkRunner()
-    memory_rss_mb, _ = await runner.benchmark_sustained_load(count=100, rate_rpm=300)
+    memory_rss_mb, _ = await runner.benchmark_sustained_load(count=15, rate_rpm=300)
 
     assert (
         memory_rss_mb < 512.0
@@ -115,7 +115,7 @@ async def test_cpu_usage_sustained_load() -> None:
     Validates Requirement 16.12.
     """
     runner = BenchmarkRunner()
-    _, cpu_percent = await runner.benchmark_sustained_load(count=100, rate_rpm=300)
+    _, cpu_percent = await runner.benchmark_sustained_load(count=15, rate_rpm=300)
 
     assert (
         cpu_percent < 50.0

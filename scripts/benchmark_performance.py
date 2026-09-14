@@ -46,7 +46,7 @@ async def main() -> int:
 
     try:
         runner = BenchmarkRunner(repo=repo)
-        report = await runner.run_all(repo=repo)
+        report = await runner.run_all(repo=repo, total_signatures=args.signatures)
 
         print(report.summary_table())
 

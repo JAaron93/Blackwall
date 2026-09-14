@@ -341,13 +341,17 @@ class SyncResolver:
 
         if decision == VerdictDecision.BLOCK:
             self._block_count += 1
-            await self._inline_generate_signature(
-                sanitized, verdict, gti_resp=gti_resp, cbm_resp=cbm_resp
+            self._schedule_task(
+                self._inline_generate_signature(
+                    sanitized, verdict, gti_resp=gti_resp, cbm_resp=cbm_resp
+                )
             )
         elif decision == VerdictDecision.QUARANTINE:
             self._quarantine_count += 1
-            await self._handle_quarantine_refactoring(
-                sanitized, verdict, gti_resp=gti_resp, cbm_resp=cbm_resp
+            self._schedule_task(
+                self._handle_quarantine_refactoring(
+                    sanitized, verdict, gti_resp=gti_resp, cbm_resp=cbm_resp
+                )
             )
         else:
             self._allow_count += 1
@@ -359,15 +363,25 @@ class SyncResolver:
 
         return verdict
 
-    def _schedule_attribution(self, context: ToolCallContext, verdict: Verdict) -> None:
-        """Schedules attacker attribution non-blockingly in a background task to preserve verdict SLA (<5ms)."""
+    def _schedule_task(self, coro: Any) -> None:
+        """Schedules background work non-blockingly with lifecycle tracking (<5ms SLA)."""
         try:
             loop = asyncio.get_running_loop()
-            task = loop.create_task(self._process_attribution(context, verdict))
+            task = loop.create_task(coro)
             self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
+
+            def _done(t: asyncio.Task[Any]) -> None:
+                self._background_tasks.discard(t)
+                if not t.cancelled() and t.exception():
+                    logger.warning("Background task failed: %s", t.exception())
+
+            task.add_done_callback(_done)
         except RuntimeError:
             pass
+
+    def _schedule_attribution(self, context: ToolCallContext, verdict: Verdict) -> None:
+        """Schedules attacker attribution non-blockingly in a background task to preserve verdict SLA (<5ms)."""
+        self._schedule_task(self._process_attribution(context, verdict))
 
     async def flush_background_tasks(self) -> None:
         """Awaits all pending background attribution tasks to complete."""

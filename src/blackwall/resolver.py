@@ -294,6 +294,9 @@ class BatchResolver:
         self.rate_limiter = TokenBucketRateLimiter(capacity=300.0, refill_rate=5.0)
         self.hygiene = ContextHygiene(preserve_iocs=True)
 
+        # Background task registry for self-learning loop lifecycle tracking
+        self._background_tasks: set[asyncio.Task[Any]] = set()
+
         # Cache Tracking
         self.last_interaction_id: Optional[str] = None
 
@@ -344,6 +347,31 @@ class BatchResolver:
         """Metrics tracking hook for webhook completions."""
         self.webhook_callbacks_received += 1
         self.total_webhook_latency_ms += latency_ms
+
+    def _schedule_task(self, coro: Any) -> None:
+        """Schedules background learning work with lifecycle tracking and error logging."""
+        try:
+            loop = asyncio.get_running_loop()
+            task = loop.create_task(coro)
+            self._background_tasks.add(task)
+
+            def _done(t: asyncio.Task[Any]) -> None:
+                self._background_tasks.discard(t)
+                if not t.cancelled() and t.exception():
+                    logger.warning("Background learning task failed: %s", t.exception())
+
+            task.add_done_callback(_done)
+        except RuntimeError:
+            pass
+
+    async def flush_background_tasks(self) -> None:
+        """Awaits all pending background learning tasks to complete."""
+        if self._background_tasks:
+            await asyncio.gather(*list(self._background_tasks), return_exceptions=True)
+
+    async def close(self) -> None:
+        """Flushes background tasks before closing."""
+        await self.flush_background_tasks()
 
     async def process_batch(
         self, callback_tokens: List[CallbackToken]
@@ -475,7 +503,7 @@ class BatchResolver:
                                         verdict=verdict,
                                         telemetry_span_id=getattr(token, "telemetry_span_id", None),
                                     )
-                                    asyncio.create_task(self.aba.generateSignature(sec_event))
+                                    self._schedule_task(self.aba.generateSignature(sec_event))
                                 except Exception as aba_err:
                                     logger.debug("Failed to dispatch ABA generateSignature: %s", aba_err)
                             elif verdict.decision == VerdictDecision.QUARANTINE:
@@ -486,7 +514,7 @@ class BatchResolver:
                                         verdict=verdict,
                                         telemetry_span_id=getattr(token, "telemetry_span_id", None),
                                     )
-                                    asyncio.create_task(self.aba.triggerRefactoring(sec_event))
+                                    self._schedule_task(self.aba.triggerRefactoring(sec_event))
                                 except Exception as aba_err:
                                     logger.debug("Failed to dispatch ABA triggerRefactoring: %s", aba_err)
 
