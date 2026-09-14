@@ -446,3 +446,27 @@
 * **Rule (Managed Cloud Evaluation Gates):**
   - In Tier 1 evaluation tests, evaluation tasks targeting `GCPVertexAIEvaluationHarness` MUST assert `eval_result["status"] == "COMPLETED"`. In test environments where live GCP credentials or real project resources are unconfigured, tests must mock the Vertex AI SDK `EvalTask` module to return completed evaluation tables rather than accepting `LOCAL_FALLBACK` as a passing evaluation gate.
 * **Rationale:** Discovered during Greptile review on PR #133. Review agents flag derived evaluation metrics that mask broken interception paths, no-op environment sterilization, and preselected mock reports that bypass real LLM response parsing.
+
+## 55. CI Evaluation Scoping, CLI Option Parity & Baseline Seeding Invariants
+* **Rule (Marker-Scoped Test Collection & BDD Step Inclusion):**
+  - When configuring CI workflows, shell scripts, or documentation using marker-scoped pytest commands (e.g., `pytest -m gcp_eval`), the invocation command MUST NOT restrict directory arguments solely to `tests/evaluation/` or `tests/integration/` without explicitly including `tests/step_defs/test_*_bdd.py`.
+  - Restricting paths without step definitions causes pytest to skip collecting BDD scenarios even when their `.feature` files are tagged with `@gcp_eval`.
+  - Commands MUST either run marker discovery from the test root (`pytest -v -m <marker>`) or explicitly enumerate `tests/step_defs/test_*_bdd.py` alongside integration paths.
+* **Rule (CLI Option Parity & Dual-Naming Aliases in Runner Scripts):**
+  - Python CLI runners and CI tools (such as `scripts/run_gcp_eval.py`) MUST maintain strict flag parity with their underlying orchestration functions and public documentation.
+  - Where options have alternate naming conventions across documentation and specifications (e.g. `--eval-threshold` vs `--threshold`), `argparse` MUST define them as co-equal aliases pointing to a single destination variable:
+    ```python
+    parser.add_argument(
+        "--eval-threshold",
+        "--threshold",
+        dest="eval_threshold",
+        type=float,
+        default=3.5,
+        help="Minimum domain mean score to pass CI (default: 3.5)",
+    )
+    ```
+  - All operational modes supported by the runner (such as `--allow-fallback` and `--no-trace`) MUST be exposed in `parse_args()` and forwarded to the pipeline entrypoint.
+* **Rule (Selective Evaluation Runs & Baseline Seeding in Tests):**
+  - In `run_evaluation_pipeline`, an evaluation run only qualifies as a clean baseline anchor (`is_clean_baseline=True`) if it achieves full coverage across all 9 canonical domains with zero fallbacks and zero failed scenarios.
+  - In unit and integration tests verifying subsequent regression comparison logic on scoped domains, tests MUST explicitly seed the `HistoricalRegressionTracker` with a clean baseline (`EvalRunSummary(..., is_clean_baseline=True)`) before executing candidate runs to ensure the tracker can perform relative comparisons without requiring full 9-domain coverage.
+* **Rationale:** Discovered during Greptile review on PR #134. Review agents flag CI commands that omit BDD step definitions, CLI scripts missing documented flags, and selective runs failing baseline establishment.
