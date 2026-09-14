@@ -31,6 +31,7 @@ from blackwall.enterprise.mesh.broadcaster import MeshBroadcaster
 from blackwall.enterprise.mesh.receiver import MeshReceiver
 
 
+@pytest.mark.gcp_eval
 @pytest.mark.asyncio
 async def test_tier1_adk_before_tool_callback_interception():
     """Verify ADK before_tool_callback blocks unauthorized shell execution in Tier 1 harness."""
@@ -74,6 +75,7 @@ async def test_tier1_adk_before_tool_callback_interception():
     assert harness.metrics.precision == 1.0
 
 
+@pytest.mark.gcp_eval
 @pytest.mark.asyncio
 async def test_tier1_adk_benign_tool_call_allow():
     """Verify ADK before_tool_callback permits legitimate database query tool calls."""
@@ -101,6 +103,7 @@ async def test_tier1_adk_benign_tool_call_allow():
     assert harness.metrics.false_positives == 0
 
 
+@pytest.mark.gcp_eval
 @pytest.mark.asyncio
 async def test_eval_kernel_interception():
     """
@@ -263,6 +266,7 @@ async def test_eval_kernel_interception():
     assert harness.metrics.f1_score == 1.0
 
 
+@pytest.mark.gcp_eval
 @pytest.mark.asyncio
 async def test_eval_mesh_sync_latency():
     """
@@ -372,6 +376,7 @@ async def test_eval_mesh_sync_latency():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+@pytest.mark.gcp_eval
 @pytest.mark.asyncio
 async def test_eval_identity_honeytoken():
     """
@@ -466,6 +471,7 @@ async def test_eval_identity_honeytoken():
     exporter.record_evaluation_result(span=span, score=5.0, verdict="PASS")
 
 
+@pytest.mark.gcp_eval
 @pytest.mark.asyncio
 async def test_eval_forensics_dual_mode():
     """

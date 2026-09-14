@@ -12,6 +12,7 @@ from blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval import GCPVe
 from blackwall.enterprise.advanced_threat_detection.models import NormalizedEvent, EventSource
 
 
+@pytest.mark.gcp_eval
 @pytest.mark.asyncio
 async def test_swarm_attack_scenario_vertex_evaluation():
     """Simulate coordinated multi-agent attack and evaluate swarm detection trajectory."""

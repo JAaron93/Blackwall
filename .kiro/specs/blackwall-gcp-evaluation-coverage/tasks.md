@@ -373,8 +373,8 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
 
 ### Track E: Integration & CI (Depends on Tracks C + D)
 
-- [ ] E.1 End-to-end integration testing
-  - [ ] E.1.1 Create `tests/integration/test_eval_pipeline_e2e.py`
+- [x] E.1 End-to-end integration testing
+  - [x] E.1.1 Create `tests/integration/test_eval_pipeline_e2e.py`
     - Execute full pipeline: load scenarios → run Blackwall detection → judge → aggregate → gate
     - Verify Cloud Trace spans emitted (mock exporter)
     - Verify regression tracker persistence
@@ -382,7 +382,7 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
     - _Requirements: 10.1–10.6, 14.1–14.4, 18.1–18.4_
     - _Verification: `pytest tests/integration/test_eval_pipeline_e2e.py -v`_
 
-  - [ ] E.1.2 Write BDD feature tests for full pipeline
+  - [x] E.1.2 Write BDD feature tests for full pipeline
     - Create `tests/features/eval_pipeline.feature` with Gherkin scenarios
     - Scenario: full pipeline with all domains above threshold exits with code 0
     - Scenario: pipeline with one domain below threshold exits with code 1
@@ -392,14 +392,14 @@ This implementation plan closes 12 identified evaluation gaps by building an Age
     - _Requirements: 10.1–10.6, 14.1–14.4, 17.1–17.4, 18.1–18.4_
     - _Verification: `pytest tests/step_defs/test_eval_pipeline_bdd.py -v`_
 
-- [ ] E.2 CI/CD configuration and pytest markers
-  - [ ] E.2.1 Register `gcp_eval` pytest marker in `pyproject.toml`
+- [x] E.2 CI/CD configuration and pytest markers
+  - [x] E.2.1 Register `gcp_eval` pytest marker in `pyproject.toml`
     - Add `[tool.pytest.ini_options] markers = ["gcp_eval: GCP evaluation pipeline tests (require ADC)"]`
     - Decorate all `tests/evaluation/` files with `@pytest.mark.gcp_eval`
     - _Requirements: 18.1, 18.2_
     - _Verification: `pytest --markers | grep gcp_eval`_
 
-  - [ ] E.2.2 Create evaluation CI stage configuration template
+  - [x] E.2.2 Create evaluation CI stage configuration template
     - Document recommended CI workflow: `pytest -m gcp_eval --eval-threshold=3.5`
     - Include ADC credential provisioning steps
     - Include `BLACKWALL_DISABLE_CLOUD_TRACE=true` flag for non-GCP CI runners
