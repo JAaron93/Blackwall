@@ -121,7 +121,21 @@ async def run_wave(wave: int) -> float:
             )
 
             t0 = time.perf_counter()
-            verdict = await resolver.evaluate(ctx)
+            try:
+                verdict = await resolver.evaluate(ctx)
+            except Exception as exc:
+                elapsed_ms = (time.perf_counter() - t0) * 1000.0
+                elapsed_times.append(elapsed_ms)
+                verdict = Verdict(
+                    decision=VerdictDecision.BLOCK,
+                    reasoning=f"Fail-closed fallback: {exc}",
+                    confidence_score=1.0,
+                )
+                case_responses.append(f"BLOCK: Fail-closed fallback: {exc}")
+                exporter.record_evaluation_error(span=span, error=exc)
+                print(f"  [FALLBACK] {eval_id} -> BLOCK ({elapsed_ms:.1f}ms): Fallback on {exc}")
+                continue
+
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
             elapsed_times.append(elapsed_ms)
             case_responses.append(f"{verdict.decision.value}: {verdict.reasoning}")
