@@ -73,6 +73,11 @@ fi
 
 export GOOGLE_GENAI_USE_VERTEXAI="true"
 export GEMINI_TIER="paid"
+export BLACKWALL_TIER="paid"
+export GOOGLE_CLOUD_LOCATION="${GOOGLE_CLOUD_LOCATION:-global}"
+export GCP_LOCATION="${GCP_LOCATION:-global}"
+export BLACKWALL_ENABLE_SYNC_SEMANTIC_TRIAGE="true"
+export PATH="${REPO_ROOT}/.venv/bin:${PATH}"
 
 echo -e "  ${GREEN}✓${RESET} GCP_PROJECT is set (${GCP_PROJ})"
 echo -e "  ${GREEN}✓${RESET} 100% GCP Vertex AI Mode (Paid Tier) active"
@@ -86,19 +91,21 @@ echo -e "${BOLD}[2/8] Starting fresh Blackwall daemon (clean state)...${RESET}"
 cd "${REPO_ROOT}"
 
 # Remove stale DB so signatures start empty
-BLACKWALL_DB="${REPO_ROOT}/blackwall.db"
+BLACKWALL_DB="${BLACKWALL_DB_PATH:-${REPO_ROOT}/blackwall.db}"
+export BLACKWALL_DB_PATH="${BLACKWALL_DB}"
 if [[ -f "${BLACKWALL_DB}" ]]; then
-  echo "  Removing stale blackwall.db to ensure clean TSG state"
+  echo "  Removing stale ${BLACKWALL_DB} to ensure clean TSG state"
   rm -f "${BLACKWALL_DB}"
 fi
 
-# Start the daemon in the background
-adk run --reset-state &
+# Start the ADK API server daemon in its own process group
+set -m
+adk api_server agent/ --port 8080 >/dev/null 2>&1 &
 DAEMON_PID=$!
 echo -e "  ${GREEN}✓${RESET} Daemon started (PID: ${DAEMON_PID})"
 
-# Ensure daemon is killed on script exit (normal or error)
-trap 'echo -e "\n${YELLOW}[cleanup]${RESET} Stopping daemon (PID: ${DAEMON_PID})..."; kill "${DAEMON_PID}" 2>/dev/null || true' EXIT
+# Ensure entire daemon process group is killed on script exit (normal or error)
+trap 'echo -e "\n${YELLOW}[cleanup]${RESET} Stopping daemon process group (PGID: ${DAEMON_PID})..."; kill -TERM -"${DAEMON_PID}" 2>/dev/null || kill "${DAEMON_PID}" 2>/dev/null || true' EXIT
 
 # ---------------------------------------------------------------------------
 # 3. Wait for daemon to be ready (max 10s)
@@ -131,11 +138,7 @@ echo -e "${BOLD}[4/8] Running Wave-1 eval (novel attacks)...${RESET}"
 
 WAVE1_START_MS=$(python3 -c "import time; print(int(time.time() * 1000))")
 
-WAVE1_OUTPUT=$(agents-cli eval run \
-  tests/eval/evalsets/blackwall_evasion_proof.evalset.json \
-  --config tests/eval/eval_config_evasion.json \
-  --filter wave=1 \
-  --print_detailed_results 2>&1) || true
+WAVE1_OUTPUT=$(python3 "${SCRIPT_DIR}/run_evasion_wave.py" --wave 1 2>&1) || true
 
 WAVE1_END_MS=$(python3 -c "import time; print(int(time.time() * 1000))")
 WAVE1_LATENCY_MS=$(( WAVE1_END_MS - WAVE1_START_MS ))
@@ -219,11 +222,7 @@ echo -e "${BOLD}[7/8] Running Wave-2 eval (variant attacks — TSG path)...${RES
 
 WAVE2_START_MS=$(python3 -c "import time; print(int(time.time() * 1000))")
 
-WAVE2_OUTPUT=$(agents-cli eval run \
-  tests/eval/evalsets/blackwall_evasion_proof.evalset.json \
-  --config tests/eval/eval_config_evasion.json \
-  --filter wave=2 \
-  --print_detailed_results 2>&1) || true
+WAVE2_OUTPUT=$(python3 "${SCRIPT_DIR}/run_evasion_wave.py" --wave 2 2>&1) || true
 
 WAVE2_END_MS=$(python3 -c "import time; print(int(time.time() * 1000))")
 WAVE2_LATENCY_MS=$(( WAVE2_END_MS - WAVE2_START_MS ))
@@ -248,10 +247,17 @@ print('yes' if rate >= 1.0 else 'no')
 
 # ---------------------------------------------------------------------------
 # Calculate per-wave latency metrics
-# Per-case average = total wall time / 5 cases
 # ---------------------------------------------------------------------------
-WAVE1_AVG_LATENCY_MS=$(( WAVE1_LATENCY_MS / 5 ))
-WAVE2_AVG_LATENCY_MS=$(( WAVE2_LATENCY_MS / 5 ))
+WAVE1_REPORTED_LATENCY=$(echo "${WAVE1_OUTPUT}" | grep -oE 'avg_latency_ms[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || echo "")
+WAVE2_REPORTED_LATENCY=$(echo "${WAVE2_OUTPUT}" | grep -oE 'avg_latency_ms[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || echo "")
+
+if [[ -n "${WAVE1_REPORTED_LATENCY}" && -n "${WAVE2_REPORTED_LATENCY}" ]]; then
+  WAVE1_AVG_LATENCY_MS="${WAVE1_REPORTED_LATENCY}"
+  WAVE2_AVG_LATENCY_MS="${WAVE2_REPORTED_LATENCY}"
+else
+  WAVE1_AVG_LATENCY_MS=$(( WAVE1_LATENCY_MS / 5 ))
+  WAVE2_AVG_LATENCY_MS=$(( WAVE2_LATENCY_MS / 5 ))
+fi
 LATENCY_DELTA_MS=$(( WAVE1_AVG_LATENCY_MS - WAVE2_AVG_LATENCY_MS ))
 
 # Derive pass counts for display (5 cases per wave)
@@ -270,7 +276,22 @@ else
   WAVE2_ICON="✗"
 fi
 
-if [[ "${WAVE1_PASS}" == "yes" && "${WAVE2_PASS}" == "yes" ]]; then
+# Check Wave-2 signature matching latency against the < 50ms fast-path SLA threshold
+WAVE2_LATENCY_THRESHOLD_MS="${WAVE2_LATENCY_THRESHOLD_MS:-50}"
+WAVE2_LATENCY_PASS=$(python3 -c "
+lat = float('${WAVE2_AVG_LATENCY_MS}' or '9999.0')
+thresh = float('${WAVE2_LATENCY_THRESHOLD_MS}')
+print('yes' if lat < thresh else 'no')
+" 2>/dev/null || echo "no")
+
+if [[ "${WAVE2_LATENCY_PASS}" == "yes" ]]; then
+  WAVE2_LAT_ICON="✓"
+else
+  WAVE2_LAT_ICON="✗"
+fi
+
+# Overall success requires 100% pass rate on both waves AND signature matching latency < 50ms
+if [[ "${WAVE1_PASS}" == "yes" && "${WAVE2_PASS}" == "yes" && "${WAVE2_LATENCY_PASS}" == "yes" ]]; then
   OVERALL_RESULT="PASS"
   RESULT_COLOR="${GREEN}"
 else
@@ -290,7 +311,7 @@ printf "║ Wave 1 (Novel Attacks / Semantic Path):  %s/5 %s        ║\n" "${WA
 printf "║ Wave 2 (Variant Attacks / Signature):    %s/5 %s        ║\n" "${WAVE2_PASS_COUNT}" "${WAVE2_ICON}"
 echo "╠══════════════════════════════════════════════════════════╣"
 printf "║ Semantic-path avg latency:  %5dms                    ║\n" "${WAVE1_AVG_LATENCY_MS}"
-printf "║ Signature-path avg latency: %5dms                    ║\n" "${WAVE2_AVG_LATENCY_MS}"
+printf "║ Signature-path avg latency: %5dms %s                 ║\n" "${WAVE2_AVG_LATENCY_MS}" "${WAVE2_LAT_ICON}"
 printf "║ Latency delta (speedup):    %5dms                    ║\n" "${LATENCY_DELTA_MS}"
 echo "╠══════════════════════════════════════════════════════════╣"
 echo -e "║ RESULT: ${RESULT_COLOR}${OVERALL_RESULT}${CYAN}                                               ║"
@@ -306,6 +327,9 @@ else
     echo ""
     echo "  Details:"
     echo "${WAVE2_OUTPUT}" | grep -E 'FAIL|fail|ERROR|error' | head -20 || true
+  fi
+  if [[ "${WAVE2_LATENCY_PASS}" != "yes" ]]; then
+    echo -e "${RED}Wave-2 LATENCY SLA FAILED — average signature matching latency ${WAVE2_AVG_LATENCY_MS}ms >= ${WAVE2_LATENCY_THRESHOLD_MS}ms threshold${RESET}"
   fi
   exit 1
 fi

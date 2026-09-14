@@ -470,3 +470,21 @@
   - In `run_evaluation_pipeline`, an evaluation run only qualifies as a clean baseline anchor (`is_clean_baseline=True`) if it achieves full coverage across all 9 canonical domains with zero fallbacks and zero failed scenarios.
   - In unit and integration tests verifying subsequent regression comparison logic on scoped domains, tests MUST explicitly seed the `HistoricalRegressionTracker` with a clean baseline (`EvalRunSummary(..., is_clean_baseline=True)`) before executing candidate runs to ensure the tracker can perform relative comparisons without requiring full 9-domain coverage.
 * **Rationale:** Discovered during Greptile review on PR #134. Review agents flag CI commands that omit BDD step definitions, CLI scripts missing documented flags, and selective runs failing baseline establishment.
+
+## 56. Two-Wave Evasion Transference, Process-Group Termination & Fail-Closed Evaluation Loops
+* **Rule (Causal Transference Verification in Multi-Wave Evasion Tests):**
+  - In self-learning evasion benchmarks (e.g. `scripts/run_evasion_eval.sh`, `scripts/run_evasion_wave.py`), Wave 1 novel attacks MUST generate inline threat signatures dynamically through the live interception resolution path (`repo.writeSignature`). Pre-populating predetermined static signatures is strictly prohibited.
+  - Wave 2 variant evaluations MUST assert both:
+    1. The decision is `BLOCK`: `verdict.decision == VerdictDecision.BLOCK`.
+    2. The reasoning confirms a genuine TSG hit: `"Blocked via signature match" in verdict.reasoning`.
+  - Latency thresholds MUST verify that Wave 2 signature-path lookups complete in $< 50\text{ ms}$ (typically $< 15\text{ ms}$), demonstrating measurable speedup over the multi-second Wave 1 semantic evaluation path.
+* **Rule (Shell-to-Python Database Path Synchronization):**
+  - Shell launchers resetting SQLite state prior to evaluations MUST explicitly export the resolved database path: `export BLACKWALL_DB_PATH="${BLACKWALL_DB}"`.
+  - Invoked Python modules MUST read `os.getenv("BLACKWALL_DB_PATH", ...)` to ensure the daemon, the reset routine, and the evaluation runner target the identical physical file.
+* **Rule (Shell Launcher Process-Group Cleanup):**
+  - Shell scripts launching background server daemons (e.g. `adk api_server`) MUST enable job control (`set -m`), capture `DAEMON_PID=$!`, and terminate the entire process group in the exit trap using `kill -TERM -"${DAEMON_PID}" 2>/dev/null || kill "${DAEMON_PID}" 2>/dev/null || true` to prevent orphaned child workers from keeping ports occupied.
+* **Rule (Fail-Closed Loop Resilience in Adversarial Runners):**
+  - Evaluation loops iterating over adversarial datasets MUST wrap individual case executions in `try...except Exception as exc:`, construct a fail-closed `Verdict(decision=VerdictDecision.BLOCK, reasoning=f"Fail-closed fallback: {exc}")`, mark `span.attributes["is_fallback"] = True`, and record the error on the telemetry span rather than allowing transient exceptions to abort the multi-wave run.
+* **Rule (No Hardcoded Fallback Project IDs in Paid-Tier Runners):**
+  - Paid-tier Vertex AI evaluation runners MUST require `GCP_PROJECT` or `GOOGLE_CLOUD_PROJECT` explicitly and raise `ValueError` immediately at startup. Defaulting to hardcoded placeholder project strings is prohibited.
+* **Rationale:** Codified after live execution and Greptile review on PR #136. Review bots flag loose process-group traps, unproven evasion transference, missing database synchronization, and silent project ID fallbacks.

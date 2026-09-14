@@ -105,8 +105,12 @@ System 2 evaluates Blackwall Core's tool interception proxy (`before_tool_callba
 # 1. Automated Two-Wave Evasion Proof (Launches daemon and evaluates Wave 1 vs Wave 2)
 bash scripts/run_evasion_eval.sh
 
+# Under the hood, run_evasion_eval.sh delegates each wave to the live wave runner:
+python3 scripts/run_evasion_wave.py --wave 1
+python3 scripts/run_evasion_wave.py --wave 2
+
 # 2. Direct agents-cli evaluation on the full security evalset
-# Ensure the ADK agent is running: adk run --reset-state &
+# Ensure the ADK agent is running: adk api_server agent/ --port 8080 &
 agents-cli eval run tests/eval/evalsets/blackwall_security.evalset.json \
   --config tests/eval/eval_config.json \
   --print_detailed_results
