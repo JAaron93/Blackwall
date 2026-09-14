@@ -78,6 +78,7 @@ async def run_wave(wave: int) -> float:
     passed_count = 0
     total_cases = len(cases)
     elapsed_times: list[float] = []
+    case_responses: list[str] = []
 
     try:
         print(f"--- Running Wave {wave} ({total_cases} cases) ---")
@@ -123,6 +124,7 @@ async def run_wave(wave: int) -> float:
             verdict = await resolver.evaluate(ctx)
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
             elapsed_times.append(elapsed_ms)
+            case_responses.append(f"{verdict.decision.value}: {verdict.reasoning}")
 
             # Wave verification logic:
             # Wave 1: Novel attacks must be blocked (or quarantined) via semantic triage
@@ -171,12 +173,13 @@ async def run_wave(wave: int) -> float:
                 "Kernel and tool call security threat interception evaluation in GCP Vertex AI mode"
                 for _ in cases
             ],
+            "response": case_responses,
         })
         autorater = harness.build_threat_accuracy_autorater()
-        harness.run_eval_task(
+        eval_result = harness.run_eval_task(
             dataset=eval_dataset,
             metrics=[autorater],
-            model="gemini-2.5-flash",
+            model="gemini-3.8-flash",
         )
 
         # Cancel lingering background tasks
