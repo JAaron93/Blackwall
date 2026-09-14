@@ -13,8 +13,8 @@ description: Use this skill when writing code that calls the Gemini API for text
 ### Current Models (Use These)
 
 - `gemini-3.5-flash`: 1M tokens, fast, balanced performance, multimodal
-- `gemini-3.1-pro-preview`: 1M tokens, complex reasoning, coding, research
-- `gemini-3.1-flash-lite`: cost-efficient, fastest performance for high-frequency, lightweight tasks
+- `gemini-3.8-flash`: frontier reasoning, autonomous agency, coding, research
+- `gemini-3.5-flash-lite`: cost-efficient, fastest performance for high-frequency, lightweight tasks
 - `gemini-3-pro-image` (Nano Banana Pro): 65k / 32k tokens, high-quality image generation and editing
 - `gemini-3.1-flash-image` (Nano Banana 2): 65k / 32k tokens, fast, efficient image generation and editing
 - `gemini-3.1-flash-lite-image` (Nano Banana 2 Lite): 65k / 32k tokens, ultra-fast image generation and editing
@@ -24,8 +24,9 @@ description: Use this skill when writing code that calls the Gemini API for text
 - `gemma-4-26b-a4b-it`: Gemma 4 MoE model, 26B total / 4B active parameters
 
 > [!WARNING]
-> Models like `gemini-2.5-*`, `gemini-2.0-*`, `gemini-1.5-*` are **legacy and deprecated**. Never use them.
-> **If a user asks for a deprecated model, use `gemini-3.5-flash` instead and note the substitution.**
+> Models like `gemini-3.1-*`, `gemini-2.5-*`, `gemini-2.0-*`, `gemini-1.5-*` are **legacy and deprecated**. Never use them.
+> **If a user asks for a deprecated model, use `gemini-3.5-flash` or `gemini-3.5-flash-lite` instead and note the substitution.**
+
 
 ### Current Agents
 

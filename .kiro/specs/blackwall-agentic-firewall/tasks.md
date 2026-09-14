@@ -10,7 +10,7 @@ This implementation plan breaks down the Blackwall Agentic Firewall **local MVP*
 - **Unprivileged user execution** with Python runtime audit hooks forcing all tool calls through ADK layer
 - **Local file-based configuration** and policy files (YAML, no external config servers)
 - **No horizontal scaling or multi-tenant patterns**
-- **Dual-agent demo scope**: Blackwall (Gemini 3.1 Flash-Lite, 300 RPM) vs. Rogue Agent (Qwen3, 600 RPM max) in single-VM sandbox
+- **Dual-agent demo scope**: Blackwall (Gemini 3.5 Flash-Lite, 300 RPM) vs. Rogue Agent (Qwen3, 600 RPM max) in single-VM sandbox
 - **Limited test payloads** for demonstration (not 24/7 production operation)
 
 **Key Architectural Constraints:**

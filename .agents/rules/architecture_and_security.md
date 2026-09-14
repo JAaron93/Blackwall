@@ -22,6 +22,7 @@
 
 ## 6. Context Hygiene & Sanitization
 * **Rule:** `ContextHygiene` middleware (`src/blackwall/middleware/context_hygiene.py`, re-exported in `src/blackwall/resolver.py`) must replace sensitive environment variable patterns with generic placeholders (`[[VARIABLE_NAME]]`). Integration tests querying external hostnames (e.g. GTI / VirusTotal) must use un-redacted standalone hostnames (e.g. `wd-bouygues.com`) to prevent accidental sanitization matching.
+* **Rule (IoC Preservation for Semantic Triage):** When context is sanitized for model-based semantic triage (`SyncResolver`), callers MUST set `preserve_iocs=True`. This preserves critical target file paths (e.g., `/etc/shadow`, `/etc/passwd`) and remote network indicators (e.g., `http://evil-c2.com/payload.sh`) while strictly redacting secrets, Bearer tokens, private keys, and query parameter credentials (`?token=...`, `?key=...`), enabling Gemini 3.5 Flash-Lite to accurately evaluate intent without evaluating dummy placeholders.
 
 ## 7. Pydantic Model Import Preservation
 * **Rule:** When modifying imports in Pydantic schema files (`models.py`, `src/blackwall/policy/models.py`), core Pydantic symbols (`BaseModel`, `Field`, `field_validator`, `model_validator`) MUST NOT be deleted or replaced. Always preserve Pydantic imports alongside newly added utility imports to avoid import-time `NameError` failures.
@@ -212,7 +213,7 @@
 * **Rule (Deep Reasoning & Forensic Attribution Model):** MUST default to `gemini-3.8-flash` for frontier semantic reasoning, attack path decompilation, and threat signature synthesis.
 * **Rule (Flash-Only Architecture & Prohibition of Pro Models):** Blackwall operates exclusively on Gemini Flash models. All Gemini Pro models (`gemini-*-pro*`) and unverified/hallucinated model identifiers are strictly prohibited in production, test suites, evaluation judges, benchmarks, mocks, and property tests.
 * **Rule (Embeddings Model):** MUST default to `gemini-embedding-001` (768 dimensions).
-* **Rule (Deprecated Models Deny List):** All legacy model identifiers (`gemini-1.5-*`, `gemini-2.0-*`, `gemini-2.5-*`, and `gemini-3.1-pro-preview`) are strictly deprecated and prohibited in production and test configurations.
+* **Rule (Deprecated Models Deny List):** All legacy model identifiers (`gemini-1.5-*`, `gemini-2.0-*`, `gemini-2.5-*`, and `gemini-3.1-*` including `gemini-3.1-flash-lite` and `gemini-3.1-pro-preview`) are strictly deprecated and prohibited in production and test configurations.
 * **Rationale:** `gemini-3.5-flash-lite` provides sub-100ms SLA compliance for the hot synchronous path, while `gemini-3.8-flash` delivers frontier reasoning speed and depth without the latency penalties of legacy preview models.
 
 ## 43. GCP Vertex AI EvalTask Failure Escalation & Cloud Trace Telemetry Invariants
@@ -326,7 +327,7 @@
 * **Rationale:** Treating arbitrary resource scopes or workload labels as security trust boundaries causes legitimate multi-service or multi-tenant agents to accumulate false-positive crossing counts, escalating risk to `HIGH` or `CRITICAL` and inadvertently triggering automated identity session revocation (`revoke_identity_session()`).
 
 ## 53. Blackwall MCP Gateway Architecture & Transport Security Invariants
-* **Rule (Agent Agnosticism):** Gateway specification components (`src/blackwall/gateway/`, `src/blackwall/cli.py` governed by `.kiro/specs/blackwall-mcp-gateway/`) MUST NOT include hardcoded rules, special casing, or coupling for any specific agent runtime (Hermes Agent, Antigravity, Warp Terminal, Claude Desktop, Cursor). All communication must adhere strictly to the generic Model Context Protocol (MCP) JSON-RPC specification.
+* **Rule (Agent Agnosticism & Specification Boundaries):** Gateway specification components (`src/blackwall/gateway/`, `src/blackwall/cli.py`, and `gateway.yaml` representing the Blackwall MCP Gateway Architectural Specification governed by `.kiro/specs/blackwall-mcp-gateway/`) MUST NOT include hardcoded rules, special casing, or coupling for any specific agent runtime (Hermes Agent, Antigravity, Warp Terminal, Claude Desktop, Cursor). All communication must adhere strictly to the generic Model Context Protocol (MCP) JSON-RPC specification.
 * **Rule (Transport Security & Loopback Default):** The MCP Streamable HTTP transport MUST default to `127.0.0.1:9229` with `Origin` and `Host` header validation to prevent DNS rebinding attacks.
 * **Rule (Remote Authentication Boundary & Startup Guard):** When `--host` binds to a non-loopback address, a pre-shared bearer token (`--auth-token` or `BLACKWALL_AUTH_TOKEN`) is mandatory. Inbound requests missing a valid `Authorization: Bearer <token>` header MUST be rejected with HTTP 401 before JSON-RPC processing. The gateway daemon MUST refuse to start if configured with a non-loopback host without an auth token.
 * **Rule (JSON-RPC Request ID Concurrency Isolation):** The gateway stream layer MUST track all in-flight requests by JSON-RPC `id` to ensure responses, cancellations, and errors are mapped deterministically during concurrent evaluation.
@@ -477,7 +478,7 @@
 * **Rationale:** Discovered during PR #125 review. Greptile and automated security review bots enforce AST-level parameterization hygiene across all query dialects (including Cypher). Interpolating dynamic strings into graph query f-strings triggers immediate P1 security findings for query injection.
 
 ## 71. Security Boundary Documentation Integrity & Verified API Contracts
-* **Rule (Production API Alignment):** High-level project documentation (e.g. `README.md`, `ARCHITECTURE.md`, `SECURITY.md`) explaining OS-level interception, runtime audit hooks (`sys.addaudithook`), or kernel boundaries MUST strictly reflect verified production code APIs rather than speculative pseudo-code.
+* **Rule (Production API Alignment):** High-level project documentation (e.g. `README.md`, `ARCHITECTURE.md`, `ENTERPRISE_ARCHITECTURE.md`) explaining OS-level interception, runtime audit hooks (`sys.addaudithook`), or kernel boundaries MUST strictly reflect verified production code APIs rather than speculative pseudo-code.
 * **Rule (No Fictional Helper Functions):** Documented code snippets MUST import and reference actual codebase classes and entrypoints (e.g., `AuditHookManager(db_path=...).start()`) rather than fictional helper functions (e.g., `is_inside_approved_tool_execution()`).
 * **Rule (Accurate Exception Semantics):** Documentation MUST accurately state error-handling semantics (e.g., `PermissionError` is raised before OS syscall dispatch; never claim standard Python runtime exceptions are "uncatchable").
 * **Rationale:** Discovered during PR #125 review. Automated AI review bots (Greptile, CodeRabbit) cross-reference documentation code snippets against repository AST definitions. Introducing imaginary functions or claiming standard Python exceptions cannot be caught triggers P1 accuracy and security boundary review failures.
@@ -503,4 +504,11 @@
 * **Rule (URL-Decoding Pre-Pass):** SQLite Threat Signature Graph queries (FTS5 and pattern matching) and in-memory signature lookup resolvers MUST perform URL-decoding (`urllib.parse.unquote(query)`) on candidate queries and tool arguments prior to pattern matching.
 * **Rule (Evasion Resilience):** Security resolvers must ensure that URL-encoded attack variants (e.g. `%20UNION%20SELECT`, `%27%20OR%201=1`) match persisted plaintext threat signatures (`UNION SELECT`, `' OR 1=1`) without requiring duplicate URL-encoded signature entries in the database.
 * **Rationale:** Discovered during PR #126 review and security regression testing. Attack payloads attempting evasion via URL encoding bypass literal string matching unless decoded before database lookup.
+
+## 76. Native Structured Outputs & Prompt Scaffolding Prohibition
+* **Rule (Structured Outputs Mandatory):** All Gemini Interactions API and generative model invocations for triage, verdict resolution, or entity synthesis (e.g. `BatchResolver`, `SyncResolver`, `BackgroundTaskSubmitter`) MUST enforce native structured output schemas using `response_schema=<PydanticModel>` and `response_mime_type="application/json"`.
+* **Rule (No Manual Regex JSON Extraction):** Codebases and evaluation pipelines MUST NOT use manual regex JSON extractors, markdown code fence strippers (e.g. `r'```json\s*(\{.*?\})\s*```'`), or bracket-counting heuristic parsers to parse model responses. Responses must be accessed via native `response.parsed` or strict JSON parsing.
+* **Rule (No Negative Prompt Scaffolding):** System and developer prompts for Gemini 3.5+ models MUST NOT contain defensive negative constraints or conversational scaffolding instructing the model not to emit markdown delimiters, conversational commentary, or duplicate scratchpads. Schema constraints belong strictly in `response_schema`.
+* **Rationale:** Gemini 3.5 Flash-Lite natively adheres to Pydantic schemas. Legacy regex extractors and defensive prompt clutter from Gemini 3.1 Flash-Lite waste context tokens, inflate latency, and introduce brittle parsing edge cases.
+
 
