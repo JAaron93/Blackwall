@@ -23,14 +23,14 @@ The evaluation suite can be invoked in CI pipelines via two equivalent entrypoin
 
 ### Option A: Pytest Marker Execution (Recommended for Test Suites)
 ```bash
-# Run all evaluation tests decorated with the gcp_eval marker
-pytest -v -m gcp_eval tests/evaluation/ tests/integration/test_eval_pipeline_e2e.py
+# Run all evaluation tests (unit, integration, and BDD) decorated with the gcp_eval marker
+pytest -v -m gcp_eval tests/evaluation/ tests/integration/test_eval_pipeline_e2e.py tests/step_defs/test_eval_pipeline_bdd.py
 ```
 
 ### Option B: Dedicated Pipeline Runner (Recommended for Full CI Gates)
 ```bash
-# Run the automated Agent-as-a-Judge pipeline with a configurable quality threshold
-python3 scripts/run_gcp_eval.py --threshold 3.5 --model gemini-3.8-flash
+# Run the automated Agent-as-a-Judge pipeline with a configurable quality threshold (--eval-threshold or --threshold)
+python3 scripts/run_gcp_eval.py --eval-threshold 3.5 --model gemini-3.8-flash
 ```
 
 ---
@@ -82,7 +82,7 @@ For local developer workstations, air-gapped runners, or test environments witho
 export BLACKWALL_DISABLE_CLOUD_TRACE=true
 
 # 2. Allow offline heuristic fallback scoring
-python3 scripts/run_gcp_eval.py --threshold 3.5 --allow-fallback
+python3 scripts/run_gcp_eval.py --eval-threshold 3.5 --allow-fallback
 ```
 
 When running with `--allow-fallback`:
@@ -97,11 +97,11 @@ When running with `--allow-fallback`:
 The pipeline evaluates both absolute quality thresholds and historical regression baselines:
 
 - **Exit Code 0 (PASS)**:
-  - All evaluated domain mean scores meet or exceed `--threshold` (default: $\ge 3.5/5.0$).
+  - All evaluated domain mean scores meet or exceed `--eval-threshold` (default: $\ge 3.5/5.0$).
   - No domain mean score drops by $> 0.5$ points compared to the latest clean historical baseline (`tests/eval/regression/history.jsonl`).
   - No unhandled runtime exceptions or component preparation errors occurred.
 - **Exit Code 1 (FAIL)**:
-  - Any domain mean score falls below `--threshold`.
+  - Any domain mean score falls below `--eval-threshold`.
   - A historical score regression $> 0.5$ points is detected.
   - An unhandled component failure occurs during execution.
 
@@ -142,5 +142,5 @@ jobs:
           BLACKWALL_TIER: 'paid'
           GOOGLE_GENAI_USE_VERTEXAI: 'true'
         run: |
-          pytest -v -m gcp_eval tests/evaluation/ tests/integration/test_eval_pipeline_e2e.py
+          pytest -v -m gcp_eval tests/evaluation/ tests/integration/test_eval_pipeline_e2e.py tests/step_defs/test_eval_pipeline_bdd.py
 ```

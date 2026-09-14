@@ -1103,11 +1103,23 @@ def print_summary_report(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Blackwall GCP Evaluation Pipeline Runner")
     parser.add_argument("--domains", type=str, default=None, help="Comma-separated list of domains to evaluate")
-    parser.add_argument("--eval-threshold", type=float, default=3.5, help="Minimum domain mean score to pass CI (default: 3.5)")
+    parser.add_argument(
+        "--eval-threshold",
+        "--threshold",
+        dest="eval_threshold",
+        type=float,
+        default=3.5,
+        help="Minimum domain mean score to pass CI (default: 3.5)",
+    )
     parser.add_argument("--scenarios-dir", type=str, default=str(DEFAULT_SCENARIOS_DIR), help="Path to evaluation scenarios directory")
     parser.add_argument("--history-path", type=str, default=str(DEFAULT_HISTORY_PATH), help="Path to regression history JSONL file")
     parser.add_argument("--model", type=str, default=None, help="Gemini judge model override")
     parser.add_argument("--no-trace", action="store_true", help="Disable Cloud Trace OpenTelemetry export")
+    parser.add_argument(
+        "--allow-fallback",
+        action="store_true",
+        help="Allow offline heuristic fallback scoring when Vertex AI is unavailable",
+    )
     return parser.parse_args()
 
 
@@ -1123,6 +1135,7 @@ def main() -> None:
             history_path=args.history_path,
             model=args.model,
             export_trace=not args.no_trace,
+            allow_fallback=args.allow_fallback,
         )
     )
     sys.exit(exit_code)
