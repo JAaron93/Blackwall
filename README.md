@@ -856,9 +856,10 @@ pytest tests/features/blackwall_guardrails.feature -v
 ### How to Run System Evaluation
 
 1. **Start Here:** Set `GCP_PROJECT` in `.env` (100% GCP Vertex AI Mode via Gemini Enterprise Agent Platform)
-2. **Run Evaluation:** `bash scripts/run_evasion_eval.sh`
-3. **See Results:** Wave 1 blocks novel attacks → Wave 2 blocks variants 100x faster
-4. **Read Design:** [design.md](.kiro/specs/blackwall-agentic-firewall/design.md) for full architecture
+2. **Run Evasion Evaluation:** `bash scripts/run_evasion_eval.sh`
+3. **Run Performance & Resource Benchmarking:** `python scripts/benchmark_performance.py --output tests/eval/results/benchmark_report.json`
+4. **See Results:** Wave 1 blocks novel attacks → Wave 2 blocks variants 100x faster; TSG queries < 1ms @ P99 across 10k signatures
+5. **Read Design:** [design.md](.kiro/specs/blackwall-agentic-firewall/design.md) for full architecture
 
 ### Key Claims & Verification Results
 
