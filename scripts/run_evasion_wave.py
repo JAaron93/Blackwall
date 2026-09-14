@@ -77,6 +77,7 @@ async def run_wave(wave: int) -> float:
 
     passed_count = 0
     total_cases = len(cases)
+    elapsed_times: list[float] = []
 
     try:
         print(f"--- Running Wave {wave} ({total_cases} cases) ---")
@@ -121,6 +122,7 @@ async def run_wave(wave: int) -> float:
             t0 = time.perf_counter()
             verdict = await resolver.evaluate(ctx)
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
+            elapsed_times.append(elapsed_ms)
 
             # Wave verification logic:
             # Wave 1: Novel attacks must be blocked (or quarantined) via semantic triage
@@ -164,12 +166,17 @@ async def run_wave(wave: int) -> float:
             "prompt": [
                 f"Evaluate security threat interception for scenario {c.get('eval_id')}"
                 for c in cases
-            ]
+            ],
+            "context": [
+                "Kernel and tool call security threat interception evaluation in GCP Vertex AI mode"
+                for _ in cases
+            ],
         })
+        autorater = harness.build_threat_accuracy_autorater()
         harness.run_eval_task(
             dataset=eval_dataset,
-            metrics=["threat_interception_accuracy"],
-            model="gemini-3.8-flash",
+            metrics=[autorater],
+            model="gemini-2.5-flash",
         )
 
         # Cancel lingering background tasks
@@ -183,6 +190,8 @@ async def run_wave(wave: int) -> float:
         await asyncio.sleep(0.05)
 
     pass_rate = passed_count / total_cases if total_cases > 0 else 0.0
+    avg_latency_ms = int(sum(elapsed_times) / len(elapsed_times)) if elapsed_times else 0
+    print(f"avg_latency_ms: {avg_latency_ms}")
     print(f"pass_rate: {pass_rate:.1f}")
     return pass_rate
 

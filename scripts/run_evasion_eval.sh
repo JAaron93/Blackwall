@@ -246,10 +246,17 @@ print('yes' if rate >= 1.0 else 'no')
 
 # ---------------------------------------------------------------------------
 # Calculate per-wave latency metrics
-# Per-case average = total wall time / 5 cases
 # ---------------------------------------------------------------------------
-WAVE1_AVG_LATENCY_MS=$(( WAVE1_LATENCY_MS / 5 ))
-WAVE2_AVG_LATENCY_MS=$(( WAVE2_LATENCY_MS / 5 ))
+WAVE1_REPORTED_LATENCY=$(echo "${WAVE1_OUTPUT}" | grep -oE 'avg_latency_ms[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || echo "")
+WAVE2_REPORTED_LATENCY=$(echo "${WAVE2_OUTPUT}" | grep -oE 'avg_latency_ms[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || echo "")
+
+if [[ -n "${WAVE1_REPORTED_LATENCY}" && -n "${WAVE2_REPORTED_LATENCY}" ]]; then
+  WAVE1_AVG_LATENCY_MS="${WAVE1_REPORTED_LATENCY}"
+  WAVE2_AVG_LATENCY_MS="${WAVE2_REPORTED_LATENCY}"
+else
+  WAVE1_AVG_LATENCY_MS=$(( WAVE1_LATENCY_MS / 5 ))
+  WAVE2_AVG_LATENCY_MS=$(( WAVE2_LATENCY_MS / 5 ))
+fi
 LATENCY_DELTA_MS=$(( WAVE1_AVG_LATENCY_MS - WAVE2_AVG_LATENCY_MS ))
 
 # Derive pass counts for display (5 cases per wave)
