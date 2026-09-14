@@ -544,13 +544,10 @@ python3 demo_live.py --plain
 bash scripts/run_evasion_eval.sh
 ```
 
-**Expected output (Free Tier):**
+**Expected output:**
 ```
 ╔══════════════════════════════════════════════════════════╗
-║     BLACKWALL EVASION DETECTION PROOF — FREE TIER        ║
-║                                                          ║
-║  ⚠  FREE TIER mode (15 RPM). Est. ~8-10 min for 120     ║
-║     test cases. Set BLACKWALL_TIER=paid for ~40s.        ║
+║           BLACKWALL EVASION EVAL RESULTS                 ║
 ╠══════════════════════════════════════════════════════════╣
 ║ Wave 1 (Novel Attacks / Semantic Path):  5/5 ✓           ║
 ║ Wave 2 (Variant Attacks / Signature):    5/5 ✓           ║
@@ -559,7 +556,7 @@ bash scripts/run_evasion_eval.sh
 ║ Signature-path avg latency:    12ms                      ║
 ║ Latency delta (speedup):     1403ms  [116x faster]       ║
 ╠══════════════════════════════════════════════════════════╣
-║ RESULT: PASS                          [FREE TIER MODE]   ║
+║ RESULT: PASS                        [VERTEX AI 300+ RPM] ║
 ╚══════════════════════════════════════════════════════════╝
 
 FRR (False Refusal Rate):  6.2%  ✓ (target: <10%)
@@ -615,23 +612,23 @@ The pipeline routes scenarios from `tests/eval/judge_scenarios/` and the GCP nat
 
 ## 🏛 System Design Details
 
-### Free Tier vs. Paid Tier Comparison
+### Synchronous vs. Batched Interception Architecture
 
-| Component | Free Tier (This Eval) | Paid Tier (Full Demo) |
-|-----------|----------------------|----------------------|
-| **Entry Class** | `FreeTierADKIntegration` | `ADKIntegration` |
+| Component | SyncResolver (Core Single-Request) | BatchResolver (Enterprise High-Throughput) |
+|-----------|-----------------------------------|-------------------------------------------|
+| **Entry Class** | `SyncResolver` | `ADKIntegration` / `BatchResolver` |
 | **Resolver** | `SyncResolver` | `BatchResolver` |
 | **API Method** | `client.models.generate_content()` | `client.interactions.create()` |
 | **Batching** | None (1 req/interception) | Yes (5 reqs/batch) |
-| **Rate Limit** | 15 RPM (token bucket) | 300 RPM (token bucket) |
+| **Rate Limit** | 300 RPM (token bucket) | 300 RPM (token bucket) |
 | **Context Caching** | None | Server-side (`previous_interaction_id`) |
 | **GTI/CBM Queries** | Serial | Parallel (asyncio.gather) |
 | **Signature Gen** | Inline blocking (~200-500ms) | Background via webhook (0ms added) |
-| **Eval Duration** | ~8-10 minutes | ~40 seconds |
-| **Billing Required** | ❌ No | ✅ Yes |
+| **Eval Duration** | ~40-60 seconds | ~40 seconds |
+| **Billing Required** | ✅ Yes (Vertex AI) | ✅ Yes (Vertex AI) |
 | **Core Innovation** | ✅ Self-learning | ✅ Self-learning |
 
-**Key Point:** Free and paid tiers implement identical security logic — tier selection only affects throughput and latency, not detection capability.
+**Key Point:** Sync and Batch resolvers implement identical security logic under the 100% GCP Vertex AI 300+ RPM quota contract — resolver selection optimizes between low-latency single-event interception and batched high-throughput concurrency.
 
 ### Core Components
 
@@ -640,6 +637,8 @@ The pipeline routes scenarios from `tests/eval/judge_scenarios/` and the GCP nat
 - Tool name matching, environment role-based access control
 - Supports priority-ordered rules with AND/OR operators
 - Hot-reload support without restart
+- Debounced file watcher (`PolicyWatcher`) with trailing retries to prevent dropped updates during multi-stage atomic disk writes
+- Context manager protocol (`with PolicyWatcher(...):`) for clean thread lifecycle management
 - Target latency: <5ms @ 99th percentile ✅
 
 #### **Threat Signature Graph** (~10ms)
@@ -656,13 +655,20 @@ The pipeline routes scenarios from `tests/eval/judge_scenarios/` and the GCP nat
 - Audit trail with SHA256 hashes (no reverse mapping)
 - 100ms timeout per regex pattern (prevents ReDoS attacks)
 
-#### **GTI Query Budget Tracker**
+#### **GTI Query Budget Tracker & MCP Transport**
 - Token bucket algorithm: 4 tokens, 15-second replenishment
 - High-risk event classification (new IPs, suspicious hashes, unknown domains)
+- Zero-disk-I/O cached SSLContext singleton (`get_certifi_ssl_context`) using `@functools.lru_cache` across all outbound GTI and MCP transport calls
 - Graceful degradation: weight redistribution when budget exhausted
   * Normal: GTI 40% + CBM 30% + Context 30%
   * Degraded: GTI 0% (penalty -0.2) + CBM 50% + Context 50%
 - Circuit breaker for service failures (distinct from budget exhaustion)
+
+#### **Local Vault & JIT Credentials**
+- Authenticated encryption store (`EncryptedLocalStore` / `LocalVault`) using standard `HKDF-SHA256` key derivation
+- Seamless dual-cipher decryption fallback for legacy SHA-256 stores
+- Atomic file saves with restricted `0o600` file permissions (owner read/write only)
+- Short-lived scoped token generation (`tmp_<scope>_<uuid>`) with strict TTL expiration
 
 #### **Semantic Gating Engine** (<100ms @ P99)
 - Multi-source threat score aggregation:
@@ -690,6 +696,7 @@ The pipeline routes scenarios from `tests/eval/judge_scenarios/` and the GCP nat
 - Asynchronous batched API calls to Gemini Interactions API using Gemini 3.5 Flash-Lite
 - Native structured output decoding: enforces `response_schema=list[Verdict]` with `response_mime_type="application/json"` directly into Pydantic models (zero markdown stripping or regex repair heuristics)
 - Dynamic thinking level routing: enforces `thinking_level="minimal"` for rapid inline triage under 150ms TTFT
+- Native non-blocking async calling: prioritizes `client.aio.interactions.create` coroutines over thread executor dispatch
 - 300 RPM token bucket rate limiter (sliding 60-second window)
 - Exponential backoff on `APIRateLimitException` (100ms, 200ms, 400ms)
 - Server-side context caching: 50%+ token cost reduction via `previous_interaction_id`
@@ -699,9 +706,10 @@ The pipeline routes scenarios from `tests/eval/judge_scenarios/` and the GCP nat
 - Single-request synchronous evaluation with optional LLM semantic triage (`BLACKWALL_ENABLE_SYNC_SEMANTIC_TRIAGE=true`)
 - Structured semantic intent evaluation via Gemini 3.5 Flash-Lite (`response_schema=Verdict`, `thinking_level="minimal"`)
 - Native structured signature synthesis producing typed `ThreatSignaturePayload` models after `BLOCK` verdicts
+- Native non-blocking async calling: directly awaits `client.aio.models.generate_content` coroutines without thread-pool context switches
 - 300 RPM token bucket rate limiter under 100% GCP Vertex AI Mode (fail-closed QUARANTINE)
 - Serial GTI → CBM queries (no parallelism)
-- All 14 unit tests passing ✅
+- All 18 unit tests passing ✅
 
 ---
 
@@ -759,11 +767,11 @@ Wave 2 (Next variant): attacker attempts port 9443
 
 ## 🧪 Testing & Verification
 
-### Unit Tests (14 Passing)
+### Unit Tests (18 Passing)
 ```bash
-pytest tests/test_sync_resolver.py -v
+pytest tests/test_sync_resolver.py tests/unit/test_sync_resolver_async_aio.py -v
 # Covers: single-request eval, serial queries, threat scoring,
-# inline signatures, 15 RPM rate limit, budget redistribution
+# inline signatures, 300 RPM rate limit, native client.aio dispatch, budget redistribution
 ```
 
 ### Property-Based Tests (12 Properties, 1,000+ Cases Each)
@@ -848,9 +856,10 @@ pytest tests/features/blackwall_guardrails.feature -v
 ### How to Run System Evaluation
 
 1. **Start Here:** Set `GCP_PROJECT` in `.env` (100% GCP Vertex AI Mode via Gemini Enterprise Agent Platform)
-2. **Run Evaluation:** `bash scripts/run_evasion_eval.sh`
-3. **See Results:** Wave 1 blocks novel attacks → Wave 2 blocks variants 100x faster
-4. **Read Design:** [design.md](.kiro/specs/blackwall-agentic-firewall/design.md) for full architecture
+2. **Run Evasion Evaluation:** `bash scripts/run_evasion_eval.sh`
+3. **Run Performance & Resource Benchmarking:** `python scripts/benchmark_performance.py --output tests/eval/results/benchmark_report.json`
+4. **See Results:** Wave 1 blocks novel attacks → Wave 2 blocks variants 100x faster; TSG queries < 1ms @ P99 across 10k signatures
+5. **Read Design:** [design.md](.kiro/specs/blackwall-agentic-firewall/design.md) for full architecture
 
 ### Key Claims & Verification Results
 

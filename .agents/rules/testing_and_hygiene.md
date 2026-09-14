@@ -414,3 +414,19 @@
 * **Rule (Agent Entrypoint Knowledge Graph Invariant):**
   - Production agent entrypoints (`agent/__init__.py`) MUST instantiate `SyncResolver` with an active `CodebaseMemoryClient` (`cbm_client=CodebaseMemoryClient(base_url=os.getenv("CBM_MCP_BASE_URL"))`) to satisfy the mandatory interception sequence: `Rate Check` -> `Context Hygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Conditional GTI Validation (High-Risk Only)` -> `Score Aggregation` -> `Threshold Verdict`.
 * **Rationale:** Discovered during Task 21 implementation and PR #123 review cycles. Raising exceptions in callbacks crashes ADK benchmark runs, evaluating trajectory scores without LLM rubrics misses semantic bypasses, and omitting `cbm_client` in `agent/__init__.py` breaks the core interception sequence.
+
+## 52. Testing Triad Invariant for Core Source Code Modifications
+* **Rule (Three-Layer Test Coverage):**
+  Any PR introducing new capabilities, refactoring logic, or modifying behavior in `src/` MUST include test coverage across all three testing layers before triggering automated reviews:
+  1. **Unit / Integration Tests (`tests/unit/`, `tests/`)**: Deterministic assertion of components, error branches, and edge cases.
+  2. **Hypothesis Property-Based Tests (`tests/property/`)**: Fuzzing invariants, round-trip serialization (`save` $\to$ `load`), and boundary stability across random inputs.
+  3. **Behavior-Driven Specifications (`tests/features/` & `tests/step_defs/`)**: Gherkin behavioral contracts evaluated using `pytest-bdd` and `run_async`.
+* **Rule (First-Review Cleanliness):** Omitting any of the three layers trips the repository's automated review rules (`Test-Driven Development (TDD) & BDD Coverage`), resulting in score drops below the 4/5 threshold and review churn.
+* **Rationale:** Codified after Greptile review on PR #130. Automated AI review agents enforce complete test parity across unit, property, and BDD specifications for every modified source module.
+
+## 53. Packaging Isolation & Realistic Sustained Benchmark Pacing Invariants
+* **Rule (Zero `tests/` Imports in Production Package Code):** Modules under `src/` (including benchmark runners and CLI utilities) MUST NEVER import modules, fixtures, or helpers from `tests/` (e.g. `tests.integration.helpers`). When Blackwall is installed as a package or run from an external working directory, `tests/` is not in `PYTHONPATH`, causing immediate `ModuleNotFoundError` crashes. Default policies or fixtures must be packaged directly within `src/` or embedded as constants.
+* **Rule (Genuine Thread Concurrency for Synchronous Engines):** Benchmark suites testing concurrent load on CPU-bound or synchronous engines (e.g. `StructuralGatingEngine`) MUST NOT rely on single-threaded `asyncio.gather(*[...])` without suspension points, which executes calls sequentially. Concurrent load MUST be dispatched across a `concurrent.futures.ThreadPoolExecutor` worker pool to test genuine thread contention and OS scheduling.
+* **Rule (Real Pacing Over Synthetic Time):** Sustained throughput and rate benchmarks (e.g. 300 RPM) MUST actively pace requests at the claimed interval (`interval = 60.0 / rate_rpm`) rather than running back-to-back in an unpaced tight loop and dividing CPU time by an arbitrary synthetic duration. CPU utilization must be calculated against the actual elapsed wall time.
+* **Rule (Dual-Hardware Gateway Resource Enforcement):** Performance benchmarks MUST enforce the strict repository resource budgets in `.greptile/config.json`: memory RSS must not exceed 350.0 MB and sustained CPU must not exceed 2.0% on a 2-core baseline.
+* **Rationale:** Discovered during Greptile review on PR #132. Review bots flag loose resource limits, unpaced tight loops masquerading as sustained rate tests, and packaging breakage caused by cross-directory test imports.

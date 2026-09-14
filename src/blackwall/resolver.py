@@ -8,6 +8,8 @@ from uuid import uuid4
 
 from blackwall.models import (
     CallbackToken,
+    EventType,
+    SecurityEvent,
     ToolCallContext,
     Verdict,
     VerdictDecision,
@@ -272,14 +274,28 @@ class BatchResolver:
         client: Any,
         policy_snapshot: Optional[Dict[str, Any]] = None,
         webhook_port: int = 8090,
+        repo: Any = None,
+        aba: Any = None,
     ):
         self.client = client
         self.policy_snapshot = policy_snapshot or {}
         self.webhook_port = webhook_port
+        self.repo = repo
+        if aba is not None:
+            self.aba = aba
+        elif self.repo is not None:
+            from blackwall.analytics import AgentBehavioralAnalytics
+
+            self.aba = AgentBehavioralAnalytics(repo=self.repo, client=self.client)
+        else:
+            self.aba = None
 
         # Components
         self.rate_limiter = TokenBucketRateLimiter(capacity=300.0, refill_rate=5.0)
         self.hygiene = ContextHygiene(preserve_iocs=True)
+
+        # Background task registry for self-learning loop lifecycle tracking
+        self._background_tasks: set[asyncio.Task[Any]] = set()
 
         # Cache Tracking
         self.last_interaction_id: Optional[str] = None
@@ -331,6 +347,31 @@ class BatchResolver:
         """Metrics tracking hook for webhook completions."""
         self.webhook_callbacks_received += 1
         self.total_webhook_latency_ms += latency_ms
+
+    def _schedule_task(self, coro: Any) -> None:
+        """Schedules background learning work with lifecycle tracking and error logging."""
+        try:
+            loop = asyncio.get_running_loop()
+            task = loop.create_task(coro)
+            self._background_tasks.add(task)
+
+            def _done(t: asyncio.Task[Any]) -> None:
+                self._background_tasks.discard(t)
+                if not t.cancelled() and t.exception():
+                    logger.warning("Background learning task failed: %s", t.exception())
+
+            task.add_done_callback(_done)
+        except RuntimeError:
+            pass
+
+    async def flush_background_tasks(self) -> None:
+        """Awaits all pending background learning tasks to complete."""
+        if self._background_tasks:
+            await asyncio.gather(*list(self._background_tasks), return_exceptions=True)
+
+    async def close(self) -> None:
+        """Flushes background tasks before closing."""
+        await self.flush_background_tasks()
 
     async def process_batch(
         self, callback_tokens: List[CallbackToken]
@@ -451,6 +492,32 @@ class BatchResolver:
                             "Failed to attach span ID to callback tokens", exc_info=True
                         )
 
+                    # Wire self-learning loop (ABA) after batch verdicts are produced
+                    if self.aba:
+                        for token, verdict in zip(callback_tokens, response.verdicts):
+                            if verdict.decision == VerdictDecision.BLOCK:
+                                try:
+                                    sec_event = SecurityEvent(
+                                        event_type=EventType.BLOCK,
+                                        tool_context=token.tool_context or ToolCallContext(tool_name="unknown", arguments={}),
+                                        verdict=verdict,
+                                        telemetry_span_id=getattr(token, "telemetry_span_id", None),
+                                    )
+                                    self._schedule_task(self.aba.generateSignature(sec_event))
+                                except Exception as aba_err:
+                                    logger.debug("Failed to dispatch ABA generateSignature: %s", aba_err)
+                            elif verdict.decision == VerdictDecision.QUARANTINE:
+                                try:
+                                    sec_event = SecurityEvent(
+                                        event_type=EventType.QUARANTINE,
+                                        tool_context=token.tool_context or ToolCallContext(tool_name="unknown", arguments={}),
+                                        verdict=verdict,
+                                        telemetry_span_id=getattr(token, "telemetry_span_id", None),
+                                    )
+                                    self._schedule_task(self.aba.triggerRefactoring(sec_event))
+                                except Exception as aba_err:
+                                    logger.debug("Failed to dispatch ABA triggerRefactoring: %s", aba_err)
+
                     return response
 
                 except (APIRateLimitException, Exception) as e:
@@ -567,10 +634,7 @@ class BatchResolver:
 
         # Call Gemini Interactions API
         try:
-            # We call the client.interactions.create asynchronously to prevent blocking the event loop
-            # If the client library has sync methods, we run them in an executor so the timeout can be enforced.
-            # If the client library has async methods, we call them directly.
-            create_fn = self.client.interactions.create
+            # Call Gemini Interactions API
             thinking_lvl = get_gemini_thinking_level(
                 model=DEFAULT_RAPID_TRIAGE_MODEL, task_type="rapid_triage"
             )
@@ -583,14 +647,20 @@ class BatchResolver:
                 "thinking_level": thinking_lvl,
                 "timeout": API_CALL_TIMEOUT,
             }
-            if asyncio.iscoroutinefunction(create_fn):
-                interaction = await create_fn(**create_kwargs)
+            aio_interactions = getattr(getattr(self.client, "aio", None), "interactions", None)
+            aio_create = getattr(aio_interactions, "create", None)
+            sync_create = getattr(getattr(self.client, "interactions", None), "create", None)
+
+            if aio_create is not None and asyncio.iscoroutinefunction(aio_create):
+                interaction = await aio_create(**create_kwargs)
+            elif sync_create is not None and asyncio.iscoroutinefunction(sync_create):
+                interaction = await sync_create(**create_kwargs)
             else:
                 # Run synchronous call in executor with network-level timeout
                 loop = asyncio.get_event_loop()
                 interaction = await loop.run_in_executor(
                     None,
-                    lambda: create_fn(**create_kwargs),
+                    lambda: self.client.interactions.create(**create_kwargs),
                 )
 
             # Update last interaction ID for server-side context caching
@@ -613,10 +683,12 @@ class BatchResolver:
 
             # Retrieve usage details
             usage = getattr(interaction, "usage", None)
-            tokens_consumed = getattr(usage, "total_tokens", 0) if usage else 0
-            cached_tokens = (
+            raw_tokens = getattr(usage, "total_tokens", 0) if usage else 0
+            tokens_consumed = int(raw_tokens) if isinstance(raw_tokens, (int, float)) else 0
+            raw_cached = (
                 getattr(usage, "cached_content_token_count", 0) if usage else 0
             )
+            cached_tokens = int(raw_cached) if isinstance(raw_cached, (int, float)) else 0
 
             # Target >=50% token reduction on cache hits
             cache_hit_count = (
@@ -818,25 +890,21 @@ def create_resolver(
     policy_snapshot: Optional[Dict[str, Any]] = None,
 ) -> Any:
     """
-    Factory: returns SyncResolver (free tier) or BatchResolver (paid tier)
-    based on BLACKWALL_TIER env var. Defaults to 'free' (judge-friendly).
+    Factory: returns BatchResolver (default, 300 RPM batch mode) or SyncResolver
+    (300 RPM synchronous mode) based on BLACKWALL_TIER or BLACKWALL_RESOLVER_MODE.
+    Defaults to 'paid' (BatchResolver, 300 RPM) under 100% GCP Vertex AI Mode.
 
     Usage:
         resolver = create_resolver(client, policy_server=server, repo=repo)
 
     Environment:
-        BLACKWALL_TIER=free   → SyncResolver  (default)
-        BLACKWALL_TIER=paid   → BatchResolver
+        BLACKWALL_TIER=paid             → BatchResolver (default, 300 RPM)
+        BLACKWALL_RESOLVER_MODE=sync    → SyncResolver (300 RPM)
     """
-    tier = os.getenv("BLACKWALL_TIER", "free").lower().strip()
+    mode = os.getenv("BLACKWALL_RESOLVER_MODE", "").lower().strip()
+    tier = os.getenv("BLACKWALL_TIER", "paid").lower().strip()
 
-    if tier == "paid":
-        return BatchResolver(
-            client=client,
-            policy_snapshot=policy_snapshot or {},
-            webhook_port=webhook_port,
-        )
-    else:
+    if mode == "sync" or tier in ("sync", "free"):
         from blackwall.sync_resolver import SyncResolver
 
         return SyncResolver(
@@ -847,3 +915,9 @@ def create_resolver(
             cbm_client=cbm_client,
             gti_budget_tracker=gti_budget_tracker,
         )
+    return BatchResolver(
+        client=client,
+        policy_snapshot=policy_snapshot or {},
+        webhook_port=webhook_port,
+        repo=repo,
+    )

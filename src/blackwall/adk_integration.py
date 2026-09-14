@@ -177,7 +177,7 @@ class ADKIntegration:
 
 class FreeTierADKIntegration:
     """
-    Free-tier ADK integration. before_tool_callback directly calls
+    Synchronous ADK integration (300 RPM Vertex AI Mode). before_tool_callback directly calls
     SyncResolver.evaluate() and blocks synchronously
     (no InterceptionQueue, no batch accumulation).
     """

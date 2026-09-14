@@ -28,6 +28,7 @@ from blackwall.mcp.transport import (
     MCPTimeoutError,
     MCPTransportError,
     call_mcp_tool_http,
+    get_certifi_ssl_context,
 )
 
 __all__ = [
@@ -47,6 +48,7 @@ __all__ = [
     "GTIRouter",
     "MCPRoutingViolation",
     "call_mcp_tool_http",
+    "get_certifi_ssl_context",
     "MCPTransportError",
     "MCPConnectionError",
     "MCPTimeoutError",

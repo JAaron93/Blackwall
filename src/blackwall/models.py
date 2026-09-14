@@ -155,7 +155,7 @@ class ResolverMetrics(BaseModel):
 
 
 class SyncResolverMetrics(BaseModel):
-    """Metrics for the free-tier SyncResolver."""
+    """Metrics for the synchronous SyncResolver (300 RPM)."""
 
     total_evaluations: int = 0
     average_latency_ms: float = 0.0
