@@ -36,9 +36,30 @@ fn get_hash_regex() -> &'static Regex {
 }
 
 /// Calculate Shannon entropy over character frequencies in a string.
+///
+/// For ASCII input (byte == char) a fixed 128-bin histogram is used to avoid
+/// per-character hashing; non-ASCII input falls back to a `HashMap` over
+/// Unicode scalar values. Numerical results are identical for ASCII inputs
+/// and within float tolerance for multibyte inputs (NFR-2, ε ≤ 1e-5).
 pub fn compute_shannon_entropy(s: &str) -> f64 {
     if s.is_empty() {
         return 0.0;
+    }
+
+    if s.is_ascii() {
+        let mut counts = [0u32; 128];
+        for &b in s.as_bytes() {
+            counts[b as usize] += 1;
+        }
+        let total_f = s.len() as f64;
+        let mut entropy = 0.0f64;
+        for &count in counts.iter() {
+            if count > 0 {
+                let p = (count as f64) / total_f;
+                entropy -= p * p.log2();
+            }
+        }
+        return entropy;
     }
 
     let mut counts: HashMap<char, usize> = HashMap::new();
@@ -83,6 +104,12 @@ pub fn extract_iocs_from_slice(strings: &[String]) -> HashMap<String, Vec<String
             // Trim outer punctuation (periods, quotes, commas) while preserving valid IPv6 colons
             let trimmed = raw_token.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != ':');
             if trimmed.is_empty() {
+                continue;
+            }
+
+            // Any parseable IPv4/IPv6 address must contain at least one digit
+            // (0-9); word-only tokens fast-fail in `from_str`, so skip them.
+            if !trimmed.bytes().any(|b| b.is_ascii_digit()) {
                 continue;
             }
 

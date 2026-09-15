@@ -36,15 +36,14 @@ except (ImportError, AttributeError):
 
 # ── Benchmark helpers ────────────────────────────────────────────────────────
 
-_WARMUP_ITERS = 25
+_WARMUP_ITERS = 50
 _BENCH_ITERS = 1000
 
 
 def _bench(fn, *args, n: int = _BENCH_ITERS, warmup: int = _WARMUP_ITERS):
     """Run fn(*args) n times and return (mean_µs, min_µs, p99_µs).
 
-    Uses a 98% trimmed mean (discarding top 2% OS scheduler/preemption spikes)
-    to measure genuine code execution latency deterministically.
+    Computes pure arithmetic mean across all n samples per repository requirement.
     """
     for _ in range(warmup):
         fn(*args)
@@ -55,12 +54,9 @@ def _bench(fn, *args, n: int = _BENCH_ITERS, warmup: int = _WARMUP_ITERS):
         fn(*args)
         times_ns.append(time.perf_counter_ns() - t0)
 
-    sorted_ns = sorted(times_ns)
-    # Discard top 2% OS preemption spikes to isolate code execution latency
-    trimmed = sorted_ns[: max(1, int(0.98 * len(sorted_ns)))]
-    mean_us = statistics.mean(trimmed) / 1_000
-    min_us = sorted_ns[0] / 1_000
-    p99_us = sorted_ns[int(0.99 * len(sorted_ns))] / 1_000
+    mean_us = statistics.mean(times_ns) / 1_000
+    min_us = min(times_ns) / 1_000
+    p99_us = sorted(times_ns)[int(0.99 * len(times_ns))] / 1_000
     return mean_us, min_us, p99_us
 
 
@@ -190,6 +186,35 @@ def bench_vector_similarity():
 
 # ── Benchmark 3: IOC Extraction + Shannon Entropy (< 30µs combined) ──────────
 
+_IOC_PAYLOAD_BYTES = 1024
+
+
+def _build_ioc_payload(target_bytes: int = _IOC_PAYLOAD_BYTES) -> str:
+    """Build a realistic fixed 1KB threat payload for the IOC + entropy hot path.
+
+    Section 57 (Realistic Workload Scale in Accelerated Hot-Path Benchmarks)
+    requires the combined gate to run on a 1KB payload with genuine IOC variety
+    (IPs, domains, hashes, URLs). Filler text is natural narrative language
+    containing no accidental IOC patterns.
+    """
+    threat_block = (
+        "Suspicious process contacted 192.168.1.200 and c2.malware.example.com "
+        "with hash sha256:deadbeefcafebabe1234567890abcdef1234567890abcdef1234567890abcdef "
+        "over https://evil.example.org/payload.bin and ip=10.0.0.5"
+    )
+    filler = (
+        "The implant beaconed at fixed intervals and staged encrypted archives "
+        "for exfiltration while evading the host watchdog process. "
+    )
+    payload = threat_block
+    padding = target_bytes - len(payload)
+    if padding > 0:
+        filler_text = (filler * (padding // len(filler) + 1))[: padding - 1]
+        payload += " " + filler_text
+    assert len(payload) >= target_bytes, f"IOC payload too small: {len(payload)}"
+    return payload
+
+
 def bench_ioc_extraction():
     """SLA: < 30µs for IOC extraction + Shannon entropy on a 1KB threat payload (NFR-1).
 
@@ -200,14 +225,11 @@ def bench_ioc_extraction():
         print("  ❌ FAIL | IOC + Entropy — Rust extension not available")
         return False
 
-    payload = (
-        "Suspicious process contacted 192.168.1.200 and c2.malware.example.com "
-        "with hash sha256:deadbeefcafebabe1234567890abcdef1234567890abcdef1234567890abcdef "
-        "over https://evil.example.org/payload.bin and ip=10.0.0.5"
-    )
+    payload = _build_ioc_payload()
+    payloads = [payload]  # hoisted: avoid per-iteration list allocation
 
     def run():
-        _core_rs.extract_iocs([payload])
+        _core_rs.extract_iocs(payloads)
         _core_rs.calculate_entropy(payload)
 
     mean, min_, p99 = _bench(run)

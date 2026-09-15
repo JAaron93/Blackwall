@@ -110,14 +110,29 @@ fn dfs_find_paths_core(
         node_to_idx.insert(node.node_id.as_str(), i);
     }
 
-    // Build index-based adjacency list: usize → Vec<usize>
-    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n_count];
+    // Build CSR adjacency (offsets + flat target list): a single contiguous
+    // allocation instead of one heap Vec per node.
+    let mut offsets = vec![0usize; n_count + 1];
+    for edge in &edges {
+        if let (Some(&u), Some(&_v)) = (
+            node_to_idx.get(edge.from_id.as_str()),
+            node_to_idx.get(edge.to_id.as_str()),
+        ) {
+            offsets[u + 1] += 1;
+        }
+    }
+    for i in 0..n_count {
+        offsets[i + 1] += offsets[i];
+    }
+    let mut targets = vec![0usize; offsets[n_count]];
+    let mut cursor: Vec<usize> = offsets[..n_count].to_vec();
     for edge in &edges {
         if let (Some(&u), Some(&v)) = (
             node_to_idx.get(edge.from_id.as_str()),
             node_to_idx.get(edge.to_id.as_str()),
         ) {
-            adj[u].push(v);
+            targets[cursor[u]] = v;
+            cursor[u] += 1;
         }
     }
 
@@ -136,7 +151,8 @@ fn dfs_find_paths_core(
 
         dfs_recurse_idx(
             start_idx,
-            &adj,
+            &offsets,
+            &targets,
             &mut current_path,
             &mut visited,
             min_path_length,
@@ -159,10 +175,11 @@ fn dfs_find_paths_core(
         .collect()
 }
 
-/// High-speed index-based recursive DFS helper.
+/// High-speed index-based recursive DFS helper over CSR adjacency.
 fn dfs_recurse_idx(
     current_idx: usize,
-    adj: &[Vec<usize>],
+    offsets: &[usize],
+    targets: &[usize],
     current_path: &mut Vec<usize>,
     visited: &mut [bool],
     min_path_length: usize,
@@ -178,7 +195,7 @@ fn dfs_recurse_idx(
         return;
     }
 
-    for &neighbor_idx in &adj[current_idx] {
+    for &neighbor_idx in &targets[offsets[current_idx]..offsets[current_idx + 1]] {
         if results.len() >= max_paths {
             break;
         }
@@ -188,7 +205,8 @@ fn dfs_recurse_idx(
 
             dfs_recurse_idx(
                 neighbor_idx,
-                adj,
+                offsets,
+                targets,
                 current_path,
                 visited,
                 min_path_length,
