@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone, timedelta
 import json
+import logging
 import re
 from typing import Any, Collection, Optional, TypeVar, Union
 from uuid import UUID, uuid4
@@ -15,6 +16,8 @@ except (ImportError, AttributeError):
     _core_rs = None
 
 T = TypeVar("T", bound=Collection[Any])
+
+logger = logging.getLogger(__name__)
 
 
 def validate_semver_format(v: str) -> str:
@@ -287,5 +290,180 @@ def stamp_evaluation_metadata(
     meta["is_evaluation"] = True
     meta["eval_mode"] = True
     return meta
+
+
+def normalize_text(v: Any = None, default: str = "") -> str:
+    """Normalize free-form text by stripping surrounding whitespace and lowercasing.
+
+    Returns ``default`` when ``v`` is ``None``; coerces other non-string
+    scalars via ``str()`` before normalizing.
+    """
+    if v is None:
+        return default
+    text = v if isinstance(v, str) else str(v)
+    return text.strip().lower()
+
+
+def safe_float(v: Any, default: float = 0.0) -> float:
+    """Convert ``v`` to float, returning ``default`` on ValueError/TypeError."""
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        return default
+
+
+def safe_int(v: Any, default: int = 0) -> int:
+    """Convert ``v`` to int, returning ``default`` on ValueError/TypeError."""
+    try:
+        return int(v)
+    except (ValueError, TypeError):
+        return default
+
+
+# Key-name patterns that identify sensitive argument keys regardless of value format.
+# Checked against dict keys BEFORE JSON serialization to avoid quoted-key regex issues.
+SENSITIVE_KEY_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"(?i)password"),
+    re.compile(r"(?i)passwd"),
+    re.compile(r"(?i)\bpwd\b"),
+    re.compile(r"(?i)secret"),
+    re.compile(r"(?i)token"),
+    re.compile(r"(?i)api[_-]?key"),
+    re.compile(r"(?i)access[_-]?key"),
+    re.compile(r"(?i)private[_-]?key"),
+    re.compile(r"(?i)auth"),
+    re.compile(r"(?i)credential"),
+    re.compile(r"(?i)bearer"),
+]
+
+# Regex patterns for value-embedded secret inspection (second sanitization pass).
+REDACTION_PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
+    (
+        "API_KEY",
+        re.compile(r"(?i)(api[_-]?key|apikey|token)[\s:=]+['\"]?([a-zA-Z0-9_\-]{20,})"),
+        "[[API_KEY]]",
+    ),
+    (
+        "OPENAI_KEY",
+        # Matches: sk-abc123, sk-proj-abc-def123, sk-or-v1-abc, sk-ant-abc etc.
+        # The pattern allows hyphens within segments to catch project-scoped keys.
+        re.compile(r"sk-(?:[a-zA-Z0-9]+-)*[a-zA-Z0-9]{8,}"),
+        "[[OPENAI_API_KEY]]",
+    ),
+    (
+        "GOOGLE_KEY",
+        re.compile(r"AIza[a-zA-Z0-9_\-]{10,}"),
+        "[[GOOGLE_API_KEY]]",
+    ),
+    (
+        "SECRET_VALUE",
+        re.compile(r"(?i)(secret|api_key|apikey)[\s:\"']*:[\s\"']*[a-zA-Z0-9_\-]{8,}"),
+        "[[SECRET_VALUE]]",
+    ),
+    (
+        "KEY_VALUE_PAIR",
+        # Catches dict key names that look like API key env vars followed by their values.
+        # e.g. "OPENAI_API_KEY": "sk-...", "ANTHROPIC_API_KEY": "sk-ant-..."
+        re.compile(r'(?i)(["\']?(?:openai|anthropic|google|huggingface|cohere|azure|aws)[_-]?(?:api[_-]?)?key[_-]?(?:id|secret)?["\']?\s*:\s*["\']?)([a-zA-Z0-9_\-]{10,})'),
+        "[[API_KEY_VALUE]]",
+    ),
+    (
+        "PASSWORD",
+        re.compile(r"(?i)(password|passwd|pwd)[\s:=]+['\"]?([^\s'\"]+)"),
+        "[[PASSWORD]]",
+    ),
+    (
+        "URL",
+        re.compile(r"https?://[^\s\"']+"),
+        "[[URL]]",
+    ),
+    (
+        "IP_ADDRESS",
+        re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
+        "[[IP_ADDRESS]]",
+    ),
+    (
+        "EMAIL",
+        re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"),
+        "[[EMAIL]]",
+    ),
+    (
+        "FILE_PATH",
+        re.compile(r"(?:/[^/\\\s\"']+)+/?"),
+        "[[FILE_PATH]]",
+    ),
+]
+
+
+def is_sensitive_key(key: str) -> bool:
+    """Return True if the key name matches any known sensitive credential pattern."""
+    return any(pat.search(key) for pat in SENSITIVE_KEY_PATTERNS)
+
+
+def sanitize_value(value: Any) -> Any:
+    """Recursively sanitize a single value using two-pass secret redaction.
+
+    - Dicts: check key names first (pre-serialization), then recurse into values.
+    - Strings: apply all regex patterns.
+    - Lists: recurse into items.
+    - Other scalars: return as-is.
+    """
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        for k, v in value.items():
+            if is_sensitive_key(k):
+                result[k] = f"[[{k.upper()}_REDACTED]]"
+            else:
+                result[k] = sanitize_value(v)
+        return result
+    if isinstance(value, str):
+        redacted = value
+        for _name, pattern, placeholder in REDACTION_PATTERNS:
+            try:
+                redacted = pattern.sub(placeholder, redacted)
+            except re.error as exc:
+                logger.warning("Sanitization pattern failed: %s", exc)
+        return redacted
+    if isinstance(value, list):
+        return [sanitize_value(item) for item in value]
+    return value
+
+
+def sanitize_dict_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Sanitize a dictionary payload by redacting secrets via a two-pass strategy.
+
+    **Pass 1 — Key-name inspection (pre-serialization)**:
+    Replace values whose *key names* match known sensitive patterns.
+
+    **Pass 2 — Regex scan of serialized string**:
+    Run all ``REDACTION_PATTERNS`` over the JSON-serialized dict to catch
+    inline secret values embedded inside string values.
+
+    Fail-closed: returns ``{"sanitization_error": ...}`` if sanitization fails.
+    """
+    try:
+        # Pass 1: key-name-based redaction (handles quoted JSON key bypass)
+        pass1: dict[str, Any] = {}
+        for k, v in payload.items():
+            if is_sensitive_key(k):
+                pass1[k] = f"[[{k.upper()}_REDACTED]]"
+            else:
+                pass1[k] = sanitize_value(v)
+
+        # Pass 2: regex scan over JSON-serialized string for value-embedded secrets
+        serialized = json.dumps(pass1)
+        redacted = serialized
+        for _name, pattern, placeholder in REDACTION_PATTERNS:
+            try:
+                redacted = pattern.sub(placeholder, redacted)
+            except re.error as exc:
+                logger.warning("Sanitization pattern failed: %s", exc)
+                continue
+
+        return json.loads(redacted)
+    except Exception as exc:  # noqa: BLE001
+        # Never let sanitization block callers; fall back to a safe error dict
+        logger.error("Payload sanitization failed: %s", exc)
+        return {"sanitization_error": "[REDACTED DUE TO SANITIZATION FAILURE]"}
 
 
