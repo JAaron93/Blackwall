@@ -110,6 +110,17 @@ When deployed on the top-of-the-line **NVIDIA DGX Spark** (DGX OS / Ubuntu 24.04
 *   **Port Collision Avoidance:** Default gateway port `9229` MUST NOT collide with standard DGX OS AI serving ports: `11434` (Ollama), `8000`/`8001`/`8002` (vLLM, Triton), or `8888` (JupyterLab).
 *   **Container & Driver Transparency:** Blackwall's stream layer and Python audit hooks MUST operate transparently alongside Docker, `nvidia-container-toolkit` (`nvidia-ctk`), and CUDA IPC without intercepting or degrading GPU tensor operations.
 
+### FR-15: MCP Gateway Demo & Showcase Scenarios
+Blackwall MUST provide a self-contained, reproducible demo suite demonstrating the MCP Gateway's threat interception capabilities against real-world AI agent attack vectors:
+*   **Local Honeypot Server:** A locally-hosted FastAPI application (`scripts/gateway_demo/honeypot_server.py`) on `localhost:8765` serving pages with embedded indirect prompt injection payloads (hidden HTML comments, CSS-hidden divs, zero-width Unicode) that instruct consuming agents to exfiltrate credentials to a locally-captured C2 endpoint (`/exfil`). Zero external network dependencies.
+*   **Three Demo Scenarios:**
+    1.  **"The Heist" (BLOCK):** Demonstrates SyncResolver BLOCK verdict against indirect prompt injection credential exfiltration — agent reads a poisoned webpage, attempts `read_file` on `.env` + `http_request` POST to attacker C2, gateway blocks with JSON-RPC `-32603`. References [OWASP LLM01](https://genai.owasp.org/) and [MITRE ATLAS AML.T0051](https://atlas.mitre.org/techniques/AML.T0051).
+    2.  **"The Quarantine" (QUARANTINE + ALLOW):** Demonstrates surgical tool-chain isolation — legitimate `write_file` operations are ALLOW'd while a credential-harvesting `read_file` on `~/.ssh/id_rsa` is BLOCK'd, with session continuity verified. References [OWASP LLM07](https://genai.owasp.org/) and [MITRE ATLAS AML.T0054](https://atlas.mitre.org/techniques/AML.T0054).
+    3.  **"The Poisoned Package" (BLOCK via Audit Hook):** Demonstrates defense-in-depth — MCP Gateway ALLOW's initial `run_command` for package install, but Python audit hook (`sys.addaudithook`) catches `subprocess.Popen` and `socket.connect` runtime escapes in the postinstall script. References [OWASP LLM05](https://genai.owasp.org/) and [MITRE ATLAS AML.T0049](https://atlas.mitre.org/techniques/AML.T0049).
+*   **Recording Infrastructure:** An orchestration script (`scripts/gateway_demo/record_demo.sh`) producing `asciinema` terminal recordings in split-pane tmux format (agent flow + gateway logs), with `.cast` output files in `docs/recordings/` convertible to GIF/SVG for README embedding.
+*   **Single Entry Point:** All three scenarios MUST be executable via `scripts/gateway_demo/run_gateway_demo.sh` with zero manual intervention.
+*   **OWASP & MITRE Attribution:** Each demo scenario MUST reference its corresponding [OWASP Top 10 for LLMs](https://genai.owasp.org/) and [MITRE ATLAS](https://atlas.mitre.org/) taxonomy entries in documentation and source comments.
+
 ## Non-Functional Requirements
 
 ### NFR-01: Zero Non-Python Dependencies
@@ -192,3 +203,18 @@ I want Blackwall Core to run as a native `systemd` daemon on DGX OS (`aarch64`) 
 **As a DGX OS / Ubuntu Linux user,**
 I want to install Blackwall via `sudo dpkg -i blackwall-*.deb` or `apt install ./blackwall-*.deb`,
 **So that** the executable, systemd unit, and default configuration are pre-installed and ready to run with zero manual configuration.
+
+### US-10: Witnessing Gateway BLOCK Against Indirect Prompt Injection
+**As a potential Blackwall user evaluating the product,**
+I want to watch a recorded demo showing an AI agent being tricked by a malicious website into stealing my API keys, only for Blackwall's MCP Gateway to block the exfiltration in real-time,
+**So that** I can see concrete proof of Blackwall's protection before deciding to install it.
+
+### US-11: Witnessing Surgical Quarantine Without Disrupting Legitimate Work
+**As a developer evaluating whether Blackwall will slow down my workflow,**
+I want to see a demo where Blackwall allows legitimate file operations to proceed while simultaneously blocking a credential theft attempt from the same agent session,
+**So that** I know Blackwall is surgical rather than a blunt kill switch that would break my development flow.
+
+### US-12: Witnessing Defense-in-Depth via Python Audit Hook
+**As a security-conscious developer,**
+I want to see a demo where even after a tool call passes the MCP Gateway, a malicious postinstall script's runtime escape attempt is caught by Blackwall's Python audit hook,
+**So that** I understand Blackwall provides multiple layers of protection, not just protocol-level interception.
