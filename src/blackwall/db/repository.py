@@ -30,6 +30,169 @@ except (ImportError, AttributeError):
 logger = structlog.get_logger("blackwall.db.repository")
 
 
+# Track 3 (Pillar 3) explicit SQL construction: swarm lineage statements are
+# defined once at module level so reviewers can audit every query in one
+# place. All value binding uses `?` placeholders; no identifiers or values
+# are ever interpolated into these statements.
+_SWARM_PROFILE_COLUMN_MIGRATIONS = (
+    ("swarm_memberships", "TEXT DEFAULT '[]'"),
+    ("suspected_covert_channels", "TEXT DEFAULT '[]'"),
+    ("collective_confidence", "REAL DEFAULT 0.0"),
+    ("collective_name", "TEXT"),
+)
+
+_CREATE_LOCAL_SWARM_CONTEXTS_TABLE = """
+CREATE TABLE IF NOT EXISTS local_swarm_contexts (
+    swarm_id TEXT PRIMARY KEY,
+    collective_name TEXT,
+    collective_confidence REAL NOT NULL DEFAULT 0.0,
+    coordinating_agents TEXT NOT NULL DEFAULT '[]',
+    suspected_covert_channels TEXT NOT NULL DEFAULT '[]',
+    covert_channel_type TEXT,
+    deduction_rationale TEXT,
+    first_detected TEXT NOT NULL,
+    last_detected TEXT NOT NULL
+);
+"""
+
+_CREATE_IDX_SWARM_AGENTS = "CREATE INDEX IF NOT EXISTS idx_swarm_agents ON local_swarm_contexts(coordinating_agents);"
+
+_UPSERT_ATTACKER_PROFILE = """
+INSERT INTO attacker_profiles (
+    fingerprint, first_seen, last_seen, total_attacks,
+    threat_score, associated_signatures, targeted_tools, risk_category,
+    swarm_memberships, suspected_covert_channels,
+    collective_confidence, collective_name
+) VALUES (
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+) ON CONFLICT(fingerprint) DO UPDATE SET
+    last_seen = excluded.last_seen,
+    total_attacks = attacker_profiles.total_attacks + excluded.total_attacks,
+    threat_score = excluded.threat_score,
+    risk_category = excluded.risk_category,
+    targeted_tools = (
+        SELECT json_group_array(value) FROM (
+            SELECT value FROM json_each(attacker_profiles.targeted_tools)
+            UNION
+            SELECT value FROM json_each(excluded.targeted_tools)
+        )
+    ),
+    associated_signatures = (
+        SELECT json_group_array(value) FROM (
+            SELECT value FROM json_each(attacker_profiles.associated_signatures)
+            UNION
+            SELECT value FROM json_each(excluded.associated_signatures)
+        )
+    ),
+    swarm_memberships = (
+        SELECT json_group_array(value) FROM (
+            SELECT value FROM json_each(attacker_profiles.swarm_memberships)
+            UNION
+            SELECT value FROM json_each(excluded.swarm_memberships)
+        )
+    ),
+    suspected_covert_channels = (
+        SELECT json_group_array(value) FROM (
+            SELECT value FROM json_each(attacker_profiles.suspected_covert_channels)
+            UNION
+            SELECT value FROM json_each(excluded.suspected_covert_channels)
+        )
+    ),
+    collective_confidence = MAX(
+        attacker_profiles.collective_confidence,
+        excluded.collective_confidence
+    ),
+    collective_name = COALESCE(
+        excluded.collective_name, attacker_profiles.collective_name
+    )
+RETURNING fingerprint, first_seen, last_seen, total_attacks, threat_score, targeted_tools, associated_signatures, risk_category, swarm_memberships, suspected_covert_channels, collective_confidence, collective_name;
+"""
+
+_SELECT_ATTACKER_PROFILE = """
+SELECT fingerprint, first_seen, last_seen, total_attacks,
+        threat_score, associated_signatures, targeted_tools, risk_category,
+        swarm_memberships, suspected_covert_channels,
+        collective_confidence, collective_name
+FROM attacker_profiles
+WHERE fingerprint = ?
+"""
+
+_UPSERT_SWARM_CONTEXT = """
+INSERT INTO local_swarm_contexts (
+    swarm_id, collective_name, collective_confidence,
+    coordinating_agents, suspected_covert_channels,
+    covert_channel_type, deduction_rationale,
+    first_detected, last_detected
+) VALUES (
+    ?, ?, ?, ?, ?, ?, ?, ?, ?
+) ON CONFLICT(swarm_id) DO UPDATE SET
+    collective_name = COALESCE(
+        excluded.collective_name, local_swarm_contexts.collective_name
+    ),
+    collective_confidence = MAX(
+        local_swarm_contexts.collective_confidence,
+        excluded.collective_confidence
+    ),
+    coordinating_agents = (
+        SELECT json_group_array(value) FROM (
+            SELECT value FROM json_each(local_swarm_contexts.coordinating_agents)
+            UNION
+            SELECT value FROM json_each(excluded.coordinating_agents)
+        )
+    ),
+    suspected_covert_channels = (
+        SELECT json_group_array(value) FROM (
+            SELECT value FROM json_each(local_swarm_contexts.suspected_covert_channels)
+            UNION
+            SELECT value FROM json_each(excluded.suspected_covert_channels)
+        )
+    ),
+    covert_channel_type = COALESCE(
+        excluded.covert_channel_type, local_swarm_contexts.covert_channel_type
+    ),
+    deduction_rationale = COALESCE(
+        excluded.deduction_rationale, local_swarm_contexts.deduction_rationale
+    ),
+    first_detected = MIN(
+        local_swarm_contexts.first_detected, excluded.first_detected
+    ),
+    last_detected = MAX(
+        local_swarm_contexts.last_detected, excluded.last_detected
+    )
+RETURNING swarm_id, collective_name, collective_confidence,
+    coordinating_agents, suspected_covert_channels,
+    covert_channel_type, deduction_rationale,
+    first_detected, last_detected;
+"""
+
+_SELECT_SWARM_CONTEXT_BY_ID = """
+SELECT swarm_id, collective_name, collective_confidence,
+       coordinating_agents, suspected_covert_channels,
+       covert_channel_type, deduction_rationale,
+       first_detected, last_detected
+FROM local_swarm_contexts
+WHERE swarm_id = ?
+"""
+
+_SELECT_SWARM_CONTEXT_BY_AGENT = """
+SELECT swarm_id, collective_name, collective_confidence,
+       coordinating_agents, suspected_covert_channels,
+       covert_channel_type, deduction_rationale,
+       first_detected, last_detected
+FROM local_swarm_contexts
+WHERE EXISTS (
+    SELECT 1 FROM json_each(local_swarm_contexts.coordinating_agents)
+    WHERE value = ?
+)
+ORDER BY last_detected DESC
+LIMIT 1;
+"""
+
+_SELECT_SWARM_MEMBERSHIPS = (
+    "SELECT swarm_memberships FROM attacker_profiles WHERE fingerprint = ?;"
+)
+
+
 class SQLiteThreatRepository:
     def __init__(self, db_path: str = "./blackwall.db"):
         self.db_path = db_path
@@ -255,37 +418,15 @@ class SQLiteThreatRepository:
                 # Self-healing swarm lineage columns for pre-existing DBs.
                 cursor = await conn.execute("PRAGMA table_info(attacker_profiles);")
                 profile_columns = {row[1] for row in await cursor.fetchall()}
-                swarm_column_ddls = (
-                    ("swarm_memberships", "TEXT DEFAULT '[]'"),
-                    ("suspected_covert_channels", "TEXT DEFAULT '[]'"),
-                    ("collective_confidence", "REAL DEFAULT 0.0"),
-                    ("collective_name", "TEXT"),
-                )
-                for column_name, column_ddl in swarm_column_ddls:
+                for column_name, column_ddl in _SWARM_PROFILE_COLUMN_MIGRATIONS:
                     if column_name not in profile_columns:
                         await conn.execute(
                             f"ALTER TABLE attacker_profiles ADD COLUMN {column_name} {column_ddl};"
                         )
 
                 # Local Swarm Contexts table (Track 3, Pillar 3 bridge persistence)
-                await conn.execute(
-                    """
-                CREATE TABLE IF NOT EXISTS local_swarm_contexts (
-                    swarm_id TEXT PRIMARY KEY,
-                    collective_name TEXT,
-                    collective_confidence REAL NOT NULL DEFAULT 0.0,
-                    coordinating_agents TEXT NOT NULL DEFAULT '[]',
-                    suspected_covert_channels TEXT NOT NULL DEFAULT '[]',
-                    covert_channel_type TEXT,
-                    deduction_rationale TEXT,
-                    first_detected TEXT NOT NULL,
-                    last_detected TEXT NOT NULL
-                );
-                """
-                )
-                await conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_swarm_agents ON local_swarm_contexts(coordinating_agents);"
-                )
+                await conn.execute(_CREATE_LOCAL_SWARM_CONTEXTS_TABLE)
+                await conn.execute(_CREATE_IDX_SWARM_AGENTS)
 
             self._schema_initialized = True
 
@@ -319,61 +460,10 @@ class SQLiteThreatRepository:
         swarm_json = json.dumps([str(s) for s in profile.swarm_memberships])
         channels_json = json.dumps(profile.suspected_covert_channels)
 
-        query = """
-        INSERT INTO attacker_profiles (
-            fingerprint, first_seen, last_seen, total_attacks,
-            threat_score, associated_signatures, targeted_tools, risk_category,
-            swarm_memberships, suspected_covert_channels,
-            collective_confidence, collective_name
-        ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-        ) ON CONFLICT(fingerprint) DO UPDATE SET
-            last_seen = excluded.last_seen,
-            total_attacks = attacker_profiles.total_attacks + excluded.total_attacks,
-            threat_score = excluded.threat_score,
-            risk_category = excluded.risk_category,
-            targeted_tools = (
-                SELECT json_group_array(value) FROM (
-                    SELECT value FROM json_each(attacker_profiles.targeted_tools)
-                    UNION
-                    SELECT value FROM json_each(excluded.targeted_tools)
-                )
-            ),
-            associated_signatures = (
-                SELECT json_group_array(value) FROM (
-                    SELECT value FROM json_each(attacker_profiles.associated_signatures)
-                    UNION
-                    SELECT value FROM json_each(excluded.associated_signatures)
-                )
-            ),
-            swarm_memberships = (
-                SELECT json_group_array(value) FROM (
-                    SELECT value FROM json_each(attacker_profiles.swarm_memberships)
-                    UNION
-                    SELECT value FROM json_each(excluded.swarm_memberships)
-                )
-            ),
-            suspected_covert_channels = (
-                SELECT json_group_array(value) FROM (
-                    SELECT value FROM json_each(attacker_profiles.suspected_covert_channels)
-                    UNION
-                    SELECT value FROM json_each(excluded.suspected_covert_channels)
-                )
-            ),
-            collective_confidence = MAX(
-                attacker_profiles.collective_confidence,
-                excluded.collective_confidence
-            ),
-            collective_name = COALESCE(
-                excluded.collective_name, attacker_profiles.collective_name
-            )
-        RETURNING fingerprint, first_seen, last_seen, total_attacks, threat_score, targeted_tools, associated_signatures, risk_category, swarm_memberships, suspected_covert_channels, collective_confidence, collective_name;
-        """
-
         async with self.pool.connection() as conn:
             try:
                 cursor = await conn.execute(
-                    query,
+                    _UPSERT_ATTACKER_PROFILE,
                     (
                         profile.fingerprint,
                         first_seen_str,
@@ -439,14 +529,7 @@ class SQLiteThreatRepository:
         await self.initialize()
         async with self.pool.connection() as conn:
             cursor = await conn.execute(
-                """
-                SELECT fingerprint, first_seen, last_seen, total_attacks,
-                        threat_score, associated_signatures, targeted_tools, risk_category,
-                        swarm_memberships, suspected_covert_channels,
-                        collective_confidence, collective_name
-                FROM attacker_profiles
-                WHERE fingerprint = ?
-                """,
+                _SELECT_ATTACKER_PROFILE,
                 (fingerprint,),
             )
             row = await cursor.fetchone()
@@ -538,58 +621,10 @@ class SQLiteThreatRepository:
         first_str = format_iso_datetime(context.first_detected or now_dt)
         last_str = format_iso_datetime(context.last_detected or now_dt)
 
-        query = """
-        INSERT INTO local_swarm_contexts (
-            swarm_id, collective_name, collective_confidence,
-            coordinating_agents, suspected_covert_channels,
-            covert_channel_type, deduction_rationale,
-            first_detected, last_detected
-        ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?
-        ) ON CONFLICT(swarm_id) DO UPDATE SET
-            collective_name = COALESCE(
-                excluded.collective_name, local_swarm_contexts.collective_name
-            ),
-            collective_confidence = MAX(
-                local_swarm_contexts.collective_confidence,
-                excluded.collective_confidence
-            ),
-            coordinating_agents = (
-                SELECT json_group_array(value) FROM (
-                    SELECT value FROM json_each(local_swarm_contexts.coordinating_agents)
-                    UNION
-                    SELECT value FROM json_each(excluded.coordinating_agents)
-                )
-            ),
-            suspected_covert_channels = (
-                SELECT json_group_array(value) FROM (
-                    SELECT value FROM json_each(local_swarm_contexts.suspected_covert_channels)
-                    UNION
-                    SELECT value FROM json_each(excluded.suspected_covert_channels)
-                )
-            ),
-            covert_channel_type = COALESCE(
-                excluded.covert_channel_type, local_swarm_contexts.covert_channel_type
-            ),
-            deduction_rationale = COALESCE(
-                excluded.deduction_rationale, local_swarm_contexts.deduction_rationale
-            ),
-            first_detected = MIN(
-                local_swarm_contexts.first_detected, excluded.first_detected
-            ),
-            last_detected = MAX(
-                local_swarm_contexts.last_detected, excluded.last_detected
-            )
-        RETURNING swarm_id, collective_name, collective_confidence,
-            coordinating_agents, suspected_covert_channels,
-            covert_channel_type, deduction_rationale,
-            first_detected, last_detected;
-        """
-
         async with self.pool.connection() as conn:
             try:
                 cursor = await conn.execute(
-                    query,
+                    _UPSERT_SWARM_CONTEXT,
                     (
                         str(swarm_id),
                         context.collective_name,
@@ -616,14 +651,7 @@ class SQLiteThreatRepository:
     ) -> Optional[SwarmContextSummary]:
         """Fetches a swarm context by UUID using an existing connection."""
         cursor = await conn.execute(
-            """
-            SELECT swarm_id, collective_name, collective_confidence,
-                   coordinating_agents, suspected_covert_channels,
-                   covert_channel_type, deduction_rationale,
-                   first_detected, last_detected
-            FROM local_swarm_contexts
-            WHERE swarm_id = ?
-            """,
+            _SELECT_SWARM_CONTEXT_BY_ID,
             (str(swarm_id),),
         )
         row = await cursor.fetchone()
@@ -645,19 +673,7 @@ class SQLiteThreatRepository:
         async with self.pool.connection() as conn:
             if agent_id:
                 cursor = await conn.execute(
-                    """
-                    SELECT swarm_id, collective_name, collective_confidence,
-                           coordinating_agents, suspected_covert_channels,
-                           covert_channel_type, deduction_rationale,
-                           first_detected, last_detected
-                    FROM local_swarm_contexts
-                    WHERE EXISTS (
-                        SELECT 1 FROM json_each(local_swarm_contexts.coordinating_agents)
-                        WHERE value = ?
-                    )
-                    ORDER BY last_detected DESC
-                    LIMIT 1;
-                    """,
+                    _SELECT_SWARM_CONTEXT_BY_AGENT,
                     (agent_id,),
                 )
                 row = await cursor.fetchone()
@@ -666,7 +682,7 @@ class SQLiteThreatRepository:
 
             if fingerprint:
                 cursor = await conn.execute(
-                    "SELECT swarm_memberships FROM attacker_profiles WHERE fingerprint = ?;",
+                    _SELECT_SWARM_MEMBERSHIPS,
                     (fingerprint,),
                 )
                 profile_row = await cursor.fetchone()
