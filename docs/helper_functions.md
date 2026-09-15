@@ -112,8 +112,9 @@ Single source of truth for two-pass secret redaction, shared by Core and Enterpr
 | `SENSITIVE_KEY_PATTERNS` | `list[re.Pattern[str]]` | Key-name regexes (password, secret, token, api_key, …) for pre-serialization inspection. | `reporter.py`, `inbound_filter.py` (via private aliases). |
 | `REDACTION_PATTERNS` | `list[tuple[str, re.Pattern[str], str]]` | Value-embedded secret regexes (API keys, `sk-*`, `AIza`, passwords, URLs, IPs, emails, file paths) with placeholders. | `reporter.py`, `inbound_filter.py` (via private aliases). |
 | `is_sensitive_key` | `(key: str) -> bool` | Returns `True` if a key name matches any sensitive pattern. | Pass-1 key inspection in both consumers. |
-| `sanitize_value` | `(value: Any) -> Any` | Recursively sanitizes dicts (key-first), strings (regex pass), and lists; scalars pass through. | Pass-1 value recursion in both consumers. |
-| `sanitize_dict_payload` | `(payload: dict[str, Any]) -> dict[str, Any]` | Two-pass dict sanitization (key inspection, then serialized regex scan); fail-closed with `{"sanitization_error": ...}` fallback. | `reporter._sanitize_arguments`, `inbound_filter` RPC sanitization. |
+| `sanitize_value` | `(value: Any, patterns: Optional[...] = None) -> Any` | Recursively sanitizes dicts (key-first), strings (regex pass), and lists; scalars pass through. `patterns` defaults to the full table. | Pass-1 value recursion in both consumers. |
+| `sanitize_dict_payload` | `(payload: dict[str, Any], patterns: Optional[...] = None) -> dict[str, Any]` | Two-pass dict sanitization (key inspection, then serialized regex scan); fail-closed with `{"sanitization_error": ...}` fallback. `patterns` defaults to the full table. | `reporter._sanitize_arguments`, `inbound_filter` RPC sanitization. |
+| `CREDENTIAL_REDACTION_PATTERNS` | `list[tuple[str, re.Pattern[str], str]]` | Credential-only view of `REDACTION_PATTERNS` (API keys, `sk-*`, `AIza`, secrets, passwords). Preserves executable targets (URLs, IPs, emails, file paths) on live execution paths. | `inbound_filter._sanitize_dict_payload` (live `tools/call` arguments). |
 
 ---
 

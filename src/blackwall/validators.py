@@ -400,36 +400,60 @@ def is_sensitive_key(key: str) -> bool:
     return any(pat.search(key) for pat in SENSITIVE_KEY_PATTERNS)
 
 
-def sanitize_value(value: Any) -> Any:
+# Credential-only subset of REDACTION_PATTERNS for live execution paths
+# (e.g. inbound RPC sanitization): redacts secrets while preserving
+# executable targets such as URLs, IP addresses, emails, and file paths.
+_CREDENTIAL_PATTERN_NAMES = frozenset(
+    {"API_KEY", "OPENAI_KEY", "GOOGLE_KEY", "SECRET_VALUE", "PASSWORD"}
+)
+CREDENTIAL_REDACTION_PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
+    (name, pattern, placeholder)
+    for name, pattern, placeholder in REDACTION_PATTERNS
+    if name in _CREDENTIAL_PATTERN_NAMES
+]
+
+
+def sanitize_value(
+    value: Any,
+    patterns: Optional[list[tuple[str, re.Pattern[str], str]]] = None,
+) -> Any:
     """Recursively sanitize a single value using two-pass secret redaction.
 
     - Dicts: check key names first (pre-serialization), then recurse into values.
     - Strings: apply all regex patterns.
     - Lists: recurse into items.
     - Other scalars: return as-is.
+
+    ``patterns`` defaults to the full ``REDACTION_PATTERNS`` table; pass
+    ``CREDENTIAL_REDACTION_PATTERNS`` on live execution paths where URLs,
+    IPs, emails, and file paths must survive sanitization.
     """
+    active = REDACTION_PATTERNS if patterns is None else patterns
     if isinstance(value, dict):
         result: dict[str, Any] = {}
         for k, v in value.items():
             if is_sensitive_key(k):
                 result[k] = f"[[{k.upper()}_REDACTED]]"
             else:
-                result[k] = sanitize_value(v)
+                result[k] = sanitize_value(v, patterns=active)
         return result
     if isinstance(value, str):
         redacted = value
-        for _name, pattern, placeholder in REDACTION_PATTERNS:
+        for _name, pattern, placeholder in active:
             try:
                 redacted = pattern.sub(placeholder, redacted)
             except re.error as exc:
                 logger.warning("Sanitization pattern failed: %s", exc)
         return redacted
     if isinstance(value, list):
-        return [sanitize_value(item) for item in value]
+        return [sanitize_value(item, patterns=active) for item in value]
     return value
 
 
-def sanitize_dict_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def sanitize_dict_payload(
+    payload: dict[str, Any],
+    patterns: Optional[list[tuple[str, re.Pattern[str], str]]] = None,
+) -> dict[str, Any]:
     """Sanitize a dictionary payload by redacting secrets via a two-pass strategy.
 
     **Pass 1 — Key-name inspection (pre-serialization)**:
@@ -440,6 +464,10 @@ def sanitize_dict_payload(payload: dict[str, Any]) -> dict[str, Any]:
     inline secret values embedded inside string values.
 
     Fail-closed: returns ``{"sanitization_error": ...}`` if sanitization fails.
+
+    ``patterns`` defaults to the full ``REDACTION_PATTERNS`` table; pass
+    ``CREDENTIAL_REDACTION_PATTERNS`` on live execution paths where URLs,
+    IPs, emails, and file paths must survive sanitization.
     """
     try:
         # Pass 1: key-name-based redaction (handles quoted JSON key bypass)
@@ -448,12 +476,13 @@ def sanitize_dict_payload(payload: dict[str, Any]) -> dict[str, Any]:
             if is_sensitive_key(k):
                 pass1[k] = f"[[{k.upper()}_REDACTED]]"
             else:
-                pass1[k] = sanitize_value(v)
+                pass1[k] = sanitize_value(v, patterns=patterns)
 
         # Pass 2: regex scan over JSON-serialized string for value-embedded secrets
         serialized = json.dumps(pass1)
         redacted = serialized
-        for _name, pattern, placeholder in REDACTION_PATTERNS:
+        active = REDACTION_PATTERNS if patterns is None else patterns
+        for _name, pattern, placeholder in active:
             try:
                 redacted = pattern.sub(placeholder, redacted)
             except re.error as exc:

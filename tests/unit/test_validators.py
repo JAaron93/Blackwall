@@ -6,6 +6,7 @@ from hypothesis import given, strategies as st
 import pytest
 
 from blackwall.validators import (
+    CREDENTIAL_REDACTION_PATTERNS,
     clamp_score,
     compute_cosine_similarity,
     compute_exponential_decay,
@@ -342,6 +343,25 @@ def test_sanitize_dict_payload():
     assert "supersecretvalue123" not in str(redacted)
 
     assert sanitize_dict_payload({}) == {}
+
+
+def test_sanitize_dict_payload_credential_subset_preserves_execution_targets():
+    """Verify the credential-only subset redacts secrets but keeps URLs/paths/IPs intact."""
+    payload = {
+        "path": "/etc/hosts",
+        "url": "https://example.com",
+        "password": "hunter2",
+        "api_key": "supersecretvalue123",
+    }
+    redacted = sanitize_dict_payload(payload, patterns=CREDENTIAL_REDACTION_PATTERNS)
+    assert redacted["path"] == "/etc/hosts"
+    assert redacted["url"] == "https://example.com"
+    assert redacted["password"] == "[[PASSWORD_REDACTED]]"
+    assert "supersecretvalue123" not in str(redacted)
+
+    full = sanitize_dict_payload(payload)
+    assert full["path"] != "/etc/hosts"
+    assert full["url"] != "https://example.com"
 
 
 # ----------------------------------------------------------------------

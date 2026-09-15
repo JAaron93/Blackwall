@@ -24,10 +24,13 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     InboundProtocolMessage,
 )
 from blackwall.validators import (
+    CREDENTIAL_REDACTION_PATTERNS,
     REDACTION_PATTERNS,
     SENSITIVE_KEY_PATTERNS,
-    sanitize_dict_payload as _sanitize_dict_payload,
     validate_non_empty_string,
+)
+from blackwall.validators import (
+    sanitize_dict_payload as _canonical_sanitize_dict_payload,
 )
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.inbound_filter")
@@ -37,6 +40,18 @@ logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.inbou
 # existing module-level names working.
 _SENSITIVE_KEY_PATTERNS = SENSITIVE_KEY_PATTERNS
 _REDACTION_PATTERNS = REDACTION_PATTERNS
+
+
+def _sanitize_dict_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Sanitize an inbound RPC payload: credentials only, execution targets preserved.
+
+    Uses the credential-only pattern subset so live ``tools/call`` arguments
+    keep executable targets (URLs, IPs, emails, file paths) intact while
+    secrets are still redacted before host-agent execution.
+    """
+    return _canonical_sanitize_dict_payload(
+        payload, patterns=CREDENTIAL_REDACTION_PATTERNS
+    )
 
 
 class InboundProtocolFilter:
