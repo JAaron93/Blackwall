@@ -558,3 +558,14 @@
 * **Rule (Deadline Degradation to Fail-Safe):** `asyncio.TimeoutError` (and any provider exception) MUST degrade to the fail-safe default (individual attribution, cached verdict, empty lineage) with a `%`-formatted warning log, and MUST NOT propagate to abort profile persistence, incident report generation, or notification sinks scheduled after the lookup.
 * **Rule (Cancellation-Safe Resource Cleanup):** Provider implementations performing I/O (e.g. connection-pool checkouts) MUST tolerate `wait_for` cancellation via context-managed acquisition (`async with pool.connection()`) so timed-out lookups roll back and release resources instead of leaking pooled connections.
 * **Rationale:** Discovered via Greptile P1 review on PR #140 (Track 4). An unbounded provider await stalled the background attribution task indefinitely: the attack record and incident report were never produced, and both `flush_background_tasks()` and resolver shutdown waited forever instead of degrading to individual attribution.
+
+## 83. Git Stash Prohibition in Multi-Worktree Workflows
+* **Rule (Shared-Stash Prohibition):** In repositories with multiple active git worktrees, agents MUST NOT use `git stash` / `git stash pop` for baseline comparisons: the stash is shared per repository, and popping on a clean tree applies a foreign pre-existing stash from another branch.
+* **Rule (Stash-Free Baselines):** For pre/post-change comparisons, use `git show <ref>:<path>` materialized to temp files, or a pristine detached `git worktree add <path> <ref>` — never the shared stash.
+* **Rationale:** Discovered during the v2.0 release audit: a stash/pop cycle on a clean tree applied another branch's WIP as unmerged (`UU`) paths into the release worktree. Recovery required `git reset --hard HEAD` and was only safe because all work was committed.
+
+## 84. Container Build Invariants for Maturin/PyO3 Projects
+* **Rule (Crate Manifest Availability):** Dockerfiles MUST `COPY crates/` before dependency-install layers: the maturin backend needs the Cargo manifest (`crates/<crate>/Cargo.toml`) at metadata-generation time, so a dependency layer built from `pyproject.toml` alone fails.
+* **Rule (Explicit Toolchain & Linker):** Release images MUST install a C linker (`build-essential`) and an explicit pinned Rust toolchain (no reliance on maturin-implicit rustup downloads, which are network-fragile and unpinned).
+* **Rule (Honest Entrypoint):** Images MUST NOT set a service-mimicking CMD when no long-lived entrypoint exists; use an import smoke-check until the service CLI lands.
+* **Rationale:** Discovered during Task 27 release verification: the Dockerfile was unbuildable (missing manifest layer, missing linker) and its CMD pointed at a nonexistent `blackwall.main` module.

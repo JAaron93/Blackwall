@@ -509,3 +509,12 @@
     1. Proactively verify that the native extension is compiled and available before running parity tests (preventing false comparisons of fallback against fallback).
     2. Cleanly evict wrapper modules from `sys.modules` (`sys.modules.pop(mod_name, None)`) prior to importing under `mock.patch.dict("sys.modules", {"blackwall._core_rs": None})`, ensuring previously imported native references do not leak into fallback test scopes.
 * **Rationale:** Codified after Greptile review on PR #138 (review `5205988519`). Review bots flag benchmarks using toy payloads as "weak gates", while demanding raw sub-20µs latency across the PyO3 boundary triggers impossible Catch-22 loops unless the FFI speedup calibration invariant is codified.
+
+## 58. Hypothesis Strategy Input Validity & Example Database Replay Awareness
+* **Rule (Valid-Input Strategies):** Strategies feeding Pydantic-validated models MUST exclude values the model rejects (e.g. `.filter(lambda s: bool(s.strip()))` for non-empty-string fields). A "valid acceptance" property that draws invalid inputs is a strategy bug, not a code bug.
+* **Rule (Example-DB Replay):** When triaging property-test failures across checkouts, account for `.hypothesis/examples` replay: a saved falsifying example makes failures deterministic per-checkout. Re-run with a cleared example database before attributing the failure to code changes.
+* **Rationale:** Discovered during the v2.0 release audit: a whitespace-only regex draw failed a "valid acceptance" property, and the saved example made it reproduce deterministically on one checkout while passing on another, initially masquerading as a session regression.
+
+## 59. Deterministic Background-Task Synchronization in Tests
+* **Rule (Public Drain API):** Tests asserting on state produced by fire-and-forget background tasks MUST drain them via the public `flush_background_tasks()` (or equivalent) instead of `asyncio.sleep()` delays or immediate assertions, which encode a race between the test and the background coroutine.
+* **Rationale:** Discovered during the v2.0 release audit: an integration test asserted signature persistence immediately after `evaluate()`, observing zero rows because inline signature generation had not yet run; all other invocations passed, masking the race.
