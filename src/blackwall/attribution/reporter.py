@@ -159,18 +159,3 @@ class IncidentReportGenerator:
             collective_confidence=collective_confidence,
             collective_attribution_summary=collective_summary,
         )
-
-
-# ---------------------------------------------------------------------------
-# Module-level convenience helpers (re-export for ergonomic access)
-# ---------------------------------------------------------------------------
-
-
-def to_markdown(report: IncidentReport) -> str:
-    """Format an ``IncidentReport`` as a Markdown summary string."""
-    return report.to_markdown()
-
-
-def to_json(report: IncidentReport) -> str:
-    """Serialize an ``IncidentReport`` to a JSON string."""
-    return report.to_json()
