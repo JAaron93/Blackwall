@@ -133,6 +133,28 @@ def load_all_scenarios(
     return scenarios
 
 
+def _scope_agent_identities(agents: list[str], session_ids: Any) -> list[str]:
+    """Scope declared agent identities for detector grouping.
+
+    Records are materialized faithfully: unique handles pass through
+    unchanged. Duplicate handles (false-monolith records reusing one handle
+    across sessions) are scoped by session — mirroring session-salted
+    fingerprinting — so detector grouping by agent_id preserves each
+    distinct participant instead of collapsing them into one.
+    """
+    if len(set(agents)) == len(agents):
+        return list(agents)
+    sessions = session_ids if isinstance(session_ids, list) else []
+    scoped = []
+    for index, agent in enumerate(agents):
+        session = sessions[index] if index < len(sessions) else None
+        suffix = (
+            session if isinstance(session, str) and session else f"instance-{index + 1}"
+        )
+        scoped.append(f"{agent}::{suffix}")
+    return scoped
+
+
 def _bridge_complex_attack_record(record: dict[str, Any]) -> dict[str, Any] | None:
     """
     Bridge a GCP complex-attack record (which lacks a domain field) into an
@@ -172,10 +194,12 @@ def _bridge_complex_attack_record(record: dict[str, Any]) -> dict[str, Any] | No
         declared_agents = record.get("agents")
         if (
             isinstance(declared_agents, list)
-            and len(declared_agents) >= 2
+            and declared_agents
             and all(isinstance(agent, str) and agent for agent in declared_agents)
         ):
-            for offset, agent_id in enumerate(declared_agents):
+            for offset, agent_id in enumerate(
+                _scope_agent_identities(declared_agents, record.get("session_ids"))
+            ):
                 events.append(
                     {
                         "agent_id": agent_id,

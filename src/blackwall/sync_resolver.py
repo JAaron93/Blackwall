@@ -57,6 +57,11 @@ from blackwall.resolver import ContextHygiene, TokenBucketRateLimiter
 
 logger = logging.getLogger(__name__)
 
+# Upper bound for swarm lineage lookups. Provider queries carry a 15ms SLA
+# (NFR-4); this deadline only fires when a provider stalls, so background
+# attribution and shutdown can never block indefinitely (fail-safe NFR-2).
+_SWARM_RESOLVE_TIMEOUT_S = 0.05
+
 # ---------------------------------------------------------------------------
 # High-risk tool names and keywords used in context signal scoring
 # ---------------------------------------------------------------------------
@@ -501,9 +506,10 @@ class SyncResolver:
     ) -> Optional[SwarmContextSummary]:
         """Resolves active swarm lineage via the injected provider (fail-safe).
 
-        Returns None when no provider is configured, the provider fails, or
-        the provider returns a non-summary payload (e.g. MagicMock stubs in
-        tests). Callers fall back to individual attribution.
+        Returns None when no provider is configured, the provider fails or
+        stalls past the resolve deadline, or the provider returns a
+        non-summary payload (e.g. MagicMock stubs in tests). Callers fall
+        back to individual attribution.
         """
         provider = self.swarm_provider
         if provider is None:
@@ -512,9 +518,13 @@ class SyncResolver:
         if resolve is None:
             return None
         try:
-            result = resolve(agent_id, fingerprint)
-            if asyncio.iscoroutine(result):
-                result = await result
+            pending = resolve(agent_id, fingerprint)
+            if asyncio.iscoroutine(pending):
+                result = await asyncio.wait_for(
+                    pending, timeout=_SWARM_RESOLVE_TIMEOUT_S
+                )
+            else:
+                result = pending
         except Exception as exc:
             logger.warning(
                 "Swarm context resolution failed; continuing without swarm lineage: %s",

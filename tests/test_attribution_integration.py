@@ -287,6 +287,52 @@ async def test_sync_resolver_swarm_provider_failure_isolated():
 
 
 @pytest.mark.asyncio
+async def test_sync_resolver_swarm_provider_stall_isolated():
+    """P1 regression: a stalling provider must not block attribution or shutdown."""
+
+    class _StallingProvider:
+        async def resolve_swarm_context(self, agent_id, fingerprint):
+            import asyncio as _asyncio
+
+            await _asyncio.sleep(5.0)
+            return None
+
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+        db_path = tmp.name
+
+    try:
+        repo = SQLiteThreatRepository(db_path=db_path)
+        await repo.initialize()
+
+        callback_reports = []
+        resolver = SyncResolver(
+            client=MagicMock(),
+            repo=repo,
+            demo_mode=True,
+            on_attacker_identified=callback_reports.append,
+            swarm_provider=_StallingProvider(),
+        )
+
+        t0 = time.perf_counter()
+        verdict = await resolver.evaluate(_swarm_block_context())
+        assert verdict.decision == VerdictDecision.BLOCK
+        await resolver.flush_background_tasks()
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+
+        assert elapsed_ms < 2000.0, (
+            f"Stalled provider blocked shutdown: {elapsed_ms:.0f}ms"
+        )
+        assert len(callback_reports) == 1
+        assert callback_reports[0].swarm_id is None
+        assert callback_reports[0].is_collective is False
+
+        await repo.close()
+    finally:
+        if os.path.exists(db_path):
+            os.unlink(db_path)
+
+
+@pytest.mark.asyncio
 async def test_sync_resolver_swarm_enrichment_latency_sla():
     """TASK-4.1: background swarm enrichment completes within 5ms (warmup first)."""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:

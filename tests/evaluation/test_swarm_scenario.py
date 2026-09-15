@@ -133,6 +133,24 @@ def test_covert_board_benchmarks_survive_scenario_bridging():
 
 
 @pytest.mark.gcp_eval
+def test_bridged_scenarios_preserve_declared_identities():
+    """P1 regression: bridge must not fabricate or collapse agent identities."""
+    from scripts.run_gcp_eval import load_all_scenarios
+
+    scenarios = load_all_scenarios(scenarios_dir=None, include_native_datasets=True)
+    by_id = {s.get("scenario_id"): s for s in scenarios}
+
+    benign = by_id["collective_swarm_benign_casual_we"]
+    benign_agents = {event["agent_id"] for event in benign["events"]}
+    assert benign_agents == {"AdminHelper"}
+
+    monolith = by_id["collective_swarm_false_monolith"]
+    monolith_agents = {event["agent_id"] for event in monolith["events"]}
+    assert len(monolith_agents) == 2
+    assert all(agent.startswith("we::") for agent in monolith_agents)
+
+
+@pytest.mark.gcp_eval
 def test_swarm_attribution_trajectory_shape_offline():
     """TASK-4.4: swarm attribution trajectory evaluates offline without cloud."""
     harness = GCPVertexAIEvaluationHarness()
