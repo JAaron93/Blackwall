@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from blackwall.enterprise.advanced_threat_detection.enums import EventSource
 from blackwall.enterprise.advanced_threat_detection.models import NormalizedEvent
-from blackwall.validators import ensure_uuid_v4, utc_now
+from blackwall.validators import clamp_score, ensure_uuid_v4, utc_now
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.collector")
 
@@ -126,7 +126,7 @@ class EventStreamCollector:
             raw_event["risk_score"], (int, float)
         ):
             risk_score = float(raw_event["risk_score"])
-            risk_score = max(0.0, min(1.0, risk_score))
+            risk_score = clamp_score(risk_score)
         else:
             risk_score = self._compute_initial_risk_score(source, action)
 

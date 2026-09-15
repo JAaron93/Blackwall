@@ -21,6 +21,7 @@ from blackwall.config import (
     get_gemini_max_output_tokens,
     get_gemini_thinking_level,
 )
+from blackwall.validators import clamp_score
 
 logger = logging.getLogger(__name__)
 
@@ -157,8 +158,8 @@ class GCPVertexEvalMetrics(BaseModel):
     def record_trajectory(self, precision: float, recall: float) -> None:
         """Record agent trajectory evaluation metrics."""
         self.trajectory_eval_count += 1
-        self.trajectory_precision_sum += max(0.0, min(1.0, precision))
-        self.trajectory_recall_sum += max(0.0, min(1.0, recall))
+        self.trajectory_precision_sum += clamp_score(precision)
+        self.trajectory_recall_sum += clamp_score(recall)
 
     def summary(self) -> Dict[str, Any]:
         """Return a structured summary of evaluation results."""

@@ -16,7 +16,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     AttackPath,
     NormalizedEvent,
 )
-from blackwall.validators import validate_uuid_v4_format
+from blackwall.validators import clamp_score, validate_uuid_v4_format
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.store")
 
@@ -773,7 +773,7 @@ class AttackGraphStore:
 
         # Compute aggregate risk_score (max risk in path) and correlation_score
         max_risk = max(n.event.risk_score for n in nodes)
-        risk_score = min(1.0, max(0.0, max_risk))
+        risk_score = clamp_score(max_risk)
         correlation_score = (
             0.95  # Default high correlation for temporally grouped nodes
         )

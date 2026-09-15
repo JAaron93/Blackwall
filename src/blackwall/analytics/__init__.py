@@ -29,6 +29,7 @@ from blackwall.models import (
 )
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.mcp.embeddings import GeminiEmbeddingClient
+from blackwall.validators import clamp_score
 
 
 class BehavioralDriftScorePayload(BaseModel):
@@ -237,7 +238,7 @@ class AgentBehavioralAnalytics:
 
                 score_0_5 = float(data["score"])
                 # Normalize to [0.0, 1.0]
-                normalized_score = max(0.0, min(score_0_5 / 5.0, 1.0))
+                normalized_score = clamp_score(score_0_5 / 5.0)
                 risk_level = str(data["risk_level"])
                 return BehaviorScore(score=normalized_score, risk_level=risk_level)
             except Exception as e:

@@ -25,6 +25,7 @@ from blackwall.models import (
 from blackwall.policy.engine import StructuralGatingEngine
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.sync_resolver import SyncResolver
+from blackwall.validators import clamp_score
 
 
 DEFAULT_BENCHMARK_POLICY_YAML: str = """\
@@ -394,7 +395,7 @@ class BenchmarkRunner:
         # Assuming 2 cores VM baseline per requirement 16.12
         num_cores = 2
         cpu_percent = (cpu_time_used / (wall_time_used * num_cores)) * 100.0
-        cpu_percent = max(0.0, min(100.0, cpu_percent))
+        cpu_percent = clamp_score(cpu_percent, 0.0, 100.0)
 
         memory_rss = get_memory_rss_mb()
 

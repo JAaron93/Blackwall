@@ -54,6 +54,7 @@ from blackwall.models import (
     VerdictDecision,
 )
 from blackwall.resolver import ContextHygiene, TokenBucketRateLimiter
+from blackwall.validators import clamp_score
 
 logger = logging.getLogger(__name__)
 
@@ -339,7 +340,7 @@ class SyncResolver:
         score = await self._compute_threat_score(
             sanitized, gti_resp, cbm_resp, semantic_score=semantic_score
         )
-        score = max(0.0, min(1.0, score))
+        score = clamp_score(score)
 
         # 5. Apply verdict thresholds
         if self.demo_mode:
@@ -992,7 +993,7 @@ class SyncResolver:
             return 0.0
 
         malicious_score = 1.0 if gti_resp.is_malicious else 0.0
-        detection_score = max(0.0, min(1.0, gti_resp.detection_rate))
+        detection_score = clamp_score(gti_resp.detection_rate)
 
         if gti_resp.is_malicious:
             # Both components available: average them
@@ -1040,7 +1041,7 @@ class SyncResolver:
                 role_modifier = 0.05
 
         raw = (tool_score * 0.50 + novelty_score * 0.50) + role_modifier
-        return max(0.0, min(1.0, raw))
+        return clamp_score(raw)
 
     def _score_tool_name(self, tool_name: str) -> float:
         """Returns scoring for tool name based on risk level."""
@@ -1078,7 +1079,7 @@ class SyncResolver:
             )  # Specification-mandated multiplier
 
         if semantic_score is not None:
-            bounded_semantic = max(0.0, min(1.0, float(semantic_score)))
+            bounded_semantic = clamp_score(float(semantic_score))
             # Fail-closed: semantic triage must never lower the deterministic risk signal
             return max(deterministic_novelty, bounded_semantic)
 
