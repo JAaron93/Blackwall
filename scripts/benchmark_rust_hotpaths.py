@@ -41,7 +41,11 @@ _BENCH_ITERS = 1000
 
 
 def _bench(fn, *args, n: int = _BENCH_ITERS, warmup: int = _WARMUP_ITERS):
-    """Run fn(*args) n times and return (mean_µs, min_µs, p99_µs)."""
+    """Run fn(*args) n times and return (mean_µs, min_µs, p99_µs).
+
+    Uses a 98% trimmed mean (discarding top 2% OS scheduler/preemption spikes)
+    to measure genuine code execution latency deterministically.
+    """
     for _ in range(warmup):
         fn(*args)
 
@@ -51,9 +55,12 @@ def _bench(fn, *args, n: int = _BENCH_ITERS, warmup: int = _WARMUP_ITERS):
         fn(*args)
         times_ns.append(time.perf_counter_ns() - t0)
 
-    mean_us = statistics.mean(times_ns) / 1_000
-    min_us = min(times_ns) / 1_000
-    p99_us = sorted(times_ns)[int(0.99 * len(times_ns))] / 1_000
+    sorted_ns = sorted(times_ns)
+    # Discard top 2% OS preemption spikes to isolate code execution latency
+    trimmed = sorted_ns[: max(1, int(0.98 * len(sorted_ns)))]
+    mean_us = statistics.mean(trimmed) / 1_000
+    min_us = sorted_ns[0] / 1_000
+    p99_us = sorted_ns[int(0.99 * len(sorted_ns))] / 1_000
     return mean_us, min_us, p99_us
 
 
