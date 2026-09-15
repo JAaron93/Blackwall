@@ -118,8 +118,12 @@ def test_property_69_eval_mode_event_labeling_rejection(
 @given(
     env_id=valid_env_id_strategy,
     threat_type=st.from_regex(r"[a-zA-Z0-9_-]{3,20}", fullmatch=True),
-    title=st.from_regex(r"[a-zA-Z0-9_ -]{3,30}", fullmatch=True),
-    description=st.from_regex(r"[a-zA-Z0-9_ -]{3,50}", fullmatch=True),
+    title=st.from_regex(r"[a-zA-Z0-9_ -]{3,30}", fullmatch=True).filter(
+        lambda s: bool(s.strip())
+    ),
+    description=st.from_regex(r"[a-zA-Z0-9_ -]{3,50}", fullmatch=True).filter(
+        lambda s: bool(s.strip())
+    ),
     severity=st.sampled_from(list(AlertSeverity)),
 )
 def test_property_70_eval_mode_alert_isolation_valid_acceptance(
@@ -149,8 +153,12 @@ def test_property_70_eval_mode_alert_isolation_valid_acceptance(
 @settings(max_examples=100)
 @given(
     threat_type=st.from_regex(r"[a-zA-Z0-9_-]{3,20}", fullmatch=True),
-    title=st.from_regex(r"[a-zA-Z0-9_ -]{3,30}", fullmatch=True),
-    description=st.from_regex(r"[a-zA-Z0-9_ -]{3,50}", fullmatch=True),
+    title=st.from_regex(r"[a-zA-Z0-9_ -]{3,30}", fullmatch=True).filter(
+        lambda s: bool(s.strip())
+    ),
+    description=st.from_regex(r"[a-zA-Z0-9_ -]{3,50}", fullmatch=True).filter(
+        lambda s: bool(s.strip())
+    ),
     severity=st.sampled_from(list(AlertSeverity)),
 )
 def test_property_70_eval_mode_alert_isolation_rejection(

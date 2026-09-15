@@ -349,8 +349,8 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Mock VirusTotal API responses for deterministic testing
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.11, 9.8, 9.11, 9.19, 12.1, 12.2, 21.2, 21.3_
 
-- [ ] 7.3 Implement GTI Query Budget Tracker with token bucket rate limiter
-  - [ ] 7.3.1 Create GTIQueryBudgetTracker class with token bucket algorithm
+- [x] 7.3 Implement GTI Query Budget Tracker with token bucket rate limiter (Implemented in `src/blackwall/mcp/gti_budget_tracker.py`; verified during v2.0 release audit)
+  - [x] 7.3.1 Create GTIQueryBudgetTracker class with token bucket algorithm
     - Initialize token bucket with 4 tokens (matching VirusTotal free tier: 4 queries/minute)
     - Implement tryAcquire() method: returns true if token available, consumes 1 token, returns false if budget exhausted
     - Implement token replenishment: add 1 token every 15 seconds (4 tokens per 60-second sliding window)
@@ -361,7 +361,7 @@ Write custom Python interception daemon utilizing `sys.addaudithook`. Map subpro
     - Ensure thread-safe token operations using asyncio.Lock
     - _Requirements: 9.3, 9.4, 9.5, 9.19_
 
-  - [ ] 7.3.2 Write unit tests for GTI Query Budget Tracker
+  - [x] 7.3.2 Write unit tests for GTI Query Budget Tracker (`tests/unit/mcp/test_budget_tracker.py`, `tests/mcp/test_gti_budget_tracker.py`)
     - Test token bucket initializes with 4 tokens
     - Test tryAcquire() consumes token when available
     - Test tryAcquire() returns false when budget exhausted (0 tokens)
@@ -658,6 +658,7 @@ Implement Agent_Behavioral_Analytics submission of background tasks to Gemini In
 **Priority:** HIGH
 **Dependencies:** TASK-AI-01, TASK-AI-02
 **Estimated Effort:** 1 day
+**Status**: ✅ Completed (`scripts/verify_no_polling.py` + `tests/unit/test_event_driven_invariant.py` + Makefile CI line; verified during v2.0 release audit)
 
 **Description:**
 The architecture was designed event-driven from the start — all async analysis is triggered by webhook callbacks from Gemini, never by background polling timers. This task codifies that invariant as an enforced, tested contract: a CI-runnable verification script plus a dedicated test suite that will catch any future regression where a developer accidentally introduces a polling pattern into the analysis path.
