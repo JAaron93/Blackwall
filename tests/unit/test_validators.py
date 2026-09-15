@@ -364,6 +364,13 @@ def test_sanitize_dict_payload_credential_subset_preserves_execution_targets():
     assert full["url"] != "https://example.com"
 
 
+def test_sanitize_credential_subset_redacts_vendor_key_value_pairs():
+    """Verify the credential-only subset catches vendor-named secrets in strings."""
+    payload = {"config": '"ANTHROPIC_API_KEY": "shortsecret1"'}
+    redacted = sanitize_dict_payload(payload, patterns=CREDENTIAL_REDACTION_PATTERNS)
+    assert "shortsecret1" not in str(redacted)
+
+
 # ----------------------------------------------------------------------
 # Property-based tests (Hypothesis)
 # ----------------------------------------------------------------------

@@ -404,7 +404,14 @@ def is_sensitive_key(key: str) -> bool:
 # (e.g. inbound RPC sanitization): redacts secrets while preserving
 # executable targets such as URLs, IP addresses, emails, and file paths.
 _CREDENTIAL_PATTERN_NAMES = frozenset(
-    {"API_KEY", "OPENAI_KEY", "GOOGLE_KEY", "SECRET_VALUE", "PASSWORD"}
+    {
+        "API_KEY",
+        "OPENAI_KEY",
+        "GOOGLE_KEY",
+        "SECRET_VALUE",
+        "KEY_VALUE_PAIR",
+        "PASSWORD",
+    }
 )
 CREDENTIAL_REDACTION_PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
     (name, pattern, placeholder)
