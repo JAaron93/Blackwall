@@ -265,3 +265,94 @@ async def test_enterprise_provider_failsafe_on_store_error():
         await provider.resolve_swarm_context(agent_id="agent-99", fingerprint="x")
         is None
     )
+
+
+def _make_swarm_evidence(**overrides):
+    """Builds detector-style SwarmEvidence for bridge fallback tests."""
+    from blackwall.enterprise.advanced_threat_detection.enums import (
+        CovertChannelType,
+    )
+    from blackwall.enterprise.advanced_threat_detection.models import (
+        CovertChannelEvidence,
+        SwarmEvidence,
+    )
+
+    now = datetime.now(timezone.utc)
+    channel = CovertChannelEvidence(
+        channel_type=CovertChannelType.UNLOCATED_MESSAGE_BOARD,
+        confidence_score=0.9,
+        coordinating_agents={"agent-99", "agent-100"},
+        observed_artifacts=["board-alpha"],
+        deduction_rationale="high correlation without C2",
+        first_detected=now,
+        last_detected=now,
+    )
+    kwargs = {
+        "swarm_id": uuid4(),
+        "agent_ids": {"agent-99", "agent-100"},
+        "shared_patterns": ["consensus reached"],
+        "temporal_correlation": 0.88,
+        "coordination_score": 0.85,
+        "first_seen": now,
+        "last_seen": now,
+        "covert_channels": [channel],
+    }
+    kwargs.update(overrides)
+    return SwarmEvidence(**kwargs)
+
+
+@pytest.mark.asyncio
+async def test_enterprise_provider_falls_back_to_evidence_lookup():
+    """P1 regression: detector SwarmEvidence must stay reachable via the bridge."""
+    from blackwall.enterprise.advanced_threat_detection.bridge import (
+        EnterpriseSwarmContextProvider,
+    )
+
+    evidence = _make_swarm_evidence()
+
+    class MetadataFreeStore:
+        async def query_nodes(self, agent_id=None, time_window=None, **kwargs):
+            return []
+
+    async def lookup(agent_id):
+        assert agent_id == "agent-99"
+        return [evidence]
+
+    provider = EnterpriseSwarmContextProvider(
+        MetadataFreeStore(), evidence_lookup=lookup
+    )
+    resolved = await provider.resolve_swarm_context(
+        agent_id="agent-99", fingerprint="f" * 64
+    )
+    assert resolved is not None
+    assert resolved.swarm_id == evidence.swarm_id
+    assert sorted(resolved.coordinating_agents) == ["agent-100", "agent-99"]
+    assert resolved.collective_confidence == 0.85
+    assert resolved.suspected_covert_channels == [
+        str(evidence.covert_channels[0].channel_id)
+    ]
+    assert resolved.covert_channel_type == "UNLOCATED_MESSAGE_BOARD"
+
+
+@pytest.mark.asyncio
+async def test_enterprise_provider_evidence_lookup_miss_returns_none():
+    """P1 regression: empty evidence lookups still resolve to None."""
+
+    async def lookup(agent_id):
+        return []
+
+    from blackwall.enterprise.advanced_threat_detection.bridge import (
+        EnterpriseSwarmContextProvider,
+    )
+
+    class MetadataFreeStore:
+        async def query_nodes(self, agent_id=None, time_window=None, **kwargs):
+            return []
+
+    provider = EnterpriseSwarmContextProvider(
+        MetadataFreeStore(), evidence_lookup=lookup
+    )
+    assert (
+        await provider.resolve_swarm_context(agent_id="agent-99", fingerprint="x")
+        is None
+    )

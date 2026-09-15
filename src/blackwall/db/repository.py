@@ -3,6 +3,7 @@ import json
 import math
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -433,9 +434,7 @@ class SQLiteThreatRepository:
                 await conn.rollback()
                 raise
 
-    async def get_attacker_profile(
-        self, fingerprint: str
-    ) -> Optional[AttackerProfile]:
+    async def get_attacker_profile(self, fingerprint: str) -> Optional[AttackerProfile]:
         """Fetches an AttackerProfile by fingerprint from SQLite."""
         await self.initialize()
         async with self.pool.connection() as conn:
@@ -675,10 +674,21 @@ class SQLiteThreatRepository:
                     memberships = self._parse_uuid_list(
                         parse_json_safely(profile_row[0], default=[])
                     )
+                    linked_contexts = []
                     for membership_id in memberships:
                         linked = await self._fetch_swarm_context(conn, membership_id)
                         if linked is not None:
-                            return linked
+                            linked_contexts.append(linked)
+                    if linked_contexts:
+                        # Profiles may link stale and current swarms; resolve to
+                        # the most recently detected context, mirroring the
+                        # agent-membership branch ordering above.
+                        linked_contexts.sort(
+                            key=lambda ctx: ctx.last_detected
+                            or datetime.min.replace(tzinfo=timezone.utc),
+                            reverse=True,
+                        )
+                        return linked_contexts[0]
             return None
 
     async def writeSignature(self, signature_data: dict[str, Any]) -> str:
@@ -776,7 +786,9 @@ class SQLiteThreatRepository:
             row = await cursor.fetchone()
             total_signatures = row[0] if row else 0
 
-            cursor_avg = await conn.execute("SELECT COALESCE(AVG(match_count), 0.0) FROM signatures")
+            cursor_avg = await conn.execute(
+                "SELECT COALESCE(AVG(match_count), 0.0) FROM signatures"
+            )
             avg_row = await cursor_avg.fetchone()
             avg_matches = float(avg_row[0]) if avg_row else 0.0
 
@@ -921,7 +933,9 @@ class SQLiteThreatRepository:
             query_text,
         ]
         if query_vector is not None:
-            vec_hash = hashlib.sha256(array.array("f", query_vector).tobytes()).hexdigest()[:16]
+            vec_hash = hashlib.sha256(
+                array.array("f", query_vector).tobytes()
+            ).hexdigest()[:16]
             cache_key_elements.append(vec_hash)
         cache_key = ":".join(cache_key_elements)
 
@@ -1011,9 +1025,13 @@ class SQLiteThreatRepository:
                         f"Query vector has incorrect dimension {len(query_vector)}, expected 768"
                     )
                 if any(not math.isfinite(x) for x in query_vector):
-                    raise ValueError("Query vector contains non-finite values (NaN or Inf)")
+                    raise ValueError(
+                        "Query vector contains non-finite values (NaN or Inf)"
+                    )
 
-                if _core_rs is not None and hasattr(_core_rs, "batch_cosine_similarity"):
+                if _core_rs is not None and hasattr(
+                    _core_rs, "batch_cosine_similarity"
+                ):
                     row_map = {row[0]: row for row in vector_rows}
                     candidates = [
                         (row[0], bytes(row[11]))
@@ -1069,7 +1087,8 @@ class SQLiteThreatRepository:
 
                         # Calculate cosine similarity
                         dot_product = sum(
-                            x * y for x, y in zip(query_vector, vector_floats, strict=True)
+                            x * y
+                            for x, y in zip(query_vector, vector_floats, strict=True)
                         )
                         norm_q = math.sqrt(sum(x * x for x in query_vector))
                         norm_s = math.sqrt(sum(x * x for x in vector_floats))
@@ -1121,14 +1140,17 @@ class SQLiteThreatRepository:
                         attacker_intent = row[3] or ""
                         payload_pattern = row[4] or ""
                         target_tool_val = row[5] or ""
-                        candidate_text = f"{attacker_intent} {payload_pattern} {target_tool_val}"
+                        candidate_text = (
+                            f"{attacker_intent} {payload_pattern} {target_tool_val}"
+                        )
                         match_quality = compute_word_intersection_match_quality(
                             query_text, candidate_text
                         )
 
                         fts_rank_scale = min(max(1.0 + abs(bm25_rank) / 10.0, 1.0), 1.5)
                         normalized_score = min(
-                            match_quality * fts_fallback_score * fts_rank_scale, fts_threshold_cap
+                            match_quality * fts_fallback_score * fts_rank_scale,
+                            fts_threshold_cap,
                         )
 
                         logger.debug(
@@ -1181,14 +1203,17 @@ class SQLiteThreatRepository:
                         attacker_intent = row[3] or ""
                         payload_pattern = row[4] or ""
                         target_tool_val = row[5] or ""
-                        candidate_text = f"{attacker_intent} {payload_pattern} {target_tool_val}"
+                        candidate_text = (
+                            f"{attacker_intent} {payload_pattern} {target_tool_val}"
+                        )
                         match_quality = compute_word_intersection_match_quality(
                             query_text, candidate_text
                         )
 
                         fts_rank_scale = min(max(1.0 + abs(bm25_rank) / 10.0, 1.0), 1.5)
                         normalized_score = min(
-                            match_quality * fts_fallback_score * fts_rank_scale, fts_threshold_cap
+                            match_quality * fts_fallback_score * fts_rank_scale,
+                            fts_threshold_cap,
                         )
 
                         logger.debug(
@@ -1272,7 +1297,9 @@ class SQLiteThreatRepository:
             rows = await cursor.fetchall()
             for row in rows:
                 sig_id, tool, pattern, mitigation, intent = row
-                if pattern in args_str or (decoded_args_str != args_str and pattern in decoded_args_str):
+                if pattern in args_str or (
+                    decoded_args_str != args_str and pattern in decoded_args_str
+                ):
                     await self.increment_match_count(sig_id)
                     return {
                         "signature_id": sig_id,
@@ -1408,18 +1435,30 @@ class SQLiteThreatRepository:
             try:
                 values_to_insert = []
                 for signature_data in signatures:
-                    raw_intent = signature_data.get("attackerIntent") or signature_data.get("attacker_intent") or signature_data.get("description")
+                    raw_intent = (
+                        signature_data.get("attackerIntent")
+                        or signature_data.get("attacker_intent")
+                        or signature_data.get("description")
+                    )
                     attacker_intent = str(raw_intent) if raw_intent is not None else ""
 
-                    raw_pattern = signature_data.get("payloadPattern") or signature_data.get("payload_pattern") or signature_data.get("pattern")
+                    raw_pattern = (
+                        signature_data.get("payloadPattern")
+                        or signature_data.get("payload_pattern")
+                        or signature_data.get("pattern")
+                    )
                     payload_pattern = (
                         str(raw_pattern) if raw_pattern is not None else ""
                     )
 
-                    raw_tool = signature_data.get("targetTool") or signature_data.get("target_tool")
+                    raw_tool = signature_data.get("targetTool") or signature_data.get(
+                        "target_tool"
+                    )
                     target_tool = str(raw_tool) if raw_tool is not None else ""
 
-                    raw_sig_id = signature_data.get("signatureId") or signature_data.get("signature_id")
+                    raw_sig_id = signature_data.get(
+                        "signatureId"
+                    ) or signature_data.get("signature_id")
                     if raw_sig_id is not None:
                         sig_id = str(raw_sig_id)
                     else:
@@ -1431,7 +1470,9 @@ class SQLiteThreatRepository:
                             )
                         )
 
-                    raw_created_at = signature_data.get("createdAt") or signature_data.get("created_at")
+                    raw_created_at = signature_data.get(
+                        "createdAt"
+                    ) or signature_data.get("created_at")
                     if raw_created_at is not None:
                         if hasattr(raw_created_at, "timestamp"):
                             created_at = int(raw_created_at.timestamp())
@@ -1443,7 +1484,9 @@ class SQLiteThreatRepository:
                     else:
                         created_at = int(time.time())
 
-                    _raw_last_matched_at = signature_data.get("lastMatchedAt") or signature_data.get("last_matched_at")
+                    _raw_last_matched_at = signature_data.get(
+                        "lastMatchedAt"
+                    ) or signature_data.get("last_matched_at")
                     if _raw_last_matched_at is not None:
                         if hasattr(_raw_last_matched_at, "timestamp"):
                             last_matched_at = int(_raw_last_matched_at.timestamp())
@@ -1455,34 +1498,46 @@ class SQLiteThreatRepository:
                     else:
                         last_matched_at = None
 
-                    target_sink_val = signature_data.get("targetSink") or signature_data.get("target_sink") or signature_data.get("sink_type")
+                    target_sink_val = (
+                        signature_data.get("targetSink")
+                        or signature_data.get("target_sink")
+                        or signature_data.get("sink_type")
+                    )
                     target_sink = (
-                        str(target_sink_val)
-                        if target_sink_val is not None
-                        else None
+                        str(target_sink_val) if target_sink_val is not None else None
                     )
 
-                    raw_chain = signature_data.get("dependencyChain") or signature_data.get("dependency_chain")
+                    raw_chain = signature_data.get(
+                        "dependencyChain"
+                    ) or signature_data.get("dependency_chain")
                     dependency_chain = (
                         json.dumps(raw_chain) if raw_chain is not None else None
                     )
 
-                    raw_mitigation = signature_data.get("mitigationAction") or signature_data.get("mitigation_action")
+                    raw_mitigation = signature_data.get(
+                        "mitigationAction"
+                    ) or signature_data.get("mitigation_action")
                     mitigation_action = (
                         str(raw_mitigation) if raw_mitigation is not None else ""
                     )
 
-                    raw_match_count = signature_data.get("matchCount") or signature_data.get("match_count")
+                    raw_match_count = signature_data.get(
+                        "matchCount"
+                    ) or signature_data.get("match_count")
                     match_count = (
                         int(raw_match_count) if raw_match_count is not None else 0
                     )
 
-                    raw_fp_count = signature_data.get("falsePositiveCount") or signature_data.get("false_positive_count")
+                    raw_fp_count = signature_data.get(
+                        "falsePositiveCount"
+                    ) or signature_data.get("false_positive_count")
                     false_positive_count = (
                         int(raw_fp_count) if raw_fp_count is not None else 0
                     )
 
-                    similarity_vector = signature_data.get("similarityVector") or signature_data.get("similarity_vector")
+                    similarity_vector = signature_data.get(
+                        "similarityVector"
+                    ) or signature_data.get("similarity_vector")
                     if similarity_vector is not None:
                         if isinstance(similarity_vector, (bytes, bytearray)):
                             vector_blob = similarity_vector

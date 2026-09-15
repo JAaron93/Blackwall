@@ -6,6 +6,7 @@ without Core ever importing from ``blackwall.enterprise``.
 """
 
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from uuid import UUID
@@ -21,19 +22,27 @@ class EnterpriseSwarmContextProvider:
     """Protocol adapter resolving swarm lineage from the attack graph store."""
 
     def __init__(
-        self, store: Any, lookback_hours: float = 1.0, limit: int = 100
+        self,
+        store: Any,
+        lookback_hours: float = 1.0,
+        limit: int = 100,
+        evidence_lookup: Optional[Callable[[str], Awaitable[list[Any]]]] = None,
     ) -> None:
         self._store = store
         self._lookback = timedelta(hours=lookback_hours)
         self._limit = limit
+        self._evidence_lookup = evidence_lookup
 
     async def resolve_swarm_context(
         self, agent_id: Optional[str], fingerprint: str
     ) -> Optional[SwarmContextSummary]:
         """Maps recent swarm-tagged attack graph nodes to a summary.
 
-        Returns None when the agent has no swarm lineage or on any failure
-        (fail-safe NFR-2: callers fall back to individual attribution).
+        Falls back to detector-produced ``SwarmEvidence`` (via the optional
+        ``evidence_lookup``) when stored nodes carry no swarm metadata, so
+        detector findings remain reachable. Returns None when the agent has
+        no swarm lineage or on any failure (fail-safe NFR-2: callers fall
+        back to individual attribution).
         """
         del fingerprint
         try:
@@ -54,7 +63,10 @@ class EnterpriseSwarmContextProvider:
             return None
 
         try:
-            return self._summarize_nodes(agent_id, nodes or [])
+            summary = self._summarize_nodes(agent_id, nodes or [])
+            if summary is not None:
+                return summary
+            return await self._summarize_evidence(agent_id)
         except Exception as exc:
             logger.warning(
                 "Enterprise swarm context mapping failed; falling back to "
@@ -62,6 +74,64 @@ class EnterpriseSwarmContextProvider:
                 exc,
             )
             return None
+
+    async def _summarize_evidence(self, agent_id: str) -> Optional[SwarmContextSummary]:
+        """Maps detector SwarmEvidence to a summary (None when unreachable)."""
+        if self._evidence_lookup is None:
+            return None
+        evidence_list = await self._evidence_lookup(agent_id)
+        candidates = [
+            evidence
+            for evidence in evidence_list or []
+            if agent_id in set(getattr(evidence, "agent_ids", None) or [])
+        ]
+        if not candidates:
+            return None
+        newest = max(
+            candidates,
+            key=lambda ev: getattr(ev, "last_seen", None)
+            or datetime.min.replace(tzinfo=timezone.utc),
+        )
+
+        swarm_id: Optional[UUID] = None
+        raw_swarm_id = getattr(newest, "swarm_id", None)
+        if raw_swarm_id is not None:
+            try:
+                swarm_id = UUID(str(raw_swarm_id))
+            except (ValueError, TypeError, AttributeError):
+                swarm_id = None
+
+        coordinating_agents = sorted(
+            str(agent) for agent in (getattr(newest, "agent_ids", None) or [])
+        )
+        covert_channels = list(getattr(newest, "covert_channels", None) or [])
+        suspected_channels = [str(ch.channel_id) for ch in covert_channels]
+        channel_type = None
+        if covert_channels:
+            raw_type = getattr(covert_channels[0], "channel_type", None)
+            channel_type = getattr(raw_type, "value", raw_type)
+            channel_type = str(channel_type) if channel_type is not None else None
+        try:
+            confidence = float(getattr(newest, "coordination_score", 0.0))
+        except (TypeError, ValueError):
+            confidence = 0.0
+        confidence = max(0.0, min(1.0, confidence))
+
+        return SwarmContextSummary(
+            swarm_id=swarm_id,
+            is_collective=True,
+            collective_name=getattr(newest, "collective_name", None),
+            collective_confidence=confidence,
+            coordinating_agents=coordinating_agents,
+            suspected_covert_channels=suspected_channels,
+            covert_channel_type=channel_type,
+            deduction_rationale=(
+                f"Enterprise swarm evidence: {len(coordinating_agents)} agents, "
+                f"coordination_score={confidence:.2f}"
+            ),
+            first_detected=getattr(newest, "first_seen", None),
+            last_detected=getattr(newest, "last_seen", None),
+        )
 
     def _summarize_nodes(
         self, agent_id: str, nodes: list[Any]
