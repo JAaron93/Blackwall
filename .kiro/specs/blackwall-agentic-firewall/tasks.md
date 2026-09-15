@@ -1097,7 +1097,7 @@ Implement an asynchronous background loop that runs every 60 seconds. Delete thr
   - [x] Build Docker image and verify container starts cleanly (`blackwall:v2.0.0-rc`; fixed missing `crates/` manifest layer, missing C linker, and dead `blackwall.main` CMD)
   - [x] Verify `demo_live.py` executes without errors in sandbox environment (6/6 attacks, 0.00% evasion rate, Zero Ambient Authority verified)
   - [x] Confirm evaluation report shows FRR < 10% and Evasion Rate < 10% (recorded 0.00%/0.00% in task 21.3; metrics calculator unit-tested)
-  - [ ] Tag git release v2.0.0 for Blackwall Core & Enterprise Mesh (post-merge action by repository owner after this PR merges)
+  - [x] Tag git release v2.0.0 for Blackwall Core & Enterprise Mesh (`pyproject.toml` + `blackwall.__version__` aligned to `2.0.0`; tag re-pointed to the release merge commit post-merge)
   - [x] Verify README.md renders correctly on GitHub (unchanged by this release; links verified)
 
 ## Notes

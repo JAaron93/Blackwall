@@ -2,7 +2,7 @@
 Blackwall Agentic Firewall
 """
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 
 from blackwall.config import Settings, configure_provider_env, get_genai_client
 from blackwall.audit.manager import AuditHookManager
