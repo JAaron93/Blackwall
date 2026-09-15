@@ -22,6 +22,7 @@ from blackwall.models import (
     AttackerProfile,
     IdentitySource,
     IncidentReport,
+    SwarmContextSummary,
     ToolCallContext,
     VerdictDecision,
 )
@@ -169,6 +170,7 @@ class TestIncidentReportConstruction:
         )
 
         from uuid import UUID
+
         assert isinstance(report.report_id, UUID)
 
 
@@ -220,7 +222,11 @@ class TestSecretRedaction:
 
         # Sanitized arguments should contain redaction placeholder markers
         sanitized_str = str(report.sanitized_arguments)
-        assert "[[" in sanitized_str or "[REDACTED]" in sanitized_str or "REDACTED" in sanitized_str
+        assert (
+            "[[" in sanitized_str
+            or "[REDACTED]" in sanitized_str
+            or "REDACTED" in sanitized_str
+        )
 
     def test_clean_arguments_are_preserved(
         self,
@@ -415,6 +421,7 @@ class TestJSONFormatting:
 # original regex.
 # ===========================================================================
 
+
 class TestRedactionRegression:
     """Regression tests for sk-proj-... and other multi-segment OpenAI key formats."""
 
@@ -551,11 +558,13 @@ try:
         @given(
             segment1=st.text(
                 alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-                min_size=3, max_size=15,
+                min_size=3,
+                max_size=15,
             ),
             segment2=st.text(
                 alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-                min_size=8, max_size=30,
+                min_size=8,
+                max_size=30,
             ),
         )
         @settings(max_examples=30, deadline=2000)
@@ -665,3 +674,142 @@ class TestPasswordKeyBypass:
         )
         assert "hunter2" not in report.to_json()
         assert "hunter2" not in report.to_markdown()
+
+
+class TestSwarmEnrichedReporting:
+    """TASK-4.2 (FR-6): swarm lineage enrichment in Markdown/JSON formatters."""
+
+    @pytest.fixture
+    def swarm_context(self) -> SwarmContextSummary:
+        now = datetime.now(timezone.utc)
+        return SwarmContextSummary(
+            swarm_id=uuid4(),
+            is_collective=True,
+            collective_name="collective:track4-swarm",
+            collective_confidence=0.88,
+            coordinating_agents=["agent-99", "agent-100"],
+            suspected_covert_channels=["board-101"],
+            covert_channel_type="UNLOCATED_MESSAGE_BOARD",
+            deduction_rationale="high correlation without C2",
+            first_detected=now,
+            last_detected=now,
+        )
+
+    def _build_swarm_report(
+        self,
+        generator: IncidentReportGenerator,
+        sample_identity: AttackerIdentity,
+        sample_profile: AttackerProfile,
+        clean_tool_context: ToolCallContext,
+        swarm_context: SwarmContextSummary | None,
+    ) -> IncidentReport:
+        return generator.build(
+            event_id=uuid4(),
+            verdict=VerdictDecision.BLOCK,
+            identity=sample_identity,
+            profile=sample_profile,
+            tool_context=clean_tool_context,
+            technique="Swarm Coordination",
+            mitigation="Operation blocked",
+            recommended_action="Isolate agent fleet",
+            confidence=0.92,
+            swarm_context=swarm_context,
+        )
+
+    def test_build_with_swarm_context_populates_collective_fields(
+        self,
+        generator: IncidentReportGenerator,
+        sample_identity: AttackerIdentity,
+        sample_profile: AttackerProfile,
+        clean_tool_context: ToolCallContext,
+        swarm_context: SwarmContextSummary,
+    ):
+        report = self._build_swarm_report(
+            generator,
+            sample_identity,
+            sample_profile,
+            clean_tool_context,
+            swarm_context,
+        )
+        assert report.is_collective is True
+        assert report.swarm_id == swarm_context.swarm_id
+        assert report.suspected_covert_channels == ["board-101"]
+        assert report.collective_confidence == pytest.approx(0.88)
+        assert report.collective_attribution_summary is not None
+        assert "InfiltratorAgent" in report.collective_attribution_summary
+        assert "collective:track4-swarm" in report.collective_attribution_summary
+        assert "board-101" in report.collective_attribution_summary
+
+    def test_build_without_swarm_context_preserves_single_agent_defaults(
+        self,
+        generator: IncidentReportGenerator,
+        sample_identity: AttackerIdentity,
+        sample_profile: AttackerProfile,
+        clean_tool_context: ToolCallContext,
+    ):
+        report = self._build_swarm_report(
+            generator, sample_identity, sample_profile, clean_tool_context, None
+        )
+        assert report.is_collective is False
+        assert report.swarm_id is None
+        assert report.suspected_covert_channels == []
+        assert report.collective_confidence == pytest.approx(0.0)
+        assert report.collective_attribution_summary is None
+
+    def test_markdown_contains_collective_headers(
+        self,
+        generator: IncidentReportGenerator,
+        sample_identity: AttackerIdentity,
+        sample_profile: AttackerProfile,
+        clean_tool_context: ToolCallContext,
+        swarm_context: SwarmContextSummary,
+    ):
+        report = self._build_swarm_report(
+            generator,
+            sample_identity,
+            sample_profile,
+            clean_tool_context,
+            swarm_context,
+        )
+        markdown = report.to_markdown()
+        assert "Swarm Attribution" in markdown
+        assert "Swarm ID" in markdown
+        assert str(swarm_context.swarm_id) in markdown
+        assert "Collective Confidence" in markdown
+        assert "Suspected Covert Channels" in markdown
+        assert "collective:track4-swarm" in markdown
+        assert "board-101" in markdown
+
+    def test_markdown_omits_collective_section_for_single_agent(
+        self,
+        generator: IncidentReportGenerator,
+        sample_identity: AttackerIdentity,
+        sample_profile: AttackerProfile,
+        clean_tool_context: ToolCallContext,
+    ):
+        report = self._build_swarm_report(
+            generator, sample_identity, sample_profile, clean_tool_context, None
+        )
+        assert "Swarm Attribution" not in report.to_markdown()
+
+    def test_json_contains_swarm_lineage(
+        self,
+        generator: IncidentReportGenerator,
+        sample_identity: AttackerIdentity,
+        sample_profile: AttackerProfile,
+        clean_tool_context: ToolCallContext,
+        swarm_context: SwarmContextSummary,
+    ):
+        report = self._build_swarm_report(
+            generator,
+            sample_identity,
+            sample_profile,
+            clean_tool_context,
+            swarm_context,
+        )
+        payload = json.loads(report.to_json())
+        assert payload["is_collective"] is True
+        assert payload["swarm_id"] == str(swarm_context.swarm_id)
+        assert payload["suspected_covert_channels"] == ["board-101"]
+        assert payload["collective_confidence"] == pytest.approx(0.88)
+        assert "collective:track4-swarm" in payload["collective_attribution_summary"]

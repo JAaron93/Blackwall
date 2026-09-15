@@ -22,10 +22,10 @@ This task implementation plan structures the development of Blackwall's Agent Sw
 | **TASK-3.1** | SQLite Swarm Lineage Schema Migration | FR-5, NFR-3 | TASK-1.3 | Sequential | [x] COMPLETED |
 | **TASK-3.2** | Implement `SwarmContextProvider` Protocol (TDD) | FR-5, NFR-3, NFR-4 | TASK-2A.4, TASK-2B.4, TASK-3.1 | Sequential | [x] COMPLETED |
 | **TASK-3.3** | Swarm Attribution Provider Unit & BDD Tests | FR-5, NFR-4 | TASK-3.2 | Sequential | [x] COMPLETED |
-| **TASK-4.1** | Wire `SwarmContextProvider` into `SyncResolver` | FR-5, FR-6, NFR-1 | TASK-3.3 | Sequential | [ ] PENDING |
-| **TASK-4.2** | Enriched Incident Reporting Formatters (MD/JSON) | FR-6, FR-7, US-1 | TASK-4.1 | Sequential | [ ] PENDING |
-| **TASK-4.3** | End-to-End Multi-Agent Swarm BDD Scenarios | US-1, US-2, US-3 | TASK-4.2 | Sequential | [ ] PENDING |
-| **TASK-4.4** | GCP Cloud Evaluation Dataset & Benchmark Audit | US-3, Constitution §4 | TASK-4.3 | Sequential | [ ] PENDING |
+| **TASK-4.1** | Wire `SwarmContextProvider` into `SyncResolver` | FR-5, FR-6, NFR-1 | TASK-3.3 | Sequential | [x] COMPLETED |
+| **TASK-4.2** | Enriched Incident Reporting Formatters (MD/JSON) | FR-6, FR-7, US-1 | TASK-4.1 | Sequential | [x] COMPLETED |
+| **TASK-4.3** | End-to-End Multi-Agent Swarm BDD Scenarios | US-1, US-2, US-3 | TASK-4.2 | Sequential | [x] COMPLETED |
+| **TASK-4.4** | GCP Cloud Evaluation Dataset & Benchmark Audit | US-3, Constitution §4 | TASK-4.3 | Sequential | [x] COMPLETED |
 
 ---
 
@@ -136,25 +136,25 @@ This task implementation plan structures the development of Blackwall's Agent Sw
 
 ## Track 4: Interception Pipeline & End-to-End Verification
 
-### [ ] TASK-4.1: Wire `SwarmContextProvider` into `SyncResolver`
+### [x] TASK-4.1: Wire `SwarmContextProvider` into `SyncResolver`
 - **Description**: Add optional constructor dependency injection `swarm_provider: Optional[SwarmContextProvider] = None` to `SyncResolver.__init__()` in `src/blackwall/sync_resolver.py` (defaulting to `SQLiteSwarmContextProvider`). Update `_process_attribution()` to call `swarm_provider.resolve_swarm_context()` asynchronously upon `BLOCK` or `QUARANTINE` verdicts.
 - **Dependencies**: TASK-3.3.
 - **Traceability**: FR-5, FR-6, NFR-1, NFR-3.
 - **TDD Requirement**: Verify in `tests/test_attribution_integration.py` that resolver background tasks enrich profiles without exceeding 5ms total latency and without importing any enterprise modules.
 
-### [ ] TASK-4.2: Enriched Incident Reporting Formatters (MD/JSON)
+### [x] TASK-4.2: Enriched Incident Reporting Formatters (MD/JSON)
 - **Description**: Update `IncidentReportGenerator` in `src/blackwall/attribution/reporter.py` and `to_markdown()` / `to_json()` in `src/blackwall/models.py` to format swarm IDs, collective markers, and suspected covert channels.
 - **Dependencies**: TASK-4.1.
 - **Traceability**: FR-6, FR-7, US-1.
 - **TDD Requirement**: Update `tests/test_report_generator.py` asserting Markdown and JSON representations contain the new collective headers.
 
-### [ ] TASK-4.3: End-to-End Multi-Agent Swarm BDD Scenarios
+### [x] TASK-4.3: End-to-End Multi-Agent Swarm BDD Scenarios
 - **Description**: Implement full end-to-end simulation in `tests/features/e2e_swarm_attribution.feature` simulating an ExploitGym breakout: 5 agents using collective "we" framing and Artifactory directory manipulation -> Blackwall blocks execution -> infers unlocated message board -> attributes attack to collective swarm.
 - **Dependencies**: TASK-4.2.
 - **Traceability**: US-1, US-2, US-3, BDD Scenarios.
 - **BDD Requirement**: Execute full suite via `pytest -m "not slow"`.
 
-### [ ] TASK-4.4: Cloud Evaluation Dataset & Benchmark Audit
+### [x] TASK-4.4: Cloud Evaluation Dataset & Benchmark Audit
 - **Description**: Extend `src/blackwall/enterprise/advanced_threat_detection/gcp_eval_datasets.py` with multi-agent collective swarm and covert message board benchmarks. Verify compatibility with Vertex AI Gen AI Evaluation Service.
 - **Dependencies**: TASK-4.3.
 - **Traceability**: US-3, Constitution §4.

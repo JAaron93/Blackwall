@@ -31,6 +31,8 @@ from blackwall.analytics import AgentBehavioralAnalytics
 from blackwall.attribution import (
     AttackerIdentityExtractor,
     IncidentReportGenerator,
+    SQLiteSwarmContextProvider,
+    SwarmContextProvider,
 )
 from blackwall.config import (
     DEFAULT_RAPID_TRIAGE_MODEL,
@@ -45,6 +47,7 @@ from blackwall.models import (
     IncidentReport,
     RefactoringHint,
     SecurityEvent,
+    SwarmContextSummary,
     SyncResolverMetrics,
     ToolCallContext,
     Verdict,
@@ -127,16 +130,24 @@ _SUSPICIOUS_KEYWORDS = frozenset(
 
 
 class SemanticTriageEvaluation(BaseModel):
-    threat_score: float = Field(..., ge=0.0, le=1.0, description="Risk assessment score between 0.0 and 1.0")
-    is_suspicious: bool = Field(..., description="Whether the tool call exhibits malicious intent")
+    threat_score: float = Field(
+        ..., ge=0.0, le=1.0, description="Risk assessment score between 0.0 and 1.0"
+    )
+    is_suspicious: bool = Field(
+        ..., description="Whether the tool call exhibits malicious intent"
+    )
     reasoning: str = Field(..., description="Concise rationale for the verdict")
 
 
 class ThreatSignaturePayload(BaseModel):
-    attacker_intent: str = Field(..., description="Concise description of the attacker's intent")
+    attacker_intent: str = Field(
+        ..., description="Concise description of the attacker's intent"
+    )
     payload_pattern: str = Field(..., description="General payload or attack pattern")
     target_sink: str = Field(default="", description="Target sink or tool")
-    mitigation_action: str = Field(default="BLOCK", description="Recommended mitigation action")
+    mitigation_action: str = Field(
+        default="BLOCK", description="Recommended mitigation action"
+    )
 
 
 class SyncResolver:
@@ -160,6 +171,7 @@ class SyncResolver:
         telemetry: Optional[Any] = None,
         enable_semantic_triage: Optional[bool] = None,
         aba: Optional[Any] = None,
+        swarm_provider: Optional[SwarmContextProvider] = None,
     ) -> None:
         self.client = client
         self.policy_server = policy_server
@@ -175,11 +187,26 @@ class SyncResolver:
             client=self.client,
         )
 
+        # Swarm lineage provider (Track 4, Pillar 3 bridge). Defaults to the
+        # Core SQLite provider when the repo exposes swarm lineage queries.
+        # Enterprise providers are injected at runtime; Core never imports
+        # from blackwall.enterprise (NFR-3).
+        self.swarm_provider = swarm_provider
+        if (
+            self.swarm_provider is None
+            and self.repo is not None
+            and hasattr(self.repo, "find_swarm_by_agent_or_fingerprint")
+        ):
+            try:
+                self.swarm_provider = SQLiteSwarmContextProvider(self.repo)
+            except Exception as exc:
+                logger.warning("Default swarm provider init failed: %s", exc)
+                self.swarm_provider = None
+
         if enable_semantic_triage is None:
-            self.enable_semantic_triage = (
-                os.getenv("BLACKWALL_ENABLE_SYNC_SEMANTIC_TRIAGE", "").strip().lower()
-                in ("true", "1", "yes")
-            )
+            self.enable_semantic_triage = os.getenv(
+                "BLACKWALL_ENABLE_SYNC_SEMANTIC_TRIAGE", ""
+            ).strip().lower() in ("true", "1", "yes")
         else:
             self.enable_semantic_triage = bool(enable_semantic_triage)
 
@@ -211,9 +238,7 @@ class SyncResolver:
         )
 
         # Rate limiter: 100% GCP Vertex AI Mode (Paid Tier Exclusively: 300 RPM capacity, 5.0 t/s refill)
-        self._rate_limiter = TokenBucketRateLimiter(
-            capacity=300.0, refill_rate=5.0
-        )
+        self._rate_limiter = TokenBucketRateLimiter(capacity=300.0, refill_rate=5.0)
 
         # Context hygiene sanitizer with security IOC preservation mode enabled
         self._hygiene = ContextHygiene(preserve_iocs=True)
@@ -427,6 +452,13 @@ class SyncResolver:
             else:
                 profile = initial_profile
 
+            swarm_summary = await self._resolve_swarm_context(
+                agent_id=identity.agent_id,
+                fingerprint=identity.identity_fingerprint,
+            )
+            if swarm_summary is not None:
+                profile = await self._enrich_profile_with_swarm(profile, swarm_summary)
+
             generator = IncidentReportGenerator()
             report = generator.build(
                 event_id=uuid4(),
@@ -438,6 +470,7 @@ class SyncResolver:
                 mitigation=verdict.reasoning,
                 recommended_action="Revoke agent credentials and inspect execution trace",
                 confidence=verdict.confidence_score,
+                swarm_context=swarm_summary,
             )
 
             # Emit notification sinks with non-blocking error isolation
@@ -447,6 +480,66 @@ class SyncResolver:
             logger.warning(
                 "Attacker attribution failed gracefully (fail-safe mode): %s", exc
             )
+
+    async def _resolve_swarm_context(
+        self, agent_id: Any, fingerprint: str
+    ) -> Optional[SwarmContextSummary]:
+        """Resolves active swarm lineage via the injected provider (fail-safe).
+
+        Returns None when no provider is configured, the provider fails, or
+        the provider returns a non-summary payload (e.g. MagicMock stubs in
+        tests). Callers fall back to individual attribution.
+        """
+        provider = self.swarm_provider
+        if provider is None:
+            return None
+        resolve = getattr(provider, "resolve_swarm_context", None)
+        if resolve is None:
+            return None
+        try:
+            result = resolve(agent_id, fingerprint)
+            if asyncio.iscoroutine(result):
+                result = await result
+        except Exception as exc:
+            logger.warning(
+                "Swarm context resolution failed; continuing without swarm lineage: %s",
+                exc,
+            )
+            return None
+        if isinstance(result, SwarmContextSummary):
+            return result
+        return None
+
+    async def _enrich_profile_with_swarm(
+        self, profile: AttackerProfile, summary: SwarmContextSummary
+    ) -> AttackerProfile:
+        """Persists swarm lineage onto the attacker profile (FR-5 §37)."""
+        if self.repo is None or not hasattr(self.repo, "upsert_attacker_profile"):
+            return profile
+        try:
+            memberships = list(profile.swarm_memberships)
+            if summary.swarm_id is not None and summary.swarm_id not in memberships:
+                memberships.append(summary.swarm_id)
+            channels = list(profile.suspected_covert_channels)
+            for channel in summary.suspected_covert_channels:
+                if channel not in channels:
+                    channels.append(channel)
+            enriched = profile.model_copy(
+                update={
+                    "swarm_memberships": memberships,
+                    "suspected_covert_channels": channels,
+                    "collective_confidence": max(
+                        profile.collective_confidence,
+                        summary.collective_confidence,
+                    ),
+                    "collective_name": summary.collective_name
+                    or profile.collective_name,
+                }
+            )
+            return await self.repo.upsert_attacker_profile(enriched)
+        except Exception as exc:
+            logger.warning("Swarm profile enrichment failed: %s", exc)
+            return profile
 
     async def _emit_sinks(
         self, report: IncidentReport, identity: Any, profile: AttackerProfile
@@ -756,20 +849,30 @@ class SyncResolver:
                         payload_pattern = parsed.payload_pattern or ""
                         mitigation_action = parsed.mitigation_action or "BLOCK"
                     elif isinstance(parsed, dict):
-                        attacker_intent = parsed.get("attacker_intent") or attacker_intent
+                        attacker_intent = (
+                            parsed.get("attacker_intent") or attacker_intent
+                        )
                         payload_pattern = parsed.get("payload_pattern") or ""
                         mitigation_action = parsed.get("mitigation_action") or "BLOCK"
-                    elif hasattr(parsed, "attacker_intent") and hasattr(parsed, "payload_pattern"):
-                        attacker_intent = str(getattr(parsed, "attacker_intent", attacker_intent))
+                    elif hasattr(parsed, "attacker_intent") and hasattr(
+                        parsed, "payload_pattern"
+                    ):
+                        attacker_intent = str(
+                            getattr(parsed, "attacker_intent", attacker_intent)
+                        )
                         payload_pattern = str(getattr(parsed, "payload_pattern", ""))
-                        mitigation_action = str(getattr(parsed, "mitigation_action", "BLOCK"))
+                        mitigation_action = str(
+                            getattr(parsed, "mitigation_action", "BLOCK")
+                        )
 
                 if not payload_pattern and hasattr(response, "text") and response.text:
                     sig_text = response.text
                     try:
                         data = json.loads(sig_text)
                         if isinstance(data, dict):
-                            attacker_intent = data.get("attacker_intent") or attacker_intent
+                            attacker_intent = (
+                                data.get("attacker_intent") or attacker_intent
+                            )
                             payload_pattern = data.get("payload_pattern") or ""
                             mitigation_action = data.get("mitigation_action") or "BLOCK"
                         else:
@@ -785,7 +888,10 @@ class SyncResolver:
                 ctx_copy.metadata = {}
             if payload_pattern:
                 ctx_copy.metadata["payload_pattern"] = payload_pattern
-            if attacker_intent and attacker_intent != f"Blocked tool call: {context.tool_name}":
+            if (
+                attacker_intent
+                and attacker_intent != f"Blocked tool call: {context.tool_name}"
+            ):
                 ctx_copy.metadata["attacker_intent"] = attacker_intent
             if mitigation_action:
                 ctx_copy.metadata["mitigation_action"] = mitigation_action
@@ -973,7 +1079,9 @@ class SyncResolver:
         if self.demo_mode:
             deterministic_novelty = min(count * 0.25, 1.0)  # Boosted from 0.2
         else:
-            deterministic_novelty = min(count * 0.2, 1.0)  # Specification-mandated multiplier
+            deterministic_novelty = min(
+                count * 0.2, 1.0
+            )  # Specification-mandated multiplier
 
         if semantic_score is not None:
             bounded_semantic = max(0.0, min(1.0, float(semantic_score)))

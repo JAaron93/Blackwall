@@ -24,6 +24,7 @@ from blackwall.models import (
     AttackerIdentity,
     AttackerProfile,
     IncidentReport,
+    SwarmContextSummary,
     ToolCallContext,
     VerdictDecision,
 )
@@ -62,7 +63,9 @@ _REDACTION_PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
         "KEY_VALUE_PAIR",
         # Catches dict key names that look like API key env vars followed by their values.
         # e.g. "OPENAI_API_KEY": "sk-...", "ANTHROPIC_API_KEY": "sk-ant-..."
-        re.compile(r'(?i)(["\']?(?:openai|anthropic|google|huggingface|cohere|azure|aws)[_-]?(?:api[_-]?)?key[_-]?(?:id|secret)?["\']?\s*:\s*["\']?)([a-zA-Z0-9_\-]{10,})'),
+        re.compile(
+            r'(?i)(["\']?(?:openai|anthropic|google|huggingface|cohere|azure|aws)[_-]?(?:api[_-]?)?key[_-]?(?:id|secret)?["\']?\s*:\s*["\']?)([a-zA-Z0-9_\-]{10,})'
+        ),
         "[[API_KEY_VALUE]]",
     ),
     (
@@ -224,6 +227,7 @@ class IncidentReportGenerator:
         mitigation: str,
         recommended_action: str,
         confidence: float,
+        swarm_context: SwarmContextSummary | None = None,
     ) -> IncidentReport:
         """
         Construct a fully-populated ``IncidentReport`` for an attacker attribution event.
@@ -238,12 +242,41 @@ class IncidentReportGenerator:
             mitigation:         Description of the mitigation action taken.
             recommended_action: Operator-facing remediation guidance.
             confidence:         Attribution confidence score (0.0–1.0).
+            swarm_context:      Optional resolved swarm lineage (FR-6). When
+                provided, the report is marked collective and carries the
+                swarm ID, confidence, and suspected covert channels.
 
         Returns:
             A complete ``IncidentReport`` Pydantic model with redacted arguments.
         """
         # FR-6: Sanitize arguments before embedding in report
         sanitized_args = _sanitize_arguments(tool_context.arguments)
+
+        swarm_id = None
+        is_collective = False
+        suspected_channels: list[str] = []
+        collective_confidence = 0.0
+        collective_summary = None
+        if swarm_context is not None:
+            swarm_id = swarm_context.swarm_id
+            is_collective = True
+            suspected_channels = list(swarm_context.suspected_covert_channels)
+            collective_confidence = swarm_context.collective_confidence
+            agent_label = identity.agent_name or identity.agent_id or "Unknown agent"
+            swarm_label = swarm_context.collective_name or (
+                str(swarm_context.swarm_id)
+                if swarm_context.swarm_id
+                else "Unknown swarm"
+            )
+            channel_label = (
+                ", ".join(suspected_channels)
+                if suspected_channels
+                else "no confirmed channel"
+            )
+            collective_summary = (
+                f"Blocked action by {agent_label} (Part of Coordinated "
+                f"Swarm {swarm_label} communicating via {channel_label})"
+            )
 
         return IncidentReport(
             event_id=event_id,
@@ -256,12 +289,18 @@ class IncidentReportGenerator:
             mitigation_action=mitigation,
             recommended_user_action=recommended_action,
             attribution_confidence=confidence,
+            swarm_id=swarm_id,
+            is_collective=is_collective,
+            suspected_covert_channels=suspected_channels,
+            collective_confidence=collective_confidence,
+            collective_attribution_summary=collective_summary,
         )
 
 
 # ---------------------------------------------------------------------------
 # Module-level convenience helpers (re-export for ergonomic access)
 # ---------------------------------------------------------------------------
+
 
 def to_markdown(report: IncidentReport) -> str:
     """Format an ``IncidentReport`` as a Markdown summary string."""
