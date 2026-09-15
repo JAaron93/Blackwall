@@ -1,9 +1,11 @@
 use pyo3::prelude::*;
 
+pub mod graph;
 pub mod iocs;
 pub mod sanitizer;
 pub mod similarity;
 
+use graph::{avg_min_time_diff, compute_exponential_decay_weight, dfs_find_paths};
 use iocs::{calculate_entropy, extract_iocs};
 use sanitizer::{ContextSanitizer, RedactionRecord};
 use similarity::{
@@ -25,6 +27,11 @@ fn _core_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // IOC extraction & entropy functions
     m.add_function(wrap_pyfunction!(extract_iocs, m)?)?;
     m.add_function(wrap_pyfunction!(calculate_entropy, m)?)?;
+
+    // Graph DFS traversal & temporal pairwise correlation
+    m.add_function(wrap_pyfunction!(dfs_find_paths, m)?)?;
+    m.add_function(wrap_pyfunction!(compute_exponential_decay_weight, m)?)?;
+    m.add_function(wrap_pyfunction!(avg_min_time_diff, m)?)?;
 
     Ok(())
 }

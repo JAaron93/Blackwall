@@ -1,6 +1,7 @@
 """Multi-Stage Attack Path Correlation component for Blackwall Advanced Threat Detection (Pillar 6 Task 5)."""
 
 from datetime import datetime
+import logging
 import math
 import re
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
@@ -18,6 +19,16 @@ from blackwall.validators import (
     compute_exponential_decay,
     normalize_time_window,
 )
+
+try:
+    try:
+        from blackwall import _core_rs
+    except ImportError:
+        import _core_rs
+except (ImportError, AttributeError):
+    _core_rs = None
+
+logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.correlator")
 
 
 # MITRE ATT&CK technique mapping patterns
@@ -97,6 +108,84 @@ def map_mitre_attack_techniques(
     return techniques
 
 
+def _rust_dfs_find_paths(
+    candidate_nodes: List[AttackNode],
+    adj_graph: Dict[Any, List[Tuple[AttackNode, float]]],
+    min_path_length: int,
+    max_depth: int,
+    max_paths: int,
+) -> Optional[List[List[AttackNode]]]:
+    """Route DFS path enumeration to native Rust accelerator (_core_rs.dfs_find_paths).
+
+    Serializes AttackNodes into ``(node_id, timestamp_secs, tier)`` tuples and
+    the adjacency graph into ``(from_id, to_id)`` directed edge tuples, then
+    calls the compiled Rust DFS engine. Reconstructs the returned node_id
+    sequences back into ``List[List[AttackNode]]`` via an O(1) id-to-node map.
+
+    Falls back to pure-Python DFS if the native extension is unavailable.
+
+    Args:
+        candidate_nodes: List of AttackNode objects to traverse.
+        adj_graph: Temporal adjacency graph mapping node_id → [(AttackNode, weight)].
+        min_path_length: Minimum nodes in a returned path.
+        max_depth: Maximum traversal depth per path.
+        max_paths: Maximum number of paths to collect.
+
+    Returns:
+        List of paths, each path being a list of AttackNode objects, or None on fallback.
+    """
+    if _core_rs is None:
+        return None
+
+    try:
+        # Build node lookup map: str(node_id) → AttackNode
+        node_map: Dict[str, AttackNode] = {str(n.node_id): n for n in candidate_nodes}
+
+        # Serialize nodes to (node_id, timestamp_secs, tier) tuples
+        rust_nodes: List[Tuple[str, float, int]] = [
+            (
+                str(n.node_id),
+                n.event.timestamp.timestamp(),
+                SEMANTIC_TIERS.get(n.event.source, 1),
+            )
+            for n in candidate_nodes
+        ]
+
+        # Serialize adjacency graph to directed (from_id, to_id) edge tuples (deduplicated)
+        rust_edges: List[Tuple[str, str]] = []
+        seen_edges: Set[Tuple[str, str]] = set()
+        for from_id, neighbors in adj_graph.items():
+            str_from_id = str(from_id)
+            for neighbor_node, _ in neighbors:
+                edge = (str_from_id, str(neighbor_node.node_id))
+                if edge not in seen_edges:
+                    seen_edges.add(edge)
+                    rust_edges.append(edge)
+
+        path_id_sequences: List[List[str]] = _core_rs.dfs_find_paths(
+            rust_nodes,
+            rust_edges,
+            min_path_length,
+            max_depth,
+            max_paths,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Rust dfs_find_paths raised %s: %s — falling back to pure-Python DFS",
+            type(exc).__name__,
+            exc,
+        )
+        return None
+
+    # Reconstruct AttackNode sequences from returned node_id lists
+    result_paths: List[List[AttackNode]] = []
+    for id_seq in path_id_sequences:
+        nodes_in_path = [node_map[nid] for nid in id_seq if nid in node_map]
+        if len(nodes_in_path) >= min_path_length:
+            result_paths.append(nodes_in_path)
+    return result_paths
+
+
 class PathCorrelator:
     """Correlates security events into multi-stage attack paths using DFS and temporal graph analysis."""
 
@@ -151,21 +240,31 @@ class PathCorrelator:
         adj_graph = self.build_temporal_adjacency_graph(candidate_nodes)
 
         # 3. Depth-first search (DFS) for path enumeration
-        all_paths: List[List[AttackNode]] = []
+        # Try native Rust DFS accelerator first (FR-4, NFR-1: < 500µs for 500 nodes)
+        all_paths: List[List[AttackNode]] = _rust_dfs_find_paths(
+            candidate_nodes=candidate_nodes,
+            adj_graph=adj_graph,
+            min_path_length=min_path_length,
+            max_depth=max_depth,
+            max_paths=max_paths,
+        )
 
-        for start_node in candidate_nodes:
-            if len(all_paths) >= max_paths:
-                break
-            self._dfs_path_search(
-                current_node=start_node,
-                current_path=[start_node],
-                adj_graph=adj_graph,
-                min_path_length=min_path_length,
-                visited_in_path={start_node.node_id},
-                results=all_paths,
-                max_depth=max_depth,
-                max_results=max_paths,
-            )
+        # Fall back to pure-Python DFS if Rust engine unavailable or failed
+        if all_paths is None:
+            all_paths = []
+            for start_node in candidate_nodes:
+                if len(all_paths) >= max_paths:
+                    break
+                self._dfs_path_search(
+                    current_node=start_node,
+                    current_path=[start_node],
+                    adj_graph=adj_graph,
+                    min_path_length=min_path_length,
+                    visited_in_path={start_node.node_id},
+                    results=all_paths,
+                    max_depth=max_depth,
+                    max_results=max_paths,
+                )
 
         # 4. Filter and construct AttackPath models with MITRE techniques & risk scores
         attack_paths: List[AttackPath] = []
