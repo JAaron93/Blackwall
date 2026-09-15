@@ -12,11 +12,23 @@ Traceability: FR-5, NFR-2, All FRs, TASK-5.2
 import importlib
 import sys
 import types
+import uuid
 from datetime import datetime, timezone, timedelta
 from unittest import mock
-import uuid
-
 import pytest
+
+
+def _ensure_native_extension():
+    """Ensure the native compiled _core_rs extension is installed and functional.
+
+    Prevents tests from silently comparing Python fallback against Python fallback.
+    """
+    try:
+        from blackwall import _core_rs
+        assert _core_rs is not None
+        assert hasattr(_core_rs, "dfs_find_paths")
+    except (ImportError, AssertionError) as exc:
+        pytest.fail(f"Native _core_rs extension must be installed to verify parity: {exc}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -46,6 +58,7 @@ def _make_event(agent_id="fallback-agent", action="exec", target="/bin/sh", offs
 @pytest.mark.asyncio
 async def test_context_hygiene_middleware_fallback_invariant():
     """Verify middleware ContextHygiene produces identical output in pure-Python fallback mode."""
+    _ensure_native_extension()
     import blackwall.middleware.context_hygiene as ch_module
 
     payload = "api_key=SECRET_TOKEN_XYZ_12345 and host=10.0.0.1"
@@ -66,6 +79,7 @@ async def test_context_hygiene_middleware_fallback_invariant():
 
 def test_context_hygiene_resolver_fallback_invariant():
     """Verify resolver ContextHygiene produces identical output in pure-Python fallback mode."""
+    _ensure_native_extension()
     import blackwall.resolver as resolver_module
     from blackwall.models import ToolCallContext
 
@@ -93,6 +107,7 @@ def test_context_hygiene_resolver_fallback_invariant():
 
 def test_cosine_similarity_fallback_invariant():
     """Verify compute_word_intersection_match_quality fallback produces same result."""
+    _ensure_native_extension()
     import blackwall.validators as validators_module
 
     query = "SELECT * FROM users WHERE admin"
@@ -116,6 +131,7 @@ def test_cosine_similarity_fallback_invariant():
 
 def test_ioc_extraction_fallback_invariant():
     """Verify IOC extraction produces identical results in pure-Python fallback mode."""
+    _ensure_native_extension()
     import blackwall.policy.semantic as semantic_module
     from blackwall.models import ToolCallContext
 
@@ -136,6 +152,7 @@ def test_ioc_extraction_fallback_invariant():
 
 def test_entropy_fallback_invariant():
     """Verify Shannon entropy calculation produces identical result in fallback mode."""
+    _ensure_native_extension()
     import blackwall.policy.semantic as semantic_module
 
     payload = "aabbccddee" * 100  # Known entropy input
@@ -163,6 +180,7 @@ async def test_path_correlator_fallback_invariant():
     With _core_rs=None in correlator, the pure-Python _dfs_path_search loop runs.
     Both modes must find at least one valid attack path.
     """
+    _ensure_native_extension()
     from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
     from blackwall.enterprise.advanced_threat_detection.correlator import PathCorrelator
     import blackwall.enterprise.advanced_threat_detection.correlator as correlator_module
@@ -215,6 +233,7 @@ async def test_path_correlator_fallback_invariant():
 
 def test_avg_min_time_diff_swarm_fallback_invariant():
     """Verify _avg_min_time_diff in swarm.py produces identical results in fallback mode."""
+    _ensure_native_extension()
     from blackwall.enterprise.advanced_threat_detection import swarm as swarm_module
     from blackwall.enterprise.advanced_threat_detection.swarm import _avg_min_time_diff
 
@@ -241,7 +260,7 @@ def test_avg_min_time_diff_swarm_fallback_invariant():
 def test_modules_import_without_core_rs():
     """Verify all wrapper modules can be imported cleanly without _core_rs available.
 
-    Uses sys.modules manipulation to simulate a fresh import without _core_rs.
+    Evicts modules from sys.modules to guarantee fresh uncached imports without _core_rs.
     Validates FR-5: 'zero runtime errors' when native extension is missing.
     """
     # Modules that import _core_rs at the top level
@@ -254,12 +273,17 @@ def test_modules_import_without_core_rs():
     ]
 
     for mod_name in modules_to_test:
-        # Force module re-import with _core_rs blocked
-        with mock.patch.dict(sys.modules, {"blackwall._core_rs": None, "_core_rs": None}):
-            try:
+        saved_module = sys.modules.pop(mod_name, None)
+        try:
+            with mock.patch.dict(sys.modules, {"blackwall._core_rs": None, "_core_rs": None}):
                 mod = importlib.import_module(mod_name)
-            except ImportError as exc:
-                pytest.fail(
-                    f"Module {mod_name!r} raised ImportError without _core_rs: {exc} "
-                    f"(FR-5 violated: all modules must import cleanly in fallback mode)"
-                )
+                assert mod is not None
+        except ImportError as exc:
+            pytest.fail(
+                f"Module {mod_name!r} raised ImportError without _core_rs: {exc} "
+                f"(FR-5 violated: all modules must import cleanly in fallback mode)"
+            )
+        finally:
+            if saved_module is not None:
+                sys.modules[mod_name] = saved_module
+

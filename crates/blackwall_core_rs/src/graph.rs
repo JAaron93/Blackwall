@@ -122,7 +122,7 @@ fn dfs_find_paths_core(
     }
 
     let mut raw_paths: Vec<Vec<usize>> = Vec::with_capacity(max_paths.min(1024));
-    let mut current_path: Vec<usize> = Vec::with_capacity(max_depth);
+    let mut current_path: Vec<usize> = Vec::with_capacity(max_depth.min(n_count).min(4096));
     let mut visited: Vec<bool> = vec![false; n_count];
 
     for start_idx in 0..n_count {
@@ -281,6 +281,9 @@ pub fn dfs_find_paths(
     if max_paths == 0 {
         return Err(PyValueError::new_err("max_paths must be greater than 0"));
     }
+    if max_depth > 10_000 {
+        return Err(PyValueError::new_err("max_depth cannot exceed 10000"));
+    }
 
     let graph_nodes: Vec<GraphNode> = nodes
         .into_iter()
@@ -308,6 +311,7 @@ pub fn dfs_find_paths(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     // ── Exponential decay ────────────────────────────────────────────────────
 
