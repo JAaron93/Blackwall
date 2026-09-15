@@ -224,11 +224,54 @@ Untrusted agent payloads frequently contain sensitive environment credentials, p
 - **Idempotence**: Guaranteed $\text{sanitize}(\text{sanitize}(x)) = \text{sanitize}(x)$.
 - **Non-Invertible Audit Trail**: Logs SHA-256 hashes of original values to preserve auditability without storing raw plaintext secrets.
 
-### 5.2 Compiled Rust Acceleration (`blackwall._core_rs`)
-To ensure sanitization does not add latency to the critical path:
-- Hot-path regex scanning and SIMD vector math are implemented in compiled Rust (`crates/blackwall_core_rs/`) using PyO3 and Maturin.
-- Pre-compiled Aho-Corasick automaton and DFA regular expressions scan megabyte-scale tool arguments in microseconds.
-- Seamless, zero-dependency pure-Python fallback when the native extension is uncompiled.
+### 5.2 Compiled Rust Acceleration Subsystem (`blackwall._core_rs`)
+
+To ensure synchronous evaluation strictly obeys the $<5\text{ms}$ latency budget, latency-critical, CPU-bound hot paths are compiled into a native Rust extension (`crates/blackwall_core_rs/`) using **PyO3** and **Maturin**, governed by the **Non-Greedy Rewrite Philosophy (95% Python / 5% Rust)** (see [ADR 0005](docs/adr/0005-rust-native-acceleration-hotpaths.md) and [.kiro/specs/blackwall-rust-acceleration/](.kiro/specs/blackwall-rust-acceleration/)):
+
+```
++---------------------------------------------------------------------------------------------------+
+|                        BLACKWALL HYBRID RUNTIME TOPOLOGY (95% Python / 5% Rust)                   |
++---------------------------------------------------+-----------------------------------------------+
+|         HIGH-LEVEL PYTHON ORCHESTRATION LAYER     |        NATIVE RUST EXTENSION (_core_rs)       |
++---------------------------------------------------+-----------------------------------------------+
+| - Async Interception Resolvers (Sync / Batch)     | - DFA Regex Sanitization (O(N), No IPC)       |
+| - SQLite Async Connection Pool & WAL persistence  | - SIMD 768-dim Vector Cosine Similarity       |
+| - Google GenAI SDK (Vertex AI Mode) & GTI MCP     | - Word-Level Intersection Scoring (<5µs)      |
+| - Pydantic Data Models & Semantic Routing Policy  | - Single-Pass RegexSet IOC & Entropy Engine   |
+| - Cloud-Native Vertex AI Eval & OpenTelemetry     | - Graph DFS Path Traversal & Swarm Correlator |
++---------------------------------------------------+-----------------------------------------------+
+```
+
+#### The 4 Accelerated Hot-Path Subsystems:
+1. **Context Sanitization Engine (`ContextSanitizer`)**:
+   - Compiles sensitive token patterns into linear-time DFA regexes (guaranteed mathematically immune to ReDoS backtracking).
+   - Supports **Middleware Mode** (`preserve_prefix=false`, replacing full matched tokens and logging SHA-256 original hashes) and **Resolver Mode** (`preserve_prefix=true`, preserving parameter names in prompts).
+   - Latency SLA: $< 50\mu\text{s}$ on $\ge 9\text{KB}$ realistic payloads (measured $\approx 45\mu\text{s}$).
+2. **Vector Math & Similarity Scoring Engine**:
+   - Zero-copy byte buffer casting to `&[f32]` with auto-vectorized SIMD dot-product computation.
+   - `batch_cosine_similarity`: Evaluates query vectors against an array of candidate vectors in a single FFI call with **corrupted candidate isolation** (malformed candidate rows in the database are quarantined with diagnostic logging while all valid candidates continue scoring).
+   - `compute_word_intersection_match_quality`: Zero-allocation lowercase tokenization returning $\frac{|\text{query} \cap \text{cand}|}{\min(|\text{query}|, |\text{cand}|)}$ in $< 10\mu\text{s}$ (measured $\approx 5\mu\text{s}$).
+3. **Single-Pass IOC Extraction & Shannon Entropy Engine**:
+   - Single combined DFA pass via `RegexSet` detecting IPv4, IPv6, URLs, domains, and hashes.
+   - Direct IP address validation via Rust `std::net::IpAddr`.
+   - Single-pass 256-element byte frequency array computing Shannon entropy: $H(X) = -\sum p_i \log_2(p_i)$.
+   - Latency SLA: $< 35\mu\text{s}$ combined on 1KB payloads (measured $\approx 20\mu\text{s}$).
+4. **Graph DFS Traversal & Temporal Correlation Engine**:
+   - Native recursive DFS path enumeration with cycle prevention and depth pruning ($\le 10,000$ limit) in `_core_rs.dfs_find_paths`.
+   - Exponential decay edge weighting and pairwise two-pointer timestamp alignment (`_core_rs.avg_min_time_diff`).
+   - Latency SLA: $< 500\mu\text{s}$ for 500 nodes with `max_paths=50` (measured $\approx 340\mu\text{s}$).
+
+#### Zero-Panic FFI & Seamless Pure-Python Fallbacks:
+- All PyO3 functions return `PyResult<T>` and never panic across the C ABI, mapping internal Rust errors directly to standard Python exceptions (`ValueError`, `RuntimeError`).
+- All 7 Python wrappers (`context_hygiene.py`, `resolver.py`, `validators.py`, `repository.py`, `semantic.py`, `correlator.py`, `swarm.py`) provide seamless pure-Python fallbacks when the compiled binary is absent.
+- Full verification suite:
+  ```bash
+  # Automated SLA benchmark suite verifying all 6 gates
+  python scripts/benchmark_rust_hotpaths.py
+
+  # Fallback invariant and parity suite
+  pytest tests/unit/test_fallback_invariant.py -v
+  ```
 
 ---
 

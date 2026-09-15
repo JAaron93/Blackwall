@@ -300,6 +300,35 @@ is_exceeded = await quota_enforcer.enforce_quota_limits(agent_id="worker-agent",
 pytest tests/features/ tests/property/ -v
 ```
 
+### ⚡ Native Rust Acceleration Subsystem (`crates/blackwall_core_rs/` / `blackwall._core_rs`)
+
+To achieve microsecond-speed execution without compromising high-level Python orchestration, Blackwall accelerates CPU-bound hot paths using a compiled Rust PyO3 extension governed by the **Non-Greedy Rewrite Philosophy (95% Python / 5% Rust)** (see [ADR 0005](docs/adr/0005-rust-native-acceleration-hotpaths.md) and [.kiro/specs/blackwall-rust-acceleration/](.kiro/specs/blackwall-rust-acceleration/)):
+
+```python
+# 1. Context sanitization with linear-time DFA regexes (< 50µs on 10KB payloads)
+from blackwall.middleware.context_hygiene import ContextHygiene
+
+sanitizer = ContextHygiene()
+redacted, records = sanitizer.sanitize_context("curl https://api.com?key=sk_live_secret1234567890abcdef")
+
+# 2. Batch cosine similarity with SIMD auto-vectorization (≥ 35× speedup vs Python)
+from blackwall.db.repository import SQLiteThreatRepository
+# Evaluates 100+ 768-dim candidates in ~300µs with corrupted candidate isolation
+
+# 3. High-speed IOC extraction and Shannon entropy (< 35µs combined)
+from blackwall.policy.semantic import extract_iocs, calculate_entropy
+
+iocs = extract_iocs(["192.168.1.100", "https://c2.malware.com/payload.sh"])
+entropy = calculate_entropy("a8f9b2c3d4e5f6...")
+
+# 4. Deep graph DFS path traversal & temporal swarm correlation (< 500µs for 500 nodes)
+from blackwall.enterprise.advanced_threat_detection import PathCorrelator, AgentSwarmDetector
+# Evaluates multi-stage attack paths and two-pointer temporal alignments natively
+```
+
+> [!NOTE]
+> **Pure-Python Fallback Guarantee**: Every accelerated module (`context_hygiene`, `resolver`, `validators`, `repository`, `semantic`, `correlator`, `swarm`) provides an automatic, transparent fallback to pure Python if the native extension is uncompiled.
+
 ---
 
 ## 🎯 Core Innovations
@@ -808,19 +837,39 @@ pytest tests/features/blackwall_guardrails.feature -v
 # Gherkin-based behavioral verification of all guardrails
 ```
 
+### Native Rust Hot-Path SLA Benchmark Suite
+```bash
+# Verify all 6 hot-path latency SLAs and speedup gates (<50µs redaction, ≥35× vector speedup, <500µs DFS)
+python scripts/benchmark_rust_hotpaths.py
+```
+
+### Pure-Python Fallback Parity Suite
+```bash
+# Verify 100% behavioral and score parity between compiled Rust and pure-Python fallbacks
+pytest tests/unit/test_fallback_invariant.py -v
+```
+
+### Graph DFS & Swarm Correlation Suites (Unit & BDD)
+```bash
+# Verify Rust-accelerated DFS path enumeration and temporal swarm detection
+pytest tests/unit/test_path_correlator.py tests/unit/test_agent_swarm_detector.py tests/step_defs/test_path_correlation_bdd.py tests/step_defs/test_agent_swarm_detector_bdd.py -v
+```
+
 ---
 
 ## 📚 Complete Documentation
 
 | Document | Purpose |
 |----------|---------|
-| **[ARCHITECTURE.md](ARCHITECTURE.md)** | Technical deep-dive into Blackwall Core (Hybrid Gating, Async Batching, SQLite TSG, MCPs) |
-| **[ENTERPRISE_ARCHITECTURE.md](ENTERPRISE_ARCHITECTURE.md)** | Technical overview of Blackwall Enterprise Mesh (Pillars 1–6, eBPF, ZeroMQ, Vault sidecars) |
+| **[ARCHITECTURE.md](ARCHITECTURE.md)** | Technical deep-dive into Blackwall Core (Hybrid Gating, Async Batching, SQLite TSG, Rust Acceleration, MCPs) |
+| **[ENTERPRISE_ARCHITECTURE.md](ENTERPRISE_ARCHITECTURE.md)** | Technical overview of Blackwall Enterprise Mesh (Pillars 1–6, eBPF, ZeroMQ, Vault sidecars, Swarm Correlator) |
 | **[DEMO_HARNESS_ARCHITECTURE.md](DEMO_HARNESS_ARCHITECTURE.md)** | Dual-agent adversarial showdown architecture and Rich TUI specifications |
 | **[LIVE_CYBENCH_CLOUD_TRACE_EVAL_GUIDE.md](LIVE_CYBENCH_CLOUD_TRACE_EVAL_GUIDE.md)** | Live evaluation & Cloud Trace guide (100% GCP Vertex AI Mode) |
 | **[evaluation_guide.md](docs/evaluation_guide.md)** | Comprehensive comparison of the Cloud-Native Pytest Suite vs. ADK agents-cli Evalset Layer |
 | **[ci_evaluation_stage_template.md](docs/ci_evaluation_stage_template.md)** | Production CI/CD stage integration template and Google Cloud WIF setup |
 | **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** | Known issues and workarounds (evaluation performance) |
+| **[0005-rust-native-acceleration-hotpaths.md](docs/adr/0005-rust-native-acceleration-hotpaths.md)** | ADR 0005: Non-Greedy Rust Native Acceleration for Latency-Critical Interception Hot Paths |
+| **[blackwall-rust-acceleration](.kiro/specs/blackwall-rust-acceleration/)** | Technical design, requirements, and tasks for Native Rust Acceleration Subsystem |
 | **[design.md](.kiro/specs/blackwall-agentic-firewall/design.md)** | Full technical design (40+ pages, all architectural details) |
 | **[requirements.md](.kiro/specs/blackwall-agentic-firewall/requirements.md)** | 28 EARS-compliant requirements with acceptance criteria |
 | **[tasks.md](.kiro/specs/blackwall-agentic-firewall/tasks.md)** | Implementation plan with 97 tasks, dependencies, estimates |

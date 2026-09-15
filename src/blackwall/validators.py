@@ -235,7 +235,15 @@ def compute_exponential_decay(
     if math.isnan(delta_seconds) or math.isinf(delta_seconds):
         return 0.0
     tau_val = tau if not (math.isnan(tau) or math.isinf(tau) or tau <= 0) else 300.0
-    return math.exp(-max(0.0, delta_seconds) / tau_val)
+    delta_val = max(0.0, delta_seconds)
+
+    if _core_rs is not None and hasattr(_core_rs, "compute_exponential_decay_weight"):
+        try:
+            return float(_core_rs.compute_exponential_decay_weight(delta_val, tau_val))
+        except Exception:
+            pass
+
+    return math.exp(-delta_val / tau_val)
 
 
 def clamp_score(

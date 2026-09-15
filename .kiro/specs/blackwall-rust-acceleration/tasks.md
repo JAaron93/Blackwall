@@ -18,12 +18,11 @@ This task document defines the test-driven implementation plan for the Blackwall
 | **TASK-3A.3**| Vector & Match Quality Verification Tests | FR-2, NFR-1, NFR-2 | TASK-3A.2 | Parallel Track A | **`[x] COMPLETE`** |
 | **TASK-3B.1**| Rust `RegexSet` IOC & Entropy Engine | FR-3, NFR-1, NFR-3 | TASK-1.2 | Parallel Track B | **`[x] COMPLETE`** |
 | **TASK-3B.2**| Python `semantic.py` Wrapper & Fallback | FR-3, FR-5, NFR-2 | TASK-3B.1 | Parallel Track B | **`[x] COMPLETE`** |
-| **TASK-3B.3**| IOC Extraction & Entropy Unit Tests | FR-3, NFR-1, NFR-2 | TASK-3B.2 | Parallel Track B | **`[x] COMPLETE`** |
-| **TASK-4.1** | Rust Graph DFS & Temporal Correlator | FR-4, NFR-1, US-3 | TASK-1.2 | Sequential | `[ ] PENDING` |
-| **TASK-4.2** | Python `correlator.py` / `swarm.py` Wrap | FR-4, FR-5, US-3 | TASK-4.1 | Sequential | `[ ] PENDING` |
-| **TASK-4.3** | Path & Swarm Correlation BDD Tests | FR-4, NFR-1, US-3 | TASK-4.2 | Sequential | `[ ] PENDING` |
-| **TASK-5.1** | End-to-End SLA Benchmarking & Verification | NFR-1, US-1, US-2 | TASK-2.3, TASK-3A.3, TASK-3B.3, TASK-4.3 | Sequential | `[ ] PENDING` |
-| **TASK-5.2** | Full Suite Regression & Fallback Invariant | All FRs, All NFRs | TASK-5.1 | Sequential | `[ ] PENDING` |
+| **TASK-4.1** | Rust Graph DFS & Temporal Correlator | FR-4, NFR-1, US-3 | TASK-1.2 | Sequential | **`[x] COMPLETE`** |
+| **TASK-4.2** | Python `correlator.py` / `swarm.py` Wrap | FR-4, FR-5, US-3 | TASK-4.1 | Sequential | **`[x] COMPLETE`** |
+| **TASK-4.3** | Path & Swarm Correlation BDD Tests | FR-4, NFR-1, US-3 | TASK-4.2 | Sequential | **`[x] COMPLETE`** |
+| **TASK-5.1** | End-to-End SLA Benchmarking & Verification | NFR-1, US-1, US-2 | TASK-2.3, TASK-3A.3, TASK-3B.3, TASK-4.3 | Sequential | **`[x] COMPLETE`** |
+| **TASK-5.2** | Full Suite Regression & Fallback Invariant | All FRs, All NFRs | TASK-5.1 | Sequential | **`[x] COMPLETE`** |
 
 ---
 
@@ -117,20 +116,20 @@ This task document defines the test-driven implementation plan for the Blackwall
 ---
 
 ## Track 4: Graph DFS Traversal & Swarm Correlator
-
-### - [ ] TASK-4.1: Implement Rust Graph DFS Traversal & Temporal Pairwise Matrix
+ 
+### - [x] TASK-4.1: Implement Rust Graph DFS Traversal & Temporal Pairwise Matrix
 - **Description**: Create `crates/blackwall_core_rs/src/graph.rs` implementing native DFS path enumeration with cycle pruning, exponential decay edge weighting, and two-pointer temporal alignment.
 - **Dependencies**: TASK-1.2.
 - **Traceability**: FR-4, NFR-1, US-3.
 - **TDD Requirement**: Write Rust tests verifying path discovery and score calculation on synthetic multi-stage attack graphs.
 
-### - [ ] TASK-4.2: Integrate Graph Engine into Python `correlator.py` & `swarm.py`
+### - [x] TASK-4.2: Integrate Graph Engine into Python `correlator.py` & `swarm.py`
 - **Description**: Update `src/blackwall/enterprise/advanced_threat_detection/correlator.py` and `swarm.py` to route DFS traversal and pairwise correlation to `_core_rs` with pure-Python fallback.
 - **Dependencies**: TASK-4.1.
 - **Traceability**: FR-4, FR-5, US-3.
 - **TDD Requirement**: Run `pytest tests/unit/test_path_correlator.py tests/unit/test_agent_swarm_detector.py`.
 
-### - [ ] TASK-4.3: Path & Swarm Correlation BDD Scenarios
+### - [x] TASK-4.3: Path & Swarm Correlation BDD Scenarios
 - **Description**: Run BDD feature tests in `tests/step_defs/test_path_correlation_bdd.py` and `tests/step_defs/test_agent_swarm_detector_bdd.py`.
 - **Dependencies**: TASK-4.2.
 - **Traceability**: FR-4, NFR-1, US-3.
@@ -139,12 +138,12 @@ This task document defines the test-driven implementation plan for the Blackwall
 
 ## Track 5: System Integration, Benchmarks, & Verification
 
-### - [ ] TASK-5.1: End-to-End SLA Benchmarking & Verification
+### - [x] TASK-5.1: End-to-End SLA Benchmarking & Verification
 - **Description**: Run automated latency comparison script across all 4 optimized hot paths against baseline Python metrics, asserting $<50\mu\text{s}$ context redaction and $<5\text{ms}$ total `SyncResolver` SLA.
 - **Dependencies**: TASK-2.3, TASK-3A.3, TASK-3B.3, TASK-4.3.
 - **Traceability**: NFR-1, US-1, US-2.
 
-### - [ ] TASK-5.2: Full Suite Regression & Pure-Python Fallback Invariant
+### - [x] TASK-5.2: Full Suite Regression & Pure-Python Fallback Invariant
 - **Description**: Execute the complete Blackwall test suite with compiled Rust extension active, then uninstall/rename extension and verify 100% test pass rate in pure-Python fallback mode.
 - **Dependencies**: TASK-5.1.
 - **Traceability**: All FRs, All NFRs.
