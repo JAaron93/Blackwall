@@ -23,8 +23,8 @@ Module Location: [`src/blackwall/validators.py`](../src/blackwall/validators.py)
 | `parse_iso_datetime` | `(v: Optional[Union[str, datetime]], default: Optional[datetime] = None) -> Optional[datetime]` | Parses an ISO 8601 string or datetime into a UTC timezone-aware datetime. | `SQLiteThreatRepository` ([db/repository.py](../src/blackwall/db/repository.py)). |
 | `compute_word_intersection_match_quality` | `(query_text: str, candidate_text: str) -> float` | Computes word-level intersection match quality (`len(intersection) / max(min_len, 1)`) for FTS queries and candidate texts using native Rust SIMD/zero-allocation extension (`_core_rs.compute_word_intersection_match_quality`) with pure-Python fallback. | `SQLiteThreatRepository.find_similar_signatures` ([db/repository.py](../src/blackwall/db/repository.py)). |
 | `compute_shannon_entropy` | `(text: str) -> float` | Computes the Shannon character entropy \( -\sum p_i \log_2(p_i) \) of a string using native compiled Rust extension (`_core_rs.compute_shannon_entropy`) with pure-Python fallback. | `extract_iocs` in `src/blackwall/policy/semantic.py` and threat scoring models. |
-| `normalize_time_window` | `(time_window: Optional[Tuple[datetime, datetime]] = None, default_duration_seconds: float = 300.0) -> Tuple[datetime, datetime]` | Validates and normalizes an optional `(start_time, end_time)` window into timezone-aware UTC datetimes, enforcing temporal ordering. If `None`, defaults to `(now - default_duration, now)`. | `PathCorrelator`, `AgentSwarmDetector`, `ExploitChainAnalyzer`, `AILMTracker`, `C2InfrastructureDetector`, `KubernetesDefenseLayer`, `PackageRegistryMonitor`, `RetrospectiveAnalyzer`, `AdvancedThreatDetection` orchestrator ([enterprise/advanced_threat_detection/](../src/blackwall/enterprise/advanced_threat_detection/)). |
-| `compute_jaccard_similarity` | `(set_a: Union[Set[Any], Sequence[Any]], set_b: Union[Set[Any], Sequence[Any]]) -> float` | Computes the Jaccard similarity coefficient \( \frac{\|A \cap B\|}{\|A \cup B\|} \) between two sets or collections. Returns `1.0` if both empty, `0.0` if one empty. | `AgentSwarmDetector` ([enterprise/advanced_threat_detection/swarm.py](../src/blackwall/enterprise/advanced_threat_detection/swarm.py)), `RetrospectiveAnalyzer` ([enterprise/advanced_threat_detection/retrospective.py](../src/blackwall/enterprise/advanced_threat_detection/retrospective.py)). |
+| `normalize_time_window` | `(time_window: Optional[Tuple[datetime, datetime]] = None, default_duration_seconds: Optional[float] = None) -> Tuple[datetime, datetime]` | Validates and normalizes an optional `(start_time, end_time)` window into timezone-aware UTC datetimes, enforcing temporal ordering. If `None`, requires `default_duration_seconds` and defaults to `(now - default_duration, now)`; raises `ValueError` when neither is provided. | `PathCorrelator`, `AgentSwarmDetector`, `ExploitChainAnalyzer`, `AILMTracker`, `C2InfrastructureDetector`, `KubernetesDefenseLayer`, `PackageRegistryMonitor`, `RetrospectiveAnalyzer`, `AdvancedThreatDetection` orchestrator ([enterprise/advanced_threat_detection/](../src/blackwall/enterprise/advanced_threat_detection/)). |
+| `compute_jaccard_similarity` | `(set_a: Union[Set[Any], Sequence[Any]], set_b: Union[Set[Any], Sequence[Any]]) -> float` | Computes the Jaccard similarity coefficient \( \frac{\|A \cap B\|}{\|A \cup B\|} \) between two sets or collections. Returns `0.0` if both empty or the union is empty. | `AgentSwarmDetector` ([enterprise/advanced_threat_detection/swarm.py](../src/blackwall/enterprise/advanced_threat_detection/swarm.py)), `RetrospectiveAnalyzer` ([enterprise/advanced_threat_detection/retrospective.py](../src/blackwall/enterprise/advanced_threat_detection/retrospective.py)). |
 | `compute_exponential_decay` | `(delta_seconds: float, half_life_seconds: float) -> float` | Computes exponential decay factor \( e^{-\frac{\Delta t}{\tau}} \) for temporal proximity scoring. Returns `1.0` for \( \Delta t \le 0 \). | `PathCorrelator` ([enterprise/advanced_threat_detection/correlator.py](../src/blackwall/enterprise/advanced_threat_detection/correlator.py)), `AgentSwarmDetector` ([enterprise/advanced_threat_detection/swarm.py](../src/blackwall/enterprise/advanced_threat_detection/swarm.py)), `ExploitChainAnalyzer` ([enterprise/advanced_threat_detection/exploit.py](../src/blackwall/enterprise/advanced_threat_detection/exploit.py)), `RetrospectiveAnalyzer` ([enterprise/advanced_threat_detection/retrospective.py](../src/blackwall/enterprise/advanced_threat_detection/retrospective.py)). |
 | `clamp_score` | `(score: float, min_val: float = 0.0, max_val: float = 1.0, decimals: Optional[int] = None) -> float` | Clamps a numeric score within `[min_val, max_val]` bounds and optionally rounds to `decimals` precision. | `PathCorrelator`, `AgentSwarmDetector`, `ExploitChainAnalyzer`, `RetrospectiveAnalyzer` ([enterprise/advanced_threat_detection/](../src/blackwall/enterprise/advanced_threat_detection/)). |
 | `is_evaluation_metadata` | `(metadata: Optional[Dict[str, Any]]) -> bool` | Checks if an event, alert, or payload metadata dictionary carries evaluation environment labeling (`is_evaluation=True`, `eval_mode=True`, or non-empty `evaluation_env_id`). | `EvaluationEnvironmentManager` ([enterprise/advanced_threat_detection/evaluation.py](../src/blackwall/enterprise/advanced_threat_detection/evaluation.py)), `ActiveReactionEngine` ([enterprise/advanced_threat_detection/reaction.py](../src/blackwall/enterprise/advanced_threat_detection/reaction.py)). |
@@ -89,7 +89,46 @@ Feature Location: [`tests/features/security_contract_validators.feature`](../tes
 
 ---
 
-## 6. Guidelines for Adding New Helpers
+## 6. Text Normalization & Safe Number Parsing (`src/blackwall/validators.py`)
+
+Module Location: [`src/blackwall/validators.py`](../src/blackwall/validators.py)
+
+| Function | Signature | Description / Purpose | Use Cases & Applied Locations |
+| :--- | :--- | :--- | :--- |
+| `normalize_text` | `(v: Any = None, default: str = "") -> str` | Strips surrounding whitespace and lowercases free-form text; returns `default` for `None` and coerces other scalars via `str()`. | `config.py` (`GEMINI_ALLOW_ANALYTICAL_DOWNGRADE`, tier/level resolution), `resolver.py` (resolver mode/tier), `sync_resolver.py` (semantic triage flag), `mcp_routing.py` (operation canonicalization), `attribution/extractor.py`, `attribution/linguistic.py` (identity normalization), `c2.py`, `ailm.py`, `covert_channel.py`, `graph_export.py` (format parsing), `eval/` judges/scorers/rubrics/aggregator (`domain` normalization), `eval/sla_validator.py`, `analytics/BackgroundTaskSubmitter.py`, `enterprise/advanced_threat_detection/config.py`, `gcp_vertex_eval.py` (thinking level). |
+| `safe_float` | `(v: Any, default: float = 0.0) -> float` | Converts `v` to `float`, returning `default` on `ValueError`/`TypeError`. | Available for env-var/config numeric parsing (existing `config.py` fallbacks intentionally keep validation-gated logic). |
+| `safe_int` | `(v: Any, default: int = 0) -> int` | Converts `v` to `int`, returning `default` on `ValueError`/`TypeError`. | Available for env-var/config integer parsing (existing `config.py` fallbacks intentionally keep validation-gated logic). |
+
+---
+
+## 7. Secret Sanitization Canonical Helpers (`src/blackwall/validators.py`)
+
+Module Location: [`src/blackwall/validators.py`](../src/blackwall/validators.py)
+
+Single source of truth for two-pass secret redaction, shared by Core and Enterprise pillars. `src/blackwall/attribution/reporter.py` (`_sanitize_arguments` wrapper, `IncidentReportGenerator`) and `src/blackwall/enterprise/advanced_threat_detection/inbound_filter.py` (`InboundProtocolFilter.sanitize_incoming_rpc`) both delegate here while keeping their private aliases for backward compatibility.
+
+| Function / Constant | Signature | Description / Purpose | Use Cases & Applied Locations |
+| :--- | :--- | :--- | :--- |
+| `SENSITIVE_KEY_PATTERNS` | `list[re.Pattern[str]]` | Key-name regexes (password, secret, token, api_key, …) for pre-serialization inspection. | `reporter.py`, `inbound_filter.py` (via private aliases). |
+| `REDACTION_PATTERNS` | `list[tuple[str, re.Pattern[str], str]]` | Value-embedded secret regexes (API keys, `sk-*`, `AIza`, passwords, URLs, IPs, emails, file paths) with placeholders. | `reporter.py`, `inbound_filter.py` (via private aliases). |
+| `is_sensitive_key` | `(key: str) -> bool` | Returns `True` if a key name matches any sensitive pattern. | Pass-1 key inspection in both consumers. |
+| `sanitize_value` | `(value: Any, patterns: Optional[...] = None) -> Any` | Recursively sanitizes dicts (key-first), strings (regex pass), and lists; scalars pass through. `patterns` defaults to the full table. | Pass-1 value recursion in both consumers. |
+| `sanitize_dict_payload` | `(payload: dict[str, Any], patterns: Optional[...] = None) -> dict[str, Any]` | Two-pass dict sanitization (key inspection, then serialized regex scan); fail-closed with `{"sanitization_error": ...}` fallback. `patterns` defaults to the full table. | `reporter._sanitize_arguments`, `inbound_filter` RPC sanitization. |
+| `CREDENTIAL_REDACTION_PATTERNS` | `list[tuple[str, re.Pattern[str], str]]` | Credential-only view of `REDACTION_PATTERNS` (API keys, `sk-*`, `AIza`, secrets, passwords). Preserves executable targets (URLs, IPs, emails, file paths) on live execution paths. | `inbound_filter._sanitize_dict_payload` (live `tools/call` arguments). |
+
+---
+
+## 8. Vector Similarity Helper (`src/blackwall/validators.py`)
+
+Module Location: [`src/blackwall/validators.py`](../src/blackwall/validators.py)
+
+| Function | Signature | Description / Purpose | Use Cases & Applied Locations |
+| :--- | :--- | :--- | :--- |
+| `compute_cosine_similarity` | `(v1: list[float], v2: list[float]) -> float` | Computes cosine similarity between two float vectors with Rust acceleration (`_core_rs.cosine_similarity`) and pure-Python fallback. Raises `ValueError` on dimension mismatch or empty input. | Embedding similarity scoring (tested in `tests/unit/test_validators.py`). |
+
+---
+
+## 9. Guidelines for Adding New Helpers
 1. Place general domain/validation helpers in `src/blackwall/validators.py` or dedicated sub-package utility modules.
 2. Ensure all helper functions follow the **Single Responsibility Principle**.
 3. Always add unit tests for new helper functions in `tests/unit/test_validators.py`.

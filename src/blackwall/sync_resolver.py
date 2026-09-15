@@ -16,7 +16,6 @@ Verdict thresholds (DEMO MODE - tuned for standalone testing):
 
 import asyncio
 import concurrent.futures
-from datetime import datetime, timezone
 import json
 import logging
 import os
@@ -54,6 +53,7 @@ from blackwall.models import (
     VerdictDecision,
 )
 from blackwall.resolver import ContextHygiene, TokenBucketRateLimiter
+from blackwall.validators import clamp_score, normalize_text, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -209,9 +209,9 @@ class SyncResolver:
                 self.swarm_provider = None
 
         if enable_semantic_triage is None:
-            self.enable_semantic_triage = os.getenv(
-                "BLACKWALL_ENABLE_SYNC_SEMANTIC_TRIAGE", ""
-            ).strip().lower() in ("true", "1", "yes")
+            self.enable_semantic_triage = normalize_text(
+                os.getenv("BLACKWALL_ENABLE_SYNC_SEMANTIC_TRIAGE", "")
+            ) in ("true", "1", "yes")
         else:
             self.enable_semantic_triage = bool(enable_semantic_triage)
 
@@ -339,7 +339,7 @@ class SyncResolver:
         score = await self._compute_threat_score(
             sanitized, gti_resp, cbm_resp, semantic_score=semantic_score
         )
-        score = max(0.0, min(1.0, score))
+        score = clamp_score(score)
 
         # 5. Apply verdict thresholds
         if self.demo_mode:
@@ -442,7 +442,7 @@ class SyncResolver:
             extractor = AttackerIdentityExtractor()
             identity = extractor.extract(context=sanitized, metadata=sanitized.metadata)
 
-            now_utc = datetime.now(timezone.utc)
+            now_utc = utc_now()
             swarm_summary = await self._resolve_swarm_context(
                 agent_id=identity.agent_id,
                 fingerprint=identity.identity_fingerprint,
@@ -992,7 +992,7 @@ class SyncResolver:
             return 0.0
 
         malicious_score = 1.0 if gti_resp.is_malicious else 0.0
-        detection_score = max(0.0, min(1.0, gti_resp.detection_rate))
+        detection_score = clamp_score(gti_resp.detection_rate)
 
         if gti_resp.is_malicious:
             # Both components available: average them
@@ -1040,7 +1040,7 @@ class SyncResolver:
                 role_modifier = 0.05
 
         raw = (tool_score * 0.50 + novelty_score * 0.50) + role_modifier
-        return max(0.0, min(1.0, raw))
+        return clamp_score(raw)
 
     def _score_tool_name(self, tool_name: str) -> float:
         """Returns scoring for tool name based on risk level."""
@@ -1078,7 +1078,7 @@ class SyncResolver:
             )  # Specification-mandated multiplier
 
         if semantic_score is not None:
-            bounded_semantic = max(0.0, min(1.0, float(semantic_score)))
+            bounded_semantic = clamp_score(float(semantic_score))
             # Fail-closed: semantic triage must never lower the deterministic risk signal
             return max(deterministic_novelty, bounded_semantic)
 

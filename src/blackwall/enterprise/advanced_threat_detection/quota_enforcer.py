@@ -8,7 +8,7 @@ import collections
 import logging
 import math
 import time
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Optional
 from uuid import uuid4
 
@@ -19,6 +19,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     Alert,
 )
 from blackwall.validators import (
+    utc_now,
     validate_non_empty_string,
     validate_utc_datetime,
 )
@@ -172,7 +173,7 @@ class AgentQuotaEnforcer:
         if timestamp is not None:
             utc_dt = validate_utc_datetime(timestamp)
         else:
-            utc_dt = datetime.now(UTC)
+            utc_dt = utc_now()
 
         now_mono = time.monotonic()
 
@@ -275,7 +276,7 @@ class AgentQuotaEnforcer:
                 alert_id = uuid4()
                 alert = Alert(
                     alert_id=alert_id,
-                    timestamp=datetime.now(UTC),
+                    timestamp=utc_now(),
                     severity=severity,
                     threat_type="DENIAL_OF_WALLET_SURGE",
                     title=f"Denial of Wallet surge detected for agent {clean_id}",
@@ -312,7 +313,7 @@ class AgentQuotaEnforcer:
             if self.is_quarantined(clean_id):
                 return AgentQuotaUsage(
                     agent_id=clean_id,
-                    time_window_start=datetime.now(UTC),
+                    time_window_start=utc_now(),
                     tokens_consumed=0,
                     api_call_count=0,
                     token_burn_rate_per_sec=0.0,

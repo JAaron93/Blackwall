@@ -10,7 +10,7 @@ import asyncio
 import hashlib
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from blackwall.enterprise.advanced_threat_detection.alert_bus import AlertBus
@@ -23,6 +23,7 @@ from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStor
 from blackwall.validators import (
     is_evaluation_metadata,
     stamp_evaluation_metadata,
+    utc_now,
     validate_non_empty_string,
     validate_uuid_v4_format,
 )
@@ -342,7 +343,7 @@ class EvaluationEnvironment:
         self.env_id = validate_non_empty_string(env_id, field_name="env_id")
         self.dsn = dsn
         self.in_memory = in_memory
-        self.created_at = datetime.now(UTC)
+        self.created_at = utc_now()
         self.metadata: dict[str, Any] = dict(metadata) if metadata else {}
         self._lock = asyncio.Lock()
         self._closed = False

@@ -8,7 +8,6 @@ import collections
 import ipaddress
 import json
 import logging
-import re
 import time
 from datetime import UTC, datetime
 from typing import Any, Mapping, Optional, Set, Tuple
@@ -24,110 +23,35 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     Alert,
     InboundProtocolMessage,
 )
-from blackwall.validators import validate_non_empty_string
+from blackwall.validators import (
+    CREDENTIAL_REDACTION_PATTERNS,
+    REDACTION_PATTERNS,
+    SENSITIVE_KEY_PATTERNS,
+    validate_non_empty_string,
+)
+from blackwall.validators import (
+    sanitize_dict_payload as _canonical_sanitize_dict_payload,
+)
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.inbound_filter")
 
-# Sensitive key name patterns for Pass 1 pre-serialization redaction
-_SENSITIVE_KEY_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"(?i)password"),
-    re.compile(r"(?i)passwd"),
-    re.compile(r"(?i)\bpwd\b"),
-    re.compile(r"(?i)secret"),
-    re.compile(r"(?i)token"),
-    re.compile(r"(?i)api[_-]?key"),
-    re.compile(r"(?i)access[_-]?key"),
-    re.compile(r"(?i)private[_-]?key"),
-    re.compile(r"(?i)auth"),
-    re.compile(r"(?i)credential"),
-    re.compile(r"(?i)bearer"),
-]
-
-# Regex patterns for Pass 2 value inspection
-_REDACTION_PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
-    (
-        "API_KEY",
-        re.compile(r"(?i)(api[_-]?key|apikey|token)[\s:=]+['\"]?([a-zA-Z0-9_\-]{20,})"),
-        "[[API_KEY]]",
-    ),
-    (
-        "OPENAI_KEY",
-        # Matches: sk-abc123, sk-proj-abc-def123, sk-or-v1-abc, sk-ant-abc etc.
-        re.compile(r"sk-(?:[a-zA-Z0-9]+-)*[a-zA-Z0-9]{8,}"),
-        "[[OPENAI_API_KEY]]",
-    ),
-    (
-        "GOOGLE_KEY",
-        re.compile(r"AIza[a-zA-Z0-9_\-]{10,}"),
-        "[[GOOGLE_API_KEY]]",
-    ),
-    (
-        "SECRET_VALUE",
-        re.compile(r"(?i)(secret|api_key|apikey)[\s:\"']*:[\s\"']*[a-zA-Z0-9_\-]{8,}"),
-        "[[SECRET_VALUE]]",
-    ),
-    (
-        "PASSWORD",
-        re.compile(r"(?i)(password|passwd|pwd)[\s:=]+['\"]?([^\s'\"]+)"),
-        "[[PASSWORD]]",
-    ),
-]
-
-
-def _is_sensitive_key(key: str) -> bool:
-    """Return True if key name matches any known sensitive credential pattern."""
-    return any(pat.search(key) for pat in _SENSITIVE_KEY_PATTERNS)
-
-
-def _sanitize_value(value: Any) -> Any:
-    """Recursively sanitize values using two-pass secret redaction."""
-    if isinstance(value, dict):
-        result: dict[str, Any] = {}
-        for k, v in value.items():
-            if _is_sensitive_key(k):
-                result[k] = f"[[{k.upper()}_REDACTED]]"
-            else:
-                result[k] = _sanitize_value(v)
-        return result
-    if isinstance(value, list):
-        return [_sanitize_value(item) for item in value]
-    if isinstance(value, str):
-        redacted = value
-        for _name, pattern, placeholder in _REDACTION_PATTERNS:
-            try:
-                redacted = pattern.sub(placeholder, redacted)
-            except re.error as exc:
-                logger.warning("Sanitization pattern failed: %s", exc)
-                continue
-        return redacted
-    return value
+# Canonical secret-sanitization tables live in blackwall.validators (single source
+# of truth shared with blackwall.attribution.reporter). Private aliases below keep
+# existing module-level names working.
+_SENSITIVE_KEY_PATTERNS = SENSITIVE_KEY_PATTERNS
+_REDACTION_PATTERNS = REDACTION_PATTERNS
 
 
 def _sanitize_dict_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """Sanitize dictionary payload applying key-based and regex-based redactions."""
-    try:
-        # Pass 1: Key-name inspection
-        pass1: dict[str, Any] = {}
-        for k, v in payload.items():
-            if _is_sensitive_key(k):
-                pass1[k] = f"[[{k.upper()}_REDACTED]]"
-            else:
-                pass1[k] = _sanitize_value(v)
+    """Sanitize an inbound RPC payload: credentials only, execution targets preserved.
 
-        # Pass 2: Regex scan over serialized string
-        serialized = json.dumps(pass1)
-        redacted = serialized
-        for _name, pattern, placeholder in _REDACTION_PATTERNS:
-            try:
-                redacted = pattern.sub(placeholder, redacted)
-            except re.error as exc:
-                logger.warning("Sanitization pattern failed: %s", exc)
-                continue
-
-        return json.loads(redacted)
-    except Exception as exc:
-        logger.error("Payload sanitization failed: %s", exc)
-        return {"sanitization_error": "[REDACTED DUE TO SANITIZATION FAILURE]"}
+    Uses the credential-only pattern subset so live ``tools/call`` arguments
+    keep executable targets (URLs, IPs, emails, file paths) intact while
+    secrets are still redacted before host-agent execution.
+    """
+    return _canonical_sanitize_dict_payload(
+        payload, patterns=CREDENTIAL_REDACTION_PATTERNS
+    )
 
 
 class InboundProtocolFilter:

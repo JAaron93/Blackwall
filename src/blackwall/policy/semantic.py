@@ -21,6 +21,7 @@ from blackwall.mcp.gti_client import (
 )
 from blackwall.mcp.gti_client import GTIQueryBudgetTracker as AsyncGTIQueryBudgetTracker
 from blackwall.mcp.codebase_memory import CodebaseMemoryClient
+from blackwall.validators import clamp_score
 
 try:
     try:
@@ -714,4 +715,4 @@ class SemanticGatingEngine:
         score += gti_penalty
         score += cbm_penalty
 
-        return max(0.0, min(score, 1.0))
+        return clamp_score(score)

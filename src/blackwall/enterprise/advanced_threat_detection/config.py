@@ -5,6 +5,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field, model_validator
 
 from blackwall.enterprise.advanced_threat_detection.enums import AlertSeverity
+from blackwall.validators import normalize_text
 
 ENV_PREFIX = "BLACKWALL_ATD_"
 
@@ -101,7 +102,7 @@ class AdvancedThreatDetectionConfig(BaseModel):
 
             # Coerce boolean
             if target_type is bool or target_type == bool:
-                val_str = raw_val.strip().lower()
+                val_str = normalize_text(raw_val)
                 kwargs[config_key] = val_str in ("1", "true", "yes", "on", "enabled")
             # Coerce int
             elif target_type is int or target_type == int:

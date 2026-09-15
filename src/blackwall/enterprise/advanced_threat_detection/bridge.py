@@ -12,6 +12,7 @@ from typing import Any, Optional
 from uuid import UUID
 
 from blackwall.models import SwarmContextSummary
+from blackwall.validators import clamp_score, utc_now
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.bridge")
 
@@ -48,7 +49,7 @@ class EnterpriseSwarmContextProvider:
         try:
             if not agent_id:
                 return None
-            now = datetime.now(timezone.utc)
+            now = utc_now()
             nodes = await self._store.query_nodes(
                 agent_id=agent_id,
                 time_window=(now - self._lookback, now),
@@ -115,7 +116,7 @@ class EnterpriseSwarmContextProvider:
             confidence = float(getattr(newest, "coordination_score", 0.0))
         except (TypeError, ValueError):
             confidence = 0.0
-        confidence = max(0.0, min(1.0, confidence))
+        confidence = clamp_score(confidence)
 
         return SwarmContextSummary(
             swarm_id=swarm_id,
@@ -166,7 +167,7 @@ class EnterpriseSwarmContextProvider:
             confidence = float(newest_metadata.get("collective_confidence", 0.0))
         except (TypeError, ValueError):
             confidence = 0.0
-        confidence = max(0.0, min(1.0, confidence))
+        confidence = clamp_score(confidence)
 
         return SwarmContextSummary(
             swarm_id=swarm_id,

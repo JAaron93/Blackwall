@@ -238,6 +238,8 @@ async def test_rpc_sanitization() -> None:
                     "safe_field": "public_data",
                 },
                 "instructions": "Use key AIzaSyD98765432101234567890 to connect to server",
+                "target_path": "/etc/hosts",
+                "callback_url": "https://example.com/hook",
             },
         },
     }
@@ -262,6 +264,10 @@ async def test_rpc_sanitization() -> None:
     # Embedded regex redaction
     assert "AIzaSy" not in args["instructions"]
     assert "[[GOOGLE_API_KEY]]" in args["instructions"]
+
+    # Execution targets must survive sanitization for host-agent execution
+    assert args["target_path"] == "/etc/hosts"
+    assert args["callback_url"] == "https://example.com/hook"
 
 
 @pytest.mark.asyncio

@@ -11,7 +11,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from blackwall.policy.models import PolicyConfig
-from blackwall.validators import normalize_time_window, validate_utc_datetime
+from blackwall.validators import format_iso_datetime, normalize_time_window, validate_utc_datetime
 
 TOKEN_PATH_PATTERN = r"/var/run/secrets/kubernetes.io/serviceaccount/token"
 K8S_SECRET_API_REGEX = re.compile(
@@ -115,7 +115,7 @@ class KubernetesDefenseLayer:
                     "event_id": str(event.event_id),
                     "action": event.action,
                     "target": event.target,
-                    "timestamp": event.timestamp.isoformat(),
+                    "timestamp": format_iso_datetime(event.timestamp),
                     "agent_id": event.agent_id,
                 }
                 evidences.append(

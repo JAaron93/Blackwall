@@ -23,6 +23,7 @@ from blackwall.attribution.linguistic import (
     LinguisticSwarmClassifier,
 )
 from blackwall.models import AttackerIdentity, IdentitySource, ToolCallContext
+from blackwall.validators import normalize_text
 
 logger = logging.getLogger(__name__)
 
@@ -99,8 +100,8 @@ class AttackerIdentityExtractor:
                 identity.collective_name = markers.collective_identity_inferred
 
             # False-monolith disambiguation with session-salted fingerprinting (FR-2)
-            clean_id = (identity.agent_id or "").strip().lower()
-            clean_name = (identity.agent_name or "").strip().lower()
+            clean_id = normalize_text(identity.agent_id or "")
+            clean_name = normalize_text(identity.agent_name or "")
             is_generic_handle = (
                 clean_id in GENERIC_COLLECTIVE_HANDLES
                 or clean_name in GENERIC_COLLECTIVE_HANDLES

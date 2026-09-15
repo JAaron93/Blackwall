@@ -1,6 +1,6 @@
 """Data models for Blackwall Advanced Threat Detection pillar."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 import math
 from typing import Any
 from uuid import UUID, uuid4
@@ -18,6 +18,7 @@ from blackwall.enterprise.advanced_threat_detection.enums import (
     ReactionActionType,
 )
 from blackwall.validators import (
+    utc_now,
     validate_min_items,
     validate_non_empty_string,
     validate_temporal_sequence,
@@ -271,7 +272,7 @@ class Alert(BaseModel):
     """Real-time security alert published across Blackwall threat detection engines."""
 
     alert_id: UUID4 = Field(default_factory=uuid4)
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    timestamp: datetime = Field(default_factory=utc_now)
     severity: AlertSeverity
     threat_type: str
     title: str
@@ -312,7 +313,7 @@ class ActiveReactionPayload(BaseModel):
     target_pid: int | None = Field(default=None, gt=0)
     target_ip: str | None = None
     action_type: ReactionActionType
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    timestamp: datetime = Field(default_factory=utc_now)
     evaluation_env_id: str | None = None
     status: str = "PENDING"
     execution_duration_ms: float = 0.0
@@ -382,7 +383,7 @@ class InboundProtocolMessage(BaseModel):
     protocol: InboundProtocolType
     method: InboundMethodType
     payload: dict[str, Any] = Field(..., min_length=1)
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    timestamp: datetime = Field(default_factory=utc_now)
 
     @field_validator("message_id")
     @classmethod
@@ -445,7 +446,7 @@ class AgentQuotaUsage(BaseModel):
     """Model tracking real-time token consumption and velocity per agent identity (Pillar 6 Task 27)."""
 
     agent_id: str = Field(..., min_length=1)
-    time_window_start: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    time_window_start: datetime = Field(default_factory=utc_now)
     tokens_consumed: int = Field(..., ge=0)
     api_call_count: int = Field(..., ge=0)
     token_burn_rate_per_sec: float = Field(..., ge=0.0)

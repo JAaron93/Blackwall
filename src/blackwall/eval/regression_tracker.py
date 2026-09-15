@@ -8,13 +8,14 @@ when domain mean scores drop > 0.5 points.
 
 from __future__ import annotations
 
-import datetime
 import json
 import logging
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from blackwall.validators import format_iso_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ class EvalRunSummary(BaseModel):
 
     run_id: str = Field(description="Unique evaluation run identifier")
     timestamp_iso: str = Field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        default_factory=lambda: format_iso_datetime(),
         description="ISO 8601 timestamp of the evaluation run",
     )
     domain_means: dict[str, float] = Field(

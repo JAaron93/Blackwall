@@ -4,7 +4,7 @@ import logging
 import math
 import uuid
 from collections import defaultdict
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from blackwall.enterprise.advanced_threat_detection.correlator import (
@@ -28,6 +28,7 @@ from blackwall.validators import (
     clamp_score,
     compute_exponential_decay,
     normalize_time_window,
+    utc_now,
     validate_utc_datetime,
 )
 
@@ -407,7 +408,7 @@ class RetrospectiveAnalyzer:
         """Purge historical events older than retention_days (default 30 days) to enforce retention policies."""
         if retention_days < 1:
             raise ValueError("retention_days must be at least 1")
-        cutoff = datetime.now(UTC) - timedelta(days=retention_days)
+        cutoff = utc_now() - timedelta(days=retention_days)
         return await self.store.purge_events_before(cutoff)
 
     async def export_attack_graph(

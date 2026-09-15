@@ -44,6 +44,7 @@ from blackwall.eval.rubrics import (
     SwarmDetectionRubric,
     ThreatInterceptionRubric,
 )
+from blackwall.validators import normalize_text
 
 logger = logging.getLogger(__name__)
 
@@ -370,7 +371,7 @@ JUDGE_REGISTRY: dict[str, type[BaseJudgeAgent]] = {
 
 def get_judge_for_domain(domain: str, **kwargs: Any) -> BaseJudgeAgent:
     """Retrieve an instantiated judge agent for a specific evaluation domain."""
-    normalized = domain.strip().lower()
+    normalized = normalize_text(domain)
     if normalized not in JUDGE_REGISTRY:
         raise ValueError(
             f"Unknown judge domain '{domain}'. Valid domains: {sorted(JUDGE_REGISTRY.keys())}"
