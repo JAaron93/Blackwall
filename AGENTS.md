@@ -32,12 +32,12 @@ All code submitted via pull requests or feature branches must be reviewed agains
 
 Greptile reviews must enforce the existing base branch architectural patterns:
 
-1. **Async Interception Resolver (`SyncResolver`) Sequence**:
+1. **Interception Resolver (`SyncResolver`) Sequence**:
    - Execution flow MUST follow: `Rate Check` -> `ContextHygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Conditional GTI Validation (High-Risk Only)` -> `Optional Semantic Triage (Gemini 3.5 Flash-Lite)` -> `Score Aggregation` -> `Threshold Verdict` -> `Optional Inline Signature Generation`.
 2. **FTS5 Similarity Scoring & Match Quality**:
    - SQLite Threat Signature Graph queries MUST use word-level intersection match quality calculation (`match_quality = len(intersection) / min_len`) scaled by FTS fallback score and capped by dynamic threshold limits to prevent false positives.
 3. **Context Hygiene & Sanitization**:
-   - `ContextHygiene` middleware (`src/blackwall/middleware/context_hygiene.py`, re-exported in `src/blackwall/resolver.py`) must replace sensitive environment variable patterns with generic placeholders (`[[VARIABLE_NAME]]`).
+   - `ContextHygiene` middleware (production interception path uses the implementation in `src/blackwall/resolver.py`; the async variant in `src/blackwall/middleware/context_hygiene.py` is exercised by `tests/middleware/` only) must replace sensitive environment variable patterns with generic placeholders (`[[VARIABLE_NAME]]`).
    - Integration tests querying external hostnames (e.g. GTI / VirusTotal) must use un-redacted standalone hostnames (e.g. `wd-bouygues.com`) to prevent accidental sanitization matching.
 4. **VirusTotal GTI Free-Tier Rate Limit Invariant**:
    - VirusTotal Google Threat Intelligence (GTI) MCP queries MUST remain strictly capped at the 4 queries per 60-second sliding window free-tier limit via `GTIQueryBudgetTracker` token bucket rate limiting (1 token replenished every 15 seconds). GTI validation is reserved exclusively for high-risk events with graceful degradation upon budget exhaustion.

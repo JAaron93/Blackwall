@@ -4,7 +4,7 @@
   "commentTypes": ["logic", "syntax"],
   "triggerOnUpdates": true,
   "statusCheck": true,
-  "instructions": "Blackwall is an autonomous Agentic Security Firewall designed to intercept execution flows at machine speed before rogue AI agents can perform unauthorized OS/network actions. The primary entry point is the Blackwall MCP Gateway — a standalone local daemon (src/blackwall/gateway/ + src/blackwall/cli.py) that intercepts MCP tool calls on localhost:9229 and evaluates them via the SyncResolver pipeline. Verify architecture invariants across Blackwall Core (single-host daemon + MCP Gateway) and Blackwall Enterprise Mesh (multi-host security mesh under src/blackwall/enterprise/). The gateway MUST NOT contain agent-specific coupling (no Hermes, no Antigravity-specific, no Warp-specific logic). Ensure strict Pydantic v2 validation, 100% GCP Vertex AI Mode compliance (paid tier only, no free tier, no AI Studio keys), TDD/BDD test coverage, cross-platform background service management (macOS launchd and Linux systemd on DGX OS / Ubuntu), and resource budget compliance across dual hardware profiles: 2019 Intel MacBook Pro (baseline) and NVIDIA DGX Spark (top-of-the-line GB10 ARM64, 0MB CUDA, host RSS <= 350MB). Windows OS support is strictly excluded.",
+  "instructions": "Blackwall is an autonomous Agentic Security Firewall designed to intercept execution flows at machine speed before rogue AI agents can perform unauthorized OS/network actions. The primary entry point is the Blackwall MCP Gateway — a standalone local daemon (Architectural Specification governed by .kiro/specs/blackwall-mcp-gateway/ - target paths src/blackwall/gateway/ + src/blackwall/cli.py, not yet implemented) that intercepts MCP tool calls on localhost:9229 and evaluates them via the SyncResolver pipeline. Verify architecture invariants across Blackwall Core (single-host daemon + MCP Gateway) and Blackwall Enterprise Mesh (multi-host security mesh under src/blackwall/enterprise/). The gateway MUST NOT contain agent-specific coupling (no Hermes, no Antigravity-specific, no Warp-specific logic). Ensure strict Pydantic v2 validation, 100% GCP Vertex AI Mode compliance (paid tier only, no free tier, no AI Studio keys), TDD/BDD test coverage, cross-platform background service management (macOS launchd and Linux systemd on DGX OS / Ubuntu), and resource budget compliance across dual hardware profiles: 2019 Intel MacBook Pro (baseline) and NVIDIA DGX Spark (top-of-the-line GB10 ARM64, 0MB CUDA, host RSS <= 350MB). Windows OS support is strictly excluded.",
   "rules": [
     {
       "id": "vertex-ai-mode",
@@ -63,7 +63,7 @@
     },
     {
       "id": "secret-scanner-hygiene",
-      "rule": "Secret Scanner Hygiene in Test Artifacts: Ensure test files contain no live cloud credential patterns or high-entropy secret prefixes (e.g. AWS_KEY_<digits>).",
+      "rule": "Secret Scanner Hygiene in Test Artifacts: Ensure test files contain no live cloud credential patterns or high-entropy secret prefixes (e.g. AWS_KEY_<digits>). Intentional adversarial vectors in redaction test suites (tests/test_report_generator.py, tests/eval/test_data/) that assert placeholder substitution are expected fixtures and MUST NOT be flagged as leaked secrets.",
       "severity": "high"
     },
     {
@@ -78,22 +78,22 @@
     },
     {
       "id": "mcp-gateway-architecture",
-      "rule": "MCP Gateway Architecture Invariants: Verify gateway components under src/blackwall/gateway/ enforce: (1) HTTP transport binds to 127.0.0.1 by default with Origin/Host header validation, (2) JSON-RPC request id tracking for concurrent call isolation, (3) BLOCK verdicts synthesize error code -32603 with bounded generic messages (no internal threat reasoning leaked), (4) ALLOW verdicts forward original payloads unchanged to downstream tool servers, (5) daemon mode writes PID to ~/.blackwall/blackwall.pid with graceful SIGTERM shutdown.",
+      "rule": "MCP Gateway Architecture Invariants: Verify gateway components under src/blackwall/gateway/ (Architectural Specification per .kiro/specs/blackwall-mcp-gateway/ - apply when implemented) enforce: (1) HTTP transport binds to 127.0.0.1 by default with Origin/Host header validation, (2) JSON-RPC request id tracking for concurrent call isolation, (3) BLOCK verdicts synthesize error code -32603 with bounded generic messages (no internal threat reasoning leaked), (4) ALLOW verdicts forward original payloads unchanged to downstream tool servers, (5) daemon mode writes PID to ~/.blackwall/blackwall.pid with graceful SIGTERM shutdown.",
       "severity": "high"
     },
     {
       "id": "gateway-agent-agnosticism",
-      "rule": "Gateway Agent Agnosticism: The MCP Gateway (src/blackwall/gateway/ and src/blackwall/cli.py) MUST NOT contain hardcoded references, special-case logic, or configuration for any specific agent runtime (Hermes Agent, Antigravity, Warp Terminal, Claude Desktop, Cursor, etc.). All agent interaction must be purely via standard MCP protocol. Flag any PR introducing agent-specific coupling in the gateway layer.",
+      "rule": "Gateway Agent Agnosticism: The MCP Gateway (specification targets src/blackwall/gateway/ and src/blackwall/cli.py per .kiro/specs/blackwall-mcp-gateway/) MUST NOT contain hardcoded references, special-case logic, or configuration for any specific agent runtime (Hermes Agent, Antigravity, Warp Terminal, Claude Desktop, Cursor, etc.). All agent interaction must be purely via standard MCP protocol. Flag any PR introducing agent-specific coupling in the gateway layer.",
       "severity": "high"
     },
     {
       "id": "gateway-resource-budget",
-      "rule": "Gateway Resource Budgets (Dual Hardware Profiles): Blackwall Core gateway components must operate within: (1) 2019 Intel MacBook Pro Baseline: <=60MB idle RAM, <=150MB active RAM, ~0% idle CPU, <5% active CPU per call, <2s startup, <=50MB disk; (2) NVIDIA DGX Spark Top-of-the-Line (Grace Blackwell GB10 ARM64, 128GB unified memory): <=100MB idle RAM, <=350MB active RAM, 0MB CUDA context / VRAM allocation, host RSS bounded to <=350MB (<0.28% of unified pool) preserving >127.6GB (>99.7%) unified memory for local AI models, ~0% idle CPU, <2% active CPU across 20 cores, <1s startup. Flag PRs introducing polling loops, background threads, eager module loading, or GPU context allocations that violate these budgets.",
+      "rule": "Gateway Resource Budgets (Dual Hardware Profiles): Blackwall Core gateway components (when implemented per .kiro/specs/blackwall-mcp-gateway/) must operate within: (1) 2019 Intel MacBook Pro Baseline: <=60MB idle RAM, <=150MB active RAM, ~0% idle CPU, <5% active CPU per call, <2s startup, <=50MB disk; (2) NVIDIA DGX Spark Top-of-the-Line (Grace Blackwell GB10 ARM64, 128GB unified memory): <=100MB idle RAM, <=350MB active RAM, 0MB CUDA context / VRAM allocation, host RSS bounded to <=350MB (<0.28% of unified pool) preserving >127.6GB (>99.7%) unified memory for local AI models, ~0% idle CPU, <2% active CPU across 20 cores, <1s startup. Flag PRs introducing polling loops, background threads, eager module loading, or GPU context allocations that violate these budgets.",
       "severity": "medium"
     },
     {
       "id": "pr-description-grouping",
-      "rule": "PR Description Grouping: Group changes by Blackwall component: (1) MCP Gateway (src/blackwall/gateway/, src/blackwall/cli.py), (2) Core Engine (SyncResolver, policy, threat graph, attribution), (3) Enterprise Mesh (src/blackwall/enterprise/). Highlight changes affecting security resolvers, protocol transports, eBPF probes, or MCP adapters.",
+      "rule": "PR Description Grouping: Group changes by Blackwall component: (1) MCP Gateway (specification: src/blackwall/gateway/, src/blackwall/cli.py), (2) Core Engine (SyncResolver, policy, threat graph, attribution), (3) Enterprise Mesh (src/blackwall/enterprise/). Highlight changes affecting security resolvers, protocol transports, eBPF probes, or MCP adapters.",
       "severity": "low"
     },
     {
