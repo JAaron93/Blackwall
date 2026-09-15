@@ -188,6 +188,9 @@ async def test_sync_resolver_enriches_block_with_swarm_context():
         assert profile is not None
         assert seeded.swarm_id in profile.swarm_memberships
         assert profile.suspected_covert_channels == ["board-101"]
+        # P1 regression: swarm lineage must persist in the SAME upsert that
+        # records the attack, so one BLOCK increments total_attacks once.
+        assert profile.total_attacks == 1
 
         await repo.close()
     finally:

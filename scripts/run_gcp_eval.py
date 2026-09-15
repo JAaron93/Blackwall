@@ -26,7 +26,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from blackwall.enterprise.advanced_threat_detection.gcp_trace_exporter import GCPCloudTraceExporter
+from blackwall.enterprise.advanced_threat_detection.gcp_trace_exporter import (
+    GCPCloudTraceExporter,
+)
 from blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval import (
     GCPVertexAIEvaluationHarness,
     GCPVertexEvalConfig,
@@ -139,7 +141,12 @@ def _bridge_complex_attack_record(record: dict[str, Any]) -> dict[str, Any] | No
     canonical swarm/exploit-chain/C2 domains are evaluated in default runs.
     """
     threat_type = str(record.get("threat_type", "")).strip().upper()
-    if "SWARM" in threat_type:
+    if (
+        "SWARM" in threat_type
+        or "MESSAGE_BOARD" in threat_type
+        or "STEGANOGRAPHIC" in threat_type
+        or "DEAD_DROP" in threat_type
+    ):
         domain = "swarm_detection"
     elif "CHAIN" in threat_type or "RCE" in threat_type:
         domain = "exploit_chain"
@@ -162,18 +169,38 @@ def _bridge_complex_attack_record(record: dict[str, Any]) -> dict[str, Any] | No
             risk = max(0.0, min(1.0, float(record.get("coordination_score") or 0.85)))
         except (TypeError, ValueError):
             risk = 0.85
-        for index in range(nodes):
-            events.append(
-                {
-                    "agent_id": f"{attack_id}_node_{index}",
-                    "action": "scan_subnet",
-                    "target": "10.0.0.1",
-                    "risk_score": risk,
-                    "timestamp": now.isoformat(),
-                }
-            )
+        declared_agents = record.get("agents")
+        if (
+            isinstance(declared_agents, list)
+            and len(declared_agents) >= 2
+            and all(isinstance(agent, str) and agent for agent in declared_agents)
+        ):
+            for offset, agent_id in enumerate(declared_agents):
+                events.append(
+                    {
+                        "agent_id": agent_id,
+                        "action": "scan_subnet",
+                        "target": "10.0.0.1",
+                        "risk_score": risk,
+                        "timestamp": (now + timedelta(seconds=offset * 2)).isoformat(),
+                    }
+                )
+        else:
+            for index in range(nodes):
+                events.append(
+                    {
+                        "agent_id": f"{attack_id}_node_{index}",
+                        "action": "scan_subnet",
+                        "target": "10.0.0.1",
+                        "risk_score": risk,
+                        "timestamp": now.isoformat(),
+                    }
+                )
     elif domain == "exploit_chain":
-        stages = record.get("stages") or ["remote_code_execution", "privilege_escalation"]
+        stages = record.get("stages") or [
+            "remote_code_execution",
+            "privilege_escalation",
+        ]
         for offset, stage in enumerate(stages):
             events.append(
                 {
@@ -197,7 +224,9 @@ def _bridge_complex_attack_record(record: dict[str, Any]) -> dict[str, Any] | No
                     "action": "connect",
                     "target": destination,
                     "risk_score": 0.9,
-                    "timestamp": (now + timedelta(seconds=beacon * interval)).isoformat(),
+                    "timestamp": (
+                        now + timedelta(seconds=beacon * interval)
+                    ).isoformat(),
                 }
             )
 
@@ -227,7 +256,9 @@ def _parse_event_timestamp(value: Any, default: datetime) -> datetime:
             parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
         except ValueError:
             return default
-        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+        return (
+            parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+        )
     return default
 
 
@@ -279,7 +310,9 @@ def _normalize_scenario_events(
                 source=source,
                 agent_id=str(raw.get("agent_id") or default_agent),
                 action=str(raw.get("action") or default_action),
-                target=str(raw.get("target") or raw.get("destination") or default_target),
+                target=str(
+                    raw.get("target") or raw.get("destination") or default_target
+                ),
                 metadata=metadata if isinstance(metadata, dict) else {},
                 risk_score=risk_score,
             )
@@ -318,7 +351,8 @@ def _build_managed_eval_dataset(
                         "ground_truth": {
                             key: value
                             for key, value in scenario.items()
-                            if key.startswith("ground_truth") or key.startswith("expected_")
+                            if key.startswith("ground_truth")
+                            or key.startswith("expected_")
                         },
                     },
                     default=str,
@@ -342,7 +376,9 @@ def _build_domain_worker(domain: str, scenario: dict[str, Any]):
 
         hygiene = ContextHygiene()
         tool_call = scenario.get("tool_call") or scenario.get("request") or {}
-        raw_str = json.dumps(tool_call) if isinstance(tool_call, dict) else str(tool_call)
+        raw_str = (
+            json.dumps(tool_call) if isinstance(tool_call, dict) else str(tool_call)
+        )
 
         async def worker() -> dict[str, Any]:
             sanitized_str = hygiene.sanitize_string(raw_str)
@@ -387,7 +423,11 @@ def _build_domain_worker(domain: str, scenario: dict[str, Any]):
         )
 
         scanner = PromptInjectionScanner(confidence_threshold=0.5)
-        payload = scenario.get("prompt") or scenario.get("text") or str(scenario.get("payload", ""))
+        payload = (
+            scenario.get("prompt")
+            or scenario.get("text")
+            or str(scenario.get("payload", ""))
+        )
         agent_id = str(scenario.get("agent_id", "eval_agent_01"))
 
         async def worker() -> dict[str, Any]:
@@ -416,14 +456,20 @@ def _build_domain_worker(domain: str, scenario: dict[str, Any]):
         )
 
         proto_filter = InboundProtocolFilter(
-            allowed_origins={"http://127.0.0.1:3000", "http://localhost:8080", "https://app.example.com"},
+            allowed_origins={
+                "http://127.0.0.1:3000",
+                "http://localhost:8080",
+                "https://app.example.com",
+            },
             enforce_loopback=True,
         )
         headers = scenario.get("request_headers") or scenario.get("headers") or {}
         remote_addr = scenario.get("remote_addr", "127.0.0.1")
 
         async def worker() -> dict[str, Any]:
-            is_valid = await proto_filter.validate_headers_and_origin(headers, remote_addr=remote_addr)
+            is_valid = await proto_filter.validate_headers_and_origin(
+                headers, remote_addr=remote_addr
+            )
             detected = not is_valid
             verdict = "ALLOW" if is_valid else "BLOCK"
             return {
@@ -463,20 +509,28 @@ def _build_domain_worker(domain: str, scenario: dict[str, Any]):
                         agent_id=agent_id,
                         tokens_used=int(raw_tokens),
                         api_calls=int(entry.get("api_calls") or 1),
-                        timestamp=_parse_event_timestamp(entry.get("timestamp"), datetime.now(timezone.utc)),
+                        timestamp=_parse_event_timestamp(
+                            entry.get("timestamp"), datetime.now(timezone.utc)
+                        ),
                     )
                     if agent_id not in replayed_agents:
                         replayed_agents.append(agent_id)
             else:
-                tokens = scenario.get("tokens_used") or scenario.get("token_count") or 100
-                await enforcer.track_token_consumption(agent_id=default_agent, tokens_used=int(tokens))
+                tokens = (
+                    scenario.get("tokens_used") or scenario.get("token_count") or 100
+                )
+                await enforcer.track_token_consumption(
+                    agent_id=default_agent, tokens_used=int(tokens)
+                )
                 replayed_agents.append(default_agent)
 
             quarantined = False
             throttled = False
             max_burn_rate = 0.0
             for agent_id in replayed_agents:
-                exceeded = await enforcer.enforce_quota_limits(agent_id=agent_id, auto_quarantine=True)
+                exceeded = await enforcer.enforce_quota_limits(
+                    agent_id=agent_id, auto_quarantine=True
+                )
                 if exceeded:
                     throttled = True
                 if enforcer.is_quarantined(agent_id):
@@ -487,7 +541,9 @@ def _build_domain_worker(domain: str, scenario: dict[str, Any]):
                     if usage.quota_exceeded:
                         throttled = True
 
-            verdict = "QUARANTINE" if quarantined else ("THROTTLE" if throttled else "ALLOW")
+            verdict = (
+                "QUARANTINE" if quarantined else ("THROTTLE" if throttled else "ALLOW")
+            )
             return {
                 "domain": domain,
                 "verdict": verdict,
@@ -505,7 +561,12 @@ def _build_domain_worker(domain: str, scenario: dict[str, Any]):
         from blackwall.resolver import ContextHygiene
 
         hygiene = ContextHygiene()
-        text = scenario.get("text") or scenario.get("raw_payload") or scenario.get("prompt") or str(scenario.get("payload", ""))
+        text = (
+            scenario.get("text")
+            or scenario.get("raw_payload")
+            or scenario.get("prompt")
+            or str(scenario.get("payload", ""))
+        )
 
         async def worker() -> dict[str, Any]:
             sanitized = hygiene.sanitize_string(text)
@@ -522,9 +583,16 @@ def _build_domain_worker(domain: str, scenario: dict[str, Any]):
         return worker
 
     if domain == "swarm_detection":
-        from blackwall.enterprise.advanced_threat_detection.models import EventSource, NormalizedEvent
-        from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
-        from blackwall.enterprise.advanced_threat_detection.swarm import AgentSwarmDetector
+        from blackwall.enterprise.advanced_threat_detection.models import (
+            EventSource,
+            NormalizedEvent,
+        )
+        from blackwall.enterprise.advanced_threat_detection.store import (
+            AttackGraphStore,
+        )
+        from blackwall.enterprise.advanced_threat_detection.swarm import (
+            AgentSwarmDetector,
+        )
 
         eval_store = AttackGraphStore(in_memory=True)
         swarm_detector = AgentSwarmDetector(store=eval_store)
@@ -562,19 +630,29 @@ def _build_domain_worker(domain: str, scenario: dict[str, Any]):
                 "domain": domain,
                 "verdict": verdict,
                 "detected": detected,
-                "swarm_evidences": [e.model_dump() if hasattr(e, "model_dump") else str(e) for e in evidences],
+                "swarm_evidences": [
+                    e.model_dump() if hasattr(e, "model_dump") else str(e)
+                    for e in evidences
+                ],
                 "reasoning": f"AgentSwarmDetector identified {len(evidences)} coordinated patterns.",
             }
 
         return worker
 
     if domain == "c2_detection":
-        from blackwall.enterprise.advanced_threat_detection.c2 import C2InfrastructureDetector
-        from blackwall.enterprise.advanced_threat_detection.models import EventSource, NormalizedEvent
+        from blackwall.enterprise.advanced_threat_detection.c2 import (
+            C2InfrastructureDetector,
+        )
+        from blackwall.enterprise.advanced_threat_detection.models import (
+            EventSource,
+            NormalizedEvent,
+        )
 
         c2_detector = C2InfrastructureDetector()
         default_target = str(
-            scenario.get("target") or scenario.get("destination") or "https://requestbin.net/r/exfil"
+            scenario.get("target")
+            or scenario.get("destination")
+            or "https://requestbin.net/r/exfil"
         )
         events = _normalize_scenario_events(
             scenario, default_action="connect", default_target=default_target
@@ -608,16 +686,26 @@ def _build_domain_worker(domain: str, scenario: dict[str, Any]):
                 "domain": domain,
                 "verdict": verdict,
                 "detected": detected,
-                "c2_evidences": [e.model_dump() if hasattr(e, "model_dump") else str(e) for e in evidences],
+                "c2_evidences": [
+                    e.model_dump() if hasattr(e, "model_dump") else str(e)
+                    for e in evidences
+                ],
                 "reasoning": f"C2InfrastructureDetector identified {len(evidences)} beaconing endpoints.",
             }
 
         return worker
 
     if domain == "exploit_chain":
-        from blackwall.enterprise.advanced_threat_detection.exploit import ExploitChainAnalyzer
-        from blackwall.enterprise.advanced_threat_detection.models import EventSource, NormalizedEvent
-        from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
+        from blackwall.enterprise.advanced_threat_detection.exploit import (
+            ExploitChainAnalyzer,
+        )
+        from blackwall.enterprise.advanced_threat_detection.models import (
+            EventSource,
+            NormalizedEvent,
+        )
+        from blackwall.enterprise.advanced_threat_detection.store import (
+            AttackGraphStore,
+        )
 
         eval_store = AttackGraphStore(in_memory=True)
         analyzer = ExploitChainAnalyzer(store=eval_store)
@@ -654,7 +742,10 @@ def _build_domain_worker(domain: str, scenario: dict[str, Any]):
                 "domain": domain,
                 "verdict": verdict,
                 "detected": detected,
-                "chains": [c.model_dump() if hasattr(c, "model_dump") else str(c) for c in chains],
+                "chains": [
+                    c.model_dump() if hasattr(c, "model_dump") else str(c)
+                    for c in chains
+                ],
                 "reasoning": f"ExploitChainAnalyzer detected {len(chains)} multi-stage exploit paths.",
             }
 
@@ -687,11 +778,19 @@ def _build_domain_worker(domain: str, scenario: dict[str, Any]):
                     timestamp = _parse_event_timestamp(raw_ts, now)
                 grants.append(
                     PermissionGrant(
-                        permission=str(raw_grant.get("role") or raw_grant.get("permission") or "viewer"),
+                        permission=str(
+                            raw_grant.get("role")
+                            or raw_grant.get("permission")
+                            or "viewer"
+                        ),
                         granted_by=granted_by,
                         granted_to=granted_to,
                         timestamp=timestamp,
-                        scope=str(raw_grant.get("boundary") or raw_grant.get("scope") or "user_space"),
+                        scope=str(
+                            raw_grant.get("boundary")
+                            or raw_grant.get("scope")
+                            or "user_space"
+                        ),
                     )
                 )
         if not grants:
@@ -744,7 +843,10 @@ def _build_domain_worker(domain: str, scenario: dict[str, Any]):
                 "verdict": verdict,
                 "detected": detected,
                 "risk_levels": risk_levels,
-                "ailm_evidences": [e.model_dump() if hasattr(e, "model_dump") else str(e) for e in evidences],
+                "ailm_evidences": [
+                    e.model_dump() if hasattr(e, "model_dump") else str(e)
+                    for e in evidences
+                ],
                 "reasoning": f"AILMTracker evaluated {len(grants)} permission grants; risk_levels={risk_levels}.",
             }
 
@@ -773,7 +875,9 @@ async def execute_security_candidate(
     operation itself is timed. Domains without a mapped component raise and produce an ERROR fallback.
     """
     domain = scenario.get("domain", "threat_interception").strip().lower()
-    existing_result = scenario.get("candidate_result") or scenario.get("detection_output")
+    existing_result = scenario.get("candidate_result") or scenario.get(
+        "detection_output"
+    )
 
     # If scenario already includes pre-computed result with recorded execution latency
     if isinstance(existing_result, dict) and (
@@ -816,7 +920,9 @@ async def execute_security_candidate(
             try:
                 output = await worker()
             except Exception as exc:
-                logger.error("Security component execution failed on %s: %s", domain, exc)
+                logger.error(
+                    "Security component execution failed on %s: %s", domain, exc
+                )
                 output = {
                     "domain": domain,
                     "verdict": "ERROR",
@@ -862,7 +968,9 @@ async def run_evaluation_pipeline(
     if domains:
         target_domains = {d.strip().lower() for d in domains if d.strip()}
         eval_scenarios = [
-            s for s in all_scenarios if s.get("domain", "").strip().lower() in target_domains
+            s
+            for s in all_scenarios
+            if s.get("domain", "").strip().lower() in target_domains
         ]
     else:
         eval_scenarios = all_scenarios
@@ -877,7 +985,9 @@ async def run_evaluation_pipeline(
             passed=False,
             is_clean_baseline=False,
         )
-        empty_report = HistoricalRegressionTracker(history_path).record_and_compare(dummy_run)
+        empty_report = HistoricalRegressionTracker(history_path).record_and_compare(
+            dummy_run
+        )
         return (1, empty_agg, empty_report)
 
     # 3. Initialize components
@@ -886,16 +996,27 @@ async def run_evaluation_pipeline(
     trace_exporter = GCPCloudTraceExporter(export_to_cloud=export_trace)
 
     eval_config = GCPVertexEvalConfig(
-        project_id=os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or "blackwall-security-eval",
-        location=os.getenv("GCP_LOCATION") or os.getenv("GOOGLE_CLOUD_LOCATION") or "global",
+        project_id=os.getenv("GCP_PROJECT")
+        or os.getenv("GOOGLE_CLOUD_PROJECT")
+        or "blackwall-security-eval",
+        location=os.getenv("GCP_LOCATION")
+        or os.getenv("GOOGLE_CLOUD_LOCATION")
+        or "global",
         main_model=model or "gemini-3.5-flash-lite",
         reasoner_model=model or "gemini-3.8-flash",
         allow_fallback=allow_fallback,
     )
-    eval_harness = GCPVertexAIEvaluationHarness(config=eval_config, trace_exporter=trace_exporter)
+    eval_harness = GCPVertexAIEvaluationHarness(
+        config=eval_config, trace_exporter=trace_exporter
+    )
 
     run_id = f"eval-run-{uuid.uuid4().hex[:8]}"
-    logger.info("Starting Evaluation Run %s with %d scenarios (Threshold: %.2f)", run_id, len(eval_scenarios), threshold)
+    logger.info(
+        "Starting Evaluation Run %s with %d scenarios (Threshold: %.2f)",
+        run_id,
+        len(eval_scenarios),
+        threshold,
+    )
 
     # 4. Route and execute each scenario
     candidate_outputs: dict[str, dict[str, Any]] = {}
@@ -904,7 +1025,9 @@ async def run_evaluation_pipeline(
         scenario_id = scenario.get("scenario_id", f"scenario_{idx}")
 
         judge = get_judge_for_domain(domain, model=model)
-        sla_component = scenario.get("component") or DOMAIN_TO_SLA_COMPONENT.get(domain, "structural_gating")
+        sla_component = scenario.get("component") or DOMAIN_TO_SLA_COMPONENT.get(
+            domain, "structural_gating"
+        )
 
         span = trace_exporter.start_span(
             name=f"vertex_eval.judge.{domain}",
@@ -925,7 +1048,12 @@ async def run_evaluation_pipeline(
 
         candidate_fallback = bool(candidate_result.get("is_fallback", False))
         if candidate_result.get("verdict") == "ERROR" or "error" in candidate_result:
-            logger.error("Candidate execution failure on %s (%s): %s", scenario_id, domain, candidate_result.get("error"))
+            logger.error(
+                "Candidate execution failure on %s (%s): %s",
+                scenario_id,
+                domain,
+                candidate_result.get("error"),
+            )
             aggregator.record_error(
                 scenario_id=scenario_id,
                 domain=domain,
@@ -949,24 +1077,35 @@ async def run_evaluation_pipeline(
         is_fallback = getattr(rubric, "is_fallback", False) or candidate_fallback
 
         # Factor SLA compliance into all rubric dimensions across all domains (Requirements 12.1-12.4 & Design §1.4)
-        sla_factor = sla_validator.compute_trajectory_soundness_factor([sla_measurement])
+        sla_factor = sla_validator.compute_trajectory_soundness_factor(
+            [sla_measurement]
+        )
         score_data = rubric.model_dump() if hasattr(rubric, "model_dump") else {}
 
         if sla_measurement.violated or sla_factor < 5:
             if hasattr(rubric, "trajectory_soundness_score"):
                 try:
-                    rubric.trajectory_soundness_score = min(int(rubric.trajectory_soundness_score), sla_factor)
+                    rubric.trajectory_soundness_score = min(
+                        int(rubric.trajectory_soundness_score), sla_factor
+                    )
                 except Exception:
                     pass
             for k in list(score_data.keys()):
-                if isinstance(score_data[k], (int, float)) and k not in ("is_fallback", "regression_detected"):
+                if isinstance(score_data[k], (int, float)) and k not in (
+                    "is_fallback",
+                    "regression_detected",
+                ):
                     score_data[k] = min(float(score_data[k]), float(sla_factor))
 
         numeric_scores = [
-            float(v) for k, v in score_data.items()
-            if isinstance(v, (int, float)) and k not in ("is_fallback", "regression_detected")
+            float(v)
+            for k, v in score_data.items()
+            if isinstance(v, (int, float))
+            and k not in ("is_fallback", "regression_detected")
         ]
-        mean_rubric_score = sum(numeric_scores) / len(numeric_scores) if numeric_scores else 0.0
+        mean_rubric_score = (
+            sum(numeric_scores) / len(numeric_scores) if numeric_scores else 0.0
+        )
 
         trace_exporter.record_evaluation_result(
             span=span,
@@ -1027,12 +1166,15 @@ async def run_evaluation_pipeline(
 
     # 6. Historical regression comparison (Requirement 14)
     domain_means = {
-        d: ds.overall_mean for d, ds in summary.domain_summaries.items()
+        d: ds.overall_mean
+        for d, ds in summary.domain_summaries.items()
         if ds.overall_mean is not None
     }
     passed = summary.all_passed
     # Only full evaluation runs covering the entire canonical domain suite with zero fallbacks and zero failures qualify as persistent baseline anchors
-    is_full_coverage = (domains is None or len(domains) == 0) and CANONICAL_DOMAINS.issubset(set(domain_means.keys()))
+    is_full_coverage = (
+        domains is None or len(domains) == 0
+    ) and CANONICAL_DOMAINS.issubset(set(domain_means.keys()))
     has_any_fallback = (summary.total_fallbacks > 0) or any(
         ds.fallback_count > 0 for ds in summary.domain_summaries.values()
     )
@@ -1064,7 +1206,9 @@ async def run_evaluation_pipeline(
     print_summary_report(run_id, summary, regression_report, sla_validator)
 
     # 8. Determine exit code
-    exit_code = 0 if (summary.all_passed and not regression_report.regression_detected) else 1
+    exit_code = (
+        0 if (summary.all_passed and not regression_report.regression_detected) else 1
+    )
     return (exit_code, summary, regression_report)
 
 
@@ -1078,31 +1222,54 @@ def print_summary_report(
     print("\n" + "=" * 80)
     print(f"BLACKWALL GCP EVALUATION SUMMARY [Run ID: {run_id}]")
     print("=" * 80)
-    print(f"{'Domain':<25} | {'Scenarios':<10} | {'Fallbacks':<10} | {'Mean Score':<12} | {'Status'}")
+    print(
+        f"{'Domain':<25} | {'Scenarios':<10} | {'Fallbacks':<10} | {'Mean Score':<12} | {'Status'}"
+    )
     print("-" * 80)
 
     for domain, ds in summary.domain_summaries.items():
-        score_str = f"{ds.overall_mean:.2f}" if ds.overall_mean is not None else "N/A (100% FB)"
+        score_str = (
+            f"{ds.overall_mean:.2f}" if ds.overall_mean is not None else "N/A (100% FB)"
+        )
         status_str = "PASS" if ds.passed else "FAIL"
-        print(f"{domain:<25} | {ds.total_scenarios:<10} | {ds.fallback_count:<10} | {score_str:<12} | {status_str}")
+        print(
+            f"{domain:<25} | {ds.total_scenarios:<10} | {ds.fallback_count:<10} | {score_str:<12} | {status_str}"
+        )
 
     print("-" * 80)
-    overall_score_str = f"{summary.overall_mean:.2f}" if summary.overall_mean is not None else "N/A"
+    overall_score_str = (
+        f"{summary.overall_mean:.2f}" if summary.overall_mean is not None else "N/A"
+    )
     print(f"Overall Fallback Rate: {summary.overall_fallback_rate * 100:.1f}%")
-    print(f"Overall Quality Mean:  {overall_score_str} (Threshold: {summary.threshold:.2f})")
-    print(f"Historical Regression: {'DETECTED (FAIL)' if regression_report.regression_detected else 'None (PASS)'}")
+    print(
+        f"Overall Quality Mean:  {overall_score_str} (Threshold: {summary.threshold:.2f})"
+    )
+    print(
+        f"Historical Regression: {'DETECTED (FAIL)' if regression_report.regression_detected else 'None (PASS)'}"
+    )
     if regression_report.details:
         print(f"  -> {regression_report.details}")
 
     sla_summary = sla_validator.get_summary()
-    print(f"SLA Violations:        {sla_summary['violations_count']} / {sla_summary['total_measurements']} (Rate: {sla_summary['violation_rate']*100:.1f}%)")
+    print(
+        f"SLA Violations:        {sla_summary['violations_count']} / {sla_summary['total_measurements']} (Rate: {sla_summary['violation_rate'] * 100:.1f}%)"
+    )
     print("=" * 80)
-    print(f"FINAL CI GATE RESULT:  {'PASSED' if summary.all_passed and not regression_report.regression_detected else 'FAILED'}\n")
+    print(
+        f"FINAL CI GATE RESULT:  {'PASSED' if summary.all_passed and not regression_report.regression_detected else 'FAILED'}\n"
+    )
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Blackwall GCP Evaluation Pipeline Runner")
-    parser.add_argument("--domains", type=str, default=None, help="Comma-separated list of domains to evaluate")
+    parser = argparse.ArgumentParser(
+        description="Blackwall GCP Evaluation Pipeline Runner"
+    )
+    parser.add_argument(
+        "--domains",
+        type=str,
+        default=None,
+        help="Comma-separated list of domains to evaluate",
+    )
     parser.add_argument(
         "--eval-threshold",
         "--threshold",
@@ -1111,10 +1278,26 @@ def parse_args() -> argparse.Namespace:
         default=3.5,
         help="Minimum domain mean score to pass CI (default: 3.5)",
     )
-    parser.add_argument("--scenarios-dir", type=str, default=str(DEFAULT_SCENARIOS_DIR), help="Path to evaluation scenarios directory")
-    parser.add_argument("--history-path", type=str, default=str(DEFAULT_HISTORY_PATH), help="Path to regression history JSONL file")
-    parser.add_argument("--model", type=str, default=None, help="Gemini judge model override")
-    parser.add_argument("--no-trace", action="store_true", help="Disable Cloud Trace OpenTelemetry export")
+    parser.add_argument(
+        "--scenarios-dir",
+        type=str,
+        default=str(DEFAULT_SCENARIOS_DIR),
+        help="Path to evaluation scenarios directory",
+    )
+    parser.add_argument(
+        "--history-path",
+        type=str,
+        default=str(DEFAULT_HISTORY_PATH),
+        help="Path to regression history JSONL file",
+    )
+    parser.add_argument(
+        "--model", type=str, default=None, help="Gemini judge model override"
+    )
+    parser.add_argument(
+        "--no-trace",
+        action="store_true",
+        help="Disable Cloud Trace OpenTelemetry export",
+    )
     parser.add_argument(
         "--allow-fallback",
         action="store_true",
@@ -1125,7 +1308,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    domains_list = [d.strip() for d in args.domains.split(",")] if args.domains else None
+    domains_list = (
+        [d.strip() for d in args.domains.split(",")] if args.domains else None
+    )
 
     exit_code, _, _ = asyncio.run(
         run_evaluation_pipeline(

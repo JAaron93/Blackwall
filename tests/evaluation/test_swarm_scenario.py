@@ -115,6 +115,24 @@ def test_collective_swarm_benchmark_dataset_shape():
 
 
 @pytest.mark.gcp_eval
+def test_covert_board_benchmarks_survive_scenario_bridging():
+    """P1 regression: covert records must bridge into executable scenarios."""
+    from scripts.run_gcp_eval import load_all_scenarios
+
+    scenarios = load_all_scenarios(scenarios_dir=None, include_native_datasets=True)
+    by_id = {s.get("scenario_id"): s for s in scenarios}
+    for attack_id in (
+        "covert_board_unlocated_01",
+        "covert_board_registry_stego_01",
+        "collective_swarm_exploitgym_alpha",
+    ):
+        assert attack_id in by_id, f"{attack_id} dropped by scenario bridge"
+        scenario = by_id[attack_id]
+        assert scenario["domain"] == "swarm_detection"
+        assert len(scenario["events"]) >= 2
+
+
+@pytest.mark.gcp_eval
 def test_swarm_attribution_trajectory_shape_offline():
     """TASK-4.4: swarm attribution trajectory evaluates offline without cloud."""
     harness = GCPVertexAIEvaluationHarness()

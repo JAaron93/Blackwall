@@ -438,6 +438,10 @@ class SyncResolver:
             identity = extractor.extract(context=sanitized, metadata=sanitized.metadata)
 
             now_utc = datetime.now(timezone.utc)
+            swarm_summary = await self._resolve_swarm_context(
+                agent_id=identity.agent_id,
+                fingerprint=identity.identity_fingerprint,
+            )
             initial_profile = AttackerProfile(
                 fingerprint=identity.identity_fingerprint,
                 first_seen=now_utc,
@@ -445,19 +449,30 @@ class SyncResolver:
                 total_attacks=1,
                 threat_score=verdict.confidence_score,
                 targeted_tools=[context.tool_name],
+                swarm_memberships=(
+                    [swarm_summary.swarm_id]
+                    if swarm_summary is not None and swarm_summary.swarm_id is not None
+                    else []
+                ),
+                suspected_covert_channels=(
+                    list(swarm_summary.suspected_covert_channels)
+                    if swarm_summary is not None
+                    else []
+                ),
+                collective_confidence=(
+                    swarm_summary.collective_confidence
+                    if swarm_summary is not None
+                    else 0.0
+                ),
+                collective_name=(
+                    swarm_summary.collective_name if swarm_summary is not None else None
+                ),
             )
 
             if self.repo and hasattr(self.repo, "upsert_attacker_profile"):
                 profile = await self.repo.upsert_attacker_profile(initial_profile)
             else:
                 profile = initial_profile
-
-            swarm_summary = await self._resolve_swarm_context(
-                agent_id=identity.agent_id,
-                fingerprint=identity.identity_fingerprint,
-            )
-            if swarm_summary is not None:
-                profile = await self._enrich_profile_with_swarm(profile, swarm_summary)
 
             generator = IncidentReportGenerator()
             report = generator.build(
@@ -509,37 +524,6 @@ class SyncResolver:
         if isinstance(result, SwarmContextSummary):
             return result
         return None
-
-    async def _enrich_profile_with_swarm(
-        self, profile: AttackerProfile, summary: SwarmContextSummary
-    ) -> AttackerProfile:
-        """Persists swarm lineage onto the attacker profile (FR-5 §37)."""
-        if self.repo is None or not hasattr(self.repo, "upsert_attacker_profile"):
-            return profile
-        try:
-            memberships = list(profile.swarm_memberships)
-            if summary.swarm_id is not None and summary.swarm_id not in memberships:
-                memberships.append(summary.swarm_id)
-            channels = list(profile.suspected_covert_channels)
-            for channel in summary.suspected_covert_channels:
-                if channel not in channels:
-                    channels.append(channel)
-            enriched = profile.model_copy(
-                update={
-                    "swarm_memberships": memberships,
-                    "suspected_covert_channels": channels,
-                    "collective_confidence": max(
-                        profile.collective_confidence,
-                        summary.collective_confidence,
-                    ),
-                    "collective_name": summary.collective_name
-                    or profile.collective_name,
-                }
-            )
-            return await self.repo.upsert_attacker_profile(enriched)
-        except Exception as exc:
-            logger.warning("Swarm profile enrichment failed: %s", exc)
-            return profile
 
     async def _emit_sinks(
         self, report: IncidentReport, identity: Any, profile: AttackerProfile

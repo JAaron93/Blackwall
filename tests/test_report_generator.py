@@ -756,6 +756,28 @@ class TestSwarmEnrichedReporting:
         assert report.collective_confidence == pytest.approx(0.0)
         assert report.collective_attribution_summary is None
 
+    def test_non_collective_summary_preserves_single_agent_framing(
+        self,
+        generator: IncidentReportGenerator,
+        sample_identity: AttackerIdentity,
+        sample_profile: AttackerProfile,
+        clean_tool_context: ToolCallContext,
+        swarm_context: SwarmContextSummary,
+    ):
+        """P1 regression: is_collective=False summaries must not render as swarms."""
+        swarm_context.is_collective = False
+        report = self._build_swarm_report(
+            generator,
+            sample_identity,
+            sample_profile,
+            clean_tool_context,
+            swarm_context,
+        )
+        assert report.is_collective is False
+        assert report.collective_attribution_summary is None
+        assert report.suspected_covert_channels == ["board-101"]
+        assert "Swarm Attribution" not in report.to_markdown()
+
     def test_markdown_contains_collective_headers(
         self,
         generator: IncidentReportGenerator,

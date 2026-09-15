@@ -259,24 +259,27 @@ class IncidentReportGenerator:
         collective_summary = None
         if swarm_context is not None:
             swarm_id = swarm_context.swarm_id
-            is_collective = True
+            is_collective = bool(swarm_context.is_collective)
             suspected_channels = list(swarm_context.suspected_covert_channels)
             collective_confidence = swarm_context.collective_confidence
-            agent_label = identity.agent_name or identity.agent_id or "Unknown agent"
-            swarm_label = swarm_context.collective_name or (
-                str(swarm_context.swarm_id)
-                if swarm_context.swarm_id
-                else "Unknown swarm"
-            )
-            channel_label = (
-                ", ".join(suspected_channels)
-                if suspected_channels
-                else "no confirmed channel"
-            )
-            collective_summary = (
-                f"Blocked action by {agent_label} (Part of Coordinated "
-                f"Swarm {swarm_label} communicating via {channel_label})"
-            )
+            if is_collective:
+                agent_label = (
+                    identity.agent_name or identity.agent_id or "Unknown agent"
+                )
+                swarm_label = swarm_context.collective_name or (
+                    str(swarm_context.swarm_id)
+                    if swarm_context.swarm_id
+                    else "Unknown swarm"
+                )
+                channel_label = (
+                    ", ".join(suspected_channels)
+                    if suspected_channels
+                    else "no confirmed channel"
+                )
+                collective_summary = (
+                    f"Blocked action by {agent_label} (Part of Coordinated "
+                    f"Swarm {swarm_label} communicating via {channel_label})"
+                )
 
         return IncidentReport(
             event_id=event_id,
