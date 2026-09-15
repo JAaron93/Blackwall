@@ -34,10 +34,18 @@ def test_ioc_entropy_payload_meets_1kb_contract():
 
 
 def test_ioc_payload_embeds_realistic_ioc_variety():
-    """Payload must exercise extract_iocs with IP, domain, hash, and URL IOCs."""
+    """Payload must exercise extract_iocs with IP, domain, hash, and URL IOCs.
+
+    Asserted as exact whitespace-delimited tokens (stronger than substring
+    matching: each marker must survive intact as a standalone indicator).
+    """
     module = _load_benchmark_module()
     payload = module._build_ioc_payload()
-    assert "192.168.1.200" in payload
-    assert "c2.malware.example.com" in payload
-    assert "sha256:" in payload
-    assert "https://evil.example.org" in payload
+    expected_tokens = {
+        "192.168.1.200",
+        "c2.malware.example.com",
+        "sha256:deadbeefcafebabe1234567890abcdef1234567890abcdef1234567890abcdef",
+        "https://evil.example.org/payload.bin",
+        "ip=10.0.0.5",
+    }
+    assert expected_tokens <= set(payload.split())

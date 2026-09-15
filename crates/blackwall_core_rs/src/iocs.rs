@@ -107,9 +107,12 @@ pub fn extract_iocs_from_slice(strings: &[String]) -> HashMap<String, Vec<String
                 continue;
             }
 
-            // Any parseable IPv4/IPv6 address must contain at least one digit
-            // (0-9); word-only tokens fast-fail in `from_str`, so skip them.
-            if !trimmed.bytes().any(|b| b.is_ascii_digit()) {
+            // Skip tokens that can be neither IPv4 nor IPv6: IPv4 requires
+            // an ASCII digit and IPv6 requires colons (an all-letter
+            // literal like `a:b:c:d:e:f:a:b` is valid IPv6). Word-only
+            // tokens fast-fail in `from_str`, so skip them.
+            let has_digit = trimmed.bytes().any(|b| b.is_ascii_digit());
+            if !has_digit && !trimmed.contains(':') {
                 continue;
             }
 
@@ -123,7 +126,14 @@ pub fn extract_iocs_from_slice(strings: &[String]) -> HashMap<String, Vec<String
                     trimmed
                 };
 
-                if Ipv6Addr::from_str(ipv6_candidate).is_ok() {
+                // Fast reject: every string accepted by `Ipv6Addr::from_str`
+                // uses only hex digits, colons, and dots, so anything else
+                // is guaranteed to fail parsing. The host:port fallback
+                // below still runs unconditionally.
+                let ipv6_shape = ipv6_candidate
+                    .bytes()
+                    .all(|b| b.is_ascii_hexdigit() || b == b':' || b == b'.');
+                if ipv6_shape && Ipv6Addr::from_str(ipv6_candidate).is_ok() {
                     ips_set.insert(ipv6_candidate.to_string());
                 } else if let Some((ip_part, _port_part)) = trimmed.split_once(':') {
                     let ip_part_trimmed = ip_part.trim_matches(|c: char| !c.is_ascii_digit());
@@ -235,5 +245,15 @@ mod tests {
 
         let hashes = iocs.get("hashes").unwrap();
         assert!(hashes.contains(&"5d41402abc4b2a76b9719d911017c592".to_string()));
+    }
+
+    #[test]
+    fn test_extract_iocs_all_letter_ipv6() {
+        // Eight-hextet IPv6 literal with no ASCII digits must still be
+        // extracted (digit-only prefiltering would drop this indicator).
+        let input = vec!["Beacon to a:b:c:d:e:f:a:b over the tunnel".to_string()];
+        let iocs = extract_iocs_from_slice(&input);
+        let ips = iocs.get("ips").unwrap();
+        assert!(ips.contains(&"a:b:c:d:e:f:a:b".to_string()));
     }
 }
