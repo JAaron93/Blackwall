@@ -3,11 +3,13 @@ import json
 import math
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 import structlog
 
-from blackwall.models import AttackerProfile
+from blackwall.models import AttackerProfile, SwarmContextSummary
 from blackwall.validators import (
     compute_word_intersection_match_quality,
     format_iso_datetime,
@@ -26,6 +28,169 @@ except (ImportError, AttributeError):
     _core_rs = None
 
 logger = structlog.get_logger("blackwall.db.repository")
+
+
+# Track 3 (Pillar 3) explicit SQL construction: swarm lineage statements are
+# defined once at module level so reviewers can audit every query in one
+# place. All value binding uses `?` placeholders; no identifiers or values
+# are ever interpolated into these statements.
+_SWARM_PROFILE_COLUMN_MIGRATIONS = (
+    ("swarm_memberships", "TEXT DEFAULT '[]'"),
+    ("suspected_covert_channels", "TEXT DEFAULT '[]'"),
+    ("collective_confidence", "REAL DEFAULT 0.0"),
+    ("collective_name", "TEXT"),
+)
+
+_CREATE_LOCAL_SWARM_CONTEXTS_TABLE = """
+CREATE TABLE IF NOT EXISTS local_swarm_contexts (
+    swarm_id TEXT PRIMARY KEY,
+    collective_name TEXT,
+    collective_confidence REAL NOT NULL DEFAULT 0.0,
+    coordinating_agents TEXT NOT NULL DEFAULT '[]',
+    suspected_covert_channels TEXT NOT NULL DEFAULT '[]',
+    covert_channel_type TEXT,
+    deduction_rationale TEXT,
+    first_detected TEXT NOT NULL,
+    last_detected TEXT NOT NULL
+);
+"""
+
+_CREATE_IDX_SWARM_AGENTS = "CREATE INDEX IF NOT EXISTS idx_swarm_agents ON local_swarm_contexts(coordinating_agents);"
+
+_UPSERT_ATTACKER_PROFILE = """
+INSERT INTO attacker_profiles (
+    fingerprint, first_seen, last_seen, total_attacks,
+    threat_score, associated_signatures, targeted_tools, risk_category,
+    swarm_memberships, suspected_covert_channels,
+    collective_confidence, collective_name
+) VALUES (
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+) ON CONFLICT(fingerprint) DO UPDATE SET
+    last_seen = excluded.last_seen,
+    total_attacks = attacker_profiles.total_attacks + excluded.total_attacks,
+    threat_score = excluded.threat_score,
+    risk_category = excluded.risk_category,
+    targeted_tools = (
+        SELECT json_group_array(value) FROM (
+            SELECT value FROM json_each(attacker_profiles.targeted_tools)
+            UNION
+            SELECT value FROM json_each(excluded.targeted_tools)
+        )
+    ),
+    associated_signatures = (
+        SELECT json_group_array(value) FROM (
+            SELECT value FROM json_each(attacker_profiles.associated_signatures)
+            UNION
+            SELECT value FROM json_each(excluded.associated_signatures)
+        )
+    ),
+    swarm_memberships = (
+        SELECT json_group_array(value) FROM (
+            SELECT value FROM json_each(attacker_profiles.swarm_memberships)
+            UNION
+            SELECT value FROM json_each(excluded.swarm_memberships)
+        )
+    ),
+    suspected_covert_channels = (
+        SELECT json_group_array(value) FROM (
+            SELECT value FROM json_each(attacker_profiles.suspected_covert_channels)
+            UNION
+            SELECT value FROM json_each(excluded.suspected_covert_channels)
+        )
+    ),
+    collective_confidence = MAX(
+        attacker_profiles.collective_confidence,
+        excluded.collective_confidence
+    ),
+    collective_name = COALESCE(
+        excluded.collective_name, attacker_profiles.collective_name
+    )
+RETURNING fingerprint, first_seen, last_seen, total_attacks, threat_score, targeted_tools, associated_signatures, risk_category, swarm_memberships, suspected_covert_channels, collective_confidence, collective_name;
+"""
+
+_SELECT_ATTACKER_PROFILE = """
+SELECT fingerprint, first_seen, last_seen, total_attacks,
+        threat_score, associated_signatures, targeted_tools, risk_category,
+        swarm_memberships, suspected_covert_channels,
+        collective_confidence, collective_name
+FROM attacker_profiles
+WHERE fingerprint = ?
+"""
+
+_UPSERT_SWARM_CONTEXT = """
+INSERT INTO local_swarm_contexts (
+    swarm_id, collective_name, collective_confidence,
+    coordinating_agents, suspected_covert_channels,
+    covert_channel_type, deduction_rationale,
+    first_detected, last_detected
+) VALUES (
+    ?, ?, ?, ?, ?, ?, ?, ?, ?
+) ON CONFLICT(swarm_id) DO UPDATE SET
+    collective_name = COALESCE(
+        excluded.collective_name, local_swarm_contexts.collective_name
+    ),
+    collective_confidence = MAX(
+        local_swarm_contexts.collective_confidence,
+        excluded.collective_confidence
+    ),
+    coordinating_agents = (
+        SELECT json_group_array(value) FROM (
+            SELECT value FROM json_each(local_swarm_contexts.coordinating_agents)
+            UNION
+            SELECT value FROM json_each(excluded.coordinating_agents)
+        )
+    ),
+    suspected_covert_channels = (
+        SELECT json_group_array(value) FROM (
+            SELECT value FROM json_each(local_swarm_contexts.suspected_covert_channels)
+            UNION
+            SELECT value FROM json_each(excluded.suspected_covert_channels)
+        )
+    ),
+    covert_channel_type = COALESCE(
+        excluded.covert_channel_type, local_swarm_contexts.covert_channel_type
+    ),
+    deduction_rationale = COALESCE(
+        excluded.deduction_rationale, local_swarm_contexts.deduction_rationale
+    ),
+    first_detected = MIN(
+        local_swarm_contexts.first_detected, excluded.first_detected
+    ),
+    last_detected = MAX(
+        local_swarm_contexts.last_detected, excluded.last_detected
+    )
+RETURNING swarm_id, collective_name, collective_confidence,
+    coordinating_agents, suspected_covert_channels,
+    covert_channel_type, deduction_rationale,
+    first_detected, last_detected;
+"""
+
+_SELECT_SWARM_CONTEXT_BY_ID = """
+SELECT swarm_id, collective_name, collective_confidence,
+       coordinating_agents, suspected_covert_channels,
+       covert_channel_type, deduction_rationale,
+       first_detected, last_detected
+FROM local_swarm_contexts
+WHERE swarm_id = ?
+"""
+
+_SELECT_SWARM_CONTEXT_BY_AGENT = """
+SELECT swarm_id, collective_name, collective_confidence,
+       coordinating_agents, suspected_covert_channels,
+       covert_channel_type, deduction_rationale,
+       first_detected, last_detected
+FROM local_swarm_contexts
+WHERE EXISTS (
+    SELECT 1 FROM json_each(local_swarm_contexts.coordinating_agents)
+    WHERE value = ?
+)
+ORDER BY last_detected DESC
+LIMIT 1;
+"""
+
+_SELECT_SWARM_MEMBERSHIPS = (
+    "SELECT swarm_memberships FROM attacker_profiles WHERE fingerprint = ?;"
+)
 
 
 class SQLiteThreatRepository:
@@ -250,6 +415,19 @@ class SQLiteThreatRepository:
                 """
                 )
 
+                # Self-healing swarm lineage columns for pre-existing DBs.
+                cursor = await conn.execute("PRAGMA table_info(attacker_profiles);")
+                profile_columns = {row[1] for row in await cursor.fetchall()}
+                for column_name, column_ddl in _SWARM_PROFILE_COLUMN_MIGRATIONS:
+                    if column_name not in profile_columns:
+                        await conn.execute(
+                            f"ALTER TABLE attacker_profiles ADD COLUMN {column_name} {column_ddl};"
+                        )
+
+                # Local Swarm Contexts table (Track 3, Pillar 3 bridge persistence)
+                await conn.execute(_CREATE_LOCAL_SWARM_CONTEXTS_TABLE)
+                await conn.execute(_CREATE_IDX_SWARM_AGENTS)
+
             self._schema_initialized = True
 
     async def close(self) -> None:
@@ -279,39 +457,13 @@ class SQLiteThreatRepository:
 
         tools_json = json.dumps(profile.targeted_tools)
         sigs_json = json.dumps(profile.associated_signatures)
-
-        query = """
-        INSERT INTO attacker_profiles (
-            fingerprint, first_seen, last_seen, total_attacks,
-            threat_score, associated_signatures, targeted_tools, risk_category
-        ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?
-        ) ON CONFLICT(fingerprint) DO UPDATE SET
-            last_seen = excluded.last_seen,
-            total_attacks = attacker_profiles.total_attacks + excluded.total_attacks,
-            threat_score = excluded.threat_score,
-            risk_category = excluded.risk_category,
-            targeted_tools = (
-                SELECT json_group_array(value) FROM (
-                    SELECT value FROM json_each(attacker_profiles.targeted_tools)
-                    UNION
-                    SELECT value FROM json_each(excluded.targeted_tools)
-                )
-            ),
-            associated_signatures = (
-                SELECT json_group_array(value) FROM (
-                    SELECT value FROM json_each(attacker_profiles.associated_signatures)
-                    UNION
-                    SELECT value FROM json_each(excluded.associated_signatures)
-                )
-            )
-        RETURNING fingerprint, first_seen, last_seen, total_attacks, threat_score, targeted_tools, associated_signatures, risk_category;
-        """
+        swarm_json = json.dumps([str(s) for s in profile.swarm_memberships])
+        channels_json = json.dumps(profile.suspected_covert_channels)
 
         async with self.pool.connection() as conn:
             try:
                 cursor = await conn.execute(
-                    query,
+                    _UPSERT_ATTACKER_PROFILE,
                     (
                         profile.fingerprint,
                         first_seen_str,
@@ -321,17 +473,38 @@ class SQLiteThreatRepository:
                         sigs_json,
                         tools_json,
                         profile.risk_category,
+                        swarm_json,
+                        channels_json,
+                        profile.collective_confidence,
+                        profile.collective_name,
                     ),
                 )
                 row = await cursor.fetchone()
                 await conn.commit()
 
                 if row:
-                    fp, fs_str, ls_str, attacks, score, tools_raw, sigs_raw, risk = row
+                    (
+                        fp,
+                        fs_str,
+                        ls_str,
+                        attacks,
+                        score,
+                        tools_raw,
+                        sigs_raw,
+                        risk,
+                        swarm_raw,
+                        channels_raw,
+                        collective_confidence,
+                        collective_name,
+                    ) = row
                     fs_dt = parse_iso_datetime(fs_str, default=now_dt)
                     ls_dt = parse_iso_datetime(ls_str, default=now_dt)
                     tools = parse_json_safely(tools_raw, default=[])
                     sigs = parse_json_safely(sigs_raw, default=[])
+                    swarm_ids = self._parse_uuid_list(
+                        parse_json_safely(swarm_raw, default=[])
+                    )
+                    channels = parse_json_safely(channels_raw, default=[])
                     return AttackerProfile(
                         fingerprint=fp,
                         first_seen=fs_dt,
@@ -341,36 +514,48 @@ class SQLiteThreatRepository:
                         targeted_tools=tools,
                         associated_signatures=sigs,
                         risk_category=risk,
+                        swarm_memberships=swarm_ids,
+                        suspected_covert_channels=channels,
+                        collective_confidence=collective_confidence or 0.0,
+                        collective_name=collective_name,
                     )
                 return profile
             except Exception:
                 await conn.rollback()
                 raise
 
-    async def get_attacker_profile(
-        self, fingerprint: str
-    ) -> Optional[AttackerProfile]:
+    async def get_attacker_profile(self, fingerprint: str) -> Optional[AttackerProfile]:
         """Fetches an AttackerProfile by fingerprint from SQLite."""
         await self.initialize()
         async with self.pool.connection() as conn:
             cursor = await conn.execute(
-                """
-                SELECT fingerprint, first_seen, last_seen, total_attacks,
-                       threat_score, associated_signatures, targeted_tools, risk_category
-                FROM attacker_profiles
-                WHERE fingerprint = ?
-                """,
+                _SELECT_ATTACKER_PROFILE,
                 (fingerprint,),
             )
             row = await cursor.fetchone()
             if not row:
                 return None
 
-            fp, fs, ls, total_attacks, score, sigs_json, tools_json, risk = row
+            (
+                fp,
+                fs,
+                ls,
+                total_attacks,
+                score,
+                sigs_json,
+                tools_json,
+                risk,
+                swarm_raw,
+                channels_raw,
+                collective_confidence,
+                collective_name,
+            ) = row
             first_dt = parse_iso_datetime(fs)
             last_dt = parse_iso_datetime(ls)
             sigs = parse_json_safely(sigs_json, default=[])
             tools = parse_json_safely(tools_json, default=[])
+            swarm_ids = self._parse_uuid_list(parse_json_safely(swarm_raw, default=[]))
+            channels = parse_json_safely(channels_raw, default=[])
 
             return AttackerProfile(
                 fingerprint=fp,
@@ -381,7 +566,146 @@ class SQLiteThreatRepository:
                 associated_signatures=sigs,
                 targeted_tools=tools,
                 risk_category=risk,
+                swarm_memberships=swarm_ids,
+                suspected_covert_channels=channels,
+                collective_confidence=collective_confidence or 0.0,
+                collective_name=collective_name,
             )
+
+    @staticmethod
+    def _parse_uuid_list(values: Any) -> List[UUID]:
+        """Parse a JSON-decoded list into UUIDs, skipping malformed entries."""
+        parsed: List[UUID] = []
+        if not isinstance(values, list):
+            return parsed
+        for value in values:
+            try:
+                parsed.append(UUID(str(value)))
+            except (ValueError, TypeError, AttributeError):
+                continue
+        return parsed
+
+    def _row_to_swarm_context(self, row: Any) -> SwarmContextSummary:
+        """Maps a local_swarm_contexts row to a SwarmContextSummary."""
+        (
+            swarm_id_raw,
+            collective_name,
+            collective_confidence,
+            agents_raw,
+            channels_raw,
+            covert_channel_type,
+            deduction_rationale,
+            first_raw,
+            last_raw,
+        ) = row
+        return SwarmContextSummary(
+            swarm_id=UUID(str(swarm_id_raw)),
+            is_collective=True,
+            collective_name=collective_name,
+            collective_confidence=collective_confidence or 0.0,
+            coordinating_agents=parse_json_safely(agents_raw, default=[]),
+            suspected_covert_channels=parse_json_safely(channels_raw, default=[]),
+            covert_channel_type=covert_channel_type,
+            deduction_rationale=deduction_rationale,
+            first_detected=parse_iso_datetime(first_raw),
+            last_detected=parse_iso_datetime(last_raw),
+        )
+
+    async def upsert_swarm_context(
+        self, context: SwarmContextSummary
+    ) -> SwarmContextSummary:
+        """Inserts or updates a local swarm context record (< 5ms SLA)."""
+        await self.initialize()
+        now_dt = utc_now()
+        swarm_id = context.swarm_id or uuid.uuid4()
+        first_str = format_iso_datetime(context.first_detected or now_dt)
+        last_str = format_iso_datetime(context.last_detected or now_dt)
+
+        async with self.pool.connection() as conn:
+            try:
+                cursor = await conn.execute(
+                    _UPSERT_SWARM_CONTEXT,
+                    (
+                        str(swarm_id),
+                        context.collective_name,
+                        context.collective_confidence,
+                        json.dumps(context.coordinating_agents),
+                        json.dumps(context.suspected_covert_channels),
+                        context.covert_channel_type,
+                        context.deduction_rationale,
+                        first_str,
+                        last_str,
+                    ),
+                )
+                row = await cursor.fetchone()
+                await conn.commit()
+                if row:
+                    return self._row_to_swarm_context(row)
+                return context
+            except Exception:
+                await conn.rollback()
+                raise
+
+    async def _fetch_swarm_context(
+        self, conn: Any, swarm_id: UUID
+    ) -> Optional[SwarmContextSummary]:
+        """Fetches a swarm context by UUID using an existing connection."""
+        cursor = await conn.execute(
+            _SELECT_SWARM_CONTEXT_BY_ID,
+            (str(swarm_id),),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        return self._row_to_swarm_context(row)
+
+    async def get_swarm_context(self, swarm_id: UUID) -> Optional[SwarmContextSummary]:
+        """Fetches a swarm context by UUID (< 5ms SLA)."""
+        await self.initialize()
+        async with self.pool.connection() as conn:
+            return await self._fetch_swarm_context(conn, swarm_id)
+
+    async def find_swarm_by_agent_or_fingerprint(
+        self, agent_id: Optional[str], fingerprint: str
+    ) -> Optional[SwarmContextSummary]:
+        """Resolves active swarm lineage via agent membership or profile lineage (< 5ms SLA)."""
+        await self.initialize()
+        async with self.pool.connection() as conn:
+            if agent_id:
+                cursor = await conn.execute(
+                    _SELECT_SWARM_CONTEXT_BY_AGENT,
+                    (agent_id,),
+                )
+                row = await cursor.fetchone()
+                if row:
+                    return self._row_to_swarm_context(row)
+
+            if fingerprint:
+                cursor = await conn.execute(
+                    _SELECT_SWARM_MEMBERSHIPS,
+                    (fingerprint,),
+                )
+                profile_row = await cursor.fetchone()
+                if profile_row:
+                    memberships = self._parse_uuid_list(
+                        parse_json_safely(profile_row[0], default=[])
+                    )
+                    linked_contexts = []
+                    for membership_id in memberships:
+                        linked = await self._fetch_swarm_context(conn, membership_id)
+                        if linked is not None:
+                            linked_contexts.append(linked)
+                    if linked_contexts:
+                        # Profiles may link stale and current swarms; resolve to
+                        # the most recently detected context, mirroring the
+                        # agent-membership branch ordering above.
+                        linked_contexts.sort(
+                            key=lambda ctx: ctx.last_detected
+                            or datetime.min.replace(tzinfo=timezone.utc),
+                            reverse=True,
+                        )
+                        return linked_contexts[0]
+            return None
 
     async def writeSignature(self, signature_data: dict[str, Any]) -> str:
         """Writes a threat signature using INSERT OR IGNORE to enforce uniqueness."""
@@ -478,7 +802,9 @@ class SQLiteThreatRepository:
             row = await cursor.fetchone()
             total_signatures = row[0] if row else 0
 
-            cursor_avg = await conn.execute("SELECT COALESCE(AVG(match_count), 0.0) FROM signatures")
+            cursor_avg = await conn.execute(
+                "SELECT COALESCE(AVG(match_count), 0.0) FROM signatures"
+            )
             avg_row = await cursor_avg.fetchone()
             avg_matches = float(avg_row[0]) if avg_row else 0.0
 
@@ -623,7 +949,9 @@ class SQLiteThreatRepository:
             query_text,
         ]
         if query_vector is not None:
-            vec_hash = hashlib.sha256(array.array("f", query_vector).tobytes()).hexdigest()[:16]
+            vec_hash = hashlib.sha256(
+                array.array("f", query_vector).tobytes()
+            ).hexdigest()[:16]
             cache_key_elements.append(vec_hash)
         cache_key = ":".join(cache_key_elements)
 
@@ -713,9 +1041,13 @@ class SQLiteThreatRepository:
                         f"Query vector has incorrect dimension {len(query_vector)}, expected 768"
                     )
                 if any(not math.isfinite(x) for x in query_vector):
-                    raise ValueError("Query vector contains non-finite values (NaN or Inf)")
+                    raise ValueError(
+                        "Query vector contains non-finite values (NaN or Inf)"
+                    )
 
-                if _core_rs is not None and hasattr(_core_rs, "batch_cosine_similarity"):
+                if _core_rs is not None and hasattr(
+                    _core_rs, "batch_cosine_similarity"
+                ):
                     row_map = {row[0]: row for row in vector_rows}
                     candidates = [
                         (row[0], bytes(row[11]))
@@ -771,7 +1103,8 @@ class SQLiteThreatRepository:
 
                         # Calculate cosine similarity
                         dot_product = sum(
-                            x * y for x, y in zip(query_vector, vector_floats, strict=True)
+                            x * y
+                            for x, y in zip(query_vector, vector_floats, strict=True)
                         )
                         norm_q = math.sqrt(sum(x * x for x in query_vector))
                         norm_s = math.sqrt(sum(x * x for x in vector_floats))
@@ -823,14 +1156,17 @@ class SQLiteThreatRepository:
                         attacker_intent = row[3] or ""
                         payload_pattern = row[4] or ""
                         target_tool_val = row[5] or ""
-                        candidate_text = f"{attacker_intent} {payload_pattern} {target_tool_val}"
+                        candidate_text = (
+                            f"{attacker_intent} {payload_pattern} {target_tool_val}"
+                        )
                         match_quality = compute_word_intersection_match_quality(
                             query_text, candidate_text
                         )
 
                         fts_rank_scale = min(max(1.0 + abs(bm25_rank) / 10.0, 1.0), 1.5)
                         normalized_score = min(
-                            match_quality * fts_fallback_score * fts_rank_scale, fts_threshold_cap
+                            match_quality * fts_fallback_score * fts_rank_scale,
+                            fts_threshold_cap,
                         )
 
                         logger.debug(
@@ -883,14 +1219,17 @@ class SQLiteThreatRepository:
                         attacker_intent = row[3] or ""
                         payload_pattern = row[4] or ""
                         target_tool_val = row[5] or ""
-                        candidate_text = f"{attacker_intent} {payload_pattern} {target_tool_val}"
+                        candidate_text = (
+                            f"{attacker_intent} {payload_pattern} {target_tool_val}"
+                        )
                         match_quality = compute_word_intersection_match_quality(
                             query_text, candidate_text
                         )
 
                         fts_rank_scale = min(max(1.0 + abs(bm25_rank) / 10.0, 1.0), 1.5)
                         normalized_score = min(
-                            match_quality * fts_fallback_score * fts_rank_scale, fts_threshold_cap
+                            match_quality * fts_fallback_score * fts_rank_scale,
+                            fts_threshold_cap,
                         )
 
                         logger.debug(
@@ -974,7 +1313,9 @@ class SQLiteThreatRepository:
             rows = await cursor.fetchall()
             for row in rows:
                 sig_id, tool, pattern, mitigation, intent = row
-                if pattern in args_str or (decoded_args_str != args_str and pattern in decoded_args_str):
+                if pattern in args_str or (
+                    decoded_args_str != args_str and pattern in decoded_args_str
+                ):
                     await self.increment_match_count(sig_id)
                     return {
                         "signature_id": sig_id,
@@ -1110,18 +1451,30 @@ class SQLiteThreatRepository:
             try:
                 values_to_insert = []
                 for signature_data in signatures:
-                    raw_intent = signature_data.get("attackerIntent") or signature_data.get("attacker_intent") or signature_data.get("description")
+                    raw_intent = (
+                        signature_data.get("attackerIntent")
+                        or signature_data.get("attacker_intent")
+                        or signature_data.get("description")
+                    )
                     attacker_intent = str(raw_intent) if raw_intent is not None else ""
 
-                    raw_pattern = signature_data.get("payloadPattern") or signature_data.get("payload_pattern") or signature_data.get("pattern")
+                    raw_pattern = (
+                        signature_data.get("payloadPattern")
+                        or signature_data.get("payload_pattern")
+                        or signature_data.get("pattern")
+                    )
                     payload_pattern = (
                         str(raw_pattern) if raw_pattern is not None else ""
                     )
 
-                    raw_tool = signature_data.get("targetTool") or signature_data.get("target_tool")
+                    raw_tool = signature_data.get("targetTool") or signature_data.get(
+                        "target_tool"
+                    )
                     target_tool = str(raw_tool) if raw_tool is not None else ""
 
-                    raw_sig_id = signature_data.get("signatureId") or signature_data.get("signature_id")
+                    raw_sig_id = signature_data.get(
+                        "signatureId"
+                    ) or signature_data.get("signature_id")
                     if raw_sig_id is not None:
                         sig_id = str(raw_sig_id)
                     else:
@@ -1133,7 +1486,9 @@ class SQLiteThreatRepository:
                             )
                         )
 
-                    raw_created_at = signature_data.get("createdAt") or signature_data.get("created_at")
+                    raw_created_at = signature_data.get(
+                        "createdAt"
+                    ) or signature_data.get("created_at")
                     if raw_created_at is not None:
                         if hasattr(raw_created_at, "timestamp"):
                             created_at = int(raw_created_at.timestamp())
@@ -1145,7 +1500,9 @@ class SQLiteThreatRepository:
                     else:
                         created_at = int(time.time())
 
-                    _raw_last_matched_at = signature_data.get("lastMatchedAt") or signature_data.get("last_matched_at")
+                    _raw_last_matched_at = signature_data.get(
+                        "lastMatchedAt"
+                    ) or signature_data.get("last_matched_at")
                     if _raw_last_matched_at is not None:
                         if hasattr(_raw_last_matched_at, "timestamp"):
                             last_matched_at = int(_raw_last_matched_at.timestamp())
@@ -1157,34 +1514,46 @@ class SQLiteThreatRepository:
                     else:
                         last_matched_at = None
 
-                    target_sink_val = signature_data.get("targetSink") or signature_data.get("target_sink") or signature_data.get("sink_type")
+                    target_sink_val = (
+                        signature_data.get("targetSink")
+                        or signature_data.get("target_sink")
+                        or signature_data.get("sink_type")
+                    )
                     target_sink = (
-                        str(target_sink_val)
-                        if target_sink_val is not None
-                        else None
+                        str(target_sink_val) if target_sink_val is not None else None
                     )
 
-                    raw_chain = signature_data.get("dependencyChain") or signature_data.get("dependency_chain")
+                    raw_chain = signature_data.get(
+                        "dependencyChain"
+                    ) or signature_data.get("dependency_chain")
                     dependency_chain = (
                         json.dumps(raw_chain) if raw_chain is not None else None
                     )
 
-                    raw_mitigation = signature_data.get("mitigationAction") or signature_data.get("mitigation_action")
+                    raw_mitigation = signature_data.get(
+                        "mitigationAction"
+                    ) or signature_data.get("mitigation_action")
                     mitigation_action = (
                         str(raw_mitigation) if raw_mitigation is not None else ""
                     )
 
-                    raw_match_count = signature_data.get("matchCount") or signature_data.get("match_count")
+                    raw_match_count = signature_data.get(
+                        "matchCount"
+                    ) or signature_data.get("match_count")
                     match_count = (
                         int(raw_match_count) if raw_match_count is not None else 0
                     )
 
-                    raw_fp_count = signature_data.get("falsePositiveCount") or signature_data.get("false_positive_count")
+                    raw_fp_count = signature_data.get(
+                        "falsePositiveCount"
+                    ) or signature_data.get("false_positive_count")
                     false_positive_count = (
                         int(raw_fp_count) if raw_fp_count is not None else 0
                     )
 
-                    similarity_vector = signature_data.get("similarityVector") or signature_data.get("similarity_vector")
+                    similarity_vector = signature_data.get(
+                        "similarityVector"
+                    ) or signature_data.get("similarity_vector")
                     if similarity_vector is not None:
                         if isinstance(similarity_vector, (bytes, bytearray)):
                             vector_blob = similarity_vector

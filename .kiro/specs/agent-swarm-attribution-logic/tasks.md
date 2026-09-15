@@ -19,9 +19,9 @@ This task implementation plan structures the development of Blackwall's Agent Sw
 | **TASK-2B.2**| Covert Channel Inference Unit Tests | FR-3, FR-4, NFR-4 | TASK-2B.1 | Parallel Track 2B | [x] COMPLETED |
 | **TASK-2B.3**| Integrate Detector with `AgentSwarmDetector` & `AlertBus` | FR-3, FR-4, NFR-2 | TASK-2B.2 | Parallel Track 2B | [x] COMPLETED |
 | **TASK-2B.4**| Covert Channel BDD Gherkin Scenarios | FR-3, FR-4, US-2 | TASK-2B.3 | Parallel Track 2B | [x] COMPLETED |
-| **TASK-3.1** | SQLite Swarm Lineage Schema Migration | FR-5, NFR-3 | TASK-1.3 | Sequential | [ ] PENDING |
-| **TASK-3.2** | Implement `SwarmContextProvider` Protocol (TDD) | FR-5, NFR-3, NFR-4 | TASK-2A.4, TASK-2B.4, TASK-3.1 | Sequential | [ ] PENDING |
-| **TASK-3.3** | Swarm Attribution Provider Unit & BDD Tests | FR-5, NFR-4 | TASK-3.2 | Sequential | [ ] PENDING |
+| **TASK-3.1** | SQLite Swarm Lineage Schema Migration | FR-5, NFR-3 | TASK-1.3 | Sequential | [x] COMPLETED |
+| **TASK-3.2** | Implement `SwarmContextProvider` Protocol (TDD) | FR-5, NFR-3, NFR-4 | TASK-2A.4, TASK-2B.4, TASK-3.1 | Sequential | [x] COMPLETED |
+| **TASK-3.3** | Swarm Attribution Provider Unit & BDD Tests | FR-5, NFR-4 | TASK-3.2 | Sequential | [x] COMPLETED |
 | **TASK-4.1** | Wire `SwarmContextProvider` into `SyncResolver` | FR-5, FR-6, NFR-1 | TASK-3.3 | Sequential | [ ] PENDING |
 | **TASK-4.2** | Enriched Incident Reporting Formatters (MD/JSON) | FR-6, FR-7, US-1 | TASK-4.1 | Sequential | [ ] PENDING |
 | **TASK-4.3** | End-to-End Multi-Agent Swarm BDD Scenarios | US-1, US-2, US-3 | TASK-4.2 | Sequential | [ ] PENDING |
@@ -114,19 +114,19 @@ This task implementation plan structures the development of Blackwall's Agent Sw
 
 ## Track 3: Swarm-to-Attribution Bridge & Persistence (Pillar 3)
 
-### [ ] TASK-3.1: SQLite Swarm Lineage Schema Migration & Repository API (TDD)
+### [x] TASK-3.1: SQLite Swarm Lineage Schema Migration & Repository API (TDD)
 - **Description**: Update `SQLiteThreatRepository` in `src/blackwall/db/repository.py` to initialize the `local_swarm_contexts` table (`swarm_id`, `collective_name`, `collective_confidence`, `coordinating_agents`, `suspected_covert_channels`, `covert_channel_type`, `deduction_rationale`, `first_detected`, `last_detected`). Migrate `attacker_profiles` with `swarm_memberships`, `suspected_covert_channels`, `collective_confidence`, and `collective_name` columns. Implement repository methods `upsert_swarm_context()`, `get_swarm_context()`, and `find_swarm_by_agent_or_fingerprint()`.
 - **Dependencies**: TASK-1.3.
 - **Traceability**: FR-5, NFR-3.
 - **TDD Requirement**: Write migration and CRUD tests in `tests/test_attacker_profile_db.py` ensuring self-healing column additions, schema initialization, and repository query methods execute under <5ms SLA.
 
-### [ ] TASK-3.2: Implement `SwarmContextProvider` Protocol & Providers (TDD)
+### [x] TASK-3.2: Implement `SwarmContextProvider` Protocol & Providers (TDD)
 - **Description**: Create `src/blackwall/attribution/provider.py` defining the abstract `SwarmContextProvider` protocol returning `Optional[SwarmContextSummary]`, and `SQLiteSwarmContextProvider` in Core querying `SQLiteThreatRepository.find_swarm_by_agent_or_fingerprint()` with zero Enterprise dependencies. In Enterprise, create `src/blackwall/enterprise/advanced_threat_detection/bridge.py` implementing `EnterpriseSwarmContextProvider` adapting `AttackGraphStore` without Core ever importing from `blackwall.enterprise`.
 - **Dependencies**: TASK-2A.4, TASK-2B.4, TASK-3.1.
 - **Traceability**: FR-5, NFR-3, NFR-4.
 - **TDD Requirement**: Write unit tests in `tests/unit/test_swarm_attribution_provider.py` asserting `SQLiteSwarmContextProvider` correctly retrieves local swarm contexts from `SQLiteThreatRepository` and verifying lookup latency (<15ms) across both SQLite and mock Enterprise providers.
 
-### [ ] TASK-3.3: Swarm Attribution Provider Unit & BDD Tests
+### [x] TASK-3.3: Swarm Attribution Provider Unit & BDD Tests
 - **Description**: Add BDD scenarios in `tests/features/swarm_attribution_provider.feature` testing provider resolution, bi-directional profile updates, and strict tier isolation (verifying no Enterprise imports inside Core).
 - **Dependencies**: TASK-3.2.
 - **Traceability**: FR-5, NFR-3, NFR-4, BDD Scenarios.
