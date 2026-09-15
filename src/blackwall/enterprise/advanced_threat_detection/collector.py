@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from blackwall.enterprise.advanced_threat_detection.enums import EventSource
 from blackwall.enterprise.advanced_threat_detection.models import NormalizedEvent
-from blackwall.validators import clamp_score, ensure_uuid_v4, utc_now
+from blackwall.validators import clamp_score, ensure_uuid_v4, format_iso_datetime, utc_now
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.collector")
 
@@ -116,7 +116,7 @@ class EventStreamCollector:
         metadata: dict[str, Any] = (
             dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
         )
-        metadata["ingested_at"] = datetime.now(UTC).isoformat()
+        metadata["ingested_at"] = format_iso_datetime()
         metadata["pillar_source"] = source.value
         if isinstance(raw_ts, (str, datetime)) and "raw_timestamp" not in metadata:
             metadata.setdefault("raw_timestamp", str(raw_ts))

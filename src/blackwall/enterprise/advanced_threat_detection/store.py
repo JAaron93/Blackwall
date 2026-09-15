@@ -5,7 +5,7 @@ import json
 import logging
 import uuid
 from collections.abc import Callable, Coroutine
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any, TypeVar
 
 import asyncpg
@@ -16,7 +16,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     AttackPath,
     NormalizedEvent,
 )
-from blackwall.validators import clamp_score, validate_uuid_v4_format
+from blackwall.validators import clamp_score, utc_now, validate_uuid_v4_format
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.store")
 
@@ -430,7 +430,7 @@ class AttackGraphStore:
         edge_id_str = str(edge_id)
         from_node_str = str(from_uuid)
         to_node_str = str(to_uuid)
-        created_at = datetime.now(UTC)
+        created_at = utc_now()
 
         # Database persistence inside atomic transaction first
         if self._pool:

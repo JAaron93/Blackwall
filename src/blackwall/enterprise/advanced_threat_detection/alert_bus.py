@@ -6,7 +6,6 @@ import logging
 import uuid
 from collections import deque
 from collections.abc import Callable
-from datetime import UTC, datetime
 from typing import Any
 
 from blackwall.enterprise.advanced_threat_detection.enums import AlertSeverity
@@ -21,6 +20,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     RegistryThreatEvidence,
     SwarmEvidence,
 )
+from blackwall.validators import format_iso_datetime, utc_now
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.alert_bus")
 
@@ -190,7 +190,7 @@ class AlertBus:
         failure_record = {
             "alert_id": str(alert.alert_id),
             "error": error_msg,
-            "timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": format_iso_datetime(),
             "subscriber": getattr(subscriber, "__name__", str(subscriber)),
         }
         self._persistent_failures.append(failure_record)
@@ -365,7 +365,7 @@ class AlertBus:
         agent_list = sorted(swarm.agent_ids)
         return Alert(
             alert_id=uuid.uuid4(),
-            timestamp=datetime.now(UTC),
+            timestamp=utc_now(),
             severity=self.map_swarm_severity(swarm),
             threat_type="swarm_detection",
             title=f"Agent Swarm Activity Detected ({len(agent_list)} agents)",
@@ -383,7 +383,7 @@ class AlertBus:
         """Generate an Alert for AI-Induced Lateral Movement (Requirement 10.2)."""
         return Alert(
             alert_id=uuid.uuid4(),
-            timestamp=datetime.now(UTC),
+            timestamp=utc_now(),
             severity=self.map_ailm_severity(ailm),
             threat_type="ailm",
             title=f"AI-Induced Lateral Movement: {ailm.agent_id}",
@@ -401,7 +401,7 @@ class AlertBus:
         """Generate an Alert for zero-day exploit chain sequences (Requirement 10.3)."""
         return Alert(
             alert_id=uuid.uuid4(),
-            timestamp=datetime.now(UTC),
+            timestamp=utc_now(),
             severity=self.map_exploit_chain_severity(chain),
             threat_type="exploit_chain",
             title=f"Zero-Day Exploit Chain Detected ({len(chain.exploits)} stages)",
@@ -417,7 +417,7 @@ class AlertBus:
         """Generate an Alert for correlated multi-stage attack paths (Requirement 10.4)."""
         return Alert(
             alert_id=uuid.uuid4(),
-            timestamp=datetime.now(UTC),
+            timestamp=utc_now(),
             severity=self.map_attack_path_severity(path),
             threat_type="attack_path",
             title=f"Multi-Stage Attack Path Correlated: {path.agent_id}",
@@ -435,7 +435,7 @@ class AlertBus:
         """Generate an Alert for C2 infrastructure establishment (Requirement 10.5)."""
         return Alert(
             alert_id=uuid.uuid4(),
-            timestamp=datetime.now(UTC),
+            timestamp=utc_now(),
             severity=self.map_c2_severity(c2),
             threat_type="c2_infrastructure",
             title=f"Command-and-Control Infrastructure Detected: {c2.agent_id}",
@@ -452,7 +452,7 @@ class AlertBus:
         """Generate an Alert for Kubernetes container threats (Requirement 10.6)."""
         return Alert(
             alert_id=uuid.uuid4(),
-            timestamp=datetime.now(UTC),
+            timestamp=utc_now(),
             severity=self.map_k8s_severity(k8s),
             threat_type=f"k8s_{k8s.threat_type}",
             title=f"Kubernetes Threat ({k8s.threat_type}) in {k8s.namespace}/{k8s.pod_name}",
@@ -471,7 +471,7 @@ class AlertBus:
         """Generate an Alert for package registry probing or exploitation (Requirement 10.7)."""
         return Alert(
             alert_id=uuid.uuid4(),
-            timestamp=datetime.now(UTC),
+            timestamp=utc_now(),
             severity=self.map_registry_severity(registry, exploit_confidence=exploit_confidence),
             threat_type="package_registry",
             title=f"Package Registry Exploit Probing: {registry.registry_type}/{registry.package_name}",
@@ -491,7 +491,7 @@ class AlertBus:
         agents = sorted(covert_channel.coordinating_agents)
         return Alert(
             alert_id=uuid.uuid4(),
-            timestamp=datetime.now(UTC),
+            timestamp=utc_now(),
             severity=self.map_covert_channel_severity(covert_channel),
             threat_type="covert_channel",
             title=f"Covert Channel Detected: {covert_channel.channel_type.value}",

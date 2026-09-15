@@ -16,7 +16,6 @@ Verdict thresholds (DEMO MODE - tuned for standalone testing):
 
 import asyncio
 import concurrent.futures
-from datetime import datetime, timezone
 import json
 import logging
 import os
@@ -54,7 +53,7 @@ from blackwall.models import (
     VerdictDecision,
 )
 from blackwall.resolver import ContextHygiene, TokenBucketRateLimiter
-from blackwall.validators import clamp_score
+from blackwall.validators import clamp_score, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -443,7 +442,7 @@ class SyncResolver:
             extractor = AttackerIdentityExtractor()
             identity = extractor.extract(context=sanitized, metadata=sanitized.metadata)
 
-            now_utc = datetime.now(timezone.utc)
+            now_utc = utc_now()
             swarm_summary = await self._resolve_swarm_context(
                 agent_id=identity.agent_id,
                 fingerprint=identity.identity_fingerprint,

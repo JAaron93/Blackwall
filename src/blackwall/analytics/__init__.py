@@ -5,7 +5,6 @@ import logging
 import random
 import re
 import time
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Union
 from uuid import uuid4
 
@@ -29,7 +28,7 @@ from blackwall.models import (
 )
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.mcp.embeddings import GeminiEmbeddingClient
-from blackwall.validators import clamp_score
+from blackwall.validators import clamp_score, utc_now
 
 
 class BehavioralDriftScorePayload(BaseModel):
@@ -409,7 +408,7 @@ class AgentBehavioralAnalytics:
         signature = ThreatSignature(
             signature_id=sig_id,
             pattern=payload_pattern,
-            created_at=datetime.now(timezone.utc),
+            created_at=utc_now(),
             description=attacker_intent,
             sink_type=sink_type,
         )

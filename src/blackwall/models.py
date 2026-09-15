@@ -7,6 +7,14 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from blackwall.validators import (
+    format_iso_datetime,
+    utc_now,
+    validate_semver_format,
+    validate_temporal_sequence,
+    validate_utc_datetime,
+)
+
 
 class EventType(str, Enum):
     INTERCEPTION = "INTERCEPTION"
@@ -61,7 +69,7 @@ class ToolCallContext(BaseModel):
 class CallbackToken(BaseModel):
     token_id: UUID = Field(default_factory=uuid4)
     thread_id: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    timestamp: datetime = Field(default_factory=utc_now)
     tool_context: ToolCallContext | None = None
     resumeCallback: Callable[[Verdict], Any] | None = Field(
         default=None, exclude=True
@@ -74,7 +82,7 @@ class CallbackToken(BaseModel):
 
 class BatchPayload(BaseModel):
     batch_id: UUID = Field(default_factory=uuid4)
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    timestamp: datetime = Field(default_factory=utc_now)
     sanitized_contexts: list[ToolCallContext]
     policy_snapshot: dict[str, Any]
     previous_interaction_id: str | None = None
@@ -90,7 +98,7 @@ class BatchResponse(BaseModel):
 class ThreatSignature(BaseModel):
     signature_id: UUID = Field(default_factory=uuid4)
     pattern: str
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=utc_now)
     description: str
     sink_type: SinkType
 
@@ -168,13 +176,6 @@ class SyncResolverMetrics(BaseModel):
     allow_count: int = 0
 
 
-from blackwall.validators import (
-    validate_semver_format,
-    validate_temporal_sequence,
-    validate_utc_datetime,
-)
-
-
 class PolicyServerState(BaseModel):
     version: str
     last_updated: datetime
@@ -189,7 +190,7 @@ class PolicyServerState(BaseModel):
 class SecurityEvent(BaseModel):
     event_id: UUID = Field(default_factory=uuid4)
     event_type: EventType
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    timestamp: datetime = Field(default_factory=utc_now)
     tool_context: ToolCallContext
     verdict: Verdict | None = None
     behavior_score: BehaviorScore | None = None
@@ -204,7 +205,7 @@ class SecurityEvent(BaseModel):
     def validate_timestamp(cls, v: datetime) -> datetime:
         if v.tzinfo is None or v.utcoffset() != UTC.utcoffset(v):
             raise ValueError("Timestamp must be timezone-aware")
-        now = datetime.now(UTC)
+        now = utc_now()
         diff = abs((now - v).total_seconds())
         if diff > 5.0:
             raise ValueError(
@@ -312,8 +313,8 @@ class AttackerIdentity(BaseModel):
 
 class AttackerProfile(BaseModel):
     fingerprint: str
-    first_seen: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    last_seen: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    first_seen: datetime = Field(default_factory=utc_now)
+    last_seen: datetime = Field(default_factory=utc_now)
     total_attacks: int = Field(default=1, ge=1)
     threat_score: float = Field(default=0.5, ge=0.0, le=1.0)
     associated_signatures: list[str] = Field(default_factory=list)
@@ -342,7 +343,7 @@ class AttackerProfile(BaseModel):
 
 class IncidentReport(BaseModel):
     report_id: UUID = Field(default_factory=uuid4)
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    timestamp: datetime = Field(default_factory=utc_now)
     event_id: UUID
     verdict: VerdictDecision
     attacker_identity: AttackerIdentity
@@ -370,7 +371,7 @@ class IncidentReport(BaseModel):
     def to_markdown(self) -> str:
         base = f"""# Blackwall Incident Attribution Report
 - **Report ID**: `{self.report_id}`
-- **Timestamp**: {self.timestamp.isoformat()}
+- **Timestamp**: {format_iso_datetime(self.timestamp)}
 - **Verdict**: `{self.verdict.value}`
 - **Exploited Tool**: `{self.exploited_tool}`
 - **Attacker Agent**: `{self.attacker_identity.agent_name or self.attacker_identity.agent_id or 'Unknown'}`

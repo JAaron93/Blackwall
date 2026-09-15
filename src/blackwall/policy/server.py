@@ -1,5 +1,4 @@
 import asyncio
-from datetime import datetime, timezone
 import structlog
 from typing import List
 
@@ -12,6 +11,7 @@ from blackwall.models import (
 from blackwall.policy.engine import StructuralGatingEngine, StructuralAction
 from blackwall.policy.semantic import SemanticGatingEngine
 from blackwall.exceptions import APIRateLimitException
+from blackwall.validators import utc_now
 
 logger = structlog.get_logger("blackwall.policy.server")
 
@@ -28,7 +28,7 @@ class HybridPolicyServer:
     ) -> None:
         self.structural_engine = structural_engine
         self.semantic_engine = semantic_engine
-        self.last_updated = datetime.now(timezone.utc)
+        self.last_updated = utc_now()
         self._apply_policy_mcp_config()
 
     def _apply_policy_mcp_config(self) -> None:
@@ -160,5 +160,5 @@ class HybridPolicyServer:
         """
         self.structural_engine.load_policy(yaml_path)
         self._apply_policy_mcp_config()
-        self.last_updated = datetime.now(timezone.utc)
+        self.last_updated = utc_now()
         logger.info("Hybrid Policy Server reloaded policy successfully", path=yaml_path)

@@ -12,7 +12,7 @@ from typing import Any, Optional
 from uuid import UUID
 
 from blackwall.models import SwarmContextSummary
-from blackwall.validators import clamp_score
+from blackwall.validators import clamp_score, utc_now
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.bridge")
 
@@ -49,7 +49,7 @@ class EnterpriseSwarmContextProvider:
         try:
             if not agent_id:
                 return None
-            now = datetime.now(timezone.utc)
+            now = utc_now()
             nodes = await self._store.query_nodes(
                 agent_id=agent_id,
                 time_window=(now - self._lookback, now),

@@ -11,7 +11,6 @@ import hashlib
 import logging
 import time
 import uuid
-from datetime import UTC, datetime
 from typing import Any
 
 from blackwall.enterprise.advanced_threat_detection.alert_bus import AlertBus
@@ -30,7 +29,7 @@ from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStor
 from blackwall.enterprise.identity.sidecar import SecretVaultSidecar
 from blackwall.enterprise.kernel.probe import KernelProbeDriver
 from blackwall.enterprise.mcp.vault_mcp import VaultMCPAdapter
-from blackwall.validators import is_evaluation_metadata
+from blackwall.validators import is_evaluation_metadata, utc_now
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.reaction")
 
@@ -326,7 +325,7 @@ class ActiveReactionEngine:
         if self.alert_bus is not None:
             alert = Alert(
                 alert_id=uuid.uuid4(),
-                timestamp=datetime.now(UTC),
+                timestamp=utc_now(),
                 severity=severity,
                 threat_type=payload.action_type.value,
                 title=title,

@@ -9,6 +9,7 @@ from google import genai
 from blackwall.models import SecurityEvent, VerdictDecision
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.config import get_genai_client
+from blackwall.validators import format_iso_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +165,7 @@ class AgentBehavioralAnalytics:
                 await self.repo.add_background_task(task_id, "PENDING_WEBHOOK_CALLBACK")
 
             logger.info(
-                f"Submitted background analysis task. task_id={task_id}, timestamp={event.timestamp.isoformat()}"
+                f"Submitted background analysis task. task_id={task_id}, timestamp={format_iso_datetime(event.timestamp)}"
             )
 
             return task_id
