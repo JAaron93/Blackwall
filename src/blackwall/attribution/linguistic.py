@@ -21,7 +21,7 @@ import unicodedata
 from typing import Any
 
 from blackwall.models import LinguisticSwarmMarkers, ToolCallContext
-from blackwall.validators import clamp_score
+from blackwall.validators import clamp_score, normalize_text
 
 logger = logging.getLogger("blackwall.attribution.linguistic")
 
@@ -199,8 +199,8 @@ class LinguisticSwarmClassifier:
         distinct_keywords = sorted(set(found_keywords))
 
         # 5. Caller metadata false-monolith inspection
-        agent_id = str(merged_meta.get("agent_id") or "").strip().lower()
-        agent_name = str(merged_meta.get("agent_name") or "").strip().lower()
+        agent_id = normalize_text(merged_meta.get("agent_id") or "")
+        agent_name = normalize_text(merged_meta.get("agent_name") or "")
 
         is_false_monolith = False
         monolith_identifier: str | None = None

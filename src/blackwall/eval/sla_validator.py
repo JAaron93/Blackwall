@@ -14,6 +14,8 @@ from typing import Any, Generator, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from blackwall.validators import normalize_text
+
 logger = logging.getLogger(__name__)
 
 # Canonical SLA latency thresholds in milliseconds (Requirements 12.1-12.3, Design §6)
@@ -82,7 +84,7 @@ class SLAValidator:
 
     def resolve_component_name(self, component: str) -> str:
         """Resolve component name or alias to canonical threshold key."""
-        norm = component.strip().lower()
+        norm = normalize_text(component)
         if norm in self._thresholds:
             return norm
         if norm in COMPONENT_ALIASES:

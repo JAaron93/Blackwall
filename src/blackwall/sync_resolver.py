@@ -53,7 +53,7 @@ from blackwall.models import (
     VerdictDecision,
 )
 from blackwall.resolver import ContextHygiene, TokenBucketRateLimiter
-from blackwall.validators import clamp_score, utc_now
+from blackwall.validators import clamp_score, normalize_text, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -209,9 +209,9 @@ class SyncResolver:
                 self.swarm_provider = None
 
         if enable_semantic_triage is None:
-            self.enable_semantic_triage = os.getenv(
-                "BLACKWALL_ENABLE_SYNC_SEMANTIC_TRIAGE", ""
-            ).strip().lower() in ("true", "1", "yes")
+            self.enable_semantic_triage = normalize_text(
+                os.getenv("BLACKWALL_ENABLE_SYNC_SEMANTIC_TRIAGE", "")
+            ) in ("true", "1", "yes")
         else:
             self.enable_semantic_triage = bool(enable_semantic_triage)
 

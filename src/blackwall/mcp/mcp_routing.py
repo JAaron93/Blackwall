@@ -12,6 +12,7 @@ from typing import Any
 
 from blackwall.mcp.codebase_memory import CodebaseMemoryClient
 from blackwall.mcp.gti_client import GTIClient
+from blackwall.validators import normalize_text
 
 logger = logging.getLogger("blackwall.mcp_routing")
 
@@ -48,7 +49,7 @@ def _detect_escape_attempt(
 ) -> None:
     """Helper to detect potential escape attempts in operation name and arguments."""
     # 1. Canonicalise and check operation name
-    canonical_op = operation.strip().lower()
+    canonical_op = normalize_text(operation)
 
     # Check for invalid characters in operation name
     if any(char in operation for char in INVALID_CHARS):

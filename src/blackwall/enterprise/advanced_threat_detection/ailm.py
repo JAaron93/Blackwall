@@ -10,7 +10,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from blackwall.policy.models import PolicyConfig
-from blackwall.validators import validate_temporal_sequence, validate_utc_datetime
+from blackwall.validators import normalize_text, validate_temporal_sequence, validate_utc_datetime
 
 # Predefined sensitive permission keywords
 CRITICAL_PERMISSIONS = {
@@ -114,8 +114,8 @@ class AILMTracker:
         Returns:
             True if transition crosses a recognized boundary, False otherwise.
         """
-        from_norm = from_context.strip().lower()
-        to_norm = to_context.strip().lower()
+        from_norm = normalize_text(from_context)
+        to_norm = normalize_text(to_context)
 
         if from_norm == to_norm:
             return False

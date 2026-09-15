@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from blackwall.validators import normalize_text
+
 
 class ThreatInterceptionRubric(BaseModel):
     """Evaluation rubric for Core SyncResolver threat interception."""
@@ -284,7 +286,7 @@ RUBRIC_MAP: dict[str, type[BaseModel]] = {
 
 def get_rubric_for_domain(domain: str) -> type[BaseModel]:
     """Retrieve the Pydantic rubric schema corresponding to an evaluation domain."""
-    normalized = domain.strip().lower()
+    normalized = normalize_text(domain)
     if normalized not in RUBRIC_MAP:
         raise ValueError(
             f"Unknown evaluation domain '{domain}'. Valid domains: {sorted(RUBRIC_MAP.keys())}"

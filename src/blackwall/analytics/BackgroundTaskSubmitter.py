@@ -9,7 +9,7 @@ from google import genai
 from blackwall.models import SecurityEvent, VerdictDecision
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.config import get_genai_client
-from blackwall.validators import format_iso_datetime
+from blackwall.validators import format_iso_datetime, normalize_text
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +30,9 @@ class AgentBehavioralAnalytics:
             or "http://localhost:8090/webhook/analysis_complete"
         )
         if in_process is None:
-            self.in_process = os.getenv(
-                "BLACKWALL_IN_PROCESS_BACKGROUND_ANALYSIS", ""
-            ).strip().lower() in ("true", "1", "yes")
+            self.in_process = normalize_text(
+                os.getenv("BLACKWALL_IN_PROCESS_BACKGROUND_ANALYSIS", "")
+            ) in ("true", "1", "yes")
         else:
             self.in_process = bool(in_process)
 

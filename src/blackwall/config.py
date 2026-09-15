@@ -13,6 +13,8 @@ import os
 from typing import Any, Optional
 from google import genai
 
+from blackwall.validators import normalize_text
+
 # --- Single Source of Truth Runtime Constants (Gemini 3.8 Flash) ---
 DEFAULT_GEMINI_MODEL: str = "gemini-3.8-flash"
 DEFAULT_RAPID_TRIAGE_MODEL: str = "gemini-3.5-flash-lite"
@@ -67,7 +69,7 @@ def get_gemini_thinking_level(
     Resolve thinking level enforcing an immutable HIGH floor for analytical tasks.
     """
     allow_downgrade = (
-        os.getenv("GEMINI_ALLOW_ANALYTICAL_DOWNGRADE", "").strip().lower() == "true"
+        normalize_text(os.getenv("GEMINI_ALLOW_ANALYTICAL_DOWNGRADE", "")) == "true"
         or getattr(settings, "GEMINI_ALLOW_ANALYTICAL_DOWNGRADE", False)
     )
 
@@ -79,7 +81,7 @@ def get_gemini_thinking_level(
     # 2. Explicit environment variable override for non-analytical tasks (or when downgrade allowed)
     env_level = os.getenv("GEMINI_THINKING_LEVEL")
     if env_level and env_level.strip():
-        return env_level.strip().lower()
+        return normalize_text(env_level)
 
     if default is not None:
         return default
@@ -91,7 +93,7 @@ def get_gemini_thinking_level(
     # 4. Settings configuration override if explicitly configured
     settings_level = getattr(settings, "GEMINI_THINKING_LEVEL", None)
     if settings_level and str(settings_level).strip():
-        return str(settings_level).strip().lower()
+        return normalize_text(settings_level)
 
     # 5. Default to HIGH for Gemini 3.8 models
     if model and "3.8" in model:
@@ -110,7 +112,7 @@ def get_gemini_max_output_tokens(
     Guarantees finite, strictly positive (>0) token limits across all environments.
     """
     allow_downgrade = (
-        os.getenv("GEMINI_ALLOW_ANALYTICAL_DOWNGRADE", "").strip().lower() == "true"
+        normalize_text(os.getenv("GEMINI_ALLOW_ANALYTICAL_DOWNGRADE", "")) == "true"
         or getattr(settings, "GEMINI_ALLOW_ANALYTICAL_DOWNGRADE", False)
     )
 
@@ -145,7 +147,7 @@ def get_gemini_http_timeout(
     Guarantees finite, strictly positive (>0) timeouts across all environments.
     """
     allow_downgrade = (
-        os.getenv("GEMINI_ALLOW_ANALYTICAL_DOWNGRADE", "").strip().lower() == "true"
+        normalize_text(os.getenv("GEMINI_ALLOW_ANALYTICAL_DOWNGRADE", "")) == "true"
         or getattr(settings, "GEMINI_ALLOW_ANALYTICAL_DOWNGRADE", False)
     )
 

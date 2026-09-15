@@ -21,7 +21,7 @@ from blackwall.config import (
     get_gemini_max_output_tokens,
     get_gemini_thinking_level,
 )
-from blackwall.validators import clamp_score
+from blackwall.validators import clamp_score, normalize_text
 
 logger = logging.getLogger(__name__)
 
@@ -443,7 +443,7 @@ class GCPVertexAIEvaluationHarness:
                     gen_config = GenerationConfig(max_output_tokens=self.config.max_output_tokens)
                     model_obj = GenerativeModel(target_model, generation_config=gen_config)
                     if self.config.thinking_level:
-                        lvl = self.config.thinking_level.lower().strip()
+                        lvl = normalize_text(self.config.thinking_level)
                         # Map semantic thinking level to reasoning token budget
                         thinking_budget_map = {
                             "high": -1,       # Dynamic unthrottled deep reasoning

@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID
 
 from blackwall.enterprise.advanced_threat_detection.models import AttackNode
-from blackwall.validators import format_iso_datetime
+from blackwall.validators import format_iso_datetime, normalize_text
 
 
 class AttackGraphExporter:
@@ -192,7 +192,7 @@ class AttackGraphExporter:
         edges: list[dict[str, Any]] | None = None,
     ) -> str:
         """Export attack graph to specified format (json or graphml)."""
-        fmt = format.lower().strip()
+        fmt = normalize_text(format)
         if fmt == "json":
             return self.export_json(nodes, edges)
         elif fmt in ("graphml", "xml"):
