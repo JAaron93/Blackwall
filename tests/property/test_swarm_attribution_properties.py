@@ -63,7 +63,9 @@ def test_property_valid_confidence_scores_accepted(score: float):
 @given(
     invalid_score=st.one_of(
         st.floats(max_value=-0.0001, allow_nan=False, allow_infinity=False),
-        st.floats(min_value=1.0001, max_value=1e6, allow_nan=False, allow_infinity=False),
+        st.floats(
+            min_value=1.0001, max_value=1e6, allow_nan=False, allow_infinity=False
+        ),
     )
 )
 def test_property_out_of_bounds_confidence_scores_rejected(invalid_score: float):
@@ -102,7 +104,9 @@ def test_property_out_of_bounds_confidence_scores_rejected(invalid_score: float)
 @settings(max_examples=40)
 @given(
     agents=st.sets(
-        st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789-_", min_size=1, max_size=30),
+        st.text(
+            alphabet="abcdefghijklmnopqrstuvwxyz0123456789-_", min_size=1, max_size=30
+        ),
         min_size=2,
         max_size=10,
     )
@@ -124,7 +128,9 @@ def test_property_coordinating_agents_valid_cardinality(agents: set[str]):
 @settings(max_examples=40)
 @given(
     invalid_agents=st.sets(
-        st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789-_", min_size=1, max_size=30),
+        st.text(
+            alphabet="abcdefghijklmnopqrstuvwxyz0123456789-_", min_size=1, max_size=30
+        ),
         max_size=1,
     )
 )
@@ -228,3 +234,80 @@ def test_property_temporal_ordering_inverted_rejected(delta_seconds: int):
             first_detected=first,
             last_detected=last,
         )
+
+
+# ---------------------------------------------------------------------------
+# Property 5: Swarm-Enriched IncidentReport JSON Round-Trip (TASK-4.2)
+# ---------------------------------------------------------------------------
+
+
+@settings(max_examples=40)
+@given(
+    confidence=st.floats(min_value=0.0, max_value=1.0, allow_nan=False),
+    channels=st.lists(
+        st.from_regex(r"[a-z0-9\-]{1,20}", fullmatch=True),
+        min_size=0,
+        max_size=3,
+    ),
+    collective_name=st.from_regex(r"collective:[a-z0-9\-]{1,20}", fullmatch=True),
+)
+def test_property_swarm_report_json_roundtrip(
+    confidence: float, channels: list, collective_name: str
+):
+    """Property: enriched reports must serialize swarm lineage losslessly."""
+    import json as json_lib
+    from uuid import uuid4
+
+    from blackwall.attribution.reporter import IncidentReportGenerator
+    from blackwall.models import (
+        AttackerIdentity,
+        AttackerProfile,
+        IdentitySource,
+        ToolCallContext,
+        VerdictDecision,
+    )
+
+    now = datetime.now(UTC)
+    identity = AttackerIdentity(
+        agent_id="agent-99",
+        agent_name="SwarmWorker-99",
+        thread_id="th-9900",
+        primary_source=IdentitySource.ADK_METADATA,
+    )
+    profile = AttackerProfile(
+        fingerprint=identity.identity_fingerprint,
+        first_seen=now,
+        last_seen=now,
+    )
+    summary = SwarmContextSummary(
+        swarm_id=uuid4(),
+        is_collective=True,
+        collective_name=collective_name,
+        collective_confidence=confidence,
+        coordinating_agents=["agent-99", "agent-100"],
+        suspected_covert_channels=channels,
+        first_detected=now,
+        last_detected=now,
+    )
+    report = IncidentReportGenerator().build(
+        event_id=uuid4(),
+        verdict=VerdictDecision.BLOCK,
+        identity=identity,
+        profile=profile,
+        tool_context=ToolCallContext(
+            tool_name="execute_bash", arguments={"cmd": "whoami"}
+        ),
+        technique="Swarm Coordination",
+        mitigation="Operation blocked",
+        recommended_action="Isolate agent fleet",
+        confidence=0.9,
+        swarm_context=summary,
+    )
+
+    payload = json_lib.loads(report.to_json())
+    assert payload["is_collective"] is True
+    assert payload["swarm_id"] == str(summary.swarm_id)
+    assert payload["suspected_covert_channels"] == channels
+    assert payload["collective_confidence"] == confidence
+    assert collective_name in payload["collective_attribution_summary"]
+    assert "Swarm Attribution" in report.to_markdown()
