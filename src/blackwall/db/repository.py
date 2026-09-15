@@ -750,26 +750,34 @@ class SQLiteThreatRepository:
 
         similarity_vector = signature_data.get("similarityVector")
         if similarity_vector is not None:
-            if isinstance(similarity_vector, (bytes, bytearray)):
-                pass
-            elif hasattr(similarity_vector, "tobytes") and callable(
-                similarity_vector.tobytes
-            ):
-                converted = similarity_vector.tobytes()
-                if isinstance(converted, (bytes, bytearray)):
-                    similarity_vector = converted
+            try:
+                if isinstance(similarity_vector, (bytes, bytearray)):
+                    pass
+                elif hasattr(similarity_vector, "tobytes") and callable(
+                    similarity_vector.tobytes
+                ):
+                    converted = similarity_vector.tobytes()
+                    if isinstance(converted, (bytes, bytearray)):
+                        similarity_vector = converted
+                    else:
+                        logger.warning(
+                            "Ignoring similarity_vector whose tobytes() did not return bytes; storing NULL"
+                        )
+                        similarity_vector = None
+                elif isinstance(similarity_vector, (list, tuple)):
+                    import array
+
+                    similarity_vector = array.array("f", similarity_vector).tobytes()
                 else:
                     logger.warning(
-                        "Ignoring similarity_vector whose tobytes() did not return bytes; storing NULL"
+                        "Ignoring unsupported similarity_vector type; storing NULL"
                     )
                     similarity_vector = None
-            elif isinstance(similarity_vector, (list, tuple)):
-                import array
-
-                similarity_vector = array.array("f", similarity_vector).tobytes()
-            else:
+            except Exception as exc:
+                # The vector is optional enrichment: never fail the row for it.
                 logger.warning(
-                    "Ignoring unsupported similarity_vector type; storing NULL"
+                    "Ignoring similarity_vector that failed coercion; storing NULL: %s",
+                    exc,
                 )
                 similarity_vector = None
 

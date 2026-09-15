@@ -11,8 +11,18 @@ RUN addgroup --system --gid 1001 blackwall && \
 WORKDIR /app
 
 # C toolchain required to link the maturin/PyO3 native extension
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Pinned Rust toolchain: maturin can self-install rustup, but an explicit
+# pinned toolchain keeps release builds reproducible without implicit downloads.
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH \
+    RUST_VERSION=1.98.1
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+    | sh -s -- -y --default-toolchain ${RUST_VERSION} --profile minimal \
+    && rustc --version && cargo --version
 
 # Copy dependency definition files
 COPY pyproject.toml README.md ./

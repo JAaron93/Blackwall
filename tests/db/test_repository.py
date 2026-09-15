@@ -234,3 +234,37 @@ async def test_write_signature_rejects_non_bytes_vector_coercion(
         row = await cursor.fetchone()
         assert row is not None
         assert row[0] is None
+
+
+@pytest.mark.asyncio
+async def test_write_signature_failed_vector_coercion_stores_null(
+    repo: SQLiteThreatRepository,
+) -> None:
+    """Verify vectors that raise during coercion (raising tobytes, non-numeric list) still persist the row with NULL vector."""
+
+    class RaisingArray:
+        def tobytes(self) -> bytes:
+            raise RuntimeError("boom")
+
+    for sig_id, bad_vector in (
+        ("sig_raising_tobytes", RaisingArray()),
+        ("sig_bad_list", ["not", "floats"]),
+    ):
+        await repo.writeSignature(
+            {
+                "signatureId": sig_id,
+                "attackerIntent": "test intent",
+                "payloadPattern": "pattern",
+                "targetTool": "tool",
+                "mitigationAction": "BLOCK",
+                "similarityVector": bad_vector,
+            }
+        )
+        async with repo.pool.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT similarity_vector FROM signatures WHERE signature_id = ?",
+                (sig_id,),
+            )
+            row = await cursor.fetchone()
+            assert row is not None
+            assert row[0] is None
