@@ -755,11 +755,23 @@ class SQLiteThreatRepository:
             elif hasattr(similarity_vector, "tobytes") and callable(
                 similarity_vector.tobytes
             ):
-                similarity_vector = similarity_vector.tobytes()
+                converted = similarity_vector.tobytes()
+                if isinstance(converted, (bytes, bytearray)):
+                    similarity_vector = converted
+                else:
+                    logger.warning(
+                        "Ignoring similarity_vector whose tobytes() did not return bytes; storing NULL"
+                    )
+                    similarity_vector = None
             elif isinstance(similarity_vector, (list, tuple)):
                 import array
 
                 similarity_vector = array.array("f", similarity_vector).tobytes()
+            else:
+                logger.warning(
+                    "Ignoring unsupported similarity_vector type; storing NULL"
+                )
+                similarity_vector = None
 
         raw_metadata = signature_data.get("metadata")
         metadata = json.dumps(raw_metadata) if raw_metadata is not None else None
