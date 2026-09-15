@@ -202,6 +202,10 @@ async def test_attack_sequences() -> None:
 
         assert verdict_1.decision == VerdictDecision.BLOCK
 
+        # Inline signature generation runs as a background task: flush it
+        # deterministically before asserting on persisted state.
+        await resolver.flush_background_tasks()
+
         # Verify signature was written to the database
         stats = await repo.getStatistics()
         assert (

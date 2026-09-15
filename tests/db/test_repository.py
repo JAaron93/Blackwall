@@ -1,6 +1,7 @@
 import os
 import asyncio
 from typing import AsyncGenerator
+from unittest.mock import MagicMock
 import pytest
 import pytest_asyncio
 from blackwall.db.repository import SQLiteThreatRepository
@@ -207,3 +208,63 @@ async def test_write_signature_similarity_vector_coercion(
         row = await cursor.fetchone()
         assert row is not None
         assert row[0] == expected_bytes
+
+
+@pytest.mark.asyncio
+async def test_write_signature_rejects_non_bytes_vector_coercion(
+    repo: SQLiteThreatRepository,
+) -> None:
+    """Verify a junk similarityVector (e.g. MagicMock with fake tobytes) is stored as NULL instead of failing the write."""
+    sig_id = "sig_junk_vector"
+    await repo.writeSignature(
+        {
+            "signatureId": sig_id,
+            "attackerIntent": "test intent",
+            "payloadPattern": "pattern",
+            "targetTool": "tool",
+            "mitigationAction": "BLOCK",
+            "similarityVector": MagicMock(),
+        }
+    )
+    async with repo.pool.connection() as conn:
+        cursor = await conn.execute(
+            "SELECT similarity_vector FROM signatures WHERE signature_id = ?",
+            (sig_id,),
+        )
+        row = await cursor.fetchone()
+        assert row is not None
+        assert row[0] is None
+
+
+@pytest.mark.asyncio
+async def test_write_signature_failed_vector_coercion_stores_null(
+    repo: SQLiteThreatRepository,
+) -> None:
+    """Verify vectors that raise during coercion (raising tobytes, non-numeric list) still persist the row with NULL vector."""
+
+    class RaisingArray:
+        def tobytes(self) -> bytes:
+            raise RuntimeError("boom")
+
+    for sig_id, bad_vector in (
+        ("sig_raising_tobytes", RaisingArray()),
+        ("sig_bad_list", ["not", "floats"]),
+    ):
+        await repo.writeSignature(
+            {
+                "signatureId": sig_id,
+                "attackerIntent": "test intent",
+                "payloadPattern": "pattern",
+                "targetTool": "tool",
+                "mitigationAction": "BLOCK",
+                "similarityVector": bad_vector,
+            }
+        )
+        async with repo.pool.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT similarity_vector FROM signatures WHERE signature_id = ?",
+                (sig_id,),
+            )
+            row = await cursor.fetchone()
+            assert row is not None
+            assert row[0] is None
