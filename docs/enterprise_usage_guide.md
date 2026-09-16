@@ -40,22 +40,27 @@ import sys
 import subprocess
 from blackwall.enterprise.kernel.probe import LinuxeBPFDriver, UserSpaceAuditDriver
 
-# Spawn a disposable worker process to safely demonstrate process-level termination
+# Spawn a disposable worker process to safely demonstrate process-level containment
 target_proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
 
 # Initialize the kernel driver (auto-detects Linux BCC support with userspace fallback)
 driver = LinuxeBPFDriver()
 
-# Start active tracing on syscalls
-driver.start_tracing()
+try:
+    # Start active tracing on syscalls
+    driver.start_tracing()
 
-# Inject dynamic real-time socket or PID drop rules (<50ms SLA)
-# Terminates the designated rogue process and drops outbound network traffic targeting the C2 IP
-driver.inject_socket_drop(pid=target_proc.pid, ip="192.168.1.100")
+    # Inject dynamic real-time socket or PID drop rules (<50ms SLA)
+    # Terminates the designated rogue process and drops outbound network traffic targeting the C2 IP
+    driver.inject_socket_drop(pid=target_proc.pid, ip="192.168.1.100")
 
-# Intercepted syscalls raise PermissionError (or trigger SIGKILL at the kernel level)
-# Clean up tracepoints and attached BPF maps upon shutdown
-driver.stop_tracing()
+    # Intercepted syscalls raise PermissionError (or trigger SIGKILL at the kernel level on exec/connect)
+finally:
+    # Guarantee the disposable process is terminated and tracing is cleaned up
+    if target_proc.poll() is None:
+        target_proc.kill()
+        target_proc.wait()
+    driver.stop_tracing()
 ```
 
 ---

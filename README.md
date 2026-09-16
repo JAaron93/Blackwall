@@ -32,7 +32,7 @@ The diagram below illustrates the original end-to-end interception flow across t
 - **Python 3.11+**
 - **Rust 1.70+ (`cargo` / `rustc`)** (for compiling native acceleration extension `blackwall._core_rs`)
 - **Google Cloud Platform Project** with Vertex AI API enabled (100% GCP Vertex AI Mode via Application Default Credentials)
-- **AlienVault OTX API key** (free tier: 10,000 req/hour token bucket) or VirusTotal API key (legacy fallback)
+- **AlienVault OTX API key** (free tier: 10,000 req/hour token bucket via `BW_OTX_API_KEY`) or VirusTotal API key (legacy fallback)
 - **Git**
 
 ### 1. Installation
@@ -56,7 +56,7 @@ pip install -e ".[dev]" && pip install certifi
 cp .env.example .env
 
 # Edit .env:
-# Set: GCP_PROJECT, OTX_API_KEY (or GTI_MCP_API_KEY), BLACKWALL_VAULT_KEY
+# Set: GCP_PROJECT, BW_OTX_API_KEY (or GTI_MCP_API_KEY), BLACKWALL_VAULT_KEY
 ```
 
 ### 3. Run the Live Dual-Agent Showdown (Rich Dual-Column TUI)
