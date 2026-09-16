@@ -456,3 +456,70 @@ async def test_orchestrator_provider_name_case_normalization_in_cache(
     assert otx.call_count == 1
 
 
+@pytest.mark.asyncio
+async def test_orchestrator_provider_name_identical_on_cache_miss_and_hit(
+    temp_repo: SQLiteThreatRepository,
+) -> None:
+    otx = MockProvider(
+        name="otx",
+        supported_indicators={ThreatIndicatorType.IPV4},
+        default_response=ThreatIntelResponse(
+            indicator="198.51.100.60",
+            indicator_type=ThreatIndicatorType.IPV4,
+            is_malicious=True,
+            risk_score=0.9,
+            provider_name="otx",
+        ),
+    )
+    orchestrator = ThreatIntelOrchestrator(
+        repository=temp_repo,
+        primary_provider=otx,
+        secondary_providers=[],
+        cache_enabled=True,
+    )
+
+    # First lookup (cache miss)
+    miss_res = await orchestrator.lookup("198.51.100.60", ThreatIndicatorType.IPV4)
+    assert miss_res.cached is False
+    assert miss_res.provider_name == "otx"
+
+    # Second lookup (cache hit)
+    hit_res = await orchestrator.lookup("198.51.100.60", ThreatIndicatorType.IPV4)
+    assert hit_res.cached is True
+    # provider_name must remain "otx" on cache hit, NOT mutate to "aggregate"
+    assert hit_res.provider_name == "otx"
+    assert hit_res.risk_score == miss_res.risk_score
+    assert hit_res.is_malicious == miss_res.is_malicious
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_indicator_normalization_and_empty_check(
+    temp_repo: SQLiteThreatRepository,
+) -> None:
+    otx = MockProvider(
+        name="otx",
+        supported_indicators={ThreatIndicatorType.IPV4, ThreatIndicatorType.FILE_HASH},
+        default_response=ThreatIntelResponse(
+            indicator="198.51.100.65",
+            indicator_type=ThreatIndicatorType.IPV4,
+            is_malicious=False,
+            risk_score=0.0,
+            provider_name="otx",
+        ),
+    )
+    orchestrator = ThreatIntelOrchestrator(
+        repository=temp_repo,
+        primary_provider=otx,
+        secondary_providers=[],
+        cache_enabled=True,
+    )
+
+    # Whitespace in IP is stripped
+    res = await orchestrator.lookup("  198.51.100.65  \n", ThreatIndicatorType.IPV4)
+    assert res.indicator == "198.51.100.65"
+
+    # Empty indicator raises ValueError
+    with pytest.raises(ValueError, match="Indicator cannot be empty"):
+        await orchestrator.lookup("   \t  ", ThreatIndicatorType.IPV4)
+
+

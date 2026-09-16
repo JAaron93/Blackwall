@@ -32,7 +32,7 @@ class AbuseChLookupError(AbuseChError):
     pass
 
 
-class AbuseChRateLimitError(AbuseChError):
+class AbuseChRateLimitError(AbuseChLookupError):
     """Exception raised when abuse.ch rate limits are encountered."""
 
     pass
@@ -203,14 +203,17 @@ class AbuseChProvider:
                 raw_response=raw,
             )
 
-        items = raw.get("data", [])
+        items = raw.get("data") or []
         categories: Set[str] = set()
         malware_families: Set[str] = set()
         max_confidence = 0
         references: List[str] = []
 
         for item in items:
-            conf = int(item.get("confidence_level", 100))
+            if not isinstance(item, dict):
+                continue
+            conf_val = item.get("confidence_level")
+            conf = int(conf_val) if conf_val is not None else 100
             if conf > max_confidence:
                 max_confidence = conf
 
@@ -222,7 +225,7 @@ class AbuseChProvider:
             if threat_type:
                 categories.add(str(threat_type).lower())
 
-            for tag in item.get("tags", []):
+            for tag in item.get("tags") or []:
                 if tag:
                     categories.add(str(tag).lower())
 
@@ -346,12 +349,14 @@ class AbuseChProvider:
                 raw_response=raw,
             )
 
-        items = raw.get("data", [])
+        items = raw.get("data") or []
         categories: Set[str] = set()
         malware_families: Set[str] = set()
         references: List[str] = []
 
         for item in items:
+            if not isinstance(item, dict):
+                continue
             signature = item.get("signature")
             if signature:
                 malware_families.add(str(signature))
@@ -391,6 +396,12 @@ class AbuseChProvider:
         timeout: float = 3.0,
     ) -> ThreatIntelResponse:
         """Lookup threat reputation across abuse.ch feeds."""
+        indicator = indicator.strip()
+        if not indicator:
+            raise ValueError("Indicator cannot be empty")
+        if indicator_type == ThreatIndicatorType.FILE_HASH:
+            indicator = indicator.lower()
+
         if indicator_type not in self.supported_indicators:
             raise ValueError(f"Unsupported indicator type: {indicator_type}")
 
@@ -404,7 +415,7 @@ class AbuseChProvider:
                 return await self._lookup_threatfox(indicator, indicator_type, timeout)
         except AbuseChRateLimitError as e:
             logger.warning("abuse.ch rate limit exceeded for %s: %s", sanitized, e)
-            raise AbuseChLookupError(
+            raise AbuseChRateLimitError(
                 f"abuse.ch rate limit exceeded for {sanitized}: {e}"
             ) from e
         except Exception as e:

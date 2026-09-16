@@ -130,6 +130,12 @@ class ThreatIntelOrchestrator:
         provider: Optional[str] = None,
     ) -> ThreatIntelResponse:
         """Looks up threat intelligence for an indicator across providers with caching."""
+        indicator = indicator.strip()
+        if not indicator:
+            raise ValueError("Indicator cannot be empty")
+        if indicator_type == ThreatIndicatorType.FILE_HASH:
+            indicator = indicator.lower()
+
         effective_timeout = timeout if timeout is not None else self.timeout
 
         # Step 1: Determine applicable providers and normalize cache scope
@@ -269,9 +275,9 @@ class ThreatIntelOrchestrator:
         ):
             ttl = 21600.0 if aggregated.is_malicious else 86400.0
             try:
-                to_cache = aggregated.model_copy()
-                to_cache.provider_name = cache_provider
-                await self.repository.cache_threat_intel(to_cache, ttl_seconds=ttl)
+                await self.repository.cache_threat_intel(
+                    aggregated, ttl_seconds=ttl, provider=cache_provider
+                )
             except Exception as e:
                 logger.warning(
                     "Failed caching threat intel response for %s: %s", indicator, e

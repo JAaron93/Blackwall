@@ -209,3 +209,65 @@ async def test_abuseipdb_lookup_ipv6() -> None:
         assert resp.is_malicious is True
         assert resp.risk_score == 0.5
 
+
+@pytest.mark.asyncio
+async def test_abuseipdb_null_and_malformed_response_handling() -> None:
+    provider = AbuseIPDBProvider(api_key="test-key")
+
+    # Case 1: data is None
+    with patch.object(provider, "_execute_http_get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = {"data": None}
+        resp = await provider.lookup("1.1.1.1", ThreatIndicatorType.IPV4)
+        assert resp.risk_score == 0.0
+        assert resp.is_malicious is False
+        assert resp.detection_count == 0
+
+    # Case 2: numeric fields inside data are None
+    with patch.object(provider, "_execute_http_get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = {
+            "data": {
+                "abuseConfidenceScore": None,
+                "totalReports": None,
+                "numDistinctUsers": None,
+                "reports": None,
+            }
+        }
+        resp = await provider.lookup("1.1.1.1", ThreatIndicatorType.IPV4)
+        assert resp.risk_score == 0.0
+        assert resp.is_malicious is False
+        assert resp.detection_count == 0
+
+
+@pytest.mark.asyncio
+async def test_abuseipdb_whitespace_stripping_and_empty_check() -> None:
+    provider = AbuseIPDBProvider(api_key="test-key")
+
+    with patch.object(provider, "_execute_http_get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = {"data": {"abuseConfidenceScore": 0}}
+        resp = await provider.lookup("   1.1.1.1   \n", ThreatIndicatorType.IPV4)
+        assert resp.indicator == "1.1.1.1"
+
+    with pytest.raises(ValueError, match="Indicator cannot be empty"):
+        await provider.lookup("   \t  ", ThreatIndicatorType.IPV4)
+
+
+@pytest.mark.asyncio
+async def test_abuseipdb_rate_limit_subclass_catchable() -> None:
+    from blackwall.threat_intel.abuseipdb import AbuseIPDBRateLimitError
+
+    provider = AbuseIPDBProvider(api_key="test-key")
+
+    with patch.object(
+        provider, "_execute_http_get", side_effect=AbuseIPDBRateLimitError("429")
+    ):
+        # Can be caught as AbuseIPDBRateLimitError
+        with pytest.raises(AbuseIPDBRateLimitError):
+            await provider.lookup("1.1.1.1", ThreatIndicatorType.IPV4)
+
+    with patch.object(
+        provider, "_execute_http_get", side_effect=AbuseIPDBRateLimitError("429")
+    ):
+        # Can also be caught as AbuseIPDBLookupError
+        with pytest.raises(AbuseIPDBLookupError):
+            await provider.lookup("1.1.1.1", ThreatIndicatorType.IPV4)
+

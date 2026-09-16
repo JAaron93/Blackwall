@@ -219,3 +219,105 @@ async def test_circuit_breaker_provider_wrapper_graceful_degradation() -> None:
     assert "open" in resp_open.error.lower()
     # Inner provider was not called!
     assert raw_provider.call_count == call_count_before
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_does_not_trip_on_value_error() -> None:
+    cb = CircuitBreaker(name="input-error-test", failure_threshold=3, timeout=0.1)
+
+    async def bad_arg_func() -> None:
+        raise ValueError("Invalid indicator format")
+
+    for _ in range(5):
+        with pytest.raises(ValueError, match="Invalid indicator"):
+            await cb.call(bad_arg_func)
+
+    # ValueError should NOT increment consecutive_failures or trip circuit breaker
+    assert cb.consecutive_failures == 0
+    assert cb.state == CircuitState.CLOSED
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_provider_does_not_swallow_value_error() -> None:
+    class StrictIPOnlyProvider:
+        name = "strict_ip"
+        supported_indicators = {ThreatIndicatorType.IPV4}
+
+        async def lookup(
+            self, indicator: str, indicator_type: ThreatIndicatorType, timeout: float = 3.0
+        ) -> ThreatIntelResponse:
+            if indicator_type != ThreatIndicatorType.IPV4:
+                raise ValueError("Only IPV4 is supported")
+            return ThreatIntelResponse(
+                indicator=indicator,
+                indicator_type=indicator_type,
+                is_malicious=False,
+                provider_name=self.name,
+            )
+
+        async def is_healthy(self) -> bool:
+            return True
+
+        def get_remaining_budget(self) -> int:
+            return 100
+
+    wrapped = CircuitBreakerProvider(StrictIPOnlyProvider(), failure_threshold=3)
+
+    # Calling with DOMAIN should raise ValueError, NOT return a fallback benign response
+    for _ in range(4):
+        with pytest.raises(ValueError, match="Only IPV4 is supported"):
+            await wrapped.lookup("example.com", ThreatIndicatorType.DOMAIN)
+
+    # Circuit breaker must remain CLOSED
+    assert wrapped.circuit_breaker.state == CircuitState.CLOSED
+    assert wrapped.circuit_breaker.consecutive_failures == 0
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_half_open_concurrency_probe_limit() -> None:
+    cb = CircuitBreaker(
+        name="half-open-limit",
+        failure_threshold=2,
+        recovery_threshold=2,
+        recovery_timeout=0.05,
+        timeout=0.5,
+    )
+
+    async def fail_task() -> None:
+        raise ConnectionError("down")
+
+    # Trip to OPEN
+    for _ in range(2):
+        with pytest.raises(ConnectionError):
+            await cb.call(fail_task)
+    assert cb.state == CircuitState.OPEN
+
+    # Wait for recovery timeout -> HALF-OPEN
+    await asyncio.sleep(0.08)
+    assert cb.state == CircuitState.HALF_OPEN
+
+    # Simultaneous slow probes
+    started_barrier = asyncio.Event()
+    release_barrier = asyncio.Event()
+
+    async def slow_probe() -> str:
+        started_barrier.set()
+        await release_barrier.wait()
+        return "recovered"
+
+    # Launch 2 probes (recovery_threshold=2)
+    task1 = asyncio.create_task(cb.call(slow_probe))
+    task2 = asyncio.create_task(cb.call(slow_probe))
+
+    await started_barrier.wait()
+
+    # 3rd probe should exceed recovery_threshold and raise CircuitBreakerOpenError
+    with pytest.raises(CircuitBreakerOpenError, match="HALF-OPEN"):
+        await cb.call(slow_probe)
+
+    # Release running probes
+    release_barrier.set()
+    res1, res2 = await asyncio.gather(task1, task2)
+    assert res1 == "recovered"
+    assert res2 == "recovered"
+    assert cb.state == CircuitState.CLOSED

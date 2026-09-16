@@ -59,7 +59,7 @@ class AbuseIPDBLookupError(AbuseIPDBError):
     pass
 
 
-class AbuseIPDBRateLimitError(AbuseIPDBError):
+class AbuseIPDBRateLimitError(AbuseIPDBLookupError):
     """Exception raised when AbuseIPDB rate limit is exceeded."""
 
     pass
@@ -163,10 +163,15 @@ class AbuseIPDBProvider:
     def _parse_abuseipdb_response(
         self, indicator: str, indicator_type: ThreatIndicatorType, raw: Dict[str, Any]
     ) -> ThreatIntelResponse:
-        data = raw.get("data", {})
-        score = int(data.get("abuseConfidenceScore", 0))
-        total_reports = int(data.get("totalReports", 0))
-        distinct_users = int(data.get("numDistinctUsers", 0))
+        data = (raw.get("data") or {}) if isinstance(raw, dict) else {}
+        score_val = data.get("abuseConfidenceScore")
+        score = int(score_val) if score_val is not None else 0
+
+        reports_val = data.get("totalReports")
+        total_reports = int(reports_val) if reports_val is not None else 0
+
+        users_val = data.get("numDistinctUsers")
+        distinct_users = int(users_val) if users_val is not None else 0
 
         # Linear mapping: 0-100 -> 0.0-1.0
         risk_score = round(max(0.0, min(1.0, score / 100.0)), 2)
@@ -181,11 +186,12 @@ class AbuseIPDBProvider:
         if isp:
             categories.add(str(isp))
 
-        for report in data.get("reports", []):
-            for cat_id in report.get("categories", []):
-                cat_name = ABUSEIPDB_CATEGORIES.get(cat_id)
-                if cat_name:
-                    categories.add(cat_name)
+        for report in data.get("reports") or []:
+            if isinstance(report, dict):
+                for cat_id in report.get("categories") or []:
+                    cat_name = ABUSEIPDB_CATEGORIES.get(cat_id)
+                    if cat_name:
+                        categories.add(cat_name)
 
         return ThreatIntelResponse(
             indicator=indicator,
@@ -210,6 +216,10 @@ class AbuseIPDBProvider:
         timeout: float = 3.0,
     ) -> ThreatIntelResponse:
         """Lookup threat reputation for an IP indicator."""
+        indicator = indicator.strip()
+        if not indicator:
+            raise ValueError("Indicator cannot be empty")
+
         if indicator_type not in self.supported_indicators:
             raise ValueError(
                 f"AbuseIPDB only supports IP indicators ({', '.join(t.value for t in self.supported_indicators)}), got {indicator_type}"
@@ -234,7 +244,9 @@ class AbuseIPDBProvider:
             return self._parse_abuseipdb_response(indicator, indicator_type, raw)
         except AbuseIPDBRateLimitError as e:
             logger.warning("AbuseIPDB rate limit error for %s: %s", indicator, e)
-            raise AbuseIPDBLookupError(str(e)) from e
+            raise AbuseIPDBRateLimitError(
+                f"AbuseIPDB rate limit exceeded for {indicator}: {e}"
+            ) from e
         except Exception as e:
             logger.warning("AbuseIPDB lookup failed for %s: %s", indicator, e)
             raise AbuseIPDBLookupError(

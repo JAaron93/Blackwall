@@ -70,6 +70,8 @@ class CircuitBreaker:
         self.consecutive_failures: int = 0
         self.successful_probes: int = 0
         self.last_state_change: float = 0.0
+        self._lock = asyncio.Lock()
+        self._active_probes: int = 0
 
     @property
     def state(self) -> CircuitState:
@@ -78,6 +80,7 @@ class CircuitBreaker:
             if time.monotonic() - self.last_state_change > self.recovery_timeout:
                 self._state = CircuitState.HALF_OPEN
                 self.successful_probes = 0
+                self._active_probes = 0
                 logger.info("Circuit breaker %s transitioned to HALF-OPEN", self.name)
         return self._state
 
@@ -90,6 +93,7 @@ class CircuitBreaker:
                 self._state = CircuitState.CLOSED
                 self.successful_probes = 0
                 self.consecutive_failures = 0
+                self._active_probes = 0
                 logger.info(
                     "Circuit breaker %s restored to CLOSED after %d successful probes",
                     self.name,
@@ -105,6 +109,7 @@ class CircuitBreaker:
             self._state = CircuitState.OPEN
             self.last_state_change = time.monotonic()
             self.successful_probes = 0
+            self._active_probes = 0
             logger.warning(
                 "Circuit breaker %s tripped to OPEN (consecutive failures: %d, reason: %s)",
                 self.name,
@@ -119,23 +124,57 @@ class CircuitBreaker:
         **kwargs: Any,
     ) -> T:
         """Executes a coroutine with timeout and circuit breaker tracking."""
-        if self.state == CircuitState.OPEN:
-            raise CircuitBreakerOpenError(
-                f"Circuit breaker for {self.name} is OPEN (cooldown: {self.recovery_timeout}s)"
-            )
+        import inspect
 
-        call_timeout = kwargs.pop("timeout", self.timeout)
+        async with self._lock:
+            current_state = self.state
+            if current_state == CircuitState.OPEN:
+                raise CircuitBreakerOpenError(
+                    f"Circuit breaker for {self.name} is OPEN (cooldown: {self.recovery_timeout}s)"
+                )
+            if current_state == CircuitState.HALF_OPEN:
+                if self._active_probes >= self.recovery_threshold:
+                    raise CircuitBreakerOpenError(
+                        f"Circuit breaker for {self.name} is HALF-OPEN (max probes in flight)"
+                    )
+                self._active_probes += 1
+
+        call_timeout = kwargs.get("timeout", self.timeout)
+        sig = inspect.signature(func)
+        call_kwargs = dict(kwargs)
+        if "timeout" not in sig.parameters and not any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+        ):
+            call_kwargs.pop("timeout", None)
+        else:
+            call_kwargs["timeout"] = call_timeout
+
+        is_half_open = current_state == CircuitState.HALF_OPEN
         try:
-            result = await asyncio.wait_for(func(*args, **kwargs), timeout=call_timeout)
-            self.record_success()
+            result = await asyncio.wait_for(func(*args, **call_kwargs), timeout=call_timeout)
+            async with self._lock:
+                if is_half_open:
+                    self._active_probes = max(0, self._active_probes - 1)
+                self.record_success()
             return result
         except asyncio.TimeoutError as e:
-            self.record_failure(e)
+            async with self._lock:
+                if is_half_open:
+                    self._active_probes = max(0, self._active_probes - 1)
+                self.record_failure(e)
             raise ProviderTimeoutError(
                 f"Operation timed out after {call_timeout}s in {self.name}"
             ) from e
+        except (ValueError, TypeError):
+            async with self._lock:
+                if is_half_open:
+                    self._active_probes = max(0, self._active_probes - 1)
+            raise
         except Exception as e:
-            self.record_failure(e)
+            async with self._lock:
+                if is_half_open:
+                    self._active_probes = max(0, self._active_probes - 1)
+                self.record_failure(e)
             raise
 
 
@@ -235,6 +274,9 @@ class CircuitBreakerProvider:
                 indicator_type,
                 timeout=effective_timeout,
             )
+        except (ValueError, TypeError):
+            # Propagate client input validation errors without swallowing
+            raise
         except (CircuitBreakerOpenError, ProviderTimeoutError, Exception) as e:
             logger.warning(
                 "Protected provider call %s failed for %s: %s",

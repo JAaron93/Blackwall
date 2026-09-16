@@ -232,3 +232,60 @@ async def test_abusech_url_credential_sanitization_in_errors(
         assert token_part not in caplog.text
 
 
+@pytest.mark.asyncio
+async def test_abusech_null_and_malformed_response_handling() -> None:
+    provider = AbuseChProvider(auth_key="test-key")
+
+    # ThreatFox returns data: None
+    with patch.object(provider, "_execute_post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = {"query_status": "ok", "data": None}
+        resp = await provider.lookup("1.1.1.1", ThreatIndicatorType.IPV4)
+        assert resp.risk_score == 0.0
+        assert resp.is_malicious is False
+        assert resp.malware_families == []
+
+    # MalwareBazaar returns data: None
+    with patch.object(provider, "_execute_post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = {"query_status": "ok", "data": None}
+        resp = await provider.lookup("44d88612fea8a8f36de82e1278abb02f", ThreatIndicatorType.FILE_HASH)
+        assert resp.risk_score == 1.0
+        assert resp.is_malicious is True
+        assert resp.malware_families == []
+
+
+@pytest.mark.asyncio
+async def test_abusech_indicator_whitespace_and_hash_normalization() -> None:
+    provider = AbuseChProvider(auth_key="test-key")
+
+    with patch.object(provider, "_execute_post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = {"query_status": "no_result"}
+        resp = await provider.lookup("   1.1.1.1   \n", ThreatIndicatorType.IPV4)
+        assert resp.indicator == "1.1.1.1"
+
+    # Hash should be lowercased
+    with patch.object(provider, "_execute_post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = {"query_status": "hash_not_found"}
+        resp = await provider.lookup("  44D88612FEA8A8F36DE82E1278ABB02F  ", ThreatIndicatorType.FILE_HASH)
+        assert resp.indicator == "44d88612fea8a8f36de82e1278abb02f"
+
+    with pytest.raises(ValueError, match="Indicator cannot be empty"):
+        await provider.lookup("   \t  ", ThreatIndicatorType.IPV4)
+
+
+@pytest.mark.asyncio
+async def test_abusech_rate_limit_subclass_catchable() -> None:
+    provider = AbuseChProvider(auth_key="test-key")
+
+    with patch.object(
+        provider, "_execute_post", side_effect=AbuseChRateLimitError("429")
+    ):
+        with pytest.raises(AbuseChRateLimitError):
+            await provider.lookup("test-c2.com", ThreatIndicatorType.DOMAIN)
+
+    with patch.object(
+        provider, "_execute_post", side_effect=AbuseChRateLimitError("429")
+    ):
+        with pytest.raises(AbuseChLookupError):
+            await provider.lookup("test-c2.com", ThreatIndicatorType.DOMAIN)
+
+
