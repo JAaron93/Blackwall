@@ -350,6 +350,31 @@ class AbuseChProvider:
             )
 
         items = raw.get("data") or []
+        if not items:
+            # Fall back to ThreatFox search if MalwareBazaar returned no sample records
+            try:
+                tf_resp = await self._lookup_threatfox(indicator, indicator_type, timeout)
+                if tf_resp.is_malicious:
+                    return tf_resp
+            except Exception:
+                pass
+
+            return ThreatIntelResponse(
+                indicator=indicator,
+                indicator_type=indicator_type,
+                is_malicious=False,
+                risk_score=0.0,
+                detection_count=0,
+                total_engines=0,
+                threat_categories=[],
+                malware_families=[],
+                pulse_count=0,
+                references=[],
+                provider_name=self.name,
+                cached=False,
+                raw_response=raw,
+            )
+
         categories: Set[str] = set()
         malware_families: Set[str] = set()
         references: List[str] = []
@@ -378,11 +403,11 @@ class AbuseChProvider:
             indicator_type=indicator_type,
             is_malicious=True,
             risk_score=1.0,
-            detection_count=len(items) if items else 1,
-            total_engines=len(items) if items else 1,
+            detection_count=len(items),
+            total_engines=len(items),
             threat_categories=sorted(list(categories)),
             malware_families=sorted(list(malware_families)),
-            pulse_count=len(items) if items else 1,
+            pulse_count=len(items),
             references=references[:10],
             provider_name=self.name,
             cached=False,
