@@ -401,6 +401,12 @@ class SQLiteThreatRepository:
                 """
                 )
 
+                # Automatic purge of expired threat intelligence cache records (FR-05)
+                await conn.execute(
+                    "DELETE FROM threat_intel_cache WHERE expires_at <= ?;",
+                    (time.time(),),
+                )
+
                 # Background Tasks table
                 await conn.execute(
                     """

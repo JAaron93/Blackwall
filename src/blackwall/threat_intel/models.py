@@ -33,6 +33,7 @@ class ThreatIntelResponse(BaseModel):
     references: list[str] = Field(default_factory=list)
     provider_name: str
     cached: bool = False
+    error: str | None = None
     raw_response: dict[str, Any] = Field(default_factory=dict, exclude=True)
 
 

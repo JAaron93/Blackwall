@@ -11,7 +11,9 @@ from blackwall.threat_intel.models import ThreatIndicatorType
 from blackwall.threat_intel.otx import (
     AlienVaultOTXProvider,
     OTXCircuitBreakerOpenError,
+    OTXLookupError,
     OTXTokenBucket,
+    OTXTokenBucketExhaustedError,
 )
 
 
@@ -154,7 +156,7 @@ async def test_otx_provider_lookup_file_hash() -> None:
 
 
 @pytest.mark.asyncio
-async def test_otx_provider_circuit_breaker() -> None:
+async def test_otx_provider_circuit_breaker_three_probe_recovery() -> None:
     provider = AlienVaultOTXProvider(api_key="test-otx-key", cooldown_seconds=0.1)
 
     with patch.object(
@@ -162,25 +164,111 @@ async def test_otx_provider_circuit_breaker() -> None:
     ) as mock_get:
         mock_get.side_effect = ConnectionError("Network down")
 
-        # 5 consecutive failures should trip the breaker
+        # 5 consecutive failures should trip the breaker to OPEN
         for _ in range(5):
-            resp = await provider.lookup("1.2.3.4", ThreatIndicatorType.IPV4)
-            # Should return safe fallback without crashing
-            assert resp.is_malicious is False
-            assert resp.risk_score == 0.0
+            with pytest.raises(OTXLookupError):
+                await provider.lookup("1.2.3.4", ThreatIndicatorType.IPV4)
 
         assert provider.circuit_state == "OPEN"
 
-        # Next call while OPEN should raise OTXCircuitBreakerOpenError or return fallback
-        resp = await provider.lookup("1.2.3.4", ThreatIndicatorType.IPV4)
-        assert resp.is_malicious is False
+        # While OPEN, lookup() must raise OTXCircuitBreakerOpenError (not look benign)
+        with pytest.raises(OTXCircuitBreakerOpenError):
+            await provider.lookup("1.2.3.4", ThreatIndicatorType.IPV4)
 
         # Wait for cooldown to transition to HALF-OPEN
         await asyncio.sleep(0.15)
         assert provider.circuit_state == "HALF-OPEN"
 
-        # Successful call in HALF-OPEN should restore to CLOSED
+        # Reset mock for successful responses
         mock_get.side_effect = None
         mock_get.return_value = {"indicator": "1.2.3.4", "pulse_info": {"count": 0}}
-        resp = await provider.lookup("1.2.3.4", ThreatIndicatorType.IPV4)
+
+        # Probe 1: must remain HALF-OPEN
+        await provider.lookup("1.2.3.4", ThreatIndicatorType.IPV4)
+        assert provider.circuit_state == "HALF-OPEN"
+
+        # Probe 2: must remain HALF-OPEN
+        await provider.lookup("1.2.3.4", ThreatIndicatorType.IPV4)
+        assert provider.circuit_state == "HALF-OPEN"
+
+        # Probe 3: must restore circuit to CLOSED
+        await provider.lookup("1.2.3.4", ThreatIndicatorType.IPV4)
         assert provider.circuit_state == "CLOSED"
+
+
+@pytest.mark.asyncio
+async def test_otx_circuit_breaker_failure_during_half_open() -> None:
+    provider = AlienVaultOTXProvider(api_key="test-otx-key", cooldown_seconds=0.1)
+
+    with patch.object(
+        provider, "_execute_http_get", new_callable=AsyncMock
+    ) as mock_get:
+        mock_get.side_effect = ConnectionError("Network down")
+        for _ in range(5):
+            with pytest.raises(OTXLookupError):
+                await provider.lookup("1.2.3.4", ThreatIndicatorType.IPV4)
+
+        assert provider.circuit_state == "OPEN"
+        await asyncio.sleep(0.15)
+        assert provider.circuit_state == "HALF-OPEN"
+
+        # Single failure during HALF-OPEN must immediately reset circuit to OPEN
+        with pytest.raises(OTXLookupError):
+            await provider.lookup("1.2.3.4", ThreatIndicatorType.IPV4)
+
+        assert provider._circuit_state == "OPEN"
+
+
+@pytest.mark.asyncio
+async def test_otx_token_bucket_exhaustion_raises_error() -> None:
+    provider = AlienVaultOTXProvider(api_key="test-otx-key")
+    # Drain token bucket
+    provider.token_bucket.tokens = 0.0
+
+    with pytest.raises(OTXTokenBucketExhaustedError):
+        await provider.lookup("1.2.3.4", ThreatIndicatorType.IPV4)
+
+
+def test_otx_provider_reads_config_yaml(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Clear env var
+    monkeypatch.delenv("BW_OTX_API_KEY", raising=False)
+
+    fake_config_file = tmp_path / "config.yaml"
+    fake_config_file.write_text("threat_intel:\n  otx_api_key: yaml-secret-key-123\n")
+
+    with patch("os.path.expanduser", return_value=str(fake_config_file)):
+        provider = AlienVaultOTXProvider()
+        assert provider.api_key == "yaml-secret-key-123"
+        assert provider.get_remaining_budget() == 10000
+
+
+def test_otx_provider_unauthenticated_warning(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.delenv("BW_OTX_API_KEY", raising=False)
+
+    with patch("os.path.exists", return_value=False):
+        with caplog.at_level("WARNING"):
+            provider = AlienVaultOTXProvider()
+            assert provider.api_key == ""
+            assert provider.get_remaining_budget() == 1000
+            assert any("No AlienVault OTX API key configured" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_otx_indicator_sanitization_in_logs(caplog: pytest.LogCaptureFixture) -> None:
+    provider = AlienVaultOTXProvider(api_key="test-otx-key")
+    provider.token_bucket.tokens = 0.0
+
+    sensitive_url = "https://admin:super_secret_password@badc2.net:8443/stealer/gate.php?token=secret_agent_token_999#leak"
+
+    with caplog.at_level("WARNING"):
+        with pytest.raises(OTXTokenBucketExhaustedError) as exc_info:
+            await provider.lookup(sensitive_url, ThreatIndicatorType.URL)
+
+        # Ensure credentials and tokens do not appear in exception message or logs
+        assert "super_secret_password" not in str(exc_info.value)
+        assert "secret_agent_token_999" not in str(exc_info.value)
+        assert not any("super_secret_password" in rec.message for rec in caplog.records)
+        assert not any("secret_agent_token_999" in rec.message for rec in caplog.records)
+

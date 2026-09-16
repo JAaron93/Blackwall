@@ -130,3 +130,49 @@ async def test_threat_intel_cache_sub_millisecond_sla(
 
     # Average latency must be < 1.0 ms
     assert avg_latency_ms < 1.0, f"Average cache hit latency {avg_latency_ms:.3f}ms exceeded 1.0ms SLA"
+
+
+@pytest.mark.asyncio
+async def test_threat_intel_cache_auto_prune_on_init() -> None:
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    try:
+        repo = SQLiteThreatRepository(db_path=db_path)
+        await repo.initialize()
+
+        # Cache an entry with negative TTL (already expired)
+        resp = ThreatIntelResponse(
+            indicator="already.expired.com",
+            indicator_type=ThreatIndicatorType.DOMAIN,
+            is_malicious=False,
+            risk_score=0.0,
+            provider_name="otx",
+        )
+        await repo.cache_threat_intel(resp, ttl_seconds=-10.0)
+
+        # Verify entry exists in raw DB before close
+        async with repo.pool.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT COUNT(*) FROM threat_intel_cache WHERE indicator = 'already.expired.com'"
+            )
+            row = await cursor.fetchone()
+            assert row is not None and row[0] == 1
+
+        await repo.close()
+
+        # Re-initialize repository on same DB file. Initialization MUST automatically purge expired rows.
+        new_repo = SQLiteThreatRepository(db_path=db_path)
+        await new_repo.initialize()
+
+        async with new_repo.pool.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT COUNT(*) FROM threat_intel_cache WHERE indicator = 'already.expired.com'"
+            )
+            row = await cursor.fetchone()
+            assert row is not None and row[0] == 0
+
+        await new_repo.close()
+    finally:
+        if os.path.exists(db_path):
+            os.remove(db_path)
+

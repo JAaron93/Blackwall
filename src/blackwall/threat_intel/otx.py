@@ -10,6 +10,8 @@ import asyncio
 import logging
 import os
 import time
+import hashlib
+import urllib.parse
 from typing import Any, Dict, List, Optional, Set
 
 import aiohttp
@@ -23,10 +25,48 @@ from blackwall.threat_intel.models import (
 logger = logging.getLogger("blackwall.threat_intel.otx")
 
 
-class OTXCircuitBreakerOpenError(Exception):
+class ThreatIntelError(Exception):
+    """Base exception for threat intelligence operations."""
+
+    pass
+
+
+class OTXCircuitBreakerOpenError(ThreatIntelError):
     """Exception raised when AlienVault OTX circuit breaker is OPEN (degraded)."""
 
     pass
+
+
+class OTXTokenBucketExhaustedError(ThreatIntelError):
+    """Exception raised when AlienVault OTX token bucket is exhausted."""
+
+    pass
+
+
+class OTXLookupError(ThreatIntelError):
+    """Exception raised when AlienVault OTX HTTP query fails."""
+
+    pass
+
+
+def _sanitize_indicator_for_log(
+    indicator: str, indicator_type: ThreatIndicatorType
+) -> str:
+    """Sanitize indicator to prevent credentials or secret tokens from leaking into logs."""
+    if indicator_type == ThreatIndicatorType.URL or "://" in indicator:
+        try:
+            parsed = urllib.parse.urlsplit(indicator)
+            netloc = parsed.hostname or ""
+            if parsed.port:
+                netloc = f"{netloc}:{parsed.port}"
+            query = "[REDACTED]" if parsed.query else ""
+            fragment = "[REDACTED]" if parsed.fragment else ""
+            return urllib.parse.urlunsplit(
+                (parsed.scheme, netloc, parsed.path, query, fragment)
+            )
+        except Exception:
+            return hashlib.sha256(indicator.encode("utf-8")).hexdigest()[:16]
+    return indicator
 
 
 class OTXTokenBucket:
@@ -85,7 +125,7 @@ class AlienVaultOTXProvider:
         base_url: str = "https://otx.alienvault.com/api/v1",
         cooldown_seconds: float = 60.0,
     ) -> None:
-        self.api_key = api_key or os.environ.get("BW_OTX_API_KEY", "")
+        self.api_key = self._resolve_api_key(api_key)
         self.base_url = base_url.rstrip("/")
         self.cooldown_seconds = cooldown_seconds
 
@@ -101,6 +141,40 @@ class AlienVaultOTXProvider:
         self.consecutive_failures = 0
         self.last_state_change = 0.0
         self.successful_probes = 0
+
+    def _resolve_api_key(self, explicit_key: Optional[str]) -> str:
+        """Resolve AlienVault OTX API key from argument, environment, or config.yaml."""
+        if explicit_key and explicit_key.strip():
+            return explicit_key.strip()
+
+        env_key = os.environ.get("BW_OTX_API_KEY", "").strip()
+        if env_key:
+            return env_key
+
+        config_path = os.path.expanduser("~/.blackwall/config.yaml")
+        if os.path.exists(config_path):
+            try:
+                import yaml
+
+                with open(config_path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+                if isinstance(data, dict):
+                    threat_intel = data.get("threat_intel")
+                    if isinstance(threat_intel, dict):
+                        key = threat_intel.get("otx_api_key") or threat_intel.get("otx", {}).get("api_key")
+                        if key and str(key).strip():
+                            return str(key).strip()
+                    flat_key = data.get("otx_api_key") or data.get("BW_OTX_API_KEY")
+                    if flat_key and str(flat_key).strip():
+                        return str(flat_key).strip()
+            except Exception as e:
+                logger.debug("Failed reading %s: %s", config_path, e)
+
+        logger.warning(
+            "No AlienVault OTX API key configured (checked constructor, BW_OTX_API_KEY, and ~/.blackwall/config.yaml). "
+            "Running in degraded unauthenticated mode (1,000 req/hr)."
+        )
+        return ""
 
     @property
     def circuit_state(self) -> str:
@@ -128,10 +202,10 @@ class AlienVaultOTXProvider:
         self.consecutive_failures = 0
         if self.circuit_state == "HALF-OPEN":
             self.successful_probes += 1
-            if self.successful_probes >= 1:
+            if self.successful_probes >= 3:
                 self.circuit_state = "CLOSED"
                 self.successful_probes = 0
-                logger.info("OTX Provider circuit restored to CLOSED")
+                logger.info("OTX Provider circuit restored to CLOSED after 3 successful probes")
 
     def _record_failure(self) -> None:
         self.consecutive_failures += 1
@@ -254,28 +328,21 @@ class AlienVaultOTXProvider:
         timeout: float = 3.0,
     ) -> ThreatIntelResponse:
         """Looks up threat intelligence for an indicator with rate limit & circuit breaker protection."""
+        sanitized = _sanitize_indicator_for_log(indicator, indicator_type)
         if not self._check_circuit_breaker():
             logger.warning(
-                "OTX circuit breaker is OPEN. Returning fallback response for %s",
-                indicator,
+                "OTX circuit breaker is OPEN. Failing fast for %s",
+                sanitized,
             )
-            return ThreatIntelResponse(
-                indicator=indicator,
-                indicator_type=indicator_type,
-                is_malicious=False,
-                risk_score=0.0,
-                provider_name=self.name,
+            raise OTXCircuitBreakerOpenError(
+                f"OTX circuit breaker is OPEN for indicator: {sanitized}"
             )
 
         acquired = await self.token_bucket.try_acquire()
         if not acquired:
-            logger.warning("OTX token bucket exhausted for indicator: %s", indicator)
-            return ThreatIntelResponse(
-                indicator=indicator,
-                indicator_type=indicator_type,
-                is_malicious=False,
-                risk_score=0.0,
-                provider_name=self.name,
+            logger.warning("OTX token bucket exhausted for indicator: %s", sanitized)
+            raise OTXTokenBucketExhaustedError(
+                f"OTX token bucket exhausted for indicator: {sanitized}"
             )
 
         endpoint = self._map_endpoint(indicator, indicator_type)
@@ -286,12 +353,8 @@ class AlienVaultOTXProvider:
             self._record_success()
             return self._parse_otx_response(indicator, indicator_type, raw)
         except Exception as e:
-            logger.warning("OTX lookup failed for %s: %s", indicator, str(e))
+            logger.warning("OTX lookup failed for %s: %s", sanitized, str(e))
             self._record_failure()
-            return ThreatIntelResponse(
-                indicator=indicator,
-                indicator_type=indicator_type,
-                is_malicious=False,
-                risk_score=0.0,
-                provider_name=self.name,
-            )
+            raise OTXLookupError(
+                f"OTX lookup failed for {sanitized}: {str(e)}"
+            ) from e
