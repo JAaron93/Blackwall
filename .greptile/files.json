@@ -34,5 +34,17 @@
   {
     "path": ".kiro/specs/blackwall-rust-acceleration/tasks.md",
     "description": "Task implementation plan for Blackwall Rust Acceleration Subsystem."
+  },
+  {
+    "path": ".kiro/specs/blackwall-threat-intel-cli/design.md",
+    "description": "System architecture design for Blackwall Threat Intelligence & Native CLI Engine (AlienVault OTX, Harpoon bridge, SQLite cache, native CLI)."
+  },
+  {
+    "path": ".kiro/specs/blackwall-threat-intel-cli/requirements.md",
+    "description": "Functional and non-functional requirements for Blackwall Threat Intelligence & Native CLI Engine."
+  },
+  {
+    "path": ".kiro/specs/blackwall-threat-intel-cli/tasks.md",
+    "description": "Implementation tasks for Blackwall Threat Intelligence & Native CLI Engine across 4 phases."
   }
 ]

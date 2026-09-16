@@ -39,7 +39,7 @@ flowchart TD
 
     subgraph Tier 2: Rapid Semantic Triage
         TSGQuery{"Threat Signature Graph (SQLite Cosine Match)"}
-        GTIQuery["VirusTotal GTI MCP (Token Bucket Budget)"]
+        TIQuery["Threat Intel Engine (AlienVault OTX / Cache)"]
         CBMQuery["Codebase Memory MCP (AST & Sink Blast Radius)"]
         SemanticEngine["Semantic Gating Engine (Score Aggregation)"]
     end
@@ -60,10 +60,10 @@ flowchart TD
     StructuralGating -- "Rule Match: ESCALATE" --> TSGQuery
 
     TSGQuery -- "Similarity >= 0.85" --> MatchBlock["BLOCK via Signature (~12ms)"]
-    TSGQuery -- "No Match (< 0.85)" --> GTIQuery
+    TSGQuery -- "No Match (< 0.85)" --> TIQuery
     TSGQuery -- "No Match (< 0.85)" --> CBMQuery
 
-    GTIQuery --> SemanticEngine
+    TIQuery --> SemanticEngine
     CBMQuery --> SemanticEngine
     SemanticEngine --> ThresholdEval{"Threat Score Threshold"}
 
@@ -90,10 +90,10 @@ flowchart TD
 
 ### 2.2 Tier 2: Semantic Gating Engine (<100ms @ P99)
 For escalated operations, Blackwall aggregates signals from three independent vectors:
-$$\text{ThreatScore} = w_{\text{GTI}} \cdot S_{\text{GTI}} + w_{\text{CBM}} \cdot S_{\text{CBM}} + w_{\text{Context}} \cdot S_{\text{Context}}$$
+$$\text{ThreatScore} = w_{\text{TI}} \cdot S_{\text{TI}} + w_{\text{CBM}} \cdot S_{\text{CBM}} + w_{\text{Context}} \cdot S_{\text{Context}}$$
 
 - **Baseline Weights**:
-  - $w_{\text{GTI}} = 0.40$ (External threat intelligence for indicators of compromise)
+  - $w_{\text{TI}} = 0.40$ (External threat intelligence for indicators of compromise via AlienVault OTX / Multi-Provider Orchestrator)
   - $w_{\text{CBM}} = 0.30$ (Abstract Syntax Tree dataflow and sink blast radius)
   - $w_{\text{Context}} = 0.30$ (Tool risk, parameter novelty, environment role)
 - **Verdict Thresholds**:
@@ -277,14 +277,14 @@ To ensure synchronous evaluation strictly obeys the $<5\text{ms}$ latency budget
 
 ## 6. External Threat Intelligence & Context Integrations
 
-### 6.1 VirusTotal Google Threat Intelligence (GTI) MCP
-- **Budget Tracking (`GTIQueryBudgetTracker`)**: Adheres to the VirusTotal free-tier limit of **4 queries per 60 seconds** using a strict token bucket replenishing 1 token every 15 seconds.
-- **High-Risk Triage**: GTI queries are strictly reserved for high-risk indicators:
-  - Unknown external IPv4/IPv6 addresses
-  - Suspicious executable file hashes (SHA-256)
-  - Dynamic DNS or newly-registered domain names
-- **Graceful Budget Degradation**: When tokens are exhausted, Blackwall skips the GTI query, applies an explicit **-0.2 confidence penalty**, and redistributes evaluation weights to local signals (CBM 50%, Context 50%).
-- **Circuit Breaker**: Isolated circuit breaker halts outbound GTI queries upon repeated 5xx errors or connection timeouts (distinct from token exhaustion).
+### 6.1 AlienVault OTX Threat Intelligence Engine & Local Cache
+- **High-Throughput Zero-Cost Baseline**: In-process asynchronous provider (`AlienVaultOTXProvider`) delivering **10,000 queries per hour (~166 RPM)** at **$0/month**, replacing the restrictive 4 RPM VirusTotal free-tier bottleneck.
+- **Fast-Path SQLite Caching (`threat_intel_cache`)**: Persistent SQLite cache in WAL mode providing sub-millisecond response times ($< 1.0\text{ ms}$) for known indicators with a 24-hour TTL for benign entries and 6-hour TTL for malicious entries, auto-purged on database initialization.
+- **3-State Circuit Breaker Resilience**: Proactively halts upstream queries on 5 consecutive failures (`OPEN`), testing connectivity in `HALF-OPEN` mode with a mandatory 3-probe success threshold before restoring to `CLOSED`. Any failure during `HALF-OPEN` immediately trips back to `OPEN`.
+- **Fail-Safe Exception Propagation**: Provider failures raise explicit typed exceptions (`OTXCircuitBreakerOpenError`, `OTXTokenBucketExhaustedError`, `OTXLookupError`) rather than returning benign default responses, ensuring callers fall back cleanly to secondary feeds or local threat graph heuristics.
+- **URL Credential Redaction**: All logged indicators pass through `_sanitize_indicator_for_log` to redact user-info credentials (`user:pass`) and query parameter secrets before persisting in log files.
+- **Harpoon OSINT Companion Bridge**: Subprocess integration (`HarpoonBridge`) for deep interactive OSINT investigation via the `harpoon` CLI when installed.
+- **Legacy VirusTotal Mode**: Retained as an opt-in fallback under `BW_THREAT_INTEL_BACKEND=virustotal` for organizations with existing commercial VirusTotal subscriptions.
 
 ### 6.2 Codebase Memory MCP
 - **Abstract Syntax Tree (AST) Inspection**: Queries the active repository's AST graph to analyze the call chain leading to the intercepted tool call.
