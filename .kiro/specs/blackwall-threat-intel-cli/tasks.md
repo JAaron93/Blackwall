@@ -19,7 +19,7 @@ Tasks are grouped into tracks and phases. **Tracks within the same phase can be 
 ### Track A: Provider Abstraction & AlienVault OTX Client
 
 #### TASK-A01: Implement `ThreatIntelProvider` Protocol & `ThreatIntelResponse` Data Models
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 **Dependencies:** None
 **Requirements Satisfied:** FR-01, NFR-02
 
@@ -33,7 +33,7 @@ Define the abstract Python `typing.Protocol` for `ThreatIntelProvider` and the P
 4. All unit tests pass.
 
 #### TASK-A02: Implement `AlienVaultOTXProvider` with 10,000 Req/Hr Token Bucket
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 **Dependencies:** TASK-A01
 **Requirements Satisfied:** FR-02, NFR-01, US-01
 
@@ -48,7 +48,7 @@ Implement `AlienVaultOTXProvider` in `src/blackwall/threat_intel/otx.py` using `
 5. All unit tests pass.
 
 #### TASK-A03: Implement OTX Pulse Parser & Threat Scoring Algorithm
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 **Dependencies:** TASK-A02
 **Requirements Satisfied:** FR-02, FR-06
 
@@ -68,7 +68,7 @@ Set `is_malicious = True` when $\text{Risk} \ge 0.25$ or when linked to active m
 ### Track B: SQLite Threat Intelligence Cache
 
 #### TASK-B01: Create SQLite `threat_intel_cache` Schema & TTL Indices
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 **Dependencies:** None
 **Requirements Satisfied:** FR-05, NFR-01
 
@@ -82,7 +82,7 @@ Extend `SQLiteThreatRepository` in `src/blackwall/db/repository.py` to create th
 4. All unit tests pass.
 
 #### TASK-B02: Implement Cache Repository Operations with < 1ms SLA
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 **Dependencies:** TASK-B01
 **Requirements Satisfied:** FR-05, NFR-01
 

@@ -345,7 +345,7 @@ Dual-layer defense combining speed with intelligence:
 ```
 Structural Layer (fast path)              Semantic Layer (deep analysis)
 ├─ YAML deterministic rules (<5ms)        ├─ LLM intent analysis + scoring
-├─ Tool name + role-based access          ├─ GTI IOC validation (VirusTotal)
+├─ Tool name + role-based access          ├─ Threat Intel IOC validation (AlienVault OTX)
 ├─ Instant ALLOW/BLOCK                    ├─ AST-based code analysis (codebase-memory-mcp)
 └─ Zero LLM calls                         ├─ Threat Signature Graph matching
                                           └─ Weighted threat score [0.0, 1.0]
@@ -384,7 +384,7 @@ Operating on the principle that **no agent process should ever possess ambient a
 
 **Tier 2: Rapid Triage** (<100ms @ 99th percentile, Gemini Flash-Lite)
 - Model: `gemini-3.5-flash-lite` (optimized for high-throughput speed)
-- Queries: GTI MCP (VirusTotal IOCs) + codebase-memory MCP (AST analysis) in parallel
+- Queries: AlienVault OTX (Threat Intelligence IOCs) + codebase-memory MCP (AST analysis) in parallel
 - Batched evaluation: Up to 5 interceptions per API call (Paid Tier)
 - Server-side context caching: 50%+ token cost reduction via `previous_interaction_id`
 - Verdict decision: ALLOW/BLOCK/QUARANTINE with threat score
@@ -413,9 +413,9 @@ flowchart TD
         SemanticEngine["Semantic Gating Engine<br/>(Multi-Signal Scoring &lt;100ms)"]
     end
 
-    subgraph MCPLayer["Context & Threat Intelligence MCP Tier"]
+    subgraph MCPLayer["Context & Threat Intelligence Tier"]
         CBM["Codebase Memory MCP<br/>(AST & Critical Sinks)"]
-        GTI["VirusTotal GTI MCP<br/>(Token Bucket Rate Limiter)"]
+        TI["AlienVault OTX & Local Cache<br/>(10,000 req/hr Token Bucket)"]
     end
 
     subgraph LLMLayer["100% GCP Vertex AI Mode"]
@@ -429,7 +429,7 @@ flowchart TD
     StructuralEngine -- "ESCALATE" --> TSG
     TSG -- "Novel Variant" --> SemanticEngine
     SemanticEngine <--> CBM
-    SemanticEngine <--> GTI
+    SemanticEngine <--> TI
     SemanticEngine --> GeminiFlash
     SemanticEngine -- "On BLOCK" --> GeminiReason
     GeminiReason --> TSG
@@ -684,14 +684,13 @@ The pipeline routes scenarios from `tests/eval/judge_scenarios/` and the GCP nat
 - Audit trail with SHA256 hashes (no reverse mapping)
 - 100ms timeout per regex pattern (prevents ReDoS attacks)
 
-#### **GTI Query Budget Tracker & MCP Transport**
-- Token bucket algorithm: 4 tokens, 15-second replenishment
-- High-risk event classification (new IPs, suspicious hashes, unknown domains)
-- Zero-disk-I/O cached SSLContext singleton (`get_certifi_ssl_context`) using `@functools.lru_cache` across all outbound GTI and MCP transport calls
-- Graceful degradation: weight redistribution when budget exhausted
-  * Normal: GTI 40% + CBM 30% + Context 30%
-  * Degraded: GTI 0% (penalty -0.2) + CBM 50% + Context 50%
-- Circuit breaker for service failures (distinct from budget exhaustion)
+#### **AlienVault OTX Threat Intelligence Engine & Local Cache**
+- In-process async client (`AlienVaultOTXProvider`) with 10,000 req/hr token bucket (~166 RPM), replacing the 4 RPM VirusTotal bottleneck
+- Sub-millisecond SQLite cache (`threat_intel_cache` in WAL mode) with 24h benign / 6h malicious TTL and auto-purging on DB init
+- 3-state circuit breaker with 3-probe `HALF-OPEN` recovery
+- Safe credential and token URL sanitization for logs
+- Companion `HarpoonBridge` for interactive OSINT triage via the `harpoon` CLI
+- Graceful fallback: legacy VirusTotal support under `BW_THREAT_INTEL_BACKEND=virustotal`
 
 #### **Local Vault & JIT Credentials**
 - Authenticated encryption store (`EncryptedLocalStore` / `LocalVault`) using standard `HKDF-SHA256` key derivation
@@ -701,7 +700,7 @@ The pipeline routes scenarios from `tests/eval/judge_scenarios/` and the GCP nat
 
 #### **Semantic Gating Engine** (<100ms @ P99)
 - Multi-source threat score aggregation:
-  * **GTI Signal** (40%): VirusTotal IOC maliciousness + detection rate
+  * **Threat Intel Signal** (40%): AlienVault OTX pulse count, malware attribution & IOC risk score
   * **CBM Signal** (30%): Critical sinks + taint flow + blast radius
   * **Context Signal** (30%): Tool risk + argument novelty + environment role
 - Verdict thresholds:
@@ -749,7 +748,7 @@ The pipeline routes scenarios from `tests/eval/judge_scenarios/` and the GCP nat
 1. **OS-Level Audit Hook** — Raw `subprocess`/`socket` calls blocked before kernel
 2. **Structural Gating** — YAML rules evaluate in <5ms (fast path to ALLOW)
 3. **Threat Signature Graph** — Local learned patterns detect ~10ms (no LLM)
-4. **GTI MCP** — External threat intelligence for IOCs (VirusTotal)
+4. **Threat Intelligence Engine** — High-capacity external threat intelligence for IOCs (AlienVault OTX, 10,000 req/hr)
 5. **Semantic Gating** — LLM-based intent analysis with score aggregation
 
 **Attack Flow Example:**
@@ -765,10 +764,10 @@ Rogue Agent retries: ToolCallContext(tool="execute_shell", args=["curl ... | bas
 Rogue Agent retries: ToolCallContext(tool="http_request", args=["http://192.168.1.100:8080"])
   ↓ Layer 3: Threat Signature Graph
     New IP 192.168.1.100 not in local cache (Wave 2 evasion attempt)
-  ↓ Layer 4: GTI MCP
-    VirusTotal: 192.168.1.100 flagged as C2 beacon infrastructure ⚠️
+  ↓ Layer 4: Threat Intelligence Engine
+    AlienVault OTX: 192.168.1.100 flagged in 3 pulses as C2 beacon infrastructure ⚠️
   ↓ Layer 5: Semantic Gating
-    Threat score: GTI=0.95 + CBM=0.5 + Context=0.6 = 0.72 → BLOCK ❌
+    Threat score: ThreatIntel=0.95 + CBM=0.5 + Context=0.6 = 0.72 → BLOCK ❌
 
 Learning: Threat signature written to SQLite
   * Attack pattern: IP + port 8080 + POST /api/beacon
@@ -944,17 +943,16 @@ With Gemini API capped at 300 RPM and attackers at 600 RPM:
 - **With batching**: Up to 5 attacks accumulated per batch; at full saturation, 5 attacks/batch × 300 RPM = 1,500 attacks/minute (5x ceiling). Realised throughput scales with average batch size — partial batches under bursty or low-volume traffic proportionally reduce it (e.g. avg size 3 → 900 attacks/min)
 - **Async batching**: Callbacks suspended in Interception Queue while the batch accumulates (max 5 items or 100ms timeout, whichever fires first); the 100ms flush guarantees forward progress but produces partial batches under low/bursty load, reducing realised throughput. Verdict array returned to all suspended threads simultaneously, preventing deadlock
 
-### Why GTI Budget Tracking Matters
+### High-Capacity Threat Intelligence (AlienVault OTX & SQLite Cache)
 
-VirusTotal free tier: 4 queries/minute
-- 5 attacks/second × 60 seconds = 300 attacks/minute
-- Query every attack = impossible
-- **Smart triage**: Query only high-risk events (new IPs, suspicious hashes)
-- **Graceful degradation**: Local signals (CBM + Context) still effective when budget exhausted
+- **AlienVault OTX**: 10,000 requests/hour (~166 RPM) at $0/month (replacing the legacy 4 RPM VirusTotal bottleneck)
+- **Fast-Path SQLite Cache**: Sub-millisecond (<1ms) lookups for known indicators, preventing repeated external network latency
+- **3-State Circuit Breaker**: Proactive failure isolation with 3-probe HALF-OPEN recovery
+- **Legacy VirusTotal Mode**: Retained as an opt-in fallback under `BW_THREAT_INTEL_BACKEND=virustotal`
 
 ### Why Threat Signatures Enable 100x+ Speedup
 
-- **Wave 1**: Novel attack → GTI query (1s) + CBM query (0.5s) + LLM eval (0.5s) = ~1,400ms
+- **Wave 1**: Novel attack → Threat Intel query (1s) + CBM query (0.5s) + LLM eval (0.5s) = ~1,400ms
 - **Wave 2**: Variant attack → SQLite cosine similarity match = ~12ms
 - **Speedup**: 1,400÷12 = **117x faster** without any LLM inference
 
