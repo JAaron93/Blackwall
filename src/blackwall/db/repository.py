@@ -378,6 +378,29 @@ class SQLiteThreatRepository:
                 """
                 )
 
+                # Threat Intelligence Cache table (3.0.0)
+                await conn.execute(
+                    """
+                CREATE TABLE IF NOT EXISTS threat_intel_cache (
+                    indicator TEXT NOT NULL,
+                    indicator_type TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    is_malicious INTEGER NOT NULL,
+                    risk_score REAL NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    expires_at REAL NOT NULL,
+                    PRIMARY KEY (indicator, indicator_type, provider)
+                );
+                """
+                )
+                await conn.execute(
+                    """
+                CREATE INDEX IF NOT EXISTS idx_threat_cache_lookup 
+                ON threat_intel_cache(indicator, indicator_type, expires_at);
+                """
+                )
+
                 # Background Tasks table
                 await conn.execute(
                     """
@@ -931,6 +954,100 @@ class SQLiteThreatRepository:
                 return result
             except json.JSONDecodeError:
                 return None
+
+    async def cache_threat_intel(
+        self,
+        response: Any,
+        ttl_seconds: Optional[float] = None,
+    ) -> None:
+        """Caches a ThreatIntelResponse with TTL (24h benign, 6h malicious by default)."""
+        await self.initialize()
+        if ttl_seconds is None:
+            ttl_seconds = 21600.0 if getattr(response, "is_malicious", False) else 86400.0
+        now = time.time()
+        expires_at = now + ttl_seconds
+        payload_json = (
+            response.model_dump_json()
+            if hasattr(response, "model_dump_json")
+            else json.dumps(response)
+        )
+        ind_type = (
+            response.indicator_type.value
+            if hasattr(response.indicator_type, "value")
+            else str(response.indicator_type)
+        )
+
+        async with self.pool.connection() as conn:
+            await conn.execute(
+                """
+                INSERT OR REPLACE INTO threat_intel_cache (
+                    indicator, indicator_type, provider, is_malicious, risk_score, payload, created_at, expires_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    response.indicator,
+                    ind_type,
+                    response.provider_name,
+                    1 if response.is_malicious else 0,
+                    response.risk_score,
+                    payload_json,
+                    now,
+                    expires_at,
+                ),
+            )
+
+    async def get_cached_threat_intel(
+        self,
+        indicator: str,
+        indicator_type: str,
+        provider: Optional[str] = None,
+    ) -> Optional[Any]:
+        """Look up cached ThreatIntelResponse with TTL check (< 1ms SLA)."""
+        from blackwall.threat_intel.models import ThreatIntelResponse
+
+        await self.initialize()
+        now = time.time()
+        async with self.pool.connection() as conn:
+            if provider:
+                cursor = await conn.execute(
+                    """
+                    SELECT payload, expires_at FROM threat_intel_cache
+                    WHERE indicator = ? AND indicator_type = ? AND provider = ? AND expires_at > ?
+                    """,
+                    (indicator, indicator_type, provider, now),
+                )
+            else:
+                cursor = await conn.execute(
+                    """
+                    SELECT payload, expires_at FROM threat_intel_cache
+                    WHERE indicator = ? AND indicator_type = ? AND expires_at > ?
+                    ORDER BY is_malicious DESC, risk_score DESC, created_at DESC
+                    LIMIT 1
+                    """,
+                    (indicator, indicator_type, now),
+                )
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            payload_str, _ = row
+            try:
+                data = json.loads(payload_str)
+                resp = ThreatIntelResponse.model_validate(data)
+                resp.cached = True
+                return resp
+            except Exception:
+                return None
+
+    async def prune_expired_threat_intel(self) -> int:
+        """Evicts expired records from threat_intel_cache."""
+        await self.initialize()
+        now = time.time()
+        async with self.pool.connection() as conn:
+            cursor = await conn.execute(
+                "DELETE FROM threat_intel_cache WHERE expires_at <= ?",
+                (now,),
+            )
+            return cursor.rowcount
 
     async def increment_match_count(self, signature_id: str) -> None:
         await self.initialize()
