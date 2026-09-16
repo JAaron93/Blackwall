@@ -106,7 +106,7 @@ Implement `get_cached_threat_intel()`, `cache_threat_intel()`, and `prune_expire
 ### Track C: Supplementary Feed Adapters
 
 #### TASK-C01: Implement `AbuseIPDBProvider` with Confidence Score Mapping
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 **Dependencies:** TASK-A01
 **Requirements Satisfied:** FR-03, NFR-03
 
@@ -120,7 +120,7 @@ Implement `AbuseIPDBProvider` in `src/blackwall/threat_intel/abuseipdb.py`. Quer
 4. All unit tests pass.
 
 #### TASK-C02: Implement `AbuseChProvider` (ThreatFox, URLhaus, MalwareBazaar)
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 **Dependencies:** TASK-A01
 **Requirements Satisfied:** FR-04, NFR-02
 
@@ -138,7 +138,7 @@ Implement `AbuseChProvider` in `src/blackwall/threat_intel/abusech.py`. Integrat
 ### Track D: Threat Intelligence Orchestration & Resilience
 
 #### TASK-D01: Implement `ThreatIntelOrchestrator` with Multi-Provider Cascade
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 **Dependencies:** TASK-A02, TASK-B02
 **Requirements Satisfied:** FR-01, NFR-01, NFR-04
 
@@ -156,7 +156,7 @@ Build `ThreatIntelOrchestrator` in `src/blackwall/threat_intel/orchestrator.py`.
 4. All unit tests pass.
 
 #### TASK-D02: Implement Circuit Breaker & 3.0s Timeout Safeguards
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 **Dependencies:** TASK-D01
 **Requirements Satisfied:** NFR-01, NFR-04
 
@@ -169,6 +169,7 @@ Wrap all live provider calls with an asynchronous timeout ($3.0\text{s}$) and a 
 3. 5 consecutive failures switch state to `OPEN`; requests during `OPEN` bypass the failing provider.
 4. After 60 seconds, state transitions to `HALF-OPEN` and restores `CLOSED` upon 3 successful probes.
 5. All unit tests pass.
+
 
 ---
 
