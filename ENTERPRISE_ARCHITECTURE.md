@@ -102,6 +102,9 @@ sequenceDiagram
 
 ## 3. The Six Enterprise Defensive Pillars
 
+> [!TIP]
+> For executable Python code snippets, configuration patterns, and integration examples across all six pillars, see the [Enterprise Usage Guide](docs/enterprise_usage_guide.md).
+
 ```mermaid
 flowchart LR
     subgraph Enterprise Infrastructure
