@@ -488,3 +488,33 @@
 * **Rule (No Hardcoded Fallback Project IDs in Paid-Tier Runners):**
   - Paid-tier Vertex AI evaluation runners MUST require `GCP_PROJECT` or `GOOGLE_CLOUD_PROJECT` explicitly and raise `ValueError` immediately at startup. Defaulting to hardcoded placeholder project strings is prohibited.
 * **Rationale:** Codified after live execution and Greptile review on PR #136. Review bots flag loose process-group traps, unproven evasion transference, missing database synchronization, and silent project ID fallbacks.
+
+## 57. Rust Native Acceleration Benchmarking, FFI Overhead Calibration & Fallback Parity Invariants
+* **Rule (Native Compute SLA vs. Python FFI Marshaling in Microbenchmarks):**
+  - When benchmarking PyO3 compiled Rust extensions from Python, developers and review agents MUST differentiate between pure native compute throughput and Python FFI integration benchmarks.
+  - Python-to-Rust FFI crossings have an inherent fixed marshaling overhead (~15–20µs baseline for PyO3 argument/tuple conversion + Python object unpacking, totaling ~200–400µs for batches of 100 candidates).
+  - Operations where FFI marshaling exceeds microsecond-level native SLAs (e.g. `batch_cosine_similarity` evaluating 100 768-dim candidates against a <20µs native compute SLA) MUST NOT be gated with an unachievable end-to-end sub-20µs raw latency assertion in Python.
+  - Python integration benchmarks MUST gate vector similarity using an empirical **speedup ratio** (e.g. `speedup >= 35×` vs pure-Python `array.array` deserialization + float loops, the actual code path replaced in production). Pure native compute throughput (~3µs/vector) is verified in Rust unit tests (`cargo test`).
+* **Rule (Realistic Workload Scale in Accelerated Hot-Path Benchmarks):**
+  - Microbenchmarks testing accelerated hot paths MUST NOT use toy inputs that obscure latency contracts:
+    - **Context Redaction**: Payload MUST be $\ge 9\text{KB}$ of realistic text (natural language with 2–3 embedded credentials). SLA $\le 50\mu\text{s}$ mean.
+    - **Graph DFS Traversal**: MUST test up to 500 nodes (e.g. 25 chains × 20) with realistic bounded traversal (`max_paths=50`). SLA $\le 500\mu\text{s}$ mean.
+    - **Single-Pass IOC & Entropy**: Both `extract_iocs([payload])` and `calculate_entropy(payload)` MUST be invoked in sequence (matching the semantic gating pipeline). Combined SLA $\le 35\mu\text{s}$ mean on a 1KB payload.
+    - **Word Intersection**: SLA $\le 10\mu\text{s}$ mean.
+* **Rule (Strict Benchmark Exit & Predicate Hygiene):**
+  - Benchmark runners MUST return `False` and exit code 1 if compiled native extensions are unavailable (silent skipping or passing is strictly prohibited).
+  - All SLA gate predicates MUST use strict `mean < sla` (or `speedup >= sla_speedup`) rather than permissive `min_ < sla or mean < sla`.
+* **Rule (Pure-Python Fallback Parity Isolation & Module Eviction):**
+  - Test suites asserting functional parity between compiled Rust extensions and pure-Python fallbacks (`test_fallback_invariant.py`) MUST:
+    1. Proactively verify that the native extension is compiled and available before running parity tests (preventing false comparisons of fallback against fallback).
+    2. Cleanly evict wrapper modules from `sys.modules` (`sys.modules.pop(mod_name, None)`) prior to importing under `mock.patch.dict("sys.modules", {"blackwall._core_rs": None})`, ensuring previously imported native references do not leak into fallback test scopes.
+* **Rationale:** Codified after Greptile review on PR #138 (review `5205988519`). Review bots flag benchmarks using toy payloads as "weak gates", while demanding raw sub-20µs latency across the PyO3 boundary triggers impossible Catch-22 loops unless the FFI speedup calibration invariant is codified.
+
+## 58. Hypothesis Strategy Input Validity & Example Database Replay Awareness
+* **Rule (Valid-Input Strategies):** Strategies feeding Pydantic-validated models MUST exclude values the model rejects (e.g. `.filter(lambda s: bool(s.strip()))` for non-empty-string fields). A "valid acceptance" property that draws invalid inputs is a strategy bug, not a code bug.
+* **Rule (Example-DB Replay):** When triaging property-test failures across checkouts, account for `.hypothesis/examples` replay: a saved falsifying example makes failures deterministic per-checkout. Re-run with a cleared example database before attributing the failure to code changes.
+* **Rationale:** Discovered during the v2.0 release audit: a whitespace-only regex draw failed a "valid acceptance" property, and the saved example made it reproduce deterministically on one checkout while passing on another, initially masquerading as a session regression.
+
+## 59. Deterministic Background-Task Synchronization in Tests
+* **Rule (Public Drain API):** Tests asserting on state produced by fire-and-forget background tasks MUST drain them via the public `flush_background_tasks()` (or equivalent) instead of `asyncio.sleep()` delays or immediate assertions, which encode a race between the test and the background coroutine.
+* **Rationale:** Discovered during the v2.0 release audit: an integration test asserted signature persistence immediately after `evaluate()`, observing zero rows because inline signature generation had not yet run; all other invocations passed, masking the race.

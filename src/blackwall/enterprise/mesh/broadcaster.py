@@ -8,9 +8,11 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from types import TracebackType
 from typing import Any, Self
+
+from blackwall.validators import format_iso_datetime
 
 try:
     import zmq
@@ -236,7 +238,7 @@ class MeshBroadcaster:
             "threat_level": "CRITICAL",
             "attacker_intent": "AGENTIC_EXPLOIT_BLOCK",
             "target_tool": "ANY",
-            "created_at": datetime.now(UTC).isoformat(),
+            "created_at": format_iso_datetime(),
             "metadata": metadata or {},
         }
         return await self.broadcast(payload)

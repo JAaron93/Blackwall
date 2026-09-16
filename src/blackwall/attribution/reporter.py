@@ -8,15 +8,12 @@ serialization helpers. All tool arguments are sanitized through
 Design Constraints (per design.md §4):
   - Non-blocking: synchronous sanitization using inline regex (NFR-1, <5ms)
   - Fail-closed: sanitization failures leave a safe fallback (NFR-2)
-  - Zero C-dependencies: uses only re, json, hashlib, pydantic (NFR-3)
+  - Zero C-dependencies: delegates to blackwall.validators (stdlib re/json only)
   - Privacy-safe: secrets are redacted BEFORE embedding in IncidentReport (FR-6)
 """
 
 from __future__ import annotations
 
-import json
-import logging
-import re
 from typing import Any, Dict
 from uuid import UUID
 
@@ -24,167 +21,34 @@ from blackwall.models import (
     AttackerIdentity,
     AttackerProfile,
     IncidentReport,
+    SwarmContextSummary,
     ToolCallContext,
     VerdictDecision,
 )
-
-logger = logging.getLogger(__name__)
+from blackwall.validators import (
+    REDACTION_PATTERNS,
+    SENSITIVE_KEY_PATTERNS,
+    sanitize_dict_payload,
+)
 
 # ---------------------------------------------------------------------------
-# Inline sanitization patterns (synchronous subset of ContextHygiene patterns)
-# Used to avoid spawning the async KillableRegexWorker during fast-path reports.
+# Secret sanitization: canonical helpers live in blackwall.validators.
+# This module keeps private aliases so existing imports keep working while
+# the single implementation in validators.py remains the source of truth.
 # ---------------------------------------------------------------------------
 
-_REDACTION_PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
-    (
-        "API_KEY",
-        re.compile(r"(?i)(api[_-]?key|apikey|token)[\s:=]+['\"]?([a-zA-Z0-9_\-]{20,})"),
-        "[[API_KEY]]",
-    ),
-    (
-        "OPENAI_KEY",
-        # Matches: sk-abc123, sk-proj-abc-def123, sk-or-v1-abc, sk-ant-abc etc.
-        # The pattern allows hyphens within segments to catch project-scoped keys.
-        re.compile(r"sk-(?:[a-zA-Z0-9]+-)*[a-zA-Z0-9]{8,}"),
-        "[[OPENAI_API_KEY]]",
-    ),
-    (
-        "GOOGLE_KEY",
-        re.compile(r"AIza[a-zA-Z0-9_\-]{10,}"),
-        "[[GOOGLE_API_KEY]]",
-    ),
-    (
-        "SECRET_VALUE",
-        re.compile(r"(?i)(secret|api_key|apikey)[\s:\"']*:[\s\"']*[a-zA-Z0-9_\-]{8,}"),
-        "[[SECRET_VALUE]]",
-    ),
-    (
-        "KEY_VALUE_PAIR",
-        # Catches dict key names that look like API key env vars followed by their values.
-        # e.g. "OPENAI_API_KEY": "sk-...", "ANTHROPIC_API_KEY": "sk-ant-..."
-        re.compile(r'(?i)(["\']?(?:openai|anthropic|google|huggingface|cohere|azure|aws)[_-]?(?:api[_-]?)?key[_-]?(?:id|secret)?["\']?\s*:\s*["\']?)([a-zA-Z0-9_\-]{10,})'),
-        "[[API_KEY_VALUE]]",
-    ),
-    (
-        "PASSWORD",
-        re.compile(r"(?i)(password|passwd|pwd)[\s:=]+['\"]?([^\s'\"]+)"),
-        "[[PASSWORD]]",
-    ),
-    (
-        "URL",
-        re.compile(r"https?://[^\s\"']+"),
-        "[[URL]]",
-    ),
-    (
-        "IP_ADDRESS",
-        re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
-        "[[IP_ADDRESS]]",
-    ),
-    (
-        "EMAIL",
-        re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"),
-        "[[EMAIL]]",
-    ),
-    (
-        "FILE_PATH",
-        re.compile(r"(?:/[^/\\\s\"']+)+/?"),
-        "[[FILE_PATH]]",
-    ),
-]
-
-
-# Key-name patterns that identify sensitive argument keys regardless of value format.
-# Checked against dict keys BEFORE JSON serialization to avoid quoted-key regex issues.
-_SENSITIVE_KEY_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"(?i)password"),
-    re.compile(r"(?i)passwd"),
-    re.compile(r"(?i)\bpwd\b"),
-    re.compile(r"(?i)secret"),
-    re.compile(r"(?i)token"),
-    re.compile(r"(?i)api[_-]?key"),
-    re.compile(r"(?i)access[_-]?key"),
-    re.compile(r"(?i)private[_-]?key"),
-    re.compile(r"(?i)auth"),
-    re.compile(r"(?i)credential"),
-    re.compile(r"(?i)bearer"),
-]
-
-
-def _is_sensitive_key(key: str) -> bool:
-    """Return True if the argument key name matches any known sensitive key pattern."""
-    return any(pat.search(key) for pat in _SENSITIVE_KEY_PATTERNS)
-
-
-def _sanitize_value(value: Any) -> Any:
-    """
-    Recursively sanitize a single argument value.
-    - Dicts: check key names first (pre-serialization), then recurse into values.
-    - Strings: apply all regex patterns.
-    - Other scalars: return as-is.
-    """
-    if isinstance(value, dict):
-        result: Dict[str, Any] = {}
-        for k, v in value.items():
-            if _is_sensitive_key(k):
-                result[k] = f"[[{k.upper()}_REDACTED]]"
-            else:
-                result[k] = _sanitize_value(v)
-        return result
-    if isinstance(value, str):
-        redacted = value
-        for _name, pattern, placeholder in _REDACTION_PATTERNS:
-            try:
-                redacted = pattern.sub(placeholder, redacted)
-            except re.error as exc:
-                logger.warning("Sanitization pattern failed: %s", exc)
-        return redacted
-    if isinstance(value, list):
-        return [_sanitize_value(item) for item in value]
-    return value
+_REDACTION_PATTERNS = REDACTION_PATTERNS
+_SENSITIVE_KEY_PATTERNS = SENSITIVE_KEY_PATTERNS
 
 
 def _sanitize_arguments(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Sanitize tool call arguments by redacting secrets via a two-pass strategy.
+
+    Delegates to the canonical :func:`blackwall.validators.sanitize_dict_payload`
+    (key-name inspection pre-serialization, then regex scan of the serialized
+    payload; fail-closed). Kept as a thin wrapper so existing imports keep working.
     """
-    Sanitize tool call arguments by redacting secrets via a two-pass strategy:
-
-    **Pass 1 — Key-name inspection (pre-serialization)**:
-    Iterate the argument dict and replace values whose *key names* match known
-    sensitive patterns (password, passwd, pwd, secret, token, api_key, …).
-    This avoids the JSON-quoted-key regex bypass where patterns like
-    ``(?i)password[\\s:=]+`` fail against ``"password": "value"``.
-
-    **Pass 2 — Regex scan of serialized string**:
-    After key-based replacement, serialize the cleaned dict to JSON and run
-    all ``_REDACTION_PATTERNS`` to catch any inline secret values (sk-, AIza,
-    bare API keys) that are embedded inside string values.
-
-    Returns:
-        A new dict with secrets replaced by ``[[PLACEHOLDER]]`` tokens.
-    """
-    try:
-        # Pass 1: key-name-based redaction (handles quoted JSON key bypass)
-        pass1: Dict[str, Any] = {}
-        for k, v in arguments.items():
-            if _is_sensitive_key(k):
-                pass1[k] = f"[[{k.upper()}_REDACTED]]"
-            else:
-                pass1[k] = _sanitize_value(v)
-
-        # Pass 2: regex scan over JSON-serialized string for value-embedded secrets
-        serialized = json.dumps(pass1)
-        redacted = serialized
-        for _name, pattern, placeholder in _REDACTION_PATTERNS:
-            try:
-                redacted = pattern.sub(placeholder, redacted)
-            except re.error as exc:
-                logger.warning("Sanitization pattern failed: %s", exc)
-                continue
-
-        return json.loads(redacted)
-    except Exception as exc:  # noqa: BLE001
-        # Never let sanitization block report generation; fall back to safe empty dict
-        logger.error("IncidentReportGenerator: argument sanitization failed: %s", exc)
-        return {"sanitization_error": "[REDACTED DUE TO SANITIZATION FAILURE]"}
+    return sanitize_dict_payload(arguments)
 
 
 class IncidentReportGenerator:
@@ -224,6 +88,7 @@ class IncidentReportGenerator:
         mitigation: str,
         recommended_action: str,
         confidence: float,
+        swarm_context: SwarmContextSummary | None = None,
     ) -> IncidentReport:
         """
         Construct a fully-populated ``IncidentReport`` for an attacker attribution event.
@@ -238,12 +103,44 @@ class IncidentReportGenerator:
             mitigation:         Description of the mitigation action taken.
             recommended_action: Operator-facing remediation guidance.
             confidence:         Attribution confidence score (0.0–1.0).
+            swarm_context:      Optional resolved swarm lineage (FR-6). When
+                provided, the report is marked collective and carries the
+                swarm ID, confidence, and suspected covert channels.
 
         Returns:
             A complete ``IncidentReport`` Pydantic model with redacted arguments.
         """
         # FR-6: Sanitize arguments before embedding in report
         sanitized_args = _sanitize_arguments(tool_context.arguments)
+
+        swarm_id = None
+        is_collective = False
+        suspected_channels: list[str] = []
+        collective_confidence = 0.0
+        collective_summary = None
+        if swarm_context is not None:
+            swarm_id = swarm_context.swarm_id
+            is_collective = bool(swarm_context.is_collective)
+            suspected_channels = list(swarm_context.suspected_covert_channels)
+            collective_confidence = swarm_context.collective_confidence
+            if is_collective:
+                agent_label = (
+                    identity.agent_name or identity.agent_id or "Unknown agent"
+                )
+                swarm_label = swarm_context.collective_name or (
+                    str(swarm_context.swarm_id)
+                    if swarm_context.swarm_id
+                    else "Unknown swarm"
+                )
+                channel_label = (
+                    ", ".join(suspected_channels)
+                    if suspected_channels
+                    else "no confirmed channel"
+                )
+                collective_summary = (
+                    f"Blocked action by {agent_label} (Part of Coordinated "
+                    f"Swarm {swarm_label} communicating via {channel_label})"
+                )
 
         return IncidentReport(
             event_id=event_id,
@@ -256,18 +153,9 @@ class IncidentReportGenerator:
             mitigation_action=mitigation,
             recommended_user_action=recommended_action,
             attribution_confidence=confidence,
+            swarm_id=swarm_id,
+            is_collective=is_collective,
+            suspected_covert_channels=suspected_channels,
+            collective_confidence=collective_confidence,
+            collective_attribution_summary=collective_summary,
         )
-
-
-# ---------------------------------------------------------------------------
-# Module-level convenience helpers (re-export for ergonomic access)
-# ---------------------------------------------------------------------------
-
-def to_markdown(report: IncidentReport) -> str:
-    """Format an ``IncidentReport`` as a Markdown summary string."""
-    return report.to_markdown()
-
-
-def to_json(report: IncidentReport) -> str:
-    """Serialize an ``IncidentReport`` to a JSON string."""
-    return report.to_json()

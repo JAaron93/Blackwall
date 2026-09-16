@@ -9,7 +9,7 @@ Blackwall is structured into **two distinct product tiers**:
 1. **Blackwall Core (Individual Developer Edition)**:
    - Single-host Python daemon centered around ADK callbacks (`before_tool_callback`), Python runtime audit hooks (`sys.addaudithook`), local SQLite threat graph, native compiled Rust acceleration extension (`crates/blackwall_core_rs/` / `blackwall._core_rs` with pure-Python fallback), and baseline single-host Attacker Attribution (`src/blackwall/attribution/` & `SyncResolver`).
    - Primary local entry point: **Blackwall MCP Gateway** (specification governed by `.kiro/specs/blackwall-mcp-gateway/`, targeting `src/blackwall/gateway/` + `src/blackwall/cli.py`), providing an agent-agnostic stdio/HTTP security proxy on `localhost:9229` with background PID daemon management (`~/.blackwall/blackwall.pid`) and macOS LaunchAgent service integration.
-   - Zero cluster-mesh/peer-to-peer networking (ZeroMQ/NATS) or C-kernel eBPF dependencies (exemption: 100% GCP Vertex AI Mode clients for Gemini Enterprise Agent Platform and VirusTotal GTI MCP are fully supported in Core; red-teamer attack agents in demo harness use Hyperbolic API).
+   - Zero cluster-mesh/peer-to-peer networking (ZeroMQ/NATS) or C-kernel eBPF dependencies (exemption: 100% GCP Vertex AI Mode clients for Gemini Enterprise Agent Platform and AlienVault OTX Threat Intelligence Engine are fully supported in Core; red-teamer attack agents in demo harness use Hyperbolic API).
 2. **Blackwall Enterprise Mesh (Enterprise Edition)**:
    - Multi-host security mesh isolated under `src/blackwall/enterprise/`.
    - Features C/Python eBPF kernel probes, Ephemeral Identity Sidecar, Data Pipeline Wrappers, Dual-Mode Local Forensic Triage Engine, 4 Open-Source Local MCP adapters, and Distributed Threat Mesh (`src/blackwall/enterprise/mesh/`).
@@ -21,7 +21,7 @@ Blackwall is structured into **two distinct product tiers**:
 All code submitted via pull requests or feature branches must be reviewed against these Greptile agent guardrails:
 
 * **Greptile Review Directives**: Enforce Greptile agent review standards configured in `.greptile/config.json`, `.greptile/rules.md`, and `.greptile/files.json`. Greptile reviews must verify both Core and Enterprise architecture invariants.
-* **Spec-Driven Consistency**: All edits must align with `.kiro/specs/` (`agent-swarm-attribution-logic`, `blackwall-advanced-threat-detection`, `blackwall-agentic-firewall`, `blackwall-attacker-attribution`, `blackwall-enterprise-security-mesh`, `blackwall-gcp-evaluation-coverage`, `blackwall-mcp-gateway`, `blackwall-rust-acceleration`, `blackwall-test-coverage-remediation` — `design.md`, `requirements.md`, `tasks.md`).
+* **Spec-Driven Consistency**: All edits must align with `.kiro/specs/` (`agent-swarm-attribution-logic`, `blackwall-advanced-threat-detection`, `blackwall-agentic-firewall`, `blackwall-attacker-attribution`, `blackwall-enterprise-security-mesh`, `blackwall-gcp-evaluation-coverage`, `blackwall-mcp-gateway`, `blackwall-rust-acceleration`, `blackwall-test-coverage-remediation`, `blackwall-threat-intel-cli` — `design.md`, `requirements.md`, `tasks.md`).
 
 * **Behavior-Driven Specifications**: Verify all security behavior contracts using Gherkin syntax via `pytest-bdd` scenarios in `tests/features/`.
 * **Strict Test-Driven Development (TDD)**: Every feature addition or bug fix must include a failing unit test or reproduction script before code changes are staged.
@@ -32,15 +32,15 @@ All code submitted via pull requests or feature branches must be reviewed agains
 
 Greptile reviews must enforce the existing base branch architectural patterns:
 
-1. **Async Interception Resolver (`SyncResolver`) Sequence**:
-   - Execution flow MUST follow: `Rate Check` -> `ContextHygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Conditional GTI Validation (High-Risk Only)` -> `Optional Semantic Triage (Gemini 3.5 Flash-Lite)` -> `Score Aggregation` -> `Threshold Verdict` -> `Optional Inline Signature Generation`.
+1. **Interception Resolver (`SyncResolver`) Sequence**:
+   - Execution flow MUST follow: `Rate Check` -> `ContextHygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Threat Intelligence Validation (AlienVault OTX / Multi-Provider Orchestrator)` -> `Optional Semantic Triage (Gemini 3.5 Flash-Lite)` -> `Score Aggregation` -> `Threshold Verdict` -> `Optional Inline Signature Generation`.
 2. **FTS5 Similarity Scoring & Match Quality**:
    - SQLite Threat Signature Graph queries MUST use word-level intersection match quality calculation (`match_quality = len(intersection) / min_len`) scaled by FTS fallback score and capped by dynamic threshold limits to prevent false positives.
 3. **Context Hygiene & Sanitization**:
-   - `ContextHygiene` middleware (`src/blackwall/middleware/context_hygiene.py`, re-exported in `src/blackwall/resolver.py`) must replace sensitive environment variable patterns with generic placeholders (`[[VARIABLE_NAME]]`).
+   - `ContextHygiene` middleware (production interception path uses the implementation in `src/blackwall/resolver.py`; the async variant in `src/blackwall/middleware/context_hygiene.py` is exercised by `tests/middleware/` only) must replace sensitive environment variable patterns with generic placeholders (`[[VARIABLE_NAME]]`).
    - Integration tests querying external hostnames (e.g. GTI / VirusTotal) must use un-redacted standalone hostnames (e.g. `wd-bouygues.com`) to prevent accidental sanitization matching.
-4. **VirusTotal GTI Free-Tier Rate Limit Invariant**:
-   - VirusTotal Google Threat Intelligence (GTI) MCP queries MUST remain strictly capped at the 4 queries per 60-second sliding window free-tier limit via `GTIQueryBudgetTracker` token bucket rate limiting (1 token replenished every 15 seconds). GTI validation is reserved exclusively for high-risk events with graceful degradation upon budget exhaustion.
+4. **Threat Intelligence High-Capacity Invariant (AlienVault OTX & Legacy Fallback)**:
+   - External threat intelligence is powered by in-process `AlienVaultOTXProvider` (10,000 queries/hour, ~166 RPM) with SQLite `threat_intel_cache` (<1ms SLA), replacing the restrictive 4 RPM VirusTotal GTI bottleneck. VirusTotal is retained solely as an opt-in legacy fallback under `BW_THREAT_INTEL_BACKEND=virustotal`.
 
 ---
 
@@ -97,7 +97,7 @@ Agents updating or expanding project rules (e.g. via `/learn` or code review res
 
 > [!NOTE]
 > **Developer Tooling Scope vs. Blackwall Product Architecture**:
-> This CLI-first protocol strictly governs **agentic developer workflows** (how AI coding assistants, subagents, and review bots develop and operate on this codebase using CLI tools rather than stateless MCP servers). It does **NOT** restrict the runtime architecture of Blackwall itself. The Blackwall agent is an **agent-agnostic MCP Gateway security proxy** (`localhost:9229`, background daemon, macOS LaunchAgent service) that actively integrates with `codebase-memory-mcp` AST knowledge graphs, VirusTotal Google Threat Intelligence (GTI), and enterprise MCP adapters (Falco, Vault, Container Sandbox, OpenTelemetry).
+> This CLI-first protocol strictly governs **agentic developer workflows** (how AI coding assistants, subagents, and review bots develop and operate on this codebase using CLI tools rather than stateless MCP servers). It does **NOT** restrict the runtime architecture of Blackwall itself. The Blackwall agent is an **agent-agnostic MCP Gateway security proxy** (`localhost:9229`, background daemon, macOS LaunchAgent service) that actively integrates with `codebase-memory-mcp` AST knowledge graphs, AlienVault OTX Threat Intelligence Engine, and enterprise MCP adapters (Falco, Vault, Container Sandbox, OpenTelemetry).
 
 Antigravity operates on a **CLI-first, stateful-MCP-sparing architecture** for repository development:
 

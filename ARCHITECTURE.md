@@ -39,7 +39,7 @@ flowchart TD
 
     subgraph Tier 2: Rapid Semantic Triage
         TSGQuery{"Threat Signature Graph (SQLite Cosine Match)"}
-        GTIQuery["VirusTotal GTI MCP (Token Bucket Budget)"]
+        TIQuery["Threat Intel Engine (AlienVault OTX / Cache)"]
         CBMQuery["Codebase Memory MCP (AST & Sink Blast Radius)"]
         SemanticEngine["Semantic Gating Engine (Score Aggregation)"]
     end
@@ -60,10 +60,10 @@ flowchart TD
     StructuralGating -- "Rule Match: ESCALATE" --> TSGQuery
 
     TSGQuery -- "Similarity >= 0.85" --> MatchBlock["BLOCK via Signature (~12ms)"]
-    TSGQuery -- "No Match (< 0.85)" --> GTIQuery
+    TSGQuery -- "No Match (< 0.85)" --> TIQuery
     TSGQuery -- "No Match (< 0.85)" --> CBMQuery
 
-    GTIQuery --> SemanticEngine
+    TIQuery --> SemanticEngine
     CBMQuery --> SemanticEngine
     SemanticEngine --> ThresholdEval{"Threat Score Threshold"}
 
@@ -90,10 +90,10 @@ flowchart TD
 
 ### 2.2 Tier 2: Semantic Gating Engine (<100ms @ P99)
 For escalated operations, Blackwall aggregates signals from three independent vectors:
-$$\text{ThreatScore} = w_{\text{GTI}} \cdot S_{\text{GTI}} + w_{\text{CBM}} \cdot S_{\text{CBM}} + w_{\text{Context}} \cdot S_{\text{Context}}$$
+$$\text{ThreatScore} = w_{\text{TI}} \cdot S_{\text{TI}} + w_{\text{CBM}} \cdot S_{\text{CBM}} + w_{\text{Context}} \cdot S_{\text{Context}}$$
 
 - **Baseline Weights**:
-  - $w_{\text{GTI}} = 0.40$ (External threat intelligence for indicators of compromise)
+  - $w_{\text{TI}} = 0.40$ (External threat intelligence for indicators of compromise via AlienVault OTX / Multi-Provider Orchestrator)
   - $w_{\text{CBM}} = 0.30$ (Abstract Syntax Tree dataflow and sink blast radius)
   - $w_{\text{Context}} = 0.30$ (Tool risk, parameter novelty, environment role)
 - **Verdict Thresholds**:
@@ -224,24 +224,67 @@ Untrusted agent payloads frequently contain sensitive environment credentials, p
 - **Idempotence**: Guaranteed $\text{sanitize}(\text{sanitize}(x)) = \text{sanitize}(x)$.
 - **Non-Invertible Audit Trail**: Logs SHA-256 hashes of original values to preserve auditability without storing raw plaintext secrets.
 
-### 5.2 Compiled Rust Acceleration (`blackwall._core_rs`)
-To ensure sanitization does not add latency to the critical path:
-- Hot-path regex scanning and SIMD vector math are implemented in compiled Rust (`crates/blackwall_core_rs/`) using PyO3 and Maturin.
-- Pre-compiled Aho-Corasick automaton and DFA regular expressions scan megabyte-scale tool arguments in microseconds.
-- Seamless, zero-dependency pure-Python fallback when the native extension is uncompiled.
+### 5.2 Compiled Rust Acceleration Subsystem (`blackwall._core_rs`)
+
+To ensure synchronous evaluation strictly obeys the $<5\text{ms}$ latency budget, latency-critical, CPU-bound hot paths are compiled into a native Rust extension (`crates/blackwall_core_rs/`) using **PyO3** and **Maturin**, governed by the **Non-Greedy Rewrite Philosophy (95% Python / 5% Rust)** (see [ADR 0005](docs/adr/0005-rust-native-acceleration-hotpaths.md) and [.kiro/specs/blackwall-rust-acceleration/](.kiro/specs/blackwall-rust-acceleration/)):
+
+```
++---------------------------------------------------------------------------------------------------+
+|                        BLACKWALL HYBRID RUNTIME TOPOLOGY (95% Python / 5% Rust)                   |
++---------------------------------------------------+-----------------------------------------------+
+|         HIGH-LEVEL PYTHON ORCHESTRATION LAYER     |        NATIVE RUST EXTENSION (_core_rs)       |
++---------------------------------------------------+-----------------------------------------------+
+| - Async Interception Resolvers (Sync / Batch)     | - DFA Regex Sanitization (O(N), No IPC)       |
+| - SQLite Async Connection Pool & WAL persistence  | - SIMD 768-dim Vector Cosine Similarity       |
+| - Google GenAI SDK (Vertex AI Mode) & GTI MCP     | - Word-Level Intersection Scoring (<5µs)      |
+| - Pydantic Data Models & Semantic Routing Policy  | - Single-Pass RegexSet IOC & Entropy Engine   |
+| - Cloud-Native Vertex AI Eval & OpenTelemetry     | - Graph DFS Path Traversal & Swarm Correlator |
++---------------------------------------------------+-----------------------------------------------+
+```
+
+#### The 4 Accelerated Hot-Path Subsystems:
+1. **Context Sanitization Engine (`ContextSanitizer`)**:
+   - Compiles sensitive token patterns into linear-time DFA regexes (guaranteed mathematically immune to ReDoS backtracking).
+   - Supports **Middleware Mode** (`preserve_prefix=false`, replacing full matched tokens and logging SHA-256 original hashes) and **Resolver Mode** (`preserve_prefix=true`, preserving parameter names in prompts).
+   - Latency SLA: $< 50\mu\text{s}$ on $\ge 9\text{KB}$ realistic payloads (measured $\approx 45\mu\text{s}$).
+2. **Vector Math & Similarity Scoring Engine**:
+   - Zero-copy byte buffer casting to `&[f32]` with auto-vectorized SIMD dot-product computation.
+   - `batch_cosine_similarity`: Evaluates query vectors against an array of candidate vectors in a single FFI call with **corrupted candidate isolation** (malformed candidate rows in the database are quarantined with diagnostic logging while all valid candidates continue scoring).
+   - `compute_word_intersection_match_quality`: Zero-allocation lowercase tokenization returning $\frac{|\text{query} \cap \text{cand}|}{\min(|\text{query}|, |\text{cand}|)}$ in $< 10\mu\text{s}$ (measured $\approx 5\mu\text{s}$).
+3. **Single-Pass IOC Extraction & Shannon Entropy Engine**:
+   - Single combined DFA pass via `RegexSet` detecting IPv4, IPv6, URLs, domains, and hashes.
+   - Direct IP address validation via Rust `std::net::IpAddr`.
+   - Single-pass 256-element byte frequency array computing Shannon entropy: $H(X) = -\sum p_i \log_2(p_i)$.
+   - Latency SLA: $< 35\mu\text{s}$ combined on 1KB payloads (measured $\approx 20\mu\text{s}$).
+4. **Graph DFS Traversal & Temporal Correlation Engine**:
+   - Native recursive DFS path enumeration with cycle prevention and depth pruning ($\le 10,000$ limit) in `_core_rs.dfs_find_paths`.
+   - Exponential decay edge weighting and pairwise two-pointer timestamp alignment (`_core_rs.avg_min_time_diff`).
+   - Latency SLA: $< 500\mu\text{s}$ for 500 nodes with `max_paths=50` (measured $\approx 340\mu\text{s}$).
+
+#### Zero-Panic FFI & Seamless Pure-Python Fallbacks:
+- All PyO3 functions return `PyResult<T>` and never panic across the C ABI, mapping internal Rust errors directly to standard Python exceptions (`ValueError`, `RuntimeError`).
+- All 7 Python wrappers (`context_hygiene.py`, `resolver.py`, `validators.py`, `repository.py`, `semantic.py`, `correlator.py`, `swarm.py`) provide seamless pure-Python fallbacks when the compiled binary is absent.
+- Full verification suite:
+  ```bash
+  # Automated SLA benchmark suite verifying all 6 gates
+  python scripts/benchmark_rust_hotpaths.py
+
+  # Fallback invariant and parity suite
+  pytest tests/unit/test_fallback_invariant.py -v
+  ```
 
 ---
 
 ## 6. External Threat Intelligence & Context Integrations
 
-### 6.1 VirusTotal Google Threat Intelligence (GTI) MCP
-- **Budget Tracking (`GTIQueryBudgetTracker`)**: Adheres to the VirusTotal free-tier limit of **4 queries per 60 seconds** using a strict token bucket replenishing 1 token every 15 seconds.
-- **High-Risk Triage**: GTI queries are strictly reserved for high-risk indicators:
-  - Unknown external IPv4/IPv6 addresses
-  - Suspicious executable file hashes (SHA-256)
-  - Dynamic DNS or newly-registered domain names
-- **Graceful Budget Degradation**: When tokens are exhausted, Blackwall skips the GTI query, applies an explicit **-0.2 confidence penalty**, and redistributes evaluation weights to local signals (CBM 50%, Context 50%).
-- **Circuit Breaker**: Isolated circuit breaker halts outbound GTI queries upon repeated 5xx errors or connection timeouts (distinct from token exhaustion).
+### 6.1 AlienVault OTX Threat Intelligence Engine & Local Cache
+- **High-Throughput Zero-Cost Baseline**: In-process asynchronous provider (`AlienVaultOTXProvider`) delivering **10,000 queries per hour (~166 RPM)** at **$0/month**, replacing the restrictive 4 RPM VirusTotal free-tier bottleneck.
+- **Fast-Path SQLite Caching (`threat_intel_cache`)**: Persistent SQLite cache in WAL mode providing sub-millisecond response times ($< 1.0\text{ ms}$) for known indicators with a 24-hour TTL for benign entries and 6-hour TTL for malicious entries, auto-purged on database initialization.
+- **3-State Circuit Breaker Resilience**: Proactively halts upstream queries on 5 consecutive failures (`OPEN`), testing connectivity in `HALF-OPEN` mode with a mandatory 3-probe success threshold before restoring to `CLOSED`. Any failure during `HALF-OPEN` immediately trips back to `OPEN`.
+- **Fail-Safe Exception Propagation**: Provider failures raise explicit typed exceptions (`OTXCircuitBreakerOpenError`, `OTXTokenBucketExhaustedError`, `OTXLookupError`) rather than returning benign default responses, ensuring callers fall back cleanly to secondary feeds or local threat graph heuristics.
+- **URL Credential Redaction**: All logged indicators pass through `_sanitize_indicator_for_log` to redact user-info credentials (`user:pass`) and query parameter secrets before persisting in log files.
+- **Harpoon OSINT Companion Bridge**: Subprocess integration (`HarpoonBridge`) for deep interactive OSINT investigation via the `harpoon` CLI when installed.
+- **Legacy VirusTotal Mode**: Retained as an opt-in fallback under `BW_THREAT_INTEL_BACKEND=virustotal` for organizations with existing commercial VirusTotal subscriptions.
 
 ### 6.2 Codebase Memory MCP
 - **Abstract Syntax Tree (AST) Inspection**: Queries the active repository's AST graph to analyze the call chain leading to the intercepted tool call.

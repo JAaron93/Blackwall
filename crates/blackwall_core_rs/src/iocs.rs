@@ -36,9 +36,30 @@ fn get_hash_regex() -> &'static Regex {
 }
 
 /// Calculate Shannon entropy over character frequencies in a string.
+///
+/// For ASCII input (byte == char) a fixed 128-bin histogram is used to avoid
+/// per-character hashing; non-ASCII input falls back to a `HashMap` over
+/// Unicode scalar values. Numerical results are identical for ASCII inputs
+/// and within float tolerance for multibyte inputs (NFR-2, ε ≤ 1e-5).
 pub fn compute_shannon_entropy(s: &str) -> f64 {
     if s.is_empty() {
         return 0.0;
+    }
+
+    if s.is_ascii() {
+        let mut counts = [0u32; 128];
+        for &b in s.as_bytes() {
+            counts[b as usize] += 1;
+        }
+        let total_f = s.len() as f64;
+        let mut entropy = 0.0f64;
+        for &count in counts.iter() {
+            if count > 0 {
+                let p = (count as f64) / total_f;
+                entropy -= p * p.log2();
+            }
+        }
+        return entropy;
     }
 
     let mut counts: HashMap<char, usize> = HashMap::new();
@@ -86,6 +107,15 @@ pub fn extract_iocs_from_slice(strings: &[String]) -> HashMap<String, Vec<String
                 continue;
             }
 
+            // Skip tokens that can be neither IPv4 nor IPv6: IPv4 requires
+            // an ASCII digit and IPv6 requires colons (an all-letter
+            // literal like `a:b:c:d:e:f:a:b` is valid IPv6). Word-only
+            // tokens fast-fail in `from_str`, so skip them.
+            let has_digit = trimmed.bytes().any(|b| b.is_ascii_digit());
+            if !has_digit && !trimmed.contains(':') {
+                continue;
+            }
+
             if trimmed.contains(':') {
                 // If it ends or starts with a single colon (and not ::), trim the stray colon
                 let ipv6_candidate = if trimmed.starts_with(':') && !trimmed.starts_with("::") {
@@ -96,7 +126,14 @@ pub fn extract_iocs_from_slice(strings: &[String]) -> HashMap<String, Vec<String
                     trimmed
                 };
 
-                if Ipv6Addr::from_str(ipv6_candidate).is_ok() {
+                // Fast reject: every string accepted by `Ipv6Addr::from_str`
+                // uses only hex digits, colons, and dots, so anything else
+                // is guaranteed to fail parsing. The host:port fallback
+                // below still runs unconditionally.
+                let ipv6_shape = ipv6_candidate
+                    .bytes()
+                    .all(|b| b.is_ascii_hexdigit() || b == b':' || b == b'.');
+                if ipv6_shape && Ipv6Addr::from_str(ipv6_candidate).is_ok() {
                     ips_set.insert(ipv6_candidate.to_string());
                 } else if let Some((ip_part, _port_part)) = trimmed.split_once(':') {
                     let ip_part_trimmed = ip_part.trim_matches(|c: char| !c.is_ascii_digit());
@@ -208,5 +245,15 @@ mod tests {
 
         let hashes = iocs.get("hashes").unwrap();
         assert!(hashes.contains(&"5d41402abc4b2a76b9719d911017c592".to_string()));
+    }
+
+    #[test]
+    fn test_extract_iocs_all_letter_ipv6() {
+        // Eight-hextet IPv6 literal with no ASCII digits must still be
+        // extracted (digit-only prefiltering would drop this indicator).
+        let input = vec!["Beacon to a:b:c:d:e:f:a:b over the tunnel".to_string()];
+        let iocs = extract_iocs_from_slice(&input);
+        let ips = iocs.get("ips").unwrap();
+        assert!(ips.contains(&"a:b:c:d:e:f:a:b".to_string()));
     }
 }

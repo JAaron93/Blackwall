@@ -28,6 +28,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 )
 from blackwall.validators import (
     clamp_score,
+    normalize_text,
     validate_utc_datetime,
 )
 
@@ -159,7 +160,7 @@ def _extract_hostname_or_domain(pattern: str) -> str | None:
             pass
 
     # Strip path and port if present
-    cleaned = p.split("/")[0].split(":")[0].strip().lower()
+    cleaned = normalize_text(p.split("/")[0].split(":")[0])
     if cleaned and ("." in cleaned or cleaned == "localhost"):
         return cleaned
 

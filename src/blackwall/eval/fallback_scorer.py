@@ -15,6 +15,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from blackwall.validators import normalize_text
+
 from blackwall.eval.rubrics import (
     AILMDetectionRubric,
     C2DetectionRubric,
@@ -389,7 +391,7 @@ FALLBACK_SCORERS: dict[str, HeuristicFallbackScorer] = {
 
 def get_fallback_scorer_for_domain(domain: str) -> HeuristicFallbackScorer:
     """Retrieve the fallback scorer for an evaluation domain."""
-    normalized = domain.strip().lower()
+    normalized = normalize_text(domain)
     if normalized not in FALLBACK_SCORERS:
         raise ValueError(f"Unknown domain '{domain}'. Available: {sorted(FALLBACK_SCORERS.keys())}")
     return FALLBACK_SCORERS[normalized]

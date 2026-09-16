@@ -23,6 +23,7 @@ from blackwall.config import (
     DEFAULT_GEMINI_MODEL,
     get_gemini_thinking_level,
 )
+from blackwall.validators import normalize_text
 
 logger = logging.getLogger(__name__)
 
@@ -901,8 +902,8 @@ def create_resolver(
         BLACKWALL_TIER=paid             → BatchResolver (default, 300 RPM)
         BLACKWALL_RESOLVER_MODE=sync    → SyncResolver (300 RPM)
     """
-    mode = os.getenv("BLACKWALL_RESOLVER_MODE", "").lower().strip()
-    tier = os.getenv("BLACKWALL_TIER", "paid").lower().strip()
+    mode = normalize_text(os.getenv("BLACKWALL_RESOLVER_MODE", ""))
+    tier = normalize_text(os.getenv("BLACKWALL_TIER", "paid"))
 
     if mode == "sync" or tier in ("sync", "free"):
         from blackwall.sync_resolver import SyncResolver

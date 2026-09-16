@@ -13,7 +13,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     NormalizedEvent,
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
-from blackwall.validators import normalize_time_window, validate_utc_datetime
+from blackwall.validators import normalize_text, normalize_time_window, validate_utc_datetime
 
 # Known C2 Hostname Domain Patterns (Requirement 7.1)
 KNOWN_C2_HOST_PATTERNS = [
@@ -60,7 +60,7 @@ DESTINATION_KEYS = {
 
 def _is_local_host(host_str: str) -> bool:
     """Check if host string is a local hostname, IPv4 loopback (127.0.0.0/8), IPv6 loopback (::1), or IPv4-mapped IPv6 loopback (::ffff:127.0.0.0/8)."""
-    clean_host = host_str.strip().lower().lstrip("[").rstrip("]")
+    clean_host = normalize_text(host_str).lstrip("[").rstrip("]")
     if not clean_host:
         return False
     if (
@@ -76,7 +76,7 @@ def _is_local_host(host_str: str) -> bool:
 
 def _extract_hostname_and_path(url_or_domain: str) -> Tuple[str, str]:
     """Extract host/domain and path from input string safely, robust to IPv6 addresses."""
-    raw = url_or_domain.strip().lower()
+    raw = normalize_text(url_or_domain)
     if not raw:
         return "", ""
 
@@ -104,10 +104,10 @@ def _extract_hostname_and_path(url_or_domain: str) -> Tuple[str, str]:
         parsed = urlparse(url_str)
         host = parsed.hostname or host_port.lstrip("[").rstrip("]")
         path = parsed.path or ""
-        return host.strip().lower(), path.strip().lower()
+        return normalize_text(host), normalize_text(path)
     except Exception:
         clean = raw.split("/")[0]
-        return clean.strip().lower(), ""
+        return normalize_text(clean), ""
 
 
 def _normalize_endpoint(url_or_domain: str) -> str:
@@ -133,7 +133,7 @@ def _normalize_endpoint(url_or_domain: str) -> str:
 
 def _is_local_endpoint(target_or_host: str) -> bool:
     """Check if target or host represents a local socket, loopback address, or Unix domain path."""
-    raw = target_or_host.strip().lower()
+    raw = normalize_text(target_or_host)
     if not raw:
         return False
     if raw.startswith("/") or raw.startswith("unix:") or raw.startswith("file:"):

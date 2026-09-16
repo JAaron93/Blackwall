@@ -5,12 +5,13 @@ import logging
 import multiprocessing
 import queue
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Pattern, Tuple
 
 from pydantic import BaseModel
 
 from blackwall.models import ToolCallContext
+from blackwall.validators import format_iso_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ def _apply_pattern_worker(task_queue: Any, result_queue: Any) -> None:
                 original_hash = hashlib.sha256(matched_str.encode()).hexdigest()
                 redactions.append(
                     {
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": format_iso_datetime(),
                         "original_hash": original_hash,
                         "pattern_matched": name,
                         "placeholder_used": placeholder,

@@ -30,6 +30,14 @@ from blackwall.validators import (
     validate_utc_datetime,
 )
 
+try:
+    try:
+        from blackwall import _core_rs
+    except ImportError:
+        import _core_rs
+except (ImportError, AttributeError):
+    _core_rs = None
+
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.swarm")
 
 IP_REGEX = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
@@ -146,8 +154,8 @@ def _extract_all_ips(text: str) -> set[str]:
     return found
 
 
-def _avg_min_time_diff(ts1: list[datetime], ts2: list[datetime]) -> float:
-    """Compute average minimal time difference (in seconds) between two sorted timestamp lists in O(N+M) time."""
+def _avg_min_time_diff_python(ts1: list[datetime], ts2: list[datetime]) -> float:
+    """Pure-Python two-pointer O(N+M) average minimal time difference (fallback implementation)."""
     if not ts1 or not ts2:
         return 0.0
 
@@ -163,6 +171,39 @@ def _avg_min_time_diff(ts1: list[datetime], ts2: list[datetime]) -> float:
         total_diff += abs((ts2[idx2] - t1).total_seconds())
 
     return total_diff / len(ts1)
+
+
+def _avg_min_time_diff(ts1: list[datetime], ts2: list[datetime]) -> float:
+    """Compute average minimal time difference (in seconds) between two sorted timestamp lists.
+
+    Routes to the native Rust two-pointer accelerator (_core_rs.avg_min_time_diff)
+    for O(N+M) performance.  Falls back to the pure-Python implementation if the
+    compiled extension is not available (FR-5, NFR-2).
+
+    Args:
+        ts1: Sorted list of UTC-aware datetime timestamps.
+        ts2: Sorted list of UTC-aware datetime timestamps.
+
+    Returns:
+        Average absolute time difference in seconds (float). Returns 0.0 if either
+        list is empty.
+    """
+    if not ts1 or not ts2:
+        return 0.0
+
+    if _core_rs is not None:
+        try:
+            ts1_secs = [t.timestamp() for t in ts1]
+            ts2_secs = [t.timestamp() for t in ts2]
+            return _core_rs.avg_min_time_diff(ts1_secs, ts2_secs)
+        except Exception as exc:
+            logger.warning(
+                "Rust avg_min_time_diff raised %s: %s — falling back to pure-Python",
+                type(exc).__name__,
+                exc,
+            )
+
+    return _avg_min_time_diff_python(ts1, ts2)
 
 
 class AgentSwarmDetector:

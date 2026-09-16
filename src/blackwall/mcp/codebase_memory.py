@@ -2,12 +2,13 @@ import asyncio
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 
 from blackwall.mcp.transport import MCPTransportError, call_mcp_tool_http
+from blackwall.validators import utc_now
 
 
 def _parse_mcp_result(raw: Any) -> Any:
@@ -92,7 +93,7 @@ class CodebaseMemoryClient:
             base_url = getattr(cbm, "url", None) if cbm else None
         self.base_url = base_url or os.getenv("CBM_MCP_BASE_URL")
         self.command = command
-        self.last_updated = last_updated or datetime.now(timezone.utc)
+        self.last_updated = last_updated or utc_now()
         self.timeout_seconds = timeout_seconds
         self.mock_data: Dict[str, Any] = {}
         self._init_mocks()
@@ -178,7 +179,7 @@ class CodebaseMemoryClient:
         """
         Returns true if the AST graph was updated more than 1 hour ago.
         """
-        now = datetime.now(timezone.utc)
+        now = utc_now()
         diff = (now - self.last_updated).total_seconds()
         return diff > 3600
 

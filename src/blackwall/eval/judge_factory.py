@@ -14,6 +14,8 @@ from typing import Any, Self
 
 from pydantic import BaseModel
 
+from blackwall.validators import normalize_text
+
 logger = logging.getLogger(__name__)
 
 # Attempt to import real Google Antigravity SDK, or provide robust stubs if unavailable
@@ -91,8 +93,8 @@ def validate_evaluation_tier_contract() -> None:
 
     Enforces GEMINI_TIER=paid and BLACKWALL_TIER=paid, and ensures GCP_PROJECT is configured.
     """
-    gemini_tier = os.getenv("GEMINI_TIER", "").strip().lower()
-    blackwall_tier = os.getenv("BLACKWALL_TIER", "").strip().lower()
+    gemini_tier = normalize_text(os.getenv("GEMINI_TIER", ""))
+    blackwall_tier = normalize_text(os.getenv("BLACKWALL_TIER", ""))
     gcp_project = os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT")
 
     errors = []

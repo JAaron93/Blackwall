@@ -13,6 +13,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from blackwall.validators import normalize_text
+
 logger = logging.getLogger(__name__)
 
 
@@ -104,7 +106,7 @@ class EvaluationAggregator:
         # Group records by domain
         by_domain: dict[str, list[EvaluationResultRecord]] = {}
         for r in self._records:
-            norm_domain = r.domain.strip().lower()
+            norm_domain = normalize_text(r.domain)
             if norm_domain not in by_domain:
                 by_domain[norm_domain] = []
             by_domain[norm_domain].append(r)

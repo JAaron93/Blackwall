@@ -16,6 +16,7 @@ import aiohttp
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.mcp.transport import call_mcp_tool_http, get_certifi_ssl_context
 from blackwall.models import GTIResponse, IndicatorType, ToolCallContext
+from blackwall.validators import format_iso_datetime
 
 logger = logging.getLogger("blackwall.mcp.gti_client")
 
@@ -578,9 +579,9 @@ class GTIMCPClient:
         if last_analysis_date_unix:
             from datetime import datetime, timezone
 
-            last_analysis_date = datetime.fromtimestamp(
-                last_analysis_date_unix, tz=timezone.utc
-            ).isoformat()
+            last_analysis_date = format_iso_datetime(
+                datetime.fromtimestamp(last_analysis_date_unix, tz=timezone.utc)
+            )
 
         return {
             "indicator": indicator,
