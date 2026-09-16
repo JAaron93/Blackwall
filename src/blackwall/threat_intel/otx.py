@@ -18,7 +18,6 @@ import aiohttp
 
 from blackwall.threat_intel.models import (
     ThreatIndicatorType,
-    ThreatIntelProvider,
     ThreatIntelResponse,
 )
 

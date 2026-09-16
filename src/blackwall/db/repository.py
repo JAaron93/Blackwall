@@ -965,6 +965,7 @@ class SQLiteThreatRepository:
         self,
         response: Any,
         ttl_seconds: Optional[float] = None,
+        provider: Optional[str] = None,
     ) -> None:
         """Caches a ThreatIntelResponse with TTL (24h benign, 6h malicious by default)."""
         await self.initialize()
@@ -982,6 +983,11 @@ class SQLiteThreatRepository:
             if hasattr(response.indicator_type, "value")
             else str(response.indicator_type)
         )
+        provider_key = (
+            provider
+            if provider is not None
+            else getattr(response, "provider_name", "unknown")
+        )
 
         async with self.pool.connection() as conn:
             await conn.execute(
@@ -993,7 +999,7 @@ class SQLiteThreatRepository:
                 (
                     response.indicator,
                     ind_type,
-                    response.provider_name,
+                    provider_key,
                     1 if response.is_malicious else 0,
                     response.risk_score,
                     payload_json,
