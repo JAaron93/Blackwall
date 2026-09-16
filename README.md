@@ -184,7 +184,7 @@ Rogue Agent retries: ToolCallContext(tool="http_request", args=["http://192.168.
   ↓ Layer 4: Threat Intelligence Engine
     AlienVault OTX: 192.168.1.100 flagged in 3 pulses as C2 beacon infrastructure ⚠️
   ↓ Layer 5: Semantic Gating
-    Threat score: ThreatIntel=0.95 + CBM=0.5 + Context=0.6 = 0.71 → QUARANTINE ⚠️
+    Threat score: ThreatIntel=0.95 + CBM=0.7 + Context=0.6 = 0.77 → BLOCK ❌
 
 Learning: Threat signature written to SQLite
   * Attack pattern: IP + port 8080 + POST /api/beacon

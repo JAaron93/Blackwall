@@ -36,7 +36,12 @@ sudo dnf install -y bcc-tools python3-bcc "kernel-devel-$(uname -r)"
 Pillar 1 intercepts process execution (`sys_enter_execve`) and outbound socket connections (`sys_enter_connect`) at machine speed before syscalls reach the OS kernel, featuring dynamic socket and PID drop capabilities (<50ms SLA).
 
 ```python
+import sys
+import subprocess
 from blackwall.enterprise.kernel.probe import LinuxeBPFDriver, UserSpaceAuditDriver
+
+# Spawn a disposable worker process to safely demonstrate process-level termination
+target_proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
 
 # Initialize the kernel driver (auto-detects Linux BCC support with userspace fallback)
 driver = LinuxeBPFDriver()
@@ -45,8 +50,8 @@ driver = LinuxeBPFDriver()
 driver.start_tracing()
 
 # Inject dynamic real-time socket or PID drop rules (<50ms SLA)
-# Drops network connections targeting a malicious IP or terminates a compromised PID
-driver.inject_socket_drop(pid=1234, ip="192.168.1.100")
+# Terminates the designated rogue process and drops outbound network traffic targeting the C2 IP
+driver.inject_socket_drop(pid=target_proc.pid, ip="192.168.1.100")
 
 # Intercepted syscalls raise PermissionError (or trigger SIGKILL at the kernel level)
 # Clean up tracepoints and attached BPF maps upon shutdown
