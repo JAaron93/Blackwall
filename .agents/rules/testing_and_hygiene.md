@@ -518,3 +518,8 @@
 ## 59. Deterministic Background-Task Synchronization in Tests
 * **Rule (Public Drain API):** Tests asserting on state produced by fire-and-forget background tasks MUST drain them via the public `flush_background_tasks()` (or equivalent) instead of `asyncio.sleep()` delays or immediate assertions, which encode a race between the test and the background coroutine.
 * **Rationale:** Discovered during the v2.0 release audit: an integration test asserted signature persistence immediately after `evaluate()`, observing zero rows because inline signature generation had not yet run; all other invocations passed, masking the race.
+
+## 60. Dynamic Synthetic Credential Construction in Test Fixtures
+* **Rule (No Literal Basic Auth in Test Code):** Unit tests, BDD step definitions, and mock fixtures testing credential sanitization, URL redacting, or authentication error handling MUST NOT write literal basic auth credentials (e.g. `https://user:password@...`, `admin:secret123@`) directly as static string literals in source code.
+* **Rule (Dynamic Composition):** Test fixtures MUST construct sensitive test URL strings dynamically (e.g. `f"https://{user}:{pwd}@{host}/path"` where `user = "user"` and `pwd = "pass"`) or use dummy placeholders like `[[CREDENTIAL]]`.
+* **Rationale:** Discovered on PR #150. Automated CI secret scanners (such as GitGuardian) scan all commits in pull request branches. Static basic auth URLs trigger false-positive secret leakage alerts that persist across branch history even after subsequent cleanup commits.
