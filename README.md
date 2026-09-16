@@ -316,10 +316,12 @@ pytest tests/features/ -v
 ## 💡 Key Architectural Insights
 
 - **Why Batching Works Against 600 RPM Attacks:** Adversarial agents running in parallel can generate 600+ RPM, while LLM provider quotas often enforce a 300 RPM ceiling. Blackwall's `InterceptionQueue` suspends incoming callbacks and flushes batches of up to 5 events (or 100ms timeout) in a single Gemini Interactions API call, yielding up to 1,500 operations/minute capacity.
-- **High-Capacity Threat Intelligence (AlienVault OTX & SQLite Cache):**
+- **High-Capacity Threat Intelligence & Multi-Provider Cascade:**
   - **AlienVault OTX:** 10,000 requests/hour (~166 RPM) at $0/month (replacing the legacy 4 RPM VirusTotal bottleneck).
+  - **Supplementary Providers (AbuseIPDB & abuse.ch):** Dedicated IP confidence scoring via AbuseIPDB and free malware family attribution via abuse.ch (ThreatFox, URLhaus, MalwareBazaar).
+  - **Multi-Provider Orchestrator:** Cache-first cascade routing with multi-source risk score aggregation and scoped SQLite persistence.
   - **Fast-Path SQLite Cache:** Sub-millisecond (<1ms) lookups for known indicators, preventing repeated external network latency.
-  - **3-State Circuit Breaker:** Proactive failure isolation with 3-probe HALF-OPEN recovery.
+  - **3-State Circuit Breaker:** Proactive failure isolation with 3-probe HALF-OPEN recovery and 3.0s timeout safeguards.
   - **Legacy VirusTotal Mode:** Retained as an opt-in fallback under `BW_THREAT_INTEL_BACKEND=virustotal`.
 - **Why Threat Signatures Enable 100x+ Speedup:** Novel attacks require external intelligence lookups and LLM evaluation (~1,415ms). Once blocked, Blackwall writes a normalized vector signature to local SQLite. Future variants match via cosine similarity in ~12ms—a **118x speedup** with zero LLM inference.
 
