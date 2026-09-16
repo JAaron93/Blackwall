@@ -204,14 +204,30 @@ class AbuseChProvider:
             )
 
         items = raw.get("data") or []
+        valid_items = [i for i in items if isinstance(i, dict)]
+        if not valid_items:
+            return ThreatIntelResponse(
+                indicator=indicator,
+                indicator_type=indicator_type,
+                is_malicious=False,
+                risk_score=0.0,
+                detection_count=0,
+                total_engines=0,
+                threat_categories=[],
+                malware_families=[],
+                pulse_count=0,
+                references=[],
+                provider_name=self.name,
+                cached=False,
+                raw_response=raw,
+            )
+
         categories: Set[str] = set()
         malware_families: Set[str] = set()
         max_confidence = 0
         references: List[str] = []
 
-        for item in items:
-            if not isinstance(item, dict):
-                continue
+        for item in valid_items:
             conf_val = item.get("confidence_level")
             conf = int(conf_val) if conf_val is not None else 100
             if conf > max_confidence:
@@ -241,11 +257,11 @@ class AbuseChProvider:
             indicator_type=indicator_type,
             is_malicious=is_malicious,
             risk_score=risk_score,
-            detection_count=len(items),
-            total_engines=len(items),
+            detection_count=len(valid_items),
+            total_engines=len(valid_items),
             threat_categories=sorted(list(categories)),
             malware_families=sorted(list(malware_families)),
-            pulse_count=len(items),
+            pulse_count=len(valid_items),
             references=references[:10],
             provider_name=self.name,
             cached=False,
@@ -350,8 +366,9 @@ class AbuseChProvider:
             )
 
         items = raw.get("data") or []
-        if not items:
-            # Fall back to ThreatFox search if MalwareBazaar returned no sample records
+        valid_items = [i for i in items if isinstance(i, dict)]
+        if not valid_items:
+            # Fall back to ThreatFox search if MalwareBazaar returned no valid sample records
             try:
                 tf_resp = await self._lookup_threatfox(indicator, indicator_type, timeout)
                 if tf_resp.is_malicious:
@@ -379,9 +396,7 @@ class AbuseChProvider:
         malware_families: Set[str] = set()
         references: List[str] = []
 
-        for item in items:
-            if not isinstance(item, dict):
-                continue
+        for item in valid_items:
             signature = item.get("signature")
             if signature:
                 malware_families.add(str(signature))
@@ -403,11 +418,11 @@ class AbuseChProvider:
             indicator_type=indicator_type,
             is_malicious=True,
             risk_score=1.0,
-            detection_count=len(items),
-            total_engines=len(items),
+            detection_count=len(valid_items),
+            total_engines=len(valid_items),
             threat_categories=sorted(list(categories)),
             malware_families=sorted(list(malware_families)),
-            pulse_count=len(items),
+            pulse_count=len(valid_items),
             references=references[:10],
             provider_name=self.name,
             cached=False,

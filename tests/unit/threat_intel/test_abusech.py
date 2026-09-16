@@ -253,6 +253,24 @@ async def test_abusech_null_and_malformed_response_handling() -> None:
         assert resp.detection_count == 0
         assert resp.malware_families == []
 
+    # MalwareBazaar returns data: [None] -> should be benign, NOT malicious!
+    with patch.object(provider, "_execute_post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = {"query_status": "ok", "data": [None, "invalid_entry", 123]}
+        resp = await provider.lookup("44d88612fea8a8f36de82e1278abb02f", ThreatIndicatorType.FILE_HASH)
+        assert resp.risk_score == 0.0
+        assert resp.is_malicious is False
+        assert resp.detection_count == 0
+        assert resp.malware_families == []
+
+    # ThreatFox returns data: [None] -> should be benign, NOT malicious!
+    with patch.object(provider, "_execute_post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = {"query_status": "ok", "data": [None]}
+        resp = await provider.lookup("1.1.1.1", ThreatIndicatorType.IPV4)
+        assert resp.risk_score == 0.0
+        assert resp.is_malicious is False
+        assert resp.detection_count == 0
+        assert resp.malware_families == []
+
 
 @pytest.mark.asyncio
 async def test_abusech_indicator_whitespace_and_hash_normalization() -> None:

@@ -321,3 +321,51 @@ async def test_circuit_breaker_half_open_concurrency_probe_limit() -> None:
     assert res1 == "recovered"
     assert res2 == "recovered"
     assert cb.state == CircuitState.CLOSED
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_state_property_does_not_reset_active_probes() -> None:
+    """Assert that accessing cb.state property during HALF-OPEN probing does NOT reset cb._active_probes."""
+    cb = CircuitBreaker(
+        name="test-probe-preservation",
+        failure_threshold=1,
+        recovery_threshold=3,
+        recovery_timeout=0.05,
+        timeout=1.0,
+    )
+
+    async def fail_task() -> None:
+        raise ConnectionError("down")
+
+    with pytest.raises(ConnectionError):
+        await cb.call(fail_task)
+    assert cb._state == CircuitState.OPEN
+
+    # Wait for recovery timeout
+    await asyncio.sleep(0.08)
+
+    started_probe = asyncio.Event()
+    continue_probe = asyncio.Event()
+
+    async def in_flight_probe() -> str:
+        started_probe.set()
+        await continue_probe.wait()
+        return "success"
+
+    probe_task = asyncio.create_task(cb.call(in_flight_probe))
+    await started_probe.wait()
+
+    # Active probe is in-flight under HALF-OPEN
+    assert cb._active_probes == 1
+    assert cb._state == CircuitState.HALF_OPEN
+
+    # Read state property multiple times
+    for _ in range(5):
+        assert cb.state == CircuitState.HALF_OPEN
+        # Active probes counter must NOT be reset by property access!
+        assert cb._active_probes == 1
+
+    continue_probe.set()
+    res = await probe_task
+    assert res == "success"
+

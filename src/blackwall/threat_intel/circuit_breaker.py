@@ -75,19 +75,30 @@ class CircuitBreaker:
 
     @property
     def state(self) -> CircuitState:
-        """Current state of the circuit breaker with automatic HALF-OPEN transition."""
+        """Current state of the circuit breaker (read-only projection).
+
+        Returns HALF-OPEN if the recovery timeout has elapsed while OPEN,
+        without mutating internal state or probe counters outside the lock.
+        """
+        if self._state == CircuitState.OPEN:
+            if time.monotonic() - self.last_state_change > self.recovery_timeout:
+                return CircuitState.HALF_OPEN
+        return self._state
+
+    def _update_state_unlocked(self) -> None:
+        """Internal helper to transition state under self._lock."""
         if self._state == CircuitState.OPEN:
             if time.monotonic() - self.last_state_change > self.recovery_timeout:
                 self._state = CircuitState.HALF_OPEN
                 self.successful_probes = 0
                 self._active_probes = 0
                 logger.info("Circuit breaker %s transitioned to HALF-OPEN", self.name)
-        return self._state
 
     def record_success(self) -> None:
         """Record a successful provider operation."""
         self.consecutive_failures = 0
-        if self.state == CircuitState.HALF_OPEN:
+        self._update_state_unlocked()
+        if self._state == CircuitState.HALF_OPEN:
             self.successful_probes += 1
             if self.successful_probes >= self.recovery_threshold:
                 self._state = CircuitState.CLOSED
@@ -102,8 +113,9 @@ class CircuitBreaker:
 
     def record_failure(self, exception: Optional[Exception] = None) -> None:
         """Record a failed provider operation or timeout."""
+        self._update_state_unlocked()
         self.consecutive_failures += 1
-        current_state = self.state
+        current_state = self._state
 
         if current_state == CircuitState.HALF_OPEN or self.consecutive_failures >= self.failure_threshold:
             self._state = CircuitState.OPEN
@@ -127,7 +139,8 @@ class CircuitBreaker:
         import inspect
 
         async with self._lock:
-            current_state = self.state
+            self._update_state_unlocked()
+            current_state = self._state
             if current_state == CircuitState.OPEN:
                 raise CircuitBreakerOpenError(
                     f"Circuit breaker for {self.name} is OPEN (cooldown: {self.recovery_timeout}s)"
