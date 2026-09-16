@@ -81,9 +81,10 @@ async def test_orchestrator_cache_first_short_circuit(
         is_malicious=True,
         risk_score=0.95,
         malware_families=["Lumma"],
-        provider_name="otx",
+        provider_name="aggregate",
     )
     await temp_repo.cache_threat_intel(cached_payload)
+
 
     # Lookup should return cached result in < 1ms without hitting provider
     start = time.monotonic()
@@ -326,5 +327,95 @@ async def test_orchestrator_clear_cache(temp_repo: SQLiteThreatRepository) -> No
     deleted = await orchestrator.clear_cache(expired_only=False)
     assert deleted >= 1
 
+
     cleared = await temp_repo.get_cached_threat_intel("10.0.0.1", "IPV4")
     assert cleared is None
+
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_does_not_cache_outages(
+    temp_repo: SQLiteThreatRepository,
+) -> None:
+    class AlwaysFailingProvider:
+        name = "otx"
+        supported_indicators = {ThreatIndicatorType.IPV4}
+
+        async def lookup(
+            self, indicator: str, indicator_type: ThreatIndicatorType, timeout: float = 3.0
+        ) -> ThreatIntelResponse:
+            raise ConnectionError("Service down")
+
+        async def is_healthy(self) -> bool:
+            return False
+
+        def get_remaining_budget(self) -> int:
+            return 0
+
+    orchestrator = ThreatIntelOrchestrator(
+        repository=temp_repo,
+        primary_provider=AlwaysFailingProvider(),  # type: ignore
+        secondary_providers=[],
+        cache_enabled=True,
+    )
+
+    resp = await orchestrator.lookup("198.51.100.88", ThreatIndicatorType.IPV4)
+    assert resp.error is not None
+
+    # Verify that outage was NOT cached as benign
+    cached = await temp_repo.get_cached_threat_intel(
+        "198.51.100.88", ThreatIndicatorType.IPV4.value, provider="aggregate"
+    )
+    assert cached is None
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_cache_scoping_isolation(
+    temp_repo: SQLiteThreatRepository,
+) -> None:
+    otx_resp = ThreatIntelResponse(
+        indicator="198.51.100.77",
+        indicator_type=ThreatIndicatorType.IPV4,
+        is_malicious=True,
+        risk_score=0.9,
+        provider_name="otx",
+    )
+    otx = MockProvider(
+        name="otx",
+        supported_indicators={ThreatIndicatorType.IPV4},
+        default_response=otx_resp,
+    )
+    abuseipdb = MockProvider(
+        name="abuseipdb",
+        supported_indicators={ThreatIndicatorType.IPV4},
+        default_response=ThreatIntelResponse(
+            indicator="198.51.100.77",
+            indicator_type=ThreatIndicatorType.IPV4,
+            is_malicious=False,
+            risk_score=0.0,
+            provider_name="abuseipdb",
+        ),
+    )
+
+    orchestrator = ThreatIntelOrchestrator(
+        repository=temp_repo,
+        primary_provider=otx,
+        secondary_providers=[abuseipdb],
+        cache_enabled=True,
+    )
+
+    # 1. Generic multi-provider lookup caches under "aggregate"
+    agg = await orchestrator.lookup("198.51.100.77", ThreatIndicatorType.IPV4)
+    assert agg.risk_score == 0.9
+    assert otx.call_count == 1
+    assert abuseipdb.call_count == 1
+
+    # 2. Explicit lookup for "abuseipdb" should NOT return the generic "aggregate" cache
+    # It queries the abuseipdb provider directly
+    single = await orchestrator.lookup(
+        "198.51.100.77", ThreatIndicatorType.IPV4, provider="abuseipdb"
+    )
+    assert single.risk_score == 0.0
+    assert single.provider_name == "abuseipdb"
+    assert abuseipdb.call_count == 2
+

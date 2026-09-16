@@ -32,6 +32,37 @@ class AbuseChLookupError(AbuseChError):
     pass
 
 
+class AbuseChRateLimitError(AbuseChError):
+    """Exception raised when abuse.ch rate limits are encountered."""
+
+    pass
+
+
+def _sanitize_indicator_for_log(
+    indicator: str, indicator_type: ThreatIndicatorType
+) -> str:
+    """Sanitize indicator to prevent credentials or secret tokens from leaking into logs."""
+    if indicator_type == ThreatIndicatorType.URL or "://" in indicator:
+        try:
+            import hashlib
+            import urllib.parse
+
+            parsed = urllib.parse.urlsplit(indicator)
+            netloc = parsed.hostname or ""
+            if parsed.port:
+                netloc = f"{netloc}:{parsed.port}"
+            query = "[REDACTED]" if parsed.query else ""
+            fragment = "[REDACTED]" if parsed.fragment else ""
+            return urllib.parse.urlunsplit(
+                (parsed.scheme, netloc, parsed.path, query, fragment)
+            )
+        except Exception:
+            import hashlib
+
+            return hashlib.sha256(indicator.encode("utf-8")).hexdigest()[:16]
+    return indicator
+
+
 class AbuseChProvider:
     """abuse.ch multi-feed threat intelligence provider."""
 
@@ -43,6 +74,7 @@ class AbuseChProvider:
         ThreatIndicatorType.URL,
         ThreatIndicatorType.FILE_HASH,
     }
+
 
     THREATFOX_URL = "https://threatfox-api.abuse.ch/api/v1/"
     URLHAUS_URL = "https://urlhaus-api.abuse.ch/v1/url/"
@@ -126,15 +158,26 @@ class AbuseChProvider:
 
                 async with session.post(url, **kwargs) as response:
                     if response.status == 429:
-                        logger.warning("abuse.ch rate limit encountered (HTTP 429)")
-                        return {"query_status": "rate_limited"}
+                        raise AbuseChRateLimitError(
+                            "abuse.ch rate limit encountered (HTTP 429)"
+                        )
                     if response.status >= 400:
                         raise ConnectionError(
                             f"abuse.ch API returned HTTP error: {response.status}"
                         )
-                    return await response.json()
+                    json_res = await response.json()
+                    if isinstance(json_res, dict):
+                        q_status = json_res.get("query_status", "")
+                        if q_status in ("rate_limited", "rate_limit"):
+                            raise AbuseChRateLimitError(
+                                f"abuse.ch API returned rate limit status: {q_status}"
+                            )
+                    return json_res
+        except AbuseChRateLimitError:
+            raise
         except Exception as e:
             raise ConnectionError(f"HTTP request to abuse.ch failed: {e}") from e
+
 
     async def _lookup_threatfox(
         self, indicator: str, indicator_type: ThreatIndicatorType, timeout: float
@@ -351,6 +394,7 @@ class AbuseChProvider:
         if indicator_type not in self.supported_indicators:
             raise ValueError(f"Unsupported indicator type: {indicator_type}")
 
+        sanitized = _sanitize_indicator_for_log(indicator, indicator_type)
         try:
             if indicator_type == ThreatIndicatorType.URL:
                 return await self._lookup_urlhaus(indicator, indicator_type, timeout)
@@ -358,6 +402,14 @@ class AbuseChProvider:
                 return await self._lookup_malwarebazaar(indicator, indicator_type, timeout)
             else:
                 return await self._lookup_threatfox(indicator, indicator_type, timeout)
+        except AbuseChRateLimitError as e:
+            logger.warning("abuse.ch rate limit exceeded for %s: %s", sanitized, e)
+            raise AbuseChLookupError(
+                f"abuse.ch rate limit exceeded for {sanitized}: {e}"
+            ) from e
         except Exception as e:
-            logger.warning("abuse.ch lookup failed for %s: %s", indicator, e)
-            raise AbuseChLookupError(f"abuse.ch lookup failed for {indicator}: {e}") from e
+            logger.warning("abuse.ch lookup failed for %s: %s", sanitized, e)
+            raise AbuseChLookupError(
+                f"abuse.ch lookup failed for {sanitized}: {e}"
+            ) from e
+

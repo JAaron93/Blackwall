@@ -8,7 +8,9 @@ from blackwall.threat_intel.abusech import (
     AbuseChError,
     AbuseChLookupError,
     AbuseChProvider,
+    AbuseChRateLimitError,
 )
+
 from blackwall.threat_intel.abuseipdb import (
     AbuseIPDBError,
     AbuseIPDBLookupError,
@@ -35,7 +37,9 @@ __all__ = [
     "AbuseChError",
     "AbuseChLookupError",
     "AbuseChProvider",
+    "AbuseChRateLimitError",
     "AbuseIPDBError",
+
     "AbuseIPDBLookupError",
     "AbuseIPDBProvider",
     "AbuseIPDBRateLimitError",

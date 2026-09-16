@@ -6,7 +6,9 @@ import pytest
 from blackwall.threat_intel.abusech import (
     AbuseChLookupError,
     AbuseChProvider,
+    AbuseChRateLimitError,
 )
+
 from blackwall.threat_intel.models import (
     ThreatIndicatorType,
     ThreatIntelProvider,
@@ -195,7 +197,32 @@ async def test_abusech_rate_limit_and_error_handling() -> None:
     provider = AbuseChProvider(auth_key="test-key")
 
     with patch.object(
-        provider, "_execute_post", side_effect=ConnectionError("Abuse.ch connection reset")
+        provider, "_execute_post", side_effect=AbuseChRateLimitError("Rate limit 429")
     ):
-        with pytest.raises(AbuseChLookupError):
+        with pytest.raises(AbuseChLookupError, match="rate limit"):
             await provider.lookup("test-c2.com", ThreatIndicatorType.DOMAIN)
+
+
+@pytest.mark.asyncio
+async def test_abusech_url_credential_sanitization_in_errors(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    provider = AbuseChProvider(auth_key="test-key")
+    sensitive_url = "https://admin:supersecret@malicious-c2.xyz/payload.bin?api_key=secrettoken#fragment"
+
+    with patch.object(
+        provider, "_execute_post", side_effect=ConnectionError("Failed connection")
+    ):
+        with pytest.raises(AbuseChLookupError) as exc_info:
+            await provider.lookup(sensitive_url, ThreatIndicatorType.URL)
+
+        # Assert credentials and tokens are redacted from exception message
+        err_msg = str(exc_info.value)
+        assert "supersecret" not in err_msg
+        assert "secrettoken" not in err_msg
+        assert "[REDACTED]" in err_msg
+
+        # Assert credentials and tokens are redacted from logs
+        assert "supersecret" not in caplog.text
+        assert "secrettoken" not in caplog.text
+

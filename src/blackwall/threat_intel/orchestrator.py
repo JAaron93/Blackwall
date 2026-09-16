@@ -24,6 +24,15 @@ from blackwall.threat_intel.otx import AlienVaultOTXProvider
 logger = logging.getLogger("blackwall.threat_intel.orchestrator")
 
 
+def _wrap_provider(
+    provider: ThreatIntelProvider, timeout: float
+) -> ThreatIntelProvider:
+    """Wraps provider in CircuitBreakerProvider if not already wrapped."""
+    if isinstance(provider, CircuitBreakerProvider):
+        return provider
+    return CircuitBreakerProvider(provider, timeout=timeout)
+
+
 class ThreatIntelOrchestrator:
     """Multi-provider Threat Intelligence Orchestrator with cache-first resolution."""
 
@@ -34,7 +43,7 @@ class ThreatIntelOrchestrator:
         secondary_providers: Optional[List[ThreatIntelProvider]] = None,
         cache_enabled: bool = True,
         timeout: float = 3.0,
-        wrap_circuit_breaker: bool = False,
+        wrap_circuit_breaker: bool = True,
     ) -> None:
         self.repository = repository
         self.cache_enabled = cache_enabled
@@ -42,23 +51,21 @@ class ThreatIntelOrchestrator:
 
         if primary_provider is not None:
             self.primary_provider = (
-                CircuitBreakerProvider(primary_provider, timeout=timeout)
+                _wrap_provider(primary_provider, timeout)
                 if wrap_circuit_breaker
                 else primary_provider
             )
         else:
             otx = AlienVaultOTXProvider()
             self.primary_provider = (
-                CircuitBreakerProvider(otx, timeout=timeout)
+                _wrap_provider(otx, timeout)
                 if wrap_circuit_breaker
                 else otx
             )
 
         if secondary_providers is not None:
             self.secondary_providers: List[ThreatIntelProvider] = [
-                CircuitBreakerProvider(p, timeout=timeout)
-                if wrap_circuit_breaker
-                else p
+                _wrap_provider(p, timeout) if wrap_circuit_breaker else p
                 for p in secondary_providers
             ]
         else:
@@ -68,7 +75,7 @@ class ThreatIntelOrchestrator:
                 abuseipdb = AbuseIPDBProvider()
                 if abuseipdb.api_key:
                     self.secondary_providers.append(
-                        CircuitBreakerProvider(abuseipdb, timeout=timeout)
+                        _wrap_provider(abuseipdb, timeout)
                         if wrap_circuit_breaker
                         else abuseipdb
                     )
@@ -78,7 +85,7 @@ class ThreatIntelOrchestrator:
             try:
                 abusech = AbuseChProvider()
                 self.secondary_providers.append(
-                    CircuitBreakerProvider(abusech, timeout=timeout)
+                    _wrap_provider(abusech, timeout)
                     if wrap_circuit_breaker
                     else abusech
                 )
@@ -124,6 +131,7 @@ class ThreatIntelOrchestrator:
     ) -> ThreatIntelResponse:
         """Looks up threat intelligence for an indicator across providers with caching."""
         effective_timeout = timeout if timeout is not None else self.timeout
+        cache_provider = provider if provider else "aggregate"
 
         # Step 1: Cache check (< 1ms fast path)
         if self.cache_enabled and not no_cache and self.repository is not None:
@@ -133,10 +141,14 @@ class ThreatIntelOrchestrator:
                 else str(indicator_type)
             )
             cached_resp = await self.repository.get_cached_threat_intel(
-                indicator, ind_type_str, provider=provider
+                indicator, ind_type_str, provider=cache_provider
             )
             if cached_resp is not None:
-                logger.debug("Threat intel cache hit for %s", indicator)
+                logger.debug(
+                    "Threat intel cache hit for %s (provider=%s)",
+                    indicator,
+                    cache_provider,
+                )
                 return cached_resp
 
         # Step 2: Determine applicable providers
@@ -178,36 +190,40 @@ class ThreatIntelOrchestrator:
                     "Threat intel provider lookup failed for %s: %s", indicator, r
                 )
 
-        if not valid_responses:
+        # Step 4: Multi-source score aggregation
+        non_error_responses = [r for r in valid_responses if not r.error]
+        if not non_error_responses:
+            error_details = "; ".join(
+                [r.error for r in valid_responses if r.error]
+            ) or "All threat intelligence providers failed or timed out"
+            logger.warning(
+                "Threat intel resolution failed for %s: %s", indicator, error_details
+            )
+            # Propagate error response; DO NOT cache this outage response as benign!
             return ThreatIntelResponse(
                 indicator=indicator,
                 indicator_type=indicator_type,
                 is_malicious=False,
                 risk_score=0.0,
-                provider_name="none",
-                error="All threat intelligence providers failed or timed out",
+                provider_name=cache_provider,
+                error=error_details,
+                cached=False,
             )
 
-        # Step 4: Multi-source score aggregation
-        non_error_responses = [r for r in valid_responses if not r.error]
-        effective_responses = (
-            non_error_responses if non_error_responses else valid_responses
-        )
-
-        max_risk = max(r.risk_score for r in effective_responses)
-        is_malicious = any(r.is_malicious for r in effective_responses) or (
+        max_risk = max(r.risk_score for r in non_error_responses)
+        is_malicious = any(r.is_malicious for r in non_error_responses) or (
             max_risk >= 0.25
         )
-        detection_count = max(r.detection_count for r in effective_responses)
-        total_engines = max(r.total_engines for r in effective_responses)
-        pulse_count = max(r.pulse_count for r in effective_responses)
+        detection_count = max(r.detection_count for r in non_error_responses)
+        total_engines = max(r.total_engines for r in non_error_responses)
+        pulse_count = max(r.pulse_count for r in non_error_responses)
 
         categories: Set[str] = set()
         malware_families: Set[str] = set()
         references: List[str] = []
         provider_names: Set[str] = set()
 
-        for r in effective_responses:
+        for r in non_error_responses:
             categories.update(r.threat_categories)
             malware_families.update(r.malware_families)
             for ref in r.references:
@@ -216,11 +232,13 @@ class ThreatIntelOrchestrator:
             if r.provider_name:
                 provider_names.add(r.provider_name)
 
-        if len(provider_names) == 1:
+        if provider:
+            provider_name = provider
+        elif len(provider_names) == 1:
             provider_name = next(iter(provider_names))
         else:
             highest_provider = max(
-                effective_responses, key=lambda x: x.risk_score
+                non_error_responses, key=lambda x: x.risk_score
             ).provider_name
             provider_name = highest_provider or ", ".join(sorted(provider_names))
 
@@ -239,12 +257,18 @@ class ThreatIntelOrchestrator:
             cached=False,
         )
 
-        # Step 5: Cache resolved results asynchronously
-        if self.cache_enabled and not no_cache and self.repository is not None:
-            # 6h TTL for malicious, 24h TTL for benign
+        # Step 5: Cache resolved results asynchronously (ONLY for valid, non-outage responses)
+        if (
+            self.cache_enabled
+            and not no_cache
+            and self.repository is not None
+            and not aggregated.error
+        ):
             ttl = 21600.0 if aggregated.is_malicious else 86400.0
             try:
-                await self.repository.cache_threat_intel(aggregated, ttl_seconds=ttl)
+                to_cache = aggregated.model_copy()
+                to_cache.provider_name = cache_provider
+                await self.repository.cache_threat_intel(to_cache, ttl_seconds=ttl)
             except Exception as e:
                 logger.warning(
                     "Failed caching threat intel response for %s: %s", indicator, e
@@ -263,3 +287,4 @@ class ThreatIntelOrchestrator:
             async with self.repository.pool.connection() as conn:
                 cursor = await conn.execute("DELETE FROM threat_intel_cache")
                 return cursor.rowcount
+
