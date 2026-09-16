@@ -146,7 +146,7 @@ Structural Layer (Fast Path)              Semantic Layer (Deep Triage)
 
 ### 3. **Zero Ambient Authority**
 Operating on the principle that **no agent process should ever possess ambient authority to execute OS syscalls directly**:
-- **Runtime Audit Hooks (`sys.addaudithook`):** Intercepts low-level interpreter events (`subprocess.Popen`, `socket.connect`, `os.system`, `pty.spawn`) and raises an uncatchable `PermissionError` before execution reaches the OS kernel.
+- **Runtime Audit Hooks (`sys.addaudithook`):** Intercepts low-level interpreter events (`subprocess.Popen`, `socket.connect`, `os.system`, `pty.spawn`) and raises a `PermissionError` before execution reaches the OS kernel. The process-wide audit-hook registration is irreversible, while callers can catch the exception and handle the denied operation.
 - **Inescapable Tool Boundary:** Rogue or hijacked agents are physically constrained to route operations through registered ADK tool interfaces (`execute_bash`, `http_request`, `write_file`).
 - **Pre-Execution Interception:** Once constrained to the tool layer, Blackwall's `before_tool_callback` (and local MCP proxy) evaluates intent *before* any tool executes.
 - **Unprivileged Daemon Execution:** Blackwall drops root/administrator privileges upon initialization, running strictly under an unprivileged service account. Detailed implementation in [ARCHITECTURE.md](ARCHITECTURE.md#architectural-mission--philosophy).
@@ -175,7 +175,7 @@ Rogue Agent retries: ToolCallContext(tool="http_request", args=["http://192.168.
   ↓ Layer 4: GTI MCP
     VirusTotal: 192.168.1.100 flagged as C2 beacon infrastructure ⚠️
   ↓ Layer 5: Semantic Gating
-    Threat score: GTI=0.95 + CBM=0.5 + Context=0.6 = 0.72 → BLOCK ❌
+    Threat score: GTI=0.95 + CBM=0.5 + Context=0.6 = 0.71 → QUARANTINE ⚠️
 
 Learning: Threat signature written to SQLite
   * Attack pattern: IP + port 8080 + POST /api/beacon
@@ -246,13 +246,13 @@ F1 Score (Malicious):      96.1%
 | **Batching** | None (1 req / interception) | Yes (up to 5 reqs / batch) |
 | **Rate Limit** | 300 RPM (token bucket) | 300 RPM (token bucket) |
 | **Context Caching** | None | Server-side (`previous_interaction_id`) |
-| **GTI / CBM Queries** | Serial | Parallel (`asyncio.gather`) |
-| **Signature Generation** | Inline blocking (~200–500ms) | Background via webhook (0ms added latency) |
+| **GTI / CBM Queries** | Awaits CBM, then conditionally awaits GTI (high-risk only) | Batched API evaluation without inline MCP gather |
+| **Signature Generation** | Asynchronous background task (`loop.create_task`) | Asynchronous background task / webhook |
 | **Billing Mode** | 100% GCP Vertex AI Mode (Paid Tier) | 100% GCP Vertex AI Mode (Paid Tier) |
 
 ### Three-Tier Evaluation Model
 - **Tier 1: Structural Gating** (<5ms, deterministic): In-memory YAML policy evaluation without LLM calls. Returns `ALLOW`, `BLOCK`, or `ESCALATE`.
-- **Tier 2: Rapid Semantic Triage** (<100ms @ P99, Gemini 3.5 Flash-Lite): Parallel GTI MCP (VirusTotal IOCs) and codebase-memory MCP queries with structured Pydantic output.
+- **Tier 2: Rapid Semantic Triage** (<100ms @ P99, Gemini 3.5 Flash-Lite): CBM AST analysis with conditional GTI MCP queries for high-risk indicators, evaluated via Gemini 3.5 Flash-Lite with structured Pydantic output.
 - **Tier 3: Deep Reasoning** (Background, non-blocking, Gemini 3.8 Flash): Asynchronous behavioral analysis and threat signature synthesis triggered after `BLOCK`/`QUARANTINE` verdicts. Zero added latency to the execution path.
 
 ---

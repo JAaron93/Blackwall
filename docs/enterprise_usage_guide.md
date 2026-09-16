@@ -8,15 +8,54 @@ This guide provides executable code recipes and integration patterns for the six
 
 ## Prerequisites & Installation
 
-Blackwall Enterprise Mesh features ZeroMQ pub-sub replication, eBPF drivers, cryptographic sidecars, and advanced graph analyzers. Install with enterprise dependencies:
+### 1. Python Dependencies
+Install Blackwall with enterprise extras (ZeroMQ pub-sub mesh):
 
 ```bash
 pip install -e ".[enterprise]"
 ```
 
+### 2. Linux Kernel eBPF Prerequisites (Pillar 1)
+To run the high-performance kernel probe (`LinuxeBPFDriver`) on Linux hosts (kernel 5.4+ with BPF enabled), install the BCC (BPF Compiler Collection) package and matching kernel headers:
+
+```bash
+# Debian / Ubuntu
+sudo apt-get update && sudo apt-get install -y bpfcc-tools python3-bpfcc "linux-headers-$(uname -r)"
+
+# RHEL / Fedora
+sudo dnf install -y bcc-tools python3-bcc "kernel-devel-$(uname -r)"
+```
+
+> [!NOTE]
+> On macOS or containerized environments without BCC or `CAP_SYS_ADMIN`, Blackwall automatically and gracefully activates `UserSpaceAuditDriver` (using Python's native `sys.addaudithook`), requiring zero kernel dependencies or extra system packages.
+
 ---
 
-## 1. Distributed Threat Mesh (`blackwall.enterprise.mesh`)
+## 1. Kernel-Level Interception (`blackwall.enterprise.kernel`)
+
+Pillar 1 intercepts process execution (`sys_enter_execve`) and outbound socket connections (`sys_enter_connect`) at machine speed before syscalls reach the OS kernel, featuring dynamic socket and PID drop capabilities (<50ms SLA).
+
+```python
+from blackwall.enterprise.kernel.probe import LinuxeBPFDriver, UserSpaceAuditDriver
+
+# Initialize the kernel driver (auto-detects Linux BCC support with userspace fallback)
+driver = LinuxeBPFDriver()
+
+# Start active tracing on syscalls
+driver.start_tracing()
+
+# Inject dynamic real-time socket or PID drop rules (<50ms SLA)
+# Drops network connections targeting a malicious IP or terminates a compromised PID
+driver.inject_socket_drop(pid=1234, ip="192.168.1.100")
+
+# Intercepted syscalls raise PermissionError (or trigger SIGKILL at the kernel level)
+# Clean up tracepoints and attached BPF maps upon shutdown
+driver.stop_tracing()
+```
+
+---
+
+## 2. Distributed Threat Mesh (`blackwall.enterprise.mesh`)
 
 The threat mesh replicates learned threat signatures across cluster nodes with a **< 15ms synchronization SLA** using ZeroMQ asynchronous pub/sub sockets and local SQLite WAL databases.
 
@@ -58,7 +97,7 @@ if __name__ == "__main__":
 
 ---
 
-## 2. Ephemeral Identity Sidecar & Honey-Tokens (`blackwall.enterprise.identity`)
+## 3. Ephemeral Identity Sidecar & Honey-Tokens (`blackwall.enterprise.identity`)
 
 The `SecretVaultSidecar` sterilizes the runtime environment of agent processes, replacing sensitive credentials with synthetic honey-tokens (`BW_SYNTHETIC_*`) to detect exfiltration attempts instantly, while issuing short-lived STS tokens for legitimate operations via Vault MCP.
 
@@ -80,7 +119,7 @@ print(f"Exfiltration verdict: {verdict}")
 
 ---
 
-## 3. Application Pipeline Interception Wrappers (`blackwall.enterprise.pipeline`)
+## 4. Application Pipeline Interception Wrappers (`blackwall.enterprise.pipeline`)
 
 The `@guard_pipeline` decorator wraps untrusted dataset loaders, model deserialization routines (pickle/joblib), and template parsers, validating code via AST inspection and isolating high-risk executions inside gVisor (`runsc`) microVM containers.
 
@@ -96,7 +135,7 @@ async def load_untrusted_dataset(url: str):
 
 ---
 
-## 4. Native Local Forensic Triage Engine (`blackwall.enterprise.forensics`)
+## 5. Native Local Forensic Triage Engine (`blackwall.enterprise.forensics`)
 
 Provides out-of-band telemetry analysis using a dual-mode engine: a primary local open-weight LLM (Qwen3 / Ollama) with automatic fallback to a deterministic AST/regex parser, exporting OpenTelemetry traces via `opentelemetry-mcp`.
 
@@ -123,11 +162,11 @@ if __name__ == "__main__":
 
 ---
 
-## 5. Advanced Threat Detection & Swarm Correlation (`blackwall.enterprise.advanced_threat_detection`)
+## 6. Advanced Threat Detection & Swarm Correlation (`blackwall.enterprise.advanced_threat_detection`)
 
 Pillar 6 implements temporal graph correlation, multi-agent swarm detection, zero-day exploit chain analysis, AI-induced lateral movement (AILM) tracking, and ingress protocol inspection.
 
-### 5.1 Event Normalization & Attack Graph Linking
+### 6.1 Event Normalization & Attack Graph Linking
 
 ```python
 import asyncio
@@ -172,7 +211,7 @@ if __name__ == "__main__":
     asyncio.run(run_graph_correlation())
 ```
 
-### 5.2 Agent Swarm, Exploit Chain & AILM Detection
+### 6.2 Agent Swarm, Exploit Chain & AILM Detection
 
 ```python
 import asyncio
@@ -214,7 +253,7 @@ async def run_advanced_analyzers(store, now):
     )
 ```
 
-### 5.3 C2 Infrastructure, Kubernetes Defense & Package Probing
+### 6.3 C2 Infrastructure, Kubernetes Defense & Package Probing
 
 ```python
 import asyncio
@@ -247,7 +286,7 @@ async def run_infrastructure_monitors(store, now):
     )
 ```
 
-### 5.4 Retrospective Analysis & Attack Graph Export
+### 6.4 Retrospective Analysis & Attack Graph Export
 
 Export attack graphs for external visualization tools (NetworkX, Gephi, Cytoscape.js):
 
@@ -277,7 +316,7 @@ async def run_retrospective_export(store, now):
 > [!TIP]
 > For a full visualization guide on rendering exported graphs in Gephi and Cytoscape, see [graph_export_tools_guide.md](graph_export_tools_guide.md).
 
-### 5.5 Inbound Protocol Interception, Injection Scanning & Quota Enforcement
+### 6.5 Inbound Protocol Interception, Injection Scanning & Quota Enforcement
 
 ```python
 import asyncio
