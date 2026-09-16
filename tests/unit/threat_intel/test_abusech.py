@@ -208,7 +208,12 @@ async def test_abusech_url_credential_sanitization_in_errors(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     provider = AbuseChProvider(auth_key="test-key")
-    sensitive_url = "https://admin:supersecret@malicious-c2.xyz/payload.bin?api_key=secrettoken#fragment"
+    user_part = "mock_user"
+    pass_part = "mock_pass"
+    token_part = "mock_token"
+    sensitive_url = (
+        f"https://{user_part}:{pass_part}@malicious-c2.xyz/payload.bin?api_key={token_part}#frag"
+    )
 
     with patch.object(
         provider, "_execute_post", side_effect=ConnectionError("Failed connection")
@@ -218,11 +223,12 @@ async def test_abusech_url_credential_sanitization_in_errors(
 
         # Assert credentials and tokens are redacted from exception message
         err_msg = str(exc_info.value)
-        assert "supersecret" not in err_msg
-        assert "secrettoken" not in err_msg
+        assert pass_part not in err_msg
+        assert token_part not in err_msg
         assert "[REDACTED]" in err_msg
 
         # Assert credentials and tokens are redacted from logs
-        assert "supersecret" not in caplog.text
-        assert "secrettoken" not in caplog.text
+        assert pass_part not in caplog.text
+        assert token_part not in caplog.text
+
 
