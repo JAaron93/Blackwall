@@ -131,9 +131,34 @@ class ThreatIntelOrchestrator:
     ) -> ThreatIntelResponse:
         """Looks up threat intelligence for an indicator across providers with caching."""
         effective_timeout = timeout if timeout is not None else self.timeout
-        cache_provider = provider if provider else "aggregate"
 
-        # Step 1: Cache check (< 1ms fast path)
+        # Step 1: Determine applicable providers and normalize cache scope
+
+        if provider:
+            target_provider = self.get_provider(provider)
+            if not target_provider:
+                raise ValueError(f"Unknown threat intel provider: {provider}")
+            if indicator_type not in target_provider.supported_indicators:
+                raise ValueError(
+                    f"Provider {provider} does not support indicator type {indicator_type}"
+                )
+            cache_provider = target_provider.name
+            active_providers = [target_provider]
+        else:
+            cache_provider = "aggregate"
+            active_providers = []
+            if indicator_type in self.primary_provider.supported_indicators:
+                active_providers.append(self.primary_provider)
+            for sec in self.secondary_providers:
+                if indicator_type in sec.supported_indicators:
+                    active_providers.append(sec)
+
+            if not active_providers:
+                raise ValueError(
+                    f"No configured provider supports indicator type {indicator_type}"
+                )
+
+        # Step 2: Cache check (< 1ms fast path)
         if self.cache_enabled and not no_cache and self.repository is not None:
             ind_type_str = (
                 indicator_type.value
@@ -151,30 +176,8 @@ class ThreatIntelOrchestrator:
                 )
                 return cached_resp
 
-        # Step 2: Determine applicable providers
-        if provider:
-            target_provider = self.get_provider(provider)
-            if not target_provider:
-                raise ValueError(f"Unknown threat intel provider: {provider}")
-            if indicator_type not in target_provider.supported_indicators:
-                raise ValueError(
-                    f"Provider {provider} does not support indicator type {indicator_type}"
-                )
-            active_providers = [target_provider]
-        else:
-            active_providers = []
-            if indicator_type in self.primary_provider.supported_indicators:
-                active_providers.append(self.primary_provider)
-            for sec in self.secondary_providers:
-                if indicator_type in sec.supported_indicators:
-                    active_providers.append(sec)
-
-            if not active_providers:
-                raise ValueError(
-                    f"No configured provider supports indicator type {indicator_type}"
-                )
-
         # Step 3: Query providers concurrently
+
         tasks = [
             p.lookup(indicator, indicator_type, timeout=effective_timeout)
             for p in active_providers

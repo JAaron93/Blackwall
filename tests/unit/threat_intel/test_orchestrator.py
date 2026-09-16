@@ -419,3 +419,40 @@ async def test_orchestrator_cache_scoping_isolation(
     assert single.provider_name == "abuseipdb"
     assert abuseipdb.call_count == 2
 
+
+@pytest.mark.asyncio
+async def test_orchestrator_provider_name_case_normalization_in_cache(
+    temp_repo: SQLiteThreatRepository,
+) -> None:
+    otx = MockProvider(
+        name="otx",
+        supported_indicators={ThreatIndicatorType.IPV4},
+        default_response=ThreatIntelResponse(
+            indicator="198.51.100.55",
+            indicator_type=ThreatIndicatorType.IPV4,
+            is_malicious=False,
+            risk_score=0.0,
+            provider_name="otx",
+        ),
+    )
+    orchestrator = ThreatIntelOrchestrator(
+        repository=temp_repo,
+        primary_provider=otx,
+        cache_enabled=True,
+    )
+
+    # First lookup with uppercase 'OTX'
+    res1 = await orchestrator.lookup(
+        "198.51.100.55", ThreatIndicatorType.IPV4, provider="OTX"
+    )
+    assert res1.cached is False
+    assert otx.call_count == 1
+
+    # Second lookup with lowercase 'otx' hits normalized cache
+    res2 = await orchestrator.lookup(
+        "198.51.100.55", ThreatIndicatorType.IPV4, provider="otx"
+    )
+    assert res2.cached is True
+    assert otx.call_count == 1
+
+
