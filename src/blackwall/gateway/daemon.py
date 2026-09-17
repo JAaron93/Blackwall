@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -40,7 +41,11 @@ def read_pid_file(pid_path: Path | str) -> int | None:
         content = path.read_text(encoding="utf-8").strip()
         if not content:
             return None
-        return int(content)
+        val = int(content)
+        if val <= 0:
+            logger.warning("Invalid non-positive PID %d in PID file '%s'", val, path)
+            return None
+        return val
     except (ValueError, OSError) as exc:
         logger.warning("Failed reading PID file '%s': %s", path, exc)
         return None
@@ -92,19 +97,24 @@ def is_blackwall_process(pid: int) -> bool:
     if pid <= 0:
         return False
 
-    cmdline: str | None = None
+    raw_args: list[str] | None = None
 
     # 1. Linux /proc/<pid>/cmdline check
     proc_cmdline = Path(f"/proc/{pid}/cmdline")
     try:
         if proc_cmdline.exists():
             raw_bytes = proc_cmdline.read_bytes()
-            cmdline = raw_bytes.decode(errors="replace").replace("\x00", " ")
+            if not raw_bytes:
+                # Defunct process or kernel thread on Linux -> not Blackwall
+                return False
+            parts = [p.decode(errors="replace") for p in raw_bytes.split(b"\x00") if p]
+            if parts:
+                raw_args = parts
     except (OSError, PermissionError):
-        cmdline = None
+        raw_args = None
 
     # 2. POSIX 'ps' fallback (macOS, BSD, or if /proc unavailable)
-    if not cmdline:
+    if not raw_args:
         try:
             res = subprocess.run(
                 ["ps", "-p", str(pid), "-o", "command="],
@@ -114,14 +124,31 @@ def is_blackwall_process(pid: int) -> bool:
                 check=False,
             )
             if res.returncode == 0 and res.stdout.strip():
-                cmdline = res.stdout.strip()
+                cmdline_str = res.stdout.strip()
+                try:
+                    raw_args = shlex.split(cmdline_str)
+                except ValueError:
+                    raw_args = cmdline_str.split()
         except (OSError, subprocess.SubprocessError):
-            cmdline = None
+            raw_args = None
 
-    if not cmdline:
+    if not raw_args:
         return False
 
-    return "blackwall" in cmdline.lower()
+    exe_name = Path(raw_args[0]).name.lower()
+    if exe_name in ("blackwall", "blackwall.exe"):
+        return True
+
+    # Python interpreter or tool runner running Blackwall
+    if "python" in exe_name or exe_name in ("uv", "pipenv", "poetry"):
+        rest = " ".join(raw_args[1:]).lower()
+        if "blackwall" in rest:
+            return True
+
+    if exe_name.endswith("blackwall"):
+        return True
+
+    return False
 
 
 def stop_daemon(pid_path: Path | str, timeout: float = 5.0) -> bool:
@@ -167,6 +194,14 @@ def stop_daemon(pid_path: Path | str, timeout: float = 5.0) -> bool:
         time.sleep(0.1)
 
     # Force kill if still running after timeout
+    if not is_blackwall_process(pid):
+        logger.warning(
+            "PID %d is no longer a Blackwall process (PID reused or process exited). Skipping SIGKILL.",
+            pid,
+        )
+        remove_pid_file(path)
+        return True
+
     logger.warning("Daemon PID %d did not terminate in %ss; sending SIGKILL...", pid, timeout)
     try:
         os.kill(pid, signal.SIGKILL)
