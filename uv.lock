@@ -375,13 +375,14 @@ wheels = [
 
 [[package]]
 name = "blackwall"
-version = "0.1.0"
+version = "2.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
     { name = "aiosqlite" },
     { name = "asyncpg" },
     { name = "certifi" },
+    { name = "click" },
     { name = "cryptography" },
     { name = "fastapi" },
     { name = "google-genai" },
@@ -437,6 +438,7 @@ requires-dist = [
     { name = "asyncpg", specifier = ">=0.31.0" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=24.3.0" },
     { name = "certifi", specifier = ">=2026.7.0" },
+    { name = "click", specifier = ">=8.1.0" },
     { name = "cryptography", specifier = ">=50.0.0" },
     { name = "fastapi", specifier = ">=0.140.0" },
     { name = "google-adk", marker = "extra == 'eval'", specifier = ">=0.1.0" },

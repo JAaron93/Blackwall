@@ -37,7 +37,11 @@ dependencies = [
     "uvicorn>=0.50.0",
     "asyncpg>=0.31.0",
     "rich>=13.0.0",
+    "click>=8.1.0",
 ]
+
+[project.scripts]
+blackwall = "blackwall.cli:cli"
 
 [project.optional-dependencies]
 enterprise = [

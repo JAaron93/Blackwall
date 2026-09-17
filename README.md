@@ -264,6 +264,27 @@ F1 Score (Malicious):      96.1%
 - **Tier 2: Rapid Semantic Triage** (<100ms @ P99, Gemini 3.5 Flash-Lite): CBM AST analysis with conditional Threat Intel queries (AlienVault OTX / GTI) for high-risk indicators, evaluated via Gemini 3.5 Flash-Lite with structured Pydantic output.
 - **Tier 3: Deep Reasoning** (Background, non-blocking, Gemini 3.8 Flash): Asynchronous behavioral analysis and threat signature synthesis triggered after `BLOCK`/`QUARANTINE` verdicts. Zero added latency to the execution path.
 
+### Native CLI Tool Suite & Harpoon OSINT Bridge
+
+Blackwall provides a native developer CLI (`blackwall`) with automatic indicator classification and deep threat intelligence management:
+
+```bash
+# 1. Quick indicator triage with automatic type detection (IPv4, IPv6, Domain, URL, Hashes)
+blackwall check 198.51.100.1
+blackwall check malicious-c2.xyz --format json
+blackwall check 44d88612fea8a8f36de82e1278abb02f --provider otx
+
+# 2. Comprehensive threat-intel subcommands
+blackwall threat-intel lookup 198.51.100.1 --verbose
+blackwall threat-intel pulse <pulse_id>
+blackwall threat-intel cache status
+blackwall threat-intel cache clear [--expired-only]
+blackwall threat-intel providers
+```
+
+- **Harpoon Companion Bridge:** Subprocess runner with `shutil.which("harpoon")` liveness detection, transparently delegating to in-process `AlienVaultOTXProvider` when absent or failing.
+
+
 ---
 
 ## 🧪 Testing & Verification

@@ -182,7 +182,7 @@ Wrap all live provider calls with an asynchronous timeout ($3.0\text{s}$) and a 
 ### Track E: Native `blackwall` CLI Suite
 
 #### TASK-E01: Implement `blackwall check <indicator>` with Automatic Type Detection
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 **Dependencies:** TASK-D01
 **Requirements Satisfied:** FR-07, US-02
 
@@ -197,7 +197,7 @@ Implement `blackwall check <indicator>` in `src/blackwall/cli.py` using `click`.
 5. All unit tests pass.
 
 #### TASK-E02: Implement `blackwall threat-intel` Subcommands
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 **Dependencies:** TASK-E01
 **Requirements Satisfied:** FR-07, US-02
 
@@ -220,7 +220,7 @@ Implement the `blackwall threat-intel` subcommand group:
 ### Track F: Harpoon OSINT Companion Bridge
 
 #### TASK-F01: Implement `HarpoonBridge` Subprocess Runner & JSON Parser
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 **Dependencies:** TASK-A01
 **Requirements Satisfied:** FR-06, US-03
 
@@ -234,7 +234,7 @@ Build `HarpoonBridge` in `src/blackwall/threat_intel/harpoon.py`. Asynchronously
 4. All unit tests pass.
 
 #### TASK-F02: Implement Harpoon Liveness Detection & Transparent Fallback
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 **Dependencies:** TASK-F01
 **Requirements Satisfied:** FR-06, US-03
 

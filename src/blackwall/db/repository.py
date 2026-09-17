@@ -407,6 +407,22 @@ class SQLiteThreatRepository:
                     (time.time(),),
                 )
 
+                # Threat Intelligence Cache Metrics table for persistent hit/miss tracking
+                await conn.execute(
+                    """
+                CREATE TABLE IF NOT EXISTS threat_intel_cache_metrics (
+                    metric_name TEXT PRIMARY KEY,
+                    metric_value INTEGER NOT NULL DEFAULT 0
+                );
+                """
+                )
+                await conn.execute(
+                    "INSERT OR IGNORE INTO threat_intel_cache_metrics (metric_name, metric_value) VALUES ('hits', 0);"
+                )
+                await conn.execute(
+                    "INSERT OR IGNORE INTO threat_intel_cache_metrics (metric_name, metric_value) VALUES ('misses', 0);"
+                )
+
                 # Background Tasks table
                 await conn.execute(
                     """
@@ -1061,6 +1077,47 @@ class SQLiteThreatRepository:
             )
             return cursor.rowcount
 
+    async def record_threat_intel_cache_hit(self) -> None:
+        """Increment persistent threat intelligence cache hit count."""
+        await self.record_threat_intel_cache_metrics_batch(hits=1, misses=0)
+
+    async def record_threat_intel_cache_miss(self) -> None:
+        """Increment persistent threat intelligence cache miss count."""
+        await self.record_threat_intel_cache_metrics_batch(hits=0, misses=1)
+
+    async def record_threat_intel_cache_metrics_batch(
+        self, hits: int = 0, misses: int = 0
+    ) -> None:
+        """Batch increment persistent cache metrics in a single atomic transaction."""
+        if hits <= 0 and misses <= 0:
+            return
+        await self.initialize()
+        async with self.pool.connection() as conn:
+            if hits > 0:
+                await conn.execute(
+                    "UPDATE threat_intel_cache_metrics SET metric_value = metric_value + ? WHERE metric_name = 'hits';",
+                    (hits,),
+                )
+            if misses > 0:
+                await conn.execute(
+                    "UPDATE threat_intel_cache_metrics SET metric_value = metric_value + ? WHERE metric_name = 'misses';",
+                    (misses,),
+                )
+
+    async def get_threat_intel_cache_metrics(self) -> Dict[str, int]:
+        """Return persistent threat intelligence cache hits and misses."""
+        await self.initialize()
+        async with self.pool.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT metric_name, metric_value FROM threat_intel_cache_metrics;"
+            )
+            rows = await cursor.fetchall()
+            metrics = {row[0]: int(row[1]) for row in rows}
+            return {
+                "hits": metrics.get("hits", 0),
+                "misses": metrics.get("misses", 0),
+            }
+
     async def increment_match_count(self, signature_id: str) -> None:
         await self.initialize()
         async with self.pool.connection() as conn:
@@ -1298,7 +1355,6 @@ class SQLiteThreatRepository:
                             (fts_query, limit),
                         )
                     fts_rows = await cursor.fetchall()
-                    query_words = set(re.findall(r"\w+", query_text.lower()))
                     for row in fts_rows:
                         sig_id = row[0]
                         bm25_rank = row[13]
@@ -1361,7 +1417,6 @@ class SQLiteThreatRepository:
                             (fts_query, limit),
                         )
                     fts_rows = await cursor.fetchall()
-                    query_words = set(re.findall(r"\w+", query_text.lower()))
                     for row in fts_rows:
                         sig_id = row[0]
                         bm25_rank = row[13]

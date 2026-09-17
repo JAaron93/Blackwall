@@ -299,7 +299,16 @@ To ensure synchronous evaluation strictly obeys the $<5\text{ms}$ latency budget
   - **Cache Scoping Isolation**: Multi-provider queries cache under `"aggregate"`, while single-provider queries are scoped to the explicit provider name, preventing cross-scope cache contamination.
 - **Circuit Breaker Resilience (`CircuitBreakerProvider`)**: Reusable 3-state circuit breaker (`CLOSED`, `OPEN`, `HALF-OPEN`) with `asyncio.Lock()` concurrency protection, 5-failure trip threshold, 60s cooldown, 3-probe half-open recovery, client input error immunity (`ValueError`/`TypeError`), and a 3.0s timeout safeguard. Outage responses return fallback heuristics and are never written to cache as benign.
 
-### 6.3 Codebase Memory MCP
+### 6.3 Native `blackwall` CLI Tool Suite & Harpoon Companion Bridge
+- **Native Indicator Triage (`blackwall check <indicator>`)**: Automatic indicator classification (IPv4, IPv6, Domain, URL, MD5, SHA1, SHA256) with formatted terminal tables (`rich`) and `--format json` support, outputting standardized verdicts (`ALLOW`, `WARN`, `BLOCK`) and risk ratings.
+- **Threat Intelligence Management (`blackwall threat-intel`)**:
+  - `lookup <indicator>`: Targeted feed evaluation with `--type`, `--provider`, and `--verbose` indicators.
+  - `pulse <pulse_id>`: Detailed AlienVault OTX pulse metadata, tags, malware family attribution, and IOC references.
+  - `cache status|clear`: Volume inspection and deterministic eviction (`--expired-only`).
+  - `providers`: Connectivity verification, rate-limit quota inspection, and strict credential hygiene (zero secret key leaks).
+- **Harpoon Companion Bridge (`HarpoonBridge`)**: Asynchronous subprocess bridge running `harpoon otx <type> <indicator> --json` with a 5.0s timeout, automatic `shutil.which("harpoon")` liveness detection, and zero-exception transparent fallback to built-in `AlienVaultOTXProvider`.
+
+### 6.4 Codebase Memory MCP
 - **Abstract Syntax Tree (AST) Inspection**: Queries the active repository's AST graph to analyze the call chain leading to the intercepted tool call.
 - **Critical Sink Detection**: Evaluates whether arguments flow into unsafe sinks:
   - SQL execution (`execute`, `cursor.execute`)
@@ -308,7 +317,7 @@ To ensure synchronous evaluation strictly obeys the $<5\text{ms}$ latency budget
   - Network egress (`socket.connect`, `requests.post`)
 - **Taint Flow & Blast Radius**: Calculates taint propagation and blast radius [0.0, 1.0] across dependent modules to inform the semantic threat score.
 
-### 6.4 Zero-Disk-I/O Cached SSL Context Factory
+### 6.5 Zero-Disk-I/O Cached SSL Context Factory
 - **Shared Transport Caching (`get_certifi_ssl_context`)**: Outbound Model Context Protocol (MCP) HTTP calls and external GTI queries route through a centralized SSLContext factory in `src/blackwall/mcp/transport.py`.
 - **LRU Cache Singleton**: Backed by `@functools.lru_cache(maxsize=4)`, the factory initializes and caches the `certifi.where()` CA bundle once per process, reducing $O(N)$ filesystem reads and certificate parsing overhead to $O(1)$ on the hot interception path.
 

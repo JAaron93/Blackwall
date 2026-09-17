@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any, List, Optional, Set
 
 from blackwall.threat_intel.abusech import AbuseChProvider
@@ -48,12 +49,32 @@ class ThreatIntelOrchestrator:
         self.repository = repository
         self.cache_enabled = cache_enabled
         self.timeout = timeout
+        self.wrap_circuit_breaker = wrap_circuit_breaker
+        self._cache_hits: int = 0
+        self._cache_misses: int = 0
+        self._pending_hits: int = 0
+        self._pending_misses: int = 0
+        self._flush_lock = asyncio.Lock()
+        self._pending_tasks: Set[asyncio.Task[Any]] = set()
 
         if primary_provider is not None:
             self.primary_provider = (
                 _wrap_provider(primary_provider, timeout)
                 if wrap_circuit_breaker
                 else primary_provider
+            )
+        elif os.environ.get("BW_THREAT_INTEL_PRIMARY", "").strip().lower() in (
+            "harpoon",
+            "harpoon-otx",
+        ):
+            from blackwall.threat_intel.harpoon import HarpoonBridge
+
+            otx = AlienVaultOTXProvider()
+            hb = HarpoonBridge(fallback_provider=otx)
+            self.primary_provider = (
+                _wrap_provider(hb, timeout)
+                if wrap_circuit_breaker
+                else hb
             )
         else:
             otx = AlienVaultOTXProvider()
@@ -70,7 +91,7 @@ class ThreatIntelOrchestrator:
             ]
         else:
             self.secondary_providers = []
-            # Automatically register optional providers if available
+            # Automatically register optional feeds if available
             try:
                 abuseipdb = AbuseIPDBProvider()
                 if abuseipdb.api_key:
@@ -92,9 +113,18 @@ class ThreatIntelOrchestrator:
             except Exception as e:
                 logger.debug("Failed initializing AbuseChProvider: %s", e)
 
-    def get_providers(self) -> List[ThreatIntelProvider]:
+    def get_providers(
+        self, include_on_demand: bool = False
+    ) -> List[ThreatIntelProvider]:
         """Return list of all registered providers (primary + secondaries)."""
-        return [self.primary_provider] + list(self.secondary_providers)
+        providers = [self.primary_provider] + list(self.secondary_providers)
+        if include_on_demand:
+            harpoon = self.get_provider("harpoon")
+            if harpoon is not None and not any(
+                p.name.lower() == "harpoon" for p in providers
+            ):
+                providers.append(harpoon)
+        return providers
 
     def get_provider(self, name: str) -> Optional[ThreatIntelProvider]:
         """Look up provider by name (case-insensitive)."""
@@ -103,7 +133,67 @@ class ThreatIntelOrchestrator:
             p_name = p.name.lower()
             if p_name == target:
                 return p
+        if target in ("harpoon", "harpoon-otx"):
+            try:
+                from blackwall.threat_intel.harpoon import HarpoonBridge
+
+                hb = HarpoonBridge(fallback_provider=self.primary_provider)
+                return (
+                    _wrap_provider(hb, self.timeout)
+                    if self.wrap_circuit_breaker
+                    else hb
+                )
+            except Exception as e:
+                logger.debug("Failed instantiating HarpoonBridge on demand: %s", e)
         return None
+
+    def _schedule_metric_record(self, hit: bool) -> None:
+        """Coalesce and record cache metrics outside the latency-critical lookup path."""
+        if self.repository is None:
+            return
+        if hit:
+            self._pending_hits += 1
+        else:
+            self._pending_misses += 1
+        try:
+            loop = asyncio.get_running_loop()
+            task = loop.create_task(self.flush_metrics())
+            self._pending_tasks.add(task)
+            task.add_done_callback(self._pending_tasks.discard)
+        except RuntimeError:
+            pass
+
+    async def flush_metrics(self) -> None:
+        """Batch flush queued cache hits/misses to persistent SQLite storage."""
+        if self.repository is None:
+            return
+        async with self._flush_lock:
+            hits_to_record = self._pending_hits
+            misses_to_record = self._pending_misses
+            self._pending_hits = 0
+            self._pending_misses = 0
+
+            if hits_to_record <= 0 and misses_to_record <= 0:
+                return
+
+            try:
+                if hasattr(self.repository, "record_threat_intel_cache_metrics_batch"):
+                    await self.repository.record_threat_intel_cache_metrics_batch(
+                        hits=hits_to_record, misses=misses_to_record
+                    )
+                else:
+                    if hits_to_record > 0 and hasattr(
+                        self.repository, "record_threat_intel_cache_hit"
+                    ):
+                        for _ in range(hits_to_record):
+                            await self.repository.record_threat_intel_cache_hit()
+                    if misses_to_record > 0 and hasattr(
+                        self.repository, "record_threat_intel_cache_miss"
+                    ):
+                        for _ in range(misses_to_record):
+                            await self.repository.record_threat_intel_cache_miss()
+            except Exception as e:
+                logger.debug("Failed flushing cache metrics to repository: %s", e)
 
     async def is_healthy(self) -> bool:
         """Check overall health of registered threat intelligence providers."""
@@ -175,12 +265,20 @@ class ThreatIntelOrchestrator:
                 indicator, ind_type_str, provider=cache_provider
             )
             if cached_resp is not None:
+                self._cache_hits += 1
+                self._schedule_metric_record(hit=True)
                 logger.debug(
                     "Threat intel cache hit for %s (provider=%s)",
                     indicator,
                     cache_provider,
                 )
                 return cached_resp
+            else:
+                self._cache_misses += 1
+                self._schedule_metric_record(hit=False)
+        elif self.cache_enabled and not no_cache:
+            self._cache_misses += 1
+            self._schedule_metric_record(hit=False)
 
         # Step 3: Query providers concurrently
 
@@ -289,6 +387,7 @@ class ThreatIntelOrchestrator:
         """Evicts cached threat intel records."""
         if self.repository is None:
             return 0
+        await self.flush_metrics()
         if expired_only:
             return await self.repository.prune_expired_threat_intel()
         else:
@@ -296,4 +395,77 @@ class ThreatIntelOrchestrator:
             async with self.repository.pool.connection() as conn:
                 cursor = await conn.execute("DELETE FROM threat_intel_cache")
                 return cursor.rowcount
+
+    async def get_pulse(
+        self, pulse_id: str, timeout: Optional[float] = None
+    ) -> dict[str, Any]:
+        """Fetch pulse details with circuit breaker and timeout protection."""
+        effective_timeout = timeout if timeout is not None else self.timeout
+        if hasattr(self.primary_provider, "get_pulse"):
+            return await self.primary_provider.get_pulse(
+                pulse_id, timeout=effective_timeout
+            )
+        raise NotImplementedError("Primary provider does not support pulse lookups")
+
+    async def get_cache_stats(self) -> dict[str, Any]:
+        """Get cache statistics from the repository."""
+        import time
+
+        if self.repository is None:
+            return {
+                "total_entries": 0,
+                "active_entries": 0,
+                "expired_entries": 0,
+                "malicious_entries": 0,
+                "size_bytes": 0,
+                "hits": self._cache_hits,
+                "misses": self._cache_misses,
+            }
+        await self.flush_metrics()
+        await self.repository.initialize()
+        now = time.time()
+        async with self.repository.pool.connection() as conn:
+            c_total = await conn.execute("SELECT COUNT(*) FROM threat_intel_cache")
+            total_row = await c_total.fetchone()
+            total = total_row[0] if total_row else 0
+
+            c_exp = await conn.execute(
+                "SELECT COUNT(*) FROM threat_intel_cache WHERE expires_at <= ?", (now,)
+            )
+            exp_row = await c_exp.fetchone()
+            expired = exp_row[0] if exp_row else 0
+
+            c_mal = await conn.execute(
+                "SELECT COUNT(*) FROM threat_intel_cache WHERE is_malicious = 1"
+            )
+            mal_row = await c_mal.fetchone()
+            malicious = mal_row[0] if mal_row else 0
+
+            c_size = await conn.execute(
+                "SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM threat_intel_cache"
+            )
+            size_row = await c_size.fetchone()
+            size_bytes = size_row[0] if size_row else 0
+
+            active = max(0, total - expired)
+            hits = self._cache_hits
+            misses = self._cache_misses
+            if hasattr(self.repository, "get_threat_intel_cache_metrics"):
+                try:
+                    metrics = await self.repository.get_threat_intel_cache_metrics()
+                    hits = metrics.get("hits", hits)
+                    misses = metrics.get("misses", misses)
+                except Exception as e:
+                    logger.debug("Failed fetching persistent cache metrics: %s", e)
+
+            return {
+                "total_entries": total,
+                "active_entries": active,
+                "expired_entries": expired,
+                "malicious_entries": malicious,
+                "size_bytes": size_bytes,
+                "hits": hits,
+                "misses": misses,
+            }
+
 
