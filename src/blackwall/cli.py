@@ -17,6 +17,9 @@ import json
 import logging
 import os
 import re
+import signal
+import sys
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import click
@@ -25,6 +28,16 @@ from rich.console import Console
 from rich.table import Table
 
 from blackwall.db.repository import SQLiteThreatRepository
+from blackwall.gateway.daemon import (
+    daemonize,
+    is_process_alive,
+    read_pid_file,
+    remove_pid_file,
+    stop_daemon,
+    write_pid_file,
+)
+from blackwall.gateway.server import MCPGatewayServer
+from blackwall.gateway.upstream import UpstreamManager
 from blackwall.threat_intel.models import (
     ThreatIndicatorType,
     ThreatIntelResponse,
@@ -684,6 +697,441 @@ def providers_command(ctx: click.Context, output_format: str) -> None:
         )
 
     console.print(table)
+
+
+def validate_gcp_credentials() -> tuple[bool, str]:
+    """Validates GCP Vertex AI project ID and Application Default Credentials (ADC)."""
+    skip = os.environ.get("BW_SKIP_GCP_CHECK", "").lower() in ("1", "true", "yes")
+    if skip:
+        return True, ""
+
+    project = os.environ.get("GCP_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT")
+    if not project:
+        return (
+            False,
+            "Missing GCP Project: Neither GCP_PROJECT nor GOOGLE_CLOUD_PROJECT is set. "
+            "Export your GCP Project ID to start Blackwall in GCP Vertex AI Mode.",
+        )
+
+    creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    if creds_path:
+        path_obj = Path(creds_path)
+        if not path_obj.exists():
+            return (
+                False,
+                f"GOOGLE_APPLICATION_CREDENTIALS file not found: {creds_path}",
+            )
+        return True, ""
+
+    default_adc = Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
+    if default_adc.exists():
+        return True, ""
+
+    return (
+        False,
+        "GCP Application Default Credentials (ADC) not found. "
+        "Run 'gcloud auth application-default login' or set GOOGLE_APPLICATION_CREDENTIALS.",
+    )
+
+
+DEFAULT_POLICY_YAML = """# Blackwall Security Policy Configuration
+version: "2.0"
+settings:
+  triage_threshold: 0.10
+  block_threshold: 0.80
+  quarantine_threshold: 0.20
+structural_policy:
+  rules:
+    - name: block_ssh_keys
+      pattern: ".ssh/id_rsa"
+      action: BLOCK
+    - name: block_env_exfil
+      pattern: ".env"
+      action: BLOCK
+"""
+
+DEFAULT_GATEWAY_YAML = """# Blackwall MCP Gateway Upstream Routing Configuration
+upstream_servers:
+  - name: local_tools
+    command: "python -m blackwall.tools"
+    transport: stdio
+"""
+
+
+@cli.command(name="version")
+def version_command() -> None:
+    """Print the Blackwall version."""
+    console.print("Blackwall v2.0.0 (MCP Gateway)")
+
+
+@cli.command(name="init")
+@click.option(
+    "--dir",
+    "target_dir_arg",
+    default=None,
+    help="Target directory to initialize (default: ~/.blackwall).",
+)
+def init_command(target_dir_arg: Optional[str]) -> None:
+    """Scaffold Blackwall configuration directory with default policy and gateway configs."""
+    target_dir = (
+        Path(target_dir_arg).expanduser().resolve()
+        if target_dir_arg
+        else Path.home() / ".blackwall"
+    )
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    policy_file = target_dir / "policy.yaml"
+    if not policy_file.exists():
+        policy_file.write_text(DEFAULT_POLICY_YAML, encoding="utf-8")
+
+    gateway_file = target_dir / "gateway.yaml"
+    if not gateway_file.exists():
+        gateway_file.write_text(DEFAULT_GATEWAY_YAML, encoding="utf-8")
+
+    db_file = target_dir / "threat_signatures.db"
+    if not db_file.exists():
+        import sqlite3
+
+        conn = sqlite3.connect(str(db_file))
+        conn.close()
+        repo = SQLiteThreatRepository(db_path=str(db_file))
+        if hasattr(repo, "close"):
+            close_fn = getattr(repo, "close")
+            if callable(close_fn):
+                res = close_fn()
+                if inspect.isawaitable(res):
+                    asyncio.run(res)
+
+    console.print(f"[bold green]Initialized Blackwall configuration in {target_dir}[/bold green]")
+
+
+@cli.command(name="stop")
+@click.option(
+    "--pidfile",
+    default=None,
+    help="Path to PID file (default: ~/.blackwall/blackwall.pid).",
+)
+def stop_command(pidfile: Optional[str]) -> None:
+    """Stop running Blackwall daemon."""
+    pid_path = (
+        Path(pidfile).expanduser().resolve()
+        if pidfile
+        else Path.home() / ".blackwall" / "blackwall.pid"
+    )
+    pid = read_pid_file(pid_path)
+    if pid is None or not is_process_alive(pid):
+        remove_pid_file(pid_path)
+        console.print("[yellow]Blackwall daemon is not running.[/yellow]")
+        return
+
+    stopped = stop_daemon(pid_path)
+    if stopped:
+        console.print(
+            f"[bold green]Blackwall daemon (PID {pid}) stopped successfully.[/bold green]"
+        )
+    else:
+        raise click.ClickException(f"Failed to stop Blackwall daemon (PID {pid}).")
+
+
+@cli.command(name="status")
+@click.option(
+    "--pidfile",
+    default=None,
+    help="Path to PID file (default: ~/.blackwall/blackwall.pid).",
+)
+@click.option(
+    "--db-path",
+    default=None,
+    help="Path to SQLite threat database.",
+)
+@click.pass_context
+def status_command(
+    ctx: click.Context, pidfile: Optional[str], db_path: Optional[str]
+) -> None:
+    """Check Blackwall daemon liveness and threat database statistics."""
+    pid_path = (
+        Path(pidfile).expanduser().resolve()
+        if pidfile
+        else Path.home() / ".blackwall" / "blackwall.pid"
+    )
+    pid = read_pid_file(pid_path)
+
+    table = Table(
+        title="Blackwall MCP Gateway Status",
+        box=box.ROUNDED,
+        header_style="bold cyan",
+    )
+    table.add_column("Property", style="bold white")
+    table.add_column("Value", style="yellow")
+
+    if pid and is_process_alive(pid):
+        table.add_row("Daemon State", f"[bold green]Running (PID {pid})[/bold green]")
+        table.add_row("PID File", str(pid_path))
+    else:
+        table.add_row("Daemon State", "[bold red]Stopped[/bold red]")
+        table.add_row("PID File", f"{pid_path} (inactive)")
+
+    resolved_db = (
+        db_path
+        or ctx.obj.get("db_path")
+        or str(Path.home() / ".blackwall" / "threat_signatures.db")
+    )
+    table.add_row("Threat DB", resolved_db)
+    if Path(resolved_db).exists():
+        table.add_row("DB Accessible", "[green]Yes[/green]")
+    else:
+        table.add_row("DB Accessible", "[dim]Not initialized[/dim]")
+
+    console.print(table)
+
+
+async def _run_gateway(
+    transport: str,
+    host: str,
+    port: int,
+    auth_token: Optional[str],
+    upstream_mgr: Optional[UpstreamManager],
+    db_path: str,
+) -> None:
+    """Internal coroutine to run the MCP gateway server."""
+    if upstream_mgr:
+        await upstream_mgr.start()
+
+    downstream_handler = upstream_mgr.handle_request if upstream_mgr else None
+
+    resolver = None
+    repo = None
+    try:
+        repo = SQLiteThreatRepository(db_path=db_path)
+    except Exception as exc:
+        logger.warning("Could not initialize SQLiteThreatRepository at %s: %s", db_path, exc)
+
+    try:
+        from google import genai
+        project = os.environ.get("GCP_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT")
+        client = genai.Client(vertexai=True, project=project)
+        from blackwall.sync_resolver import SyncResolver
+        resolver = SyncResolver(client=client, repo=repo)
+    except Exception as exc:
+        logger.debug("SyncResolver running with structural fallback: %s", exc)
+
+    server = MCPGatewayServer(
+        host=host,
+        port=port,
+        auth_token=auth_token,
+        resolver=resolver,
+        downstream_handler=downstream_handler,
+    )
+
+    loop = asyncio.get_running_loop()
+    stop_event = asyncio.Event()
+
+    def _sig_handler() -> None:
+        logger.info("Received termination signal, stopping gateway...")
+        stop_event.set()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, _sig_handler)
+        except (NotImplementedError, RuntimeError):
+            pass
+
+    try:
+        if transport.lower() == "http":
+            await server.start_http()
+            await stop_event.wait()
+            await server.stop()
+        else:
+            reader = asyncio.StreamReader()
+            protocol = asyncio.StreamReaderProtocol(reader)
+            await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+            w_transport, w_protocol = await loop.connect_write_pipe(
+                asyncio.streams.FlowControlMixin, sys.stdout
+            )
+            writer = asyncio.StreamWriter(w_transport, w_protocol, reader, loop)
+            stdio_task = asyncio.create_task(server.handle_stdio_stream(reader, writer))
+            stop_task = asyncio.create_task(stop_event.wait())
+            done, pending = await asyncio.wait(
+                [stdio_task, stop_task], return_when=asyncio.FIRST_COMPLETED
+            )
+            for t in pending:
+                t.cancel()
+    finally:
+        if upstream_mgr:
+            await upstream_mgr.stop()
+        if repo and hasattr(repo, "close"):
+            res = repo.close()
+            if inspect.isawaitable(res):
+                await res
+
+
+@cli.command(name="serve")
+@click.option(
+    "--transport",
+    type=click.Choice(["stdio", "http"], case_sensitive=False),
+    default="stdio",
+    help="Transport protocol (stdio or http).",
+)
+@click.option(
+    "--port",
+    type=int,
+    default=9229,
+    help="Port for HTTP transport (default: 9229).",
+)
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    help="Host address for HTTP transport (default: 127.0.0.1).",
+)
+@click.option(
+    "--wrap",
+    default=None,
+    help="Downstream MCP tool server command to wrap as a stdio child process.",
+)
+@click.option(
+    "--config",
+    "config_path",
+    default=None,
+    help="Path to gateway.yaml multi-server routing configuration.",
+)
+@click.option(
+    "--policy",
+    "policy_path",
+    default=None,
+    help="Path to policy.yaml configuration.",
+)
+@click.option(
+    "--db",
+    "--db-path",
+    "db_arg",
+    default=None,
+    help="Path to SQLite threat database.",
+)
+@click.option(
+    "--pidfile",
+    default=None,
+    help="Path to PID file (default: ~/.blackwall/blackwall.pid).",
+)
+@click.option(
+    "--logfile",
+    default=None,
+    help="Path to log file (default: ~/.blackwall/blackwall.log).",
+)
+@click.option(
+    "--foreground",
+    is_flag=True,
+    default=False,
+    help="Run gateway in foreground mode.",
+)
+@click.option(
+    "--auth-token",
+    default=None,
+    help="Pre-shared bearer auth token for HTTP transport (required for non-loopback).",
+)
+@click.option(
+    "--log-level",
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
+    default="INFO",
+    help="Logging level.",
+)
+@click.option(
+    "--skip-gcp-check",
+    is_flag=True,
+    default=False,
+    help="Bypass GCP Vertex AI credentials check (for testing and offline eval).",
+)
+@click.pass_context
+def serve_command(
+    ctx: click.Context,
+    transport: str,
+    port: int,
+    host: str,
+    wrap: Optional[str],
+    config_path: Optional[str],
+    policy_path: Optional[str],
+    db_arg: Optional[str],
+    pidfile: Optional[str],
+    logfile: Optional[str],
+    foreground: bool,
+    auth_token: Optional[str],
+    log_level: str,
+    skip_gcp_check: bool,
+) -> None:
+    """Start Blackwall MCP Gateway daemon or foreground process."""
+    numeric_level = getattr(logging, log_level.upper(), logging.INFO)
+    logging.basicConfig(
+        level=numeric_level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    # 1. Non-loopback auth token startup guard
+    resolved_auth = auth_token or os.environ.get("BLACKWALL_AUTH_TOKEN")
+    is_loopback = (
+        host in ("127.0.0.1", "localhost", "::1", "[::1]")
+        or host.startswith("127.")
+    )
+    if not is_loopback and not resolved_auth:
+        raise click.ClickException(
+            f"Refusing to start MCP Gateway on non-loopback host '{host}' "
+            f"without an auth token. Provide --auth-token or set BLACKWALL_AUTH_TOKEN."
+        )
+
+    # 2. GCP Vertex AI credential validation
+    if not skip_gcp_check:
+        valid_gcp, gcp_err = validate_gcp_credentials()
+        if not valid_gcp:
+            raise click.ClickException(gcp_err)
+
+    base_dir = Path.home() / ".blackwall"
+    pid_path = (
+        Path(pidfile).expanduser().resolve()
+        if pidfile
+        else base_dir / "blackwall.pid"
+    )
+    log_path = (
+        Path(logfile).expanduser().resolve()
+        if logfile
+        else base_dir / "blackwall.log"
+    )
+    resolved_db = db_arg or ctx.obj.get("db_path") or str(base_dir / "threat_signatures.db")
+
+    existing_pid = read_pid_file(pid_path)
+    if existing_pid and is_process_alive(existing_pid):
+        raise click.ClickException(
+            f"Blackwall gateway daemon is already running (PID {existing_pid})."
+        )
+
+    upstream_mgr: Optional[UpstreamManager] = None
+    if wrap:
+        upstream_mgr = UpstreamManager(wrap_command=wrap)
+    elif config_path:
+        upstream_mgr = UpstreamManager(config_path=config_path)
+    elif (base_dir / "gateway.yaml").exists():
+        try:
+            upstream_mgr = UpstreamManager(config_path=str(base_dir / "gateway.yaml"))
+        except Exception as exc:
+            logger.warning("Default gateway.yaml exists but failed to load: %s", exc)
+
+    if not foreground:
+        daemonize(pid_path, log_path)
+    else:
+        if pidfile:
+            write_pid_file(pid_path)
+
+    try:
+        asyncio.run(
+            _run_gateway(
+                transport=transport,
+                host=host,
+                port=port,
+                auth_token=resolved_auth,
+                upstream_mgr=upstream_mgr,
+                db_path=resolved_db,
+            )
+        )
+    finally:
+        if foreground and pidfile:
+            remove_pid_file(pid_path)
 
 
 # Entry point aliases

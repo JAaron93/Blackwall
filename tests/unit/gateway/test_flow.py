@@ -1,4 +1,3 @@
-import asyncio
 import time
 import pytest
 
@@ -7,7 +6,6 @@ from blackwall.gateway.exceptions import (
     QueueOverflowError,
 )
 from blackwall.gateway.flow import FlowController
-from blackwall.gateway.synthesizer import ResponseSynthesizer
 
 
 class TestFlowController:
@@ -18,7 +16,7 @@ class TestFlowController:
         controller = FlowController()
         req_id = "req-pause-1"
 
-        future = await controller.hold_request(
+        await controller.hold_request(
             request_id=req_id,
             method="tools/call",
             params={"name": "test_tool", "arguments": {}},
