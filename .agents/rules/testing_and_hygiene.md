@@ -542,3 +542,27 @@
 * **Rule (Rule Renumbering Trap & Downstream Citation Preservation):** When updating, deprecating, or modernizing numbered rules (e.g. Rule 25), agents MUST NEVER delete or renumber downstream rules. Modernize the rule title and content in-place to avoid breaking citations across test docstrings, commit messages, and automated review agent trackers.
 * **Rationale:** Discovered during Phase 4 agent memory audit. Naive rule renumbering breaks test references across git branches, while unqualified path strings in instruction files trigger static repository audit scanner failures.
 
+## 64. Evaluation Dashboards, Analytics Notebooks & Benchmark Verification Invariants
+* **Rule (Developer Extra Dependency Parity):**
+  - Developer analytics notebooks (such as Marimo or Jupyter dashboards under `notebooks/`) included in `[project.optional-dependencies] dev` MUST have all direct and transitive runtime dependencies (e.g. `pandas>=3.0.0`, `marimo>=0.11.0`) included directly within the `dev` extra.
+  - Development tools MUST NOT rely on users separately discovering or installing specialized evaluation extras (such as `evaluation` or `eval`) to achieve clean module imports.
+* **Rule (Canonical Evaluation Taxonomy & Hostility Detection):**
+  - Evaluation notebooks, analysis scripts, and scenario drill-down tables MUST align with Blackwall's canonical evaluation dataset taxonomy (`tests/eval/evalsets/blackwall_security.evalset.json`), where hostile scenarios are identified by `ground_truth: "MALICIOUS"`.
+  - Conditionals determining hostility MUST check `ground_truth in ("MALICIOUS", "ADVERSARIAL")` or `expected_verdict in ("BLOCK", "CRITICAL", "QUARANTINE")` to prevent real malicious cases from defaulting to benign scores (1.2) and reporting false divergences.
+* **Rule (Zero-Overstatement for Unmeasured Test Cases):**
+  - When correlating scenario datasets with recorded evaluation reports (`security_report.json`), cases without an evaluation entry (`recorded_verdict is None`) MUST be rendered explicitly as unmeasured (`"—"`).
+  - Code MUST NOT substitute the expected verdict for missing recorded verdicts or treat `None` as a passing match (`True`), which overstates benchmark coverage.
+* **Rule (Strict Contract Boundary Inequality Alignment):**
+  - Performance and SLA matrices in notebooks and reports MUST use strict mathematical inequality operators matching the authoritative benchmark runner (`src/blackwall/benchmarks/runner.py`):
+    - `structural_p99 < cutoff` (SLA: < 5.0 ms)
+    - `semantic_p99 < cutoff` (SLA: < 300.0 ms)
+    - `tsg_query_p99 < 10.0` (SLA: < 10.0 ms)
+    - `cpu_pct < 2.0` (SLA: < 2.0%)
+    - `memory_rss <= ceiling` (SLA: <= 350.0 MB)
+    - `batch_size >= 3.0`
+* **Rule (Resilient Per-Line Stream Parsing):**
+  - Readers parsing append-only evaluation history files (`history.jsonl`) MUST catch JSON decoding errors on a per-line basis (`try...except (json.JSONDecodeError, ValueError)`), matching `HistoricalRegressionTracker.get_history()`.
+  - An interrupted append or corrupted line MUST be skipped individually without discarding previously parsed valid runs or substituting synthetic fallback data.
+* **Rationale:** Codified after PR #158 Greptile code review. Prevents missing development dependencies, false divergence reports on malicious cases, overstated coverage on unmeasured scenarios, boundary operator discrepancies, and history data loss during interrupted runs.
+
+

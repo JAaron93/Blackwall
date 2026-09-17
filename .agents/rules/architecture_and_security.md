@@ -623,3 +623,23 @@
 * **Rule (Modernize In-Place):** If the existing architectural pattern, parameter signatures, or command flows are consistent with the replacement engine, agents MUST rename and modernize the files, symbols, and test fixtures in-place rather than deleting and rewriting from scratch.
 * **Rationale:** Mandated by user directive during Phase 4. Renaming consistent code preserves established architectural contracts, leverages prior test coverage investments, and prevents unnecessary churn in shared repositories.
 
+## 95. Architectural Representations, Interception Flow & Execution Semantics
+* **Rule (Cross-Cutting SIMD Acceleration Substrate):**
+  - Architectural diagrams, documentation, and interface models MUST represent native compiled Rust extensions (`crates/blackwall_core_rs/` / `blackwall._core_rs`) as an underlying SIMD acceleration foundation backing individual operations (ContextSanitizer regex in Step 1, FTS5 word-intersection quality in Step 2, Shannon entropy calculation), NOT as a standalone sequential inline pipeline stage.
+  - All native operations MUST maintain functional parity with pure-Python fallbacks.
+* **Rule (Post-Verdict Asynchronous Attribution Isolation):**
+  - Attacker attribution (`_schedule_attribution`) MUST be documented and implemented strictly out-of-band as an asynchronous background task dispatched post-verdict only upon `BLOCK` or `QUARANTINE` verdicts within a non-blocking `<5ms` SLA budget. Attribution MUST NOT reside on the inline interception path.
+* **Rule (Differentiated Post-Verdict Action Triggers):**
+  - In `SyncResolver.evaluate()`, post-verdict hooks are decision-specific:
+    - `BLOCK` verdicts dispatch background signature generation (`_inline_generate_signature`).
+    - `QUARANTINE` verdicts dispatch quarantine refactoring hints (`_handle_quarantine_refactoring`).
+    - Architectural models and diagrams MUST NOT conflate signature generation with quarantine refactoring.
+* **Rule (Attribution Data-Retention Contract):**
+  - Attacker attribution pipelines persist ONLY the attacker profile (`AttackerProfile`) into SQLite WAL storage (`repo.upsert_attacker_profile()`).
+  - Generated incident reports (`IncidentReport`) are dispatched strictly to external notification sinks (`_emit_sinks()`) and are NOT retained in SQLite database tables. Diagrams and documentation MUST NOT state that incident reports are persisted to the database.
+* **Rule (Accurate Kernel Enforcement Semantics):**
+  - Linux eBPF drivers (`LinuxeBPFDriver`) attach syscall tracepoints (`sys_enter_connect`, `sys_enter_execve`) and terminate rogue processes via `bpf_send_signal(9)` (`SIGKILL`).
+  - Architectural documentation MUST NOT describe eBPF enforcement as TC/XDP socket drops or packet filtering, which carry fundamentally different network stack semantics.
+* **Rationale:** Codified after PR #157 Greptile code review. Eliminates architectural inaccuracies between visual documentation, system models, and runtime implementation invariants.
+
+
