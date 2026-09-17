@@ -18,6 +18,7 @@ from blackwall.gateway.exceptions import (
     SecurityHostError,
     SecurityOriginError,
 )
+from blackwall.gateway.flow import FlowController, InFlightRequest
 from blackwall.gateway.interceptor import PayloadInterceptor
 from blackwall.gateway.synthesizer import ResponseSynthesizer
 
@@ -31,6 +32,8 @@ __all__ = [
     "QueueOverflowError",
     "RequestTimeoutError",
     "InvalidVerdictError",
+    "InFlightRequest",
+    "FlowController",
     "PayloadInterceptor",
     "ResponseSynthesizer",
 ]
