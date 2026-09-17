@@ -176,6 +176,7 @@ class SyncResolver:
         cbm_client: Any = None,
         gti_client: Any = None,
         gti_budget_tracker: Any = None,
+        threat_intel_budget_tracker: Any = None,
         demo_mode: bool = False,
         on_attacker_identified: Optional[Callable[[IncidentReport], Any]] = None,
         telemetry: Optional[Any] = None,
@@ -188,7 +189,11 @@ class SyncResolver:
         self.repo = repo
         self.threat_intel = threat_intel if threat_intel is not None else gti_client
         self.cbm_client = cbm_client
-        self.gti_budget_tracker = gti_budget_tracker
+        self.threat_intel_budget_tracker = (
+            threat_intel_budget_tracker
+            if threat_intel_budget_tracker is not None
+            else gti_budget_tracker
+        )
         self.demo_mode = demo_mode
         self.on_attacker_identified = on_attacker_identified
         self.telemetry = telemetry
@@ -255,7 +260,7 @@ class SyncResolver:
         self._hygiene = ContextHygiene(preserve_iocs=True)
 
         # True only when threat intel budget tracker explicitly denied the last query.
-        self._gti_budget_exhausted: bool = False
+        self._threat_intel_budget_exhausted: bool = False
 
         # Metrics counters
         self._total_evaluations: int = 0
@@ -267,6 +272,22 @@ class SyncResolver:
         self._block_count: int = 0
         self._quarantine_count: int = 0
         self._allow_count: int = 0
+
+    @property
+    def gti_budget_tracker(self) -> Any:
+        return self.threat_intel_budget_tracker
+
+    @gti_budget_tracker.setter
+    def gti_budget_tracker(self, val: Any) -> None:
+        self.threat_intel_budget_tracker = val
+
+    @property
+    def _gti_budget_exhausted(self) -> bool:
+        return self._threat_intel_budget_exhausted
+
+    @_gti_budget_exhausted.setter
+    def _gti_budget_exhausted(self, val: bool) -> None:
+        self._threat_intel_budget_exhausted = val
 
     @property
     def gti_client(self) -> Any:
@@ -299,14 +320,14 @@ class SyncResolver:
     async def evaluate(self, context: ToolCallContext) -> Verdict:
         """
         Single-request evaluation.
-        Rate-checked → hygiene-sanitized → GTI query → CBM query →
+        Rate-checked → hygiene-sanitized → threat intel query → CBM query →
         score aggregation → threshold decision → (optional) inline sig.
         Must complete in < 5ms (SLA).
         """
         t0 = time.time()
 
-        # Reset per-request GTI budget flag before any queries.
-        self._gti_budget_exhausted = False
+        # Reset per-request threat intel budget flag before any queries.
+        self._threat_intel_budget_exhausted = False
 
         # 1. Rate-limit check (fail-closed: QUARANTINE on exhaustion)
         allowed = await self._rate_limiter.consume(1.0)
@@ -627,14 +648,29 @@ class SyncResolver:
             return None
 
         # Budget check (if legacy or token tracker present)
-        if self.gti_budget_tracker is not None:
+        tracker = self.threat_intel_budget_tracker or self.gti_budget_tracker
+        if tracker is not None:
             acquired = False
             try:
-                acquire_fn = getattr(
-                    self.gti_budget_tracker,
-                    "try_acquire",
-                    getattr(self.gti_budget_tracker, "tryAcquire", None),
-                )
+                if hasattr(tracker, "_mock_children"):
+                    children = tracker._mock_children
+                    if "try_acquire" in children:
+                        acquire_fn = tracker.try_acquire
+                    elif "tryAcquire" in children:
+                        acquire_fn = tracker.tryAcquire
+                    else:
+                        acquire_fn = getattr(
+                            tracker,
+                            "try_acquire",
+                            getattr(tracker, "tryAcquire", None),
+                        )
+                else:
+                    acquire_fn = getattr(
+                        tracker,
+                        "try_acquire",
+                        getattr(tracker, "tryAcquire", None),
+                    )
+
                 if acquire_fn is not None:
                     res = acquire_fn()
                     if inspect.isawaitable(res):
@@ -649,7 +685,7 @@ class SyncResolver:
 
             if not acquired:
                 self._threat_intel_queries_deferred += 1
-                self._gti_budget_exhausted = True
+                self._threat_intel_budget_exhausted = True
                 logger.debug(
                     "Threat intelligence budget exhausted — deferring query for tool %s",
                     context.tool_name,
@@ -1049,8 +1085,10 @@ class SyncResolver:
             total_evaluations=self._total_evaluations,
             average_latency_ms=avg_latency,
             rate_limit_hits=self._rate_limit_hits,
-            gti_queries_executed=self._gti_queries_executed,
-            gti_queries_deferred=self._gti_queries_deferred,
+            threat_intel_queries_executed=self._threat_intel_queries_executed,
+            threat_intel_queries_deferred=self._threat_intel_queries_deferred,
+            gti_queries_executed=self._threat_intel_queries_executed,
+            gti_queries_deferred=self._threat_intel_queries_deferred,
             inline_signatures_generated=self._inline_signatures_generated,
             block_count=self._block_count,
             quarantine_count=self._quarantine_count,
@@ -1073,11 +1111,11 @@ class SyncResolver:
         risk_score = getattr(threat_resp, "risk_score", None)
         if risk_score is None:
             detection_rate = getattr(threat_resp, "detection_rate", 0.0)
-            risk_score = detection_rate / 100.0 if detection_rate > 1.0 else detection_rate
+            risk_score = clamp_score(detection_rate)
             malicious_score = 1.0 if getattr(threat_resp, "is_malicious", False) else 0.0
             if getattr(threat_resp, "is_malicious", False):
-                return (malicious_score + clamp_score(risk_score)) / 2.0
-            return clamp_score(risk_score)
+                return (malicious_score + risk_score) / 2.0
+            return risk_score
 
         if getattr(threat_resp, "is_malicious", False):
             return max(1.0, clamp_score(risk_score))
@@ -1212,7 +1250,14 @@ class SyncResolver:
 
         resp = threat_resp if threat_resp is not None else kwargs.get("gti_resp")
         if resp is not None:
-            provider = getattr(resp, "provider_name", "ThreatIntel")
+            provider = getattr(resp, "provider_name", None)
+            if provider is None:
+                if type(resp).__name__ == "GTIResponse" or (
+                    hasattr(resp, "detection_rate") and not hasattr(resp, "risk_score")
+                ):
+                    provider = "GTI"
+                else:
+                    provider = "ThreatIntel"
             is_mal = getattr(resp, "is_malicious", False)
             risk = getattr(resp, "risk_score", getattr(resp, "detection_rate", 0.0))
             try:

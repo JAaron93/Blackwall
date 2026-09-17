@@ -20,6 +20,7 @@ from blackwall.models import (
     Verdict,
     VerdictDecision,
 )
+from blackwall.threat_intel.models import ThreatIndicatorType, ThreatIntelResponse
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +100,20 @@ def test_build_reasoning_with_gti_not_malicious():
     assert "GTI" in result
     assert "malicious=False" in result
     assert "50.00" in result
+
+
+def test_build_reasoning_with_threat_intel_response():
+    ti = ThreatIntelResponse(
+        indicator="198.51.100.1",
+        indicator_type=ThreatIndicatorType.IPV4,
+        is_malicious=True,
+        risk_score=0.85,
+        provider_name="AlienVault OTX",
+    )
+    result = SyncResolver._build_reasoning(0.9, ti, None)
+    assert "AlienVault OTX" in result
+    assert "malicious=True" in result
+    assert "0.85" in result
 
 
 def test_build_reasoning_with_cbm():
@@ -345,6 +360,32 @@ def test_score_gti_malicious_zero_detection():
     assert abs(score - 0.5) < 0.01
 
 
+def test_score_threat_intel_response_malicious():
+    r = make_resolver()
+    ti = ThreatIntelResponse(
+        indicator="198.51.100.1",
+        indicator_type=ThreatIndicatorType.IPV4,
+        is_malicious=True,
+        risk_score=0.85,
+        provider_name="AlienVault OTX",
+    )
+    score = r._score_threat_intel(ti)
+    assert score == 1.0
+
+
+def test_score_threat_intel_response_benign():
+    r = make_resolver()
+    ti = ThreatIntelResponse(
+        indicator="198.51.100.1",
+        indicator_type=ThreatIndicatorType.IPV4,
+        is_malicious=False,
+        risk_score=0.35,
+        provider_name="AlienVault OTX",
+    )
+    score = r._score_threat_intel(ti)
+    assert abs(score - 0.35) < 0.01
+
+
 # ===========================================================================
 # Section 6: _score_cbm()
 # ===========================================================================
@@ -505,6 +546,8 @@ def test_get_metrics_after_increments():
     assert metrics["rate_limit_hits"] == 1
     assert metrics["gti_queries_executed"] == 5
     assert metrics["gti_queries_deferred"] == 2
+    assert metrics["threat_intel_queries_executed"] == 5
+    assert metrics["threat_intel_queries_deferred"] == 2
     assert metrics["inline_signatures_generated"] == 3
 
 
@@ -544,7 +587,6 @@ async def test_schedule_attribution_creates_task():
         reasoning="test",
         confidence_score=0.9,
     )
-    initial_count = len(r._background_tasks)
     # Calling inside an async context ensures the running loop is available
     r._schedule_attribution(ctx, verdict)
     # Give the event loop a tick to register the task

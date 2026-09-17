@@ -19,18 +19,18 @@ from typing import Any
 import time
 
 
-class GTIDegradedError(Exception):
-    """Stub exception for degraded threat intel client."""
+class ThreatIntelDegradedError(Exception):
+    """Exception for degraded threat intel client."""
     pass
 
 
-class GTIBudgetExhaustedError(Exception):
-    """Stub exception for exhausted threat intel budget."""
+class ThreatIntelBudgetExhaustedError(Exception):
+    """Exception for exhausted threat intel budget."""
     pass
 
 
-class GTIMCPClient:
-    """Stub class for threat intel client mock spec."""
+class MockThreatIntelClient:
+    """Mock threat intelligence client."""
     base_url: str = ""
     repo: Any = None
 
@@ -40,8 +40,11 @@ class GTIMCPClient:
     async def queryIOC(self, *args: Any, **kwargs: Any) -> Any:
         pass
 
+    async def lookup(self, *args: Any, **kwargs: Any) -> Any:
+        pass
 
-class GTIQueryBudgetTracker:
+
+class MockThreatIntelBudgetTracker:
     def __init__(self, capacity: int = 4, replenishment_interval: float = 60.0) -> None:
         self.capacity = capacity
         self.replenishment_interval = replenishment_interval
@@ -79,10 +82,20 @@ class GTIQueryBudgetTracker:
             "queriesExecuted": self.queries_executed,
             "queriesDeferred": self.queries_deferred,
             "budgetExhaustionCount": self.budget_exhaustion_count,
+            "availableTokens": self.tokens,
         }
+
+    get_metrics = getMetrics
 
     def close(self) -> None:
         pass
+
+
+# Aliases for test fixture compatibility
+GTIDegradedError = ThreatIntelDegradedError
+GTIBudgetExhaustedError = ThreatIntelBudgetExhaustedError
+GTIMCPClient = MockThreatIntelClient
+GTIQueryBudgetTracker = MockThreatIntelBudgetTracker
 
 
 TEST_DB_PATH = "test_semantic_gating.db"

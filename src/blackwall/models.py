@@ -169,12 +169,27 @@ class SyncResolverMetrics(BaseModel):
     total_evaluations: int = 0
     average_latency_ms: float = 0.0
     rate_limit_hits: int = 0
+    threat_intel_queries_executed: int = 0
+    threat_intel_queries_deferred: int = 0
     gti_queries_executed: int = 0
     gti_queries_deferred: int = 0
     inline_signatures_generated: int = 0
     block_count: int = 0
     quarantine_count: int = 0
     allow_count: int = 0
+
+    @model_validator(mode="after")
+    def sync_metrics_aliases(self) -> "SyncResolverMetrics":
+        if self.threat_intel_queries_executed and not self.gti_queries_executed:
+            self.gti_queries_executed = self.threat_intel_queries_executed
+        elif self.gti_queries_executed and not self.threat_intel_queries_executed:
+            self.threat_intel_queries_executed = self.gti_queries_executed
+
+        if self.threat_intel_queries_deferred and not self.gti_queries_deferred:
+            self.gti_queries_deferred = self.threat_intel_queries_deferred
+        elif self.gti_queries_deferred and not self.threat_intel_queries_deferred:
+            self.threat_intel_queries_deferred = self.gti_queries_deferred
+        return self
 
 
 class PolicyServerState(BaseModel):

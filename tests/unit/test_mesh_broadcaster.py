@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 
 import pytest
 
+pytest.importorskip("zmq", reason="pyzmq is required for Enterprise Threat Mesh tests")
+
 from blackwall.enterprise.advanced_threat_detection.reaction import (
     ActiveReactionEngine,
     ActiveReactionPayload,
