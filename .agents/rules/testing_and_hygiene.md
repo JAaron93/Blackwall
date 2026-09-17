@@ -523,3 +523,9 @@
 * **Rule (No Literal Basic Auth in Test Code):** Unit tests, BDD step definitions, and mock fixtures testing credential sanitization, URL redacting, or authentication error handling MUST NOT write literal basic auth credentials (e.g. `https://user:password@...`, `admin:secret123@`) directly as static string literals in source code.
 * **Rule (Dynamic Composition):** Test fixtures MUST construct sensitive test URL strings dynamically (e.g. `f"https://{user}:{pwd}@{host}/path"` where `user = "user"` and `pwd = "pass"`) or use dummy placeholders like `[[CREDENTIAL]]`.
 * **Rationale:** Discovered on PR #150. Automated CI secret scanners (such as GitGuardian) scan all commits in pull request branches. Static basic auth URLs trigger false-positive secret leakage alerts that persist across branch history even after subsequent cleanup commits.
+
+## 61. Subprocess & Path Isolation in Companion Bridge Test Suites
+* **Rule (Mock Both Liveness & Execution):** Unit tests and BDD steps testing external CLI bridges (such as `HarpoonBridge`) MUST mock both binary presence checks (`shutil.which`) and subprocess execution runners (`asyncio.create_subprocess_exec`) within the test fixture scope.
+* **Rule (No Ambient PATH Dependency):** Tests MUST NOT depend on or execute ambient host binaries, ensuring 100% deterministic test execution across environments regardless of whether companion tools (like `harpoon`) are installed on the local system.
+* **Rationale:** Discovered during Phase 3 test suite implementation on PR #151. Relying on unmocked binary presence causes test behavior to diverge between local development machines with external CLI tools installed and isolated CI runner containers.
+

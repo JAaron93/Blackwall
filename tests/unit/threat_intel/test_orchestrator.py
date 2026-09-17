@@ -674,7 +674,7 @@ async def test_orchestrator_harpoon_primary_pulse_lookup_delegates_to_fallback()
 async def test_orchestrator_get_pulse_enforces_circuit_breaker() -> None:
     """Verify get_pulse respects circuit breaker OPEN state and raises CircuitBreakerOpenError."""
     from unittest.mock import AsyncMock
-    from blackwall.threat_intel.circuit_breaker import CircuitBreakerOpenError, CircuitState
+    from blackwall.threat_intel.circuit_breaker import CircuitBreakerOpenError
 
     mock_otx = MockProvider(
         name="otx",

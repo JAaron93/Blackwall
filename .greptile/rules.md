@@ -231,8 +231,21 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 - **Harpoon Bridge & Native CLI**:
   - Companion bridge (`HarpoonBridge`) provides deep OSINT investigation via external `harpoon` CLI when installed, gracefully falling back to in-process OTX when absent.
   - Native CLI subcommands (`blackwall check <indicator>`, `blackwall threat-intel ...`) provide first-class indicator triage and cache management.
+- **Companion OSINT Bridge Deduplication**:
+  - External CLI companion bridges (e.g. `HarpoonBridge`) wrapping an upstream provider already natively supported in-process (AlienVault OTX) MUST NOT be auto-registered into the default secondary provider cascade for aggregate lookups.
+  - Companion bridges are on-demand only (`--provider harpoon` or `get_provider("harpoon")`), unless explicitly designated as primary (`BW_THREAT_INTEL_PRIMARY=harpoon`).
+- **Sub-Millisecond Read SLA Preservation**:
+  - Cache hits/misses in `threat_intel_cache` MUST remain pure `SELECT` read queries (<1.0ms SLA). Synchronous writes or transaction commits on the read path are strictly prohibited.
+  - Metrics MUST be buffered in memory and flushed in atomic batches (`record_threat_intel_cache_metrics_batch`) outside the critical lookup path or upon teardown.
+- **Circuit Breaker Auxiliary Uniformity**:
+  - Auxiliary endpoints (`get_pulse`) MUST route through `self.circuit_breaker.call(...)` to inherit `OPEN`-state short-circuiting and failure accounting.
+- **Transparent Companion Delegation**:
+  - Companion bridges lacking CLI support for auxiliary methods (e.g. `get_pulse`) MUST transparently delegate to their in-process fallback provider rather than raising `NotImplementedError`.
+- **CLI Teardown Metric Flushing**:
+  - CLI commands performing threat lookups MUST flush in-memory metric buffers in a `finally` block before process exit.
 - **Legacy VirusTotal Compatibility**:
   - VirusTotal GTI client is retained exclusively as an opt-in fallback when `BW_THREAT_INTEL_BACKEND=virustotal` is explicitly configured.
+
 
 
 

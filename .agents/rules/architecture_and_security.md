@@ -587,3 +587,28 @@
 * **Rule (Explicit Provider Column Scoping):** Database repository methods (e.g. `SQLiteThreatRepository.cache_threat_intel`) MUST accept an explicit, decoupled `provider` column scoping parameter (`provider="aggregate"` vs. `provider="otx"`), keeping the storage index key separate from the entity's intrinsic attributes.
 * **Rule (Cross-Scope Cache Isolation):** Single-provider lookups and multi-provider cascade lookups MUST use isolated cache scopes so that cross-provider aggregates never short-circuit single-provider queries, and single-provider records never satisfy multi-provider evaluations.
 * **Rationale:** Discovered during Phase 2 implementation on PR #150. Mutating `response.provider_name = "aggregate"` before serializing to SQLite causes cache misses to return the true attributing provider (`provider_name="otx"`), while cache hits return `"aggregate"`, breaking entity immutability and contract consistency between fresh and cached resolutions.
+
+## 88. Companion OSINT Bridge Cascading & Deduplication Invariants
+* **Rule (No Automatic Secondary Cascading for Bridged Upstreams):** When an external CLI companion bridge (e.g. `HarpoonBridge`) wraps an upstream threat intelligence service already natively integrated in-process (such as AlienVault OTX), the companion bridge MUST NOT be automatically registered into the default secondary provider cascade for aggregate lookups.
+* **Rule (On-Demand & Explicit Primary Designation):** Companion bridges wrapping existing native providers MUST remain on-demand only (invoked explicitly via CLI `--provider harpoon` or orchestrator `get_provider("harpoon")`), unless explicitly configured as the primary provider replacing the native client (`BW_THREAT_INTEL_PRIMARY=harpoon`).
+* **Rationale:** Discovered during Phase 3 implementation on PR #151. Auto-registering an external tool bridge wrapping an existing native provider into the cascade causes duplicate outbound network queries to the same upstream API on every cache miss, burns external rate-limit quota twice, spawns redundant subprocesses on the latency-critical path, and inflates lookup latency.
+
+## 89. Sub-Millisecond Read SLA Preservation & Asynchronous Batched Cache Metrics
+* **Rule (Pure SELECT Critical Path):** In caching layers governed by a $< 1.0\text{ ms}$ read SLA (such as `threat_intel_cache` and `ThreatIntelOrchestrator`), cache hits and misses MUST remain pure `SELECT` queries and return to the caller immediately without synchronously awaiting SQLite `UPDATE` writes or transaction commits on the critical path.
+* **Rule (In-Memory Buffering & Batched Persistence):** Hit and miss metrics MUST be buffered in memory (`_pending_hits`, `_pending_misses`) and flushed in atomic batches (`record_threat_intel_cache_metrics_batch`) outside the latency-critical path or upon process teardown.
+* **Rationale:** Discovered during Phase 3 performance optimization on PR #151. Synchronous disk writes convert sub-millisecond in-memory/read shortcuts into multi-millisecond disk transactions and induce SQLite write-lock contention under concurrent lookups.
+
+## 90. Auxiliary & RPC Endpoint Circuit Breaker Uniformity
+* **Rule (Uniform Circuit Breaker Routing):** External provider wrappers (e.g. `CircuitBreakerProvider`) MUST route auxiliary and secondary RPC endpoints (such as `get_pulse(pulse_id)`) through `self.circuit_breaker.call(...)`.
+* **Rule (No Direct Raw Client Invocation):** Auxiliary endpoints MUST NOT unwrap or bypass the circuit breaker to invoke raw client methods directly.
+* **Rationale:** Discovered during Phase 3 implementation on PR #151. Auxiliary calls made directly to raw clients bypass `OPEN`-state short-circuiting, failure accounting, and timeout enforcement, leaving the system vulnerable to unmonitored timeouts and indefinite hangs during upstream outages.
+
+## 91. Companion Bridge Transparent Method Delegation
+* **Rule (Transparent Fallback Delegation):** When an external companion bridge wraps a native fallback provider, auxiliary operations not supported by the external companion tool's CLI binary (e.g. `get_pulse(pulse_id)` in Harpoon CLI) MUST transparently delegate to the in-process fallback provider (`fallback_provider.get_pulse(...)`) rather than raising `NotImplementedError`.
+* **Rationale:** Discovered during Phase 3 implementation on PR #151. Raising `NotImplementedError` violates polymorphic provider substitution contracts and crashes callers, CLI subcommands, or resolvers expecting uniform interface capabilities across providers.
+
+## 92. CLI Teardown Lifecycle & Metric Buffer Flushing
+* **Rule (Mandatory Teardown Flush):** CLI commands and short-lived entry points that perform operations buffering metrics or telemetry in memory MUST execute an explicit teardown hook (e.g. `await orchestrator.flush_metrics()`) in a `finally` block before process exit.
+* **Rule (Failure-Resilient Cleanup):** Teardown flushes MUST be wrapped in defensive exception handling to ensure that metric flush errors do not suppress or mask primary CLI command exit codes or errors.
+* **Rationale:** Discovered during Phase 3 CLI development on PR #151. Short-lived CLI commands exit immediately after outputting results; without an explicit teardown flush, buffered cache metrics accumulated during the execution are silently discarded when the process terminates.
+
