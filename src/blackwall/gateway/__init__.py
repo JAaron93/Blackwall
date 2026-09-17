@@ -20,6 +20,7 @@ from blackwall.gateway.exceptions import (
 )
 from blackwall.gateway.flow import FlowController, InFlightRequest
 from blackwall.gateway.interceptor import PayloadInterceptor
+from blackwall.gateway.server import MCPGatewayServer
 from blackwall.gateway.synthesizer import ResponseSynthesizer
 
 __all__ = [
@@ -36,4 +37,5 @@ __all__ = [
     "FlowController",
     "PayloadInterceptor",
     "ResponseSynthesizer",
+    "MCPGatewayServer",
 ]
