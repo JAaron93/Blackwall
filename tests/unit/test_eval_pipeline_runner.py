@@ -9,7 +9,6 @@ Verifies:
 - Historical regression tracking integration.
 """
 
-import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
@@ -24,7 +23,6 @@ from blackwall.eval.rubrics import (
 from scripts.run_gcp_eval import (
     load_all_scenarios,
     run_evaluation_pipeline,
-    parse_args,
 )
 
 

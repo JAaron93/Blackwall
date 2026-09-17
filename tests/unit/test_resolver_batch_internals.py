@@ -6,18 +6,15 @@ TokenBucketRateLimiter.consume/refill, ContextHygiene.sanitize_value.
 """
 
 import pytest
-import asyncio
 import json
 import time
-from typing import Any, List
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 from blackwall.resolver import BatchResolver, ContextHygiene, TokenBucketRateLimiter
 from blackwall.models import (
     BatchResponse,
     ResolverMetrics,
     ToolCallContext,
-    Verdict,
     VerdictDecision,
 )
 from blackwall.exceptions import APIRateLimitException

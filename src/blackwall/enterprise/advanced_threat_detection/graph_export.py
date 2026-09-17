@@ -4,7 +4,6 @@ import json
 import os
 import xml.etree.ElementTree as ET
 from typing import Any
-from uuid import UUID
 
 from blackwall.enterprise.advanced_threat_detection.models import AttackNode
 from blackwall.validators import format_iso_datetime, normalize_text

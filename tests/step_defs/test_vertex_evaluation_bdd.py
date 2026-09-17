@@ -3,7 +3,7 @@ BDD step definitions for GCP Vertex AI Evaluation Engine (Task 22).
 """
 
 import pytest
-from pytest_bdd import given, parsers, scenarios, then, when
+from pytest_bdd import given, scenarios, then, when
 
 from blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval import (
     GCPVertexAIEvaluationHarness,

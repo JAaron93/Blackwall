@@ -7,7 +7,7 @@ import os
 import stat
 from cryptography.fernet import Fernet
 import pytest
-from blackwall.security.vault import EncryptedLocalStore, LocalVault
+from blackwall.security.vault import EncryptedLocalStore
 
 
 def test_vault_atomic_file_permissions(tmp_path):

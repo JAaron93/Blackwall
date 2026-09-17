@@ -10,11 +10,10 @@ Design principles:
 """
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from blackwall.enterprise.advanced_threat_detection.alert_bus import AlertBus
 from blackwall.enterprise.advanced_threat_detection.enums import (
     AlertSeverity,
     ReactionActionType,

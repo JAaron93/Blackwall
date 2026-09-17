@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 import uuid
 from hypothesis import given, settings, strategies as st
 import pytest
-from pydantic import ValidationError
 
 from blackwall.enterprise.advanced_threat_detection import (
     EventSource,

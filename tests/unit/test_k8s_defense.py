@@ -6,7 +6,6 @@ import pytest
 
 from blackwall.enterprise.advanced_threat_detection import (
     EventSource,
-    K8sThreatEvidence,
     KubernetesDefenseLayer,
     NormalizedEvent,
 )

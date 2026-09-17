@@ -3,7 +3,6 @@ Integration tests for Self-Learning Loop Integration and End-to-End Validation (
 Requirements: 5.1, 5.2, 5.3, 5.4, 5.7, 5.8, 5.12, 6.9, 6.10, 6.11, 11.1, 16.3, 26.1, 26.2, 26.3.
 """
 
-import asyncio
 import os
 import tempfile
 import time

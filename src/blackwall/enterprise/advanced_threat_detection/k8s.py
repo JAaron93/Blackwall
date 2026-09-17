@@ -1,17 +1,16 @@
 """Kubernetes Defense Layer for Blackwall Advanced Threat Detection (Pillar 6 Task 12)."""
 
-from datetime import datetime, timezone
+from datetime import datetime
 import re
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Set, Tuple
 
-from blackwall.enterprise.advanced_threat_detection.enums import EventSource
 from blackwall.enterprise.advanced_threat_detection.models import (
     K8sThreatEvidence,
     NormalizedEvent,
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
 from blackwall.policy.models import PolicyConfig
-from blackwall.validators import format_iso_datetime, normalize_time_window, validate_utc_datetime
+from blackwall.validators import format_iso_datetime, normalize_time_window
 
 TOKEN_PATH_PATTERN = r"/var/run/secrets/kubernetes.io/serviceaccount/token"
 K8S_SECRET_API_REGEX = re.compile(
@@ -62,10 +61,6 @@ class KubernetesDefenseLayer:
         if event.agent_id not in self._tracked_api_calls:
             self._tracked_api_calls[event.agent_id] = []
         self._tracked_api_calls[event.agent_id].append(event)
-
-    async def get_k8s_api_access(self, agent_id: str) -> List[NormalizedEvent]:
-        """Retrieve tracked Kubernetes API access events for an agent."""
-        return list(self._tracked_api_calls.get(agent_id, []))
 
     def get_tracked_api_calls(self, agent_id: str) -> List[NormalizedEvent]:
         """Retrieve tracked Kubernetes API access events for an agent."""

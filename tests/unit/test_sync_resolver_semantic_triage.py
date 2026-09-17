@@ -1,13 +1,9 @@
 """Unit tests for SyncResolver semantic triage and structured signature generation."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
-from blackwall.config import DEFAULT_RAPID_TRIAGE_MODEL, get_gemini_thinking_level
 from blackwall.models import (
-    CBMResponse,
-    GTIResponse,
     ToolCallContext,
     Verdict,
     VerdictDecision,

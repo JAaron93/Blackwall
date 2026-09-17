@@ -9,10 +9,8 @@ Verifies:
 """
 
 import time
-import pytest
 from blackwall.enterprise.advanced_threat_detection.gcp_trace_exporter import GCPCloudTraceExporter
 from blackwall.eval.sla_validator import (
-    DEFAULT_SLA_THRESHOLDS_MS,
     SLAMeasurement,
     SLAValidator,
 )
@@ -70,7 +68,7 @@ def test_sla_validator_span_attributes():
     span = exporter.start_span(name="vertex_eval.sla_test")
 
     validator = SLAValidator()
-    measurement = validator.record_measurement(
+    _ = validator.record_measurement(
         component="tsg_signature_match",
         measured_ms=12.5,
         span=span,

@@ -8,7 +8,6 @@ import uuid
 from collections import deque
 from datetime import datetime, timedelta
 from typing import Any
-from urllib.parse import urlsplit
 
 from blackwall.enterprise.advanced_threat_detection.alert_bus import AlertBus
 from blackwall.enterprise.advanced_threat_detection.covert_channel import (

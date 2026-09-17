@@ -1,7 +1,6 @@
 """Unit tests for AuditHookManager in src/blackwall/audit/manager.py."""
 
 import os
-import sqlite3
 import threading
 import time
 from unittest.mock import patch

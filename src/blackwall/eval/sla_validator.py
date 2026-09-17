@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import time
 from contextlib import contextmanager
-from typing import Any, Generator, Optional
+from typing import Any, Generator
 
 from pydantic import BaseModel, ConfigDict, Field
 

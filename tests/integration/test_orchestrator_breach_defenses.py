@@ -235,7 +235,7 @@ async def test_inbound_rpc_no_header_bypass_closed_when_allowlist_configured():
     condition was never evaluated for None values. The fix requires presence +
     membership when an allow-list is configured (strict mode).
     """
-    config = AdvancedThreatDetectionConfig(
+    _config = AdvancedThreatDetectionConfig(
         in_memory=True,
         inbound_enforce_loopback=False,  # loopback not enforced — public-facing mode
         inbound_rate_limit=10,

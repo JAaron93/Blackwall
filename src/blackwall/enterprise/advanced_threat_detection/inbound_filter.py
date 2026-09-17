@@ -9,7 +9,6 @@ import ipaddress
 import json
 import logging
 import time
-from datetime import UTC, datetime
 from typing import Any, Mapping, Optional, Set, Tuple
 from urllib.parse import urlparse
 

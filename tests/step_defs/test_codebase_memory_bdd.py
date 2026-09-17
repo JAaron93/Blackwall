@@ -1,9 +1,7 @@
 """BDD Step definitions for Codebase Memory AST Blast Radius and Sink Detection."""
 
-import os
-import sys
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from pytest_bdd import given, scenarios, then, when

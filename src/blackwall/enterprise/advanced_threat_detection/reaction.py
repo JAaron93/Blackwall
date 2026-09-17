@@ -31,6 +31,8 @@ from blackwall.enterprise.kernel.probe import KernelProbeDriver
 from blackwall.enterprise.mcp.vault_mcp import VaultMCPAdapter
 from blackwall.validators import is_evaluation_metadata, utc_now
 
+__all__ = ["ActiveReactionEngine", "ReactionActionType"]
+
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.reaction")
 
 

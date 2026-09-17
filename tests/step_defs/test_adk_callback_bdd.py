@@ -23,8 +23,7 @@ from pytest_bdd import given, parsers, scenario, then, when
 
 from blackwall.adk_integration import ADKIntegration, FreeTierADKIntegration
 from blackwall.interception import InterceptionQueue
-from blackwall.models import CallbackToken, ToolCallContext, Verdict, VerdictDecision
-from tests.step_defs.async_utils import run_async
+from blackwall.models import Verdict, VerdictDecision
 
 # ---------------------------------------------------------------------------
 # Feature file path

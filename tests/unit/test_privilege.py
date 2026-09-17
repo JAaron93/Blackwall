@@ -10,7 +10,7 @@ Covers:
 
 import os
 import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 from blackwall.security.privilege import JITCredentialContext, drop_privileges
 from blackwall.security.vault import JITCredentialManager

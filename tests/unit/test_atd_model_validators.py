@@ -1,9 +1,8 @@
 """Unit tests for enterprise Advanced Threat Detection data models and field/model validators."""
 
-from datetime import UTC, datetime, timedelta, timezone
-import math
+from datetime import datetime, timedelta, timezone
 from typing import Any
-from uuid import UUID, uuid1, uuid4
+from uuid import uuid1, uuid4
 
 import pytest
 from pydantic import ValidationError

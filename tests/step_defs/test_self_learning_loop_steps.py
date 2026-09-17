@@ -4,12 +4,11 @@ import os
 import tempfile
 import time
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-from blackwall.analytics import AgentBehavioralAnalytics
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.models import (
     CBMResponse,

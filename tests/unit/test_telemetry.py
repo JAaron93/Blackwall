@@ -7,8 +7,6 @@ Tests the three public functions:
   - get_metric(name)   — returns a named metric instrument from _metrics dict
 """
 
-import importlib
-import os
 import sys
 from unittest.mock import MagicMock, patch
 

@@ -9,12 +9,10 @@ from unittest.mock import MagicMock
 import pytest
 from pytest_bdd import given, scenarios, then, when
 
-from blackwall.enterprise.advanced_threat_detection.alert_bus import AlertBus
 from blackwall.enterprise.advanced_threat_detection.config import (
     AdvancedThreatDetectionConfig,
 )
 from blackwall.enterprise.advanced_threat_detection.enums import (
-    AlertSeverity,
     EventSource,
 )
 from blackwall.enterprise.advanced_threat_detection.models import (

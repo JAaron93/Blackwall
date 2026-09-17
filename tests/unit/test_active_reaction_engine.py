@@ -6,7 +6,7 @@ Validates Requirements 22.1 - 22.5, 14.5.
 import os
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 
 import pytest
@@ -27,7 +27,6 @@ from blackwall.enterprise.advanced_threat_detection.models import (
 from blackwall.enterprise.advanced_threat_detection.reaction import (
     ActiveReactionEngine,
 )
-from blackwall.enterprise.identity.sidecar import SecretVaultSidecar
 from blackwall.enterprise.kernel.probe import UserSpaceAuditDriver
 from blackwall.enterprise.mcp.vault_mcp import VaultMCPAdapter
 

@@ -4,13 +4,11 @@ import os
 import pytest
 import pytest_asyncio
 from typing import AsyncGenerator
-from uuid import uuid4
 
 from blackwall.analytics import AgentBehavioralAnalytics, Agent_Behavioral_Analytics
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.eval.metrics import calculateMetrics
 from blackwall.models import (
-    BehaviorScore,
     CBMResponse,
     EventType,
     GTIResponse,

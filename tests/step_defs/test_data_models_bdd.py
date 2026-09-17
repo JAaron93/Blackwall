@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime, timezone, timedelta
-from typing import Any, List, Set
+from typing import List, Set
 
 import pytest
 from pydantic import ValidationError

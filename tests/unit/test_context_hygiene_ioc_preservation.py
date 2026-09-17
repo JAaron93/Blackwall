@@ -9,7 +9,6 @@ Validates that when preserve_iocs=True:
 
 from __future__ import annotations
 
-import pytest
 from blackwall.models import ToolCallContext
 from blackwall.resolver import ContextHygiene
 

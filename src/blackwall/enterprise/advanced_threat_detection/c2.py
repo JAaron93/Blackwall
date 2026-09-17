@@ -1,11 +1,10 @@
 """Command-and-Control (C2) Infrastructure Detector for Blackwall Advanced Threat Detection (Pillar 6 Task 11)."""
 
-from datetime import datetime, timezone
+from datetime import datetime
 import math
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urlparse
-from uuid import UUID
 
 from blackwall.enterprise.advanced_threat_detection.enums import EventSource
 from blackwall.enterprise.advanced_threat_detection.models import (
@@ -13,7 +12,7 @@ from blackwall.enterprise.advanced_threat_detection.models import (
     NormalizedEvent,
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
-from blackwall.validators import normalize_text, normalize_time_window, validate_utc_datetime
+from blackwall.validators import normalize_text, normalize_time_window
 
 # Known C2 Hostname Domain Patterns (Requirement 7.1)
 KNOWN_C2_HOST_PATTERNS = [

@@ -5,7 +5,7 @@ and partial system degradation during high load or detector failures.
 """
 
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -16,7 +16,6 @@ import pytest
 from blackwall.enterprise.advanced_threat_detection.collector import (
     EventStreamCollector,
 )
-from blackwall.enterprise.advanced_threat_detection.correlator import PathCorrelator
 from blackwall.enterprise.advanced_threat_detection.enums import EventSource
 from blackwall.enterprise.advanced_threat_detection.models import (
     NormalizedEvent,

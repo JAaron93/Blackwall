@@ -1,6 +1,5 @@
 """Property-based tests for Error Handling, Resilience, and Resource Throttling."""
 
-import asyncio
 from typing import Any
 import pytest
 from hypothesis import given, settings, strategies as st

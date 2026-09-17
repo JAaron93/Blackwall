@@ -9,7 +9,6 @@ Uses Hypothesis to verify:
 """
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List
 import uuid
 import pytest
 from hypothesis import given, settings
