@@ -13,19 +13,23 @@ import json
 import logging
 import os
 import urllib.parse
+import uuid
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from aiohttp import web
 
 from blackwall.gateway.exceptions import (
+    DuplicateRequestIdError,
     GatewayAuthError,
     MalformedPayloadError,
     QueueOverflowError,
+    RequestTimeoutError,
 )
 from blackwall.gateway.flow import FlowController
 from blackwall.gateway.interceptor import PayloadInterceptor
 from blackwall.gateway.synthesizer import ResponseSynthesizer
-from blackwall.models import VerdictDecision
+from blackwall.models import ToolCallContext, VerdictDecision
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +66,10 @@ class MCPGatewayServer:
         interceptor: PayloadInterceptor | None = None,
         synthesizer: ResponseSynthesizer | None = None,
         resolver: Any = None,
+        downstream_handler: (
+            Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None
+        ) = None,
+        timeout_seconds: float = 30.0,
         allowed_origins: list[str] | None = None,
         allowed_hosts: list[str] | None = None,
     ) -> None:
@@ -82,9 +90,14 @@ class MCPGatewayServer:
         self.interceptor = interceptor or PayloadInterceptor()
         self.synthesizer = synthesizer or ResponseSynthesizer()
         self.resolver = resolver
+        self.downstream_handler = downstream_handler
+        self.timeout_seconds = timeout_seconds
 
         self.allowed_origins = set(allowed_origins or [])
         self.allowed_hosts = set(allowed_hosts or [])
+
+        self._sse_sessions: dict[str, asyncio.Queue[str]] = {}
+        self._shutdown_event = asyncio.Event()
 
         self._app: web.Application | None = None
         self._runner: web.AppRunner | None = None
@@ -116,12 +129,20 @@ class MCPGatewayServer:
         # 1. Host header validation (prevent DNS rebinding)
         host_hdr = request.headers.get("Host", "")
         if host_hdr:
-            hostname = host_hdr.split(":")[0].strip()
+            try:
+                parsed_host = urllib.parse.urlsplit(f"http://{host_hdr}").hostname
+                hostname = parsed_host or host_hdr.split(":")[0].strip()
+            except Exception:
+                hostname = host_hdr.split(":")[0].strip()
+
             allowed = (
                 hostname in LOOPBACK_HOSTS
+                or f"[{hostname}]" in LOOPBACK_HOSTS
                 or hostname.startswith("127.")
                 or hostname == self.host
+                or f"[{hostname}]" == self.host
                 or hostname in self.allowed_hosts
+                or host_hdr in self.allowed_hosts
             )
             if not allowed:
                 logger.warning("Rejected request with unauthorized Host: %s", host_hdr)
@@ -197,7 +218,11 @@ class MCPGatewayServer:
         return web.json_response(response, status=200)
 
     async def _handle_get_mcp(self, request: web.Request) -> web.StreamResponse:
-        """SSE channel for server-to-client streaming."""
+        """SSE channel for server-to-client streaming with active session registry."""
+        session_id = str(uuid.uuid4())
+        session_queue: asyncio.Queue[str] = asyncio.Queue()
+        self._sse_sessions[session_id] = session_queue
+
         sse_resp = web.StreamResponse(
             status=200,
             headers={
@@ -207,9 +232,44 @@ class MCPGatewayServer:
             },
         )
         await sse_resp.prepare(request)
-        keepalive = ": ping\n\n"
-        await sse_resp.write(keepalive.encode("utf-8"))
+
+        # Send initial connection acknowledgment with session identifier
+        initial_msg = f": connected session={session_id}\n\n"
+        await sse_resp.write(initial_msg.encode("utf-8"))
+
+        try:
+            while not self._shutdown_event.is_set():
+                try:
+                    payload = await asyncio.wait_for(session_queue.get(), timeout=15.0)
+                    if self._shutdown_event.is_set() and payload == "":
+                        break
+                    await sse_resp.write(payload.encode("utf-8"))
+                except asyncio.TimeoutError:
+                    await sse_resp.write(b": ping\n\n")
+        except (asyncio.CancelledError, ConnectionResetError):
+            pass
+        finally:
+            self._sse_sessions.pop(session_id, None)
+
         return sse_resp
+
+    @property
+    def active_sse_sessions(self) -> int:
+        """Returns the count of active client SSE streaming sessions."""
+        return len(self._sse_sessions)
+
+    async def broadcast_sse(self, event: str, data: dict[str, Any]) -> int:
+        """Broadcasts an SSE event to all connected streaming clients."""
+        payload = f"event: {event}\ndata: {json.dumps(data)}\n\n"
+        delivered = 0
+        for queue in list(self._sse_sessions.values()):
+            try:
+                queue.put_nowait(payload)
+                delivered += 1
+            except Exception:
+                pass
+        return delivered
+
 
     async def _handle_health(self, request: web.Request) -> web.Response:
         """Health check endpoint."""
@@ -254,7 +314,7 @@ class MCPGatewayServer:
 
         # 1. Passthrough non-tool methods
         if self.flow_controller.is_passthrough(method):
-            return self._handle_passthrough(req_id, method, params)
+            return await self._handle_passthrough(data, req_id, method, params)
 
         # 2. Gated tool call interception
         if self.flow_controller.is_tool_call(method):
@@ -267,10 +327,34 @@ class MCPGatewayServer:
             request_id=req_id,
         )
 
-    def _handle_passthrough(
-        self, req_id: Any, method: str, params: dict[str, Any]
+    async def _handle_passthrough(
+        self,
+        raw_data: dict[str, Any],
+        req_id: Any,
+        method: str,
+        params: dict[str, Any],
     ) -> dict[str, Any]:
-        """Handles non-tool MCP protocol methods without security gating."""
+        """Handles non-tool MCP protocol methods."""
+        if method == "notifications/cancelled":
+            cancel_id = params.get("requestId") or params.get("id")
+            if cancel_id:
+                self.flow_controller.cancel_request(cancel_id)
+
+        # If a downstream tool server handler is attached, forward pass-through requests
+        if self.downstream_handler is not None:
+            try:
+                return await self.downstream_handler(raw_data)
+            except Exception as exc:
+                logger.error(
+                    "Downstream passthrough error for method '%s': %s", method, exc
+                )
+                return self.synthesizer.synthesize_error(
+                    code=-32603,
+                    message=f"Downstream error handling '{method}'",
+                    request_id=req_id,
+                )
+
+        # Standalone defaults when no downstream handler is attached
         if method == "initialize":
             return {
                 "jsonrpc": "2.0",
@@ -301,7 +385,6 @@ class MCPGatewayServer:
                 "result": {},
             }
 
-        # Notifications do not return responses
         if method.startswith("notifications/"):
             return {}
 
@@ -332,10 +415,34 @@ class MCPGatewayServer:
             return self.synthesizer.synthesize_error(
                 code=-32000, message=str(exc), request_id=req_id
             )
+        except DuplicateRequestIdError as exc:
+            return self.synthesizer.synthesize_error(
+                code=-32600, message=str(exc), request_id=req_id
+            )
 
-        # Evaluate against security resolver if attached
-        if self.resolver is not None:
-            try:
+        # Start background evaluation and execution so timeout covers the entire operation
+        eval_task = asyncio.create_task(
+            self._evaluate_and_execute(req_id, context, raw_payload)
+        )
+
+        try:
+            response = await self.flow_controller.wait_for_verdict(
+                req_id, timeout=self.timeout_seconds
+            )
+            return response
+        finally:
+            if not eval_task.done():
+                eval_task.cancel()
+
+    async def _evaluate_and_execute(
+        self,
+        req_id: Any,
+        context: ToolCallContext,
+        raw_payload: dict[str, Any],
+    ) -> None:
+        """Evaluates policy and forwards allowed tool execution to downstream handler."""
+        try:
+            if self.resolver is not None:
                 verdict = await self.resolver.evaluate(context)
                 if verdict.decision in (
                     VerdictDecision.BLOCK,
@@ -345,70 +452,78 @@ class MCPGatewayServer:
                         verdict, req_id
                     )
                     self.flow_controller.resolve_request(req_id, err_response)
-                else:
-                    # ALLOW verdict
-                    allow_response = {
-                        "jsonrpc": "2.0",
-                        "id": req_id,
-                        "result": {
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": f"Tool '{context.tool_name}' execution allowed",
-                                }
-                            ]
-                        },
-                    }
-                    self.flow_controller.resolve_request(req_id, allow_response)
-            except Exception as exc:
-                logger.error("Resolver evaluation error on req_id=%s: %s", req_id, exc)
+                    return
+
+            # ALLOW verdict (or standalone without attached resolver)
+            if self.downstream_handler is not None:
+                try:
+                    downstream_response = await self.downstream_handler(raw_payload)
+                    self.flow_controller.resolve_request(req_id, downstream_response)
+                except Exception as down_exc:
+                    logger.error(
+                        "Downstream execution error on req_id=%s: %s", req_id, down_exc
+                    )
+                    err_resp = self.synthesizer.synthesize_error(
+                        code=-32603,
+                        message="Downstream tool execution failed",
+                        request_id=req_id,
+                    )
+                    self.flow_controller.resolve_request(req_id, err_resp)
+            else:
                 err_resp = self.synthesizer.synthesize_error(
                     code=-32603,
-                    message="Blackwall Firewall: Internal evaluation error",
+                    message="Blackwall Gateway: Tool call allowed by policy, but no downstream server is configured to execute it",
                     request_id=req_id,
                 )
                 self.flow_controller.resolve_request(req_id, err_resp)
-        else:
-            # Standalone default without attached resolver
-            allow_response = {
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "result": {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": f"Tool '{context.tool_name}' execution allowed",
-                        }
-                    ]
-                },
-            }
-            self.flow_controller.resolve_request(req_id, allow_response)
-
-        return await self.flow_controller.wait_for_verdict(req_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error("Resolver evaluation error on req_id=%s: %s", req_id, exc)
+            err_resp = self.synthesizer.synthesize_error(
+                code=-32603,
+                message="Blackwall Firewall: Internal evaluation error",
+                request_id=req_id,
+            )
+            self.flow_controller.resolve_request(req_id, err_resp)
 
     async def handle_stdio_stream(
         self,
         reader: asyncio.StreamReader,
         writer: Any,
     ) -> None:
-        """Processes continuous newline-delimited JSON-RPC streams over stdio."""
+        """Processes continuous newline-delimited JSON-RPC streams over stdio asynchronously."""
         logger.info("Started MCP stdio transport stream handler")
-        while True:
-            line = await reader.readline()
-            if not line:
-                logger.info("Stdio stream reached EOF")
-                break
+        active_tasks: set[asyncio.Task[Any]] = set()
 
-            text = line.decode("utf-8").strip()
-            if not text:
-                continue
+        async def _handle_line(line_text: str) -> None:
+            try:
+                response = await self.process_message(line_text)
+                if response:
+                    out_bytes = (json.dumps(response) + "\n").encode("utf-8")
+                    writer.write(out_bytes)
+                    if hasattr(writer, "drain"):
+                        await writer.drain()
+            except Exception as exc:
+                logger.error("Error processing stdio message: %s", exc)
 
-            response = await self.process_message(text)
-            if response:
-                out_bytes = (json.dumps(response) + "\n").encode("utf-8")
-                writer.write(out_bytes)
-                if hasattr(writer, "drain"):
-                    await writer.drain()
+        try:
+            while True:
+                line = await reader.readline()
+                if not line:
+                    logger.info("Stdio stream reached EOF")
+                    break
+
+                text = line.decode("utf-8").strip()
+                if not text:
+                    continue
+
+                task = asyncio.create_task(_handle_line(text))
+                active_tasks.add(task)
+                task.add_done_callback(active_tasks.discard)
+        finally:
+            if active_tasks:
+                await asyncio.gather(*active_tasks, return_exceptions=True)
 
     async def start_http(self) -> None:
         """Starts the asynchronous HTTP server on the configured host and port."""
@@ -425,7 +540,15 @@ class MCPGatewayServer:
         )
 
     async def stop(self) -> None:
-        """Gracefully shuts down the HTTP server and clears pending requests."""
+        """Gracefully shuts down the HTTP server, clears pending requests, and closes SSE streams."""
+        self._shutdown_event.set()
+        for queue in list(self._sse_sessions.values()):
+            try:
+                queue.put_nowait("")
+            except Exception:
+                pass
+        self._sse_sessions.clear()
+
         if self._site:
             await self._site.stop()
             self._site = None
@@ -434,3 +557,4 @@ class MCPGatewayServer:
             self._runner = None
         self.flow_controller.cleanup_abandoned(max_age_seconds=0.0)
         logger.info("Blackwall MCP Gateway server stopped")
+

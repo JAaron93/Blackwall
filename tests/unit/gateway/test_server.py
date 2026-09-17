@@ -105,6 +105,25 @@ class TestMCPGatewayServerHTTP:
             await client.close()
 
     @pytest.mark.asyncio
+    async def test_host_header_validation_allows_ipv6_loopback(self):
+        server = MCPGatewayServer(host="::1")
+        app = server.create_app()
+        client = TestClient(TestServer(app))
+        await client.start_server()
+
+        try:
+            resp = await client.post(
+                "/mcp",
+                headers={"Host": "[::1]:9229"},
+                json={"jsonrpc": "2.0", "id": "ipv6-1", "method": "ping"},
+            )
+            assert resp.status == 200
+            data = await resp.json()
+            assert data["id"] == "ipv6-1"
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
     async def test_remote_binding_authentication_matrix(self):
         server = MCPGatewayServer(host="0.0.0.0", auth_token="valid-secret-token")
         app = server.create_app()
@@ -183,11 +202,24 @@ class TestMCPGatewayServerHTTP:
     async def test_post_mcp_tools_call_allow_verdict(self):
         allow_verdict = Verdict(
             decision=VerdictDecision.ALLOW,
-            reasoning="Benign",
-            confidence_score=0.01,
+            reasoning="Benign query",
+            confidence_score=0.99,
         )
         resolver = MockResolver(verdict=allow_verdict)
-        server = MCPGatewayServer(resolver=resolver)
+
+        received_by_downstream = []
+
+        async def mock_downstream(payload: dict[str, Any]) -> dict[str, Any]:
+            received_by_downstream.append(payload)
+            return {
+                "jsonrpc": "2.0",
+                "id": payload["id"],
+                "result": {
+                    "content": [{"type": "text", "text": "Downstream execution success"}]
+                },
+            }
+
+        server = MCPGatewayServer(resolver=resolver, downstream_handler=mock_downstream)
         app = server.create_app()
         client = TestClient(TestServer(app))
         await client.start_server()
@@ -211,7 +243,147 @@ class TestMCPGatewayServerHTTP:
             data = await resp.json()
             assert data["id"] == "allow-req-1"
             assert "result" in data
+            assert data["result"]["content"][0]["text"] == "Downstream execution success"
+            assert len(received_by_downstream) == 1
+            assert received_by_downstream[0]["method"] == "tools/call"
         finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_tools_list_forwarded_to_downstream(self):
+        async def mock_downstream(payload: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "jsonrpc": "2.0",
+                "id": payload["id"],
+                "result": {
+                    "tools": [
+                        {
+                            "name": "calc",
+                            "description": "Calculate math",
+                            "inputSchema": {"type": "object"},
+                        }
+                    ]
+                },
+            }
+
+        server = MCPGatewayServer(downstream_handler=mock_downstream)
+        app = server.create_app()
+        client = TestClient(TestServer(app))
+        await client.start_server()
+
+        try:
+            resp = await client.post(
+                "/mcp",
+                headers={"Host": "127.0.0.1:9229"},
+                json={"jsonrpc": "2.0", "id": "list-1", "method": "tools/list"},
+            )
+            assert resp.status == 200
+            data = await resp.json()
+            assert data["id"] == "list-1"
+            assert len(data["result"]["tools"]) == 1
+            assert data["result"]["tools"][0]["name"] == "calc"
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_resolver_timeout_covers_evaluation(self):
+        class SlowHangingResolver:
+            async def evaluate(self, context: ToolCallContext) -> Verdict:
+                await asyncio.sleep(5.0)
+                return Verdict(decision=VerdictDecision.ALLOW, reasoning="Slow")
+
+        server = MCPGatewayServer(
+            resolver=SlowHangingResolver(),
+            timeout_seconds=0.2,
+        )
+        app = server.create_app()
+        client = TestClient(TestServer(app))
+        await client.start_server()
+
+        try:
+            payload = {
+                "jsonrpc": "2.0",
+                "id": "slow-req-1",
+                "method": "tools/call",
+                "params": {
+                    "name": "bash",
+                    "arguments": {"cmd": "sleep 10"},
+                },
+            }
+            resp = await client.post(
+                "/mcp",
+                headers={"Host": "127.0.0.1:9229"},
+                json=payload,
+            )
+            assert resp.status == 200
+            data = await resp.json()
+            assert data["id"] == "slow-req-1"
+            assert "error" in data
+            assert data["error"]["code"] == -32000
+            assert "timed out" in data["error"]["message"].lower()
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_post_mcp_duplicate_request_id_returns_error(self):
+        server = MCPGatewayServer()
+        app = server.create_app()
+        client = TestClient(TestServer(app))
+        await client.start_server()
+
+        try:
+            # Hold request manually
+            await server.flow_controller.hold_request("dup-1", "tools/call", {})
+            resp = await client.post(
+                "/mcp",
+                headers={"Host": "127.0.0.1:9229"},
+                json={
+                    "jsonrpc": "2.0",
+                    "id": "dup-1",
+                    "method": "tools/call",
+                    "params": {"name": "test", "arguments": {}},
+                },
+            )
+            assert resp.status == 200
+            data = await resp.json()
+            assert data["id"] == "dup-1"
+            assert data["error"]["code"] == -32600
+            assert "duplicate" in data["error"]["message"].lower()
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_get_mcp_sse_session_registry_and_broadcast(self):
+        server = MCPGatewayServer()
+        app = server.create_app()
+        client = TestClient(TestServer(app))
+        await client.start_server()
+
+        try:
+            # Connect via GET /mcp
+            resp = await client.get(
+                "/mcp",
+                headers={"Host": "127.0.0.1:9229", "Accept": "text/event-stream"},
+            )
+            assert resp.status == 200
+            assert server.active_sse_sessions == 1
+
+            # Read initial connection line and empty delimiter line
+            initial_line = await resp.content.readline()
+            assert b"connected session=" in initial_line
+            empty_line = await resp.content.readline()
+            assert empty_line == b"\n"
+
+            # Broadcast an event
+            delivered = await server.broadcast_sse("alert", {"rule": "blackwall_guard"})
+            assert delivered == 1
+
+            event_line = await resp.content.readline()
+            assert b"event: alert" in event_line
+            data_line = await resp.content.readline()
+            assert b"blackwall_guard" in data_line
+        finally:
+            await server.stop()
             await client.close()
 
     @pytest.mark.asyncio

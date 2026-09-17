@@ -2,7 +2,10 @@ import asyncio
 import time
 import pytest
 
-from blackwall.gateway.exceptions import QueueOverflowError
+from blackwall.gateway.exceptions import (
+    DuplicateRequestIdError,
+    QueueOverflowError,
+)
 from blackwall.gateway.flow import FlowController
 from blackwall.gateway.synthesizer import ResponseSynthesizer
 
@@ -144,3 +147,19 @@ class TestFlowController:
         assert controller.is_passthrough("tools/call") is False
         assert controller.is_tool_call("tools/call") is True
         assert controller.is_tool_call("initialize") is False
+
+    @pytest.mark.asyncio
+    async def test_duplicate_request_id_rejected(self):
+        controller = FlowController()
+        req_id = "duplicate-id-1"
+
+        await controller.hold_request(req_id, "tools/call", {})
+        assert controller.active_count == 1
+
+        with pytest.raises(DuplicateRequestIdError) as exc_info:
+            await controller.hold_request(req_id, "tools/call", {})
+
+        assert "already in flight" in str(exc_info.value).lower()
+        # Capacity and in-flight count should not be corrupted
+        assert controller.active_count == 1
+

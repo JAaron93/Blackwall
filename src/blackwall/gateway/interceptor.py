@@ -126,7 +126,7 @@ class PayloadInterceptor:
         elif isinstance(val, dict):
             return {k: self._sanitize_value(v, key_name=str(k)) for k, v in val.items()}
         elif isinstance(val, list):
-            return [self._sanitize_value(v) for v in val]
+            return [self._sanitize_value(v, key_name=key_name) for v in val]
         return val
 
     def redact_for_storage(self, payload: dict[str, Any] | str) -> dict[str, Any]:

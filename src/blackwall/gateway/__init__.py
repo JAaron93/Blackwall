@@ -8,6 +8,7 @@ payload interception, and verdict synthesis.
 from __future__ import annotations
 
 from blackwall.gateway.exceptions import (
+    DuplicateRequestIdError,
     GatewayAuthError,
     GatewayError,
     InvalidVerdictError,
@@ -32,6 +33,7 @@ __all__ = [
     "MissingArgumentError",
     "QueueOverflowError",
     "RequestTimeoutError",
+    "DuplicateRequestIdError",
     "InvalidVerdictError",
     "InFlightRequest",
     "FlowController",

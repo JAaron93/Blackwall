@@ -13,7 +13,10 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from blackwall.gateway.exceptions import QueueOverflowError
+from blackwall.gateway.exceptions import (
+    DuplicateRequestIdError,
+    QueueOverflowError,
+)
 from blackwall.gateway.synthesizer import ResponseSynthesizer
 
 logger = logging.getLogger(__name__)
@@ -119,6 +122,17 @@ class FlowController:
                 f"Server queue overflow: active in-flight requests ({len(self._in_flight)}) "
                 f"exceed max capacity ({self.max_queue_size})"
             )
+
+        if request_id in self._in_flight:
+            existing = self._in_flight[request_id]
+            if not existing.future.done():
+                logger.warning(
+                    "FlowController duplicate request ID rejected: %s is already in flight",
+                    request_id,
+                )
+                raise DuplicateRequestIdError(
+                    f"Duplicate request id already in flight: {request_id}"
+                )
 
         loop = asyncio.get_running_loop()
         future: asyncio.Future[dict[str, Any]] = loop.create_future()

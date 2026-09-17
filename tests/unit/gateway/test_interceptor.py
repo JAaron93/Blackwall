@@ -155,3 +155,25 @@ class TestPayloadInterceptor:
         redacted = interceptor.redact_for_storage(payload)
         assert "sk-1234567890abcdef123456" not in str(redacted)
         assert redacted["params"]["name"] == "bash"
+
+    def test_sanitize_list_credentials(self):
+        interceptor = PayloadInterceptor()
+        payload = {
+            "jsonrpc": "2.0",
+            "id": "list-cred-test",
+            "method": "tools/call",
+            "params": {
+                "name": "configure_service",
+                "arguments": {
+                    "access_token": ["opaque-secret-token-1", "opaque-secret-token-2"],
+                    "password": ["pass1", "pass2"],
+                },
+            },
+        }
+        context, req_id = interceptor.intercept(payload)
+        assert context.arguments["access_token"] == ["[[API_KEY]]", "[[API_KEY]]"]
+        assert context.arguments["password"] == ["[[PASSWORD]]", "[[PASSWORD]]"]
+
+        redacted = interceptor.redact_for_storage(payload)
+        assert redacted["params"]["arguments"]["access_token"] == ["[[API_KEY]]", "[[API_KEY]]"]
+        assert redacted["params"]["arguments"]["password"] == ["[[PASSWORD]]", "[[PASSWORD]]"]

@@ -37,5 +37,9 @@ class RequestTimeoutError(GatewayError):
     """Raised when an intercepted tool call times out awaiting verdict resolution."""
 
 
+class DuplicateRequestIdError(GatewayError):
+    """Raised when an incoming request attempts to reuse an ID that is already actively in flight."""
+
+
 class InvalidVerdictError(GatewayError, ValueError):
     """Raised when ResponseSynthesizer receives an invalid verdict (such as ALLOW)."""
