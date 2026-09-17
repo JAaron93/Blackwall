@@ -145,6 +145,11 @@
       "id": "git-cli-guardrails-and-token-hygiene",
       "rule": "GitHub CLI (gh) Guardrails & Output Token Hygiene: Verify code changes originate from feature branches (no direct commits to main), PRs are never merged autonomously (gh pr merge prohibited), commits are pre-screened for credentials/WAL files, and CLI queries enforce projection flags (--json, --limit, --format) with Unix stream filtering.",
       "severity": "high"
+    },
+    {
+      "id": "subsystem-migration-and-citation-hygiene",
+      "rule": "Subsystem Migration & Instruction Citation Hygiene: (1) In major subsystem migrations, do not perform blanket deletions if existing utility code, CLI command shapes, or test fixtures are consistent with the replacement engine; rename and modernize them in-place. (2) In developer instruction files (AGENTS.md, rules/), abstract specification targets (.kiro/specs/blackwall-mcp-gateway/) must be qualified as specification targets rather than concrete code. (3) Never naively renumber downstream numbered rules when modernizing rules in-place.",
+      "severity": "medium"
     }
   ]
 }

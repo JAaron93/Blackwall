@@ -252,6 +252,11 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 - **SLA Benchmarking & DGX Spark Conformance** (`scripts/benchmark_threat_intel.py`):
   - Strict average latency $\le 1.0\text{ ms}$ on cache hits and RSS memory overhead $\le 50\text{ MB}$.
   - Multi-layer zero-CUDA verification MUST inspect `/proc/<pid>/fd` for `/dev/nvidia*` descriptors, verify absence from NVML compute processes, and assert `torch.cuda.is_initialized() is False`.
+- **Subsystem Migration & Architectural Reuse**:
+  - In major version upgrades or subsystem deprecations (e.g. GTI → AlienVault OTX in v3.0), do NOT perform blanket deletions if existing utility code, CLI command flows, or test harnesses are consistent with the replacement engine. Rename and modernize them in-place to preserve architectural continuity and test coverage investments.
+- **Specification Demarcation & Citation Preservation**:
+  - Planned specifications (such as `.kiro/specs/blackwall-mcp-gateway/`) MUST be qualified as abstract specification targets rather than concrete on-disk modules. Do not flag abstract spec targets as missing paths.
+  - NEVER renumber downstream numbered rules (e.g. Rule 25) when modernizing rules in-place; preserve numbering to keep cross-branch test citations and git history intact.
 
 
 
