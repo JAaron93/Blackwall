@@ -619,7 +619,7 @@ class SyncResolver:
         # 2. Execute user callback if registered (non-blocking executor pool with timeout, isolated)
         if self.on_attacker_identified is not None:
             try:
-                if asyncio.iscoroutinefunction(self.on_attacker_identified):
+                if inspect.iscoroutinefunction(self.on_attacker_identified):
                     await asyncio.wait_for(
                         self.on_attacker_identified(report), timeout=0.05
                     )
@@ -834,7 +834,7 @@ class SyncResolver:
             timeout = get_gemini_http_timeout(configured=5.0, task_type="rapid_triage")
             aio_models = getattr(getattr(self.client, "aio", None), "models", None)
             aio_gen = getattr(aio_models, "generate_content", None)
-            if aio_gen is not None and asyncio.iscoroutinefunction(aio_gen):
+            if aio_gen is not None and inspect.iscoroutinefunction(aio_gen):
                 coro = aio_gen(
                     model=DEFAULT_RAPID_TRIAGE_MODEL,
                     contents=prompt,
@@ -972,7 +972,7 @@ class SyncResolver:
                 )
                 aio_models = getattr(getattr(self.client, "aio", None), "models", None)
                 aio_gen = getattr(aio_models, "generate_content", None)
-                if aio_gen is not None and asyncio.iscoroutinefunction(aio_gen):
+                if aio_gen is not None and inspect.iscoroutinefunction(aio_gen):
                     coro = aio_gen(
                         model=DEFAULT_RAPID_TRIAGE_MODEL,
                         contents=prompt,

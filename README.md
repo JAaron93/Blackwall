@@ -2,7 +2,7 @@
 
 > **Autonomous defense against adversarial AI agents through self-learning threat signatures and hybrid gating.**
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
 [![Rust Accelerated](https://img.shields.io/badge/rust-compiled_core-orange.svg)](crates/blackwall_core_rs/)
 [![Platform](https://img.shields.io/badge/platform-100%25_GCP_Vertex_AI-4285F4.svg)](https://cloud.google.com/vertex-ai)
 [![Local Test Cost](https://img.shields.io/badge/local_cost-$0.00_free-green.svg)](#-dual-tier-product-architecture)
@@ -29,7 +29,7 @@ The diagram below illustrates the original end-to-end interception flow across t
 ## 🚀 Quick Start
 
 ### Prerequisites
-- **Python 3.11+**
+- **Python 3.14+**
 - **Rust 1.70+ (`cargo` / `rustc`)** (for compiling native acceleration extension `blackwall._core_rs`)
 - **Google Cloud Platform Project** with Vertex AI API enabled (100% GCP Vertex AI Mode via Application Default Credentials)
 - **AlienVault OTX API key** (free tier: 10,000 req/hour token bucket via `BW_OTX_API_KEY`) or VirusTotal API key (legacy fallback)

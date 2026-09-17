@@ -14,10 +14,10 @@ name = "blackwall"
 version = "2.0.0"
 description = "Blackwall Agentic Firewall"
 readme = "README.md"
-requires-python = ">=3.11.0"
+requires-python = ">=3.14.0"
 dependencies = [
     "aiosqlite>=0.22.0",
-    "pydantic>=2.10.0",
+    "pydantic>=2.11.0",
     "structlog>=26.1.0",
     "pyyaml>=6.0.2",
     "watchdog>=6.0.0",
@@ -36,7 +36,7 @@ dependencies = [
     "fastapi>=0.140.0",
     "uvicorn>=0.50.0",
     "asyncpg>=0.31.0",
-    "rich>=13.0.0",
+    "rich>=15.0.0",
     "click>=8.1.0",
 ]
 
@@ -48,8 +48,8 @@ enterprise = [
     "pyzmq>=25.0.0"
 ]
 dev = [
-    "pytest>=8.0.0",
-    "pytest-asyncio>=0.23.0",
+    "pytest>=8.4.2,<9.0.0",
+    "pytest-asyncio>=1.4.0",
     "pytest-bdd>=8.0.0,<9.0.0",
     "hypothesis>=6.0.0",
     "ruff>=0.3.0",
@@ -61,14 +61,14 @@ dev = [
 ]
 evaluation = [
     "google-cloud-aiplatform>=1.60.0",
-    "pandas>=2.0.0",
+    "pandas>=3.0.0",
     "google-cloud-trace>=1.11.0",
     "opentelemetry-exporter-gcp-trace>=1.6.0",
 ]
 eval = [
     "google-adk>=0.1.0",
     "google-cloud-aiplatform[evaluation]>=1.160.0",
-    "pandas>=2.0.0",
+    "pandas>=3.0.0",
     "tqdm>=4.66.0",
 ]
 
@@ -107,10 +107,10 @@ markers = [
 
 [tool.ruff]
 line-length = 88
-target-version = "py311"
+target-version = "py314"
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.14"
 strict = true
 
 [tool.uv]
