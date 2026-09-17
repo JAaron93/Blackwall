@@ -470,3 +470,98 @@ class TestMCPGatewayServerStdio:
         assert response["id"] == "stdio-req-1"
         assert response["error"]["code"] == -32603
         assert response["error"]["message"] == "Blackwall Firewall: Execution blocked"
+
+    @pytest.mark.asyncio
+    async def test_notification_forwarding_never_returns_response(self):
+        downstream_called = []
+
+        async def mock_downstream(payload: dict[str, Any]) -> dict[str, Any]:
+            downstream_called.append(payload)
+            # Even if downstream returns a dict or raises, notifications should produce no response
+            return {"jsonrpc": "2.0", "result": "downstream-result"}
+
+        server = MCPGatewayServer(downstream_handler=mock_downstream)
+        app = server.create_app()
+        client = TestClient(TestServer(app))
+        await client.start_server()
+
+        try:
+            # 1. HTTP POST of a notification -> 204 No Content
+            resp = await client.post(
+                "/mcp",
+                headers={"Host": "127.0.0.1:9229"},
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "notifications/custom_event",
+                    "params": {"data": "test"},
+                },
+            )
+            assert resp.status == 204
+            assert len(downstream_called) == 1
+
+            # 2. Stdio notification -> no bytes written to stdout
+            reader = asyncio.StreamReader()
+            writer_buffer = bytearray()
+
+            class MockWriter:
+                def write(self, data: bytes):
+                    writer_buffer.extend(data)
+
+                async def drain(self):
+                    pass
+
+            notif = {
+                "jsonrpc": "2.0",
+                "method": "notifications/another_event",
+                "params": {},
+            }
+            reader.feed_data((json.dumps(notif) + "\n").encode("utf-8"))
+            reader.feed_eof()
+
+            await server.handle_stdio_stream(reader, MockWriter())
+            assert len(writer_buffer) == 0
+            assert len(downstream_called) == 2
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_stdio_backpressure_concurrency_bound(self):
+        server = MCPGatewayServer()
+        server.flow_controller.max_queue_size = 2
+
+        active_count = 0
+        max_concurrent_seen = 0
+
+        async def mock_downstream(payload: dict[str, Any]) -> dict[str, Any]:
+            nonlocal active_count, max_concurrent_seen
+            active_count += 1
+            max_concurrent_seen = max(max_concurrent_seen, active_count)
+            await asyncio.sleep(0.05)
+            active_count -= 1
+            return {"jsonrpc": "2.0", "id": payload.get("id"), "result": {}}
+
+        server.downstream_handler = mock_downstream
+
+        reader = asyncio.StreamReader()
+        writer_buffer = bytearray()
+
+        class MockWriter:
+            def write(self, data: bytes):
+                writer_buffer.extend(data)
+
+            async def drain(self):
+                pass
+
+        # Feed 6 pipelined passthrough requests
+        for i in range(6):
+            msg = {"jsonrpc": "2.0", "id": f"pipe-{i}", "method": "tools/list"}
+            reader.feed_data((json.dumps(msg) + "\n").encode("utf-8"))
+        reader.feed_eof()
+
+        await server.handle_stdio_stream(reader, MockWriter())
+
+        # Assert concurrency never exceeded max_queue_size
+        assert max_concurrent_seen <= 2
+        lines = [line for line in writer_buffer.decode("utf-8").strip().split("\n") if line]
+        assert len(lines) == 6
+

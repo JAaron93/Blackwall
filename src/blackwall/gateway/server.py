@@ -197,6 +197,10 @@ class MCPGatewayServer:
 
         response = await self.process_message(payload)
 
+        # JSON-RPC 2.0 notifications do not return a response payload
+        if not response:
+            return web.Response(status=204)
+
         # Support MCP 2025-03-26 Streamable HTTP text/event-stream responses
         accept_hdr = request.headers.get("Accept", "")
         if "text/event-stream" in accept_hdr:
@@ -335,6 +339,8 @@ class MCPGatewayServer:
         params: dict[str, Any],
     ) -> dict[str, Any]:
         """Handles non-tool MCP protocol methods."""
+        is_notification = method.startswith("notifications/") or req_id is None
+
         if method == "notifications/cancelled":
             cancel_id = params.get("requestId") or params.get("id")
             if cancel_id:
@@ -342,6 +348,15 @@ class MCPGatewayServer:
 
         # If a downstream tool server handler is attached, forward pass-through requests
         if self.downstream_handler is not None:
+            if is_notification:
+                try:
+                    await self.downstream_handler(raw_data)
+                except Exception as exc:
+                    logger.warning(
+                        "Downstream notification error for '%s': %s", method, exc
+                    )
+                return {}
+
             try:
                 return await self.downstream_handler(raw_data)
             except Exception as exc:
@@ -353,6 +368,9 @@ class MCPGatewayServer:
                     message=f"Downstream error handling '{method}'",
                     request_id=req_id,
                 )
+
+        if is_notification:
+            return {}
 
         # Standalone defaults when no downstream handler is attached
         if method == "initialize":
@@ -492,9 +510,11 @@ class MCPGatewayServer:
         reader: asyncio.StreamReader,
         writer: Any,
     ) -> None:
-        """Processes continuous newline-delimited JSON-RPC streams over stdio asynchronously."""
+        """Processes continuous newline-delimited JSON-RPC streams over stdio asynchronously with backpressure."""
         logger.info("Started MCP stdio transport stream handler")
         active_tasks: set[asyncio.Task[Any]] = set()
+        concurrency_limit = self.flow_controller.max_queue_size
+        semaphore = asyncio.Semaphore(concurrency_limit)
 
         async def _handle_line(line_text: str) -> None:
             try:
@@ -506,6 +526,8 @@ class MCPGatewayServer:
                         await writer.drain()
             except Exception as exc:
                 logger.error("Error processing stdio message: %s", exc)
+            finally:
+                semaphore.release()
 
         try:
             while True:
@@ -517,6 +539,9 @@ class MCPGatewayServer:
                 text = line.decode("utf-8").strip()
                 if not text:
                     continue
+
+                # Apply backpressure when concurrent tasks reach the queue limit
+                await semaphore.acquire()
 
                 task = asyncio.create_task(_handle_line(text))
                 active_tasks.add(task)
