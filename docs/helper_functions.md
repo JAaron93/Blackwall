@@ -38,7 +38,7 @@ Module Location: [`src/blackwall/mcp/transport.py`](../src/blackwall/mcp/transpo
 
 | Function | Signature | Description / Purpose | Use Cases & Applied Locations |
 | :--- | :--- | :--- | :--- |
-| `get_certifi_ssl_context` | `(cafile: Optional[str] = None) -> ssl.SSLContext` | Returns a cached, reusable SSLContext backed by certifi's CA trust bundle using `@functools.lru_cache(maxsize=4)` to eliminate repeated disk I/O from parsing `cacert.pem`. | `call_mcp_tool_http` ([mcp/transport.py](../src/blackwall/mcp/transport.py)), `GTIMCPClient` ([mcp/gti_client.py](../src/blackwall/mcp/gti_client.py)). |
+| `get_certifi_ssl_context` | `(cafile: Optional[str] = None) -> ssl.SSLContext` | Returns a cached, reusable SSLContext backed by certifi's CA trust bundle using `@functools.lru_cache(maxsize=4)` to eliminate repeated disk I/O from parsing `cacert.pem`. | `call_mcp_tool_http` ([mcp/transport.py](../src/blackwall/mcp/transport.py)), `AlienVaultOTXProvider` ([threat_intel/otx.py](../src/blackwall/threat_intel/otx.py)). |
 
 ---
 

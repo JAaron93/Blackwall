@@ -157,7 +157,7 @@
 
 * **Rule:** When patching `asyncio.sleep` in unit tests that target a class or module which imports `asyncio` at the top level, always use the fully qualified module path as the patch target:
   ```python
-  with patch("blackwall.mcp.gti_client.asyncio.sleep", new_callable=AsyncMock, side_effect=[None, asyncio.CancelledError()]):
+  with patch("blackwall.threat_intel.otx.asyncio.sleep", new_callable=AsyncMock, side_effect=[None, asyncio.CancelledError()]):
       ...
   ```
   Using `patch("asyncio.sleep")` patches the name in the `asyncio` module itself, which has no effect on code that already holds a module-level reference to the `asyncio` namespace (e.g. `import asyncio` at top of file then calls `asyncio.sleep(...)`). The mock must replace the name as it is *looked up* at call time, not as it is *defined*.
@@ -175,7 +175,7 @@
           await tracker._replenish_loop()
   ```
   Omitting the cancellation creates two competing coroutines consuming the same finite `AsyncMock(side_effect=[...])` sequence: the background task exhausts the first side-effect entries, leaving the directly-invoked coroutine with `StopIteration`, nondeterministic assertion outcomes, or unhandled background exceptions surfaced through pytest's asyncio event loop.
-* **Rationale:** Identified during Phase 1 test coverage remediation (PR #91, `test_gti_client_internals.py`) via a Greptile P1 review comment. The constructor-spawned replenishment task races directly-invoked test coroutines when both share a mocked sleep.
+* **Rationale:** Identified during Phase 1 test coverage remediation (PR #91 historical test suite test_gti_client_internals.py, retired in TASK-G03) via a Greptile P1 review comment. The constructor-spawned replenishment task races directly-invoked test coroutines when both share a mocked sleep.
 
 ## 34. Python 3.14+ Event Loop API Compatibility in Test Classes
 
@@ -185,14 +185,14 @@
   # ❌ Broken on Python 3.14+
   def test_close_cancels_task(self):
       async def _inner():
-          tracker = GTIQueryBudgetTracker()
+          tracker = TokenBucketLimiter(capacity=100, refill_rate=10.0)
           tracker.close()
           assert tracker._replenish_task is None
       asyncio.get_event_loop().run_until_complete(_inner())
 
   # ✅ Correct
   async def test_close_cancels_task(self):
-      tracker = GTIQueryBudgetTracker()
+      tracker = TokenBucketLimiter(capacity=100, refill_rate=10.0)
       assert tracker._replenish_task is not None
       tracker.close()
       assert tracker._replenish_task is None
@@ -255,7 +255,7 @@
 
 ## 38. Scenario-Scoped Persistent Event Loops for Stateful Async BDD Fixtures
 
-* **Rule:** When writing `pytest-bdd` step definitions for stateful async components that maintain internal `asyncio.Lock` primitives or spawn background tasks (e.g. `GTIQueryBudgetTracker`), step definitions MUST NOT execute consecutive steps using disjoint, temporary event loops via repeated standalone `run_async()` calls.
+* **Rule:** When writing `pytest-bdd` step definitions for stateful async components that maintain internal `asyncio.Lock` primitives or spawn background tasks (e.g. `TokenBucketLimiter`), step definitions MUST NOT execute consecutive steps using disjoint, temporary event loops via repeated standalone `run_async()` calls.
 * **Pattern:** The scenario state fixture MUST manage a persistent event loop across steps and execute coroutines through a runner method:
   ```python
   class ScenarioState:
@@ -286,7 +286,7 @@
 
 ## 39. Composite Resolver Signal Ingestion Assertions in BDD
 
-* **Rule:** BDD feature steps asserting security verdicts from orchestrating resolvers (`SyncResolver`, `BatchResolver`) MUST assert on the resolver's resulting `Verdict` attributes (`verdict.reasoning`, `verdict.confidence_score`, `verdict.decision`) to verify that signals returned by subsidiary MCP clients (CBM AST blast radius, GTI threat intelligence) were actively consumed and reflected in the verdict calculation. Step definitions MUST NOT rely exclusively on querying the sidecar client directly.
+* **Rule:** BDD feature steps asserting security verdicts from orchestrating resolvers (`SyncResolver`, `BatchResolver`) MUST assert on the resolver's resulting `Verdict` attributes (`verdict.reasoning`, `verdict.confidence_score`, `verdict.decision`) to verify that signals returned by subsidiary MCP clients (CBM AST blast radius, threat intelligence reputation) were actively consumed and reflected in the verdict calculation. Step definitions MUST NOT rely exclusively on querying the sidecar client directly.
 * **Rationale:** Verifying only the subsidiary adapter's response allows broken ingestion pipelines, missing scoring weights, or malformed adapter mappings inside the resolver to pass BDD test scenarios unnoticed.
 
 ## 40. Evaluation Metric Zero-Division Safeguards
@@ -412,7 +412,7 @@
     2. **LLM-as-a-Judge Quality Gate**: `rubric_based_tool_use_quality_v1` (asserting parameter containment, quarantine mock routing, and zero execution of blocked payloads).
   - Raw evaluation results (`raw_adk_results.json`) and report generators (`ReportGenerator`) MUST record and assert both gates for formal security certification.
 * **Rule (Agent Entrypoint Knowledge Graph Invariant):**
-  - Production agent entrypoints (`agent/__init__.py`) MUST instantiate `SyncResolver` with an active `CodebaseMemoryClient` (`cbm_client=CodebaseMemoryClient(base_url=os.getenv("CBM_MCP_BASE_URL"))`) to satisfy the mandatory interception sequence: `Rate Check` -> `Context Hygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Conditional GTI Validation (High-Risk Only)` -> `Score Aggregation` -> `Threshold Verdict`.
+  - Production agent entrypoints (`agent/__init__.py`) MUST instantiate `SyncResolver` with an active `CodebaseMemoryClient` (`cbm_client=CodebaseMemoryClient(base_url=os.getenv("CBM_MCP_BASE_URL"))`) to satisfy the mandatory interception sequence: `Rate Check` -> `Context Hygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Threat Intelligence Validation (AlienVault OTX / Multi-Provider Orchestrator)` -> `Score Aggregation` -> `Threshold Verdict`.
 * **Rationale:** Discovered during Task 21 implementation and PR #123 review cycles. Raising exceptions in callbacks crashes ADK benchmark runs, evaluating trajectory scores without LLM rubrics misses semantic bypasses, and omitting `cbm_client` in `agent/__init__.py` breaks the core interception sequence.
 
 ## 52. Testing Triad Invariant for Core Source Code Modifications
@@ -528,4 +528,17 @@
 * **Rule (Mock Both Liveness & Execution):** Unit tests and BDD steps testing external CLI bridges (such as `HarpoonBridge`) MUST mock both binary presence checks (`shutil.which`) and subprocess execution runners (`asyncio.create_subprocess_exec`) within the test fixture scope.
 * **Rule (No Ambient PATH Dependency):** Tests MUST NOT depend on or execute ambient host binaries, ensuring 100% deterministic test execution across environments regardless of whether companion tools (like `harpoon`) are installed on the local system.
 * **Rationale:** Discovered during Phase 3 test suite implementation on PR #151. Relying on unmocked binary presence causes test behavior to diverge between local development machines with external CLI tools installed and isolated CI runner containers.
+
+## 62. Threat Intelligence Cache SLA Benchmarking & DGX Spark Zero-CUDA Verification
+* **Rule (Sub-Millisecond Cache SLA):** Benchmarks evaluating threat intelligence cache performance (`scripts/benchmark_threat_intel.py`, `tests/unit/threat_intel/test_benchmarks_sla.py`) MUST assert an average read latency $\le 1.0\text{ ms}$ across sequential lookups and process RSS memory overhead $\le 50\text{ MB}$.
+* **Rule (Multi-Layer Zero-CUDA Verification):** On Linux / NVIDIA DGX Spark environments, conformance benchmarks MUST verify that threat intelligence execution remains 100% in CPU user-space with zero CUDA VRAM allocations across three independent layers:
+  1. Inspecting `/proc/<daemon_pid>/fd/` for `/dev/nvidia*` device file descriptors on the target process PID.
+  2. Inspecting NVML compute process tables to verify daemon PID absence.
+  3. Asserting `torch.cuda.is_initialized() is False`.
+* **Rationale:** Discovered during Phase 4 benchmarking on PR #152. Blackwall Core must preserve 100% of unified GPU memory (>127.6GB on DGX Spark GB10 ARM64) for hosted AI models.
+
+## 63. Agent Instruction Hygiene: Abstract Specification Demarcation & Citation Preservation
+* **Rule (Abstract Specification Target Qualification):** In agent instruction files (`AGENTS.md`, `.agents/rules/`, `.greptile/rules.md`), planned architectural components (such as `.kiro/specs/blackwall-mcp-gateway/`) MUST be explicitly qualified as abstract specification targets rather than concrete on-disk modules. Non-existent paths MUST NOT be formatted in backticks or Markdown file links that trigger automated static scanners as missing targets or phantom paths.
+* **Rule (Rule Renumbering Trap & Downstream Citation Preservation):** When updating, deprecating, or modernizing numbered rules (e.g. Rule 25), agents MUST NEVER delete or renumber downstream rules. Modernize the rule title and content in-place to avoid breaking citations across test docstrings, commit messages, and automated review agent trackers.
+* **Rationale:** Discovered during Phase 4 agent memory audit. Naive rule renumbering breaks test references across git branches, while unqualified path strings in instruction files trigger static repository audit scanner failures.
 

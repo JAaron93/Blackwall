@@ -15,12 +15,12 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 - **Support**: Core fully supports 100% GCP Vertex AI Mode (`google-genai` with `vertexai=True`).
 
 ### Blackwall MCP Gateway (Core Entry Point Specification)
-- **Location (Specification)**: Architecture governed by `.kiro/specs/blackwall-mcp-gateway/`, targeting `src/blackwall/gateway/` (server, interceptor, synthesizer, upstream manager) + `src/blackwall/cli.py`.
+- **Location (Specification)**: Architecture governed by `.kiro/specs/blackwall-mcp-gateway/`, implemented via `src/blackwall/cli.py` with planned specification target src/blackwall/gateway/ (server, interceptor, synthesizer, upstream manager).
 - **Standalone Daemon**: The gateway is the primary way Blackwall runs — a local background daemon on `localhost:9229` with PID file management (`~/.blackwall/blackwall.pid`). It is NOT a sidecar or proxy for any specific agent runtime.
 - **Agent Agnosticism**: The gateway MUST NOT contain hardcoded rules or references specific to any particular agent (no Hermes, no Antigravity-specific, no Warp-specific logic). It operates purely at the MCP protocol level.
 - **Transport Security**: HTTP transport MUST bind to `127.0.0.1` by default. `Origin` and `Host` header validation is mandatory. Network-bound requests require authentication.
 - **JSON-RPC `id` Tracking**: The stream layer MUST track all in-flight requests by their JSON-RPC `id` to prevent concurrent call mismatching.
-- **Upstream Management**: Supports `--wrap` (single downstream tool server as child process) and specification config `gateway.yaml` (multi-server configuration). ALLOW'd requests are forwarded; BLOCK'd requests return synthesized JSON-RPC errors.
+- **Upstream Management**: Supports `--wrap` (single downstream tool server as child process) and specification config file gateway.yaml (multi-server configuration). ALLOW'd requests are forwarded; BLOCK'd requests return synthesized JSON-RPC errors.
 - **Resource Budget**: Gateway components MUST operate within the 2019 Intel MacBook Pro baseline: ≤60MB idle RAM, ~0% idle CPU, <2s startup, ≤150MB active RAM during evaluation.
 - **Hardware Targets**: Blackwall Core targets the 2019 Intel MacBook Pro as its baseline (<=60MB idle RAM, <=150MB active RAM) and the NVIDIA DGX Spark (Grace Blackwell GB10 ARM64, 128GB unified memory) as top-of-the-line (0MB CUDA contexts, host RSS <= 350MB, preserving >127.6GB unified memory for AI models).
 - **Spec Reference**: Architecture governed by `.kiro/specs/blackwall-mcp-gateway/` (design.md, requirements.md, tasks.md).
@@ -186,7 +186,7 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 
 > [!NOTE]
 > **Developer Tooling Scope vs. Blackwall Product Architecture**:
-> This section governs **developer agent workflows** (how AI coding assistants, subagents, and review bots develop and operate on this codebase using CLI tools rather than stateless MCP servers). It does **NOT** apply to Blackwall's product runtime. The Blackwall agent is an **agent-agnostic MCP Gateway security proxy** (`localhost:9229`, background daemon, macOS LaunchAgent service) that actively integrates with `codebase-memory-mcp` AST knowledge graphs, VirusTotal Google Threat Intelligence (GTI), and enterprise MCP adapters.
+> This section governs **developer agent workflows** (how AI coding assistants, subagents, and review bots develop and operate on this codebase using CLI tools rather than stateless MCP servers). It does **NOT** apply to Blackwall's product runtime. The Blackwall agent is an **agent-agnostic MCP Gateway security proxy** (`localhost:9229`, background daemon, macOS LaunchAgent service) that actively integrates with `codebase-memory-mcp` AST knowledge graphs, AlienVault OTX Threat Intelligence Engine, and enterprise MCP adapters.
 
 - **CLI-First Developer Architecture**: For repository development tasks, version control, PR triage, and cloud/container management MUST execute through native CLI binaries (`gh`, `git`, `gcloud`, `docker`) paired with lightweight skills. PRs introducing stateless developer MCP servers (e.g. GitHub MCP, Git MCP, Jira/Slack MCP) for agent pair-programming are prohibited and must be rejected.
 - **MCP Scope & Stateful Boundaries**: MCP is reserved exclusively for stateful engines: `codebase-memory-mcp` (AST memory graphs), persistent database connections, and CDP browser sessions.
@@ -245,6 +245,18 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
   - CLI commands performing threat lookups MUST flush in-memory metric buffers in a `finally` block before process exit.
 - **Legacy VirusTotal Compatibility**:
   - VirusTotal GTI client is retained exclusively as an opt-in fallback when `BW_THREAT_INTEL_BACKEND=virustotal` is explicitly configured.
+- **SyncResolver Integration & Typed Exception Propagation**:
+  - `SyncResolver._query_threat_intel` integrates with `ThreatIntelOrchestrator` (`lookup`), escalating malicious detections to trigger `BLOCK` verdicts.
+  - Typed exceptions (`OTXCircuitBreakerOpenError`, `OTXTokenBucketExhaustedError`, `OTXLookupError`, `ThreatIntelError`, `CircuitBreakerError`, `AbuseIPDBError`, `AbuseChError`, `HarpoonError`) MUST propagate out of `_query_threat_intel` without being suppressed into `None` (which would mask failures as benign / `ALLOW`). Lookups returning provider failure error responses MUST raise `OTXLookupError`.
+  - Legacy `detection_rate` percentages ($> 1.0$) in `_score_threat_intel` MUST be normalized by dividing by `100.0` and clamped to `[0.0, 1.0]` to avoid score saturation.
+- **SLA Benchmarking & DGX Spark Conformance** (`scripts/benchmark_threat_intel.py`):
+  - Strict average latency $\le 1.0\text{ ms}$ on cache hits and RSS memory overhead $\le 50\text{ MB}$.
+  - Multi-layer zero-CUDA verification MUST inspect `/proc/<pid>/fd` for `/dev/nvidia*` descriptors, verify absence from NVML compute processes, and assert `torch.cuda.is_initialized() is False`.
+- **Subsystem Migration & Architectural Reuse**:
+  - In major version upgrades or subsystem deprecations (e.g. GTI → AlienVault OTX in v3.0), do NOT perform blanket deletions if existing utility code, CLI command flows, or test harnesses are consistent with the replacement engine. Rename and modernize them in-place to preserve architectural continuity and test coverage investments.
+- **Specification Demarcation & Citation Preservation**:
+  - Planned specifications (such as `.kiro/specs/blackwall-mcp-gateway/`) MUST be qualified as abstract specification targets rather than concrete on-disk modules. Do not flag abstract spec targets as missing paths.
+  - NEVER renumber downstream numbered rules (e.g. Rule 25) when modernizing rules in-place; preserve numbering to keep cross-branch test citations and git history intact.
 
 
 

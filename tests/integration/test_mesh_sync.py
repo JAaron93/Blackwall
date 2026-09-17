@@ -13,6 +13,8 @@ import uuid
 
 import pytest
 
+pytest.importorskip("zmq", reason="pyzmq is required for Enterprise Threat Mesh tests")
+
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.enterprise.mesh.broadcaster import MeshBroadcaster
 from blackwall.enterprise.mesh.receiver import MeshReceiver

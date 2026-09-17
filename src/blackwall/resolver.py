@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import time
 import re
 from typing import Any, Dict, List, Optional
@@ -20,7 +21,6 @@ from blackwall.models import (
 from blackwall.exceptions import APIRateLimitException
 from blackwall.config import (
     DEFAULT_RAPID_TRIAGE_MODEL,
-    DEFAULT_GEMINI_MODEL,
     get_gemini_thinking_level,
 )
 from blackwall.validators import normalize_text
@@ -724,13 +724,15 @@ class BatchResolver:
         quarantined_context: ToolCallContext,
         related_signatures: List[Any],
         cbm_chain: List[Any],
-        gti_data: Any,
+        threat_intel_data: Any = None,
+        gti_data: Any = None,
     ) -> str:
         """Submits deep analysis in the background to Gemini 3.8 Flash.
 
         Returns:
             task_id: The ID of the background interaction.
         """
+        ti_data = threat_intel_data if threat_intel_data is not None else gti_data
         # Ensure we conform to local rate limits
         await self._acquire_rate_limit_token()
 
@@ -748,7 +750,8 @@ class BatchResolver:
                 for sig in related_signatures
             ],
             "cbm_dependency_chain": cbm_chain,
-            "gti_ioc_data": gti_data,
+            "threat_intel_ioc_data": ti_data,
+            "gti_ioc_data": ti_data,
         }
 
         webhook_url = f"http://localhost:{self.webhook_port}/webhook/analysis_complete"
@@ -877,15 +880,14 @@ class BatchResolver:
 # Tier-detection factory
 # ---------------------------------------------------------------------------
 
-import os
-
 
 def create_resolver(
     client: Any,
     policy_server: Any = None,
     repo: Any = None,
-    gti_client: Any = None,
+    threat_intel: Any = None,
     cbm_client: Any = None,
+    gti_client: Any = None,
     gti_budget_tracker: Any = None,
     webhook_port: int = 8090,
     policy_snapshot: Optional[Dict[str, Any]] = None,
@@ -908,12 +910,22 @@ def create_resolver(
     if mode == "sync" or tier in ("sync", "free"):
         from blackwall.sync_resolver import SyncResolver
 
+        ti = threat_intel or gti_client
+        if ti is None and repo is not None:
+            try:
+                from blackwall.threat_intel import ThreatIntelOrchestrator
+
+                ti = ThreatIntelOrchestrator(repository=repo)
+            except Exception:
+                ti = None
+
         return SyncResolver(
             client=client,
             policy_server=policy_server,
             repo=repo,
-            gti_client=gti_client,
+            threat_intel=ti,
             cbm_client=cbm_client,
+            gti_client=ti,
             gti_budget_tracker=gti_budget_tracker,
         )
     return BatchResolver(

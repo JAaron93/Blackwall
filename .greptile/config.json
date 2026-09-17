@@ -138,13 +138,18 @@
     },
     {
       "id": "cli-first-stateless-operations",
-      "rule": "Antigravity 2.0 CLI-First Architecture (Developer Tooling Scope): Enforce native CLI tools (gh, git, gcloud, aws, docker) for all stateless developer git, cloud, and container tasks. Reserve developer MCP strictly for stateful persistent engines (codebase-memory-mcp AST graphs, databases, CDP sessions). Flag any PR attempting to add or configure stateless developer MCP servers (GitHub MCP, Git MCP, Jira/Slack MCP). Note: This rule governs developer agent tooling and does NOT restrict Blackwall's own MCP Gateway architecture or its use of codebase-memory-mcp and GTI.",
+      "rule": "Antigravity 2.0 CLI-First Architecture (Developer Tooling Scope): Enforce native CLI tools (gh, git, gcloud, aws, docker) for all stateless developer git, cloud, and container tasks. Reserve developer MCP strictly for stateful persistent engines (codebase-memory-mcp AST graphs, databases, CDP sessions). Flag any PR attempting to add or configure stateless developer MCP servers (GitHub MCP, Git MCP, Jira/Slack MCP). Note: This rule governs developer agent tooling and does NOT restrict Blackwall's own MCP Gateway architecture or its use of codebase-memory-mcp and AlienVault OTX Threat Intelligence Engine.",
       "severity": "high"
     },
     {
       "id": "git-cli-guardrails-and-token-hygiene",
       "rule": "GitHub CLI (gh) Guardrails & Output Token Hygiene: Verify code changes originate from feature branches (no direct commits to main), PRs are never merged autonomously (gh pr merge prohibited), commits are pre-screened for credentials/WAL files, and CLI queries enforce projection flags (--json, --limit, --format) with Unix stream filtering.",
       "severity": "high"
+    },
+    {
+      "id": "subsystem-migration-and-citation-hygiene",
+      "rule": "Subsystem Migration & Instruction Citation Hygiene: (1) In major subsystem migrations, do not perform blanket deletions if existing utility code, CLI command shapes, or test fixtures are consistent with the replacement engine; rename and modernize them in-place. (2) In developer instruction files (AGENTS.md, rules/), abstract specification targets (.kiro/specs/blackwall-mcp-gateway/) must be qualified as specification targets rather than concrete code. (3) Never naively renumber downstream numbered rules when modernizing rules in-place.",
+      "severity": "medium"
     }
   ]
 }

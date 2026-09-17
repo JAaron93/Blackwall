@@ -20,6 +20,7 @@ from blackwall.models import (
     Verdict,
     VerdictDecision,
 )
+from blackwall.threat_intel.models import ThreatIndicatorType, ThreatIntelResponse
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +48,7 @@ def make_context(
     )
 
 
-def make_gti_response(
+def make_threat_intel_response(
     is_malicious: bool = False,
     detection_rate: float = 0.0,
     indicator: str = "8.8.8.8",
@@ -57,6 +58,9 @@ def make_gti_response(
         is_malicious=is_malicious,
         detection_rate=detection_rate,
     )
+
+
+make_gti_response = make_threat_intel_response
 
 
 def make_cbm_response(
@@ -76,7 +80,7 @@ def make_cbm_response(
 def test_build_reasoning_score_only():
     result = SyncResolver._build_reasoning(0.123, None, None)
     assert "0.123" in result
-    assert "GTI" not in result
+    assert "Threat Intel" not in result
     assert "CBM" not in result
 
 
@@ -85,20 +89,38 @@ def test_build_reasoning_score_three_decimal_places():
     assert "0.500" in result
 
 
-def test_build_reasoning_with_gti_malicious():
-    gti = make_gti_response(is_malicious=True, detection_rate=80.0)
-    result = SyncResolver._build_reasoning(0.9, gti, None)
-    assert "GTI" in result
+def test_build_reasoning_with_threat_intel_malicious():
+    ti = make_threat_intel_response(is_malicious=True, detection_rate=80.0)
+    result = SyncResolver._build_reasoning(0.9, ti, None)
     assert "malicious=True" in result
     assert "80.00" in result
 
 
-def test_build_reasoning_with_gti_not_malicious():
-    gti = make_gti_response(is_malicious=False, detection_rate=50.0)
-    result = SyncResolver._build_reasoning(0.5, gti, None)
-    assert "GTI" in result
+test_build_reasoning_with_gti_malicious = test_build_reasoning_with_threat_intel_malicious
+
+
+def test_build_reasoning_with_threat_intel_not_malicious():
+    ti = make_threat_intel_response(is_malicious=False, detection_rate=50.0)
+    result = SyncResolver._build_reasoning(0.5, ti, None)
     assert "malicious=False" in result
     assert "50.00" in result
+
+
+test_build_reasoning_with_gti_not_malicious = test_build_reasoning_with_threat_intel_not_malicious
+
+
+def test_build_reasoning_with_threat_intel_response():
+    ti = ThreatIntelResponse(
+        indicator="198.51.100.1",
+        indicator_type=ThreatIndicatorType.IPV4,
+        is_malicious=True,
+        risk_score=0.85,
+        provider_name="AlienVault OTX",
+    )
+    result = SyncResolver._build_reasoning(0.9, ti, None)
+    assert "AlienVault OTX" in result
+    assert "malicious=True" in result
+    assert "0.85" in result
 
 
 def test_build_reasoning_with_cbm():
@@ -300,49 +322,112 @@ def test_score_context_capped_at_one():
 
 
 # ===========================================================================
-# Section 5: _score_gti()
+# ===========================================================================
+# Section 5: _score_threat_intel() and _score_gti()
 # ===========================================================================
 
-def test_score_gti_none():
+def test_score_threat_intel_none():
     r = make_resolver()
+    assert r._score_threat_intel(None) == 0.0
     assert r._score_gti(None) == 0.0
 
 
-def test_score_gti_not_malicious_no_detection():
+test_score_gti_none = test_score_threat_intel_none
+
+
+def test_score_threat_intel_not_malicious_no_detection():
     r = make_resolver()
-    gti = make_gti_response(is_malicious=False, detection_rate=0.0)
-    assert r._score_gti(gti) == 0.0
+    ti = make_threat_intel_response(is_malicious=False, detection_rate=0.0)
+    assert r._score_threat_intel(ti) == 0.0
+    assert r._score_gti(ti) == 0.0
 
 
-def test_score_gti_not_malicious_with_detection():
+test_score_gti_not_malicious_no_detection = test_score_threat_intel_not_malicious_no_detection
+
+
+def test_score_threat_intel_not_malicious_with_detection():
     r = make_resolver()
-    gti = make_gti_response(is_malicious=False, detection_rate=50.0)
-    # detection_score = max(0, min(1, 50.0)) = 1.0 (capped)
-    score = r._score_gti(gti)
-    assert score == 1.0  # detection_rate=50.0 capped at 1.0
+    ti = make_threat_intel_response(is_malicious=False, detection_rate=50.0)
+    # detection_rate=50.0 is a percentage (50%) -> mapped to 0.50
+    score = r._score_threat_intel(ti)
+    assert abs(score - 0.50) < 0.01
+    assert abs(r._score_gti(ti) - 0.50) < 0.01
 
 
-def test_score_gti_not_malicious_low_detection():
+test_score_gti_not_malicious_with_detection = test_score_threat_intel_not_malicious_with_detection
+
+
+def test_score_threat_intel_not_malicious_capped_detection():
     r = make_resolver()
-    gti = make_gti_response(is_malicious=False, detection_rate=0.3)
-    score = r._score_gti(gti)
+    ti = make_threat_intel_response(is_malicious=False, detection_rate=150.0)
+    # detection_rate=150.0 is capped at 1.0
+    score = r._score_threat_intel(ti)
+    assert score == 1.0
+    assert r._score_gti(ti) == 1.0
+
+
+test_score_gti_not_malicious_capped_detection = test_score_threat_intel_not_malicious_capped_detection
+
+
+def test_score_threat_intel_not_malicious_low_detection():
+    r = make_resolver()
+    ti = make_threat_intel_response(is_malicious=False, detection_rate=0.3)
+    score = r._score_threat_intel(ti)
     assert abs(score - 0.3) < 0.01
+    assert abs(r._score_gti(ti) - 0.3) < 0.01
 
 
-def test_score_gti_malicious():
+test_score_gti_not_malicious_low_detection = test_score_threat_intel_not_malicious_low_detection
+
+
+def test_score_threat_intel_malicious():
     r = make_resolver()
-    gti = make_gti_response(is_malicious=True, detection_rate=0.8)
+    ti = make_threat_intel_response(is_malicious=True, detection_rate=0.8)
     # is_malicious=True: (1.0 + min(1, 0.8)) / 2 = (1.0 + 0.8) / 2 = 0.9
-    score = r._score_gti(gti)
+    score = r._score_threat_intel(ti)
     assert abs(score - 0.9) < 0.01
+    assert abs(r._score_gti(ti) - 0.9) < 0.01
 
 
-def test_score_gti_malicious_zero_detection():
+test_score_gti_malicious = test_score_threat_intel_malicious
+
+
+def test_score_threat_intel_malicious_zero_detection():
     r = make_resolver()
-    gti = make_gti_response(is_malicious=True, detection_rate=0.0)
+    ti = make_threat_intel_response(is_malicious=True, detection_rate=0.0)
     # (1.0 + 0.0) / 2 = 0.5
-    score = r._score_gti(gti)
+    score = r._score_threat_intel(ti)
     assert abs(score - 0.5) < 0.01
+    assert abs(r._score_gti(ti) - 0.5) < 0.01
+
+
+test_score_gti_malicious_zero_detection = test_score_threat_intel_malicious_zero_detection
+
+
+def test_score_threat_intel_response_malicious():
+    r = make_resolver()
+    ti = ThreatIntelResponse(
+        indicator="198.51.100.1",
+        indicator_type=ThreatIndicatorType.IPV4,
+        is_malicious=True,
+        risk_score=0.85,
+        provider_name="AlienVault OTX",
+    )
+    score = r._score_threat_intel(ti)
+    assert score == 1.0
+
+
+def test_score_threat_intel_response_benign():
+    r = make_resolver()
+    ti = ThreatIntelResponse(
+        indicator="198.51.100.1",
+        indicator_type=ThreatIndicatorType.IPV4,
+        is_malicious=False,
+        risk_score=0.35,
+        provider_name="AlienVault OTX",
+    )
+    score = r._score_threat_intel(ti)
+    assert abs(score - 0.35) < 0.01
 
 
 # ===========================================================================
@@ -482,6 +567,7 @@ def test_get_metrics_initial_state():
     assert metrics["quarantine_count"] == 0
     assert metrics["allow_count"] == 0
     assert metrics["gti_queries_executed"] == 0
+    assert metrics["threat_intel_queries_executed"] == 0
 
 
 def test_get_metrics_after_increments():
@@ -505,6 +591,8 @@ def test_get_metrics_after_increments():
     assert metrics["rate_limit_hits"] == 1
     assert metrics["gti_queries_executed"] == 5
     assert metrics["gti_queries_deferred"] == 2
+    assert metrics["threat_intel_queries_executed"] == 5
+    assert metrics["threat_intel_queries_deferred"] == 2
     assert metrics["inline_signatures_generated"] == 3
 
 
@@ -544,7 +632,6 @@ async def test_schedule_attribution_creates_task():
         reasoning="test",
         confidence_score=0.9,
     )
-    initial_count = len(r._background_tasks)
     # Calling inside an async context ensures the running loop is available
     r._schedule_attribution(ctx, verdict)
     # Give the event loop a tick to register the task

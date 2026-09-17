@@ -254,7 +254,7 @@ Detect `harpoon` presence using `shutil.which("harpoon")`. If absent, log an inf
 ### Track G: SyncResolver Migration & Breaking Changes
 
 #### TASK-G01: Deprecate `GTIMCPClient` & `GTIQueryBudgetTracker`
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 **Dependencies:** TASK-D01
 **Requirements Satisfied:** FR-08
 
@@ -267,7 +267,7 @@ Safely deprecate and remove `src/blackwall/mcp/gti_client.py` and `src/blackwall
 3. Codebase compiles and imports cleanly.
 
 #### TASK-G02: Integrate `ThreatIntelOrchestrator` into `SyncResolver`
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 **Dependencies:** TASK-G01
 **Requirements Satisfied:** FR-08, NFR-01, US-01
 
@@ -281,7 +281,7 @@ Refactor Step 5 of `SyncResolver` in `src/blackwall/sync_resolver.py`. Replace `
 4. All unit tests pass.
 
 #### TASK-G03: Migrate Existing Test Suites & Property Tests
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 **Dependencies:** TASK-G02
 **Requirements Satisfied:** FR-08
 
@@ -298,7 +298,7 @@ Update all unit, integration, and property-based tests in `tests/` that referenc
 ### Track H: End-to-End BDD Scenarios & SLA Verification
 
 #### TASK-H01: Implement Gherkin BDD Feature for High-Throughput Resolution
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 **Dependencies:** TASK-G02
 **Requirements Satisfied:** US-01, NFR-01
 
@@ -311,7 +311,7 @@ Implement Gherkin scenario in `tests/features/threat_intel_high_throughput.featu
 3. BDD scenario passes.
 
 #### TASK-H02: Implement Gherkin BDD Feature for Native CLI Triage
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 **Dependencies:** TASK-E01
 **Requirements Satisfied:** US-02
 
@@ -324,7 +324,7 @@ Implement Gherkin scenario verifying `blackwall check <indicator>` correctly tri
 3. BDD scenario passes.
 
 #### TASK-H03: Benchmarking & Memory Overhead Verification (< 50MB RSS)
-**Status:** ⏳ Not Started
+**Status:** ✅ Completed
 **Dependencies:** TASK-H01, TASK-H02
 **Requirements Satisfied:** NFR-01, NFR-04
 

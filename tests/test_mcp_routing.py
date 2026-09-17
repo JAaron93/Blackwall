@@ -16,6 +16,7 @@ from blackwall.mcp.mcp_routing import (
     CodebaseMemoryRouter,
     GTIRouter,
     MCPRoutingViolation,
+    ThreatIntelRouter,
 )
 
 
@@ -30,13 +31,16 @@ def mock_cbm_client() -> AsyncMock:
 
 
 @pytest.fixture
-def mock_gti_client() -> AsyncMock:
+def mock_threat_intel_client() -> AsyncMock:
     client = AsyncMock()
     client.lookup_ip = AsyncMock(return_value="ip_data")
     client.lookup_url = AsyncMock(return_value="url_data")
     client.lookup_domain = AsyncMock(return_value="domain_data")
     client.lookup_file_hash = AsyncMock(return_value="hash_data")
     return client
+
+
+mock_gti_client = mock_threat_intel_client
 
 
 # ============================================================================
@@ -125,54 +129,75 @@ async def test_cbm_router_detects_escape_in_args(mock_cbm_client: AsyncMock) -> 
 
 
 # ============================================================================
-# GTIRouter Tests
+# ThreatIntelRouter (formerly GTIRouter) Tests
 # ============================================================================
 
 
+def test_gti_router_is_threat_intel_router_alias() -> None:
+    assert GTIRouter is ThreatIntelRouter
+
+
 @pytest.mark.asyncio
-async def test_gti_router_permits_async_contexts(mock_gti_client: AsyncMock) -> None:
-    router = GTIRouter(mock_gti_client)
+async def test_threat_intel_router_permits_async_contexts(
+    mock_threat_intel_client: AsyncMock,
+) -> None:
+    router = ThreatIntelRouter(mock_threat_intel_client)
 
     # ASYNC_ANALYSIS
     res = await router.route(
-        GTIRouter.ExecutionContext.ASYNC_ANALYSIS, "lookup_ip", ip="192.168.1.1"
+        ThreatIntelRouter.ExecutionContext.ASYNC_ANALYSIS, "lookup_ip", ip="192.168.1.1"
     )
     assert res == "ip_data"
-    mock_gti_client.lookup_ip.assert_called_once_with(ip="192.168.1.1")
+    mock_threat_intel_client.lookup_ip.assert_called_once_with(ip="192.168.1.1")
 
     # BATCH_RESOLUTION
     res = await router.route(
-        GTIRouter.ExecutionContext.BATCH_RESOLUTION,
+        ThreatIntelRouter.ExecutionContext.BATCH_RESOLUTION,
         "lookup_url",
         url="http://malicious.com",
     )
     assert res == "url_data"
-    mock_gti_client.lookup_url.assert_called_once_with(url="http://malicious.com")
+    mock_threat_intel_client.lookup_url.assert_called_once_with(url="http://malicious.com")
+
+
+test_gti_router_permits_async_contexts = test_threat_intel_router_permits_async_contexts
 
 
 @pytest.mark.asyncio
-async def test_gti_router_blocks_sync_context(mock_gti_client: AsyncMock) -> None:
-    router = GTIRouter(mock_gti_client)
+async def test_threat_intel_router_blocks_sync_context(
+    mock_threat_intel_client: AsyncMock,
+) -> None:
+    router = ThreatIntelRouter(mock_threat_intel_client)
 
     with pytest.raises(MCPRoutingViolation) as exc_info:
         await router.route(
-            GTIRouter.ExecutionContext.SYNC_INTERCEPTION, "lookup_ip", ip="192.168.1.1"
+            ThreatIntelRouter.ExecutionContext.SYNC_INTERCEPTION,
+            "lookup_ip",
+            ip="192.168.1.1",
         )
     assert "forbidden" in str(exc_info.value)
-    mock_gti_client.lookup_ip.assert_not_called()
+    mock_threat_intel_client.lookup_ip.assert_not_called()
+
+
+test_gti_router_blocks_sync_context = test_threat_intel_router_blocks_sync_context
 
 
 @pytest.mark.asyncio
-async def test_gti_router_blocks_invalid_ops(mock_gti_client: AsyncMock) -> None:
-    router = GTIRouter(mock_gti_client)
+async def test_threat_intel_router_blocks_invalid_ops(
+    mock_threat_intel_client: AsyncMock,
+) -> None:
+    router = ThreatIntelRouter(mock_threat_intel_client)
 
     with pytest.raises(MCPRoutingViolation) as exc_info:
         await router.route(
-            GTIRouter.ExecutionContext.ASYNC_ANALYSIS,
+            ThreatIntelRouter.ExecutionContext.ASYNC_ANALYSIS,
             "delete_indicators",
             indicators=["192.168.1.1"],
         )
-    assert "not permitted on GTI router" in str(exc_info.value)
+    assert "not permitted on threat intel router" in str(exc_info.value)
+
+
+test_gti_router_blocks_invalid_ops = test_threat_intel_router_blocks_invalid_ops
 
 
 # ============================================================================

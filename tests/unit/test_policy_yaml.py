@@ -362,8 +362,9 @@ def test_concrete_policy_rules_evaluation() -> None:
 
 def test_policy_mcp_endpoints_applied_to_clients() -> None:
     """Verifies that configured MCP endpoints in policy.yaml are read and applied to runtime clients."""
+    from unittest.mock import MagicMock
+
     from blackwall.mcp.codebase_memory import CodebaseMemoryClient
-    from blackwall.mcp.gti_client import GTIClient, GTIMCPClient
     from blackwall.policy.semantic import SemanticGatingEngine
     from blackwall.policy.server import HybridPolicyServer
     from blackwall.sync_resolver import SyncResolver
@@ -380,32 +381,26 @@ def test_policy_mcp_endpoints_applied_to_clients() -> None:
     cbm_client = CodebaseMemoryClient.from_policy(policy)
     assert cbm_client.base_url == "http://localhost:8080/mcp"
 
-    # 2. Test GTIClient.from_policy
-    gti_client = GTIClient.from_policy(policy)
-    assert gti_client.base_url == "https://gti.googleapis.com/mcp"
-
-    # 3. Test GTIMCPClient.from_policy
-    mock_repo = None  # type: ignore[assignment]
-    gti_mcp_client = GTIMCPClient.from_policy(mock_repo, policy)
-    assert gti_mcp_client.base_url == "https://gti.googleapis.com/mcp"
-
-    # 4. Test HybridPolicyServer propagation to semantic engine
+    # 2. Test HybridPolicyServer propagation to semantic engine
+    mock_threat_client = MagicMock()
+    mock_threat_client.base_url = ""
     sem_engine = SemanticGatingEngine(
-        gti_client=GTIMCPClient(mock_repo, base_url=""),
+        threat_intel_client=mock_threat_client,
         cbm_client=CodebaseMemoryClient(base_url=""),
     )
     server = HybridPolicyServer(structural_engine=engine, semantic_engine=sem_engine)
-    assert sem_engine.gti_client.base_url == "https://gti.googleapis.com/mcp"
+    assert sem_engine.threat_intel_client.base_url == "https://gti.googleapis.com/mcp"
     assert sem_engine.cbm_client.base_url == "http://localhost:8080/mcp"
 
-    # 5. Test SyncResolver propagation
-    sync_gti = GTIClient()
+    # 3. Test SyncResolver propagation
+    sync_ti = MagicMock()
+    sync_ti.base_url = ""
     sync_cbm = CodebaseMemoryClient()
     resolver = SyncResolver(
         client=None,
         policy_server=server,
-        gti_client=sync_gti,
+        threat_intel=sync_ti,
         cbm_client=sync_cbm,
     )
-    assert resolver.gti_client.base_url == "https://gti.googleapis.com/mcp"
+    assert resolver.threat_intel.base_url == "https://gti.googleapis.com/mcp"
     assert resolver.cbm_client.base_url == "http://localhost:8080/mcp"

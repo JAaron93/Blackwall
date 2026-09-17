@@ -30,8 +30,8 @@ from dotenv import load_dotenv
 from blackwall.config import get_genai_client
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.mcp.codebase_memory import CodebaseMemoryClient
-from blackwall.mcp.gti_client import GTIMCPClient
 from blackwall.models import ToolCallContext, VerdictDecision
+from blackwall.threat_intel.orchestrator import ThreatIntelOrchestrator
 from blackwall.sync_resolver import SyncResolver
 
 # Optional Rich TUI support
@@ -242,7 +242,7 @@ def build_defender_panel(
         ("ContextHygiene Sanitization", "context_hygiene"),
         ("Threat Signature Graph (TSG)", "tsg_check"),
         ("Codebase Memory MCP AST", "cbm_ast"),
-        ("Google Threat Intelligence (GTI)", "gti_check"),
+        ("AlienVault OTX Threat Intel", "threat_intel_check"),
         ("Gemini Semantic Evaluation", "semantic_intent"),
     ]
 
@@ -376,7 +376,7 @@ async def run_showdown(
     await repo.initialize()
 
     # 2. Initialize Clients
-    gti = GTIMCPClient(repo=repo, api_key=os.getenv("GTI_MCP_API_KEY", ""))
+    threat_intel = ThreatIntelOrchestrator(repository=repo)
     cbm = CodebaseMemoryClient(base_url=os.getenv("CBM_MCP_BASE_URL"))
     client = get_genai_client()
 
@@ -384,7 +384,7 @@ async def run_showdown(
     resolver = SyncResolver(
         client=client,
         repo=repo,
-        gti_client=gti,
+        threat_intel=threat_intel,
         cbm_client=cbm,
         demo_mode=True,
     )
@@ -416,7 +416,7 @@ async def run_showdown(
                     "context_hygiene": "⏳ Pending",
                     "tsg_check": "⏳ Pending",
                     "cbm_ast": "⏳ Pending",
-                    "gti_check": "⏳ Pending",
+                    "threat_intel_check": "⏳ Pending",
                     "semantic_intent": "⏳ Pending",
                 }
                 layout["attacker"].update(
@@ -440,8 +440,8 @@ async def run_showdown(
                 layout["defender"].update(build_defender_panel(stages))
                 await asyncio.sleep(step_delay)
 
-                # Stage 3: GTI & Semantic
-                stages["gti_check"] = "✓ Token bucket OK (IOC validated)"
+                # Stage 3: Threat Intel & Semantic
+                stages["threat_intel_check"] = "✓ Threat Intel cache & provider OK"
                 stages["semantic_intent"] = "🤖 Gemini Semantic Analysis in progress..."
                 layout["defender"].update(build_defender_panel(stages))
 
@@ -505,7 +505,7 @@ async def run_showdown(
         print_ansi_header("🔥 BLACKWALL AGENTIC FIREWALL 🔥")
         print_ansi_step("🎯", "Initializing Blackwall Core components...", Colors.YELLOW)
         print_ansi_step("✓", f"Database connected: {db_path}", Colors.GREEN)
-        print_ansi_step("✓", "GTI Client & Codebase Memory ready", Colors.GREEN)
+        print_ansi_step("✓", "Threat Intel & Codebase Memory ready", Colors.GREEN)
         print_ansi_step("✓", "SyncResolver assembled (Multi-Signal Fusion)", Colors.GREEN)
         print_ansi_header("🎯 LIVE DUAL-AGENT SHOWDOWN")
 

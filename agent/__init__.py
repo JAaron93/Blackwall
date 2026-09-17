@@ -95,7 +95,7 @@ def _get_resolver() -> Any:
 
     from blackwall.sync_resolver import SyncResolver
     from blackwall.db.repository import SQLiteThreatRepository
-    from blackwall.mcp.gti_client import GTIMCPClient
+    from blackwall.threat_intel import ThreatIntelOrchestrator
     from blackwall.mcp.codebase_memory import CodebaseMemoryClient
     from blackwall.config import get_genai_client
 
@@ -103,10 +103,7 @@ def _get_resolver() -> Any:
     repo = SQLiteThreatRepository(db_path)
     client = get_genai_client()
 
-    gti_client = GTIMCPClient(
-        repo=repo,
-        api_key=os.getenv("GTI_MCP_API_KEY", ""),
-    )
+    threat_intel = ThreatIntelOrchestrator(repository=repo)
     cbm_client = CodebaseMemoryClient(
         base_url=os.getenv("CBM_MCP_BASE_URL"),
     )
@@ -114,7 +111,7 @@ def _get_resolver() -> Any:
     _resolver = SyncResolver(
         client=client,
         repo=repo,
-        gti_client=gti_client,
+        threat_intel=threat_intel,
         cbm_client=cbm_client,
     )
     _tls.resolver = _resolver

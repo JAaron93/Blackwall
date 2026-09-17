@@ -19,19 +19,31 @@ import asyncio
 import socket
 import subprocess
 import sys
+import threading
+import time
 from typing import Any, Callable, Dict, Generator
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import structlog
 from pytest_bdd import given, scenario, then, when, parsers
 
+from blackwall.adk_integration import ADKIntegration
 from blackwall.audit.manager import AuditHookManager
 from blackwall.db.repository import SQLiteThreatRepository
+from blackwall.interception import InterceptionQueue
 from blackwall.mcp.mcp_routing import (
     CodebaseMemoryRouter,
     GTIRouter,
     MCPRoutingViolation,
+    ThreatIntelRouter,
 )
+from blackwall.policy import (
+    HybridPolicyServer,
+    SemanticGatingEngine,
+    StructuralGatingEngine,
+)
+from blackwall.policy.engine import StructuralAction, StructuralGatingResult
 
 # ============================================================================
 # Fixtures
@@ -310,6 +322,22 @@ def test_bdd_gti_router_blocks_sync_context() -> None:
 
 @scenario(
     _BLACKWALL_GUARDRAILS,
+    "ThreatIntelRouter permits async analysis context",
+)
+def test_bdd_threat_intel_router_permits_async_context() -> None:
+    pass
+
+
+@scenario(
+    _BLACKWALL_GUARDRAILS,
+    "ThreatIntelRouter blocks synchronous interception context",
+)
+def test_bdd_threat_intel_router_blocks_sync_context() -> None:
+    pass
+
+
+@scenario(
+    _BLACKWALL_GUARDRAILS,
     "MCP router detects escape attempt in operation name",
 )
 def test_bdd_mcp_router_detects_escape_attempt() -> None:
@@ -413,6 +441,17 @@ def given_gti_router_step(mock_gti_client) -> dict:
     }
 
 
+@given("a ThreatIntelRouter with a mock threat intel client", target_fixture="mcp_bdd_context")
+def given_threat_intel_router_step(mock_gti_client) -> dict:
+    router = ThreatIntelRouter(mock_gti_client)
+    return {
+        "router": router,
+        "client": mock_gti_client,
+        "result": None,
+        "exception": None,
+    }
+
+
 @when(parsers.parse('a "{operation}" operation is routed'))
 def when_operation_routed_step(mcp_bdd_context, operation) -> None:
     router = mcp_bdd_context["router"]
@@ -428,6 +467,18 @@ def when_operation_routed_step(mcp_bdd_context, operation) -> None:
 def when_gti_query_routed_step(mcp_bdd_context, context) -> None:
     router = mcp_bdd_context["router"]
     ctx_enum = GTIRouter.ExecutionContext(context)
+    try:
+        mcp_bdd_context["result"] = asyncio.run(
+            router.route(ctx_enum, "lookup_ip", ip="192.168.1.1")
+        )
+    except Exception as e:
+        mcp_bdd_context["exception"] = e
+
+
+@when(parsers.parse('a threat intel query is routed in "{context}" context'))
+def when_threat_intel_query_routed_step(mcp_bdd_context, context) -> None:
+    router = mcp_bdd_context["router"]
+    ctx_enum = ThreatIntelRouter.ExecutionContext(context)
     try:
         mcp_bdd_context["result"] = asyncio.run(
             router.route(ctx_enum, "lookup_ip", ip="192.168.1.1")
@@ -463,6 +514,11 @@ def then_gti_client_delegated_step(mcp_bdd_context) -> None:
     mcp_bdd_context["client"].lookup_ip.assert_called_once()
 
 
+@then("the threat intel client should receive the delegated call")
+def then_threat_intel_client_delegated_step(mcp_bdd_context) -> None:
+    mcp_bdd_context["client"].lookup_ip.assert_called_once()
+
+
 @then("the operation should raise MCPRoutingViolation")
 def then_operation_raises_violation_step(mcp_bdd_context) -> None:
     assert mcp_bdd_context["exception"] is not None
@@ -479,18 +535,6 @@ def then_error_contains_step(mcp_bdd_context, expected_str) -> None:
 # ============================================================================
 # Feature: ADK Tool Interception Step Definitions
 # ============================================================================
-
-from blackwall.adk_integration import ADKIntegration
-from blackwall.interception import InterceptionQueue
-from blackwall.policy import (
-    HybridPolicyServer,
-    StructuralGatingEngine,
-    SemanticGatingEngine,
-)
-from blackwall.policy.engine import StructuralGatingResult, StructuralAction
-from unittest.mock import AsyncMock, MagicMock
-import threading
-import time
 
 _ADK_INTERCEPTION = "../features/adk_interception.feature"
 
