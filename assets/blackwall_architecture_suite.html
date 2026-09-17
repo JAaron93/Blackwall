@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blackwall v3.0 — Architecture Suite (Core vs Enterprise)</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+</head>
+<body class="bg-[#050814] text-[#e2e8f0] font-sans antialiased min-h-screen p-4 flex flex-col items-center selection:bg-cyan-500 selection:text-black">
+
+  <!-- Top Navigation & Tab Bar -->
+  <div class="w-full max-w-7xl flex flex-col md:flex-row items-center justify-between gap-4 py-4 px-6 bg-[#090e21] border border-cyan-900/40 rounded-2xl shadow-xl mb-6 backdrop-blur-md">
+    <div class="flex items-center gap-3">
+      <div class="h-8 w-8 rounded-lg bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center font-black text-white text-sm shadow-lg shadow-cyan-500/20">
+        BW
+      </div>
+      <div>
+        <h1 class="text-lg font-bold text-white tracking-wide flex items-center gap-2">
+          Blackwall v3.0 Architecture Suite
+          <span class="text-[10px] font-mono bg-cyan-950 text-cyan-400 border border-cyan-800 px-2 py-0.5 rounded-full">v3.0-MVP</span>
+        </h1>
+        <p class="text-xs text-slate-400">Autonomous Agentic Security Firewall & Enterprise Threat Mesh</p>
+      </div>
+    </div>
+
+    <!-- Mode Selector Tabs -->
+    <div class="flex items-center bg-slate-900/90 p-1 rounded-xl border border-slate-700/60 font-mono text-xs">
+      <button id="tabCoreBtn" onclick="switchTier('core')" class="px-5 py-2 rounded-lg font-semibold transition-all flex items-center gap-2 bg-gradient-to-r from-cyan-600 to-sky-600 text-white shadow-md shadow-cyan-900/40">
+        <span>🛡️</span> Blackwall Core (Individual)
+      </button>
+      <button id="tabEntBtn" onclick="switchTier('enterprise')" class="px-5 py-2 rounded-lg font-semibold transition-all flex items-center gap-2 text-slate-400 hover:text-white">
+        <span>⚡</span> Blackwall Enterprise (Mesh)
+      </button>
+    </div>
+  </div>
+
+  <!-- Dynamic Content Frame Container -->
+  <div class="w-full max-w-7xl flex-1 flex flex-col">
+    <!-- Core Frame -->
+    <div id="coreFrameContainer" class="w-full">
+      <iframe src="blackwall_core_architecture.html" class="w-full h-[980px] rounded-2xl border border-cyan-900/40 shadow-2xl bg-transparent" frameborder="0"></iframe>
+    </div>
+
+    <!-- Enterprise Frame (Initially Hidden) -->
+    <div id="entFrameContainer" class="w-full hidden">
+      <iframe src="blackwall_enterprise_architecture.html" class="w-full h-[1020px] rounded-2xl border border-purple-900/40 shadow-2xl bg-transparent" frameborder="0"></iframe>
+    </div>
+  </div>
+
+  <script>
+    function switchTier(tier) {
+      const coreBtn = document.getElementById('tabCoreBtn');
+      const entBtn = document.getElementById('tabEntBtn');
+      const coreContainer = document.getElementById('coreFrameContainer');
+      const entContainer = document.getElementById('entFrameContainer');
+
+      if (tier === 'core') {
+        coreContainer.classList.remove('hidden');
+        entContainer.classList.add('hidden');
+
+        coreBtn.className = "px-5 py-2 rounded-lg font-semibold transition-all flex items-center gap-2 bg-gradient-to-r from-cyan-600 to-sky-600 text-white shadow-md shadow-cyan-900/40";
+        entBtn.className = "px-5 py-2 rounded-lg font-semibold transition-all flex items-center gap-2 text-slate-400 hover:text-white";
+      } else {
+        coreContainer.classList.add('hidden');
+        entContainer.classList.remove('hidden');
+
+        entBtn.className = "px-5 py-2 rounded-lg font-semibold transition-all flex items-center gap-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md shadow-purple-900/40";
+        coreBtn.className = "px-5 py-2 rounded-lg font-semibold transition-all flex items-center gap-2 text-slate-400 hover:text-white";
+      }
+    }
+  </script>
+</body>
+</html>
