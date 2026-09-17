@@ -16,6 +16,7 @@ Verdict thresholds (DEMO MODE - tuned for standalone testing):
 
 import asyncio
 import concurrent.futures
+import inspect
 import json
 import logging
 import os
@@ -42,7 +43,6 @@ from blackwall.models import (
     AttackerProfile,
     CBMResponse,
     EventType,
-    GTIResponse,
     IncidentReport,
     RefactoringHint,
     SecurityEvent,
@@ -52,6 +52,10 @@ from blackwall.models import (
     Verdict,
     VerdictDecision,
 )
+from blackwall.threat_intel.models import (
+    ThreatIndicatorType,
+)
+from blackwall.threat_intel.orchestrator import ThreatIntelOrchestrator
 from blackwall.resolver import ContextHygiene, TokenBucketRateLimiter
 from blackwall.validators import clamp_score, normalize_text, utc_now
 
@@ -168,8 +172,9 @@ class SyncResolver:
         client: Any,
         policy_server: Any = None,
         repo: Any = None,
-        gti_client: Any = None,
+        threat_intel: Optional[Any] = None,
         cbm_client: Any = None,
+        gti_client: Any = None,
         gti_budget_tracker: Any = None,
         demo_mode: bool = False,
         on_attacker_identified: Optional[Callable[[IncidentReport], Any]] = None,
@@ -181,7 +186,7 @@ class SyncResolver:
         self.client = client
         self.policy_server = policy_server
         self.repo = repo
-        self.gti_client = gti_client
+        self.threat_intel = threat_intel if threat_intel is not None else gti_client
         self.cbm_client = cbm_client
         self.gti_budget_tracker = gti_budget_tracker
         self.demo_mode = demo_mode
@@ -221,13 +226,14 @@ class SyncResolver:
         )
         if policy and hasattr(policy, "mcpServers"):
             mcp = policy.mcpServers
+            ti_conf = getattr(mcp, "threatIntel", None) or getattr(mcp, "gti", None)
             if (
-                getattr(mcp, "gti", None)
-                and getattr(mcp.gti, "url", None)
-                and self.gti_client
+                ti_conf
+                and getattr(ti_conf, "url", None)
+                and self.threat_intel
             ):
-                if hasattr(self.gti_client, "base_url"):
-                    self.gti_client.base_url = mcp.gti.url
+                if hasattr(self.threat_intel, "base_url"):
+                    self.threat_intel.base_url = ti_conf.url
             if (
                 getattr(mcp, "codebaseMemory", None)
                 and getattr(mcp.codebaseMemory, "url", None)
@@ -248,19 +254,43 @@ class SyncResolver:
         # Context hygiene sanitizer with security IOC preservation mode enabled
         self._hygiene = ContextHygiene(preserve_iocs=True)
 
-        # True only when the GTI budget tracker explicitly denied the last query.
+        # True only when threat intel budget tracker explicitly denied the last query.
         self._gti_budget_exhausted: bool = False
 
         # Metrics counters
         self._total_evaluations: int = 0
         self._total_latency_ms: float = 0.0
         self._rate_limit_hits: int = 0
-        self._gti_queries_executed: int = 0
-        self._gti_queries_deferred: int = 0
+        self._threat_intel_queries_executed: int = 0
+        self._threat_intel_queries_deferred: int = 0
         self._inline_signatures_generated: int = 0
         self._block_count: int = 0
         self._quarantine_count: int = 0
         self._allow_count: int = 0
+
+    @property
+    def gti_client(self) -> Any:
+        return self.threat_intel
+
+    @gti_client.setter
+    def gti_client(self, val: Any) -> None:
+        self.threat_intel = val
+
+    @property
+    def _gti_queries_executed(self) -> int:
+        return self._threat_intel_queries_executed
+
+    @_gti_queries_executed.setter
+    def _gti_queries_executed(self, val: int) -> None:
+        self._threat_intel_queries_executed = val
+
+    @property
+    def _gti_queries_deferred(self) -> int:
+        return self._threat_intel_queries_deferred
+
+    @_gti_queries_deferred.setter
+    def _gti_queries_deferred(self, val: int) -> None:
+        self._threat_intel_queries_deferred = val
 
     # ------------------------------------------------------------------
     # Public API
@@ -319,16 +349,16 @@ class SyncResolver:
         # 3. Query structural policy and Codebase Memory first (gating before external query)
         cbm_resp: Optional[CBMResponse] = await self._query_cbm(sanitized)
 
-        # 3b. Classify event as high-risk based on structural/CBM signals
+        # 3b. Classify event as high-risk based on structural/CBM signals or presence of indicator
         ctx_score = self._score_context(sanitized)
         cbm_score = self._score_cbm(cbm_resp)
         preliminary_score = cbm_score * 0.50 + ctx_score * 0.50
-        is_high_risk = preliminary_score >= 0.30  # High-risk threshold for GTI gating
+        is_high_risk = preliminary_score >= 0.30 or bool(self._extract_indicator(sanitized))
 
-        # 4. Query GTI only for high-risk events
-        gti_resp: Optional[GTIResponse] = None
+        # 4. Query threat intelligence for high-risk events or events with indicators
+        threat_resp: Optional[Any] = None
         if is_high_risk:
-            gti_resp = await self._query_gti(sanitized)
+            threat_resp = await self._query_threat_intel(sanitized)
 
         # 4b. Optional semantic triage via Gemini 3.5 Flash-Lite
         semantic_score: Optional[float] = None
@@ -337,11 +367,14 @@ class SyncResolver:
 
         # 5. Compute weighted threat score
         score = await self._compute_threat_score(
-            sanitized, gti_resp, cbm_resp, semantic_score=semantic_score
+            sanitized, threat_resp, cbm_resp, semantic_score=semantic_score
         )
+        if threat_resp and getattr(threat_resp, "is_malicious", False):
+            # Escalate malicious detections to trigger BLOCK verdicts
+            score = max(score, 0.85 if not self.demo_mode else 0.50)
         score = clamp_score(score)
 
-        # 5. Apply verdict thresholds
+        # 5b. Apply verdict thresholds
         if self.demo_mode:
             if score >= 0.20:
                 decision = VerdictDecision.BLOCK
@@ -360,7 +393,7 @@ class SyncResolver:
         verdict = Verdict(
             decision=decision,
             reasoning=self._build_reasoning(
-                score, gti_resp, cbm_resp, semantic_score=semantic_score
+                score, threat_resp, cbm_resp, semantic_score=semantic_score
             ),
             confidence_score=score,
         )
@@ -373,14 +406,14 @@ class SyncResolver:
             self._block_count += 1
             self._schedule_task(
                 self._inline_generate_signature(
-                    sanitized, verdict, gti_resp=gti_resp, cbm_resp=cbm_resp
+                    sanitized, verdict, threat_resp=threat_resp, cbm_resp=cbm_resp
                 )
             )
         elif decision == VerdictDecision.QUARANTINE:
             self._quarantine_count += 1
             self._schedule_task(
                 self._handle_quarantine_refactoring(
-                    sanitized, verdict, gti_resp=gti_resp, cbm_resp=cbm_resp
+                    sanitized, verdict, threat_resp=threat_resp, cbm_resp=cbm_resp
                 )
             )
         else:
@@ -580,25 +613,30 @@ class SyncResolver:
                 logger.warning("OpenTelemetry span emission failed: %s", err)
 
     # ------------------------------------------------------------------
-    # GTI query
+    # Threat Intelligence query
     # ------------------------------------------------------------------
 
-    async def _query_gti(self, context: ToolCallContext) -> Optional[GTIResponse]:
+    async def _query_threat_intel(
+        self, context: ToolCallContext
+    ) -> Optional[Any]:
         """
-        Query GTI MCP serially (not parallel). Respects GTI budget tracker.
-        Returns None if no gti_client, budget exhausted, or query fails.
+        Query Threat Intelligence orchestrator/provider serially (not parallel).
+        Returns None if no threat_intel client, or if query fails.
         """
-        if self.gti_client is None:
+        if self.threat_intel is None:
             return None
 
-        # Budget check
+        # Budget check (if legacy or token tracker present)
         if self.gti_budget_tracker is not None:
-            acquired = self.gti_budget_tracker.tryAcquire()
+            try:
+                acquired = getattr(self.gti_budget_tracker, "tryAcquire", lambda: True)()
+            except Exception:
+                acquired = True
             if not acquired:
-                self._gti_queries_deferred += 1
+                self._threat_intel_queries_deferred += 1
                 self._gti_budget_exhausted = True
                 logger.debug(
-                    "GTI budget exhausted — deferring query for tool %s",
+                    "Threat intelligence budget exhausted — deferring query for tool %s",
                     context.tool_name,
                 )
                 return None
@@ -607,20 +645,41 @@ class SyncResolver:
             # Extract a query indicator from arguments
             indicator = self._extract_indicator(context)
             if not indicator:
-                self._gti_queries_deferred += 1
+                self._threat_intel_queries_deferred += 1
                 return None
 
-            result: GTIResponse = await self.gti_client.query(indicator)
-            self._gti_queries_executed += 1
+            try:
+                from blackwall.cli import detect_indicator_type
+                indicator_type = detect_indicator_type(indicator)
+            except Exception:
+                indicator_type = ThreatIndicatorType.DOMAIN
+
+            if isinstance(self.threat_intel, ThreatIntelOrchestrator):
+                result = await self.threat_intel.lookup(indicator, indicator_type)
+            elif hasattr(self.threat_intel, "query"):
+                res = self.threat_intel.query(indicator)
+                result = await res if inspect.isawaitable(res) else res
+            elif hasattr(self.threat_intel, "lookup"):
+                res = self.threat_intel.lookup(indicator, indicator_type)
+                result = await res if inspect.isawaitable(res) else res
+            elif hasattr(self.threat_intel, "queryIOC"):
+                res = self.threat_intel.queryIOC(indicator, indicator_type)
+                result = await res if inspect.isawaitable(res) else res
+            else:
+                result = None
+
+            self._threat_intel_queries_executed += 1
             return result
 
         except Exception as exc:
             logger.warning(
-                "GTI query failed — continuing without GTI signal: %s",
+                "Threat intelligence query failed — continuing without threat intel signal: %s",
                 exc,
             )
-            self._gti_queries_deferred += 1
+            self._threat_intel_queries_deferred += 1
             return None
+
+    _query_gti = _query_threat_intel
 
     # ------------------------------------------------------------------
     # CBM query
@@ -731,21 +790,23 @@ class SyncResolver:
     async def _compute_threat_score(
         self,
         context: ToolCallContext,
-        gti_resp: Optional[GTIResponse],
-        cbm_resp: Optional[CBMResponse],
+        threat_resp: Optional[Any] = None,
+        cbm_resp: Optional[CBMResponse] = None,
         semantic_score: Optional[float] = None,
+        **kwargs: Any,
     ) -> float:
         """
-        Weighted aggregation: GTI 40% + CBM 30% + Context 30%.
+        Weighted aggregation: Threat Intel 40% + CBM 30% + Context 30%.
 
         The −0.20 penalty and weight redistribution (CBM 50% + Context 50%)
-        only applies when the GTI budget tracker explicitly denied the query
-        (self._gti_budget_exhausted is True).  Other reasons for gti_resp
-        being None — GTI not configured, no extractable indicator, or a
-        transient query failure — use normal weights with gti_score = 0.0,
-        which is already the correct fallback from _score_gti(None).
+        only applies when the budget tracker explicitly denied the query
+        (self._gti_budget_exhausted is True). Other reasons for threat_resp
+        being None — Threat intel not configured, no extractable indicator, or a
+        transient query failure — use normal weights with threat_score = 0.0,
+        which is already the correct fallback from _score_threat_intel(None).
         """
-        gti_score = self._score_gti(gti_resp)
+        resp = threat_resp if threat_resp is not None else kwargs.get("gti_resp")
+        ti_score = self._score_threat_intel(resp)
         cbm_score = self._score_cbm(cbm_resp)
 
         if (
@@ -762,10 +823,8 @@ class SyncResolver:
             # and −0.2 penalty to reflect reduced detection confidence.
             score = cbm_score * 0.50 + ctx_score * 0.50 - 0.20
         else:
-            # Normal path: GTI 40% + CBM 30% + Context 30%.
-            # When gti_resp is None for any other reason, gti_score is 0.0,
-            # which naturally reduces the GTI contribution without a penalty.
-            score = gti_score * 0.40 + cbm_score * 0.30 + ctx_score * 0.30
+            # Normal path: Threat Intel 40% + CBM 30% + Context 30%.
+            score = ti_score * 0.40 + cbm_score * 0.30 + ctx_score * 0.30
 
         return score
 
@@ -777,9 +836,11 @@ class SyncResolver:
         self,
         context: ToolCallContext,
         verdict: Verdict,
-        gti_resp: Optional[GTIResponse] = None,
+        threat_resp: Optional[Any] = None,
         cbm_resp: Optional[CBMResponse] = None,
+        **kwargs: Any,
     ) -> None:
+        gti_resp = threat_resp if threat_resp is not None else kwargs.get("gti_resp")
         """
         After BLOCK: generate a threat signature inline using
         ABA.generateSignature() and write it to the SQLite repo.
@@ -898,6 +959,7 @@ class SyncResolver:
                     reasoning=attacker_intent,
                     confidence_score=verdict.confidence_score,
                 ),
+                threat_intel_response=threat_resp,
                 gti_response=gti_resp,
                 cbm_response=cbm_resp,
                 agent_id=context.metadata.get("agent_id") if context.metadata else None,
@@ -932,19 +994,22 @@ class SyncResolver:
         self,
         context: ToolCallContext,
         verdict: Verdict,
-        gti_resp: Optional[GTIResponse] = None,
+        threat_resp: Optional[Any] = None,
         cbm_resp: Optional[CBMResponse] = None,
+        **kwargs: Any,
     ) -> Optional[RefactoringHint]:
         """
         After QUARANTINE: trigger Green Team auto-refactoring via ABA.triggerRefactoring().
         """
         if not self.aba:
             return None
+        gti_resp = threat_resp if threat_resp is not None else kwargs.get("gti_resp")
         try:
             sec_event = SecurityEvent(
                 event_type=EventType.QUARANTINE,
                 tool_context=context,
                 verdict=verdict,
+                threat_intel_response=threat_resp,
                 gti_response=gti_resp,
                 cbm_response=cbm_resp,
                 agent_id=context.metadata.get("agent_id") if context.metadata else None,
@@ -981,24 +1046,29 @@ class SyncResolver:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _score_gti(self, gti_resp: Optional[GTIResponse]) -> float:
+    def _score_threat_intel(self, threat_resp: Optional[Any]) -> float:
         """
-        GTI signal (0.0–1.0).
-          is_malicious=True  → 1.0
-          detection_rate     → fractional score
-          Both available     → average of is_malicious score and detection_rate
+        Threat intelligence signal (0.0–1.0).
+          is_malicious=True  → 1.0 (or scaled risk_score)
+          risk_score / detection_rate → fractional score
         """
-        if gti_resp is None:
+        if threat_resp is None:
             return 0.0
 
-        malicious_score = 1.0 if gti_resp.is_malicious else 0.0
-        detection_score = clamp_score(gti_resp.detection_rate)
+        risk_score = getattr(threat_resp, "risk_score", None)
+        if risk_score is None:
+            detection_rate = getattr(threat_resp, "detection_rate", 0.0)
+            risk_score = detection_rate / 100.0 if detection_rate > 1.0 else detection_rate
+            malicious_score = 1.0 if getattr(threat_resp, "is_malicious", False) else 0.0
+            if getattr(threat_resp, "is_malicious", False):
+                return (malicious_score + clamp_score(risk_score)) / 2.0
+            return clamp_score(risk_score)
 
-        if gti_resp.is_malicious:
-            # Both components available: average them
-            return (malicious_score + detection_score) / 2.0
-        # Only detection_rate contributes when not flagged malicious
-        return detection_score
+        if getattr(threat_resp, "is_malicious", False):
+            return max(1.0, clamp_score(risk_score))
+        return clamp_score(risk_score)
+
+    _score_gti = _score_threat_intel
 
     def _score_cbm(self, cbm_resp: Optional[CBMResponse]) -> float:
         """
@@ -1116,17 +1186,27 @@ class SyncResolver:
     @staticmethod
     def _build_reasoning(
         score: float,
-        gti_resp: Optional[GTIResponse],
-        cbm_resp: Optional[CBMResponse],
+        threat_resp: Optional[Any] = None,
+        cbm_resp: Optional[CBMResponse] = None,
         semantic_score: Optional[float] = None,
+        **kwargs: Any,
     ) -> str:
         parts = [f"Threat score: {score:.3f}"]
         if semantic_score is not None:
             parts.append(f"Semantic: score={semantic_score:.2f}")
-        if gti_resp is not None:
+
+        resp = threat_resp if threat_resp is not None else kwargs.get("gti_resp")
+        if resp is not None:
+            provider = getattr(resp, "provider_name", "ThreatIntel")
+            is_mal = getattr(resp, "is_malicious", False)
+            risk = getattr(resp, "risk_score", getattr(resp, "detection_rate", 0.0))
+            try:
+                risk_val = float(risk)
+                risk_str = f"{risk_val:.2f}"
+            except (ValueError, TypeError):
+                risk_str = str(risk)
             parts.append(
-                f"GTI: malicious={gti_resp.is_malicious}, "
-                f"detection_rate={gti_resp.detection_rate:.2f}"
+                f"{provider}: malicious={is_mal}, risk_score={risk_str}"
             )
         if cbm_resp is not None:
             parts.append(

@@ -14,12 +14,6 @@ from blackwall.models import (
 )
 from blackwall.policy.models import GateResult, StructuralAction
 from blackwall.db.repository import SQLiteThreatRepository
-from blackwall.mcp.gti_client import (
-    GTIMCPClient,
-    GTIDegradedError,
-    GTIBudgetExhaustedError,
-)
-from blackwall.mcp.gti_client import GTIQueryBudgetTracker as AsyncGTIQueryBudgetTracker
 from blackwall.mcp.codebase_memory import CodebaseMemoryClient
 from blackwall.validators import clamp_score
 
@@ -126,17 +120,16 @@ class SemanticGatingEngine:
     def __init__(
         self,
         repo: Optional[SQLiteThreatRepository] = None,
-        gti_client: Optional[GTIMCPClient] = None,
+        gti_client: Optional[Any] = None,
         cbm_client: Optional[CodebaseMemoryClient] = None,
-        budget_tracker: Optional[AsyncGTIQueryBudgetTracker] = None,
+        budget_tracker: Optional[Any] = None,
+        threat_intel_client: Optional[Any] = None,
     ) -> None:
         self.repo = repo
-        self.gti_client = gti_client
+        self.threat_intel_client = threat_intel_client or gti_client
+        self.gti_client = self.threat_intel_client
         self.cbm_client = cbm_client
-        tracker = budget_tracker or getattr(gti_client, "budget_tracker", None)
-        if tracker is not None and not isinstance(tracker, AsyncGTIQueryBudgetTracker):
-            tracker = None
-        self.budget_tracker = tracker
+        self.budget_tracker = budget_tracker or getattr(self.threat_intel_client, "budget_tracker", None)
 
     def apply_policy_mcp_config(self, mcp_config: Any) -> None:
         """Applies MCP server configurations from policy to active MCP clients."""
@@ -386,13 +379,15 @@ class SemanticGatingEngine:
                             skip_budget_check=(self.budget_tracker is not None),
                         )
                         gti_responses.append(resp)
-                    except GTIDegradedError:
-                        gti_degraded = True
-                    except GTIBudgetExhaustedError:
-                        gti_budget_exhausted = True
                     except Exception as e:
-                        logger.error("Error querying IP: %s", e)
-                        gti_error = True
+                        err_name = type(e).__name__
+                        if "Degraded" in err_name or "CircuitBreaker" in err_name:
+                            gti_degraded = True
+                        elif "Budget" in err_name or "Exhausted" in err_name:
+                            gti_budget_exhausted = True
+                        else:
+                            logger.error("Error querying IP: %s", e)
+                            gti_error = True
 
                 for url in iocs["urls"]:
                     cached = None
@@ -433,13 +428,15 @@ class SemanticGatingEngine:
                             skip_budget_check=(self.budget_tracker is not None),
                         )
                         gti_responses.append(resp)
-                    except GTIDegradedError:
-                        gti_degraded = True
-                    except GTIBudgetExhaustedError:
-                        gti_budget_exhausted = True
                     except Exception as e:
-                        logger.error("Error querying URL: %s", e)
-                        gti_error = True
+                        err_name = type(e).__name__
+                        if "Degraded" in err_name or "CircuitBreaker" in err_name:
+                            gti_degraded = True
+                        elif "Budget" in err_name or "Exhausted" in err_name:
+                            gti_budget_exhausted = True
+                        else:
+                            logger.error("Error querying URL: %s", e)
+                            gti_error = True
 
                 for domain in iocs["domains"]:
                     if not any(domain in u for u in iocs["urls"]):
@@ -487,13 +484,15 @@ class SemanticGatingEngine:
                                 skip_budget_check=(self.budget_tracker is not None),
                             )
                             gti_responses.append(resp)
-                        except GTIDegradedError:
-                            gti_degraded = True
-                        except GTIBudgetExhaustedError:
-                            gti_budget_exhausted = True
                         except Exception as e:
-                            logger.error("Error querying domain: %s", e)
-                            gti_error = True
+                            err_name = type(e).__name__
+                            if "Degraded" in err_name or "CircuitBreaker" in err_name:
+                                gti_degraded = True
+                            elif "Budget" in err_name or "Exhausted" in err_name:
+                                gti_budget_exhausted = True
+                            else:
+                                logger.error("Error querying domain: %s", e)
+                                gti_error = True
 
                 for h in iocs["hashes"]:
                     cached = None
@@ -534,13 +533,15 @@ class SemanticGatingEngine:
                             skip_budget_check=(self.budget_tracker is not None),
                         )
                         gti_responses.append(resp)
-                    except GTIDegradedError:
-                        gti_degraded = True
-                    except GTIBudgetExhaustedError:
-                        gti_budget_exhausted = True
                     except Exception as e:
-                        logger.error("Error querying hash: %s", e)
-                        gti_error = True
+                        err_name = type(e).__name__
+                        if "Degraded" in err_name or "CircuitBreaker" in err_name:
+                            gti_degraded = True
+                        elif "Budget" in err_name or "Exhausted" in err_name:
+                            gti_budget_exhausted = True
+                        else:
+                            logger.error("Error querying hash: %s", e)
+                            gti_error = True
             except Exception as e:
                 logger.error("Error in IOC query loop: %s", e)
                 gti_error = True

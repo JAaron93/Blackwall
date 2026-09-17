@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from blackwall.threat_intel.models import ThreatIntelResponse
 from blackwall.validators import (
     format_iso_datetime,
     utc_now,
@@ -195,7 +196,8 @@ class SecurityEvent(BaseModel):
     verdict: Verdict | None = None
     behavior_score: BehaviorScore | None = None
     agent_id: str | None = None
-    gti_response: GTIResponse | None = None
+    threat_intel_response: ThreatIntelResponse | GTIResponse | Any = None
+    gti_response: GTIResponse | ThreatIntelResponse | Any = None
     cbm_response: CBMResponse | None = None
     related_signatures: list[UUID] = Field(default_factory=list)
     telemetry_span_id: str | None = None
@@ -217,6 +219,11 @@ class SecurityEvent(BaseModel):
 
     @model_validator(mode="after")
     def validate_verdict_presence(self) -> "SecurityEvent":
+        if self.threat_intel_response is not None and self.gti_response is None:
+            self.gti_response = self.threat_intel_response
+        elif self.gti_response is not None and self.threat_intel_response is None:
+            self.threat_intel_response = self.gti_response
+
         if self.verdict is None and self.event_type in {
             EventType.INTERCEPTION,
             EventType.BLOCK,

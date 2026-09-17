@@ -11,7 +11,6 @@ from enum import Enum
 from typing import Any
 
 from blackwall.mcp.codebase_memory import CodebaseMemoryClient
-from blackwall.mcp.gti_client import GTIClient
 from blackwall.validators import normalize_text
 
 logger = logging.getLogger("blackwall.mcp_routing")
@@ -149,10 +148,10 @@ class CodebaseMemoryRouter:
             raise MCPRoutingViolation("CodebaseMemoryRouter", operation, reason)
 
 
-class GTIRouter:
-    """Restricts GTI MCP queries to the asynchronous analysis path only.
+class ThreatIntelRouter:
+    """Restricts Threat Intelligence MCP queries to the asynchronous analysis path only.
 
-    GTI queries are FORBIDDEN inside the synchronous interception path.
+    Threat intelligence queries are FORBIDDEN inside the synchronous interception path.
     """
 
     class ExecutionContext(str, Enum):
@@ -176,23 +175,25 @@ class GTIRouter:
         }
     )
 
-    def __init__(self, client: GTIClient) -> None:
+    def __init__(self, client: Any, router_name: str = "GTIRouter") -> None:
         self.client = client
+        self.router_name = router_name
 
     async def route(
         self, context: ExecutionContext, operation: str, **kwargs: Any
     ) -> Any:
-        """Validate execution context and operation, then delegate to GTIClient."""
-        _detect_escape_attempt("GTIRouter", operation, kwargs)
+        """Validate execution context and operation, then delegate to client."""
+        _detect_escape_attempt(self.router_name, operation, kwargs)
         self._validate_context(context, operation)
         self._validate_operation(operation)
 
         # Delegate execution to client method dynamically
         method = getattr(self.client, operation)
         logger.debug(
-            "GTIRouter allowed and routed '%s' in context '%s'",
+            "%s allowed and routed '%s' in context '%s'",
+            self.router_name,
             operation,
-            context.value,
+            context.value if hasattr(context, "value") else str(context),
         )
         return await method(**kwargs)
 
@@ -202,13 +203,17 @@ class GTIRouter:
             # Safely format context value even if passed as plain string
             context_str = context.value if hasattr(context, "value") else str(context)
             reason = f"Execution context '{context_str}' is forbidden."
-            logger.warning("GTIRouter blocked '%s': %s", operation, reason)
-            raise MCPRoutingViolation("GTIRouter", operation, reason)
+            logger.warning("%s blocked '%s': %s", self.router_name, operation, reason)
+            raise MCPRoutingViolation(self.router_name, operation, reason)
 
     def _validate_operation(self, operation: str) -> None:
         """Raise MCPRoutingViolation if operation is not in PERMITTED_OPS."""
         canonical_op = operation.strip()
         if canonical_op not in self.PERMITTED_OPS:
-            reason = f"Operation '{operation}' is not permitted on GTI router."
-            logger.warning("GTIRouter blocked '%s': %s", operation, reason)
-            raise MCPRoutingViolation("GTIRouter", operation, reason)
+            target_name = "GTI router" if "GTI" in self.router_name else "threat intel router"
+            reason = f"Operation '{operation}' is not permitted on {target_name}."
+            logger.warning("%s blocked '%s': %s", self.router_name, operation, reason)
+            raise MCPRoutingViolation(self.router_name, operation, reason)
+
+
+GTIRouter = ThreatIntelRouter

@@ -1,5 +1,6 @@
 import math
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -53,8 +54,15 @@ class MCPServerConfig(BaseModel):
 
 
 class MCPServersConfig(BaseModel):
-    gti: MCPServerConfig
+    threatIntel: MCPServerConfig | None = None
+    gti: MCPServerConfig | None = None
     codebaseMemory: MCPServerConfig
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.threatIntel is None and self.gti is not None:
+            self.threatIntel = self.gti
+        elif self.gti is None and self.threatIntel is not None:
+            self.gti = self.threatIntel
 
 
 class ThreatSignatureGraphConfig(BaseModel):

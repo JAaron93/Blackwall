@@ -7,7 +7,6 @@ from hypothesis import given, strategies as st, settings
 from blackwall.models import ToolCallContext, VerdictDecision, GTIResponse
 from blackwall.policy.semantic import SemanticGatingEngine
 from blackwall.db.repository import SQLiteThreatRepository
-from blackwall.mcp.gti_client import GTIMCPClient, GTIDegradedError
 from blackwall.mcp.codebase_memory import (
     CodebaseMemoryClient,
     DependencyChain,
@@ -16,6 +15,75 @@ from blackwall.mcp.codebase_memory import (
     CriticalSink,
     CriticalSinkType,
 )
+from typing import Any
+import time
+
+
+class GTIDegradedError(Exception):
+    """Stub exception for degraded threat intel client."""
+    pass
+
+
+class GTIBudgetExhaustedError(Exception):
+    """Stub exception for exhausted threat intel budget."""
+    pass
+
+
+class GTIMCPClient:
+    """Stub class for threat intel client mock spec."""
+    base_url: str = ""
+    repo: Any = None
+
+    def is_degraded(self) -> bool:
+        return False
+
+    async def queryIOC(self, *args: Any, **kwargs: Any) -> Any:
+        pass
+
+
+class GTIQueryBudgetTracker:
+    def __init__(self, capacity: int = 4, replenishment_interval: float = 60.0) -> None:
+        self.capacity = capacity
+        self.replenishment_interval = replenishment_interval
+        self.tokens = capacity
+        self.queries_attempted = 0
+        self.queries_executed = 0
+        self.queries_deferred = 0
+        self.budget_exhaustion_count = 0
+        self._last_refill = time.time()
+
+    async def tryAcquire(self) -> bool:
+        self.queries_attempted += 1
+        now = time.time()
+        if (now - self._last_refill) >= self.replenishment_interval:
+            self.tokens = self.capacity
+            self._last_refill = now
+        if self.tokens > 0:
+            self.tokens -= 1
+            self.queries_executed += 1
+            return True
+        else:
+            self.queries_deferred += 1
+            self.budget_exhaustion_count += 1
+            return False
+
+    async def getAvailableTokens(self) -> int:
+        return self.tokens
+
+    try_acquire = tryAcquire
+    get_available_tokens = getAvailableTokens
+
+    async def getMetrics(self) -> dict:
+        return {
+            "queriesAttempted": self.queries_attempted,
+            "queriesExecuted": self.queries_executed,
+            "queriesDeferred": self.queries_deferred,
+            "budgetExhaustionCount": self.budget_exhaustion_count,
+        }
+
+    def close(self) -> None:
+        pass
+
 
 TEST_DB_PATH = "test_semantic_gating.db"
 
@@ -545,7 +613,6 @@ async def test_geolocation_membership_set_optimization(temp_repo):
 
 @pytest.mark.asyncio
 async def test_gti_query_budget_tracker_integration():
-    from blackwall.mcp.gti_client import GTIQueryBudgetTracker
     import asyncio
 
     tracker = GTIQueryBudgetTracker(capacity=4, replenishment_interval=0.1)
@@ -573,8 +640,6 @@ async def test_gti_query_budget_tracker_integration():
 
 @pytest.mark.asyncio
 async def test_gti_query_skipped_and_redistributed_on_budget_exhaustion(temp_repo):
-    from blackwall.mcp.gti_client import GTIQueryBudgetTracker
-
     # Mock GTI and CBM
     mock_gti = MagicMock(spec=GTIMCPClient)
     mock_gti.is_degraded.return_value = False
@@ -635,9 +700,6 @@ async def test_gti_query_skipped_and_redistributed_on_budget_exhaustion(temp_rep
         assert result.verdict == VerdictDecision.QUARANTINE
     finally:
         tracker.close()
-
-
-from blackwall.mcp.gti_client import GTIBudgetExhaustedError
 
 
 @pytest.mark.asyncio

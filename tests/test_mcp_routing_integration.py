@@ -11,7 +11,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from blackwall.mcp.codebase_memory import CodebaseMemoryClient
-from blackwall.mcp.gti_client import GTIClient
 from blackwall.mcp.mcp_routing import (
     CodebaseMemoryRouter,
     GTIRouter,
@@ -27,7 +26,7 @@ def real_cbm_client() -> CodebaseMemoryClient:
 
 @pytest.fixture
 def mock_gti_client() -> AsyncMock:
-    client = AsyncMock(spec=GTIClient)
+    client = AsyncMock()
     client.lookup_ip = AsyncMock(return_value="mock_gti_resp")
     return client
 
