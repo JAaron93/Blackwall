@@ -17,7 +17,10 @@ from blackwall.threat_intel.models import (
     ThreatIntelProvider,
     ThreatIntelResponse,
 )
-from blackwall.threat_intel.otx import AlienVaultOTXProvider
+from blackwall.threat_intel.otx import (
+    AlienVaultOTXProvider,
+    _sanitize_indicator_for_log,
+)
 
 logger = logging.getLogger("blackwall.threat_intel.harpoon")
 
@@ -89,11 +92,17 @@ class HarpoonBridge:
         return subcmd
 
     async def _execute_harpoon(
-        self, subcmd: str, indicator: str, timeout: float
+        self,
+        subcmd: str,
+        indicator: str,
+        indicator_type: ThreatIndicatorType = ThreatIndicatorType.IPV4,
+        timeout: float = 5.0,
     ) -> Dict[str, Any]:
         """Execute harpoon subprocess and parse JSON output."""
         cmd = [self.harpoon_bin, "otx", subcmd, indicator, "--json"]
-        logger.debug("Executing Harpoon command: %s", " ".join(cmd))
+        sanitized_ind = _sanitize_indicator_for_log(indicator, indicator_type)
+        sanitized_cmd = [self.harpoon_bin, "otx", subcmd, sanitized_ind, "--json"]
+        logger.debug("Executing Harpoon command: %s", " ".join(sanitized_cmd))
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -232,16 +241,20 @@ class HarpoonBridge:
             )
 
         subcmd = self._map_subcommand(indicator_type)
+        sanitized_ind = _sanitize_indicator_for_log(indicator, indicator_type)
         try:
             raw_data = await self._execute_harpoon(
-                subcmd, indicator, timeout=effective_timeout
+                subcmd, indicator, indicator_type, timeout=effective_timeout
             )
             return self._parse_harpoon_response(indicator, indicator_type, raw_data)
         except Exception as exc:
+            exc_str = str(exc)
+            if indicator in exc_str:
+                exc_str = exc_str.replace(indicator, sanitized_ind)
             logger.info(
                 "Harpoon execution failed for %s (%s). Transparently falling back to AlienVaultOTXProvider.",
-                indicator,
-                str(exc),
+                sanitized_ind,
+                exc_str,
             )
             return await self.fallback_provider.lookup(
                 indicator, indicator_type, timeout=effective_timeout

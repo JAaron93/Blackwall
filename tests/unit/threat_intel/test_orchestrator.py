@@ -523,3 +523,62 @@ async def test_orchestrator_indicator_normalization_and_empty_check(
         await orchestrator.lookup("   \t  ", ThreatIndicatorType.IPV4)
 
 
+@pytest.mark.asyncio
+async def test_orchestrator_persistent_cache_metrics_across_instances(
+    temp_repo: SQLiteThreatRepository,
+) -> None:
+    """Verify that cache hits and misses are persisted and retrievable across separate orchestrator instances."""
+    otx = MockProvider(
+        name="otx",
+        supported_indicators={ThreatIndicatorType.IPV4},
+        default_response=ThreatIntelResponse(
+            indicator="198.51.100.99",
+            indicator_type=ThreatIndicatorType.IPV4,
+            is_malicious=False,
+            risk_score=0.0,
+            provider_name="otx",
+        ),
+    )
+
+    # First orchestrator instance: 1 miss, 1 hit
+    orch1 = ThreatIntelOrchestrator(
+        repository=temp_repo,
+        primary_provider=otx,
+        secondary_providers=[],
+        cache_enabled=True,
+    )
+    # Miss
+    resp1 = await orch1.lookup("198.51.100.99", ThreatIndicatorType.IPV4)
+    assert resp1.cached is False
+    # Hit
+    resp2 = await orch1.lookup("198.51.100.99", ThreatIndicatorType.IPV4)
+    assert resp2.cached is True
+
+    # Second fresh orchestrator instance accessing same repository:
+    # Must retrieve persisted cumulative metrics!
+    orch2 = ThreatIntelOrchestrator(
+        repository=temp_repo,
+        primary_provider=otx,
+        secondary_providers=[],
+        cache_enabled=True,
+    )
+    stats = await orch2.get_cache_stats()
+    assert stats["hits"] >= 1
+    assert stats["misses"] >= 1
+    assert stats["total_entries"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_harpoon_provider_discovery_and_registration() -> None:
+    """Verify that HarpoonBridge is discoverable via get_provider('harpoon')."""
+    orch = ThreatIntelOrchestrator(
+        primary_provider=MockProvider(name="otx", supported_indicators={ThreatIndicatorType.IPV4}),
+        secondary_providers=[],
+        cache_enabled=False,
+    )
+    provider = orch.get_provider("harpoon")
+    assert provider is not None
+    assert provider.name == "harpoon"
+
+
+

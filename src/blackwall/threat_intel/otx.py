@@ -365,22 +365,24 @@ class AlienVaultOTXProvider:
     ) -> Dict[str, Any]:
         """Fetches detailed pulse metadata by pulse ID from AlienVault OTX."""
         pulse_id = pulse_id.strip()
+        sanitized_pulse = _sanitize_indicator_for_log(pulse_id, ThreatIndicatorType.URL)
         if not self._check_circuit_breaker():
             logger.warning(
-                "OTX circuit breaker is OPEN. Failing fast for pulse: %s", pulse_id
+                "OTX circuit breaker is OPEN. Failing fast for pulse: %s", sanitized_pulse
             )
             raise OTXCircuitBreakerOpenError(
-                f"OTX circuit breaker is OPEN for pulse: {pulse_id}"
+                f"OTX circuit breaker is OPEN for pulse: {sanitized_pulse}"
             )
 
         acquired = await self.token_bucket.try_acquire()
         if not acquired:
-            logger.warning("OTX token bucket exhausted for pulse: %s", pulse_id)
+            logger.warning("OTX token bucket exhausted for pulse: %s", sanitized_pulse)
             raise OTXTokenBucketExhaustedError(
-                f"OTX token bucket exhausted for pulse: {pulse_id}"
+                f"OTX token bucket exhausted for pulse: {sanitized_pulse}"
             )
 
-        endpoint = f"pulses/{pulse_id}"
+        encoded_pulse = urllib.parse.quote(pulse_id, safe="")
+        endpoint = f"pulses/{encoded_pulse}"
         try:
             raw = await asyncio.wait_for(
                 self._execute_http_get(endpoint), timeout=timeout
@@ -388,9 +390,9 @@ class AlienVaultOTXProvider:
             self._record_success()
             return raw
         except Exception as e:
-            logger.warning("OTX pulse fetch failed for %s: %s", pulse_id, str(e))
+            logger.warning("OTX pulse fetch failed for %s: %s", sanitized_pulse, str(e))
             self._record_failure()
             raise OTXLookupError(
-                f"OTX pulse fetch failed for {pulse_id}: {str(e)}"
+                f"OTX pulse fetch failed for {sanitized_pulse}: {str(e)}"
             ) from e
 

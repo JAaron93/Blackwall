@@ -94,6 +94,19 @@ class ThreatIntelOrchestrator:
             except Exception as e:
                 logger.debug("Failed initializing AbuseChProvider: %s", e)
 
+            try:
+                from blackwall.threat_intel.harpoon import HarpoonBridge
+
+                harpoon = HarpoonBridge(fallback_provider=otx)
+                if harpoon.is_available():
+                    self.secondary_providers.append(
+                        _wrap_provider(harpoon, timeout)
+                        if wrap_circuit_breaker
+                        else harpoon
+                    )
+            except Exception as e:
+                logger.debug("Failed initializing HarpoonBridge: %s", e)
+
     def get_providers(self) -> List[ThreatIntelProvider]:
         """Return list of all registered providers (primary + secondaries)."""
         return [self.primary_provider] + list(self.secondary_providers)
@@ -105,6 +118,14 @@ class ThreatIntelOrchestrator:
             p_name = p.name.lower()
             if p_name == target:
                 return p
+        if target in ("harpoon", "harpoon-otx"):
+            try:
+                from blackwall.threat_intel.harpoon import HarpoonBridge
+
+                hb = HarpoonBridge(fallback_provider=self.primary_provider)
+                return _wrap_provider(hb, self.timeout)
+            except Exception as e:
+                logger.debug("Failed instantiating HarpoonBridge on demand: %s", e)
         return None
 
     async def is_healthy(self) -> bool:
@@ -178,6 +199,11 @@ class ThreatIntelOrchestrator:
             )
             if cached_resp is not None:
                 self._cache_hits += 1
+                if self.repository is not None and hasattr(self.repository, "record_threat_intel_cache_hit"):
+                    try:
+                        await self.repository.record_threat_intel_cache_hit()
+                    except Exception as e:
+                        logger.debug("Failed recording cache hit metric: %s", e)
                 logger.debug(
                     "Threat intel cache hit for %s (provider=%s)",
                     indicator,
@@ -186,8 +212,18 @@ class ThreatIntelOrchestrator:
                 return cached_resp
             else:
                 self._cache_misses += 1
+                if self.repository is not None and hasattr(self.repository, "record_threat_intel_cache_miss"):
+                    try:
+                        await self.repository.record_threat_intel_cache_miss()
+                    except Exception as e:
+                        logger.debug("Failed recording cache miss metric: %s", e)
         elif self.cache_enabled and not no_cache:
             self._cache_misses += 1
+            if self.repository is not None and hasattr(self.repository, "record_threat_intel_cache_miss"):
+                try:
+                    await self.repository.record_threat_intel_cache_miss()
+                except Exception as e:
+                    logger.debug("Failed recording cache miss metric: %s", e)
 
         # Step 3: Query providers concurrently
 
@@ -356,6 +392,15 @@ class ThreatIntelOrchestrator:
             size_bytes = size_row[0] if size_row else 0
 
             active = max(0, total - expired)
+            hits = self._cache_hits
+            misses = self._cache_misses
+            if hasattr(self.repository, "get_threat_intel_cache_metrics"):
+                try:
+                    metrics = await self.repository.get_threat_intel_cache_metrics()
+                    hits = metrics.get("hits", hits)
+                    misses = metrics.get("misses", misses)
+                except Exception as e:
+                    logger.debug("Failed fetching persistent cache metrics: %s", e)
 
             return {
                 "total_entries": total,
@@ -363,8 +408,8 @@ class ThreatIntelOrchestrator:
                 "expired_entries": expired,
                 "malicious_entries": malicious,
                 "size_bytes": size_bytes,
-                "hits": self._cache_hits,
-                "misses": self._cache_misses,
+                "hits": hits,
+                "misses": misses,
             }
 
 

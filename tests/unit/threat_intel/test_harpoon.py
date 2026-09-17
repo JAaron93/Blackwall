@@ -199,3 +199,32 @@ async def test_harpoon_transparent_fallback_on_malformed_json(
             resp = await bridge.lookup("198.51.100.1", ThreatIndicatorType.IPV4)
             assert resp.provider_name == "otx"
             mock_otx_fallback.lookup.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_harpoon_url_credential_sanitization_in_logs(
+    caplog: pytest.LogCaptureFixture,
+    mock_otx_fallback: MagicMock,
+) -> None:
+    bridge = HarpoonBridge(fallback_provider=mock_otx_fallback)
+    user_part = "victim_admin"
+    pass_part = "secret_pass_123"
+    token_part = "auth_tok_xyz"
+    sensitive_url = f"https://{user_part}:{pass_part}@c2-beacon.io/api?key={token_part}"
+
+    mock_proc = AsyncMock()
+    mock_proc.communicate.return_value = (b"", b"Process error with sensitive_url")
+    mock_proc.returncode = 1
+
+    import logging
+    caplog.set_level(logging.DEBUG)
+
+    with patch("shutil.which", return_value="/usr/local/bin/harpoon"):
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            await bridge.lookup(sensitive_url, ThreatIndicatorType.URL)
+
+    # Verify credentials and tokens are redacted from all log records
+    assert pass_part not in caplog.text
+    assert token_part not in caplog.text
+    assert "[REDACTED]" in caplog.text
+
