@@ -541,22 +541,23 @@ class MCPGatewayServer:
                 if not text:
                     continue
 
-                # Control notifications (cancellations, notifications) bypass the execution
-                # semaphore to prevent starvation when worker permits are occupied.
-                is_control = False
+                # Only explicit cancellation notifications bypass the execution
+                # semaphore to prevent starvation; all other traffic (including general notifications)
+                # obeys the concurrency bound to preserve memory backpressure.
+                is_cancellation = False
                 try:
                     peek = json.loads(text) if text.startswith("{") else None
                     if isinstance(peek, dict):
-                        method = peek.get("method", "")
-                        if method.startswith("notifications/") or peek.get("id") is None:
-                            is_control = True
+                        is_cancellation = peek.get("method") == "notifications/cancelled"
                 except Exception:
                     pass
 
-                if not is_control:
+                if not is_cancellation:
                     await semaphore.acquire()
 
-                task = asyncio.create_task(_handle_line(text, is_gated=not is_control))
+                task = asyncio.create_task(
+                    _handle_line(text, is_gated=not is_cancellation)
+                )
                 active_tasks.add(task)
                 task.add_done_callback(active_tasks.discard)
         finally:

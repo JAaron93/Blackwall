@@ -618,4 +618,50 @@ class TestMCPGatewayServerStdio:
         assert resp["error"]["code"] == -32000
         assert "cancelled" in resp["error"]["message"].lower()
 
+    @pytest.mark.asyncio
+    async def test_stdio_general_notifications_respect_concurrency_bound(self):
+        server = MCPGatewayServer()
+        server.flow_controller.max_queue_size = 2
+
+        active_notifs = 0
+        max_active_seen = 0
+
+        async def mock_downstream(payload: dict[str, Any]) -> dict[str, Any]:
+            nonlocal active_notifs, max_active_seen
+            active_notifs += 1
+            max_active_seen = max(max_active_seen, active_notifs)
+            await asyncio.sleep(0.05)
+            active_notifs -= 1
+            return {}
+
+        server.downstream_handler = mock_downstream
+
+        reader = asyncio.StreamReader()
+        writer_buffer = bytearray()
+
+        class MockWriter:
+            def write(self, data: bytes):
+                writer_buffer.extend(data)
+
+            async def drain(self):
+                pass
+
+        # Feed 6 general notifications
+        for i in range(6):
+            notif = {
+                "jsonrpc": "2.0",
+                "method": f"notifications/progress_{i}",
+                "params": {"step": i},
+            }
+            reader.feed_data((json.dumps(notif) + "\n").encode("utf-8"))
+        reader.feed_eof()
+
+        await server.handle_stdio_stream(reader, MockWriter())
+
+        # General notifications must obey max_queue_size
+        assert max_active_seen <= 2
+        # Notifications should never write bytes to stdout
+        assert len(writer_buffer) == 0
+
+
 
