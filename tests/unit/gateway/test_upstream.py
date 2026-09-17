@@ -11,9 +11,11 @@ Validates:
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import yaml
@@ -212,6 +214,38 @@ class TestStdioUpstreamServer:
                 await server.send_request(req, timeout=5.0)
         finally:
             await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_stdio_stdout_eof_reaps_process_and_rejects_pending(self) -> None:
+        """P1: When stdout hits EOF, all pending requests are rejected with 'Upstream process exited abruptly' and proc.poll() is called."""
+        server = StdioUpstreamServer(name="mock-eof", command="dummy")
+        mock_proc = MagicMock()
+        mock_proc.poll = MagicMock()
+        mock_proc.stdout = asyncio.StreamReader()
+        mock_proc.stdout.feed_eof()  # Immediate EOF on readline()
+        server._proc = mock_proc
+
+        # Create pending futures
+        loop = asyncio.get_running_loop()
+        fut1 = loop.create_future()
+        fut2 = loop.create_future()
+        server._pending["req-1"] = fut1
+        server._pending["req-2"] = fut2
+
+        # Run _stdout_loop directly
+        await server._stdout_loop()
+
+        # Both futures must be rejected with UpstreamProcessError("Upstream process exited abruptly")
+        assert fut1.done()
+        assert fut2.done()
+        with pytest.raises(UpstreamProcessError, match="Upstream process exited abruptly"):
+            fut1.result()
+        with pytest.raises(UpstreamProcessError, match="Upstream process exited abruptly"):
+            fut2.result()
+        assert len(server._pending) == 0
+
+        # Child process must have been reaped via proc.poll()
+        mock_proc.poll.assert_called()
 
 
 class TestHttpUpstreamServer:
@@ -488,3 +522,43 @@ for line in sys.stdin:
                 )
         finally:
             await manager.stop()
+
+    @pytest.mark.asyncio
+    async def test_partial_startup_stops_previous_servers(self) -> None:
+        """P1: When UpstreamManager.start() encounters a failure on server N, it stops servers 1..N-1 gracefully."""
+        manager = UpstreamManager(
+            config={
+                "upstream_servers": [
+                    {"name": "placeholder", "command": "dummy", "transport": "stdio"}
+                ]
+            }
+        )
+
+        mock_server1 = MagicMock()
+        mock_server1.name = "server-1"
+        mock_server1.start = AsyncMock()
+        mock_server1.stop = AsyncMock()
+
+        mock_server2 = MagicMock()
+        mock_server2.name = "server-2"
+        mock_server2.start = AsyncMock(side_effect=UpstreamProcessError("Server 2 binary not found"))
+        mock_server2.stop = AsyncMock()
+
+        mock_server3 = MagicMock()
+        mock_server3.name = "server-3"
+        mock_server3.start = AsyncMock()
+        mock_server3.stop = AsyncMock()
+
+        manager.servers = [mock_server1, mock_server2, mock_server3]
+
+        with pytest.raises(UpstreamProcessError, match="Server 2 binary not found"):
+            await manager.start()
+
+        # Server 1 was started, so it MUST have been stopped during rollback
+        mock_server1.start.assert_awaited_once()
+        mock_server1.stop.assert_awaited_once()
+
+        # Server 3 was never started
+        mock_server3.start.assert_not_called()
+        mock_server3.stop.assert_not_called()
+

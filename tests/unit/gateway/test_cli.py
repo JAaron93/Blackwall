@@ -13,6 +13,7 @@ Validates:
 
 from __future__ import annotations
 
+import asyncio
 import os
 import signal
 import subprocess
@@ -390,3 +391,118 @@ class TestBlackwallCLI:
         finally:
             await site.stop()
             await runner.cleanup()
+
+    @pytest.mark.asyncio
+    async def test_run_gateway_fails_fast_on_sync_resolver_error(self, tmp_path: Path) -> None:
+        """P1: In _run_gateway, if SyncResolver fails to initialize, fail fast and do not fall back to resolver=None."""
+        from blackwall.cli import _run_gateway
+
+        db_path = tmp_path / "threats.db"
+
+        with patch("google.genai.Client", side_effect=RuntimeError("Vertex auth failed")):
+            with pytest.raises(RuntimeError, match="Failed to initialize SyncResolver"):
+                await _run_gateway(
+                    transport="http",
+                    host="127.0.0.1",
+                    port=9229,
+                    auth_token=None,
+                    upstream_mgr=None,
+                    db_path=str(db_path),
+                )
+
+    def test_serve_command_passes_policy_to_run_gateway(self, tmp_path: Path) -> None:
+        """P1: 'blackwall serve --policy <path>' passes policy_path into _run_gateway."""
+        runner = CliRunner()
+        policy_file = tmp_path / "custom_policy.yaml"
+        policy_file.write_text("version: '1.0.0'\n")
+
+        captured_kwargs: dict[str, Any] = {}
+
+        async def _mock_run(**kwargs: Any) -> None:
+            captured_kwargs.update(kwargs)
+
+        with patch("blackwall.cli._run_gateway", side_effect=_mock_run):
+            result = runner.invoke(
+                cli,
+                [
+                    "serve",
+                    "--foreground",
+                    "--skip-gcp-check",
+                    "--policy",
+                    str(policy_file),
+                ],
+            )
+            assert result.exit_code == 0
+            assert captured_kwargs.get("policy_path") == str(policy_file)
+
+    @pytest.mark.asyncio
+    async def test_run_gateway_wires_policy_into_sync_resolver(self, tmp_path: Path) -> None:
+        """P1: _run_gateway loads policy.yaml into HybridPolicyServer and passes it to SyncResolver."""
+        from blackwall.cli import _run_gateway
+        from blackwall.policy.engine import StructuralGatingEngine
+        from blackwall.sync_resolver import SyncResolver
+
+        db_path = tmp_path / "threats.db"
+        policy_file = tmp_path / "policy.yaml"
+
+        # Write valid minimal policy configuration
+        from blackwall.cli import DEFAULT_POLICY_YAML
+        policy_file.write_text(DEFAULT_POLICY_YAML)
+
+        mock_client = MagicMock()
+        mock_resolver = MagicMock()
+
+        with patch("google.genai.Client", return_value=mock_client), \
+             patch("blackwall.sync_resolver.SyncResolver", return_value=mock_resolver) as mock_sync_cls, \
+             patch("blackwall.gateway.server.MCPGatewayServer.start_http", return_value=None), \
+             patch("blackwall.gateway.server.MCPGatewayServer.stop", return_value=None):
+
+            # Use a task that we cancel after server init to terminate _run_gateway
+            async def _run_with_timeout():
+                task = asyncio.create_task(
+                    _run_gateway(
+                        transport="http",
+                        host="127.0.0.1",
+                        port=9229,
+                        auth_token=None,
+                        upstream_mgr=None,
+                        db_path=str(db_path),
+                        policy_path=str(policy_file),
+                    )
+                )
+                await asyncio.sleep(0.05)
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+            await _run_with_timeout()
+
+            # Verify SyncResolver was instantiated with policy_server wired
+            mock_sync_cls.assert_called_once()
+            call_kwargs = mock_sync_cls.call_args.kwargs
+            assert "policy_server" in call_kwargs
+            policy_server = call_kwargs["policy_server"]
+            assert policy_server is not None
+            assert hasattr(policy_server, "structural_engine")
+            assert isinstance(policy_server.structural_engine, StructuralGatingEngine)
+
+    @pytest.mark.asyncio
+    async def test_run_gateway_explicit_nonexistent_policy_raises(self, tmp_path: Path) -> None:
+        """P1: An explicitly specified nonexistent policy file raises FileNotFoundError."""
+        from blackwall.cli import _run_gateway
+
+        db_path = tmp_path / "threats.db"
+        nonexistent = tmp_path / "missing_policy.yaml"
+
+        with pytest.raises(FileNotFoundError, match="Policy file not found"):
+            await _run_gateway(
+                transport="http",
+                host="127.0.0.1",
+                port=9229,
+                auth_token=None,
+                upstream_mgr=None,
+                db_path=str(db_path),
+                policy_path=str(nonexistent),
+            )

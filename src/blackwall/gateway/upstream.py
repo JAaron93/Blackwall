@@ -139,6 +139,16 @@ class StdioUpstreamServer(BaseUpstreamServer):
             " ".join(self.command_args),
         )
 
+    def _reap_process(self) -> None:
+        """Explicitly reaps the child process using poll() to prevent zombie processes."""
+        if self._proc is not None:
+            if hasattr(self._proc, "poll"):
+                self._proc.poll()
+            elif hasattr(self._proc, "_transport") and self._proc._transport:
+                subproc = self._proc._transport.get_extra_info("subprocess")
+                if subproc and hasattr(subproc, "poll"):
+                    subproc.poll()
+
     async def _stdout_loop(self) -> None:
         """Continuously reads newline-delimited JSON-RPC responses from stdout."""
         if not self._proc or not self._proc.stdout:
@@ -148,13 +158,12 @@ class StdioUpstreamServer(BaseUpstreamServer):
             try:
                 line = await self._proc.stdout.readline()
                 if not line:
+                    self._reap_process()
                     if not self._stopping:
                         for req_id, fut in list(self._pending.items()):
                             if not fut.done():
                                 fut.set_exception(
-                                    UpstreamProcessError(
-                                        f"Upstream server '{self.name}' closed stdout unexpectedly while request '{req_id}' was in flight."
-                                    )
+                                    UpstreamProcessError("Upstream process exited abruptly")
                                 )
                         self._pending.clear()
                     break
@@ -517,11 +526,25 @@ class UpstreamManager:
 
     async def start(self) -> None:
         """Starts all upstream servers and discovers registered tools."""
-        for server in self.servers:
-            await server.start()
+        started_servers: list[BaseUpstreamServer] = []
+        try:
+            for server in self.servers:
+                await server.start()
+                started_servers.append(server)
 
-        # Tool discovery
-        await self.discover_tools()
+            # Tool discovery
+            await self.discover_tools()
+        except Exception:
+            for s in started_servers:
+                try:
+                    await s.stop()
+                except Exception as stop_exc:
+                    logger.warning(
+                        "Error stopping server '%s' during startup rollback: %s",
+                        s.name,
+                        stop_exc,
+                    )
+            raise
 
     async def discover_tools(self) -> None:
         """Queries tools/list on each upstream server and builds routing table."""

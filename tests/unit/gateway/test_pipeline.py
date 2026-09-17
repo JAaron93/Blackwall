@@ -327,3 +327,58 @@ class TestPipelineWiring:
 
         # Target: sub-10ms gateway overhead (NFR-02 SLA requirement)
         assert avg_overhead_ms < 10.0, f"Average gateway overhead {avg_overhead_ms:.3f}ms exceeded 10ms SLA!"
+
+    @pytest.mark.asyncio
+    async def test_pipeline_structural_policy_blocks_tool_call(self, tmp_path: Path) -> None:
+        """P1: Verifies that a structural policy rule loaded via policy.yaml blocks matching tool calls at gateway level."""
+        from blackwall.policy.engine import StructuralGatingEngine
+        from blackwall.policy.semantic import SemanticGatingEngine
+        from blackwall.policy.server import HybridPolicyServer
+        from blackwall.cli import DEFAULT_POLICY_YAML
+
+        policy_path = tmp_path / "test_policy.yaml"
+        policy_path.write_text(DEFAULT_POLICY_YAML)
+
+        struct_engine = StructuralGatingEngine()
+        struct_engine.load_policy(str(policy_path))
+        sem_engine = SemanticGatingEngine()
+        policy_server = HybridPolicyServer(
+            structural_engine=struct_engine,
+            semantic_engine=sem_engine,
+        )
+
+        mock_client = MagicMock()
+        resolver = SyncResolver(
+            client=mock_client,
+            policy_server=policy_server,
+            repo=None,
+        )
+
+        downstream_called = False
+        async def _downstream(p: dict[str, Any]) -> dict[str, Any]:
+            nonlocal downstream_called
+            downstream_called = True
+            return {"jsonrpc": "2.0", "id": p.get("id"), "result": {}}
+
+        server = MCPGatewayServer(
+            resolver=resolver,
+            downstream_handler=_downstream,
+        )
+
+        # In DEFAULT_POLICY_YAML, execute_bash in production is BLOCKED
+        blocked_payload = {
+            "jsonrpc": "2.0",
+            "id": "block-test-1",
+            "method": "tools/call",
+            "params": {
+                "name": "execute_bash",
+                "arguments": {"command": "cat /etc/passwd"},
+                "_meta": {"environment_role": "production"},
+            },
+        }
+
+        resp = await server.process_message(blocked_payload)
+        assert "error" in resp
+        assert resp["error"]["code"] == -32603
+        assert downstream_called is False
+

@@ -751,19 +751,76 @@ def validate_gcp_credentials() -> tuple[bool, str]:
 
 
 DEFAULT_POLICY_YAML = """# Blackwall Security Policy Configuration
-version: "2.0"
-settings:
-  triage_threshold: 0.10
-  block_threshold: 0.80
-  quarantine_threshold: 0.20
-structural_policy:
-  rules:
-    - name: block_ssh_keys
-      pattern: ".ssh/id_rsa"
-      action: BLOCK
-    - name: block_env_exfil
-      pattern: ".env"
-      action: BLOCK
+version: "1.0.0"
+global:
+  threatThreshold: 0.75
+  quarantineThreshold: 0.50
+  enableStructuralGating: true
+  enableSemanticGating: true
+
+environmentRoles:
+  sandbox:
+    allowedTools: ["read_file", "file_read", "list_dir"]
+    blockedTools: []
+    requireSemanticReview: true
+    maxThreatScore: 0.80
+  development:
+    allowedTools: ["read_file", "file_read", "list_dir"]
+    blockedTools: []
+    requireSemanticReview: true
+    maxThreatScore: 0.70
+  staging:
+    allowedTools: ["read_file", "file_read", "list_dir"]
+    blockedTools: ["execute_bash", "execute_shell", "run_python", "install_package"]
+    requireSemanticReview: true
+    maxThreatScore: 0.60
+  production:
+    allowedTools: []
+    blockedTools: ["execute_bash", "execute_shell", "run_python", "install_package"]
+    requireSemanticReview: true
+    maxThreatScore: 0.50
+
+structuralRules:
+  - ruleId: "rule-block-dangerous-tools-prod-staging"
+    condition: "(toolName == 'execute_bash' or toolName == 'execute_shell' or toolName == 'run_python' or toolName == 'install_package') and (environmentRole == 'production' or environmentRole == 'staging')"
+    action: BLOCK
+    priority: 1
+    enabled: true
+  - ruleId: "rule-escalate-write-operations"
+    condition: "toolName == 'write_file'"
+    action: ESCALATE_TO_SEMANTIC
+    priority: 2
+    enabled: true
+
+semanticGuidelines:
+  - "Prevent arbitrary command execution or privilege escalation."
+  - "Block unauthorized file system modifications or data exfiltration."
+
+mcpServers:
+  threatIntel:
+    enabled: true
+    url: "https://otx.alienvault.com"
+    apiKey: null
+    cacheEnabled: true
+    cacheTTL: 3600
+    timeout: 5000
+  codebaseMemory:
+    enabled: true
+    url: "http://localhost:8080"
+    apiKey: null
+    cacheEnabled: true
+    cacheTTL: 3600
+    timeout: 5000
+
+threatSignatureGraph:
+  dbPath: "./threat_signatures.db"
+  walMode: true
+  maxConnections: 5
+  similarityThreshold: 0.75
+  ttlSeconds: 86400
+  maxSignatures: 10000
+  embeddingDimension: 384
+  batchSize: 900
 """
 
 DEFAULT_GATEWAY_YAML = """# Blackwall MCP Gateway Upstream Routing Configuration
@@ -984,51 +1041,96 @@ async def _run_gateway(
     auth_token: Optional[str],
     upstream_mgr: Optional[UpstreamManager],
     db_path: str,
+    policy_path: Optional[str] = None,
 ) -> None:
     """Internal coroutine to run the MCP gateway server."""
-    if upstream_mgr:
-        await upstream_mgr.start()
-
-    downstream_handler = upstream_mgr.handle_request if upstream_mgr else None
-
-    resolver = None
     repo = None
     try:
-        repo = SQLiteThreatRepository(db_path=db_path)
-    except Exception as exc:
-        logger.warning("Could not initialize SQLiteThreatRepository at %s: %s", db_path, exc)
+        if upstream_mgr:
+            await upstream_mgr.start()
 
-    try:
-        from google import genai
-        project = os.environ.get("GCP_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT")
-        client = genai.Client(vertexai=True, project=project)
-        from blackwall.sync_resolver import SyncResolver
-        resolver = SyncResolver(client=client, repo=repo)
-    except Exception as exc:
-        logger.debug("SyncResolver running with structural fallback: %s", exc)
+        downstream_handler = upstream_mgr.handle_request if upstream_mgr else None
 
-    server = MCPGatewayServer(
-        host=host,
-        port=port,
-        auth_token=auth_token,
-        resolver=resolver,
-        downstream_handler=downstream_handler,
-    )
-
-    loop = asyncio.get_running_loop()
-    stop_event = asyncio.Event()
-
-    def _sig_handler() -> None:
-        logger.info("Received termination signal, stopping gateway...")
-        stop_event.set()
-
-    for sig in (signal.SIGINT, signal.SIGTERM):
         try:
-            loop.add_signal_handler(sig, _sig_handler)
-        except (NotImplementedError, RuntimeError):
-            pass
+            repo = SQLiteThreatRepository(db_path=db_path)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to initialize SQLiteThreatRepository at {db_path}: {exc}"
+            ) from exc
 
-    try:
+        # Policy resolution: explicit policy_path or default ~/.blackwall/policy.yaml
+        resolved_policy = policy_path
+        if not resolved_policy:
+            default_policy = Path.home() / ".blackwall" / "policy.yaml"
+            if default_policy.exists():
+                resolved_policy = str(default_policy)
+
+        policy_server = None
+        if resolved_policy:
+            pol_path = Path(resolved_policy).expanduser().resolve()
+            if not pol_path.exists():
+                raise FileNotFoundError(f"Policy file not found: {pol_path}")
+            try:
+                from blackwall.policy.engine import StructuralGatingEngine
+                from blackwall.policy.semantic import SemanticGatingEngine
+                from blackwall.policy.server import HybridPolicyServer
+
+                struct_engine = StructuralGatingEngine()
+                struct_engine.load_policy(str(pol_path))
+                semantic_engine = SemanticGatingEngine(repo=repo)
+                policy_server = HybridPolicyServer(
+                    structural_engine=struct_engine,
+                    semantic_engine=semantic_engine,
+                )
+                logger.info("Loaded security policy from %s", pol_path)
+            except Exception as exc:
+                if policy_path:
+                    raise RuntimeError(
+                        f"Failed to load policy from '{pol_path}': {exc}"
+                    ) from exc
+                else:
+                    logger.warning(
+                        "Default policy.yaml exists at %s but failed to load: %s",
+                        pol_path,
+                        exc,
+                    )
+
+        # Resolver initialization - FAIL FAST, never fall back to resolver=None
+        try:
+            from google import genai
+
+            project = os.environ.get("GCP_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT")
+            client = genai.Client(vertexai=True, project=project)
+            from blackwall.sync_resolver import SyncResolver
+
+            resolver = SyncResolver(client=client, repo=repo, policy_server=policy_server)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to initialize SyncResolver: {exc}. "
+                "Security evaluation cannot be bypassed."
+            ) from exc
+
+        server = MCPGatewayServer(
+            host=host,
+            port=port,
+            auth_token=auth_token,
+            resolver=resolver,
+            downstream_handler=downstream_handler,
+        )
+
+        loop = asyncio.get_running_loop()
+        stop_event = asyncio.Event()
+
+        def _sig_handler() -> None:
+            logger.info("Received termination signal, stopping gateway...")
+            stop_event.set()
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, _sig_handler)
+            except (NotImplementedError, RuntimeError):
+                pass
+
         if transport.lower() == "http":
             await server.start_http()
             await stop_event.wait()
@@ -1224,8 +1326,13 @@ def serve_command(
                 auth_token=resolved_auth,
                 upstream_mgr=upstream_mgr,
                 db_path=resolved_db,
+                policy_path=policy_path,
             )
         )
+    except click.ClickException:
+        raise
+    except Exception as exc:
+        raise click.ClickException(f"Failed to start Blackwall gateway: {exc}") from exc
     finally:
         if foreground and pidfile:
             remove_pid_file(pid_path)
