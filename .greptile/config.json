@@ -108,7 +108,7 @@
     },
     {
       "id": "performance-async-safety",
-      "rule": "Performance & Async Safety: Focus code suggestions strictly on performance bottlenecks, thread safety, async coroutine safety, and security vulnerabilities. Ensure suggestions conform to Python 3.11+ async patterns and avoid deprecated decorators like @unittest_run_loop.",
+      "rule": "Performance & Async Safety: Focus code suggestions strictly on performance bottlenecks, thread safety, async coroutine safety, and security vulnerabilities. Ensure suggestions conform to Python 3.14 async patterns and avoid deprecated decorators like @unittest_run_loop.",
       "severity": "medium"
     },
     {

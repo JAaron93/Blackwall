@@ -1,4 +1,5 @@
 import asyncio
+import time
 import pytest
 from typing import List, Optional
 from hypothesis import given, settings, strategies as st
@@ -91,9 +92,9 @@ async def test_timeout_flushing_partial_batch() -> None:
 
     # We wait for maxSize=5, but only 3 are in the queue.
     # It should timeout after maxWaitMs=100 and return the 3 items.
-    start_time = asyncio.get_event_loop().time()
+    start_time = time.monotonic()
     batch = await queue.getBatch(maxSize=5, maxWaitMs=100)
-    duration = (asyncio.get_event_loop().time() - start_time) * 1000
+    duration = (time.monotonic() - start_time) * 1000
 
     assert len(batch) == 3
     assert duration >= 80  # should be around 100ms

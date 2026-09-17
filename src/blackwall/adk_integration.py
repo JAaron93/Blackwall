@@ -189,7 +189,7 @@ class FreeTierADKIntegration:
     ) -> None:
         self.sync_resolver = sync_resolver
         try:
-            self.loop = loop or asyncio.get_event_loop()
+            self.loop = loop or asyncio.get_running_loop()
         except RuntimeError:
             self.loop = asyncio.new_event_loop()
 
