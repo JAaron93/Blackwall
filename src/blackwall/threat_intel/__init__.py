@@ -25,6 +25,13 @@ from blackwall.threat_intel.circuit_breaker import (
     CircuitState,
     ProviderTimeoutError,
 )
+from blackwall.threat_intel.harpoon import (
+    HarpoonBridge,
+    HarpoonError,
+    HarpoonExecutionError,
+    HarpoonParseError,
+    HarpoonTimeoutError,
+)
 from blackwall.threat_intel.models import (
     ThreatIndicatorType,
     ThreatIntelProvider,
@@ -39,7 +46,6 @@ __all__ = [
     "AbuseChProvider",
     "AbuseChRateLimitError",
     "AbuseIPDBError",
-
     "AbuseIPDBLookupError",
     "AbuseIPDBProvider",
     "AbuseIPDBRateLimitError",
@@ -49,6 +55,11 @@ __all__ = [
     "CircuitBreakerOpenError",
     "CircuitBreakerProvider",
     "CircuitState",
+    "HarpoonBridge",
+    "HarpoonError",
+    "HarpoonExecutionError",
+    "HarpoonParseError",
+    "HarpoonTimeoutError",
     "ProviderTimeoutError",
     "ThreatIndicatorType",
     "ThreatIntelOrchestrator",
