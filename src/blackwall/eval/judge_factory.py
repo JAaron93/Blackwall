@@ -107,7 +107,7 @@ except ImportError:
 
             timeout_ms = int((self.config.timeout or 120.0) * 1000.0)
             client = genai.Client(
-                vertexai=self.config.vertex,
+                vertexai=True,
                 project=project.strip(),
                 location=location,
                 http_options=types.HttpOptions(timeout=timeout_ms),
@@ -147,11 +147,21 @@ except ImportError:
                         target_model,
                         err_str,
                     )
+                    self.config.model = "gemini-3.5-flash-lite"
                     response = await client.aio.models.generate_content(
                         model="gemini-3.5-flash-lite",
                         contents=prompt,
                         config=gen_config,
                     )
+                    fallback_text = response.text or ""
+                    try:
+                        parsed = json.loads(fallback_text)
+                        if isinstance(parsed, dict):
+                            parsed["is_fallback"] = True
+                            fallback_text = json.dumps(parsed)
+                    except Exception:
+                        pass
+                    return fallback_text
                 else:
                     raise
             return response.text or ""
