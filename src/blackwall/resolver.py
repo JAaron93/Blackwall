@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -652,13 +653,13 @@ class BatchResolver:
             aio_create = getattr(aio_interactions, "create", None)
             sync_create = getattr(getattr(self.client, "interactions", None), "create", None)
 
-            if aio_create is not None and asyncio.iscoroutinefunction(aio_create):
+            if aio_create is not None and inspect.iscoroutinefunction(aio_create):
                 interaction = await aio_create(**create_kwargs)
-            elif sync_create is not None and asyncio.iscoroutinefunction(sync_create):
+            elif sync_create is not None and inspect.iscoroutinefunction(sync_create):
                 interaction = await sync_create(**create_kwargs)
             else:
                 # Run synchronous call in executor with network-level timeout
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 interaction = await loop.run_in_executor(
                     None,
                     lambda: self.client.interactions.create(**create_kwargs),
@@ -759,7 +760,7 @@ class BatchResolver:
 
         try:
             create_fn = self.client.interactions.create
-            if asyncio.iscoroutinefunction(create_fn):
+            if inspect.iscoroutinefunction(create_fn):
                 interaction = await create_fn(
                     model="gemini-3.8-flash",
                     input=json.dumps(payload_input),
@@ -769,7 +770,7 @@ class BatchResolver:
                 )
             else:
                 # Run synchronous call in executor with network-level timeout
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 interaction = await loop.run_in_executor(
                     None,
                     lambda: create_fn(

@@ -1,5 +1,6 @@
 import os
 import asyncio
+import time
 from typing import AsyncGenerator
 import pytest
 import pytest_asyncio
@@ -249,9 +250,9 @@ async def test_trigger_refactoring_timeout() -> None:
     )
 
     # triggerRefactoring should complete well within 5 seconds by timing out the LLM call
-    start_time = asyncio.get_event_loop().time()
+    start_time = time.monotonic()
     hint = await analytics.triggerRefactoring(event)
-    duration = asyncio.get_event_loop().time() - start_time
+    duration = time.monotonic() - start_time
 
     assert duration < 5.5
     assert hint.vulnerability_type == "Command Injection"

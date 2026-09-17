@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import inspect
 import json
 import logging
 import random
@@ -211,7 +212,7 @@ class AgentBehavioralAnalytics:
                         model=DEFAULT_RAPID_TRIAGE_MODEL, task_type="analytics"
                     ),
                 }
-                if asyncio.iscoroutinefunction(create_fn):
+                if inspect.iscoroutinefunction(create_fn):
                     interaction = await create_fn(**create_kwargs)
                 else:
                     interaction = create_fn(**create_kwargs)
@@ -568,7 +569,7 @@ class AgentBehavioralAnalytics:
                     ),
                 }
                 create_fn = self.client.interactions.create
-                if asyncio.iscoroutinefunction(create_fn):
+                if inspect.iscoroutinefunction(create_fn):
                     interaction = await asyncio.wait_for(
                         create_fn(**create_kwargs),
                         timeout=remaining_timeout,

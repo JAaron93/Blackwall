@@ -2699,7 +2699,7 @@ result ← ADK.executeToolCall(toolName: "read_file", arguments: {...})
 ### Core Runtime
 - **ADK 2.0** (Agent Development Kit): Agent runtime and tool execution framework
 - **Agents CLI**: Command-line interface for agent deployment and management
-- **Python 3.11+**: Runtime environment with asyncio support
+- **Python 3.14+**: Runtime environment with asyncio support
 
 ### AI/ML Models
 - **Gemini 3.5 Flash**: Primary LLM for semantic gating and intent analysis (300 RPM paid tier)
