@@ -105,6 +105,12 @@
           <marker id="arrowRose" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M 0 1 L 8 5 L 0 9 z" fill="#f43f5e" />
           </marker>
+          <marker id="arrowPink" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 8 5 L 0 9 z" fill="#ec4899" />
+          </marker>
+          <marker id="arrowPurple" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 8 5 L 0 9 z" fill="#a855f7" />
+          </marker>
         </defs>
 
         <!-- ZONE 1: WORKFLOW ORIGIN (LEFT) -->
@@ -206,77 +212,86 @@
         </g>
 
         <!-- Second row of resolver flow: Step 4 wrap around to Step 5 -->
-        <path d="M 1082 320 L 1082 332 L 525 332 L 525 372 L 545 372" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arrowCyan)" class="flow-line"/>
+        <path d="M 1082 320 L 1082 332 L 525 332 L 525 370 L 545 370" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arrowCyan)" class="flow-line"/>
 
-        <!-- Step 5: Rust Acceleration Engine -->
-        <g id="node-step-rust" class="node-card" onclick="selectNode('step_rust')">
-          <rect x="545" y="340" width="135" height="65" rx="8" fill="#111c3a" stroke="#f97316" stroke-width="1"/>
-          <text x="612" y="360" text-anchor="middle" fill="#fb923c" font-size="10" font-weight="bold">5. Rust Core Engine</text>
-          <text x="612" y="377" text-anchor="middle" fill="#94a3b8" font-size="8.5">blackwall._core_rs</text>
-          <text x="612" y="391" text-anchor="middle" fill="#f97316" font-size="8" font-family="monospace">SIMD Scan / Fallback</text>
-        </g>
-
-        <!-- Connector -->
-        <path d="M 680 372 L 705 372" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arrowCyan)"/>
-
-        <!-- Step 6: Semantic Triage -->
+        <!-- Step 5: Semantic Triage (Gemini 3.5 Flash-Lite) -->
         <g id="node-step-gemini" class="node-card" onclick="selectNode('step_gemini')">
-          <rect x="705" y="340" width="135" height="65" rx="8" fill="#111c3a" stroke="#c084fc" stroke-width="1"/>
-          <text x="772" y="360" text-anchor="middle" fill="#d8b4fe" font-size="10" font-weight="bold">6. Semantic Triage</text>
-          <text x="772" y="377" text-anchor="middle" fill="#94a3b8" font-size="8.5">Gemini 3.5 Flash-Lite</text>
-          <text x="772" y="391" text-anchor="middle" fill="#c084fc" font-size="8" font-family="monospace">Async Vertex AI Mode</text>
+          <rect x="545" y="338" width="165" height="65" rx="8" fill="#111c3a" stroke="#c084fc" stroke-width="1"/>
+          <text x="627" y="358" text-anchor="middle" fill="#d8b4fe" font-size="10" font-weight="bold">5. Semantic Triage</text>
+          <text x="627" y="375" text-anchor="middle" fill="#94a3b8" font-size="8.5">Gemini 3.5 Flash-Lite</text>
+          <text x="627" y="389" text-anchor="middle" fill="#c084fc" font-size="8" font-family="monospace">Async Vertex AI (Ambiguous)</text>
         </g>
 
         <!-- Connector -->
-        <path d="M 840 372 L 865 372" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arrowCyan)"/>
+        <path d="M 710 370 L 735 370" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arrowCyan)"/>
 
-        <!-- Step 7: Verdict Engine -->
+        <!-- Step 6: Score Aggregation & Verdict Engine -->
         <g id="node-step-verdict" class="node-card" onclick="selectNode('step_verdict')">
-          <rect x="865" y="340" width="135" height="65" rx="8" fill="#1e1b4b" stroke="#38bdf8" stroke-width="1.5"/>
-          <text x="932" y="360" text-anchor="middle" fill="#38bdf8" font-size="10" font-weight="bold">7. Score Aggregation</text>
-          <text x="932" y="377" text-anchor="middle" fill="#94a3b8" font-size="8.5">Dynamic Thresholds</text>
-          <text x="932" y="391" text-anchor="middle" fill="#38bdf8" font-size="8" font-family="monospace">ALLOW / WARN / BLOCK</text>
+          <rect x="735" y="338" width="180" height="65" rx="8" fill="#1e1b4b" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="825" y="358" text-anchor="middle" fill="#38bdf8" font-size="10" font-weight="bold">6. Verdict Engine</text>
+          <text x="825" y="375" text-anchor="middle" fill="#94a3b8" font-size="8.5">Score Aggregation &amp; Thresholds</text>
+          <text x="825" y="389" text-anchor="middle" fill="#38bdf8" font-size="8" font-family="monospace">ALLOW / QUARANTINE / BLOCK</text>
         </g>
 
-        <!-- Connector -->
-        <path d="M 1000 372 L 1020 372" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arrowCyan)"/>
-
-        <!-- Step 8: Attribution -->
-        <g id="node-step-attrib" class="node-card" onclick="selectNode('step_attrib')">
-          <rect x="1020" y="340" width="125" height="65" rx="8" fill="#111c3a" stroke="#ec4899" stroke-width="1"/>
-          <text x="1082" y="360" text-anchor="middle" fill="#f472b6" font-size="10" font-weight="bold">8. Attribution</text>
-          <text x="1082" y="377" text-anchor="middle" fill="#94a3b8" font-size="8.5">Attacker Attribution</text>
-          <text x="1082" y="391" text-anchor="middle" fill="#ec4899" font-size="8" font-family="monospace">Fingerprint & Signatures</text>
+        <!-- Native Rust Acceleration Substrate (Cross-Cutting Engine) -->
+        <g id="node-step-rust" class="node-card" onclick="selectNode('step_rust')">
+          <rect x="935" y="338" width="210" height="65" rx="8" fill="#181124" stroke="#f97316" stroke-width="1.2" stroke-dasharray="4 2"/>
+          <text x="1040" y="358" text-anchor="middle" fill="#fb923c" font-size="10" font-weight="bold">&#9889; Native Rust Substrate</text>
+          <text x="1040" y="375" text-anchor="middle" fill="#fed7aa" font-size="8.5">blackwall._core_rs (PyO3 SIMD)</text>
+          <text x="1040" y="389" text-anchor="middle" fill="#f97316" font-size="8" font-family="monospace">Accelerates Steps 1, 2 &amp; Policy</text>
         </g>
+        <!-- Indicator lines: Rust Substrate powers Steps 1 & 2 -->
+        <path d="M 1040 338 L 1040 330 L 772 330 L 772 320" stroke="#f97316" stroke-width="1" stroke-dasharray="2 2" marker-end="url(#arrowCyan)"/>
+        <path d="M 772 330 L 612 330 L 612 320" stroke="#f97316" stroke-width="1" stroke-dasharray="2 2" marker-end="url(#arrowCyan)"/>
 
-        <!-- Dynamic Verdict Paths Out of SyncResolver -->
-        <!-- ALLOW Path (Green down to safe targets) -->
-        <path d="M 910 405 L 910 460 L 730 460 L 730 550" stroke="#10b981" stroke-width="2.5" marker-end="url(#arrowEmerald)" class="flow-line"/>
-        <rect x="760" y="445" width="110" height="20" rx="4" fill="#064e3b" stroke="#10b981" stroke-width="1"/>
-        <text x="815" y="459" text-anchor="middle" fill="#34d399" font-size="9" font-family="monospace" font-weight="bold">VERDICT: ALLOW</text>
+        <!-- Dynamic Verdict Paths Out of SyncResolver Step 6 -->
+        <!-- ALLOW Path (Green down to Safe Execution Environment) -->
+        <path d="M 780 403 L 780 460 L 610 460 L 610 540" stroke="#10b981" stroke-width="2.5" marker-end="url(#arrowEmerald)" class="flow-line"/>
+        <rect x="635" y="445" width="105" height="20" rx="4" fill="#064e3b" stroke="#10b981" stroke-width="1"/>
+        <text x="687" y="459" text-anchor="middle" fill="#34d399" font-size="9" font-family="monospace" font-weight="bold">VERDICT: ALLOW</text>
 
-        <!-- BLOCK / CRITICAL Path (Red down to Refusal & Quarantine) -->
-        <path d="M 960 405 L 960 460 L 1040 460 L 1040 550" stroke="#f43f5e" stroke-width="2.5" marker-end="url(#arrowRose)" class="flow-line"/>
-        <rect x="980" y="445" width="120" height="20" rx="4" fill="#881337" stroke="#f43f5e" stroke-width="1"/>
-        <text x="1040" y="459" text-anchor="middle" fill="#fda4af" font-size="9" font-family="monospace" font-weight="bold">VERDICT: BLOCK</text>
+        <!-- BLOCK / QUARANTINE Path (Red down to Refusal & Containment) -->
+        <path d="M 870 403 L 870 460 L 830 460 L 830 540" stroke="#f43f5e" stroke-width="2.5" marker-end="url(#arrowRose)" class="flow-line"/>
+        <rect x="765" y="445" width="135" height="20" rx="4" fill="#881337" stroke="#f43f5e" stroke-width="1"/>
+        <text x="832" y="459" text-anchor="middle" fill="#fda4af" font-size="9" font-family="monospace" font-weight="bold">BLOCK / QUARANTINE</text>
 
         <!-- ZONE 4: EXECUTION TARGETS (ALLOW) -->
         <g id="node-target-os" class="node-card" onclick="selectNode('target_os')">
-          <rect x="630" y="550" width="200" height="95" rx="12" fill="url(#cardGradDark)" stroke="#10b981" stroke-width="1.5"/>
-          <text x="730" y="575" text-anchor="middle" fill="#34d399" font-size="12" font-weight="bold">SAFE EXECUTION ENVIRONMENT</text>
-          <text x="730" y="595" text-anchor="middle" fill="#94a3b8" font-size="10">Local Terminal &middot; OS Shell</text>
-          <text x="730" y="612" text-anchor="middle" fill="#94a3b8" font-size="10">File System (Read / Write) &middot; DB</text>
-          <text x="730" y="630" text-anchor="middle" fill="#34d399" font-size="8.5" font-family="monospace">&#10003; Zero Rogue Execution</text>
+          <rect x="520" y="540" width="180" height="95" rx="12" fill="url(#cardGradDark)" stroke="#10b981" stroke-width="1.5"/>
+          <text x="610" y="565" text-anchor="middle" fill="#34d399" font-size="11" font-weight="bold">SAFE EXECUTION</text>
+          <text x="610" y="585" text-anchor="middle" fill="#94a3b8" font-size="9.5">Local Terminal &middot; OS Shell</text>
+          <text x="610" y="602" text-anchor="middle" fill="#94a3b8" font-size="9.5">File System (R/W) &middot; DB</text>
+          <text x="610" y="620" text-anchor="middle" fill="#34d399" font-size="8.5" font-family="monospace">&#10003; Zero Rogue Execution</text>
         </g>
 
-        <!-- ZONE 5: REFUSAL & CONTAINMENT (BLOCK) -->
+        <!-- ZONE 5: REFUSAL & CONTAINMENT (BLOCK / QUARANTINE) -->
         <g id="node-target-quarantine" class="node-card" onclick="selectNode('target_quarantine')">
-          <rect x="940" y="550" width="200" height="95" rx="12" fill="url(#cardGradDark)" stroke="#f43f5e" stroke-width="1.5"/>
-          <text x="1040" y="575" text-anchor="middle" fill="#fb7185" font-size="12" font-weight="bold">CONTAINMENT & REFUSAL</text>
-          <text x="1040" y="595" text-anchor="middle" fill="#94a3b8" font-size="10">Execution Refusal Message Generated</text>
-          <text x="1040" y="612" text-anchor="middle" fill="#94a3b8" font-size="10">Incident Fingerprint Logged</text>
-          <text x="1040" y="630" text-anchor="middle" fill="#f43f5e" font-size="8.5" font-family="monospace">&#9888; Adversary Session Quarantined</text>
+          <rect x="730" y="540" width="200" height="95" rx="12" fill="url(#cardGradDark)" stroke="#f43f5e" stroke-width="1.5"/>
+          <text x="830" y="565" text-anchor="middle" fill="#fb7185" font-size="11" font-weight="bold">CONTAINMENT &amp; REFUSAL</text>
+          <text x="830" y="585" text-anchor="middle" fill="#94a3b8" font-size="9.5">JSON-RPC -32603 / -32001</text>
+          <text x="830" y="602" text-anchor="middle" fill="#94a3b8" font-size="9.5">Inline Signature Generated</text>
+          <text x="830" y="620" text-anchor="middle" fill="#f43f5e" font-size="8.5" font-family="monospace">&#9888; Adversary Session Quarantined</text>
         </g>
+
+        <!-- Post-Verdict Non-blocking Trigger: Containment -> Background Attribution -->
+        <path d="M 930 587 L 960 587" stroke="#ec4899" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrowPink)" class="flow-line"/>
+        <rect x="926" y="562" width="38" height="15" rx="3" fill="#831843" stroke="#ec4899" stroke-width="0.8"/>
+        <text x="945" y="573" text-anchor="middle" fill="#fbcfe8" font-size="7.5" font-family="monospace">ASYNC</text>
+
+        <!-- ZONE 7: ASYNC ATTACKER ATTRIBUTION (POST-VERDICT ONLY) -->
+        <g id="node-step-attrib" class="node-card" onclick="selectNode('step_attrib')">
+          <rect x="960" y="540" width="205" height="95" rx="12" fill="url(#cardGradDark)" stroke="#ec4899" stroke-width="1.5"/>
+          <text x="1062" y="562" text-anchor="middle" fill="#f472b6" font-size="11" font-weight="bold">ASYNC ATTRIBUTION</text>
+          <text x="1062" y="579" text-anchor="middle" fill="#fbcfe8" font-size="9" font-family="monospace">_schedule_attribution()</text>
+          <text x="1062" y="595" text-anchor="middle" fill="#94a3b8" font-size="9">AttackerIdentityExtractor &middot; Swarm</text>
+          <text x="1062" y="612" text-anchor="middle" fill="#94a3b8" font-size="9">Incident Report &middot; AlertBus</text>
+          <text x="1062" y="627" text-anchor="middle" fill="#ec4899" font-size="8" font-family="monospace">&lt;5ms Non-Blocking Budget</text>
+        </g>
+
+        <!-- Attribution Persistence to Local Threat Graph & Cache (Zone 6) -->
+        <path d="M 1062 635 L 1062 665 L 320 665 L 320 610" stroke="#a855f7" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrowPurple)" class="flow-line"/>
+        <rect x="620" y="655" width="200" height="18" rx="4" fill="#3b0764" stroke="#a855f7" stroke-width="0.8"/>
+        <text x="720" y="667" text-anchor="middle" fill="#e9d5ff" font-size="8" font-family="monospace">Persist Profile &amp; Incident Report (WAL)</text>
 
         <!-- ZONE 6: PERSISTENCE & CACHING (BOTTOM LEFT) -->
         <g id="node-persistence" class="node-card" onclick="selectNode('persistence')">
@@ -381,8 +396,8 @@
         path: "src/blackwall/threat_intel/otx.py"
       },
       step_rust: {
-        title: "Compiled Rust Acceleration Module",
-        desc: "Native PyO3/Maturin compiled binary (blackwall._core_rs) providing SIMD-accelerated string scanning, tokenization, and regex evaluation with pure-Python fallback.",
+        title: "Native Compiled Rust Substrate (blackwall._core_rs)",
+        desc: "Native PyO3/Maturin SIMD acceleration engine underpinning individual operations across SyncResolver: regex pattern scanning (ContextSanitizer in Step 1), FTS5 word-intersection quality calculation and cosine similarity (Step 2), and semantic policy entropy extraction. Not an inline sequential stage; operates with pure-Python fallback.",
         sla: "< 0.02 ms CPU execution",
         path: "crates/blackwall_core_rs/"
       },
@@ -393,16 +408,16 @@
         path: "src/blackwall/eval/"
       },
       step_verdict: {
-        title: "Dynamic Verdict & Threshold Engine",
-        desc: "Aggregates weighted scores from TSG, AST blast radius, and threat intelligence. Calculates final verdict: ALLOW, WARN, BLOCK, or CRITICAL.",
+        title: "Score Aggregation & Verdict Engine (Step 6)",
+        desc: "Aggregates weighted scores from TSG, AST blast radius, threat intelligence, and optional semantic triage. Dispatches final verdict (ALLOW, QUARANTINE, BLOCK). On BLOCK or QUARANTINE, dispatches background attacker attribution non-blockingly.",
         sla: "< 0.10 ms",
         path: "src/blackwall/sync_resolver.py"
       },
       step_attrib: {
-        title: "Single-Host Attacker Attribution",
-        desc: "Computes SHA-256 fingerprint of intercepted rogue execution parameters, correlates attacker techniques, and synthesizes attribution markdown reports.",
-        sla: "< 0.50 ms",
-        path: "src/blackwall/attribution/"
+        title: "Asynchronous Attacker Attribution (_schedule_attribution)",
+        desc: "Scheduled non-blockingly as a background task ONLY after a BLOCK or QUARANTINE verdict. Extracts attacker fingerprints via AttackerIdentityExtractor, correlates swarm context, generates incident reports, and persists profiles to SQLite without delaying the inline < 5ms tool execution verdict.",
+        sla: "< 5.0 ms background budget (non-blocking)",
+        path: "src/blackwall/attribution/ & sync_resolver.py"
       },
       target_os: {
         title: "Safe Local Execution Environment",
