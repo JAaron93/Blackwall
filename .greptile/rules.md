@@ -269,6 +269,20 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
   - Planned specifications (such as `.kiro/specs/blackwall-mcp-gateway/`) MUST be qualified as abstract specification targets rather than concrete on-disk modules. Do not flag abstract spec targets as missing paths.
   - NEVER renumber downstream numbered rules (e.g. Rule 25) when modernizing rules in-place; preserve numbering to keep cross-branch test citations and git history intact.
 
+---
+
+## 14. Blackwall MCP Gateway Architecture & Concurrency Invariants
+
+- **Downstream Tool Forwarding**: Security gateway servers (`MCPGatewayServer`) MUST NOT synthesize dummy success responses (e.g. `{"jsonrpc": "2.0", "result": {}, "id": req_id}`) for allowed requests or pass-through methods (`tools/list`, `initialize`, `ping`). Allowed requests MUST be forwarded to the upstream tool server (`downstream_handler`).
+- **Response Synthesizer Error Translation**: Security response synthesizers (`ResponseSynthesizer`) translate security verdicts (`BLOCK` -> `-32603`, `QUARANTINE` -> `-32001`) into bounded JSON-RPC error objects with zero internal threat reasoning exposure. Synthesizers MUST reject `ALLOW` verdicts with `InvalidVerdictError`.
+- **Notification Response Suppression**: JSON-RPC 2.0 notifications (messages with no `id` or starting with `notifications/`) MUST NOT return JSON-RPC responses (HTTP 204 No Content for HTTP, 0 bytes for stdio).
+- **Evaluation-Encompassing Timeout Envelope**: In `FlowController`, the client-facing timeout envelope (`timeout_seconds`) MUST begin immediately when the request is registered/held (`hold_request`), encompassing both the security evaluation (e.g. `SyncResolver` / triage) and subsequent execution / verdict delivery.
+- **Duplicate Request ID Rejection**: In-flight concurrent requests reusing an existing active JSON-RPC `id` MUST be rejected immediately (`DuplicateRequestIdError` returning `-32600` Invalid Request).
+- **Stdio Concurrency & Cancellation Starvation Bypass**: Stdio line processing MUST be bounded by `asyncio.Semaphore(max_queue_size)`. Urgent cancellation notifications (`notifications/cancelled`) MUST bypass the semaphore permit check so cancellations can unblock waiting tasks without deadlock.
+- **Bracket-Aware IPv6 Host Parsing**: Host header validation MUST handle bracketed IPv6 literals (e.g. `[::1]:9229` or `[::1]`) without naive `host.split(":")[0]` string manipulation.
+- **Context-Preserving Recursive List Traversal**: Payload interceptors sanitizing sensitive arguments (`ContextHygiene`) MUST preserve parameter key names (`key_name`) across recursive list traversals.
+
+
 
 
 

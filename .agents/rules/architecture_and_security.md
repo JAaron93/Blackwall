@@ -642,4 +642,26 @@
   - Architectural documentation MUST NOT describe eBPF enforcement as TC/XDP socket drops or packet filtering, which carry fundamentally different network stack semantics.
 * **Rationale:** Codified after PR #157 Greptile code review. Eliminates architectural inaccuracies between visual documentation, system models, and runtime implementation invariants.
 
+## 96. MCP Gateway Upstream Forwarding, Response Synthesizer Isolation, & Notification Suppression
+* **Rule (Downstream Tool Forwarding):** Security gateway servers (`MCPGatewayServer`) MUST NOT synthesize dummy success responses (e.g. `{"jsonrpc": "2.0", "result": {}, "id": req_id}`) for allowed requests or pass-through methods (`tools/list`, `initialize`, `ping`, etc.). Requests receiving an `ALLOW` verdict MUST be forwarded to the upstream tool server (`downstream_handler`) to return actual tool execution results.
+* **Rule (Response Synthesizer Error Translation):** Security response synthesizers (`ResponseSynthesizer`) translate security verdicts (`BLOCK` -> `-32603`, `QUARANTINE` -> `-32001`) into bounded JSON-RPC error objects with zero internal threat reasoning exposure. Synthesizers MUST reject `ALLOW` verdicts with `InvalidVerdictError`.
+* **Rule (Notification Response Suppression):** JSON-RPC 2.0 notifications (messages with no `id` or starting with `notifications/`) MUST NOT return JSON-RPC responses (HTTP 204 No Content for HTTP, 0 bytes for stdio). Returning a response payload to a notification violates the JSON-RPC 2.0 specification.
+* **Rationale:** Discovered during MCP Gateway Phase 1 implementation and Greptile P1 review on PR #159. Fabricating synthetic success responses breaks MCP client workflows, while returning JSON-RPC error or success bodies to notifications causes client protocol state corruption.
+
+## 97. Asynchronous Request Lifecycle: Evaluation-Encompassing Timeout Envelope & Duplicate ID Prevention
+* **Rule (Evaluation-Encompassing Timeout Envelope):** In asynchronous flow controllers (`FlowController`), the client-facing timeout envelope (`timeout_seconds`) MUST begin immediately when the request is registered/held (`hold_request`), encompassing both the security evaluation (e.g. `SyncResolver` / triage) and subsequent execution / verdict delivery. Starting the timer after evaluation allows slow/hanging security evaluation to exceed the client-facing SLA without triggering a timeout.
+* **Rule (Duplicate Request ID Rejection):** In-flight concurrent requests reusing an existing active JSON-RPC `id` MUST be rejected immediately (`DuplicateRequestIdError` returning `-32600` Invalid Request) to prevent state collision or slot overwriting.
+* **Rationale:** Discovered during MCP Gateway Phase 1 implementation and Greptile P1 review on PR #159. Deferring the timeout timer until after evaluation left requests vulnerable to indefinite hangs during resolver stalls, while allowing duplicate request IDs caused race conditions in pending response futures.
+
+## 98. Stdio Stream Concurrency Bounding & Cancellation Starvation Bypass
+* **Rule (Bounded Stdio Concurrency):** In bidirectional stdio stream processing (`MCPGatewayServer.handle_stdio_stream`), concurrent line processing MUST be bounded by a concurrency semaphore (`asyncio.Semaphore(max_queue_size)`) to prevent unbounded task creation and memory exhaustion.
+* **Rule (Cancellation Starvation Bypass):** Urgent cancellation control notifications (e.g. `notifications/cancelled`) MUST bypass the concurrency semaphore permit check so that an overloaded queue can be cleared without deadlocking on permits held by long-running blocked tasks. All other notifications and control messages must remain bounded by the concurrency semaphore.
+* **Rationale:** Discovered during Greptile review iterations 3 and 4 on PR #159. Unbounded line processing allows an attacker to exhaust server memory, while requiring cancellation notifications to acquire a semaphore permit leads to queue starvation and deadlock when long-running tool calls hold all available permits.
+
+## 99. IPv6 Loopback Host Parsing & Recursive List Context Hygiene
+* **Rule (Bracket-Aware IPv6 Host Parsing):** Host header validation logic in loopback security proxies MUST handle bracketed IPv6 literals (e.g. `[::1]:9229` or `[::1]`) without naive `host.split(":")[0]` string manipulation, which corrupts IPv6 addresses into `[` and causes false rejection of valid loopback traffic.
+* **Rule (Context-Preserving Recursive List Traversal):** Payload interceptors sanitizing sensitive arguments (`ContextHygiene`) MUST preserve parameter key names (`key_name`) across recursive list traversals (e.g. `{"tokens": ["secret1", "secret2"]}`) so nested list values are properly matched and masked against sensitive keyword lists.
+* **Rationale:** Discovered during Phase 1 implementation and review on PR #159. Naive host splitting broke IPv6 loopback clients, while un-scoped list recursion left credential strings exposed in nested argument lists.
+
+
 

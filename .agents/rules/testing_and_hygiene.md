@@ -565,4 +565,9 @@
   - An interrupted append or corrupted line MUST be skipped individually without discarding previously parsed valid runs or substituting synthetic fallback data.
 * **Rationale:** Codified after PR #158 Greptile code review. Prevents missing development dependencies, false divergence reports on malicious cases, overstated coverage on unmeasured scenarios, boundary operator discrepancies, and history data loss during interrupted runs.
 
+## 65. Local Loopback Test Socket Permissions in macOS Sandbox Environments
+* **Rule (Sandbox Bypass for Loopback Sockets):** Unit and integration tests that bind local loopback network sockets (e.g., `aiohttp.test_utils.TestClient` in `test_server.py`) require running the terminal runner with `BypassSandbox: true` on macOS, because standard sandbox isolation blocks local socket creation/binding by default, producing `PermissionError` or connection refused errors even when connecting to `127.0.0.1`.
+* **Rationale:** Discovered during MCP Gateway test execution on macOS. Standard sandbox execution rejects local loopback socket binding, requiring sandbox bypass for test suites exercising HTTP/SSE server endpoints.
+
+
 
