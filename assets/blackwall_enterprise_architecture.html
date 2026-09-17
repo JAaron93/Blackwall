@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blackwall Enterprise Mesh — Architecture Diagram</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    @keyframes mesh-pulse {
+      0% { stroke-dashoffset: 60; }
+      100% { stroke-dashoffset: 0; }
+    }
+    .mesh-line {
+      stroke-dasharray: 8, 6;
+      animation: mesh-pulse 1.8s linear infinite;
+    }
+    .node-card {
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      cursor: pointer;
+    }
+    .node-card:hover {
+      transform: translateY(-2px) scale(1.015);
+    }
+  </style>
+</head>
+<body class="bg-[#050814] text-[#e2e8f0] font-sans antialiased min-h-screen p-4 md:p-8 flex flex-col items-center selection:bg-purple-500 selection:text-white">
+
+  <!-- Header Section -->
+  <header class="w-full max-w-7xl mb-6 flex flex-col md:flex-row md:items-end justify-between border-b border-purple-900/50 pb-5 gap-4">
+    <div>
+      <div class="flex items-center gap-3">
+        <div class="h-3 w-3 rounded-full bg-purple-400 animate-ping"></div>
+        <span class="text-xs font-mono tracking-widest text-purple-400 uppercase">Blackwall v3.0 Enterprise Mesh</span>
+        <span class="bg-purple-950/80 border border-purple-500/40 text-purple-300 text-[10px] font-mono px-2 py-0.5 rounded-full">Multi-Host Security Mesh</span>
+      </div>
+      <h1 class="text-2xl md:text-3xl font-extrabold tracking-tight mt-1 bg-gradient-to-r from-purple-300 via-pink-200 to-cyan-300 bg-clip-text text-transparent">
+        Distributed Threat Mesh & Advanced Detection Architecture
+      </h1>
+      <p class="text-xs md:text-sm text-slate-400 mt-1">
+        6 Pillars &middot; 4 Open-Source MCP Adapters &middot; ZeroMQ Pub/Sub &middot; eBPF Kernel Drops &middot; Vault Honey-Tokens &middot; GCP Vertex AI Dual-Tier Evals
+      </p>
+    </div>
+    <div class="flex items-center gap-3 font-mono text-xs">
+      <button id="toggleAnimBtn" onclick="toggleFlowAnimation()" class="px-3 py-1.5 rounded-lg border border-purple-500/40 bg-purple-950/40 hover:bg-purple-900/60 text-purple-300 flex items-center gap-2 transition">
+        <span id="animStatusDot" class="w-2 h-2 rounded-full bg-purple-400"></span>
+        <span id="animStatusText">Mesh Pulse: Active</span>
+      </button>
+      <button onclick="resetSelection()" class="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-300 transition">
+        Reset Details
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Canvas Container -->
+  <main class="w-full max-w-7xl bg-[#090d1f]/95 rounded-2xl border border-purple-900/40 shadow-2xl p-4 md:p-6 relative overflow-hidden backdrop-blur-xl">
+    
+    <!-- Background Ambient Gradients -->
+    <div class="absolute -top-32 -left-32 w-96 h-96 bg-purple-600/15 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute -bottom-32 -right-32 w-96 h-96 bg-cyan-600/15 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[350px] bg-indigo-500/5 rounded-full blur-3xl pointer-events-none"></div>
+
+    <!-- SVG Architecture Flow Canvas -->
+    <div class="w-full overflow-x-auto pb-4">
+      <svg viewBox="0 0 1200 700" class="w-full min-w-[1000px] h-auto select-none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="cardGradDarkEnt" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#141a36" stop-opacity="0.95"/>
+            <stop offset="100%" stop-color="#0c1024" stop-opacity="0.95"/>
+          </linearGradient>
+          <linearGradient id="entMeshEnclosureGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#191136" stop-opacity="0.8"/>
+            <stop offset="100%" stop-color="#0b0d1e" stop-opacity="0.9"/>
+          </linearGradient>
+          <marker id="arrowPurple" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 8 5 L 0 9 z" fill="#a855f7" />
+          </marker>
+          <marker id="arrowCyanEnt" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 8 5 L 0 9 z" fill="#06b6d4" />
+          </marker>
+          <marker id="arrowRoseEnt" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 8 5 L 0 9 z" fill="#f43f5e" />
+          </marker>
+        </defs>
+
+        <!-- TOP FLEET LAYER: DISTRIBUTED MULTI-AGENT NODES -->
+        <g id="fleet-layer">
+          <!-- Node 1 -->
+          <g id="node-fleet-1" class="node-card" onclick="selectNode('fleet_1')">
+            <rect x="50" y="30" width="220" height="75" rx="10" fill="url(#cardGradDarkEnt)" stroke="#38bdf8" stroke-width="1.2"/>
+            <text x="160" y="55" text-anchor="middle" fill="#38bdf8" font-size="11" font-weight="bold" font-family="monospace">CLUSTER NODE ALPHA</text>
+            <text x="160" y="72" text-anchor="middle" fill="#cbd5e1" font-size="9.5">Agent Worker Instance 01</text>
+            <text x="160" y="88" text-anchor="middle" fill="#64748b" font-size="8.5" font-family="monospace">Host PID &middot; eBPF Probe Attached</text>
+          </g>
+
+          <!-- Node 2 -->
+          <g id="node-fleet-2" class="node-card" onclick="selectNode('fleet_2')">
+            <rect x="330" y="30" width="220" height="75" rx="10" fill="url(#cardGradDarkEnt)" stroke="#38bdf8" stroke-width="1.2"/>
+            <text x="440" y="55" text-anchor="middle" fill="#38bdf8" font-size="11" font-weight="bold" font-family="monospace">CLUSTER NODE BETA</text>
+            <text x="440" y="72" text-anchor="middle" fill="#cbd5e1" font-size="9.5">Agent Worker Instance 02</text>
+            <text x="440" y="88" text-anchor="middle" fill="#64748b" font-size="8.5" font-family="monospace">Host PID &middot; eBPF Probe Attached</text>
+          </g>
+
+          <!-- Node N -->
+          <g id="node-fleet-n" class="node-card" onclick="selectNode('fleet_n')">
+            <rect x="610" y="30" width="220" height="75" rx="10" fill="url(#cardGradDarkEnt)" stroke="#38bdf8" stroke-width="1.2"/>
+            <text x="720" y="55" text-anchor="middle" fill="#38bdf8" font-size="11" font-weight="bold" font-family="monospace">CLUSTER NODE OMEGA</text>
+            <text x="720" y="72" text-anchor="middle" fill="#cbd5e1" font-size="9.5">Fleet Worker Instance N</text>
+            <text x="720" y="88" text-anchor="middle" fill="#64748b" font-size="8.5" font-family="monospace">Autoscaled Container / MicroVM</text>
+          </g>
+
+          <!-- Inbound Filter & Protocol Barrier (Top Right) -->
+          <g id="node-inbound-filter" class="node-card" onclick="selectNode('inbound_filter')">
+            <rect x="890" y="30" width="260" height="75" rx="10" fill="url(#cardGradDarkEnt)" stroke="#ec4899" stroke-width="1.5"/>
+            <text x="1020" y="55" text-anchor="middle" fill="#f472b6" font-size="11" font-weight="bold" font-family="monospace">INBOUND PROTOCOL FILTER</text>
+            <text x="1020" y="72" text-anchor="middle" fill="#cbd5e1" font-size="9.5">Loopback Enforcement &middot; Origin Whitelist</text>
+            <text x="1020" y="88" text-anchor="middle" fill="#ec4899" font-size="8.5" font-family="monospace">Strict Host Header & Token Defense</text>
+          </g>
+        </g>
+
+        <!-- Connecting Lines: Fleet directly into Pillars -->
+        <path d="M 160 105 L 160 180" stroke="#06b6d4" stroke-width="1.8" marker-end="url(#arrowCyanEnt)" class="mesh-line"/>
+        <path d="M 440 105 L 440 140 L 380 140 L 380 180" stroke="#a855f7" stroke-width="1.8" marker-end="url(#arrowPurple)" class="mesh-line"/>
+        <path d="M 720 105 L 720 140 L 605 140 L 605 180" stroke="#f59e0b" stroke-width="1.8" marker-end="url(#arrowPurple)" class="mesh-line"/>
+        <path d="M 720 105 L 720 140 L 830 140 L 830 180" stroke="#10b981" stroke-width="1.8" marker-end="url(#arrowPurple)" class="mesh-line"/>
+        <path d="M 1020 105 L 1020 140 L 1052 140 L 1052 180" stroke="#ec4899" stroke-width="1.8" marker-end="url(#arrowPurple)" class="mesh-line"/>
+
+        <!-- ENTERPRISE MESH 5 CORE PILLARS LAYER (MIDDLE) -->
+        <g id="enterprise-pillars-boundary">
+          <rect x="30" y="145" width="1140" height="245" rx="18" fill="url(#entMeshEnclosureGrad)" stroke="#a855f7" stroke-width="1.5" stroke-dasharray="6,4"/>
+          <text x="50" y="168" fill="#c084fc" font-size="11" font-weight="bold" font-family="monospace">5 PILLARS OF ENTERPRISE DEFENSE & 4 OPEN-SOURCE MCP ADAPTERS</text>
+        </g>
+
+        <!-- Pillar 1: Kernel Probe & ebpf-falco-mcp -->
+        <g id="node-pillar-1" class="node-card" onclick="selectNode('pillar_kernel')">
+          <rect x="50" y="180" width="210" height="195" rx="12" fill="#0f152d" stroke="#06b6d4" stroke-width="1.2"/>
+          <rect x="62" y="192" width="60" height="18" rx="4" fill="#155e75"/>
+          <text x="92" y="205" text-anchor="middle" fill="#67e8f9" font-size="8.5" font-weight="bold" font-family="monospace">PILLAR 1</text>
+          <text x="155" y="225" text-anchor="middle" fill="#22d3ee" font-size="11" font-weight="bold">Kernel Interception</text>
+          <text x="155" y="243" text-anchor="middle" fill="#cbd5e1" font-size="9">LinuxeBPFDriver</text>
+          <text x="155" y="258" text-anchor="middle" fill="#94a3b8" font-size="8.5">Kernel >= 5.4 Socket Drops</text>
+          <text x="155" y="273" text-anchor="middle" fill="#94a3b8" font-size="8.5">UserSpaceAuditDriver (macOS)</text>
+          <line x1="65" y1="288" x2="245" y2="288" stroke="#164e63" stroke-width="1"/>
+          <rect x="65" y="298" width="180" height="28" rx="6" fill="#083344" stroke="#0891b2" stroke-width="0.8"/>
+          <text x="155" y="316" text-anchor="middle" fill="#67e8f9" font-size="8.5" font-family="monospace">ebpf-falco-mcp</text>
+          <text x="155" y="352" text-anchor="middle" fill="#06b6d4" font-size="8" font-family="monospace">SIGKILL Rogue Procs</text>
+        </g>
+
+        <!-- Pillar 2: Distributed Threat Mesh (ZeroMQ) -->
+        <g id="node-pillar-2" class="node-card" onclick="selectNode('pillar_mesh')">
+          <rect x="275" y="180" width="210" height="195" rx="12" fill="#0f152d" stroke="#a855f7" stroke-width="1.5"/>
+          <rect x="287" y="192" width="60" height="18" rx="4" fill="#581c87"/>
+          <text x="317" y="205" text-anchor="middle" fill="#d8b4fe" font-size="8.5" font-weight="bold" font-family="monospace">PILLAR 2</text>
+          <text x="380" y="225" text-anchor="middle" fill="#c084fc" font-size="11" font-weight="bold">Distributed Threat Mesh</text>
+          <text x="380" y="243" text-anchor="middle" fill="#cbd5e1" font-size="9">MeshBroadcaster & Receiver</text>
+          <text x="380" y="258" text-anchor="middle" fill="#94a3b8" font-size="8.5">ZeroMQ PUB/SUB Protocol</text>
+          <text x="380" y="273" text-anchor="middle" fill="#34d399" font-size="8.5" font-family="monospace">&lt; 15 ms Sync SLA</text>
+          <line x1="290" y1="288" x2="470" y2="288" stroke="#3b0764" stroke-width="1"/>
+          <rect x="290" y="298" width="180" height="28" rx="6" fill="#2e1065" stroke="#7e22ce" stroke-width="0.8"/>
+          <text x="380" y="316" text-anchor="middle" fill="#e9d5ff" font-size="8.5" font-family="monospace">Fleet WAL Persistence</text>
+          <text x="380" y="352" text-anchor="middle" fill="#c084fc" font-size="8" font-family="monospace">Cross-Node Signature Sync</text>
+        </g>
+
+        <!-- Pillar 3: Ephemeral Identity Sidecar & Vault -->
+        <g id="node-pillar-3" class="node-card" onclick="selectNode('pillar_identity')">
+          <rect x="500" y="180" width="210" height="195" rx="12" fill="#0f152d" stroke="#f59e0b" stroke-width="1.2"/>
+          <rect x="512" y="192" width="60" height="18" rx="4" fill="#78350f"/>
+          <text x="542" y="205" text-anchor="middle" fill="#fde68a" font-size="8.5" font-weight="bold" font-family="monospace">PILLAR 3</text>
+          <text x="605" y="225" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="bold">Identity Sidecar</text>
+          <text x="605" y="243" text-anchor="middle" fill="#cbd5e1" font-size="9">SecretVaultSidecar</text>
+          <text x="605" y="258" text-anchor="middle" fill="#94a3b8" font-size="8.5">Honey-Tokens (BW_SYNTHETIC)</text>
+          <text x="605" y="273" text-anchor="middle" fill="#f43f5e" font-size="8.5" font-family="monospace">Instant CRITICAL Trip</text>
+          <line x1="515" y1="288" x2="695" y2="288" stroke="#451a03" stroke-width="1"/>
+          <rect x="515" y="298" width="180" height="28" rx="6" fill="#451a03" stroke="#b45309" stroke-width="0.8"/>
+          <text x="605" y="316" text-anchor="middle" fill="#fde68a" font-size="8.5" font-family="monospace">hashicorp-vault-mcp</text>
+          <text x="605" y="352" text-anchor="middle" fill="#fbbf24" font-size="8" font-family="monospace">Short-Lived STS Tokens</text>
+        </g>
+
+        <!-- Pillar 4: Pipeline Wrappers & Container Sandbox -->
+        <g id="node-pillar-4" class="node-card" onclick="selectNode('pillar_pipeline')">
+          <rect x="725" y="180" width="210" height="195" rx="12" fill="#0f152d" stroke="#10b981" stroke-width="1.2"/>
+          <rect x="737" y="192" width="60" height="18" rx="4" fill="#064e3b"/>
+          <text x="767" y="205" text-anchor="middle" fill="#a7f3d0" font-size="8.5" font-weight="bold" font-family="monospace">PILLAR 4</text>
+          <text x="830" y="225" text-anchor="middle" fill="#34d399" font-size="11" font-weight="bold">Pipeline Interception</text>
+          <text x="830" y="243" text-anchor="middle" fill="#cbd5e1" font-size="9">@guard_pipeline Decorator</text>
+          <text x="830" y="258" text-anchor="middle" fill="#94a3b8" font-size="8.5">Dataset & Pickle AST Guard</text>
+          <text x="830" y="273" text-anchor="middle" fill="#94a3b8" font-size="8.5">Input Stream Sanitizer</text>
+          <line x1="740" y1="288" x2="920" y2="288" stroke="#064e3b" stroke-width="1"/>
+          <rect x="740" y="298" width="180" height="28" rx="6" fill="#022c22" stroke="#059669" stroke-width="0.8"/>
+          <text x="830" y="316" text-anchor="middle" fill="#6ee7b7" font-size="8.5" font-family="monospace">container-sandbox-mcp</text>
+          <text x="830" y="352" text-anchor="middle" fill="#34d399" font-size="8" font-family="monospace">MicroVM Container Isolation</text>
+        </g>
+
+        <!-- Pillar 5: Local Forensics & OpenTelemetry -->
+        <g id="node-pillar-5" class="node-card" onclick="selectNode('pillar_forensics')">
+          <rect x="950" y="180" width="205" height="195" rx="12" fill="#0f152d" stroke="#3b82f6" stroke-width="1.2"/>
+          <rect x="962" y="192" width="60" height="18" rx="4" fill="#1e3a8a"/>
+          <text x="992" y="205" text-anchor="middle" fill="#bfdbfe" font-size="8.5" font-weight="bold" font-family="monospace">PILLAR 5</text>
+          <text x="1052" y="225" text-anchor="middle" fill="#60a5fa" font-size="11" font-weight="bold">Forensic Triage Engine</text>
+          <text x="1052" y="243" text-anchor="middle" fill="#cbd5e1" font-size="9">Dual-Mode Telemetry</text>
+          <text x="1052" y="258" text-anchor="middle" fill="#94a3b8" font-size="8.5">Local Ollama LLM / AST</text>
+          <text x="1052" y="273" text-anchor="middle" fill="#94a3b8" font-size="8.5">Out-of-Band Log Analysis</text>
+          <line x1="965" y1="288" x2="1140" y2="288" stroke="#172554" stroke-width="1"/>
+          <rect x="965" y="298" width="175" height="28" rx="6" fill="#0f172a" stroke="#2563eb" stroke-width="0.8"/>
+          <text x="1052" y="316" text-anchor="middle" fill="#93c5fd" font-size="8.5" font-family="monospace">opentelemetry-mcp</text>
+          <text x="1052" y="352" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">GCP Cloud Trace Export</text>
+        </g>
+
+        <!-- CENTRAL EVENT & TELEMETRY STREAM BUS -->
+        <g id="event-stream-bus">
+          <rect x="50" y="402" width="1100" height="20" rx="6" fill="#1b1236" stroke="#a855f7" stroke-width="1.2"/>
+          <text x="600" y="416" text-anchor="middle" fill="#d8b4fe" font-size="9" font-family="monospace" font-weight="bold">DISTRIBUTED EVENT &amp; TELEMETRY STREAM BUS</text>
+        </g>
+
+        <!-- Inflow from Pillars down into Bus -->
+        <path d="M 155 375 L 155 402" stroke="#06b6d4" stroke-width="1.5" marker-end="url(#arrowCyanEnt)" class="mesh-line"/>
+        <path d="M 380 375 L 380 402" stroke="#a855f7" stroke-width="1.5" marker-end="url(#arrowPurple)" class="mesh-line"/>
+        <path d="M 605 375 L 605 402" stroke="#f59e0b" stroke-width="1.5" marker-end="url(#arrowPurple)" class="mesh-line"/>
+        <path d="M 830 375 L 830 402" stroke="#10b981" stroke-width="1.5" marker-end="url(#arrowPurple)" class="mesh-line"/>
+        <path d="M 1052 375 L 1052 402" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#arrowPurple)" class="mesh-line"/>
+
+        <!-- Outflow from Bus down into Pillar 6 (ATD) and GCP Eval Tier -->
+        <path d="M 365 422 L 365 440" stroke="#f472b6" stroke-width="2.5" marker-end="url(#arrowRoseEnt)" class="mesh-line"/>
+        <path d="M 950 422 L 950 440" stroke="#38bdf8" stroke-width="2.5" marker-end="url(#arrowCyanEnt)" class="mesh-line"/>
+
+        <!-- BOTTOM ZONE: PILLAR 6 ADVANCED THREAT DETECTION & CLOUD-NATIVE EVALUATION -->
+        <g id="node-pillar-6" class="node-card" onclick="selectNode('pillar_atd')">
+          <rect x="30" y="440" width="670" height="230" rx="16" fill="url(#cardGradDarkEnt)" stroke="#ec4899" stroke-width="1.5"/>
+          <rect x="45" y="452" width="60" height="20" rx="4" fill="#831843"/>
+          <text x="75" y="466" text-anchor="middle" fill="#fbcfe8" font-size="9" font-weight="bold" font-family="monospace">PILLAR 6</text>
+          <text x="365" y="468" text-anchor="middle" fill="#f472b6" font-size="13" font-weight="bold">ADVANCED THREAT DETECTION & ACTIVE REACTION ENGINE</text>
+
+          <!-- ATD Internal Submodules Grid -->
+          <g transform="translate(45, 485)">
+            <!-- Sub 1: Swarm & Exploit -->
+            <rect x="0" y="0" width="190" height="60" rx="8" fill="#1e1329" stroke="#db2777" stroke-width="1"/>
+            <text x="95" y="22" text-anchor="middle" fill="#f472b6" font-size="10" font-weight="bold">Swarm & Exploit Detector</text>
+            <text x="95" y="38" text-anchor="middle" fill="#94a3b8" font-size="8.5">SwarmDetector & Correlator</text>
+            <text x="95" y="50" text-anchor="middle" fill="#db2777" font-size="8" font-family="monospace">Multi-Agent Swarm Breaches</text>
+
+            <!-- Sub 2: AILM & Covert Channels -->
+            <rect x="210" y="0" width="190" height="60" rx="8" fill="#1e1329" stroke="#db2777" stroke-width="1"/>
+            <text x="305" y="22" text-anchor="middle" fill="#f472b6" font-size="10" font-weight="bold">AILM & Covert Channels</text>
+            <text x="305" y="38" text-anchor="middle" fill="#94a3b8" font-size="8.5">AILMContainment & Timing</text>
+            <text x="305" y="50" text-anchor="middle" fill="#db2777" font-size="8" font-family="monospace">Exfiltration Channel Defenses</text>
+
+            <!-- Sub 3: Attack Graph Store -->
+            <rect x="420" y="0" width="200" height="60" rx="8" fill="#1e1329" stroke="#db2777" stroke-width="1"/>
+            <text x="520" y="22" text-anchor="middle" fill="#f472b6" font-size="10" font-weight="bold">Attack Graph Store</text>
+            <text x="520" y="38" text-anchor="middle" fill="#94a3b8" font-size="8.5">In-Memory Graph & WAL</text>
+            <text x="520" y="50" text-anchor="middle" fill="#db2777" font-size="8" font-family="monospace">Node Correlation & Trajectories</text>
+
+            <!-- Active Reactions Box -->
+            <rect x="0" y="75" width="620" height="95" rx="10" fill="#2d0b22" stroke="#f43f5e" stroke-width="1.2"/>
+            <text x="310" y="96" text-anchor="middle" fill="#fda4af" font-size="11" font-weight="bold" font-family="monospace">ActiveReactionEngine Automated Mitigations</text>
+            
+            <rect x="15" y="108" width="180" height="50" rx="6" fill="#4c0519"/>
+            <text x="105" y="128" text-anchor="middle" fill="#f43f5e" font-size="9.5" font-weight="bold">1. eBPF Process Termination</text>
+            <text x="105" y="145" text-anchor="middle" fill="#cbd5e1" font-size="8">Syscall Trace &amp; bpf_send_signal(9)</text>
+
+            <rect x="215" y="108" width="180" height="50" rx="6" fill="#4c0519"/>
+            <text x="305" y="128" text-anchor="middle" fill="#f43f5e" font-size="9.5" font-weight="bold">2. Mesh Broadcast</text>
+            <text x="305" y="145" text-anchor="middle" fill="#cbd5e1" font-size="8">ZeroMQ &lt;15ms Fleet Sync</text>
+
+            <rect x="415" y="108" width="190" height="50" rx="6" fill="#4c0519"/>
+            <text x="510" y="128" text-anchor="middle" fill="#f43f5e" font-size="9.5" font-weight="bold">3. Token Revocation</text>
+            <text x="510" y="145" text-anchor="middle" fill="#cbd5e1" font-size="8">Vault Honey-Token Purge</text>
+          </g>
+        </g>
+
+        <!-- CLOUD EVALUATION & VERIFICATION TIER (BOTTOM RIGHT) -->
+        <g id="node-gcp-eval" class="node-card" onclick="selectNode('gcp_eval')">
+          <rect x="725" y="440" width="445" height="230" rx="16" fill="url(#cardGradDarkEnt)" stroke="#38bdf8" stroke-width="1.5"/>
+          <rect x="740" y="452" width="65" height="20" rx="4" fill="#0369a1"/>
+          <text x="772" y="466" text-anchor="middle" fill="#bae6fd" font-size="9" font-weight="bold" font-family="monospace">EVAL TIER</text>
+          <text x="965" y="468" text-anchor="middle" fill="#38bdf8" font-size="13" font-weight="bold">100% CLOUD-NATIVE GCP EVALUATION</text>
+
+          <g transform="translate(740, 485)">
+            <!-- Tier 1 ADK Harness -->
+            <rect x="0" y="0" width="415" height="75" rx="8" fill="#0b1b36" stroke="#0284c7" stroke-width="1"/>
+            <text x="207" y="20" text-anchor="middle" fill="#7dd3fc" font-size="10.5" font-weight="bold">Tier 1: ADK Adversarial Harness & Judges</text>
+            <text x="207" y="38" text-anchor="middle" fill="#cbd5e1" font-size="8.5">9 Domain-Specific Autonomous Antigravity Judge Agents</text>
+            <text x="207" y="52" text-anchor="middle" fill="#94a3b8" font-size="8">vertexai.preview.evaluation &middot; EvalTask Gate &middot; Google Cloud Trace</text>
+            <text x="207" y="66" text-anchor="middle" fill="#38bdf8" font-size="8" font-family="monospace">Gemini 3.5 Flash-Lite & 3.8 Flash &middot; GEMINI_TIER=paid</text>
+
+            <!-- Tier 2 Cybench on Cloud Run -->
+            <rect x="0" y="85" width="415" height="75" rx="8" fill="#0b1b36" stroke="#0284c7" stroke-width="1"/>
+            <text x="207" y="105" text-anchor="middle" fill="#7dd3fc" font-size="10.5" font-weight="bold">Tier 2: Cybench on Cloud Run (gVisor)</text>
+            <text x="207" y="123" text-anchor="middle" fill="#cbd5e1" font-size="8.5">Container Sandboxing with gVisor Kernel Isolation</text>
+            <text x="207" y="137" text-anchor="middle" fill="#94a3b8" font-size="8">SLAValidator Latency Checks &middot; Historical Regression Tracker</text>
+            <text x="207" y="151" text-anchor="middle" fill="#34d399" font-size="8" font-family="monospace">Zero-SaaS ADC Credentials &middot; scripts/run_gcp_eval.py CI Gate</text>
+          </g>
+        </g>
+
+        <!-- Interconnecting Evaluation Gate Line -->
+        <path d="M 700 550 L 725 550" stroke="#f472b6" stroke-width="2" marker-end="url(#arrowCyanEnt)" class="mesh-line"/>
+
+      </svg>
+    </div>
+
+    <!-- Interactive Component Detail Drawer -->
+    <div id="inspectorDrawer" class="mt-4 p-4 rounded-xl bg-slate-900/80 border border-slate-700/80 flex flex-col md:flex-row justify-between gap-4 transition-all duration-300">
+      <div class="flex-1">
+        <div class="flex items-center gap-2">
+          <span id="inspBadge" class="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800">Enterprise Mesh Inspector</span>
+          <h3 id="inspTitle" class="text-base font-bold text-white">Click any enterprise component to inspect</h3>
+        </div>
+        <p id="inspDesc" class="text-xs text-slate-300 mt-1 leading-relaxed">
+          Hover over or click any module above to view its enterprise implementation, ZeroMQ sync latencies, eBPF drivers, Vault honey-token triggers, and GCP evaluation contracts.
+        </p>
+      </div>
+      <div class="flex flex-col gap-1 border-t md:border-t-0 md:border-l border-slate-700/60 pt-3 md:pt-0 md:pl-4 min-w-[240px] text-xs font-mono">
+        <div class="flex justify-between"><span class="text-slate-500">Latency / SLA:</span> <span id="inspSLA" class="text-purple-400 font-semibold">&mdash;</span></div>
+        <div class="flex justify-between"><span class="text-slate-500">Module Path:</span> <span id="inspPath" class="text-slate-300 truncate max-w-[150px]">&mdash;</span></div>
+        <div class="flex justify-between"><span class="text-slate-500">Tier Status:</span> <span id="inspTier" class="text-purple-300">Enterprise Edition</span></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer Metadata & Key Invariants -->
+  <footer class="w-full max-w-7xl mt-6 grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
+    <div class="p-3 rounded-xl bg-slate-900/50 border border-purple-950 text-slate-400">
+      <div class="font-bold text-cyan-400 mb-1 font-mono">Pillar 1: Kernel Interception</div>
+      Linux eBPF driver attaches to syscall tracepoints (sys_enter_connect, execve) and terminates rogue processes via bpf_send_signal(SIGKILL), with UserSpaceAuditDriver fallback on macOS.
+    </div>
+    <div class="p-3 rounded-xl bg-slate-900/50 border border-purple-950 text-slate-400">
+      <div class="font-bold text-purple-400 mb-1 font-mono">Pillar 2: ZeroMQ Threat Mesh</div>
+      Peer-to-peer pub/sub mesh synchronizes newly generated threat signatures across distributed cluster workers with a strict &lt;15ms SQLite replication SLA.
+    </div>
+    <div class="p-3 rounded-xl bg-slate-900/50 border border-purple-950 text-slate-400">
+      <div class="font-bold text-amber-400 mb-1 font-mono">Pillar 3: Vault Honey-Tokens</div>
+      Synthetic environment variables (<code class="text-amber-300">BW_SYNTHETIC_*</code>) trip instant CRITICAL verdicts, triggering automatic Vault STS token revocation.
+    </div>
+    <div class="p-3 rounded-xl bg-slate-900/50 border border-purple-950 text-slate-400">
+      <div class="font-bold text-rose-400 mb-1 font-mono">Pillars 4-6: Pipeline & GCP Eval</div>
+      Protects data pipelines via microVM sandboxing, runs dual-mode OOB forensics, and enforces 100% GCP Vertex AI evaluation via 9 domain-specific judge agents.
+    </div>
+  </footer>
+
+  <script>
+    const nodeDetails = {
+      fleet_1: {
+        title: "Cluster Node Alpha (Agent Worker)",
+        desc: "Autonomous AI agent container executing multi-step tasks under eBPF kernel supervision and in-process ADK tool interceptors.",
+        sla: "< 0.05 ms hook overhead",
+        path: "Cluster Fleet Tier"
+      },
+      fleet_2: {
+        title: "Cluster Node Beta (Agent Worker)",
+        desc: "Secondary cluster worker connected to the ZeroMQ mesh, subscribing to live threat signatures generated by peer instances.",
+        sla: "< 15 ms mesh sync",
+        path: "Cluster Fleet Tier"
+      },
+      fleet_n: {
+        title: "Cluster Node Omega (Autoscaled Worker)",
+        desc: "Ephemeral microVM container spawned during peak load with isolated namespace and short-lived Vault STS tokens.",
+        sla: "Autoscaled Container",
+        path: "Cluster Fleet Tier"
+      },
+      inbound_filter: {
+        title: "Inbound Protocol Filter & Header Guard",
+        desc: "Enforces loopback isolation, strict Origin and Host allow-list verification, and sliding window token-bucket rate limiting against remote attackers.",
+        sla: "< 0.10 ms header check",
+        path: "src/blackwall/enterprise/advanced_threat_detection/inbound_filter.py"
+      },
+      pillar_kernel: {
+        title: "Pillar 1: Kernel-Level Interception & ebpf-falco-mcp",
+        desc: "Dual-driver probe: LinuxeBPFDriver (Linux >= 5.4 syscall tracepoints / bpf_send_signal SIGKILL) with fallback to UserSpaceAuditDriver (sys.addaudithook on macOS).",
+        sla: "< 0.02 ms kernel intercept",
+        path: "src/blackwall/enterprise/kernel/probe.py"
+      },
+      pillar_mesh: {
+        title: "Pillar 2: Distributed Threat Mesh (ZeroMQ)",
+        desc: "MeshBroadcaster and MeshReceiver communicating over ZeroMQ PUB/SUB sockets with < 15ms SQLite signature replication in WAL mode.",
+        sla: "< 15 ms broadcast & write SLA",
+        path: "src/blackwall/enterprise/mesh/"
+      },
+      pillar_identity: {
+        title: "Pillar 3: Ephemeral Identity Sidecar & hashicorp-vault-mcp",
+        desc: "Honey-token interception (BW_SYNTHETIC_*) triggering instant CRITICAL verdicts, with short-lived STS tokens issued and revoked via Vault MCP.",
+        sla: "< 1.5 ms token validation",
+        path: "src/blackwall/enterprise/identity/sidecar.py"
+      },
+      pillar_pipeline: {
+        title: "Pillar 4: Pipeline Interception Wrappers & container-sandbox-mcp",
+        desc: "@guard_pipeline decorator and AST parser protecting dataset loaders, pickle deserialization, and microVM container sandboxes.",
+        sla: "< 1.0 ms AST inspection",
+        path: "src/blackwall/enterprise/pipeline/"
+      },
+      pillar_forensics: {
+        title: "Pillar 5: Local Forensic Triage Engine & opentelemetry-mcp",
+        desc: "Dual-mode out-of-band telemetry log analyzer (local Ollama LLM with AST/regex fallback) and OpenTelemetry exporter to Google Cloud Trace.",
+        sla: "Out-of-Band (Non-blocking)",
+        path: "src/blackwall/enterprise/forensics/"
+      },
+      pillar_atd: {
+        title: "Pillar 6: Advanced Threat Detection & ActiveReactionEngine",
+        desc: "Cross-pillar swarm detection (SwarmDetector), exploit chain correlation (MultiStageAttackCorrelator), AILM containment, and automated reactions (eBPF process kills, mesh broadcasts, token revocation).",
+        sla: "< 5.0 ms threat correlation",
+        path: "src/blackwall/enterprise/advanced_threat_detection/"
+      },
+      gcp_eval: {
+        title: "100% Cloud-Native GCP Vertex AI Evaluation Tier",
+        desc: "Tier 1 ADK Adversarial Harness with 9 domain-specific judge agents and EvalTask CI gate, paired with Tier 2 Cybench on Cloud Run with gVisor microVM isolation.",
+        sla: "CI Gate (< 120s run)",
+        path: "scripts/run_gcp_eval.py"
+      }
+    };
+
+    function selectNode(key) {
+      const info = nodeDetails[key];
+      if (!info) return;
+      document.getElementById('inspTitle').innerText = info.title;
+      document.getElementById('inspDesc').innerText = info.desc;
+      document.getElementById('inspSLA').innerText = info.sla;
+      document.getElementById('inspPath').innerText = info.path;
+      document.getElementById('inspBadge').innerText = key.toUpperCase().replace('_', ' ');
+      document.getElementById('inspectorDrawer').classList.add('ring-2', 'ring-purple-500/50');
+      setTimeout(() => {
+        document.getElementById('inspectorDrawer').classList.remove('ring-2', 'ring-purple-500/50');
+      }, 500);
+    }
+
+    function resetSelection() {
+      document.getElementById('inspTitle').innerText = "Click any enterprise component to inspect";
+      document.getElementById('inspDesc').innerText = "Hover over or click any module above to view its enterprise implementation, ZeroMQ sync latencies, eBPF drivers, Vault honey-token triggers, and GCP evaluation contracts.";
+      document.getElementById('inspSLA').innerText = "—";
+      document.getElementById('inspPath').innerText = "—";
+      document.getElementById('inspBadge').innerText = "Enterprise Mesh Inspector";
+    }
+
+    let isAnimated = true;
+    function toggleFlowAnimation() {
+      isAnimated = !isAnimated;
+      const lines = document.querySelectorAll('.mesh-line');
+      lines.forEach(l => {
+        l.style.animationPlayState = isAnimated ? 'running' : 'paused';
+      });
+      document.getElementById('animStatusText').innerText = isAnimated ? "Mesh Pulse: Active" : "Mesh Pulse: Paused";
+      document.getElementById('animStatusDot').className = isAnimated ? "w-2 h-2 rounded-full bg-purple-400" : "w-2 h-2 rounded-full bg-slate-500";
+    }
+  </script>
+</body>
+</html>
