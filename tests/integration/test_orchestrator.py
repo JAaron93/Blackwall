@@ -1,10 +1,9 @@
 """Integration tests for AdvancedThreatDetection main orchestrator (Task 21.1)."""
 
-import asyncio
 from datetime import UTC, datetime, timedelta
 import uuid
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 from blackwall.enterprise.advanced_threat_detection.config import (
     AdvancedThreatDetectionConfig,

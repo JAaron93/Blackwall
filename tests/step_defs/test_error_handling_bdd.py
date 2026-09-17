@@ -1,6 +1,5 @@
 """BDD Step Definitions for Error Handling and Resilience (`tests/features/error_handling.feature`)."""
 
-import asyncio
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock

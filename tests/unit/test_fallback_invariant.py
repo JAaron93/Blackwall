@@ -11,7 +11,6 @@ Traceability: FR-5, NFR-2, All FRs, TASK-5.2
 
 import importlib
 import sys
-import types
 import uuid
 from datetime import datetime, timezone, timedelta
 from unittest import mock

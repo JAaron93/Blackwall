@@ -5,8 +5,7 @@ Validates Properties 93, 94, 95, 96, 103 against Requirements 23.1 - 23.4, 15.11
 
 import asyncio
 import uuid
-from datetime import UTC, datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 
 import pytest
 from hypothesis import given, settings

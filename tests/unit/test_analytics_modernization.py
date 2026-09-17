@@ -1,7 +1,6 @@
 """Unit tests for modernized analytics with structured outputs and in-process task fallback."""
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 import pytest
 
@@ -15,7 +14,6 @@ from blackwall.models import (
     EventType,
     RefactoringHint,
     SecurityEvent,
-    SinkType,
     ToolCallContext,
     Verdict,
     VerdictDecision,

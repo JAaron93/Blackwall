@@ -7,7 +7,6 @@ import pytest
 
 from blackwall.enterprise.advanced_threat_detection import (
     AttackGraphStore,
-    AttackNode,
     EventSource,
     NormalizedEvent,
 )

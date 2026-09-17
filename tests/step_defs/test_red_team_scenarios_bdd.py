@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Any
 from uuid import uuid4
 import pytest
-from pytest_bdd import given, parsers, scenarios, then, when
+from pytest_bdd import given, scenarios, then, when
 
 from blackwall.enterprise.advanced_threat_detection.reaction import (
     ActiveReactionEngine,

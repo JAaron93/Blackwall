@@ -1,7 +1,7 @@
 """Unit tests for AgentQuotaEnforcer (Pillar 6 Task 27)."""
 
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError

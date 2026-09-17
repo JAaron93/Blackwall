@@ -8,13 +8,11 @@ Verifies:
 - Querying last N runs via get_history(n).
 """
 
-import json
 from pathlib import Path
 import pytest
 from blackwall.eval.regression_tracker import (
     EvalRunSummary,
     HistoricalRegressionTracker,
-    RegressionReport,
 )
 
 

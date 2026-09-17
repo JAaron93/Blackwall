@@ -5,7 +5,6 @@ Tests the WebhookListener's JWT RS256 signature verification,
 timestamp validation, deduplication (replay protection), and
 JSON payload validation security flow.
 """
-import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 

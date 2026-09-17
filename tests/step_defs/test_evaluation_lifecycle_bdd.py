@@ -12,7 +12,6 @@ import pytest
 from pytest_bdd import given, parsers, scenarios, then, when
 
 from blackwall.enterprise.advanced_threat_detection.evaluation import (
-    EvaluationAttackGraphStore,
     EvaluationEnvironment,
     EvaluationEnvironmentManager,
 )

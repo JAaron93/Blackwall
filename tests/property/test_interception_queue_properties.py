@@ -10,7 +10,7 @@ Tests core invariants of the FIFO interception queue:
 """
 
 import asyncio
-from typing import List, Optional
+from typing import List
 from unittest.mock import MagicMock
 
 import pytest

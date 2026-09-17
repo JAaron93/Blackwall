@@ -10,7 +10,6 @@ Verifies:
 
 import pytest
 from blackwall.eval.aggregator import (
-    DomainSummary,
     EvaluationAggregator,
     EvaluationResultRecord,
 )

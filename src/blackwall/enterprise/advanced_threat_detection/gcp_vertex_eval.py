@@ -10,9 +10,8 @@ Google Cloud Trace OpenTelemetry telemetry.
 from __future__ import annotations
 
 import logging
-import math
 import os
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any, Dict, Optional, Sequence, Union
 
 from pydantic import BaseModel, Field, field_validator
 

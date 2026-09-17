@@ -1,5 +1,5 @@
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 import pytest
 
 from blackwall.config import Settings, configure_provider_env, get_genai_client

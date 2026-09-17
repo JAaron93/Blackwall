@@ -9,8 +9,7 @@ Uses Hypothesis to verify:
 """
 
 import re
-from typing import Any, Dict, List
-import pytest
+from typing import Any
 from hypothesis import given, settings
 from hypothesis import strategies as st
 

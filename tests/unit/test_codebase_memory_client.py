@@ -6,8 +6,6 @@ data class construction, and graceful degradation paths.
 
 import pytest
 from datetime import datetime, timezone, timedelta
-from typing import Any
-from unittest.mock import AsyncMock, patch, MagicMock
 
 from blackwall.mcp.codebase_memory import (
     BlastRadiusIsolation,
@@ -18,7 +16,7 @@ from blackwall.mcp.codebase_memory import (
     DataFlowPath,
     DependencyChain,
 )
-from blackwall.models import ToolCallContext, CBMResponse, SinkType
+from blackwall.models import ToolCallContext, CBMResponse
 from pydantic import ValidationError
 
 

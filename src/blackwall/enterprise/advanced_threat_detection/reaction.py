@@ -18,6 +18,8 @@ from blackwall.enterprise.advanced_threat_detection.enums import (
     AlertSeverity,
     ReactionActionType,
 )
+
+__all__ = ["ActiveReactionEngine", "ReactionActionType"]
 from blackwall.enterprise.advanced_threat_detection.evaluation import (
     EvaluationEnvironmentManager,
 )

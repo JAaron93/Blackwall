@@ -1,11 +1,9 @@
 """Retrospective Analysis and Historical Query component for Blackwall Advanced Threat Detection (Pillar 6 Task 17)."""
 
 import logging
-import math
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Any
 
 from blackwall.enterprise.advanced_threat_detection.correlator import (
     MITRE_PATTERNS,
@@ -19,7 +17,6 @@ from blackwall.enterprise.advanced_threat_detection.graph_export import (
 from blackwall.enterprise.advanced_threat_detection.models import (
     AttackNode,
     AttackPath,
-    NormalizedEvent,
     SwarmEvidence,
 )
 from blackwall.enterprise.advanced_threat_detection.store import AttackGraphStore
@@ -29,7 +26,6 @@ from blackwall.validators import (
     compute_exponential_decay,
     normalize_time_window,
     utc_now,
-    validate_utc_datetime,
 )
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.retrospective")

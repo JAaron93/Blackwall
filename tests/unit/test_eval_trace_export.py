@@ -12,7 +12,6 @@ Verifies that GCPCloudTraceExporter supports:
 import json
 from blackwall.enterprise.advanced_threat_detection.gcp_trace_exporter import (
     GCPCloudTraceExporter,
-    GCPTraceSpan,
 )
 
 

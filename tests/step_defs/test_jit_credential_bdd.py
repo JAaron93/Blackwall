@@ -1,7 +1,5 @@
 """BDD Step definitions for JIT Credential Lifecycle and Privilege Dropping Isolation."""
 
-import os
-import time
 import unittest.mock
 from unittest.mock import MagicMock, patch
 

@@ -6,7 +6,6 @@ from pytest_bdd import given, scenarios, then, when
 
 from blackwall.enterprise.advanced_threat_detection.collector import EventStreamCollector
 from blackwall.enterprise.advanced_threat_detection.enums import EventSource
-from blackwall.enterprise.advanced_threat_detection.models import NormalizedEvent
 from blackwall.validators import validate_uuid_v4_format
 from tests.step_defs.async_utils import run_async
 

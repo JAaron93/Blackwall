@@ -1,6 +1,5 @@
 """BDD Step Definitions for Inbound Protocol Filter (`tests/features/inbound_protocol_filter.feature`)."""
 
-import uuid
 from typing import Any
 
 import pytest

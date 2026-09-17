@@ -9,8 +9,6 @@ Verifies:
 - CI exit code reflects threshold pass (0) / fail (1)
 """
 
-import json
-import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest

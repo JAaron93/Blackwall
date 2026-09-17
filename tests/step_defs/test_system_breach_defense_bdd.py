@@ -20,7 +20,6 @@ from blackwall.enterprise.advanced_threat_detection.config import (
 from blackwall.enterprise.advanced_threat_detection.enums import (
     AlertSeverity,
     EventSource,
-    InboundMethodType,
     InboundProtocolType,
     InjectionSourceType,
 )

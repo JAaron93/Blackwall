@@ -11,7 +11,6 @@ from pytest_bdd import given, parsers, scenarios, then, when
 from blackwall.enterprise.advanced_threat_detection import (
     AttackGraphStore,
     AttackNode,
-    AttackPath,
     EventSource,
     NormalizedEvent,
     SwarmEvidence,

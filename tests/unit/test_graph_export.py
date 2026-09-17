@@ -5,7 +5,7 @@ import os
 import tempfile
 import uuid
 import xml.etree.ElementTree as ET
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 

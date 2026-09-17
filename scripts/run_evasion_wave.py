@@ -192,7 +192,7 @@ async def run_wave(wave: int) -> float:
             "response": case_responses,
         })
         autorater = harness.build_threat_accuracy_autorater()
-        eval_result = harness.run_eval_task(
+        _eval_result = harness.run_eval_task(
             dataset=eval_dataset,
             metrics=[autorater],
             model="gemini-3.8-flash",

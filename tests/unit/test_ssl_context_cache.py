@@ -1,7 +1,6 @@
 """Unit tests for certifi cached SSLContext factory."""
 
 import ssl
-import pytest
 from blackwall.mcp.transport import get_certifi_ssl_context
 
 
