@@ -1798,7 +1798,7 @@ BLACKWALL_EVAL_CONTAINMENT = "strict"  # Suppress production mitigations in eval
 ## Dependencies
 
 ### Core Dependencies
-- **Python**: >= 3.11
+- **Python**: >= 3.14
 - **asyncpg**: PostgreSQL async driver
 - **TimescaleDB**: Time-series optimization for PostgreSQL
 - **Pydantic**: Data validation and settings management

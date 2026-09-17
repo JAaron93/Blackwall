@@ -725,7 +725,7 @@ To maintain sub-10ms local performance while leveraging frontier AI capabilities
 #### Acceptance Criteria
 
 1. THE system SHALL provide a Dockerfile that builds the Blackwall agent container image with all Python dependencies installed
-2. THE Docker image SHALL be based on `python:3.11-slim` or an equivalent minimal base image to reduce the attack surface
+2. THE Docker image SHALL be based on `python:3.14-slim` or an equivalent minimal base image to reduce the attack surface
 3. THE container SHALL run the Blackwall agent process as a non-root user with dropped OS capabilities
 4. THE system SHALL expose a health check HTTP endpoint returning HTTP 200 when all components are fully operational
 5. THE health check SHALL verify: SQLite database connectivity, GTI_MCP client reachability, Codebase_Memory_MCP client reachability, Gemini Embedding API reachability, and policy YAML rules loaded
