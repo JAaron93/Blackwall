@@ -17,7 +17,7 @@ import resource
 import sys
 import tempfile
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 # Ensure repository root is on sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
@@ -34,17 +34,73 @@ def get_rss_bytes() -> int:
     return usage * 1024
 
 
-def check_zero_cuda_allocations() -> bool:
-    """Verify that zero CUDA / GPU allocations were initiated."""
+def check_zero_cuda_allocations(daemon_pid: Optional[int] = None) -> bool:
+    """
+    Multi-layer zero-CUDA verification for DGX Spark / Linux and local environments:
+    1. Verify torch.cuda.is_initialized() is False and memory_allocated() == 0.
+    2. Inspect target daemon PID's file descriptors (/proc/<daemon_pid>/fd/) for /dev/nvidia*.
+    3. Verify target daemon PID absence from NVML active compute processes.
+    """
+    # 1. PyTorch CUDA context and allocation check
     try:
         import torch
 
-        if torch.cuda.is_available():
-            return torch.cuda.memory_allocated() == 0
-        return True
+        if hasattr(torch, "cuda"):
+            if torch.cuda.is_initialized():
+                return False
+            if torch.cuda.is_available() and torch.cuda.memory_allocated() > 0:
+                return False
     except ImportError:
-        # PyTorch not present; no CUDA allocations possible
-        return True
+        pass
+
+    # Resolve target daemon PID if not explicitly supplied
+    target_pid = daemon_pid
+    if target_pid is None:
+        pid_file = os.path.expanduser("~/.blackwall/blackwall.pid")
+        if os.path.exists(pid_file):
+            try:
+                with open(pid_file, "r") as f:
+                    content = f.read().strip()
+                    if content.isdigit():
+                        target_pid = int(content)
+            except Exception:
+                target_pid = None
+
+    # 2. Inspect /proc/<daemon_pid>/fd/ on Linux for /dev/nvidia* descriptors
+    if target_pid is not None and sys.platform.startswith("linux"):
+        fd_dir = f"/proc/{target_pid}/fd"
+        if os.path.exists(fd_dir):
+            try:
+                for entry in os.listdir(fd_dir):
+                    entry_path = os.path.join(fd_dir, entry)
+                    try:
+                        target = os.readlink(entry_path)
+                        if "/dev/nvidia" in target:
+                            return False
+                    except (OSError, FileNotFoundError):
+                        continue
+            except Exception:
+                pass
+
+    # 3. NVML active compute process verification
+    if target_pid is not None:
+        try:
+            import pynvml
+
+            pynvml.nvmlInit()
+            device_count = pynvml.nvmlDeviceGetCount()
+            for i in range(device_count):
+                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+                compute_procs = pynvml.nvmlDeviceGetComputeRunningProcesses(handle)
+                for proc in compute_procs:
+                    if proc.pid == target_pid:
+                        return False
+            pynvml.nvmlShutdown()
+        except Exception:
+            # NVML not available or no NVIDIA driver present (e.g., macOS or non-GPU CI)
+            pass
+
+    return True
 
 
 async def run_benchmark(iterations: int = 100) -> Dict[str, Any]:
@@ -55,20 +111,19 @@ async def run_benchmark(iterations: int = 100) -> Dict[str, Any]:
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
         db_path = tmp.name
 
-    repo = SQLiteThreatRepository(db_path=db_path)
-    await repo.initialize()
-
     try:
-        # Populate cache with realistic benign and malicious entries
+        repo = SQLiteThreatRepository(db_path=db_path)
+        await repo.initialize()
+
+        # Seed realistic threat intelligence records
         test_indicators = [
             ("198.51.100.1", ThreatIndicatorType.IPV4, True, 0.95),
-            ("198.51.100.2", ThreatIndicatorType.IPV4, False, 0.0),
-            ("c2-malicious.xyz", ThreatIndicatorType.DOMAIN, True, 0.88),
-            ("trusted-service.internal", ThreatIndicatorType.DOMAIN, False, 0.0),
-            ("http://malware-drop.com/payload.sh", ThreatIndicatorType.URL, True, 0.99),
-            ("http://example.com/api/v1", ThreatIndicatorType.URL, False, 0.0),
+            ("203.0.113.42", ThreatIndicatorType.IPV4, False, 0.05),
+            ("malicious-c2-node.com", ThreatIndicatorType.DOMAIN, True, 0.88),
+            ("trusted-partner-api.org", ThreatIndicatorType.DOMAIN, False, 0.02),
+            ("http://malware-distribution.net/payload.bin", ThreatIndicatorType.URL, True, 0.99),
             ("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", ThreatIndicatorType.FILE_HASH, False, 0.0),
-            ("44d88612fea8a8f36de82e1278abb02f", ThreatIndicatorType.FILE_HASH, True, 0.80),
+            ("d41d8cd98f00b204e9800998ecf8427e", ThreatIndicatorType.FILE_HASH, True, 0.75),
         ]
 
         for ind, ind_type, is_mal, risk in test_indicators:
@@ -110,7 +165,7 @@ async def run_benchmark(iterations: int = 100) -> Dict[str, Any]:
         rss_overhead_mb = max(0.0, (rss_current - rss_baseline) / (1024 * 1024))
 
         zero_cuda = check_zero_cuda_allocations()
-        latency_passed = avg_latency_ms <= 1.0 or min_latency_ms <= 1.0
+        latency_passed = avg_latency_ms <= 1.0
         memory_passed = rss_overhead_mb <= 50.0
 
         all_passed = latency_passed and memory_passed and zero_cuda

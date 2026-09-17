@@ -35,6 +35,36 @@ async def test_threat_intel_memory_overhead_sla() -> None:
     assert result["rss_overhead_mb"] <= 50.0, f"Memory overhead {result['rss_overhead_mb']:.2f}MB exceeded 50MB"
 
 
-def test_zero_cuda_allocations() -> None:
-    """Assert that zero CUDA / GPU tensor memory allocations occur."""
+def test_zero_cuda_allocations_baseline() -> None:
+    """Assert that zero CUDA / GPU tensor memory allocations occur in default CPU execution."""
     assert check_zero_cuda_allocations() is True
+
+
+def test_zero_cuda_allocations_detects_initialized_cuda_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Assert that an initialized CUDA context is detected even if memory allocated is zero."""
+    import types
+
+    fake_torch = types.ModuleType("torch")
+    fake_cuda = types.SimpleNamespace(
+        is_initialized=lambda: True,
+        is_available=lambda: True,
+        memory_allocated=lambda: 0,
+    )
+    fake_torch.cuda = fake_cuda
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+    assert check_zero_cuda_allocations() is False
+
+
+def test_zero_cuda_allocations_detects_nvidia_descriptors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Assert that /dev/nvidia* descriptors on a daemon PID cause failure on Linux."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(os.path, "exists", lambda p: True if "fd" in p else False)
+    monkeypatch.setattr(os, "listdir", lambda p: ["0", "1", "2"])
+    monkeypatch.setattr(
+        os,
+        "readlink",
+        lambda p: "/dev/nvidia0" if p.endswith("2") else "/dev/null",
+    )
+
+    assert check_zero_cuda_allocations(daemon_pid=12345) is False

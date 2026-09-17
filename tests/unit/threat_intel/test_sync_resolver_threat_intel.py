@@ -117,3 +117,82 @@ async def test_sync_resolver_high_burst_no_throttling(mock_genai_client, mock_th
     metrics = resolver.get_metrics()
     assert metrics["total_evaluations"] == 20
     assert metrics["rate_limit_hits"] == 0
+
+
+@pytest.mark.asyncio
+async def test_sync_resolver_async_budget_tracker_enforced(mock_genai_client, mock_threat_intel):
+    """SyncResolver awaits async budget tracker and defers lookup when budget is exhausted."""
+    async_tracker = MagicMock()
+    async_tracker.try_acquire = AsyncMock(return_value=False)
+
+    resolver = SyncResolver(
+        client=mock_genai_client,
+        threat_intel=mock_threat_intel,
+        gti_budget_tracker=async_tracker,
+        demo_mode=False,
+    )
+
+    context = ToolCallContext(
+        tool_name="http_request",
+        arguments={"url": "http://198.51.100.1/test"},
+    )
+    await resolver.evaluate(context)
+
+    async_tracker.try_acquire.assert_awaited_once()
+    mock_threat_intel.lookup.assert_not_called()
+    assert resolver._threat_intel_queries_deferred == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_resolver_async_budget_tracker_allowed(mock_genai_client, mock_threat_intel):
+    """SyncResolver awaits async budget tracker and proceeds with lookup when allowed."""
+    async_tracker = MagicMock()
+    async_tracker.try_acquire = AsyncMock(return_value=True)
+
+    mock_threat_intel.lookup.return_value = ThreatIntelResponse(
+        indicator="198.51.100.1",
+        indicator_type=ThreatIndicatorType.IPV4,
+        is_malicious=False,
+        risk_score=0.1,
+        provider_name="AlienVault OTX",
+    )
+
+    resolver = SyncResolver(
+        client=mock_genai_client,
+        threat_intel=mock_threat_intel,
+        gti_budget_tracker=async_tracker,
+        demo_mode=False,
+    )
+
+    context = ToolCallContext(
+        tool_name="http_request",
+        arguments={"url": "http://198.51.100.1/test"},
+    )
+    await resolver.evaluate(context)
+
+    async_tracker.try_acquire.assert_awaited_once()
+    mock_threat_intel.lookup.assert_called_once()
+    assert resolver._threat_intel_queries_deferred == 0
+
+
+@pytest.mark.asyncio
+async def test_sync_resolver_budget_tracker_fails_closed_on_error(mock_genai_client, mock_threat_intel):
+    """SyncResolver fails closed and defers lookup if budget tracker raises an exception."""
+    faulty_tracker = MagicMock()
+    faulty_tracker.try_acquire = AsyncMock(side_effect=RuntimeError("Tracker connection failed"))
+
+    resolver = SyncResolver(
+        client=mock_genai_client,
+        threat_intel=mock_threat_intel,
+        gti_budget_tracker=faulty_tracker,
+        demo_mode=False,
+    )
+
+    context = ToolCallContext(
+        tool_name="http_request",
+        arguments={"url": "http://198.51.100.1/test"},
+    )
+    await resolver.evaluate(context)
+
+    mock_threat_intel.lookup.assert_not_called()
+    assert resolver._threat_intel_queries_deferred == 1

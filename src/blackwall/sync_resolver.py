@@ -628,10 +628,25 @@ class SyncResolver:
 
         # Budget check (if legacy or token tracker present)
         if self.gti_budget_tracker is not None:
+            acquired = False
             try:
-                acquired = getattr(self.gti_budget_tracker, "tryAcquire", lambda: True)()
-            except Exception:
-                acquired = True
+                acquire_fn = getattr(
+                    self.gti_budget_tracker,
+                    "try_acquire",
+                    getattr(self.gti_budget_tracker, "tryAcquire", None),
+                )
+                if acquire_fn is not None:
+                    res = acquire_fn()
+                    if inspect.isawaitable(res):
+                        res = await res
+                    acquired = bool(res)
+            except Exception as exc:
+                logger.warning(
+                    "Threat intelligence budget tracker error: %s",
+                    exc,
+                )
+                acquired = False
+
             if not acquired:
                 self._threat_intel_queries_deferred += 1
                 self._gti_budget_exhausted = True
