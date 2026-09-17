@@ -177,3 +177,25 @@ class TestPayloadInterceptor:
         redacted = interceptor.redact_for_storage(payload)
         assert redacted["params"]["arguments"]["access_token"] == ["[[API_KEY]]", "[[API_KEY]]"]
         assert redacted["params"]["arguments"]["password"] == ["[[PASSWORD]]", "[[PASSWORD]]"]
+
+    def test_intercept_preserves_meta_in_context_metadata(self):
+        interceptor = PayloadInterceptor()
+        payload = {
+            "jsonrpc": "2.0",
+            "id": "meta-test-1",
+            "method": "tools/call",
+            "params": {
+                "name": "execute_bash",
+                "arguments": {"command": "echo hello"},
+                "_meta": {
+                    "environment_role": "staging",
+                    "session_id": "sess-xyz",
+                },
+            },
+        }
+        context, req_id = interceptor.intercept(payload)
+        assert context.metadata is not None
+        assert context.metadata.get("environment_role") == "staging"
+        assert context.metadata.get("session_id") == "sess-xyz"
+        assert context.metadata.get("request_id") == "meta-test-1"
+        assert context.metadata.get("method") == "tools/call"

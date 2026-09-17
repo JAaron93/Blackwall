@@ -386,47 +386,65 @@ class SyncResolver:
 
         # 2c. Evaluate structural policy rules if policy_server is configured
         if self.policy_server:
-            struct_engine = getattr(
-                self.policy_server, "structural_engine", self.policy_server
+            pol = getattr(
+                getattr(self.policy_server, "structural_engine", None),
+                "_policy",
+                None,
             )
-            if hasattr(struct_engine, "evaluate"):
-                role = (
-                    (sanitized.metadata or {}).get("environment_role", "production")
-                    if sanitized.metadata
-                    else "production"
+            enable_structural = True
+            if pol and hasattr(pol, "global_config"):
+                enable_structural = getattr(
+                    pol.global_config, "enableStructuralGating", True
                 )
-                try:
-                    struct_result = struct_engine.evaluate(sanitized, role)
-                    if hasattr(struct_result, "decision"):
-                        from blackwall.policy.models import StructuralAction
+            elif isinstance(pol, dict):
+                enable_structural = pol.get("global", {}).get(
+                    "enableStructuralGating", True
+                )
 
-                        if struct_result.decision == StructuralAction.BLOCK:
-                            self._block_count += 1
-                            self._total_evaluations += 1
-                            elapsed = (time.time() - t0) * 1000.0
-                            self._total_latency_ms += elapsed
-                            verdict = Verdict(
-                                decision=VerdictDecision.BLOCK,
-                                reasoning=f"Blocked via structural policy rule: {getattr(struct_result, 'ruleId', None) or 'rule'}",
-                                confidence_score=1.0,
-                            )
-                            self._schedule_attribution(context, verdict)
-                            return verdict
-                        elif (
-                            struct_result.decision == StructuralAction.ALLOW
-                            and not getattr(struct_result, "requireSemanticReview", False)
-                        ):
-                            self._allow_count += 1
-                            self._total_evaluations += 1
-                            elapsed = (time.time() - t0) * 1000.0
-                            self._total_latency_ms += elapsed
-                            return Verdict(
-                                decision=VerdictDecision.ALLOW,
-                                reasoning=f"Allowed via structural policy rule: {getattr(struct_result, 'ruleId', None) or 'rule'}",
-                                confidence_score=0.0,
-                            )
-                except Exception as struct_exc:
-                    logger.warning("Error evaluating structural policy: %s", struct_exc)
+            if enable_structural:
+                struct_engine = getattr(
+                    self.policy_server, "structural_engine", self.policy_server
+                )
+                if hasattr(struct_engine, "evaluate"):
+                    role = "production"
+                    if sanitized.metadata:
+                        role = (
+                            sanitized.metadata.get("environment_role")
+                            or sanitized.metadata.get("environmentRole")
+                            or "production"
+                        )
+                    try:
+                        struct_result = struct_engine.evaluate(sanitized, role)
+                        if hasattr(struct_result, "decision"):
+                            from blackwall.policy.models import StructuralAction
+
+                            if struct_result.decision == StructuralAction.BLOCK:
+                                self._block_count += 1
+                                self._total_evaluations += 1
+                                elapsed = (time.time() - t0) * 1000.0
+                                self._total_latency_ms += elapsed
+                                verdict = Verdict(
+                                    decision=VerdictDecision.BLOCK,
+                                    reasoning=f"Blocked via structural policy rule: {getattr(struct_result, 'ruleId', None) or 'rule'}",
+                                    confidence_score=1.0,
+                                )
+                                self._schedule_attribution(context, verdict)
+                                return verdict
+                            elif (
+                                struct_result.decision == StructuralAction.ALLOW
+                                and not getattr(struct_result, "requireSemanticReview", False)
+                            ):
+                                self._allow_count += 1
+                                self._total_evaluations += 1
+                                elapsed = (time.time() - t0) * 1000.0
+                                self._total_latency_ms += elapsed
+                                return Verdict(
+                                    decision=VerdictDecision.ALLOW,
+                                    reasoning=f"Allowed via structural policy rule: {getattr(struct_result, 'ruleId', None) or 'rule'}",
+                                    confidence_score=0.0,
+                                )
+                    except Exception as struct_exc:
+                        logger.warning("Error evaluating structural policy: %s", struct_exc)
 
         # 3. Query structural policy and Codebase Memory first (gating before external query)
         cbm_resp: Optional[CBMResponse] = await self._query_cbm(sanitized)
@@ -473,11 +491,16 @@ class SyncResolver:
                     "_policy",
                     None,
                 )
-                if pol and hasattr(pol, "global_config"):
-                    block_thresh = getattr(pol.global_config, "threatThreshold", 0.75)
-                    quarantine_thresh = getattr(
-                        pol.global_config, "quarantineThreshold", 0.50
-                    )
+                if pol:
+                    if hasattr(pol, "global_config"):
+                        block_thresh = getattr(pol.global_config, "threatThreshold", 0.75)
+                        quarantine_thresh = getattr(
+                            pol.global_config, "quarantineThreshold", 0.50
+                        )
+                    elif isinstance(pol, dict):
+                        g = pol.get("global") or pol.get("global_config", {})
+                        block_thresh = g.get("threatThreshold", 0.75)
+                        quarantine_thresh = g.get("quarantineThreshold", 0.50)
             if score >= block_thresh:
                 decision = VerdictDecision.BLOCK
             elif score >= quarantine_thresh:

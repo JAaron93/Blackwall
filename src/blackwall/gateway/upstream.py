@@ -125,6 +125,18 @@ class StdioUpstreamServer(BaseUpstreamServer):
                 preexec_fn=preexec,
                 env=merged_env,
             )
+            if not hasattr(self._proc, "poll"):
+                def _proc_poll() -> int | None:
+                    if self._proc and hasattr(self._proc, "_transport") and self._proc._transport:
+                        subproc = self._proc._transport.get_extra_info("subprocess")
+                        if subproc and hasattr(subproc, "poll") and callable(subproc.poll):
+                            try:
+                                return subproc.poll()
+                            except (ChildProcessError, OSError):
+                                pass
+                    return self._proc.returncode if self._proc else None
+
+                self._proc.poll = _proc_poll  # type: ignore[attr-defined]
         except Exception as exc:
             raise UpstreamProcessError(
                 f"Failed to spawn stdio upstream '{self.name}': {exc}"
@@ -142,66 +154,74 @@ class StdioUpstreamServer(BaseUpstreamServer):
     def _reap_process(self) -> None:
         """Explicitly reaps the child process using poll() to prevent zombie processes."""
         if self._proc is not None:
-            if hasattr(self._proc, "poll"):
-                self._proc.poll()
+            if hasattr(self._proc, "poll") and callable(self._proc.poll):
+                try:
+                    self._proc.poll()
+                except Exception:
+                    pass
             elif hasattr(self._proc, "_transport") and self._proc._transport:
                 subproc = self._proc._transport.get_extra_info("subprocess")
-                if subproc and hasattr(subproc, "poll"):
-                    subproc.poll()
+                if subproc and hasattr(subproc, "poll") and callable(subproc.poll):
+                    try:
+                        subproc.poll()
+                    except (ChildProcessError, OSError):
+                        pass
 
     async def _stdout_loop(self) -> None:
         """Continuously reads newline-delimited JSON-RPC responses from stdout."""
         if not self._proc or not self._proc.stdout:
             return
 
-        while not self._stopping:
-            try:
-                line = await self._proc.stdout.readline()
-                if not line:
-                    self._reap_process()
-                    if not self._stopping:
+        try:
+            while not self._stopping:
+                try:
+                    line = await self._proc.stdout.readline()
+                    if not line:
+                        self._reap_process()
                         for req_id, fut in list(self._pending.items()):
                             if not fut.done():
                                 fut.set_exception(
                                     UpstreamProcessError("Upstream process exited abruptly")
                                 )
                         self._pending.clear()
+                        break
+
+                    text = line.decode("utf-8").strip()
+                    if not text:
+                        continue
+
+                    try:
+                        data = json.loads(text)
+                    except Exception:
+                        logger.debug(
+                            "Malformed JSON on stdout from '%s': %s", self.name, text
+                        )
+                        continue
+
+                    if isinstance(data, dict):
+                        req_id = data.get("id")
+                        if req_id is not None and req_id in self._pending:
+                            fut = self._pending.pop(req_id)
+                            if not fut.done():
+                                fut.set_result(data)
+                except asyncio.CancelledError:
                     break
-
-                text = line.decode("utf-8").strip()
-                if not text:
-                    continue
-
-                try:
-                    data = json.loads(text)
-                except Exception:
-                    logger.debug(
-                        "Malformed JSON on stdout from '%s': %s", self.name, text
-                    )
-                    continue
-
-                if isinstance(data, dict):
-                    req_id = data.get("id")
-                    if req_id is not None and req_id in self._pending:
-                        fut = self._pending.pop(req_id)
-                        if not fut.done():
-                            fut.set_result(data)
-            except asyncio.CancelledError:
-                break
-            except Exception as exc:
-                if not self._stopping:
-                    logger.error(
-                        "Error reading stdout from upstream '%s': %s", self.name, exc
-                    )
-                    for req_id, fut in list(self._pending.items()):
-                        if not fut.done():
-                            fut.set_exception(
-                                UpstreamProcessError(
-                                    f"Upstream server '{self.name}' reader failed: {exc}"
+                except Exception as exc:
+                    if not self._stopping:
+                        logger.error(
+                            "Error reading stdout from upstream '%s': %s", self.name, exc
+                        )
+                        for req_id, fut in list(self._pending.items()):
+                            if not fut.done():
+                                fut.set_exception(
+                                    UpstreamProcessError(
+                                        f"Upstream server '{self.name}' reader failed: {exc}"
+                                    )
                                 )
-                            )
-                    self._pending.clear()
-                break
+                        self._pending.clear()
+                    break
+        finally:
+            self._reap_process()
 
     async def _stderr_loop(self) -> None:
         """Drains stderr to prevent buffer deadlocks and logs warnings."""
@@ -534,16 +554,17 @@ class UpstreamManager:
 
             # Tool discovery
             await self.discover_tools()
-        except Exception:
+        except BaseException:
             for s in started_servers:
                 try:
-                    await s.stop()
+                    await asyncio.wait_for(s.stop(), timeout=5.0)
                 except Exception as stop_exc:
                     logger.warning(
                         "Error stopping server '%s' during startup rollback: %s",
                         s.name,
                         stop_exc,
                     )
+            self._tool_to_server.clear()
             raise
 
     async def discover_tools(self) -> None:

@@ -1133,8 +1133,10 @@ async def _run_gateway(
 
         if transport.lower() == "http":
             await server.start_http()
-            await stop_event.wait()
-            await server.stop()
+            try:
+                await stop_event.wait()
+            finally:
+                await server.stop()
         else:
             reader = asyncio.StreamReader()
             protocol = asyncio.StreamReaderProtocol(reader)
@@ -1145,18 +1147,27 @@ async def _run_gateway(
             writer = asyncio.StreamWriter(w_transport, w_protocol, reader, loop)
             stdio_task = asyncio.create_task(server.handle_stdio_stream(reader, writer))
             stop_task = asyncio.create_task(stop_event.wait())
-            done, pending = await asyncio.wait(
-                [stdio_task, stop_task], return_when=asyncio.FIRST_COMPLETED
-            )
-            for t in pending:
-                t.cancel()
+            try:
+                done, pending = await asyncio.wait(
+                    [stdio_task, stop_task], return_when=asyncio.FIRST_COMPLETED
+                )
+                for t in pending:
+                    t.cancel()
+            finally:
+                await server.stop()
     finally:
         if upstream_mgr:
-            await upstream_mgr.stop()
+            try:
+                await upstream_mgr.stop()
+            except Exception as exc:
+                logger.warning("Error stopping upstream manager: %s", exc)
         if repo and hasattr(repo, "close"):
-            res = repo.close()
-            if inspect.isawaitable(res):
-                await res
+            try:
+                res = repo.close()
+                if inspect.isawaitable(res):
+                    await res
+            except Exception as exc:
+                logger.warning("Error closing SQLiteThreatRepository: %s", exc)
 
 
 @cli.command(name="serve")

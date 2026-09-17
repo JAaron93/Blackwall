@@ -562,3 +562,60 @@ for line in sys.stdin:
         mock_server3.start.assert_not_called()
         mock_server3.stop.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_startup_cancellation_stops_started_servers(self) -> None:
+        """P1: When UpstreamManager.start() task is cancelled, all started servers are stopped."""
+        manager = UpstreamManager(
+            config={
+                "upstream_servers": [
+                    {"name": "placeholder", "command": "dummy", "transport": "stdio"}
+                ]
+            }
+        )
+
+        mock_server1 = MagicMock()
+        mock_server1.name = "server-1"
+        mock_server1.start = AsyncMock()
+        mock_server1.stop = AsyncMock()
+
+        async def _hang_on_start():
+            await asyncio.sleep(10.0)
+
+        mock_server2 = MagicMock()
+        mock_server2.name = "server-2"
+        mock_server2.start = AsyncMock(side_effect=_hang_on_start)
+        mock_server2.stop = AsyncMock()
+
+        manager.servers = [mock_server1, mock_server2]
+
+        task = asyncio.create_task(manager.start())
+        await asyncio.sleep(0.05)
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        mock_server1.stop.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_real_stdio_exit_reaped_and_pollable(self) -> None:
+        """P1: Verifies a real process exiting abruptly has a callable poll() and is cleanly reaped."""
+        server = StdioUpstreamServer(
+            name="rapid-exit",
+            command=f"{sys.executable} -c 'import sys; sys.exit(0)'",
+        )
+        await server.start()
+        assert server._proc is not None
+        assert hasattr(server._proc, "poll")
+
+        # Send request that will be aborted when process exits immediately
+        req = {"jsonrpc": "2.0", "id": "rapid-1", "method": "tools/call", "params": {"name": "test"}}
+        with pytest.raises(UpstreamProcessError):
+            await server.send_request(req, timeout=2.0)
+
+        # Confirm process has been reaped and poll() returns exit code
+        await asyncio.sleep(0.05)
+        rc = server._proc.poll()
+        assert rc is not None
+        await server.stop()
+

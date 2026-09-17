@@ -96,13 +96,18 @@ class PayloadInterceptor:
         # Context Hygiene: redact sensitive credentials, tokens, and passwords
         sanitized_arguments = self._sanitize_value(raw_arguments)
 
+        meta = params.get("_meta")
+        context_metadata: dict[str, Any] = {
+            "request_id": request_id,
+            "method": method,
+        }
+        if isinstance(meta, dict):
+            context_metadata.update(meta)
+
         context = ToolCallContext(
             tool_name=tool_name,
             arguments=sanitized_arguments,
-            metadata={
-                "request_id": request_id,
-                "method": method,
-            },
+            metadata=context_metadata,
         )
 
         logger.debug(
