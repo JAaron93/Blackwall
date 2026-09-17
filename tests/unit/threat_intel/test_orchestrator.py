@@ -670,6 +670,34 @@ async def test_orchestrator_harpoon_primary_pulse_lookup_delegates_to_fallback()
     mock_otx.get_pulse.assert_called_once_with("pulse-999", timeout=3.0)
 
 
+@pytest.mark.asyncio
+async def test_orchestrator_get_pulse_enforces_circuit_breaker() -> None:
+    """Verify get_pulse respects circuit breaker OPEN state and raises CircuitBreakerOpenError."""
+    from unittest.mock import AsyncMock
+    from blackwall.threat_intel.circuit_breaker import CircuitBreakerOpenError, CircuitState
+
+    mock_otx = MockProvider(
+        name="otx",
+        supported_indicators={ThreatIndicatorType.IPV4},
+    )
+    mock_otx.get_pulse = AsyncMock(return_value={"id": "pulse-111", "name": "Test"})
+
+    orch = ThreatIntelOrchestrator(
+        primary_provider=mock_otx,
+        cache_enabled=False,
+        wrap_circuit_breaker=True,
+    )
+
+    # Trip circuit breaker to OPEN
+    cb_provider = orch.primary_provider
+    for _ in range(5):
+        cb_provider.circuit_breaker.record_failure(Exception("simulated provider failure"))
+
+    with pytest.raises(CircuitBreakerOpenError):
+        await orch.get_pulse("pulse-111")
+
+
+
 
 
 

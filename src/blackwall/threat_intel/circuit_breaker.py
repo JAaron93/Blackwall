@@ -239,10 +239,22 @@ class CircuitBreakerProvider:
     async def get_pulse(
         self, pulse_id: str, timeout: Optional[float] = None
     ) -> dict[str, Any]:
-        """Pass through pulse lookup to underlying provider if supported."""
-        if hasattr(self.provider, "get_pulse"):
-            return await self.provider.get_pulse(pulse_id, timeout=timeout)
-        raise NotImplementedError("Underlying provider does not support pulse lookups")
+        """Fetch pulse details through circuit breaker with timeout protection."""
+        if not hasattr(self.provider, "get_pulse"):
+            raise NotImplementedError("Underlying provider does not support pulse lookups")
+
+        effective_timeout = timeout if timeout is not None else self.timeout
+
+        if self.circuit_breaker.state == CircuitState.OPEN:
+            raise CircuitBreakerOpenError(
+                f"Circuit breaker for {self.name} is OPEN (cannot fetch pulse)"
+            )
+
+        return await self.circuit_breaker.call(
+            self.provider.get_pulse,
+            pulse_id,
+            timeout=effective_timeout,
+        )
 
     def _make_fallback_response(
         self,
