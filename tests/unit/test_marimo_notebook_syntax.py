@@ -96,3 +96,18 @@ def test_notebook_malicious_ground_truth_recognition():
     assert '"MALICIOUS"' in source
     assert 'ground_truth in ("MALICIOUS", "ADVERSARIAL")' in source or 'is_hostile' in source
     assert 'actual_results' in source
+
+
+def test_notebook_unmeasured_recorded_eval_handling():
+    """Verify unmeasured evaluation cases are not overstated as matches or substituted."""
+    source = NOTEBOOK_PATH.read_text(encoding="utf-8")
+    assert 'disp_recorded_verdict = "—"' in source
+    assert 'disp_recorded_match = "—"' in source
+    # Verify we don't substitute exp_verdict when recorded_verdict is None
+    assert 'recorded_verdict if recorded_verdict else exp_verdict' not in source
+
+
+def test_notebook_decision_match_covers_critical_and_block():
+    """Verify BLOCK simulated verdict satisfies BLOCK or CRITICAL expectations."""
+    source = NOTEBOOK_PATH.read_text(encoding="utf-8")
+    assert 'simulated_verdict == "BLOCK" and exp_verdict in ("BLOCK", "CRITICAL")' in source
