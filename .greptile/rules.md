@@ -41,6 +41,11 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 
 - **Execution Flow**: In `SyncResolver`, execution flow MUST follow:
   `Rate Check` -> `ContextHygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Threat Intelligence Validation (AlienVault OTX / Multi-Provider Orchestrator)` -> `Optional Semantic Triage (Gemini 3.5 Flash-Lite)` -> `Score Aggregation` -> `Threshold Verdict` -> `Optional Inline Signature Generation`.
+- **Rust Substrate & Asynchronous Attribution Invariants**:
+  - Native Rust SIMD acceleration (`blackwall._core_rs`) underpins individual operations (ContextSanitizer regex in Step 1, FTS5 word-intersection quality in Step 2, entropy calculation); it is NOT a standalone sequential pipeline stage.
+  - Attacker attribution (`_schedule_attribution`) is executed out-of-band as an async background task dispatched only post-verdict on `BLOCK` or `QUARANTINE` with a non-blocking `<5ms` budget.
+  - `BLOCK` verdicts dispatch inline signature generation (`_inline_generate_signature`), whereas `QUARANTINE` verdicts dispatch quarantine refactoring hints (`_handle_quarantine_refactoring`).
+  - Attribution persistence writes ONLY `AttackerProfile` into SQLite WAL storage (`repo.upsert_attacker_profile()`); generated `IncidentReport` objects are emitted directly to external notification sinks (`_emit_sinks()`) and are NOT retained in the database.
 - **Context Hygiene**: Sensitivity maskers MUST replace credentials with generic placeholders (`[[VARIABLE_NAME]]`). For semantic triage, `preserve_iocs=True` preserves target URLs, domains, and filesystem paths (`/etc/shadow`) while strictly redacting secrets and credentials.
 - **FTS5 Similarity Scoring**: SQLite Threat Signature Graph queries MUST use word-level intersection match quality calculation scaled by BM25 rank score: `fts_rank_scale = min(max(1.0 + abs(bm25_rank) / 10.0, 1.0), 1.5)`.
 - **Threat Signature Graph URL-Decoding**: SQLite TSG queries and pattern matching MUST perform URL-decoding (`urllib.parse.unquote`) on candidate queries/arguments prior to pattern matching to detect encoded evasion attempts against persisted plaintext patterns.
@@ -179,6 +184,12 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 * **ADK `before_tool_callback` Non-Crashing Return Contract**: In ADK agent evaluation harnesses, `before_tool_callback` MUST return a dictionary `{"status": "blocked", "verdict": "BLOCK", "error": f"[BLACKWALL BLOCK] {reasoning}"}` rather than raising exceptions (`PermissionError`). Do NOT flag returning an interception dictionary as "failing to enforce security policy" or demand raising unhandled exceptions that crash the ADK graph.
 * **Dual-Gate Trajectory & Rubric Scoring**: Formal ADK evaluations require dual gating: deterministic exact trajectory match (`tool_trajectory_avg_score: 1.0`) AND LLM-as-a-judge rubric scoring (`rubric_based_tool_use_quality_v1`). Do NOT flag trajectory score assertion checks or rubric dual gates as redundant metrics.
 * **Agent Entrypoint Knowledge Graph Client**: The agent entrypoint (`agent/__init__.py`) must wire `SyncResolver` with `cbm_client=CodebaseMemoryClient(base_url=os.getenv("CBM_MCP_BASE_URL"))` to satisfy the base branch interception flow.
+* **Evaluation Dashboard & Interactive Analytics Standards (Marimo / Jupyter)**:
+  - Developer analytics dashboards under `notebooks/` declared in `[project.optional-dependencies] dev` MUST include all direct and transitive dependencies (such as `pandas>=3.0.0`) within the `dev` extra.
+  - Evaluation dashboards and scenario drill-downs MUST recognize canonical `ground_truth: "MALICIOUS"` from `blackwall_security.evalset.json` alongside `"ADVERSARIAL"` to avoid scoring hostile test cases as benign.
+  - Cases not present in recorded evaluation reports (`security_report.json`) MUST be rendered as unmeasured (`"—"`); code must NOT substitute expected verdicts or assume passing matches.
+  - Performance SLA contract matrices MUST use strict `<` boundary checks matching the authoritative benchmark runner (`runner.py`).
+  - Append-only evaluation history streams (`history.jsonl`) MUST catch JSON decoding errors per-line, skipping individual corrupted lines without discarding valid history.
 
 ---
 
