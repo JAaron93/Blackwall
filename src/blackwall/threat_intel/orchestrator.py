@@ -48,6 +48,8 @@ class ThreatIntelOrchestrator:
         self.repository = repository
         self.cache_enabled = cache_enabled
         self.timeout = timeout
+        self._cache_hits: int = 0
+        self._cache_misses: int = 0
 
         if primary_provider is not None:
             self.primary_provider = (
@@ -175,12 +177,17 @@ class ThreatIntelOrchestrator:
                 indicator, ind_type_str, provider=cache_provider
             )
             if cached_resp is not None:
+                self._cache_hits += 1
                 logger.debug(
                     "Threat intel cache hit for %s (provider=%s)",
                     indicator,
                     cache_provider,
                 )
                 return cached_resp
+            else:
+                self._cache_misses += 1
+        elif self.cache_enabled and not no_cache:
+            self._cache_misses += 1
 
         # Step 3: Query providers concurrently
 
@@ -296,4 +303,68 @@ class ThreatIntelOrchestrator:
             async with self.repository.pool.connection() as conn:
                 cursor = await conn.execute("DELETE FROM threat_intel_cache")
                 return cursor.rowcount
+
+    async def get_pulse(
+        self, pulse_id: str, timeout: Optional[float] = None
+    ) -> dict[str, Any]:
+        """Fetch pulse details from the primary OTX provider."""
+        effective_timeout = timeout if timeout is not None else self.timeout
+        provider = self.primary_provider
+        if isinstance(provider, CircuitBreakerProvider):
+            provider = provider.provider
+        if hasattr(provider, "get_pulse"):
+            return await provider.get_pulse(pulse_id, timeout=effective_timeout)
+        raise NotImplementedError("Primary provider does not support pulse lookups")
+
+    async def get_cache_stats(self) -> dict[str, Any]:
+        """Get cache statistics from the repository."""
+        import time
+
+        if self.repository is None:
+            return {
+                "total_entries": 0,
+                "active_entries": 0,
+                "expired_entries": 0,
+                "malicious_entries": 0,
+                "size_bytes": 0,
+                "hits": self._cache_hits,
+                "misses": self._cache_misses,
+            }
+        await self.repository.initialize()
+        now = time.time()
+        async with self.repository.pool.connection() as conn:
+            c_total = await conn.execute("SELECT COUNT(*) FROM threat_intel_cache")
+            total_row = await c_total.fetchone()
+            total = total_row[0] if total_row else 0
+
+            c_exp = await conn.execute(
+                "SELECT COUNT(*) FROM threat_intel_cache WHERE expires_at <= ?", (now,)
+            )
+            exp_row = await c_exp.fetchone()
+            expired = exp_row[0] if exp_row else 0
+
+            c_mal = await conn.execute(
+                "SELECT COUNT(*) FROM threat_intel_cache WHERE is_malicious = 1"
+            )
+            mal_row = await c_mal.fetchone()
+            malicious = mal_row[0] if mal_row else 0
+
+            c_size = await conn.execute(
+                "SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM threat_intel_cache"
+            )
+            size_row = await c_size.fetchone()
+            size_bytes = size_row[0] if size_row else 0
+
+            active = max(0, total - expired)
+
+            return {
+                "total_entries": total,
+                "active_entries": active,
+                "expired_entries": expired,
+                "malicious_entries": malicious,
+                "size_bytes": size_bytes,
+                "hits": self._cache_hits,
+                "misses": self._cache_misses,
+            }
+
 

@@ -357,3 +357,40 @@ class AlienVaultOTXProvider:
             raise OTXLookupError(
                 f"OTX lookup failed for {sanitized}: {str(e)}"
             ) from e
+
+    async def get_pulse(
+        self,
+        pulse_id: str,
+        timeout: float = 3.0,
+    ) -> Dict[str, Any]:
+        """Fetches detailed pulse metadata by pulse ID from AlienVault OTX."""
+        pulse_id = pulse_id.strip()
+        if not self._check_circuit_breaker():
+            logger.warning(
+                "OTX circuit breaker is OPEN. Failing fast for pulse: %s", pulse_id
+            )
+            raise OTXCircuitBreakerOpenError(
+                f"OTX circuit breaker is OPEN for pulse: {pulse_id}"
+            )
+
+        acquired = await self.token_bucket.try_acquire()
+        if not acquired:
+            logger.warning("OTX token bucket exhausted for pulse: %s", pulse_id)
+            raise OTXTokenBucketExhaustedError(
+                f"OTX token bucket exhausted for pulse: {pulse_id}"
+            )
+
+        endpoint = f"pulses/{pulse_id}"
+        try:
+            raw = await asyncio.wait_for(
+                self._execute_http_get(endpoint), timeout=timeout
+            )
+            self._record_success()
+            return raw
+        except Exception as e:
+            logger.warning("OTX pulse fetch failed for %s: %s", pulse_id, str(e))
+            self._record_failure()
+            raise OTXLookupError(
+                f"OTX pulse fetch failed for {pulse_id}: {str(e)}"
+            ) from e
+
