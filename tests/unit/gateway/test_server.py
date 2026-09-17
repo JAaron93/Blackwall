@@ -565,3 +565,57 @@ class TestMCPGatewayServerStdio:
         lines = [line for line in writer_buffer.decode("utf-8").strip().split("\n") if line]
         assert len(lines) == 6
 
+    @pytest.mark.asyncio
+    async def test_stdio_cancellation_bypasses_semaphore_starvation(self):
+        server = MCPGatewayServer()
+        server.flow_controller.max_queue_size = 1
+
+        async def mock_downstream(payload: dict[str, Any]) -> dict[str, Any]:
+            if payload.get("method") == "tools/call":
+                await asyncio.sleep(2.0)
+            return {"jsonrpc": "2.0", "id": payload.get("id"), "result": {}}
+
+        server.downstream_handler = mock_downstream
+
+        reader = asyncio.StreamReader()
+        writer_buffer = bytearray()
+
+        class MockWriter:
+            def write(self, data: bytes):
+                writer_buffer.extend(data)
+
+            async def drain(self):
+                pass
+
+        # 1. Feed a slow tool call that takes the 1 permit
+        tool_call = {
+            "jsonrpc": "2.0",
+            "id": "slow-call-1",
+            "method": "tools/call",
+            "params": {"name": "slow_tool", "arguments": {}},
+        }
+        reader.feed_data((json.dumps(tool_call) + "\n").encode("utf-8"))
+
+        # 2. Feed a cancellation notification immediately after
+        cancel_notif = {
+            "jsonrpc": "2.0",
+            "method": "notifications/cancelled",
+            "params": {"requestId": "slow-call-1"},
+        }
+        reader.feed_data((json.dumps(cancel_notif) + "\n").encode("utf-8"))
+        reader.feed_eof()
+
+        # Run stdio handler and verify cancellation finishes fast (< 0.5s) without starvation
+        t0 = asyncio.get_running_loop().time()
+        await server.handle_stdio_stream(reader, MockWriter())
+        elapsed = asyncio.get_running_loop().time() - t0
+
+        assert elapsed < 1.0
+        lines = [line for line in writer_buffer.decode("utf-8").strip().split("\n") if line]
+        assert len(lines) == 1
+        resp = json.loads(lines[0])
+        assert resp["id"] == "slow-call-1"
+        assert resp["error"]["code"] == -32000
+        assert "cancelled" in resp["error"]["message"].lower()
+
+

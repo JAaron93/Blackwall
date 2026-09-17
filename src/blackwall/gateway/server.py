@@ -516,7 +516,7 @@ class MCPGatewayServer:
         concurrency_limit = self.flow_controller.max_queue_size
         semaphore = asyncio.Semaphore(concurrency_limit)
 
-        async def _handle_line(line_text: str) -> None:
+        async def _handle_line(line_text: str, is_gated: bool) -> None:
             try:
                 response = await self.process_message(line_text)
                 if response:
@@ -527,7 +527,8 @@ class MCPGatewayServer:
             except Exception as exc:
                 logger.error("Error processing stdio message: %s", exc)
             finally:
-                semaphore.release()
+                if is_gated:
+                    semaphore.release()
 
         try:
             while True:
@@ -540,10 +541,22 @@ class MCPGatewayServer:
                 if not text:
                     continue
 
-                # Apply backpressure when concurrent tasks reach the queue limit
-                await semaphore.acquire()
+                # Control notifications (cancellations, notifications) bypass the execution
+                # semaphore to prevent starvation when worker permits are occupied.
+                is_control = False
+                try:
+                    peek = json.loads(text) if text.startswith("{") else None
+                    if isinstance(peek, dict):
+                        method = peek.get("method", "")
+                        if method.startswith("notifications/") or peek.get("id") is None:
+                            is_control = True
+                except Exception:
+                    pass
 
-                task = asyncio.create_task(_handle_line(text))
+                if not is_control:
+                    await semaphore.acquire()
+
+                task = asyncio.create_task(_handle_line(text, is_gated=not is_control))
                 active_tasks.add(task)
                 task.add_done_callback(active_tasks.discard)
         finally:
