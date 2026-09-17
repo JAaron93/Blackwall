@@ -18,8 +18,6 @@ from blackwall.enterprise.advanced_threat_detection.enums import (
     AlertSeverity,
     ReactionActionType,
 )
-
-__all__ = ["ActiveReactionEngine", "ReactionActionType"]
 from blackwall.enterprise.advanced_threat_detection.evaluation import (
     EvaluationEnvironmentManager,
 )
@@ -32,6 +30,8 @@ from blackwall.enterprise.identity.sidecar import SecretVaultSidecar
 from blackwall.enterprise.kernel.probe import KernelProbeDriver
 from blackwall.enterprise.mcp.vault_mcp import VaultMCPAdapter
 from blackwall.validators import is_evaluation_metadata, utc_now
+
+__all__ = ["ActiveReactionEngine", "ReactionActionType"]
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.reaction")
 
