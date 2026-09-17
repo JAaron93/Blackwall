@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import signal
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -81,6 +82,48 @@ def is_process_alive(pid: int) -> bool:
         return False
 
 
+def is_blackwall_process(pid: int) -> bool:
+    """
+    Verifies process command-line identity before sending signals.
+
+    Checks /proc/<pid>/cmdline on Linux or 'ps -p <pid> -o command=' on POSIX
+    to confirm the process is Blackwall or Python running Blackwall.
+    """
+    if pid <= 0:
+        return False
+
+    cmdline: str | None = None
+
+    # 1. Linux /proc/<pid>/cmdline check
+    proc_cmdline = Path(f"/proc/{pid}/cmdline")
+    try:
+        if proc_cmdline.exists():
+            raw_bytes = proc_cmdline.read_bytes()
+            cmdline = raw_bytes.decode(errors="replace").replace("\x00", " ")
+    except (OSError, PermissionError):
+        cmdline = None
+
+    # 2. POSIX 'ps' fallback (macOS, BSD, or if /proc unavailable)
+    if not cmdline:
+        try:
+            res = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "command="],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                check=False,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                cmdline = res.stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            cmdline = None
+
+    if not cmdline:
+        return False
+
+    return "blackwall" in cmdline.lower()
+
+
 def stop_daemon(pid_path: Path | str, timeout: float = 5.0) -> bool:
     """
     Sends SIGTERM to the daemon PID, waits for termination, and escalates to SIGKILL if necessary.
@@ -95,6 +138,16 @@ def stop_daemon(pid_path: Path | str, timeout: float = 5.0) -> bool:
         return True
 
     if not is_process_alive(pid):
+        remove_pid_file(path)
+        return True
+
+    if not is_blackwall_process(pid):
+        logger.warning(
+            "Stale PID file '%s' detected (PID %d is alive but is not a Blackwall process). "
+            "Removing stale PID file without signaling unrelated process.",
+            path,
+            pid,
+        )
         remove_pid_file(path)
         return True
 

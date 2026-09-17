@@ -14,11 +14,12 @@ Validates:
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import aiohttp
 import pytest
@@ -159,12 +160,31 @@ class TestBlackwallCLI:
             valid, err = validate_gcp_credentials()
             assert valid is True
 
+        # 5. Ambient ADC via google.auth.default()
+        mock_creds = MagicMock()
+        with patch.dict(
+            os.environ,
+            {
+                "GCP_PROJECT": "test-proj",
+                "GOOGLE_APPLICATION_CREDENTIALS": "",
+                "BW_SKIP_GCP_CHECK": "",
+            },
+        ), patch("pathlib.Path.home", return_value=tmp_path / "fake_home"), patch(
+            "google.auth.default", return_value=(mock_creds, "test-proj")
+        ):
+            valid, err = validate_gcp_credentials()
+            assert valid is True
+            assert err == ""
+
     def test_stop_command_terminates_process_and_removes_pidfile(self, tmp_path: Path) -> None:
         """'blackwall stop' terminates running daemon and cleans up PID file."""
         pid_file = tmp_path / "blackwall.pid"
 
-        # Start a dummy background process
-        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        # Start a dummy Blackwall background process in its own process group (Rule 10)
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "# blackwall daemon\nimport time; time.sleep(60)"],
+            preexec_fn=os.setsid,
+        )
         try:
             write_pid_file(pid_file, proc.pid)
             assert is_process_alive(proc.pid) is True
@@ -181,6 +201,39 @@ class TestBlackwallCLI:
             assert proc.returncode is not None or not is_process_alive(proc.pid)
             assert not pid_file.exists()
         finally:
+            try:
+                pgid = os.getpgid(proc.pid)
+                os.killpg(pgid, signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
+            if proc.poll() is None:
+                proc.kill()
+
+    def test_stop_command_stale_pid_unrelated_process_does_not_kill(self, tmp_path: Path) -> None:
+        """'blackwall stop' does not signal unrelated process on stale PID, removes PID file."""
+        pid_file = tmp_path / "stale.pid"
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            preexec_fn=os.setsid,
+        )
+        try:
+            write_pid_file(pid_file, proc.pid)
+            assert is_process_alive(proc.pid) is True
+
+            runner = CliRunner()
+            result = runner.invoke(cli, ["stop", "--pidfile", str(pid_file)])
+
+            assert result.exit_code == 0
+            # Unrelated process must still be running
+            assert is_process_alive(proc.pid) is True
+            # Stale PID file must have been removed
+            assert not pid_file.exists()
+        finally:
+            try:
+                pgid = os.getpgid(proc.pid)
+                os.killpg(pgid, signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
             if proc.poll() is None:
                 proc.kill()
 
@@ -202,8 +255,11 @@ class TestBlackwallCLI:
         assert result_stopped.exit_code == 0
         assert "stopped" in result_stopped.output.lower()
 
-        # 2. Running state
-        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        # 2. Running state (Rule 10 process group cleanup)
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "# blackwall daemon\nimport time; time.sleep(60)"],
+            preexec_fn=os.setsid,
+        )
         try:
             write_pid_file(pid_file, proc.pid)
             result_running = runner.invoke(cli, ["status", "--pidfile", str(pid_file)])
@@ -211,7 +267,13 @@ class TestBlackwallCLI:
             assert "running" in result_running.output.lower()
             assert str(proc.pid) in result_running.output
         finally:
-            proc.kill()
+            try:
+                pgid = os.getpgid(proc.pid)
+                os.killpg(pgid, signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
+            if proc.poll() is None:
+                proc.kill()
             if pid_file.exists():
                 pid_file.unlink()
 
@@ -251,6 +313,20 @@ class TestBlackwallCLI:
         assert result.exit_code == 0
         assert "Total Signatures" in result.output
         assert "Recent Verdicts" in result.output
+        assert "Yes" in result.output
+
+    def test_status_command_corrupted_database_reports_inaccessible(self, tmp_path: Path) -> None:
+        """'blackwall status' reports database as Inaccessible/Corrupted when DB file is invalid."""
+        corrupt_db = tmp_path / "corrupt.db"
+        corrupt_db.write_text("NOT A VALID SQLITE DATABASE FILE")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["status", "--db-path", str(corrupt_db)])
+
+        assert result.exit_code == 0
+        assert "Inaccessible/Corrupted" in result.output
+        assert "DB Accessible" in result.output
+        assert "DB Accessible  │ Yes" not in result.output
 
     def test_serve_stdio_transport_forces_foreground_and_does_not_daemonize(self) -> None:
         """'blackwall serve --transport stdio' must never call daemonize; stdio requires foreground."""

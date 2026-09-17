@@ -27,9 +27,16 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 
+try:
+    import google.auth
+    import google.auth.exceptions
+except ImportError:
+    google.auth = None  # type: ignore[assignment]
+
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.gateway.daemon import (
     daemonize,
+    is_blackwall_process,
     is_process_alive,
     read_pid_file,
     remove_pid_file,
@@ -727,6 +734,15 @@ def validate_gcp_credentials() -> tuple[bool, str]:
     if default_adc.exists():
         return True, ""
 
+    # Check ambient ADC (Compute Engine, Cloud Run, GKE metadata service) via google.auth if installed
+    if google.auth is not None:
+        try:
+            creds, _ = google.auth.default()
+            if creds is not None:
+                return True, ""
+        except (google.auth.exceptions.DefaultCredentialsError, Exception):
+            pass
+
     return (
         False,
         "GCP Application Default Credentials (ADC) not found. "
@@ -824,6 +840,18 @@ def stop_command(pidfile: Optional[str]) -> None:
         console.print("[yellow]Blackwall daemon is not running.[/yellow]")
         return
 
+    if not is_blackwall_process(pid):
+        remove_pid_file(pid_path)
+        logger.warning(
+            "Stale PID file '%s' detected (PID %d is alive but is not a Blackwall process). Removing PID file.",
+            pid_path,
+            pid,
+        )
+        console.print(
+            f"[yellow]Blackwall daemon is not running (stale PID file for unrelated process PID {pid} cleaned up).[/yellow]"
+        )
+        return
+
     stopped = stop_daemon(pid_path)
     if stopped:
         console.print(
@@ -835,16 +863,17 @@ def stop_command(pidfile: Optional[str]) -> None:
 
 async def _get_db_status(
     db_path: str,
-) -> tuple[Optional[dict[str, Any]], Optional[list[dict[str, Any]]]]:
+) -> tuple[Optional[dict[str, Any]], Optional[list[dict[str, Any]]], Optional[str]]:
     """Safely fetch threat graph statistics and audit incidents from SQLite repository."""
     repo = SQLiteThreatRepository(db_path=db_path)
     try:
+        await repo.initialize()
         stats = await repo.getStatistics()
         incidents = await repo.getAuditIncidents()
-        return stats, incidents
+        return stats, incidents, None
     except Exception as exc:
         logger.debug("Failed querying database statistics at %s: %s", db_path, exc)
-        return None, None
+        return None, None, str(exc)
     finally:
         await _safe_close_repo(repo)
 
@@ -880,7 +909,7 @@ def status_command(
     table.add_column("Property", style="bold white")
     table.add_column("Value", style="yellow")
 
-    if pid and is_process_alive(pid):
+    if pid and is_process_alive(pid) and is_blackwall_process(pid):
         table.add_row("Daemon State", f"[bold green]Running (PID {pid})[/bold green]")
         table.add_row("PID File", str(pid_path))
     else:
@@ -898,23 +927,33 @@ def status_command(
     table.add_row("Threat DB", resolved_db)
     incidents = None
     if Path(resolved_db).exists():
-        table.add_row("DB Accessible", "[green]Yes[/green]")
         try:
-            stats, incidents = asyncio.run(_get_db_status(resolved_db))
-            if stats is not None:
-                table.add_row("Total Signatures", str(stats.get("totalSignatures", 0)))
+            stats, incidents, db_err = asyncio.run(_get_db_status(resolved_db))
+            if db_err:
                 table.add_row(
-                    "Avg Matches / Sig",
-                    f"{stats.get('avgMatchesPerSignature', 0.0):.2f}",
+                    "DB Accessible",
+                    f"[bold red]Inaccessible/Corrupted ({db_err})[/bold red]",
                 )
-                table.add_row(
-                    "Cache Hit Rate",
-                    f"{stats.get('cacheHitRate', 0.0):.1%}",
-                )
-            if incidents is not None:
-                table.add_row("Recent Verdicts", f"{len(incidents)} logged")
+            else:
+                table.add_row("DB Accessible", "[green]Yes[/green]")
+                if stats is not None:
+                    table.add_row("Total Signatures", str(stats.get("totalSignatures", 0)))
+                    table.add_row(
+                        "Avg Matches / Sig",
+                        f"{stats.get('avgMatchesPerSignature', 0.0):.2f}",
+                    )
+                    table.add_row(
+                        "Cache Hit Rate",
+                        f"{stats.get('cacheHitRate', 0.0):.1%}",
+                    )
+                if incidents is not None:
+                    table.add_row("Recent Verdicts", f"{len(incidents)} logged")
         except Exception as exc:
             logger.debug("Failed fetching DB statistics: %s", exc)
+            table.add_row(
+                "DB Accessible",
+                f"[bold red]Inaccessible/Corrupted ({exc})[/bold red]",
+            )
     else:
         table.add_row("DB Accessible", "[dim]Not initialized[/dim]")
 
