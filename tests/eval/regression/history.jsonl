@@ -1,0 +1,1 @@
+{"run_id":"eval-run-2675f088","timestamp_iso":"2026-09-17T08:46:16.089281+00:00","domain_means":{"threat_interception":3.7976},"overall_mean":3.7976,"passed":true,"is_clean_baseline":false,"metadata":{"threshold":3.5,"total_scenarios":22,"fallback_rate":0.0455,"failed_scenarios":0,"is_selective_run":true,"model":"gemini-3.5-flash-lite"}}

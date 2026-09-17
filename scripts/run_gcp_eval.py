@@ -1023,9 +1023,14 @@ async def run_evaluation_pipeline(
         project_id=os.getenv("GCP_PROJECT")
         or os.getenv("GOOGLE_CLOUD_PROJECT")
         or "blackwall-security-eval",
-        location=os.getenv("GCP_LOCATION")
-        or os.getenv("GOOGLE_CLOUD_LOCATION")
-        or "global",
+        location=(
+            "us-central1"
+            if (
+                os.getenv("GCP_LOCATION") in (None, "", "global")
+                and os.getenv("GOOGLE_CLOUD_LOCATION") in (None, "", "global")
+            )
+            else (os.getenv("GCP_LOCATION") or os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1")
+        ),
         main_model=model or "gemini-3.5-flash-lite",
         reasoner_model=model or "gemini-3.8-flash",
         allow_fallback=allow_fallback,
@@ -1048,7 +1053,9 @@ async def run_evaluation_pipeline(
         domain = scenario.get("domain", "threat_interception")
         scenario_id = scenario.get("scenario_id", f"scenario_{idx}")
 
-        judge = get_judge_for_domain(domain, model=model)
+        judge = get_judge_for_domain(
+            domain, model=model, enforce_tier=not allow_fallback
+        )
         sla_component = scenario.get("component") or DOMAIN_TO_SLA_COMPONENT.get(
             domain, "structural_gating"
         )
