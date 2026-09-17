@@ -833,6 +833,22 @@ def stop_command(pidfile: Optional[str]) -> None:
         raise click.ClickException(f"Failed to stop Blackwall daemon (PID {pid}).")
 
 
+async def _get_db_status(
+    db_path: str,
+) -> tuple[Optional[dict[str, Any]], Optional[list[dict[str, Any]]]]:
+    """Safely fetch threat graph statistics and audit incidents from SQLite repository."""
+    repo = SQLiteThreatRepository(db_path=db_path)
+    try:
+        stats = await repo.getStatistics()
+        incidents = await repo.getAuditIncidents()
+        return stats, incidents
+    except Exception as exc:
+        logger.debug("Failed querying database statistics at %s: %s", db_path, exc)
+        return None, None
+    finally:
+        await _safe_close_repo(repo)
+
+
 @cli.command(name="status")
 @click.option(
     "--pidfile",
@@ -873,16 +889,53 @@ def status_command(
 
     resolved_db = (
         db_path
-        or ctx.obj.get("db_path")
+        or (ctx.obj.get("db_path") if ctx.obj.get("db_path") != "./blackwall.db" else None)
         or str(Path.home() / ".blackwall" / "threat_signatures.db")
     )
+    if not Path(resolved_db).exists() and Path("./blackwall.db").exists():
+        resolved_db = "./blackwall.db"
+
     table.add_row("Threat DB", resolved_db)
+    incidents = None
     if Path(resolved_db).exists():
         table.add_row("DB Accessible", "[green]Yes[/green]")
+        try:
+            stats, incidents = asyncio.run(_get_db_status(resolved_db))
+            if stats is not None:
+                table.add_row("Total Signatures", str(stats.get("totalSignatures", 0)))
+                table.add_row(
+                    "Avg Matches / Sig",
+                    f"{stats.get('avgMatchesPerSignature', 0.0):.2f}",
+                )
+                table.add_row(
+                    "Cache Hit Rate",
+                    f"{stats.get('cacheHitRate', 0.0):.1%}",
+                )
+            if incidents is not None:
+                table.add_row("Recent Verdicts", f"{len(incidents)} logged")
+        except Exception as exc:
+            logger.debug("Failed fetching DB statistics: %s", exc)
     else:
         table.add_row("DB Accessible", "[dim]Not initialized[/dim]")
 
     console.print(table)
+
+    if Path(resolved_db).exists() and incidents:
+        incidents_table = Table(
+            title="Recent Security Incidents & Verdicts",
+            box=box.ROUNDED,
+            header_style="bold magenta",
+        )
+        incidents_table.add_column("Incident ID", style="bold cyan")
+        incidents_table.add_column("Type", style="yellow")
+        incidents_table.add_column("Details")
+        for inc in incidents[:5]:
+            incidents_table.add_row(
+                inc.get("incident_id", "unknown"),
+                inc.get("incident_type", "UNKNOWN"),
+                str(inc.get("details", ""))[:80],
+            )
+        console.print(incidents_table)
 
 
 async def _run_gateway(
@@ -1111,6 +1164,11 @@ def serve_command(
             upstream_mgr = UpstreamManager(config_path=str(base_dir / "gateway.yaml"))
         except Exception as exc:
             logger.warning("Default gateway.yaml exists but failed to load: %s", exc)
+
+    if transport.lower() == "stdio":
+        # Stdio transport requires an interactive/bidirectional pipe stream attached to
+        # the MCP client/parent process and must run in the foreground without daemonization.
+        foreground = True
 
     if not foreground:
         daemonize(pid_path, log_path)

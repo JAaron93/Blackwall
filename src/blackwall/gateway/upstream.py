@@ -148,6 +148,15 @@ class StdioUpstreamServer(BaseUpstreamServer):
             try:
                 line = await self._proc.stdout.readline()
                 if not line:
+                    if not self._stopping:
+                        for req_id, fut in list(self._pending.items()):
+                            if not fut.done():
+                                fut.set_exception(
+                                    UpstreamProcessError(
+                                        f"Upstream server '{self.name}' closed stdout unexpectedly while request '{req_id}' was in flight."
+                                    )
+                                )
+                        self._pending.clear()
                     break
 
                 text = line.decode("utf-8").strip()
@@ -175,6 +184,14 @@ class StdioUpstreamServer(BaseUpstreamServer):
                     logger.error(
                         "Error reading stdout from upstream '%s': %s", self.name, exc
                     )
+                    for req_id, fut in list(self._pending.items()):
+                        if not fut.done():
+                            fut.set_exception(
+                                UpstreamProcessError(
+                                    f"Upstream server '{self.name}' reader failed: {exc}"
+                                )
+                            )
+                    self._pending.clear()
                 break
 
     async def _stderr_loop(self) -> None:
@@ -375,9 +392,9 @@ class HttpUpstreamServer(BaseUpstreamServer):
             raise UpstreamTimeoutError(
                 f"HTTP upstream '{self.name}' timed out after {timeout}s on request '{req_id}'"
             ) from exc
-        except aiohttp.ClientError as exc:
+        except (aiohttp.ClientError, json.JSONDecodeError) as exc:
             raise UpstreamProcessError(
-                f"HTTP connection error to upstream '{self.name}' ({self.url}): {exc}"
+                f"HTTP connection or payload error to upstream '{self.name}' ({self.url}): {exc}"
             ) from exc
 
     async def is_healthy(self) -> bool:
@@ -519,18 +536,19 @@ class UpstreamManager:
                     "params": {},
                 }
                 resp = await server.send_request(list_req, timeout=10.0)
-                tools = resp.get("result", {}).get("tools", [])
+                tools = (resp.get("result") or {}).get("tools") or []
                 if isinstance(tools, list):
                     server._tools = tools
                     for t in tools:
-                        t_name = t.get("name")
-                        if t_name:
-                            self._tool_to_server[t_name] = server
-                            logger.info(
-                                "Registered upstream tool '%s' -> server '%s'",
-                                t_name,
-                                server.name,
-                            )
+                        if isinstance(t, dict):
+                            t_name = t.get("name")
+                            if t_name:
+                                self._tool_to_server[t_name] = server
+                                logger.info(
+                                    "Registered upstream tool '%s' -> server '%s'",
+                                    t_name,
+                                    server.name,
+                                )
             except Exception as exc:
                 logger.warning(
                     "Failed tool discovery for upstream server '%s': %s",
@@ -559,7 +577,7 @@ class UpstreamManager:
         """
         method = raw_payload.get("method", "")
         req_id = raw_payload.get("id")
-        params = raw_payload.get("params", {})
+        params = raw_payload.get("params") or {}
 
         # 1. tools/list aggregation
         if method == "tools/list":

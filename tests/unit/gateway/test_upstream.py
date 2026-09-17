@@ -184,6 +184,35 @@ class TestStdioUpstreamServer:
         finally:
             await server.stop()
 
+    @pytest.mark.asyncio
+    async def test_stdio_abrupt_exit_fails_in_flight_requests_immediately(
+        self, tmp_path: Path
+    ) -> None:
+        """When downstream process exits abruptly, in-flight requests fail with UpstreamProcessError immediately."""
+        crash_script = tmp_path / "crash_server.py"
+        crash_script.write_text(
+            "import sys, time\n"
+            "line = sys.stdin.readline()\n"
+            "time.sleep(0.05)\n"
+            "sys.exit(1)\n"
+        )
+        cmd = f"{sys.executable} -u {crash_script}"
+        server = StdioUpstreamServer(name="crash-test", command=cmd)
+
+        try:
+            await server.start()
+            req = {
+                "jsonrpc": "2.0",
+                "id": "crash-1",
+                "method": "tools/call",
+                "params": {"name": "test"},
+            }
+            # Timeout is 5s, but process dies in 50ms. Must fail fast without waiting 5s.
+            with pytest.raises(UpstreamProcessError):
+                await server.send_request(req, timeout=5.0)
+        finally:
+            await server.stop()
+
 
 class TestHttpUpstreamServer:
     """Unit tests for HttpUpstreamServer."""
@@ -242,6 +271,35 @@ class TestHttpUpstreamServer:
                 await server.send_request(req, timeout=1.0)
         finally:
             await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_http_invalid_json_raises_upstream_process_error(self) -> None:
+        """Verifies HTTP server returning 200 with invalid JSON body raises UpstreamProcessError."""
+        from aiohttp import web
+
+        async def bad_json_handler(request: web.Request) -> web.Response:
+            return web.Response(text="Non-JSON raw HTML or error payload", status=200, content_type="text/plain")
+
+        app = web.Application()
+        app.router.add_post("/mcp", bad_json_handler)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+
+        sockets = site._server.sockets  # type: ignore[union-attr]
+        port = sockets[0].getsockname()[1]
+        url = f"http://127.0.0.1:{port}/mcp"
+
+        server = HttpUpstreamServer(name="http-bad-json", url=url)
+        try:
+            await server.start()
+            req = {"jsonrpc": "2.0", "id": 55, "method": "tools/call", "params": {"name": "foo"}}
+            with pytest.raises(UpstreamProcessError):
+                await server.send_request(req, timeout=2.0)
+        finally:
+            await server.stop()
+            await runner.cleanup()
 
 
 class TestUpstreamManager:
@@ -388,3 +446,45 @@ for line in sys.stdin:
 
         with pytest.raises(InvalidGatewayConfigError):
             UpstreamManager(config_path=str(bad_file))
+
+    @pytest.mark.asyncio
+    async def test_multi_server_null_result_coalescing(self, tmp_path: Path) -> None:
+        """Verifies discover_tools and handle_request gracefully handle explicit null result/params (Rule 86)."""
+        null_server_file = tmp_path / "null_server.py"
+        null_server_file.write_text("""import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    req = json.loads(line)
+    rid = req.get("id")
+    m = req.get("method")
+    if m == "tools/list":
+        # Server returns explicit null result (e.g. standard JSON-RPC error or null response)
+        sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": rid, "result": None, "error": {"code": -32601, "message": "unsupported"}}) + "\\n")
+    else:
+        sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": rid, "result": {}}) + "\\n")
+    sys.stdout.flush()
+""")
+        cmd = f"{sys.executable} -u {null_server_file}"
+        config = {
+            "upstream_servers": [
+                {"name": "null_server", "command": cmd, "transport": "stdio"},
+            ]
+        }
+        config_file = tmp_path / "gateway.yaml"
+        config_file.write_text(yaml.safe_dump(config))
+
+        manager = UpstreamManager(config_path=str(config_file))
+        try:
+            # discover_tools must not raise AttributeError when result is null
+            await manager.start()
+            assert manager.servers[0].tools == []
+
+            # handle_request with null params must raise ValueError rather than AttributeError
+            with pytest.raises(ValueError, match="Missing 'name' in tools/call params"):
+                await manager.handle_request(
+                    {"jsonrpc": "2.0", "id": "null-param-1", "method": "tools/call", "params": None}
+                )
+        finally:
+            await manager.stop()

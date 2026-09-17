@@ -215,6 +215,60 @@ class TestBlackwallCLI:
             if pid_file.exists():
                 pid_file.unlink()
 
+    def test_status_command_with_threat_database_stats(self, tmp_path: Path) -> None:
+        """'blackwall status' queries and reports threat graph stats and recent verdicts from DB."""
+        import asyncio
+
+        from blackwall.db.repository import SQLiteThreatRepository
+
+        db_path = tmp_path / "test_threats.db"
+
+        async def _seed_db() -> None:
+            repo = SQLiteThreatRepository(db_path=str(db_path))
+            try:
+                await repo.initialize()
+                await repo.writeSignature(
+                    {
+                        "signature_id": "sig-001",
+                        "pattern": "malicious_eval",
+                        "action": "BLOCK",
+                        "severity": 0.9,
+                    }
+                )
+                async with repo.pool.connection() as conn:
+                    await conn.execute(
+                        "INSERT INTO audit_incidents (incident_id, incident_type, timestamp, details) VALUES (?, ?, ?, ?)",
+                        ("inc-123", "BLOCK", 1700000000, "Blocked suspicious execution"),
+                    )
+            finally:
+                await repo.close()
+
+        asyncio.run(_seed_db())
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["status", "--db-path", str(db_path)])
+
+        assert result.exit_code == 0
+        assert "Total Signatures" in result.output
+        assert "Recent Verdicts" in result.output
+
+    def test_serve_stdio_transport_forces_foreground_and_does_not_daemonize(self) -> None:
+        """'blackwall serve --transport stdio' must never call daemonize; stdio requires foreground."""
+        runner = CliRunner()
+        with patch("blackwall.cli.daemonize") as mock_daemonize, patch("blackwall.cli._run_gateway") as mock_run:
+            async def _dummy_run(*args, **kwargs):
+                return
+            mock_run.side_effect = _dummy_run
+
+            result = runner.invoke(
+                cli,
+                ["serve", "--transport", "stdio", "--skip-gcp-check"],
+            )
+
+            assert result.exit_code == 0
+            mock_daemonize.assert_not_called()
+            mock_run.assert_called_once()
+
     @pytest.mark.asyncio
     async def test_remote_binding_valid_token_happy_path(self) -> None:
         """
