@@ -88,8 +88,17 @@ def compute_verdict(response: ThreatIntelResponse) -> str:
     return "ALLOW"
 
 
-async def _safe_close_repo(repo: Any) -> None:
-    """Safely close repository if callable and awaitable."""
+async def _safe_close_repo(
+    repo: Any, orchestrator: Optional[Any] = None
+) -> None:
+    """Safely flush orchestrator metrics and close repository if callable and awaitable."""
+    if orchestrator is not None and hasattr(orchestrator, "flush_metrics"):
+        try:
+            res = orchestrator.flush_metrics()
+            if inspect.isawaitable(res):
+                await res
+        except Exception:
+            pass
     if repo is None:
         return
     close_fn = getattr(repo, "close", None)
@@ -258,7 +267,7 @@ def check_command(
                 provider=provider,
             )
         finally:
-            await _safe_close_repo(orchestrator.repository)
+            await _safe_close_repo(orchestrator.repository, orchestrator=orchestrator)
 
     try:
         response = asyncio.run(_run())
@@ -357,7 +366,7 @@ def lookup_command(
                 provider=provider,
             )
         finally:
-            await _safe_close_repo(orchestrator.repository)
+            await _safe_close_repo(orchestrator.repository, orchestrator=orchestrator)
 
     try:
         response = asyncio.run(_run())
@@ -411,7 +420,7 @@ def pulse_command(
         try:
             return await orchestrator.get_pulse(pulse_id)
         finally:
-            await _safe_close_repo(orchestrator.repository)
+            await _safe_close_repo(orchestrator.repository, orchestrator=orchestrator)
 
     try:
         pulse_data = asyncio.run(_run())
@@ -488,7 +497,7 @@ def cache_status_command(ctx: click.Context, output_format: str) -> None:
         try:
             return await orchestrator.get_cache_stats()
         finally:
-            await _safe_close_repo(orchestrator.repository)
+            await _safe_close_repo(orchestrator.repository, orchestrator=orchestrator)
 
     try:
         stats = asyncio.run(_run())
@@ -549,7 +558,7 @@ def cache_clear_command(ctx: click.Context, expired_only: bool) -> None:
         try:
             return await orchestrator.clear_cache(expired_only=expired_only)
         finally:
-            await _safe_close_repo(orchestrator.repository)
+            await _safe_close_repo(orchestrator.repository, orchestrator=orchestrator)
 
     try:
         count = asyncio.run(_run())
@@ -577,7 +586,7 @@ def providers_command(ctx: click.Context, output_format: str) -> None:
 
     async def _run() -> list[dict[str, Any]]:
         try:
-            providers = orchestrator.get_providers()
+            providers = orchestrator.get_providers(include_on_demand=True)
             results = []
             for p in providers:
                 # Unwrap CircuitBreakerProvider if needed for inspection
@@ -631,7 +640,7 @@ def providers_command(ctx: click.Context, output_format: str) -> None:
                 )
             return results
         finally:
-            await _safe_close_repo(orchestrator.repository)
+            await _safe_close_repo(orchestrator.repository, orchestrator=orchestrator)
 
     try:
         providers_data = asyncio.run(_run())

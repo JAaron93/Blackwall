@@ -4,6 +4,7 @@ import os
 import tempfile
 import time
 from typing import AsyncGenerator
+from unittest.mock import patch
 import pytest
 import pytest_asyncio
 
@@ -579,6 +580,71 @@ async def test_orchestrator_harpoon_provider_discovery_and_registration() -> Non
     provider = orch.get_provider("harpoon")
     assert provider is not None
     assert provider.name == "harpoon"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_harpoon_not_in_default_secondary_providers() -> None:
+    """Verify Harpoon is not in default secondary feeds, preventing duplicate OTX requests."""
+    with patch("blackwall.threat_intel.harpoon.HarpoonBridge.is_available", return_value=True):
+        orch = ThreatIntelOrchestrator(
+            primary_provider=MockProvider(name="otx", supported_indicators={ThreatIndicatorType.IPV4}),
+            cache_enabled=False,
+        )
+        # Harpoon should NOT be in secondary_providers to avoid duplicate queries on aggregate miss
+        secondary_names = [p.name.lower() for p in orch.secondary_providers]
+        assert "harpoon" not in secondary_names
+
+        # But it should be discoverable for explicit lookup or inspection
+        assert orch.get_provider("harpoon") is not None
+        all_provs = orch.get_providers(include_on_demand=True)
+        assert any(p.name.lower() == "harpoon" for p in all_provs)
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_primary_harpoon_override_via_env() -> None:
+    """Verify Harpoon can replace OTX as primary provider via environment variable."""
+    with patch.dict(os.environ, {"BW_THREAT_INTEL_PRIMARY": "harpoon"}):
+        orch = ThreatIntelOrchestrator(cache_enabled=False)
+        assert orch.primary_provider.name.lower() == "harpoon"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_cache_metrics_batch_flush(temp_repo: SQLiteThreatRepository) -> None:
+    """Verify cache metrics are queued and batched without blocking lookup returns."""
+    otx = MockProvider(
+        name="otx",
+        supported_indicators={ThreatIndicatorType.IPV4},
+        default_response=ThreatIntelResponse(
+            indicator="198.51.100.55",
+            indicator_type=ThreatIndicatorType.IPV4,
+            is_malicious=False,
+            risk_score=0.0,
+            provider_name="otx",
+        ),
+    )
+    orch = ThreatIntelOrchestrator(
+        repository=temp_repo,
+        primary_provider=otx,
+        secondary_providers=[],
+        cache_enabled=True,
+    )
+
+    # 1 Miss
+    resp1 = await orch.lookup("198.51.100.55", ThreatIndicatorType.IPV4)
+    assert resp1.cached is False
+
+    # 3 Hits
+    for _ in range(3):
+        resp_hit = await orch.lookup("198.51.100.55", ThreatIndicatorType.IPV4)
+        assert resp_hit.cached is True
+
+    # Flush batch to SQLite
+    await orch.flush_metrics()
+
+    stats = await orch.get_cache_stats()
+    assert stats["hits"] >= 3
+    assert stats["misses"] >= 1
+
 
 
 
