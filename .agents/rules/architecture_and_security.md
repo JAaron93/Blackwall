@@ -612,3 +612,14 @@
 * **Rule (Failure-Resilient Cleanup):** Teardown flushes MUST be wrapped in defensive exception handling to ensure that metric flush errors do not suppress or mask primary CLI command exit codes or errors.
 * **Rationale:** Discovered during Phase 3 CLI development on PR #151. Short-lived CLI commands exit immediately after outputting results; without an explicit teardown flush, buffered cache metrics accumulated during the execution are silently discarded when the process terminates.
 
+## 93. SyncResolver Threat Intelligence Exception Propagation & Score Normalization Invariants
+* **Rule (Typed Exception Propagation):** Interception resolvers (`SyncResolver._query_threat_intel`) integrating multi-provider threat intelligence (`ThreatIntelOrchestrator.lookup`) MUST NOT catch and swallow typed provider exceptions (`OTXCircuitBreakerOpenError`, `OTXTokenBucketExhaustedError`, `OTXLookupError`, `ThreatIntelError`, `CircuitBreakerError`, `AbuseIPDBError`, `AbuseChError`, `HarpoonError`) into `None`.
+* **Rule (Fail-Safe Verdict Escalation):** Provider lookup failures returning error status responses MUST raise `OTXLookupError` or propagate typed errors to the caller. Suppressing provider failures into `None` is strictly prohibited because `None` treats an infrastructure or rate-limit failure as benign, causing rogue or compromised tool calls to receive unwarranted `ALLOW` verdicts.
+* **Rule (Score Normalization & Verdict Escalation):** Malicious threat intelligence detections (`is_malicious=True` or `risk_score >= 0.50`) MUST escalate to a `BLOCK` verdict. Upstream detection percentages or counts ($> 1.0$) in `_score_threat_intel` MUST be normalized by dividing by `100.0` and clamped to `[0.0, 1.0]` to avoid arithmetic score overflow.
+* **Rationale:** Discovered during Phase 4 implementation and Greptile review on PR #152. Swallowing typed provider exceptions allowed mock network outages to return `ALLOW` verdicts in unit tests, while raw percentage values from secondary feeds distorted composite risk scoring.
+
+## 94. Subsystem Migration Invariant: Renaming & Modernizing vs. Blanket Deletion
+* **Rule (Architectural Continuity Assessment):** When executing major version migrations or deprecating legacy subsystems (e.g. migrating GTI to AlienVault OTX in Blackwall v3.0), agents MUST NOT perform premature blanket deletions of existing utility code, CLI structures, or test fixtures.
+* **Rule (Modernize In-Place):** If the existing architectural pattern, parameter signatures, or command flows are consistent with the replacement engine, agents MUST rename and modernize the files, symbols, and test fixtures in-place rather than deleting and rewriting from scratch.
+* **Rationale:** Mandated by user directive during Phase 4. Renaming consistent code preserves established architectural contracts, leverages prior test coverage investments, and prevents unnecessary churn in shared repositories.
+

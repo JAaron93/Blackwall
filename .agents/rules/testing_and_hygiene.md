@@ -529,3 +529,16 @@
 * **Rule (No Ambient PATH Dependency):** Tests MUST NOT depend on or execute ambient host binaries, ensuring 100% deterministic test execution across environments regardless of whether companion tools (like `harpoon`) are installed on the local system.
 * **Rationale:** Discovered during Phase 3 test suite implementation on PR #151. Relying on unmocked binary presence causes test behavior to diverge between local development machines with external CLI tools installed and isolated CI runner containers.
 
+## 62. Threat Intelligence Cache SLA Benchmarking & DGX Spark Zero-CUDA Verification
+* **Rule (Sub-Millisecond Cache SLA):** Benchmarks evaluating threat intelligence cache performance (`scripts/benchmark_threat_intel.py`, `tests/unit/threat_intel/test_benchmarks_sla.py`) MUST assert an average read latency $\le 1.0\text{ ms}$ across sequential lookups and process RSS memory overhead $\le 50\text{ MB}$.
+* **Rule (Multi-Layer Zero-CUDA Verification):** On Linux / NVIDIA DGX Spark environments, conformance benchmarks MUST verify that threat intelligence execution remains 100% in CPU user-space with zero CUDA VRAM allocations across three independent layers:
+  1. Inspecting `/proc/<daemon_pid>/fd/` for `/dev/nvidia*` device file descriptors on the target process PID.
+  2. Inspecting NVML compute process tables to verify daemon PID absence.
+  3. Asserting `torch.cuda.is_initialized() is False`.
+* **Rationale:** Discovered during Phase 4 benchmarking on PR #152. Blackwall Core must preserve 100% of unified GPU memory (>127.6GB on DGX Spark GB10 ARM64) for hosted AI models.
+
+## 63. Agent Instruction Hygiene: Abstract Specification Demarcation & Citation Preservation
+* **Rule (Abstract Specification Target Qualification):** In agent instruction files (`AGENTS.md`, `.agents/rules/`, `.greptile/rules.md`), planned architectural components (such as `.kiro/specs/blackwall-mcp-gateway/`) MUST be explicitly qualified as abstract specification targets rather than concrete on-disk modules. Non-existent paths MUST NOT be formatted in backticks or Markdown file links that trigger automated static scanners as missing targets or phantom paths.
+* **Rule (Rule Renumbering Trap & Downstream Citation Preservation):** When updating, deprecating, or modernizing numbered rules (e.g. Rule 25), agents MUST NEVER delete or renumber downstream rules. Modernize the rule title and content in-place to avoid breaking citations across test docstrings, commit messages, and automated review agent trackers.
+* **Rationale:** Discovered during Phase 4 agent memory audit. Naive rule renumbering breaks test references across git branches, while unqualified path strings in instruction files trigger static repository audit scanner failures.
+
