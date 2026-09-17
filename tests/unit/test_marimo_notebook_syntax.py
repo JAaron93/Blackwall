@@ -62,5 +62,37 @@ def test_notebook_fallback_resilience():
     assert "benchmark_report.json" in source
     assert "history.jsonl" in source
     assert "blackwall_security.evalset.json" in source
+    assert "security_report.json" in source
     assert "default_benchmark" in source
     assert "structural_p99_ms" in source
+
+
+def test_pyproject_dev_includes_pandas():
+    """Verify dev dependencies include pandas>=3.0.0 for the Marimo notebook."""
+    import tomllib
+
+    pyproject_path = NOTEBOOK_PATH.parents[1] / "pyproject.toml"
+    with open(pyproject_path, "rb") as f:
+        data = tomllib.load(f)
+
+    dev_deps = data.get("project", {}).get("optional-dependencies", {}).get("dev", [])
+    has_pandas = any(dep.startswith("pandas") for dep in dev_deps)
+    assert has_pandas, "pyproject.toml [project.optional-dependencies] dev must include pandas"
+
+
+def test_notebook_sla_boundary_strict_inequalities():
+    """Verify SLA contract comparisons use strict < checks where required."""
+    source = NOTEBOOK_PATH.read_text(encoding="utf-8")
+    assert "struct_ok = struct_p99 < structural_sla_slider.value" in source
+    assert "semantic_ok = semantic_p99 < semantic_sla_slider.value" in source
+    assert "tsg_ok = tsg_p99 < 10.0" in source
+    assert "cpu_ok = cpu_pct < 2.0" in source
+    assert "mem_ok = mem_rss <= memory_sla_slider.value" in source
+
+
+def test_notebook_malicious_ground_truth_recognition():
+    """Verify notebook recognizes 'MALICIOUS' evalset scenarios as hostile."""
+    source = NOTEBOOK_PATH.read_text(encoding="utf-8")
+    assert '"MALICIOUS"' in source
+    assert 'ground_truth in ("MALICIOUS", "ADVERSARIAL")' in source or 'is_hostile' in source
+    assert 'actual_results' in source
