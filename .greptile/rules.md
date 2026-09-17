@@ -245,6 +245,13 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
   - CLI commands performing threat lookups MUST flush in-memory metric buffers in a `finally` block before process exit.
 - **Legacy VirusTotal Compatibility**:
   - VirusTotal GTI client is retained exclusively as an opt-in fallback when `BW_THREAT_INTEL_BACKEND=virustotal` is explicitly configured.
+- **SyncResolver Integration & Typed Exception Propagation**:
+  - `SyncResolver._query_threat_intel` integrates with `ThreatIntelOrchestrator` (`lookup`), escalating malicious detections to trigger `BLOCK` verdicts.
+  - Typed exceptions (`OTXCircuitBreakerOpenError`, `OTXTokenBucketExhaustedError`, `OTXLookupError`, `ThreatIntelError`, `CircuitBreakerError`, `AbuseIPDBError`, `AbuseChError`, `HarpoonError`) MUST propagate out of `_query_threat_intel` without being suppressed into `None` (which would mask failures as benign / `ALLOW`). Lookups returning provider failure error responses MUST raise `OTXLookupError`.
+  - Legacy `detection_rate` percentages ($> 1.0$) in `_score_threat_intel` MUST be normalized by dividing by `100.0` and clamped to `[0.0, 1.0]` to avoid score saturation.
+- **SLA Benchmarking & DGX Spark Conformance** (`scripts/benchmark_threat_intel.py`):
+  - Strict average latency $\le 1.0\text{ ms}$ on cache hits and RSS memory overhead $\le 50\text{ MB}$.
+  - Multi-layer zero-CUDA verification MUST inspect `/proc/<pid>/fd` for `/dev/nvidia*` descriptors, verify absence from NVML compute processes, and assert `torch.cuda.is_initialized() is False`.
 
 
 
