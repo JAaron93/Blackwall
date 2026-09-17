@@ -269,7 +269,7 @@
           <rect x="730" y="540" width="200" height="95" rx="12" fill="url(#cardGradDark)" stroke="#f43f5e" stroke-width="1.5"/>
           <text x="830" y="565" text-anchor="middle" fill="#fb7185" font-size="11" font-weight="bold">CONTAINMENT &amp; REFUSAL</text>
           <text x="830" y="585" text-anchor="middle" fill="#94a3b8" font-size="9.5">JSON-RPC -32603 / -32001</text>
-          <text x="830" y="602" text-anchor="middle" fill="#94a3b8" font-size="9.5">Inline Signature Generated</text>
+          <text x="830" y="602" text-anchor="middle" fill="#94a3b8" font-size="8.8">BLOCK: SigGen &middot; QUARANTINE: Refactor</text>
           <text x="830" y="620" text-anchor="middle" fill="#f43f5e" font-size="8.5" font-family="monospace">&#9888; Adversary Session Quarantined</text>
         </g>
 
@@ -284,14 +284,14 @@
           <text x="1062" y="562" text-anchor="middle" fill="#f472b6" font-size="11" font-weight="bold">ASYNC ATTRIBUTION</text>
           <text x="1062" y="579" text-anchor="middle" fill="#fbcfe8" font-size="9" font-family="monospace">_schedule_attribution()</text>
           <text x="1062" y="595" text-anchor="middle" fill="#94a3b8" font-size="9">AttackerIdentityExtractor &middot; Swarm</text>
-          <text x="1062" y="612" text-anchor="middle" fill="#94a3b8" font-size="9">Incident Report &middot; AlertBus</text>
+          <text x="1062" y="612" text-anchor="middle" fill="#94a3b8" font-size="9">Emit Sinks (Report) &middot; Persist Profile</text>
           <text x="1062" y="627" text-anchor="middle" fill="#ec4899" font-size="8" font-family="monospace">&lt;5ms Non-Blocking Budget</text>
         </g>
 
         <!-- Attribution Persistence to Local Threat Graph & Cache (Zone 6) -->
         <path d="M 1062 635 L 1062 665 L 320 665 L 320 610" stroke="#a855f7" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrowPurple)" class="flow-line"/>
-        <rect x="620" y="655" width="200" height="18" rx="4" fill="#3b0764" stroke="#a855f7" stroke-width="0.8"/>
-        <text x="720" y="667" text-anchor="middle" fill="#e9d5ff" font-size="8" font-family="monospace">Persist Profile &amp; Incident Report (WAL)</text>
+        <rect x="635" y="655" width="170" height="18" rx="4" fill="#3b0764" stroke="#a855f7" stroke-width="0.8"/>
+        <text x="720" y="667" text-anchor="middle" fill="#e9d5ff" font-size="8" font-family="monospace">Persist AttackerProfile (WAL)</text>
 
         <!-- ZONE 6: PERSISTENCE & CACHING (BOTTOM LEFT) -->
         <g id="node-persistence" class="node-card" onclick="selectNode('persistence')">
@@ -415,7 +415,7 @@
       },
       step_attrib: {
         title: "Asynchronous Attacker Attribution (_schedule_attribution)",
-        desc: "Scheduled non-blockingly as a background task ONLY after a BLOCK or QUARANTINE verdict. Extracts attacker fingerprints via AttackerIdentityExtractor, correlates swarm context, generates incident reports, and persists profiles to SQLite without delaying the inline < 5ms tool execution verdict.",
+        desc: "Scheduled non-blockingly as a background task ONLY after a BLOCK or QUARANTINE verdict. Extracts attacker fingerprints via AttackerIdentityExtractor, correlates swarm context, generates incident reports for notification sinks (_emit_sinks), and persists attacker profiles to SQLite without delaying the inline < 5ms tool execution verdict.",
         sla: "< 5.0 ms background budget (non-blocking)",
         path: "src/blackwall/attribution/ & sync_resolver.py"
       },
@@ -427,7 +427,7 @@
       },
       target_quarantine: {
         title: "Containment & Refusal Generator",
-        desc: "Intercepts unsafe payloads, generates polite but definitive tool refusal responses back to the calling agent, and alerts the developer.",
+        desc: "Intercepts unsafe payloads, generates polite but definitive tool refusal responses back to the calling agent, schedules background signature generation (BLOCK) or quarantine refactoring (QUARANTINE), and alerts the developer.",
         sla: "< 0.20 ms",
         path: "src/blackwall/resolver.py"
       },
