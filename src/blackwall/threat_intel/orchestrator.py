@@ -399,13 +399,19 @@ class ThreatIntelOrchestrator:
     async def get_pulse(
         self, pulse_id: str, timeout: Optional[float] = None
     ) -> dict[str, Any]:
-        """Fetch pulse details from the primary OTX provider."""
+        """Fetch pulse details from the primary OTX provider or bridge fallback."""
         effective_timeout = timeout if timeout is not None else self.timeout
         provider = self.primary_provider
-        if isinstance(provider, CircuitBreakerProvider):
+        while isinstance(provider, CircuitBreakerProvider):
             provider = provider.provider
         if hasattr(provider, "get_pulse"):
             return await provider.get_pulse(pulse_id, timeout=effective_timeout)
+        if hasattr(provider, "fallback_provider"):
+            fb = provider.fallback_provider
+            while isinstance(fb, CircuitBreakerProvider):
+                fb = fb.provider
+            if hasattr(fb, "get_pulse"):
+                return await fb.get_pulse(pulse_id, timeout=effective_timeout)
         raise NotImplementedError("Primary provider does not support pulse lookups")
 
     async def get_cache_stats(self) -> dict[str, Any]:

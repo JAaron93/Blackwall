@@ -646,5 +646,30 @@ async def test_orchestrator_cache_metrics_batch_flush(temp_repo: SQLiteThreatRep
     assert stats["misses"] >= 1
 
 
+@pytest.mark.asyncio
+async def test_orchestrator_harpoon_primary_pulse_lookup_delegates_to_fallback() -> None:
+    """Verify get_pulse works when Harpoon is primary by delegating to OTX fallback."""
+    from unittest.mock import AsyncMock
+    from blackwall.threat_intel.harpoon import HarpoonBridge
+
+    mock_otx = MockProvider(
+        name="otx",
+        supported_indicators={ThreatIndicatorType.IPV4},
+    )
+    mock_otx.get_pulse = AsyncMock(return_value={"id": "pulse-999", "name": "Test Pulse"})
+
+    bridge = HarpoonBridge(fallback_provider=mock_otx)
+    orch = ThreatIntelOrchestrator(
+        primary_provider=bridge,
+        cache_enabled=False,
+    )
+
+    pulse = await orch.get_pulse("pulse-999")
+    assert pulse["id"] == "pulse-999"
+    assert pulse["name"] == "Test Pulse"
+    mock_otx.get_pulse.assert_called_once_with("pulse-999", timeout=3.0)
+
+
+
 
 

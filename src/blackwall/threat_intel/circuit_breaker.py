@@ -236,6 +236,14 @@ class CircuitBreakerProvider:
         except Exception:
             return False
 
+    async def get_pulse(
+        self, pulse_id: str, timeout: Optional[float] = None
+    ) -> dict[str, Any]:
+        """Pass through pulse lookup to underlying provider if supported."""
+        if hasattr(self.provider, "get_pulse"):
+            return await self.provider.get_pulse(pulse_id, timeout=timeout)
+        raise NotImplementedError("Underlying provider does not support pulse lookups")
+
     def _make_fallback_response(
         self,
         indicator: str,

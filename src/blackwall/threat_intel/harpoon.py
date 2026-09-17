@@ -269,3 +269,14 @@ class HarpoonBridge:
     def get_remaining_budget(self) -> int:
         """Return remaining quota from fallback provider or unlimited."""
         return self.fallback_provider.get_remaining_budget()
+
+    async def get_pulse(
+        self, pulse_id: str, timeout: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """Fetch threat pulse metadata from the fallback provider."""
+        effective_timeout = timeout if timeout is not None else self.timeout
+        if hasattr(self.fallback_provider, "get_pulse"):
+            return await self.fallback_provider.get_pulse(
+                pulse_id, timeout=effective_timeout
+            )
+        raise NotImplementedError("Fallback provider does not support pulse lookups")
