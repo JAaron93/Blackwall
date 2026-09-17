@@ -34,7 +34,11 @@ class GCPVertexEvalConfig(BaseModel):
         description="Google Cloud Project ID authenticated via ADC.",
     )
     location: str = Field(
-        default_factory=lambda: os.getenv("GCP_LOCATION") or os.getenv("GOOGLE_CLOUD_LOCATION") or "global",
+        default_factory=lambda: (
+            "us-central1"
+            if (os.getenv("GCP_LOCATION") in (None, "", "global") and os.getenv("GOOGLE_CLOUD_LOCATION") in (None, "", "global"))
+            else (os.getenv("GCP_LOCATION") or os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1")
+        ),
         description="Google Cloud Region for Vertex AI Evaluation Service.",
     )
     main_model: str = Field(
@@ -431,8 +435,16 @@ class GCPVertexAIEvaluationHarness:
                     flip_enabled=self.config.flip_enabled,
                     sampling_count=self.config.sampling_count,
                 )
+                eval_dataset = dataset
+                if isinstance(dataset, list):
+                    try:
+                        import pandas as pd
+                        eval_dataset = pd.DataFrame(dataset)
+                    except Exception as pd_err:
+                        logger.debug("Could not convert dataset list to DataFrame: %s", pd_err)
+
                 eval_task = EvalTask(
-                    dataset=dataset,
+                    dataset=eval_dataset,
                     metrics=list(metrics),
                     autorater_config=autorater_config,
                     experiment=self.config.experiment_name,
@@ -503,9 +515,19 @@ class GCPVertexAIEvaluationHarness:
                         except Exception:
                             pass
 
-                eval_result = eval_task.evaluate(
-                    model=model_obj,
-                    retry_timeout=self.config.http_timeout,
+                has_response_col = False
+                if hasattr(eval_dataset, "columns") and "response" in eval_dataset.columns:
+                    has_response_col = True
+                elif isinstance(eval_dataset, dict) and "response" in eval_dataset:
+                    has_response_col = True
+
+                eval_result = (
+                    eval_task.evaluate(retry_timeout=self.config.http_timeout)
+                    if has_response_col
+                    else eval_task.evaluate(
+                        model=model_obj,
+                        retry_timeout=self.config.http_timeout,
+                    )
                 )
                 logger.info("Vertex AI EvalTask executed successfully")
 

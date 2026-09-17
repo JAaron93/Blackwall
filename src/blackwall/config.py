@@ -247,7 +247,7 @@ def get_genai_client(
         from google.genai import types
 
         client_kwargs["http_options"] = types.HttpOptions(
-            timeout=get_gemini_http_timeout(configured=timeout)
+            timeout=int(get_gemini_http_timeout(configured=timeout) * 1000.0)
         )
     client_kwargs.update(kwargs)
     return genai.Client(**client_kwargs)

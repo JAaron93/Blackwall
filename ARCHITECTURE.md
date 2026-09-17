@@ -17,7 +17,7 @@ Blackwall solves these challenges through a **hybrid defense model**:
 - **Zero Ambient Authority**: Enforced at the interpreter boundary via Python runtime audit hooks (`sys.addaudithook`) and compiled Rust extensions, compelling all actions to funnel through intercepted tool interfaces.
 - **Dual-Layer Hybrid Gating**: Microsecond deterministic YAML structural policy checks combined with sub-100ms semantic LLM intent analysis powered by **100% GCP Vertex AI Mode** (Gemini Enterprise Agent Platform).
 - **Asynchronous Batching**: Bridges the rate mismatch between 600 RPM attacker velocity and 300 RPM LLM API capacity.
-- **Dynamic Self-Learning**: Auto-generates structural threat signatures from novel blocked attacks, turning a ~1,400ms semantic evaluation into a ~12ms local vector lookup for subsequent attack variants (a **118x speedup**).
+- **Dynamic Self-Learning**: Auto-generates structural threat signatures from novel blocked attacks, turning a ~1,010ms semantic evaluation into a ~7.0ms local vector lookup for subsequent attack variants (a **144x speedup**).
 
 ---
 
@@ -59,7 +59,7 @@ flowchart TD
     StructuralGating -- "Rule Match: BLOCK" --> BlockFast["BLOCK (< 5ms)"]
     StructuralGating -- "Rule Match: ESCALATE" --> TSGQuery
 
-    TSGQuery -- "Similarity >= 0.85" --> MatchBlock["BLOCK via Signature (~12ms)"]
+    TSGQuery -- "Similarity >= 0.85" --> MatchBlock["BLOCK via Signature (~7.0ms)"]
     TSGQuery -- "No Match (< 0.85)" --> TIQuery
     TSGQuery -- "No Match (< 0.85)" --> CBMQuery
 
@@ -201,7 +201,7 @@ CREATE TABLE security_events (
    $$\text{match\_quality} = \frac{|\text{tokens}_{\text{payload}} \cap \text{tokens}_{\text{pattern}}|}{\min(|\text{tokens}_{\text{payload}}|, |\text{tokens}_{\text{pattern}}|)}$$
 2. **Stage 2 (Vector Cosine Similarity)**: For candidates passing initial lexical thresholds, unpacks the 768-dimensional embedding vector and evaluates cosine similarity:
    $$\text{sim}(u, v) = \frac{u \cdot v}{\|u\|_2 \|v\|_2}$$
-   If $\text{sim}(u, v) \ge \text{threshold}$, the action is instantly blocked in **~12ms**, updating `match_count` and bypassing all external network calls.
+   If $\text{sim}(u, v) \ge \text{threshold}$, the action is instantly blocked in **~7.0ms**, updating `match_count` and bypassing all external network calls.
 
 ### 4.4 Eviction & Maintenance
 - **TTL Eviction**: Signatures with zero matches within 30 days are pruned.
@@ -347,7 +347,7 @@ stateDiagram-v2
 3. **Structured Signature Synthesis**: Invokes Gemini with a typed schema (`ThreatSignaturePayload`), natively synthesizing pattern, threat level, mitigation action, and structured reasoning without regex or markdown repair heuristics.
 4. **Vector Synthesis**: Calls the Gemini Embedding API (`text-embedding-004`) to generate a 768-dimensional normalized embedding vector.
 5. **Graph Persistence**: Atomically writes the signature, payload regex, and vector to the SQLite `threat_signatures` table and broadcasts the event across OpenTelemetry.
-6. **Adaptive Immunity**: When an attacker subsequently attempts a polymorphic variant of the same exploit, Tier 2 vector similarity matches the stored signature and blocks the attack locally in **~12ms**.
+6. **Adaptive Immunity**: When an attacker subsequently attempts a polymorphic variant of the same exploit, Tier 2 vector similarity matches the stored signature and blocks the attack locally in **~7.0ms**.
 
 ---
 

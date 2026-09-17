@@ -120,7 +120,7 @@ class BaseJudgeAgent:
 
                             rubric_instance = self.rubric_schema.model_validate(data)
                             return rubric_instance
-                        except (ValidationError, json.JSONDecodeError, RuntimeError, ValueError, TypeError, KeyError) as exc:
+                        except Exception as exc:
                             last_error = exc
                             logger.warning(
                                 "Judge agent '%s' evaluation attempt %d/%d failed: %s",
@@ -144,7 +144,7 @@ class BaseJudgeAgent:
 
                         rubric_instance = self.rubric_schema.model_validate(data)
                         return rubric_instance
-                    except (ValidationError, json.JSONDecodeError, RuntimeError, ValueError, TypeError, KeyError) as exc:
+                    except Exception as exc:
                         last_error = exc
                         logger.warning(
                             "Judge agent '%s' evaluation attempt %d/%d failed: %s",

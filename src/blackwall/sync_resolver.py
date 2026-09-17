@@ -96,6 +96,7 @@ _HIGH_RISK_TOOLS = frozenset(
 _MEDIUM_RISK_TOOLS = frozenset(
     {
         "read_file",
+        "file_read",
         "write_file",
         "file_write",
         "save_file",

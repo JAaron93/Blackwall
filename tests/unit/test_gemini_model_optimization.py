@@ -194,7 +194,7 @@ def test_get_genai_client_http_options(monkeypatch: pytest.MonkeyPatch) -> None:
         mock_client.assert_called_once()
         call_kwargs = mock_client.call_args[1]
         assert "http_options" in call_kwargs
-        assert call_kwargs["http_options"].timeout == 120.0
+        assert call_kwargs["http_options"].timeout == 120000
 
 
 def test_get_genai_client_invalid_timeout_sanitization(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -206,4 +206,4 @@ def test_get_genai_client_invalid_timeout_sanitization(monkeypatch: pytest.Monke
             mock_client.assert_called_once()
             call_kwargs = mock_client.call_args[1]
             assert "http_options" in call_kwargs
-            assert call_kwargs["http_options"].timeout == 120.0
+            assert call_kwargs["http_options"].timeout == 120000

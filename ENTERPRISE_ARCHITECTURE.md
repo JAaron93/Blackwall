@@ -76,8 +76,8 @@ sequenceDiagram
         MockApp-->>Blackwall: before_tool_callback triggers
         Blackwall->>LocalTSG: Query Vector Cosine Similarity
         LocalTSG-->>Blackwall: Match Found: Similarity 0.91 >= 0.85 Threshold
-        Blackwall-->>RogueAgent: VERDICT: BLOCK via Signature (~12ms)
-        Note over Blackwall,Spectator: 118x Speedup with Zero LLM Inference
+        Blackwall-->>RogueAgent: VERDICT: BLOCK via Signature (~7.0ms)
+        Note over Blackwall,Spectator: 144x Speedup with Zero LLM Inference
     end
 ```
 

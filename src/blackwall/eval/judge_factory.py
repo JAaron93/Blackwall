@@ -81,10 +81,90 @@ except ImportError:
             pass
 
         async def chat(self, prompt: str) -> str:
-            raise RuntimeError(
-                "google-antigravity SDK is not installed in the local environment. "
-                "Agent chat must be mocked in tests or executed in a supported GCP environment."
+            project = (
+                self.config.project
+                or os.getenv("GCP_PROJECT")
+                or os.getenv("GOOGLE_CLOUD_PROJECT")
             )
+            if not project or not project.strip():
+                raise RuntimeError(
+                    "google-antigravity SDK is not installed in the local environment. "
+                    "Agent chat must be mocked in tests or executed in a supported GCP environment."
+                )
+
+            try:
+                from google import genai
+                from google.genai import types
+            except ImportError:
+                raise RuntimeError(
+                    "google-antigravity SDK is not installed in the local environment. "
+                    "Agent chat must be mocked in tests or executed in a supported GCP environment."
+                )
+
+            location = self.config.location or "global"
+            if location == "us-central1" and os.getenv("GCP_LOCATION", "").lower() == "global":
+                location = "global"
+
+            timeout_ms = int((self.config.timeout or 120.0) * 1000.0)
+            client = genai.Client(
+                vertexai=True,
+                project=project.strip(),
+                location=location,
+                http_options=types.HttpOptions(timeout=timeout_ms),
+            )
+
+            gen_config = types.GenerateContentConfig()
+            if self.config.response_schema is not None:
+                gen_config.response_mime_type = "application/json"
+                gen_config.response_schema = self.config.response_schema
+
+            if self.config.thinking_level:
+                try:
+                    level = self.config.thinking_level.upper()
+                    gen_config.thinking_config = types.ThinkingConfig(thinking_level=level)
+                except Exception:
+                    pass
+
+            if self.config.max_output_tokens:
+                gen_config.max_output_tokens = self.config.max_output_tokens
+
+            target_model = self.config.model or "gemini-3.8-flash"
+            try:
+                response = await client.aio.models.generate_content(
+                    model=target_model,
+                    contents=prompt,
+                    config=gen_config,
+                )
+            except Exception as model_err:
+                err_str = str(model_err)
+                is_quota_or_timeout = any(
+                    token in err_str
+                    for token in ("429", "RESOURCE_EXHAUSTED", "504", "DEADLINE_EXCEEDED", "TimeoutError", "timeout")
+                ) or isinstance(model_err, TimeoutError)
+                if is_quota_or_timeout and target_model != "gemini-3.5-flash-lite":
+                    logger.warning(
+                        "Primary judge model '%s' encountered error (%s); attempting fallback to 'gemini-3.5-flash-lite'",
+                        target_model,
+                        err_str,
+                    )
+                    self.config.model = "gemini-3.5-flash-lite"
+                    response = await client.aio.models.generate_content(
+                        model="gemini-3.5-flash-lite",
+                        contents=prompt,
+                        config=gen_config,
+                    )
+                    fallback_text = response.text or ""
+                    try:
+                        parsed = json.loads(fallback_text)
+                        if isinstance(parsed, dict):
+                            parsed["is_fallback"] = True
+                            fallback_text = json.dumps(parsed)
+                    except Exception:
+                        pass
+                    return fallback_text
+                else:
+                    raise
+            return response.text or ""
 
 
 def validate_evaluation_tier_contract() -> None:

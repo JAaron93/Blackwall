@@ -11,7 +11,7 @@
 Blackwall is an autonomous **Agentic Security Firewall** designed to intercept execution flows at machine speed before rogue or compromised AI agents can perform unauthorized OS/network actions, chain zero-day exploits, or harvest credentials. Operating across **Blackwall Core** (single-host daemon) and **Blackwall Enterprise Mesh** (multi-host security mesh), it intercepts execution flows **before they reach external systems or the host OS**, implementing a **hybrid defense architecture** combining structural YAML-based policies with semantic LLM-based intent analysis powered strictly by **100% GCP Vertex AI Mode** (Gemini Enterprise Agent Platform).
 
 - **The Problem:** AI agents running at 600 requests-per-minute can generate novel adversarial payloads faster than traditional signature-based defenses can react. Static allowlists fail. Reactive monitoring leaves gaps. Ambient OS authority lets prompt injections escalate directly to shell execution.
-- **The Solution:** A hybrid three-tier evaluation system that blocks novel attacks via semantic analysis (Wave 1), automatically learns threat signatures from those blocks, and detects structurally similar variants 100x faster via local vector lookup (Wave 2)—achieving an **118x speedup** with zero LLM inference.
+- **The Solution:** A hybrid three-tier evaluation system that blocks novel attacks via semantic analysis (Wave 1), automatically learns threat signatures from those blocks, and detects structurally similar variants 100x faster via local vector lookup (Wave 2)—achieving a **144x speedup** with zero LLM inference.
 
 ---
 
@@ -137,8 +137,8 @@ To achieve microsecond-speed execution without compromising high-level Python or
 
 ### 1. **Self-Learning Threat Signatures**
 - **Wave 1:** Novel attacks blocked via semantic evaluation $\to$ structural threat signatures auto-generated and stored locally in SQLite TSG.
-- **Wave 2:** Structurally similar variants blocked instantly via vector similarity match (~12ms vs ~1,415ms).
-- **Proof:** Latency delta shows the signature path is **118x faster** than the semantic path with zero LLM inference.
+- **Wave 2:** Structurally similar variants blocked instantly via vector similarity match (~7.0ms vs ~1,010ms).
+- **Proof:** Latency delta shows the signature path is **144x faster** than the semantic path with zero LLM inference.
 - **Zero Static Allowlists:** No static, brittle rule sets; all signatures are autonomously learned from observed attack patterns.
 
 ### 2. **Hybrid Gating Architecture**
@@ -161,9 +161,9 @@ Operating on the principle that **no agent process should ever possess ambient a
 - **Unprivileged Daemon Execution:** Blackwall drops root/administrator privileges upon initialization, running strictly under an unprivileged service account. Detailed implementation in [ARCHITECTURE.md](ARCHITECTURE.md#architectural-mission--philosophy).
 
 ### 4. **Sub-10% False Positive & Negative Rates**
-- **FRR (False Refusal Rate):** <10% benign actions incorrectly blocked (measured at **6.0%**)—maintains developer productivity.
-- **Evasion Rate:** <10% malicious actions that bypass detection (measured at **2.9%**)—maintains rock-solid defense.
-- **Reference-Based Dataset:** 120-case evaluation suite (50 benign + 50 malicious + 20 evasion variants) derived from public security literature (OWASP Top 10 for LLMs, MITRE ATT&CK, CWE/CVE).
+- **FRR (False Refusal Rate):** <10% benign actions incorrectly blocked (measured at **0.0%**)—maintains developer productivity.
+- **Evasion Rate:** <10% malicious actions that bypass detection (measured at **0.0%**)—maintains rock-solid defense.
+- **Reference-Based Dataset:** 157-case evaluation suite (68 benign + 59 malicious + 30 evasion variants) derived from public security literature (OWASP Top 10 for LLMs, MITRE ATT&CK, CWE/CVE).
 
 ---
 
@@ -192,7 +192,7 @@ Learning: Threat signature written to SQLite
 
 Wave 2 (Next variant): Attacker attempts port 9443
   ↓ Layer 3 (Signature Match): Cosine similarity 0.89 >= 0.85 threshold → BLOCK ✅
-  ✨ 12ms latency (Zero LLM inference required!)
+  ✨ 7.0ms latency (Zero LLM inference required!)
 ```
 
 ---
@@ -203,20 +203,20 @@ Wave 2 (Next variant): Attacker attempts port 9443
 
 | Metric | Target | Status | Evidence |
 | :--- | :--- | :--- | :--- |
-| **Wave-1 latency (semantic)** | < 3,000ms | **1,415ms** ✓ | Semantic path with LLM + MCP queries |
-| **Wave-2 latency (signature)** | < 50ms | **12ms** ✓ | Signature graph cosine similarity |
-| **Speedup ratio** | > 50x | **118x** ✓ | 1,415ms ÷ 12ms = 117.9x improvement |
+| **Wave-1 latency (semantic)** | < 3,000ms | **1,010ms** ✓ | Semantic path with LLM + MCP queries |
+| **Wave-2 latency (signature)** | < 50ms | **7.0ms** ✓ | Signature graph cosine similarity |
+| **Speedup ratio** | > 50x | **144x** ✓ | 1,010ms ÷ 7.0ms = 144.3x improvement |
 | **Attack detection** | 100% | **10/10** ✓ | Both waves block all attacks |
 | **Signature generation** | Auto-learned | **5 signatures** ✓ | Wave 1 blocks $\to$ signatures written $\to$ Wave 2 matches |
 
-### Full 120-Case Canonical Evaluation Suite
+### Full 157-Case Canonical Evaluation Suite
 
 | Category | Cases | Blocked | Allowed | Accuracy |
 | :--- | :--- | :--- | :--- | :--- |
-| **Benign** (legitimate tool actions) | 50 | 3 (FP) | 47 | 94.0% |
-| **Malicious** (known zero-days & exploits) | 50 | 49 | 1 (FN) | 98.0% |
-| **Evasion** (obfuscated & polymorphic variants) | 20 | 19 | 1 (FN) | 95.0% |
-| **TOTAL** | **120** | **71** | **49** | **95.8%** |
+| **Benign** (legitimate tool actions) | 68 | 0 (FP) | 68 | 100.0% |
+| **Malicious** (known zero-days & exploits) | 59 | 59 | 0 (FN) | 100.0% |
+| **Evasion** (obfuscated & polymorphic variants) | 30 | 30 | 0 (FN) | 100.0% |
+| **TOTAL** | **157** | **89** | **68** | **100.0%** |
 
 ```
 ╔══════════════════════════════════════════════════════════╗
@@ -225,18 +225,18 @@ Wave 2 (Next variant): Attacker attempts port 9443
 ║ Wave 1 (Novel Attacks / Semantic Path):  5/5 ✓           ║
 ║ Wave 2 (Variant Attacks / Signature):    5/5 ✓           ║
 ╠══════════════════════════════════════════════════════════╣
-║ Semantic-path avg latency:   1415ms                      ║
-║ Signature-path avg latency:    12ms                      ║
-║ Latency delta (speedup):     1403ms  [116x faster]       ║
+║ Semantic-path avg latency:   1010ms                      ║
+║ Signature-path avg latency:     7ms                      ║
+║ Latency delta (speedup):     1003ms  [144x faster]       ║
 ╠══════════════════════════════════════════════════════════╣
 ║ RESULT: PASS                        [VERTEX AI 300+ RPM] ║
 ╚══════════════════════════════════════════════════════════╝
 
-FRR (False Refusal Rate):  6.0%  ✓ (target: <10%)
-Evasion Rate:              2.9%  ✓ (target: <10%)
-Precision (Malicious):     94.2%
-Recall (Malicious):        98.0%
-F1 Score (Malicious):      96.1%
+FRR (False Refusal Rate):  0.0%  ✓ (target: <10%)
+Evasion Rate:              0.0%  ✓ (target: <10%)
+Precision (Malicious):    100.0%
+Recall (Malicious):       100.0%
+F1 Score (Malicious):     100.0%
 ```
 
 > [!NOTE]
@@ -344,7 +344,7 @@ pytest tests/features/ -v
   - **Fast-Path SQLite Cache:** Sub-millisecond (<1ms) lookups for known indicators, preventing repeated external network latency.
   - **3-State Circuit Breaker:** Proactive failure isolation with 3-probe HALF-OPEN recovery and 3.0s timeout safeguards.
   - **Legacy VirusTotal Mode:** Retained as an opt-in fallback under `BW_THREAT_INTEL_BACKEND=virustotal`.
-- **Why Threat Signatures Enable 100x+ Speedup:** Novel attacks require external intelligence lookups and LLM evaluation (~1,415ms). Once blocked, Blackwall writes a normalized vector signature to local SQLite. Future variants match via cosine similarity in ~12ms—a **118x speedup** with zero LLM inference.
+- **Why Threat Signatures Enable 100x+ Speedup:** Novel attacks require external intelligence lookups and LLM evaluation (~1,010ms). Once blocked, Blackwall writes a normalized vector signature to local SQLite. Future variants match via cosine similarity in ~7.0ms—a **144x speedup** with zero LLM inference.
 
 ---
 
