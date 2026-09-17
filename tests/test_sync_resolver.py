@@ -21,11 +21,15 @@ from blackwall.models import (
     CBMResponse,
     GTIResponse,
     SinkType,
+    ThreatIntelResponse,
     ToolCallContext,
     Verdict,
     VerdictDecision,
 )
 from blackwall.sync_resolver import SyncResolver
+
+
+from blackwall.threat_intel.models import ThreatIndicatorType
 
 
 # ---------------------------------------------------------------------------
@@ -44,9 +48,12 @@ def _make_context(
 
 
 def _make_resolver(
-    gti_client=None,
+    threat_intel_client=None,
+    threat_intel=None,
     cbm_client=None,
     repo=None,
+    threat_intel_budget_tracker=None,
+    gti_client=None,
     gti_budget_tracker=None,
 ) -> SyncResolver:
     """Creates a SyncResolver with a mocked Gemini client."""
@@ -56,12 +63,23 @@ def _make_resolver(
     mock_response.text = "generalized attack pattern"
     mock_client.models.generate_content.return_value = mock_response
 
+    ti_client = (
+        threat_intel
+        if threat_intel is not None
+        else (threat_intel_client if threat_intel_client is not None else gti_client)
+    )
+    tracker = (
+        threat_intel_budget_tracker
+        if threat_intel_budget_tracker is not None
+        else gti_budget_tracker
+    )
+
     return SyncResolver(
         client=mock_client,
-        gti_client=gti_client,
+        threat_intel=ti_client,
         cbm_client=cbm_client,
         repo=repo,
-        gti_budget_tracker=gti_budget_tracker,
+        threat_intel_budget_tracker=tracker,
     )
 
 
@@ -103,17 +121,17 @@ async def test_single_request_evaluation_with_mocked_gemini():
 
 
 @pytest.mark.asyncio
-async def test_gti_cbm_queries_execute_serially():
+async def test_threat_intel_cbm_queries_execute_serially():
     """
-    _query_gti() must complete before _query_cbm() starts.
+    _query_threat_intel() must complete before _query_cbm() starts.
     Tracked via a shared ordering list.
     """
     call_order: List[str] = []
 
-    async def mock_gti_query(indicator):
-        call_order.append("gti_start")
+    async def mock_threat_intel_query(indicator):
+        call_order.append("threat_intel_start")
         await asyncio.sleep(0)  # yield to event loop
-        call_order.append("gti_end")
+        call_order.append("threat_intel_end")
         return GTIResponse(
             indicator=indicator,
             is_malicious=False,
@@ -126,23 +144,23 @@ async def test_gti_cbm_queries_execute_serially():
         call_order.append("cbm_end")
         return CBMResponse(blast_radius=1, critical_sinks=[])
 
-    gti_client = MagicMock()
-    gti_client.query = AsyncMock(side_effect=mock_gti_query)
+    threat_intel_client = MagicMock()
+    threat_intel_client.query = AsyncMock(side_effect=mock_threat_intel_query)
 
     cbm_client = MagicMock()
     cbm_client.query = AsyncMock(side_effect=mock_cbm_query)
 
-    resolver = _make_resolver(gti_client=gti_client, cbm_client=cbm_client)
+    resolver = _make_resolver(threat_intel=threat_intel_client, cbm_client=cbm_client)
     context = ToolCallContext(
         tool_name="execute_bash", arguments={"host": "wd-bouygues.com", "cmd": "curl"}
     )
 
     await resolver.evaluate(context)
 
-    # CBM must fully complete before GTI starts (gating before external query)
+    # CBM must fully complete before Threat Intel starts (gating before external query)
     assert call_order.index("cbm_end") < call_order.index(
-        "gti_start"
-    ), f"Expected CBM to finish before GTI starts. Order was: {call_order}"
+        "threat_intel_start"
+    ), f"Expected CBM to finish before Threat Intel starts. Order was: {call_order}"
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +206,19 @@ async def test_threat_score_calculation_matches_formula():
     assert (
         abs(score - expected_total) < 0.01
     ), f"Score {score:.4f} differs from expected {expected_total:.4f}"
+
+    ti_resp = ThreatIntelResponse(
+        indicator="192.168.1.100",
+        indicator_type=ThreatIndicatorType.IPV4,
+        provider_name="AlienVault OTX",
+        is_malicious=False,
+        confidence_score=0.50,
+        risk_score=0.50,
+    )
+    ti_score = await resolver._compute_threat_score(context, ti_resp, cbm_resp)
+    assert (
+        abs(ti_score - expected_total) < 0.01
+    ), f"Threat intel score {ti_score:.4f} differs from expected {expected_total:.4f}"
 
 
 # ---------------------------------------------------------------------------
@@ -306,23 +337,23 @@ async def test_empty_bucket_quarantines():
 
 
 # ---------------------------------------------------------------------------
-# Test 6: GTI weight redistribution when budget is exhausted
+# Test 6: Threat intel weight redistribution when budget is exhausted
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_gti_weight_redistribution_when_budget_exhausted():
+async def test_threat_intel_weight_redistribution_when_budget_exhausted():
     """
-    When gti_budget_tracker.tryAcquire() returns False (budget exhausted),
-    _query_gti() returns None and _compute_threat_score() must use:
+    When threat_intel_budget_tracker.tryAcquire() returns False (budget exhausted),
+    _query_threat_intel() returns None and _compute_threat_score() must use:
       CBM 50% + Context 50% (+ -0.2 penalty)
-    instead of GTI 40% + CBM 30% + Context 30%.
+    instead of Threat Intel 40% + CBM 30% + Context 30%.
     """
     mock_budget_tracker = MagicMock()
     mock_budget_tracker.tryAcquire.return_value = False  # Budget exhausted
 
-    mock_gti_client = MagicMock()
-    mock_gti_client.query = AsyncMock()  # Should never be called
+    mock_threat_intel_client = MagicMock()
+    mock_threat_intel_client.query = AsyncMock()  # Should never be called
 
     cbm_resp = CBMResponse(blast_radius=4, critical_sinks=[SinkType.DATABASE])
 
@@ -330,9 +361,9 @@ async def test_gti_weight_redistribution_when_budget_exhausted():
     mock_cbm_client.query = AsyncMock(return_value=cbm_resp)
 
     resolver = _make_resolver(
-        gti_client=mock_gti_client,
+        threat_intel_client=mock_threat_intel_client,
         cbm_client=mock_cbm_client,
-        gti_budget_tracker=mock_budget_tracker,
+        threat_intel_budget_tracker=mock_budget_tracker,
     )
 
     context = _make_context(
@@ -340,13 +371,13 @@ async def test_gti_weight_redistribution_when_budget_exhausted():
         arguments={"path": "/etc/passwd"},
     )
 
-    # Run _query_gti directly to confirm it defers
-    gti_result = await resolver._query_gti(context)
-    assert gti_result is None, "GTI should return None when budget is exhausted"
-    mock_gti_client.query.assert_not_called()
+    # Run _query_threat_intel directly to confirm it defers
+    ti_result = await resolver._query_threat_intel(context)
+    assert ti_result is None, "Threat Intel should return None when budget is exhausted"
+    mock_threat_intel_client.query.assert_not_called()
 
     # Verify deferred counter
-    assert resolver._gti_queries_deferred >= 1
+    assert resolver._threat_intel_queries_deferred >= 1
 
     # Verify compute uses degraded weights
     cbm_result = await resolver._query_cbm(context)
@@ -364,40 +395,43 @@ async def test_gti_weight_redistribution_when_budget_exhausted():
     ), f"Score {score:.4f} differs from expected {expected_degraded:.4f}"
 
 
+test_gti_weight_redistribution_when_budget_exhausted = test_threat_intel_weight_redistribution_when_budget_exhausted
+
+
 # ---------------------------------------------------------------------------
-# Test 6b: No penalty when GTI is simply unconfigured or returns no indicator
+# Test 6b: No penalty when Threat Intel is simply unconfigured or returns no indicator
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "label,gti_client,budget_tracker",
+    "label,threat_intel_client,budget_tracker",
     [
-        ("gti_unconfigured", None, None),
-        ("gti_configured_no_budget_tracker", MagicMock(), None),
+        ("threat_intel_unconfigured", None, None),
+        ("threat_intel_configured_no_budget_tracker", MagicMock(), None),
     ],
 )
-async def test_no_penalty_when_gti_not_budget_exhausted(
-    label, gti_client, budget_tracker
+async def test_no_penalty_when_threat_intel_not_budget_exhausted(
+    label, threat_intel_client, budget_tracker
 ):
     """
-    _compute_threat_score must NOT apply the -0.20 penalty when gti_resp is
-    None for reasons other than budget exhaustion (unconfigured GTI, no
+    _compute_threat_score must NOT apply the -0.20 penalty when threat_intel_resp is
+    None for reasons other than budget exhaustion (unconfigured Threat Intel, no
     extractable indicator, transient failure).  Only a tryAcquire() denial
-    sets _gti_budget_exhausted and triggers the degraded path.
+    sets _threat_intel_budget_exhausted and triggers the degraded path.
     """
     resolver = _make_resolver(
-        gti_client=gti_client,
-        gti_budget_tracker=budget_tracker,
+        threat_intel_client=threat_intel_client,
+        threat_intel_budget_tracker=budget_tracker,
     )
-    # _gti_budget_exhausted is False by default — simulate query returning None
+    # _threat_intel_budget_exhausted is False by default — simulate query returning None
     # without budget denial (no tryAcquire call)
     context = _make_context(tool_name="read_file", arguments={"path": "/tmp/x"})
     cbm_resp = CBMResponse(blast_radius=0, critical_sinks=[])
 
     score = await resolver._compute_threat_score(context, None, cbm_resp)
 
-    # Normal path: gti_score=0.0, cbm_score=0.0
+    # Normal path: threat_intel_score=0.0, cbm_score=0.0
     # ctx: read_file medium(0.45), no suspicious keywords → novelty=0.0
     # ctx_score = 0.45*0.5 + 0.0*0.5 = 0.225
     # normal: 0.0*0.4 + 0.0*0.3 + 0.225*0.3 = 0.0675
@@ -405,6 +439,9 @@ async def test_no_penalty_when_gti_not_budget_exhausted(
     assert (
         abs(score - expected_normal) < 0.01
     ), f"[{label}] Expected normal-path score ~{expected_normal:.4f}, got {score:.4f}"
+
+
+test_no_penalty_when_gti_not_budget_exhausted = test_no_penalty_when_threat_intel_not_budget_exhausted
 
 
 # ---------------------------------------------------------------------------

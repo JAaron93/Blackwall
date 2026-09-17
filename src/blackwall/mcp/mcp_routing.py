@@ -175,7 +175,7 @@ class ThreatIntelRouter:
         }
     )
 
-    def __init__(self, client: Any, router_name: str = "GTIRouter") -> None:
+    def __init__(self, client: Any, router_name: str = "ThreatIntelRouter") -> None:
         self.client = client
         self.router_name = router_name
 

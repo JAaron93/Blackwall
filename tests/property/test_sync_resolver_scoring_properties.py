@@ -24,8 +24,6 @@ from blackwall.models import (
     GTIResponse,
     SinkType,
     ToolCallContext,
-    Verdict,
-    VerdictDecision,
 )
 from blackwall.sync_resolver import SyncResolver
 
@@ -130,6 +128,8 @@ gti_response_st = st.builds(
     confidence=st.floats(min_value=0.0, max_value=1.0),
 )
 
+threat_intel_response_st = gti_response_st
+
 # Scores dict for _compute_threat_score (legacy interface for direct scoring)
 # Note: _compute_threat_score is async and takes context, gti_resp, cbm_resp
 valid_score_st = st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False)
@@ -225,25 +225,35 @@ def test_score_cbm_none_returns_zero() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Property 5: _score_gti — output bounded in [0, 1]
+# Property 5: _score_threat_intel & _score_gti — output bounded in [0, 1]
 # ---------------------------------------------------------------------------
 
 
 @settings(max_examples=100)
-@given(gti_resp=gti_response_st)
-def test_score_gti_bounded_with_response(gti_resp: GTIResponse) -> None:
-    """Property: _score_gti always returns a float in [0.0, 1.0] for a valid GTIResponse."""
+@given(ti_resp=threat_intel_response_st)
+def test_score_threat_intel_bounded_with_response(ti_resp: GTIResponse) -> None:
+    """Property: _score_threat_intel always returns a float in [0.0, 1.0] for a valid response."""
     resolver = _make_resolver()
-    score = resolver._score_gti(gti_resp)
+    score = resolver._score_threat_intel(ti_resp)
     assert isinstance(score, float), f"Expected float, got {type(score)}"
-    assert 0.0 <= score <= 1.0, f"GTI score {score!r} out of [0, 1]"
+    assert 0.0 <= score <= 1.0, f"Threat intel score {score!r} out of [0, 1]"
+    # Also verify legacy _score_gti alias
+    legacy_score = resolver._score_gti(ti_resp)
+    assert legacy_score == score
 
 
-def test_score_gti_none_returns_zero() -> None:
-    """Property: _score_gti(None) returns exactly 0.0."""
+test_score_gti_bounded_with_response = test_score_threat_intel_bounded_with_response
+
+
+def test_score_threat_intel_none_returns_zero() -> None:
+    """Property: _score_threat_intel(None) returns exactly 0.0."""
     resolver = _make_resolver()
-    score = resolver._score_gti(None)
+    score = resolver._score_threat_intel(None)
     assert score == 0.0, f"Expected 0.0 for None input, got {score!r}"
+    assert resolver._score_gti(None) == 0.0
+
+
+test_score_gti_none_returns_zero = test_score_threat_intel_none_returns_zero
 
 
 # ---------------------------------------------------------------------------
@@ -496,15 +506,15 @@ def test_score_cbm_upper_bound(blast_radius: int, sinks: List[SinkType]) -> None
 
 
 # ---------------------------------------------------------------------------
-# Property 12: _score_gti is_malicious=True always yields higher score
+# Property 12: _score_threat_intel is_malicious=True always yields higher score
 #              than is_malicious=False at the same detection_rate
 # ---------------------------------------------------------------------------
 
 
 @settings(max_examples=100)
 @given(detection_rate=st.floats(min_value=0.0, max_value=1.0))
-def test_score_gti_malicious_flag_dominance(detection_rate: float) -> None:
-    """Property: when is_malicious=True the GTI score is always >= detection-only score."""
+def test_score_threat_intel_malicious_flag_dominance(detection_rate: float) -> None:
+    """Property: when is_malicious=True the threat intel score is always >= detection-only score."""
     resolver = _make_resolver()
 
     malicious_resp = GTIResponse(
@@ -520,8 +530,8 @@ def test_score_gti_malicious_flag_dominance(detection_rate: float) -> None:
         confidence=0.9,
     )
 
-    malicious_score = resolver._score_gti(malicious_resp)
-    benign_score = resolver._score_gti(benign_resp)
+    malicious_score = resolver._score_threat_intel(malicious_resp)
+    benign_score = resolver._score_threat_intel(benign_resp)
 
     # When is_malicious=True: score = (1.0 + detection_rate) / 2.0
     # When is_malicious=False: score = detection_rate
@@ -530,6 +540,10 @@ def test_score_gti_malicious_flag_dominance(detection_rate: float) -> None:
         f"Malicious score {malicious_score!r} should be >= benign score {benign_score!r} "
         f"at detection_rate={detection_rate!r}"
     )
+    assert resolver._score_gti(malicious_resp) >= resolver._score_gti(benign_resp)
+
+
+test_score_gti_malicious_flag_dominance = test_score_threat_intel_malicious_flag_dominance
 
 
 # ---------------------------------------------------------------------------

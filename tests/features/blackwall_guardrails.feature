@@ -30,6 +30,18 @@ Feature: Blackwall Agentic Firewall Guardrails
     Then the operation should raise MCPRoutingViolation
     And the error should contain "sync_interception"
 
+  Scenario: ThreatIntelRouter permits async analysis context
+    Given a ThreatIntelRouter with a mock threat intel client
+    When a threat intel query is routed in "async_analysis" context
+    Then the operation should be permitted
+    And the threat intel client should receive the delegated call
+
+  Scenario: ThreatIntelRouter blocks synchronous interception context
+    Given a ThreatIntelRouter with a mock threat intel client
+    When a threat intel query is routed in "sync_interception" context
+    Then the operation should raise MCPRoutingViolation
+    And the error should contain "sync_interception"
+
   Scenario: MCP router detects escape attempt in operation name
     Given a CodebaseMemoryRouter with a mock CBM client
     When an operation named "query_dependency_chain;exec('malicious')" is routed

@@ -49,7 +49,7 @@ class AgentBehavioralAnalytics:
             f"Verdict: {event.verdict.model_dump_json()}\n"
             f"Related Signatures: {[str(sig) for sig in event.related_signatures]}\n"
             f"CBM Dependency Chain: {event.cbm_response.model_dump_json() if event.cbm_response else 'None'}\n"
-            f"GTI IOC Data: {event.gti_response.model_dump_json() if event.gti_response else 'None'}\n"
+            f"Threat Intel IOC Data: {(event.threat_intel_response or event.gti_response).model_dump_json() if (event.threat_intel_response or event.gti_response) else 'None'}\n"
         )
 
         try:

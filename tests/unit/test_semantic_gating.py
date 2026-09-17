@@ -171,7 +171,7 @@ async def test_signature_match_count_increment(temp_repo):
 
 
 @pytest.mark.asyncio
-async def test_gti_malicious_ioc_increases_threat_score(temp_repo):
+async def test_threat_intel_malicious_ioc_increases_threat_score(temp_repo):
     # Setup mock GTI Client
     mock_gti = MagicMock(spec=GTIMCPClient)
     mock_gti.is_degraded.return_value = False
@@ -340,7 +340,7 @@ async def test_weighted_threat_score_aggregation_and_redistribution(temp_repo):
 
 
 @pytest.mark.asyncio
-async def test_gti_degraded_penalty_applied(temp_repo):
+async def test_threat_intel_degraded_penalty_applied(temp_repo):
     # Setup mock degraded GTI Client
     mock_gti = MagicMock(spec=GTIMCPClient)
     mock_gti.is_degraded.return_value = True
@@ -625,7 +625,7 @@ async def test_geolocation_membership_set_optimization(temp_repo):
 
 
 @pytest.mark.asyncio
-async def test_gti_query_budget_tracker_integration():
+async def test_threat_intel_query_budget_tracker_integration():
     import asyncio
 
     tracker = GTIQueryBudgetTracker(capacity=4, replenishment_interval=0.1)
@@ -652,7 +652,7 @@ async def test_gti_query_budget_tracker_integration():
 
 
 @pytest.mark.asyncio
-async def test_gti_query_skipped_and_redistributed_on_budget_exhaustion(temp_repo):
+async def test_threat_intel_query_skipped_and_redistributed_on_budget_exhaustion(temp_repo):
     # Mock GTI and CBM
     mock_gti = MagicMock(spec=GTIMCPClient)
     mock_gti.is_degraded.return_value = False
@@ -716,7 +716,7 @@ async def test_gti_query_skipped_and_redistributed_on_budget_exhaustion(temp_rep
 
 
 @pytest.mark.asyncio
-async def test_gti_budget_exhausted_penalty_applied(temp_repo):
+async def test_threat_intel_budget_exhausted_penalty_applied(temp_repo):
     # Setup mock GTI Client that raises GTIBudgetExhaustedError
     mock_gti = MagicMock(spec=GTIMCPClient)
     mock_gti.is_degraded.return_value = False
@@ -783,7 +783,7 @@ async def test_weight_redistribution_on_budget_exhaustion(temp_repo):
 
 
 @pytest.mark.asyncio
-async def test_gti_partial_results_preserved_on_budget_exhaustion(temp_repo):
+async def test_threat_intel_partial_results_preserved_on_budget_exhaustion(temp_repo):
     """
     Regression test: When GTI budget is exhausted mid-evaluation after some IOCs
     have been queried successfully, the partial GTI results should be preserved
@@ -838,7 +838,7 @@ async def test_gti_partial_results_preserved_on_budget_exhaustion(temp_repo):
 
 
 @pytest.mark.asyncio
-async def test_gti_budget_exhaustion_does_not_skip_cached_iocs(temp_repo):
+async def test_threat_intel_budget_exhaustion_does_not_skip_cached_iocs(temp_repo):
     """
     Regression test for Issue 2: When GTI budget is exhausted on an early IOC lookup,
     subsequent IOC types (especially cached ones like domains/hashes) should still be
@@ -899,7 +899,7 @@ async def test_gti_budget_exhaustion_does_not_skip_cached_iocs(temp_repo):
 
 
 @pytest.mark.asyncio
-async def test_gti_not_applicable_does_not_dilute_threat_score(temp_repo):
+async def test_threat_intel_not_applicable_does_not_dilute_threat_score(temp_repo):
     """
     Regression test for Finding 2: When GTI is available but no IOCs are applicable
     (e.g., high-risk command with no external IPs/domains/hashes), GTI should not

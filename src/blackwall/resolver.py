@@ -724,13 +724,15 @@ class BatchResolver:
         quarantined_context: ToolCallContext,
         related_signatures: List[Any],
         cbm_chain: List[Any],
-        gti_data: Any,
+        threat_intel_data: Any = None,
+        gti_data: Any = None,
     ) -> str:
         """Submits deep analysis in the background to Gemini 3.8 Flash.
 
         Returns:
             task_id: The ID of the background interaction.
         """
+        ti_data = threat_intel_data if threat_intel_data is not None else gti_data
         # Ensure we conform to local rate limits
         await self._acquire_rate_limit_token()
 
@@ -748,7 +750,8 @@ class BatchResolver:
                 for sig in related_signatures
             ],
             "cbm_dependency_chain": cbm_chain,
-            "gti_ioc_data": gti_data,
+            "threat_intel_ioc_data": ti_data,
+            "gti_ioc_data": ti_data,
         }
 
         webhook_url = f"http://localhost:{self.webhook_port}/webhook/analysis_complete"

@@ -114,7 +114,7 @@ def calculate_entropy(s: str) -> float:
 class SemanticGatingEngine:
     """
     Semantic gating engine that evaluates tool calls using multi-source signals:
-    Threat Signature Graph, GTI, Codebase-Memory (CBM), and context.
+    Threat Signature Graph, Threat Intelligence, Codebase-Memory (CBM), and context.
     """
 
     def __init__(
@@ -135,10 +135,10 @@ class SemanticGatingEngine:
         """Applies MCP server configurations from policy to active MCP clients."""
         if not mcp_config:
             return
-        gti_conf = getattr(mcp_config, "gti", None)
-        if gti_conf and getattr(gti_conf, "url", None) and self.gti_client:
-            if hasattr(self.gti_client, "base_url"):
-                self.gti_client.base_url = gti_conf.url
+        ti_conf = getattr(mcp_config, "threatIntel", None) or getattr(mcp_config, "gti", None)
+        if ti_conf and getattr(ti_conf, "url", None) and self.threat_intel_client:
+            if hasattr(self.threat_intel_client, "base_url"):
+                self.threat_intel_client.base_url = ti_conf.url
         cbm_conf = getattr(mcp_config, "codebaseMemory", None)
         if cbm_conf and getattr(cbm_conf, "url", None) and self.cbm_client:
             if hasattr(self.cbm_client, "base_url"):
@@ -161,7 +161,7 @@ class SemanticGatingEngine:
         for ip in iocs.get("ips", []):
             if is_external_ip(ip):
                 if self.repo:
-                    cached = await self.repo.get_cached_gti_response(
+                    cached = await self.repo.get_cached_threat_intel_response(
                         ip, IndicatorType.IP_ADDRESS.value
                     )
                     if not cached:
@@ -172,7 +172,7 @@ class SemanticGatingEngine:
         # Check suspicious file hashes
         for h in iocs.get("hashes", []):
             if self.repo:
-                cached = await self.repo.get_cached_gti_response(
+                cached = await self.repo.get_cached_threat_intel_response(
                     h, IndicatorType.FILE_HASH.value
                 )
                 if not cached:
@@ -183,7 +183,7 @@ class SemanticGatingEngine:
         # Check unknown domains
         for domain in iocs.get("domains", []):
             if self.repo:
-                cached = await self.repo.get_cached_gti_response(
+                cached = await self.repo.get_cached_threat_intel_response(
                     domain, IndicatorType.DOMAIN.value
                 )
                 if not cached:
@@ -206,7 +206,7 @@ class SemanticGatingEngine:
         for ip in iocs.get("ips", []):
             if is_external_ip(ip):
                 if self.repo:
-                    cached = await self.repo.get_cached_gti_response(
+                    cached = await self.repo.get_cached_threat_intel_response(
                         ip, IndicatorType.IP_ADDRESS.value
                     )
                     if not cached:
@@ -217,7 +217,7 @@ class SemanticGatingEngine:
                     break
         for h in iocs.get("hashes", []):
             if self.repo:
-                cached = await self.repo.get_cached_gti_response(
+                cached = await self.repo.get_cached_threat_intel_response(
                     h, IndicatorType.FILE_HASH.value
                 )
                 if not cached:
@@ -228,7 +228,7 @@ class SemanticGatingEngine:
                 break
         for domain in iocs.get("domains", []):
             if self.repo:
-                cached = await self.repo.get_cached_gti_response(
+                cached = await self.repo.get_cached_threat_intel_response(
                     domain, IndicatorType.DOMAIN.value
                 )
                 if not cached:
@@ -328,29 +328,30 @@ class SemanticGatingEngine:
                     signature_id=matched_sig["signature_id"],
                 )
 
-        # 2. Extract IOCs and query GTI MCP
+        # 2. Extract IOCs and query Threat Intelligence MCP
         iocs = extract_iocs(context)
 
         is_high = await self.is_high_risk(context, iocs, structural_result)
 
-        gti_responses = []
-        gti_degraded = False
-        gti_budget_exhausted = False
-        gti_error = False
+        threat_intel_responses = []
+        threat_intel_degraded = False
+        threat_intel_budget_exhausted = False
+        threat_intel_error = False
 
-        if self.gti_client and is_high:
+        ti_client = self.threat_intel_client or self.gti_client
+        if ti_client and is_high:
             try:
                 for ip in iocs["ips"]:
                     cached = None
                     if self.repo:
-                        cached = await self.repo.get_cached_gti_response(
+                        cached = await self.repo.get_cached_threat_intel_response(
                             ip, IndicatorType.IP_ADDRESS.value
-                        ) or await self.repo.get_cached_gti_response(
+                        ) or await self.repo.get_cached_threat_intel_response(
                             ip, IndicatorType.IP_ADDRESS.value.lower()
                         )
                     if cached:
                         try:
-                            # Use cached payload directly instead of re-querying GTI
+                            # Use cached payload directly instead of re-querying
                             resp = GTIResponse(
                                 indicator=cached.get("indicator", ip),
                                 is_malicious=cached.get("is_malicious", False),
@@ -360,46 +361,54 @@ class SemanticGatingEngine:
                                 last_analysis_date=cached.get("last_analysis_date"),
                                 related_campaigns=cached.get("related_campaigns", []),
                             )
-                            gti_responses.append(resp)
+                            threat_intel_responses.append(resp)
                         except Exception as e:
                             logger.error("Error parsing cached IP response: %s", e)
                         continue
 
-                    if gti_budget_exhausted:
+                    if threat_intel_budget_exhausted:
                         continue
 
                     if self.budget_tracker:
                         if not await self.budget_tracker.try_acquire():
-                            gti_budget_exhausted = True
+                            threat_intel_budget_exhausted = True
                             continue
                     try:
-                        resp = await self.gti_client.queryIOC(
-                            ip,
-                            IndicatorType.IP_ADDRESS,
-                            skip_budget_check=(self.budget_tracker is not None),
-                        )
-                        gti_responses.append(resp)
+                        if hasattr(ti_client, "queryIOC"):
+                            resp = await ti_client.queryIOC(
+                                ip,
+                                IndicatorType.IP_ADDRESS,
+                                skip_budget_check=(self.budget_tracker is not None),
+                            )
+                        elif hasattr(ti_client, "lookup"):
+                            resp = await ti_client.lookup(ip, IndicatorType.IP_ADDRESS.value)
+                        elif hasattr(ti_client, "query"):
+                            resp = await ti_client.query(ip)
+                        else:
+                            resp = None
+                        if resp is not None:
+                            threat_intel_responses.append(resp)
                     except Exception as e:
                         err_name = type(e).__name__
                         if "Degraded" in err_name or "CircuitBreaker" in err_name:
-                            gti_degraded = True
+                            threat_intel_degraded = True
                         elif "Budget" in err_name or "Exhausted" in err_name:
-                            gti_budget_exhausted = True
+                            threat_intel_budget_exhausted = True
                         else:
                             logger.error("Error querying IP: %s", e)
-                            gti_error = True
+                            threat_intel_error = True
 
                 for url in iocs["urls"]:
                     cached = None
                     if self.repo:
-                        cached = await self.repo.get_cached_gti_response(
+                        cached = await self.repo.get_cached_threat_intel_response(
                             url, IndicatorType.URL.value
-                        ) or await self.repo.get_cached_gti_response(
+                        ) or await self.repo.get_cached_threat_intel_response(
                             url, IndicatorType.URL.value.lower()
                         )
                     if cached:
                         try:
-                            # Use cached payload directly instead of re-querying GTI
+                            # Use cached payload directly instead of re-querying
                             resp = GTIResponse(
                                 indicator=cached.get("indicator", url),
                                 is_malicious=cached.get("is_malicious", False),
@@ -409,47 +418,55 @@ class SemanticGatingEngine:
                                 last_analysis_date=cached.get("last_analysis_date"),
                                 related_campaigns=cached.get("related_campaigns", []),
                             )
-                            gti_responses.append(resp)
+                            threat_intel_responses.append(resp)
                         except Exception as e:
                             logger.error("Error parsing cached URL response: %s", e)
                         continue
 
-                    if gti_budget_exhausted:
+                    if threat_intel_budget_exhausted:
                         continue
 
                     if self.budget_tracker:
                         if not await self.budget_tracker.try_acquire():
-                            gti_budget_exhausted = True
+                            threat_intel_budget_exhausted = True
                             continue
                     try:
-                        resp = await self.gti_client.queryIOC(
-                            url,
-                            IndicatorType.URL,
-                            skip_budget_check=(self.budget_tracker is not None),
-                        )
-                        gti_responses.append(resp)
+                        if hasattr(ti_client, "queryIOC"):
+                            resp = await ti_client.queryIOC(
+                                url,
+                                IndicatorType.URL,
+                                skip_budget_check=(self.budget_tracker is not None),
+                            )
+                        elif hasattr(ti_client, "lookup"):
+                            resp = await ti_client.lookup(url, IndicatorType.URL.value)
+                        elif hasattr(ti_client, "query"):
+                            resp = await ti_client.query(url)
+                        else:
+                            resp = None
+                        if resp is not None:
+                            threat_intel_responses.append(resp)
                     except Exception as e:
                         err_name = type(e).__name__
                         if "Degraded" in err_name or "CircuitBreaker" in err_name:
-                            gti_degraded = True
+                            threat_intel_degraded = True
                         elif "Budget" in err_name or "Exhausted" in err_name:
-                            gti_budget_exhausted = True
+                            threat_intel_budget_exhausted = True
                         else:
                             logger.error("Error querying URL: %s", e)
-                            gti_error = True
+                            threat_intel_error = True
 
                 for domain in iocs["domains"]:
                     if not any(domain in u for u in iocs["urls"]):
                         cached = None
                         if self.repo:
-                            cached = await self.repo.get_cached_gti_response(
+                            cached = await self.repo.get_cached_threat_intel_response(
                                 domain, IndicatorType.DOMAIN.value
-                            ) or await self.repo.get_cached_gti_response(
+                            ) or await self.repo.get_cached_threat_intel_response(
                                 domain, IndicatorType.DOMAIN.value.lower()
                             )
                         if cached:
                             try:
-                                # Use cached payload directly instead of re-querying GTI
+                                # Use cached payload directly instead of re-querying
                                 resp = GTIResponse(
                                     indicator=cached.get("indicator", domain),
                                     is_malicious=cached.get("is_malicious", False),
@@ -463,48 +480,56 @@ class SemanticGatingEngine:
                                         "related_campaigns", []
                                     ),
                                 )
-                                gti_responses.append(resp)
+                                threat_intel_responses.append(resp)
                             except Exception as e:
                                 logger.error(
                                     "Error parsing cached domain response: %s", e
                                 )
                             continue
 
-                        if gti_budget_exhausted:
+                        if threat_intel_budget_exhausted:
                             continue
 
                         if self.budget_tracker:
                             if not await self.budget_tracker.try_acquire():
-                                gti_budget_exhausted = True
+                                threat_intel_budget_exhausted = True
                                 continue
                         try:
-                            resp = await self.gti_client.queryIOC(
-                                domain,
-                                IndicatorType.DOMAIN,
-                                skip_budget_check=(self.budget_tracker is not None),
-                            )
-                            gti_responses.append(resp)
+                            if hasattr(ti_client, "queryIOC"):
+                                resp = await ti_client.queryIOC(
+                                    domain,
+                                    IndicatorType.DOMAIN,
+                                    skip_budget_check=(self.budget_tracker is not None),
+                                )
+                            elif hasattr(ti_client, "lookup"):
+                                resp = await ti_client.lookup(domain, IndicatorType.DOMAIN.value)
+                            elif hasattr(ti_client, "query"):
+                                resp = await ti_client.query(domain)
+                            else:
+                                resp = None
+                            if resp is not None:
+                                threat_intel_responses.append(resp)
                         except Exception as e:
                             err_name = type(e).__name__
                             if "Degraded" in err_name or "CircuitBreaker" in err_name:
-                                gti_degraded = True
+                                threat_intel_degraded = True
                             elif "Budget" in err_name or "Exhausted" in err_name:
-                                gti_budget_exhausted = True
+                                threat_intel_budget_exhausted = True
                             else:
                                 logger.error("Error querying domain: %s", e)
-                                gti_error = True
+                                threat_intel_error = True
 
                 for h in iocs["hashes"]:
                     cached = None
                     if self.repo:
-                        cached = await self.repo.get_cached_gti_response(
+                        cached = await self.repo.get_cached_threat_intel_response(
                             h, IndicatorType.FILE_HASH.value
-                        ) or await self.repo.get_cached_gti_response(
+                        ) or await self.repo.get_cached_threat_intel_response(
                             h, IndicatorType.FILE_HASH.value.lower()
                         )
                     if cached:
                         try:
-                            # Use cached payload directly instead of re-querying GTI
+                            # Use cached payload directly instead of re-querying
                             resp = GTIResponse(
                                 indicator=cached.get("indicator", h),
                                 is_malicious=cached.get("is_malicious", False),
@@ -514,56 +539,72 @@ class SemanticGatingEngine:
                                 last_analysis_date=cached.get("last_analysis_date"),
                                 related_campaigns=cached.get("related_campaigns", []),
                             )
-                            gti_responses.append(resp)
+                            threat_intel_responses.append(resp)
                         except Exception as e:
                             logger.error("Error parsing cached hash response: %s", e)
                         continue
 
-                    if gti_budget_exhausted:
+                    if threat_intel_budget_exhausted:
                         continue
 
                     if self.budget_tracker:
                         if not await self.budget_tracker.try_acquire():
-                            gti_budget_exhausted = True
+                            threat_intel_budget_exhausted = True
                             continue
                     try:
-                        resp = await self.gti_client.queryIOC(
-                            h,
-                            IndicatorType.FILE_HASH,
-                            skip_budget_check=(self.budget_tracker is not None),
-                        )
-                        gti_responses.append(resp)
+                        if hasattr(ti_client, "queryIOC"):
+                            resp = await ti_client.queryIOC(
+                                h,
+                                IndicatorType.FILE_HASH,
+                                skip_budget_check=(self.budget_tracker is not None),
+                            )
+                        elif hasattr(ti_client, "lookup"):
+                            resp = await ti_client.lookup(h, IndicatorType.FILE_HASH.value)
+                        elif hasattr(ti_client, "query"):
+                            resp = await ti_client.query(h)
+                        else:
+                            resp = None
+                        if resp is not None:
+                            threat_intel_responses.append(resp)
                     except Exception as e:
                         err_name = type(e).__name__
                         if "Degraded" in err_name or "CircuitBreaker" in err_name:
-                            gti_degraded = True
+                            threat_intel_degraded = True
                         elif "Budget" in err_name or "Exhausted" in err_name:
-                            gti_budget_exhausted = True
+                            threat_intel_budget_exhausted = True
                         else:
                             logger.error("Error querying hash: %s", e)
-                            gti_error = True
+                            threat_intel_error = True
             except Exception as e:
                 logger.error("Error in IOC query loop: %s", e)
-                gti_error = True
+                threat_intel_error = True
 
         # Apply penalty only for degraded or budget exhaustion (not for general errors)
-        gti_penalty = 0.2 if (gti_degraded or gti_budget_exhausted) else 0.0
+        threat_intel_penalty = (
+            0.2 if (threat_intel_degraded or threat_intel_budget_exhausted) else 0.0
+        )
 
-        # Calculate GTI Score
-        gti_score: Optional[float] = None
-        if self.gti_client and gti_responses:
+        # Calculate Threat Intelligence Score
+        threat_intel_score: Optional[float] = None
+        if ti_client and threat_intel_responses:
             scores = []
-            for r in gti_responses:
+            for r in threat_intel_responses:
                 s = 0.0
-                if r.is_malicious:
+                if getattr(r, "is_malicious", False):
                     s += 0.5
-                s += 0.3 * (r.detection_rate / 100.0)
-                if r.threat_categories:
-                    s += min(len(r.threat_categories) * 0.1, 0.2)
+                det_rate = getattr(r, "detection_rate", 0.0)
+                risk = getattr(r, "risk_score", None)
+                if risk is not None:
+                    s += 0.5 * risk
+                else:
+                    s += 0.3 * (det_rate / 100.0)
+                cats = getattr(r, "threat_categories", [])
+                if cats:
+                    s += min(len(cats) * 0.1, 0.2)
                 scores.append(min(s, 1.0))
-            gti_score = max(scores) if scores else 0.0
-        # Note: Do NOT assign synthetic 0.0 when GTI is available but not applicable
-        # Leave gti_score as None so weight redistribution occurs properly
+            threat_intel_score = max(scores) if scores else 0.0
+        # Note: Do NOT assign synthetic 0.0 when Threat Intel is available but not applicable
+        # Leave threat_intel_score as None so weight redistribution occurs properly
 
         # 3. Query Codebase-Memory MCP
         cbm_score: Optional[float] = None
@@ -638,17 +679,17 @@ class SemanticGatingEngine:
         context_score = 0.4 * tool_risk + 0.3 * argument_novelty + 0.3 * env_risk
 
         # 5. Signal Aggregation & Normalization
-        # GTI is only considered unavailable if we have no responses at all due to errors/degradation
-        gti_unavailable = (gti_score is None) and (
-            gti_degraded or gti_budget_exhausted or gti_error
+        # Threat Intel is only considered unavailable if we have no responses at all due to errors/degradation
+        threat_intel_unavailable = (threat_intel_score is None) and (
+            threat_intel_degraded or threat_intel_budget_exhausted or threat_intel_error
         )
         threat_score = self.computeThreatScore(
-            gti_score=gti_score,
+            threat_intel_score=threat_intel_score,
             cbm_score=cbm_score,
             context_score=context_score,
-            gti_penalty=gti_penalty,
+            threat_intel_penalty=threat_intel_penalty,
             cbm_penalty=cbm_penalty,
-            gti_unavailable=gti_unavailable,
+            threat_intel_unavailable=threat_intel_unavailable,
         )
 
         # Verdict
@@ -670,32 +711,46 @@ class SemanticGatingEngine:
 
     def computeThreatScore(
         self,
-        gti_score: Optional[float],
-        cbm_score: Optional[float],
-        context_score: float,
+        gti_score: Optional[float] = None,
+        cbm_score: Optional[float] = None,
+        context_score: float = 0.0,
         suspicion_score: float = 0.0,
         gti_penalty: float = 0.0,
         cbm_penalty: float = 0.0,
         gti_unavailable: bool = False,
+        threat_intel_score: Optional[float] = None,
+        threat_intel_penalty: float = 0.0,
+        threat_intel_unavailable: Optional[bool] = None,
+        **kwargs: Any,
     ) -> float:
         """
         Computes the final threat score by aggregating available signals.
         """
+        ti_score = threat_intel_score if threat_intel_score is not None else gti_score
+        ti_penalty = (
+            threat_intel_penalty if threat_intel_penalty != 0.0 else gti_penalty
+        )
+        ti_unavailable = (
+            threat_intel_unavailable
+            if threat_intel_unavailable is not None
+            else gti_unavailable
+        )
+
         signals = {
-            "gti": gti_score if not gti_unavailable else None,
+            "threat_intel": ti_score if not ti_unavailable else None,
             "cbm": cbm_score,
             "context": context_score,
         }
 
         base_weights = {
-            "gti": 0.4,
+            "threat_intel": 0.4,
             "cbm": 0.3,
             "context": 0.3,
         }
 
-        if gti_unavailable or gti_score is None:
-            # GTI is unavailable: redistribute GTI weight (40%) to CBM (+20%) and Context (+20%)
-            base_weights["gti"] = 0.0
+        if ti_unavailable or ti_score is None:
+            # Threat Intel is unavailable: redistribute weight (40%) to CBM (+20%) and Context (+20%)
+            base_weights["threat_intel"] = 0.0
             base_weights["cbm"] = 0.5
             base_weights["context"] = 0.5
 
@@ -713,7 +768,7 @@ class SemanticGatingEngine:
                 weight = base_weights[k] / total_weight
                 score += weight * v
 
-        score += gti_penalty
+        score += ti_penalty
         score += cbm_penalty
 
         return clamp_score(score)

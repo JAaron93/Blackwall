@@ -9,8 +9,8 @@ import math
 import os
 import resource
 import sys
+import tempfile
 import time
-import uuid
 from typing import Any, Dict, List, Optional, Tuple
 from unittest.mock import AsyncMock, MagicMock
 
@@ -226,14 +226,14 @@ class BenchmarkRunner:
         count: int = 50,
     ) -> Tuple[float, float, float]:
         """
-        Subtask 26.1: Benchmark semantic gating latency with GTI/CBM mock responses.
+        Subtask 26.1: Benchmark semantic gating latency with ThreatIntel/CBM mock responses.
         Enforces Rule 1: Untimed warmup run.
         Asserts: p99 latency < 300ms (Requirement 16.6).
         """
         from unittest.mock import AsyncMock, MagicMock
 
-        mock_gti = MagicMock()
-        mock_gti.query = AsyncMock(
+        mock_threat_intel = MagicMock()
+        mock_threat_intel.query = AsyncMock(
             return_value=GTIResponse(
                 indicator="192.168.1.1",
                 is_malicious=True,
@@ -253,7 +253,7 @@ class BenchmarkRunner:
 
         res = resolver or SyncResolver(
             client=mock_client,
-            gti_client=mock_gti,
+            threat_intel=mock_threat_intel,
             cbm_client=mock_cbm,
             demo_mode=True,
         )

@@ -1,14 +1,19 @@
+from __future__ import annotations
+
 import asyncio
 import json
 import os
 import re
 from datetime import datetime
 from enum import Enum
-from typing import List, Dict, Any, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from blackwall.mcp.transport import MCPTransportError, call_mcp_tool_http
 from blackwall.validators import utc_now
+
+if TYPE_CHECKING:
+    from blackwall.models import CBMResponse
 
 
 def _parse_mcp_result(raw: Any) -> Any:

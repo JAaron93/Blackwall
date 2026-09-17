@@ -5,7 +5,7 @@ Uses client.models.generate_content() (NOT interactions.create()).
 Single-request synchronous evaluation resolver for inline tool-call gating.
 Rate limited to 300 RPM via a token bucket (capacity=300, refill=5.0/s) under 100% GCP Vertex AI Mode.
 Performs ContextHygiene sanitization, Threat Signature Graph lookup,
-CBM AST query, GTI external threat intelligence check, optional Gemini 3.5 Flash-Lite
+CBM AST query, external threat intelligence check, optional Gemini 3.5 Flash-Lite
 semantic triage, threat score aggregation, and threshold-based verdict dispatch.
 
 Verdict thresholds (DEMO MODE - tuned for standalone testing):
@@ -187,6 +187,7 @@ class SyncResolver:
         gti_client: Any = None,
         gti_budget_tracker: Any = None,
         threat_intel_budget_tracker: Any = None,
+        threat_intel_provider: Optional[Any] = None,
         demo_mode: bool = False,
         on_attacker_identified: Optional[Callable[[IncidentReport], Any]] = None,
         telemetry: Optional[Any] = None,
@@ -197,7 +198,12 @@ class SyncResolver:
         self.client = client
         self.policy_server = policy_server
         self.repo = repo
-        self.threat_intel = threat_intel if threat_intel is not None else gti_client
+        ti = (
+            threat_intel
+            if threat_intel is not None
+            else (threat_intel_provider if threat_intel_provider is not None else gti_client)
+        )
+        self.threat_intel = ti
         self.cbm_client = cbm_client
         self.threat_intel_budget_tracker = (
             threat_intel_budget_tracker
@@ -1246,7 +1252,7 @@ class SyncResolver:
         return deterministic_novelty
 
     def _extract_indicator(self, context: ToolCallContext) -> Optional[str]:
-        """Extracts the most useful GTI indicator from the context arguments."""
+        """Extracts the most useful threat intelligence indicator from the context arguments."""
         args_str = " ".join(str(v) for v in context.arguments.values())
         import re
 

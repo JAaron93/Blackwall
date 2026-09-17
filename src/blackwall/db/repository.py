@@ -935,9 +935,13 @@ class SQLiteThreatRepository:
                 for r in rows
             ]
 
-    async def cache_gti_response(
+    async def cache_threat_intel_response(
         self, indicator: str, indicator_type: str, response: dict[str, Any]
     ) -> None:
+        """Caches a raw threat intelligence dictionary response.
+
+        Deprecated: use cache_threat_intel() directly. Maintained for backward compatibility.
+        """
         await self.initialize()
         async with self.pool.connection() as conn:
             await conn.execute(
@@ -948,9 +952,15 @@ class SQLiteThreatRepository:
                 (indicator, indicator_type, json.dumps(response), int(time.time())),
             )
 
-    async def get_cached_gti_response(
+    cache_gti_response = cache_threat_intel_response
+
+    async def get_cached_threat_intel_response(
         self, indicator: str, indicator_type: str
     ) -> dict[str, Any] | None:
+        """Look up cached threat intelligence dictionary response.
+
+        Deprecated: use get_cached_threat_intel() directly. Maintained for backward compatibility.
+        """
         await self.initialize()
         async with self.pool.connection() as conn:
             cursor = await conn.execute(
@@ -958,24 +968,32 @@ class SQLiteThreatRepository:
                 (indicator, indicator_type),
             )
             row = await cursor.fetchone()
-            if not row:
-                return None
+            if row:
+                response_data_str, cached_at = row
+                # 24-hour TTL (86400 seconds)
+                if time.time() - cached_at > 86400:
+                    # Expired. Delete from cache.
+                    await conn.execute(
+                        "DELETE FROM gti_cache WHERE indicator = ? AND indicator_type = ?",
+                        (indicator, indicator_type),
+                    )
+                else:
+                    try:
+                        result: dict[str, Any] = json.loads(response_data_str)
+                        return result
+                    except json.JSONDecodeError:
+                        pass
 
-            response_data_str, cached_at = row
-            # 24-hour TTL (86400 seconds)
-            if time.time() - cached_at > 86400:
-                # Expired. Delete from cache.
-                await conn.execute(
-                    "DELETE FROM gti_cache WHERE indicator = ? AND indicator_type = ?",
-                    (indicator, indicator_type),
-                )
-                return None
+        # Interoperability fallback: check unified threat_intel_cache table
+        cached_ti = await self.get_cached_threat_intel(indicator, indicator_type)
+        if cached_ti is not None:
+            if hasattr(cached_ti, "model_dump"):
+                return cached_ti.model_dump()
+            return dict(cached_ti)
 
-            try:
-                result: dict[str, Any] = json.loads(response_data_str)
-                return result
-            except json.JSONDecodeError:
-                return None
+        return None
+
+    get_cached_gti_response = get_cached_threat_intel_response
 
     async def cache_threat_intel(
         self,
