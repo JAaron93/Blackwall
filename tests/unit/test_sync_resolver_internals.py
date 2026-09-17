@@ -332,9 +332,17 @@ def test_score_gti_not_malicious_no_detection():
 def test_score_gti_not_malicious_with_detection():
     r = make_resolver()
     gti = make_gti_response(is_malicious=False, detection_rate=50.0)
-    # detection_score = max(0, min(1, 50.0)) = 1.0 (capped)
+    # detection_rate=50.0 is a percentage (50%) -> mapped to 0.50
     score = r._score_gti(gti)
-    assert score == 1.0  # detection_rate=50.0 capped at 1.0
+    assert abs(score - 0.50) < 0.01
+
+
+def test_score_gti_not_malicious_capped_detection():
+    r = make_resolver()
+    gti = make_gti_response(is_malicious=False, detection_rate=150.0)
+    # detection_rate=150.0 is capped at 1.0
+    score = r._score_gti(gti)
+    assert score == 1.0
 
 
 def test_score_gti_not_malicious_low_detection():

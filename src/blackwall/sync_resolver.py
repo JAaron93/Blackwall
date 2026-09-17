@@ -52,10 +52,20 @@ from blackwall.models import (
     Verdict,
     VerdictDecision,
 )
+from blackwall.threat_intel.abusech import AbuseChError
+from blackwall.threat_intel.abuseipdb import AbuseIPDBError
+from blackwall.threat_intel.circuit_breaker import CircuitBreakerError
+from blackwall.threat_intel.harpoon import HarpoonError
 from blackwall.threat_intel.models import (
     ThreatIndicatorType,
 )
 from blackwall.threat_intel.orchestrator import ThreatIntelOrchestrator
+from blackwall.threat_intel.otx import (
+    OTXCircuitBreakerOpenError,
+    OTXLookupError,
+    OTXTokenBucketExhaustedError,
+    ThreatIntelError,
+)
 from blackwall.resolver import ContextHygiene, TokenBucketRateLimiter
 from blackwall.validators import clamp_score, normalize_text, utc_now
 
@@ -719,9 +729,32 @@ class SyncResolver:
             else:
                 result = None
 
+            if result is not None and getattr(result, "error", None):
+                raise OTXLookupError(
+                    f"Threat intelligence lookup failed across providers: {result.error}"
+                )
+
             self._threat_intel_queries_executed += 1
             return result
 
+        except (
+            OTXCircuitBreakerOpenError,
+            OTXTokenBucketExhaustedError,
+            OTXLookupError,
+            ThreatIntelError,
+            CircuitBreakerError,
+            AbuseIPDBError,
+            AbuseChError,
+            HarpoonError,
+        ) as exc:
+            logger.warning(
+                "Threat intelligence typed error encountered (%s) — propagating failure: %s",
+                type(exc).__name__,
+                exc,
+            )
+            self._threat_intel_queries_deferred += 1
+            self._threat_intel_budget_exhausted = True
+            raise
         except Exception as exc:
             logger.warning(
                 "Threat intelligence query failed — continuing without threat intel signal: %s",
@@ -1111,7 +1144,12 @@ class SyncResolver:
         risk_score = getattr(threat_resp, "risk_score", None)
         if risk_score is None:
             detection_rate = getattr(threat_resp, "detection_rate", 0.0)
-            risk_score = clamp_score(detection_rate)
+            risk_score = (
+                (detection_rate / 100.0)
+                if detection_rate > 1.0
+                else detection_rate
+            )
+            risk_score = clamp_score(risk_score)
             malicious_score = 1.0 if getattr(threat_resp, "is_malicious", False) else 0.0
             if getattr(threat_resp, "is_malicious", False):
                 return (malicious_score + risk_score) / 2.0
