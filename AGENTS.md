@@ -8,7 +8,7 @@ Blackwall is structured into **two distinct product tiers**:
 
 1. **Blackwall Core (Individual Developer Edition)**:
    - Single-host Python daemon centered around ADK callbacks (`before_tool_callback`), Python runtime audit hooks (`sys.addaudithook`), local SQLite threat graph, native compiled Rust acceleration extension (`crates/blackwall_core_rs/` / `blackwall._core_rs` with pure-Python fallback), and baseline single-host Attacker Attribution (`src/blackwall/attribution/` & `SyncResolver`).
-   - Primary local entry point: **Blackwall MCP Gateway** (specification governed by `.kiro/specs/blackwall-mcp-gateway/`, targeting `src/blackwall/gateway/` + `src/blackwall/cli.py`), providing an agent-agnostic stdio/HTTP security proxy on `localhost:9229` with background PID daemon management (`~/.blackwall/blackwall.pid`) and macOS LaunchAgent service integration.
+   - Primary local entry point: **Blackwall MCP Gateway** (specification governed by `.kiro/specs/blackwall-mcp-gateway/`, implemented via `src/blackwall/cli.py` with future specification target src/blackwall/gateway/), providing an agent-agnostic stdio/HTTP security proxy on `localhost:9229` with background PID daemon management (`~/.blackwall/blackwall.pid`) and macOS LaunchAgent service integration.
    - Zero cluster-mesh/peer-to-peer networking (ZeroMQ/NATS) or C-kernel eBPF dependencies (exemption: 100% GCP Vertex AI Mode clients for Gemini Enterprise Agent Platform and AlienVault OTX Threat Intelligence Engine are fully supported in Core; red-teamer attack agents in demo harness use Hyperbolic API).
 2. **Blackwall Enterprise Mesh (Enterprise Edition)**:
    - Multi-host security mesh isolated under `src/blackwall/enterprise/`.
