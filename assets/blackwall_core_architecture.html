@@ -206,19 +206,26 @@
           <text x="932" y="306" text-anchor="middle" fill="#818cf8" font-size="8" font-family="monospace">Blast Radius / Sinks</text>
         </g>
 
-        <!-- Connector -->
-        <path d="M 1000 287 L 1015 287" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arrowCyan)"/>
+        <!-- Conditional Branch to Step 4: High-Risk Only -->
+        <path d="M 1000 287 L 1015 287" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#arrowCyan)"/>
+        <text x="1008" y="278" text-anchor="middle" fill="#fbbf24" font-size="6.5" font-weight="bold" font-family="monospace">High Risk</text>
 
-        <!-- Step 4: AlienVault OTX Threat Intel -->
+        <!-- Low-Risk Bypass Path: Skips Step 4 directly to Step 5 -->
+        <path d="M 932 320 L 932 332" stroke="#64748b" stroke-width="1.5" stroke-dasharray="3,3" marker-end="url(#arrowCyan)"/>
+        <text x="895" y="329" text-anchor="middle" fill="#94a3b8" font-size="7" font-family="monospace">Low Risk (Bypass)</text>
+
+        <!-- Step 4: AlienVault OTX Threat Intel (Conditional Branch) -->
         <g id="node-step-otx" class="node-card" onclick="selectNode('step_otx')">
-          <rect x="1020" y="255" width="125" height="65" rx="8" fill="#111c3a" stroke="#f59e0b" stroke-width="1"/>
-          <text x="1082" y="275" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="bold">4. Threat Intel</text>
-          <text x="1082" y="292" text-anchor="middle" fill="#94a3b8" font-size="8.5">AlienVault OTX (Harpoon)</text>
-          <text x="1082" y="306" text-anchor="middle" fill="#f59e0b" font-size="8" font-family="monospace">166 RPM + SQLite Cache</text>
+          <rect x="1020" y="255" width="130" height="65" rx="8" fill="#111c3a" stroke="#f59e0b" stroke-width="1.2" stroke-dasharray="4,2"/>
+          <rect x="1028" y="246" width="114" height="13" rx="3" fill="#78350f" stroke="#f59e0b" stroke-width="0.8"/>
+          <text x="1085" y="255" text-anchor="middle" fill="#fde68a" font-size="6.5" font-weight="bold" font-family="monospace">CONDITIONAL (HIGH-RISK)</text>
+          <text x="1085" y="274" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="bold">4. Threat Intel</text>
+          <text x="1085" y="290" text-anchor="middle" fill="#94a3b8" font-size="8.5">AlienVault OTX (Harpoon)</text>
+          <text x="1085" y="305" text-anchor="middle" fill="#f59e0b" font-size="7.5" font-family="monospace">Score &gt;= 0.30 or IOC</text>
         </g>
 
         <!-- Second row of resolver flow: Step 4 wrap around to Step 5 -->
-        <path d="M 1082 320 L 1082 332 L 525 332 L 525 370 L 545 370" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arrowCyan)" class="flow-line"/>
+        <path d="M 1085 320 L 1085 332 L 525 332 L 525 370 L 545 370" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arrowCyan)" class="flow-line"/>
 
         <!-- Step 5: Semantic Triage (Gemini 3.5 Flash-Lite) -->
         <g id="node-step-gemini" class="node-card" onclick="selectNode('step_gemini')">
@@ -396,10 +403,10 @@
         path: "src/blackwall/codebase_memory/"
       },
       step_otx: {
-        title: "AlienVault OTX Threat Intelligence Engine",
-        desc: "Validates hostnames, IP indicators, and URLs against AlienVault OTX API (~166 RPM capacity) backed by persistent threat_intel_cache SQLite storage.",
+        title: "AlienVault OTX Threat Intelligence Engine (Conditional Branch)",
+        desc: "Conditional lookup branch executed ONLY for high-risk requests (preliminary score >= 0.30, structural policy block, or extracted indicators). Normal low-risk tool calls bypass external queries to preserve API quota and sub-millisecond latency. Backed by local SQLite threat_intel_cache.",
         sla: "< 1.0 ms (cached) / ~180 ms (live)",
-        path: "src/blackwall/threat_intel/otx.py"
+        path: "src/blackwall/threat_intel/otx.py & sync_resolver.py"
       },
       step_rust: {
         title: "Native Compiled Rust Substrate (blackwall._core_rs)",

@@ -78,10 +78,10 @@
         <path d="M 720 105 L 720 140 L 830 140 L 830 180" stroke="#10b981" stroke-width="1.8" marker-end="url(#arrowPurple)" class="mesh-line"/>
         <path d="M 1020 105 L 1020 140 L 1052 140 L 1052 180" stroke="#ec4899" stroke-width="1.8" marker-end="url(#arrowPurple)" class="mesh-line"/>
 
-        <!-- ENTERPRISE MESH 5 CORE PILLARS LAYER (MIDDLE) -->
+        <!-- ENTERPRISE MESH 6 CORE PILLARS LAYER (MIDDLE) -->
         <g id="enterprise-pillars-boundary">
           <rect x="30" y="145" width="1140" height="245" rx="18" fill="url(#entMeshEnclosureGrad)" stroke="#a855f7" stroke-width="1.5" stroke-dasharray="6,4"/>
-          <text x="50" y="168" fill="#c084fc" font-size="11" font-weight="bold" font-family="monospace">5 PILLARS OF ENTERPRISE DEFENSE &amp; 4 OPEN-SOURCE MCP ADAPTERS</text>
+          <text x="50" y="168" fill="#c084fc" font-size="11" font-weight="bold" font-family="monospace">6 PILLARS OF ENTERPRISE DEFENSE &amp; 4 OPEN-SOURCE MCP ADAPTERS</text>
         </g>
 
         <!-- Pillar 1: Kernel Probe &amp; ebpf-falco-mcp -->
