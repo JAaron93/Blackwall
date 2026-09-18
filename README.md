@@ -20,25 +20,19 @@ Blackwall is an autonomous **Agentic Security Firewall** designed to intercept e
 
 The diagrams below illustrate the end-to-end interception flow across the agent tool boundary, Python runtime audit hooks, local Threat Signature Graph (TSG), and the Threat Intelligence / Vertex AI semantic triage pipeline:
 
-<details open>
-<summary><b>🛡️ Blackwall Core Architecture (Single-Host Developer Edition)</b> <i>[Click to collapse / expand]</i></summary>
-<br/>
+### 🛡️ Blackwall Core Architecture (Single-Host Developer Edition)
 
 [![Blackwall Core: Zero-Trust Interception Architecture](assets/blackwall_core_architecture.svg)](assets/blackwall_architecture_suite.html#core)
 
 > [!TIP]
 > **Core Architecture Scope**: Single-host daemon &middot; In-process ADK callbacks (`before_tool_callback`) &middot; Python audit hooks (`sys.addaudithook`) &middot; SQLite Threat Signature Graph (TSG) in WAL mode (<1.0ms) &middot; Native Rust SIMD acceleration (`blackwall._core_rs`) &middot; AlienVault OTX Threat Intel Engine &middot; Asynchronous background Attacker Attribution.
-</details>
 
-<details>
-<summary><b>⚡ Blackwall Enterprise Security Mesh (Multi-Host Enterprise Edition)</b> <i>[Click to expand]</i></summary>
-<br/>
+### ⚡ Blackwall Enterprise Security Mesh (Multi-Host Enterprise Edition)
 
 [![Blackwall Enterprise Security Mesh Architecture](assets/blackwall_enterprise_architecture.svg)](assets/blackwall_architecture_suite.html#enterprise)
 
 > [!TIP]
 > **Enterprise Architecture Scope**: Multi-host distributed threat mesh &middot; Linux eBPF kernel probes (`bpf_send_signal(9)`) &middot; ZeroMQ pub/sub broadcast (<15ms SLA) &middot; HashiCorp Vault STS Ephemeral Identity Sidecar (`BW_SYNTHETIC_*`) &middot; gVisor microVM sandbox pipeline guards (`guard_pipeline`) &middot; Dual-mode local Ollama forensic triage engine.
-</details>
 
 > [!NOTE]
 > **Interactive Architecture Suite**:
