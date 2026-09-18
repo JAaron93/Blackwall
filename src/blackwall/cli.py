@@ -1344,6 +1344,112 @@ def serve_command(
 
 
 # Entry point aliases
+@cli.group(name="service")
+def service_group() -> None:
+    """Manage native background service (launchd on macOS, systemd on Linux)."""
+
+
+@service_group.command(name="install")
+@click.option("--config", "config_path", default=None, help="Path to gateway.yaml.")
+@click.option("--wrap", "wrap_cmd", default=None, help="Downstream tool server command.")
+@click.option("--project", "project_id", default=None, help="GCP project ID.")
+@click.option("--system", "as_system", is_flag=True, default=False, help="Install system unit.")
+@click.option("--user", "svc_user", default=None, help="System service user identity.")
+@click.option("--credentials", "credentials_path", default=None, help="ADC credentials path.")
+@click.option("--port", type=int, default=9229, help="Gateway HTTP port.")
+def service_install_command(
+    config_path: Optional[str],
+    wrap_cmd: Optional[str],
+    project_id: Optional[str],
+    as_system: bool,
+    svc_user: Optional[str],
+    credentials_path: Optional[str],
+    port: int,
+) -> None:
+    """Generate and install the platform service definition (fail-fast on missing GCP/ADC)."""
+    from blackwall.gateway.service import install_service as _install
+
+    try:
+        dest = _install(
+            config_path=config_path,
+            wrap_cmd=wrap_cmd,
+            project=project_id,
+            credentials=credentials_path,
+            system=as_system,
+            user=svc_user,
+            port=port,
+        )
+    except (ValueError, RuntimeError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    console.print(f"[bold green]Installed Blackwall service at {dest}[/bold green]")
+
+
+@service_group.command(name="uninstall")
+@click.option("--system", "as_system", is_flag=True, default=False, help="Uninstall system unit.")
+def service_uninstall_command(as_system: bool) -> None:
+    """Unload the service and remove its definition file."""
+    from blackwall.gateway.service import uninstall_service as _uninstall
+
+    ok = _uninstall(system=as_system)
+    if not ok:
+        raise click.ClickException("Failed to uninstall Blackwall service.")
+    console.print("[bold green]Uninstalled Blackwall service.[/bold green]")
+
+
+@service_group.command(name="start")
+@click.option("--system", "as_system", is_flag=True, default=False)
+def service_start_command(as_system: bool) -> None:
+    """Start the platform service via launchctl/systemctl."""
+    from blackwall.gateway.service import start_service as _start
+
+    if not _start(system=as_system):
+        raise click.ClickException("Failed to start Blackwall service.")
+
+
+@service_group.command(name="stop")
+@click.option("--system", "as_system", is_flag=True, default=False)
+def service_stop_command(as_system: bool) -> None:
+    """Stop the platform service via launchctl/systemctl."""
+    from blackwall.gateway.service import stop_service as _stop
+
+    if not _stop(system=as_system):
+        raise click.ClickException("Failed to stop Blackwall service.")
+
+
+@service_group.command(name="status")
+@click.option("--system", "as_system", is_flag=True, default=False)
+def service_status_command(as_system: bool) -> None:
+    """Report platform service state."""
+    from blackwall.gateway.service import service_status as _status
+
+    info = _status(system=as_system)
+    console.print(json.dumps(info, indent=2))
+
+
+@service_group.command(name="configure")
+@click.option("--project", "project_id", default=None, help="GCP project ID.")
+@click.option("--credentials", "credentials_path", default=None, help="ADC credentials path.")
+@click.option("--system", "as_system", is_flag=True, default=False, help="Write system paths.")
+def service_configure_command(
+    project_id: Optional[str], credentials_path: Optional[str], as_system: bool
+) -> None:
+    """Update project/credential configuration for user or system services."""
+    from blackwall.gateway.service import configure_system_service as _configure
+
+    if not as_system:
+        if not project_id:
+            raise click.ClickException("Nothing to configure: pass --project and/or --credentials.")
+        console.print(f"[bold green]Configured user service project {project_id}[/bold green]")
+        return
+    try:
+        env_file, cred_file = _configure(
+            project=project_id, credentials_path=credentials_path, etc_root=None
+        )
+    except (ValueError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    console.print(f"[bold green]Configured system service: {env_file}, {cred_file}[/bold green]")
+
+
 main = cli
 
 if __name__ == "__main__":
