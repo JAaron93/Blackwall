@@ -14,7 +14,7 @@ Blackwall runs as a **standalone local daemon** — not a sidecar, not a proxy f
 
 1.  **The Agent** (e.g., Antigravity, Warp Terminal Agent) sends a `tools/call` JSON-RPC request.
 2.  **Blackwall Gateway** receives the request over stdio or Streamable HTTP on `localhost:9229`.
-3.  **Blackwall's Engine** (`SyncResolver` pipeline) evaluates the request: Rate Check → Context Hygiene Sanitization → SQLite Threat Signature Graph (TSG) Check → Codebase Memory MCP AST Query → Conditional GTI/VirusTotal Validation (high-risk only) → Score Aggregation → Threshold Verdict.
+3.  **Blackwall's Engine** (`SyncResolver` pipeline) evaluates the request: Rate Check → Context Hygiene Sanitization → SQLite Threat Signature Graph (TSG) Check → Codebase Memory MCP AST Query → Conditional Threat Intelligence Validation (AlienVault OTX, gated on high-risk or indicator-bearing events) → Score Aggregation → Threshold Verdict.
 4.  **ALLOW Verdict:** Blackwall forwards the original payload to the downstream tool server and pipes the response back to the agent.
 5.  **BLOCK Verdict:** Blackwall drops the request and synthesizes a valid MCP-compliant JSON-RPC Error response, simulating a tool failure without crashing the agent's execution loop.
 
@@ -73,6 +73,7 @@ Extracts semantic intent from MCP protocol payloads.
 *   **MCP Tool Calls:** Intercepts `tools/call` requests, extracts `name` and `arguments`.
 *   **Payload Reconstruction:** Reformats extracted data into Blackwall's internal `ToolCallContext`, ensuring compatibility with the existing `SyncResolver` pipeline.
 *   **Pass-Through:** Non-tool methods (`initialize`, `notifications/*`, `tools/list`) are forwarded unchanged to preserve protocol compliance.
+*   **Client Metadata Isolation:** Untrusted client-supplied `params._meta` MUST NOT override security-sensitive context properties (`environment_role`, `is_evaluation`, `agent_id`, `session_id`). Only an allow-list of non-security protocol properties (`client_name`, `client_version`, `progress_token`, `traceparent`, `tracestate`) is accepted and namespaced under `context.metadata["client_meta"]`.
 
 ### 3. Engine Router (SyncResolver Pipeline)
 Routes extracted payloads through Blackwall's defenses in a strict, mandatory sequence:
@@ -80,20 +81,20 @@ Routes extracted payloads through Blackwall's defenses in a strict, mandatory se
 2.  **Context Hygiene Sanitization:** Replace sensitive environment variable patterns with generic placeholders.
 3.  **SQLite Threat Signature Graph (FTS5):** Check for structural similarities with known malicious payloads using word-level intersection match quality scoring.
 4.  **Codebase Memory MCP:** Run AST query to trace dependency blast radius.
-5.  **Google Threat Intelligence (GTI):** Query VirusTotal for external IP/domain indicators — **ONLY** for high-risk events, rate-limited to 4 queries/60s via `GTIQueryBudgetTracker`.
+5.  **Threat Intelligence (AlienVault OTX):** Query AlienVault OTX for external IP/domain indicators for high-risk events or events carrying external indicators (`SyncResolver` derives `is_high_risk` from structural/CBM signals or indicator presence). Rate-limited to 10,000 queries/hour authenticated (1,000/hour unauthenticated) via token bucket with 3-state circuit breaker (`src/blackwall/threat_intel/otx.py`); served through the SQLite `threat_intel_cache` (≤ 1.0 ms average read, enforced by `tests/unit/threat_intel/test_benchmarks_sla.py`) with a primary + secondary provider cascade in `ThreatIntelOrchestrator`. No VirusTotal code path exists in the current implementation.
 6.  **Score Aggregation:** Weighted composite score from all signals.
 7.  **Threshold Verdict:** `≥ 0.20 → BLOCK`, `≥ 0.10 → QUARANTINE`, `< 0.10 → ALLOW`.
 
 ### 4. Response Synthesizer
 *   **ALLOW Verdict:** Forward the original JSON-RPC request byte-stream to the downstream tool server and pipe the response back to the agent.
-*   **BLOCK Verdict:** Drop the request and synthesize a valid JSON-RPC error response, explicitly reusing the incoming request `id`:
+*   **BLOCK Verdict:** Drop the request and synthesize a valid JSON-RPC error response, explicitly reusing the incoming request `id` (bounded generic message — zero threat reasoning leaked):
     ```json
     {
       "jsonrpc": "2.0",
       "id": "<extracted_request_id>",
       "error": {
         "code": -32603,
-        "message": "Blackwall Firewall: Execution blocked due to threat signature match."
+        "message": "Blackwall Firewall: Execution blocked"
       }
     }
     ```
@@ -269,3 +270,26 @@ The gateway requires GCP Vertex AI Mode for the `SyncResolver`'s LLM-based seman
 *   **State Persistence:** SQLite Threat Signature Graph in WAL mode with strict connection pooling. TTL/LFU pruning keeps query latencies under 10ms.
     - Node types: `AttackerIntent`, `PayloadStructure`, `TargetTool`.
     - Edge types: `SIMILAR_TO`, `MITIGATED_BY`.
+
+## Implementation Notes & Deviations (Phases 1–3, finalized under TASK-E01)
+
+This section records where the shipped implementation (PRs #159, #160, #161) intentionally differs from or extends the original design. Phase 5 (service packaging) and Phase 6 (demo showcase) remain future work and are unaffected.
+
+### Phase 1: Foundation (PR #159 — TASK-A01, A02, B01, B02)
+*   **Delivered as specified:** `src/blackwall/gateway/` (`server.py`, `flow.py`, `interceptor.py`, `synthesizer.py`, `exceptions.py`) with unit suites `tests/unit/gateway/test_{server,flow,interceptor,synthesizer}.py`.
+*   **Deviation — stdio cancellation bypass:** `notifications/cancelled` bypasses the stdio concurrency semaphore so a stuck request can never starve its own cancellation. All other traffic (including general notifications) obeys the bound to preserve memory backpressure.
+
+### Phase 2: Wiring (PR #160 — TASK-C01, C02, C03)
+*   **Delivered as specified:** E2E pipeline (`MCPGatewayServer` → `PayloadInterceptor` → `SyncResolver` → downstream/`ResponseSynthesizer`, sub-10ms overhead benchmark), upstream manager (`StdioUpstreamServer` with process-group isolation, `HttpUpstreamServer` with pooling, `gateway.yaml` routing), and `click` CLI (`serve`, `init`, `stop`, `status`, `version`) with PID lifecycle and GCP credential fail-fast.
+*   **Deviation — fail-closed policy loading:** A discovered but unloadable policy (`~/.blackwall/policy.yaml` or `--policy`) aborts startup with `RuntimeError` instead of running un-gated.
+*   **Deviation — non-short-circuit structural evaluation:** Structural `BLOCK` records `structural_blocked = True` and flows through CBM, Threat Intelligence, and Semantic Triage; the verdict is enforced at Score Aggregation / Threshold stage.
+
+### Phase 3: Integration & Validation (PR #161 — TASK-D01, D02, D03, D04)
+*   **Delivered as specified:** 6 `pytest-bdd` scenarios (`tests/features/blackwall_gateway.feature` + `tests/step_defs/test_gateway.py`) covering stdio BLOCK (`-32603` + redacted SQLite logging), HTTP BLOCK via `POST /mcp` SSE, the non-loopback auth matrix (valid `Bearer` accepted, missing/invalid → 401, startup guard), and ALLOW forwarding to a mock echo downstream. Resource profiling (`tests/unit/gateway/test_resource_profile.py`, results: `docs/gateway_resource_profile.md`) enforces the MacBook baseline (idle ≤ 60MB, active ≤ 150MB including a real-`SyncResolver`-evaluation measurement, startup < 2s, per-call < 10ms, event-driven idle CPU).
+*   **Deviation — deterministic GCP-free BDD harness:** Subprocess E2E tests run `tests/gateway_harness.py` (deterministic BLOCK/ALLOW resolver with redacted SQLite persistence) instead of the full `blackwall serve` stack so CI needs no Vertex AI credentials. Auth scenarios bind alternate ports (9230/9231) to avoid colliding with the specified 9229.
+*   **Deviation — `--skip-gcp-check`:** `blackwall serve` accepts a testing/offline escape hatch bypassing GCP credential validation. Production deployments MUST NOT use it; the default remains fail-fast.
+*   **Deviation — lazy-load enforcement (NFR-06):** Top-level `blackwall/__init__.py` resolves heavy exports lazily (PEP 562) and `resolver.py` imports `blackwall.config` at the triage call site. Measured cold start improved from 3.04s to 0.89s (budget < 2s).
+*   **Addition — pool failure-path hardening:** `AsyncConnectionPool` now closes partially-created connections when `initialize()` fails and drains on `close()` even when uninitialized, fixing a leaked non-daemon `aiosqlite` worker thread that hung process exit on corrupt databases (regression: `tests/db/test_pool_init_failure.py`).
+
+### Superseded `blackwall-acp-mcp-integration` spec (TASK-E01 AC3)
+*   The old spec directory was already removed during the gateway rebaseline (commit `53ad25f`) and is absent from the repository. A repo-wide search confirms the only remaining references are this task's own acceptance text. No further archival action required.

@@ -167,7 +167,7 @@ Build the `click`-based CLI (`src/blackwall/cli.py`) and daemon lifecycle manage
 ### Track D: End-to-End BDD Tests & Scaffolding
 
 #### TASK-D01: BDD E2E Test — stdio Gateway Blocks Malicious Tool Call
-**Status:** ⏳ Not Started
+**Status:** [x] Completed
 **Dependencies:** TASK-C02, TASK-C03
 **Requirements Satisfied:** NFR-04, NFR-05, US-01
 
@@ -185,7 +185,7 @@ Write a behavior-driven integration test simulating a malicious `tools/call` ove
 8. `pytest-bdd` executes the feature and passes.
 
 #### TASK-D02: BDD E2E Test — HTTP Gateway Blocks Malicious Tool Call
-**Status:** ⏳ Not Started
+**Status:** [x] Completed
 **Dependencies:** TASK-D01
 **Requirements Satisfied:** FR-02, NFR-05
 
@@ -202,7 +202,7 @@ Replicate TASK-D01 using the Streamable HTTP transport (`POST /mcp` on `localhos
 7. `pytest-bdd` passes.
 
 #### TASK-D03: BDD E2E Test — ALLOW Verdict Forwards to Upstream
-**Status:** ⏳ Not Started
+**Status:** [x] Completed
 **Dependencies:** TASK-D01
 **Requirements Satisfied:** FR-04, FR-07, US-01
 
@@ -217,7 +217,7 @@ Write a BDD test verifying that benign tool calls are forwarded to the downstrea
 5. `pytest-bdd` passes.
 
 #### TASK-D04: Resource Profiling on Intel MacBook Baseline
-**Status:** ⏳ Not Started
+**Status:** [x] Completed
 **Dependencies:** TASK-C03
 **Requirements Satisfied:** NFR-06, US-04
 
@@ -237,7 +237,7 @@ Profile Blackwall Core daemon on the 2019 Intel MacBook Pro baseline to verify r
 ## 🛤️ Phase 4: Documentation & Spec Finalization
 
 #### TASK-E01: Finalize Spec Documentation
-**Status:** ⏳ Not Started
+**Status:** [x] Completed
 **Dependencies:** All previous tasks
 **Requirements Satisfied:** All
 
