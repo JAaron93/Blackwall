@@ -281,6 +281,10 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 - **Stdio Concurrency & Cancellation Starvation Bypass**: Stdio line processing MUST be bounded by `asyncio.Semaphore(max_queue_size)`. Urgent cancellation notifications (`notifications/cancelled`) MUST bypass the semaphore permit check so cancellations can unblock waiting tasks without deadlock.
 - **Bracket-Aware IPv6 Host Parsing**: Host header validation MUST handle bracketed IPv6 literals (e.g. `[::1]:9229` or `[::1]`) without naive `host.split(":")[0]` string manipulation.
 - **Context-Preserving Recursive List Traversal**: Payload interceptors sanitizing sensitive arguments (`ContextHygiene`) MUST preserve parameter key names (`key_name`) across recursive list traversals.
+- **Sequential Resolver Invariant (Structural Non-Short-Circuit)**: In `SyncResolver`, structural policy checks MUST NOT early-return on `BLOCK` or `ALLOW`. They must record `structural_blocked = True` and allow CBM, Threat Intelligence, and Semantic Triage to run sequentially, enforcing the `BLOCK` verdict and `score = 1.0` at the Score Aggregation and Threshold Verdict stages.
+- **Client Metadata Isolation**: Untrusted client `_meta` MUST NOT override `environment_role`, `is_evaluation`, `session_id`, or `agent_id`. Only allow-listed protocol properties (`client_name`, `traceparent`, etc.) may be stored under `client_meta`.
+- **Policy Fail-Closed Invariant**: Corrupted or unparseable `policy.yaml` configuration files (explicit or default) MUST raise `RuntimeError` and fail closed on startup rather than proceeding un-gated with `policy_server=None`.
+- **PID Identity Verification & Process Reaping**: Process signals MUST require `pid > 0`, verify cmdline identity before `SIGKILL` to prevent PID reuse hazards, and reap child subprocesses to prevent zombie leaks.
 
 
 
