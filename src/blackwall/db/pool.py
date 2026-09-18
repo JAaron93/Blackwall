@@ -16,13 +16,24 @@ class AsyncConnectionPool:
 
     async def _init_connection(self) -> aiosqlite.Connection:
         conn = await aiosqlite.connect(self.db_path)
-        # Configure connection for WAL mode and performance
-        await conn.execute("PRAGMA journal_mode=WAL;")
-        await conn.execute("PRAGMA busy_timeout=5000;")
-        await conn.execute("PRAGMA synchronous=NORMAL;")
-        await conn.execute("PRAGMA wal_autocheckpoint=1000;")
-        await conn.execute("PRAGMA foreign_keys=ON;")
-        await conn.commit()
+        try:
+            # Configure connection for WAL mode and performance
+            await conn.execute("PRAGMA journal_mode=WAL;")
+            await conn.execute("PRAGMA busy_timeout=5000;")
+            await conn.execute("PRAGMA synchronous=NORMAL;")
+            await conn.execute("PRAGMA wal_autocheckpoint=1000;")
+            await conn.execute("PRAGMA foreign_keys=ON;")
+            await conn.commit()
+        except Exception:
+            # PRAGMA setup can fail (e.g. corrupt/non-database file) after the
+            # aiosqlite worker thread has started. Close the connection so the
+            # non-daemon worker thread terminates instead of leaking and
+            # blocking interpreter exit in threading._shutdown.
+            try:
+                await conn.close()
+            except Exception:
+                pass
+            raise
         return conn
 
     async def initialize(self) -> None:
@@ -52,18 +63,31 @@ class AsyncConnectionPool:
                 return
 
             self._pool = asyncio.Queue(maxsize=self.max_connections)
-            for _ in range(self.max_connections):
-                conn = await self._init_connection()
-                self._pool.put_nowait(conn)
+            try:
+                for _ in range(self.max_connections):
+                    conn = await self._init_connection()
+                    self._pool.put_nowait(conn)
+            except Exception:
+                # A mid-loop failure (e.g. corrupt file) must not abandon the
+                # connections created so far: each holds a non-daemon aiosqlite
+                # worker thread that would otherwise leak and block process exit.
+                while not self._pool.empty():
+                    conn = self._pool.get_nowait()
+                    try:
+                        await conn.close()
+                    except Exception:
+                        pass
+                self._pool = None
+                raise
 
             self._initialized = True
 
     async def close(self) -> None:
-        if not self._initialized or self._pool is None:
+        if self._pool is None:
             return
 
         async with self._init_lock:
-            while self._pool and not self._pool.empty():
+            while self._pool is not None and not self._pool.empty():
                 conn = self._pool.get_nowait()
                 try:
                     await conn.close()

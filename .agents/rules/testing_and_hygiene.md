@@ -573,6 +573,19 @@
 * **Rule:** When running test suites (especially full suite runs, long-running suites, or background test tasks), agents MUST NOT rely on passive, blind waiting. Agents MUST set an explicit timer via the `schedule` tool with an estimated upper bound or incremental check intervals (e.g. 10–30s) to monitor test progress, inspect logs, and immediately kill and diagnose hanging test loops, deadlock conditions, or leaking non-daemon background threads.
 * **Rationale:** Mandated by user correction during Phase 2 testing. Blind waiting allows hanging subprocesses or socket deadlocks to run indefinitely without visibility or diagnostic intervention.
 
+## 67. Non-Blocking Executor Shutdown in Subprocess Timeout Helpers
+* **Rule:** Test helpers that read subprocess pipes with a timeout MUST NOT use `with ThreadPoolExecutor(...)` combined with `future.result(timeout=...)`: exiting the context manager calls `shutdown(wait=True)`, which blocks forever on a worker stuck in `readline()` and prevents process-group (`killpg`) cleanup from ever running. Use an explicit pool and call `shutdown(wait=False, cancel_futures=True)` on the timeout path so fixture teardown can still terminate the process group.
+* **Rationale:** Greptile P1 on PR #161 (`test_gateway.py._readline_timeout`): the timeout existed but teardown could never reach it.
+
+## 68. Cold-Start Measured in a Fresh Interpreter & Lazy Heavy Imports
+* **Rule (Cold-Start Measurement):** Startup SLA tests MUST measure cold start in a fresh interpreter subprocess (`python -c "import ...; init();"`), never in-process server construction after imports have already completed.
+* **Rule (Lazy Heavy Imports):** Top-level package `__init__` files MUST NOT eagerly import heavy third-party SDKs (PEP 562 lazy `__getattr__`); call-site-only dependencies MUST be imported lazily at function scope.
+* **Rationale:** Greptile P1 on PR #161: an eager `config → google.genai` chain cost 2.2s of a 3.04s cold start; lazy loading cut it to 0.89s.
+
+## 69. Delta-Based Idle CPU Sampling
+* **Rule:** Idle-CPU assertions MUST sample cputime deltas over an interval (`ps -o time=` twice, `% = Δcpu/Δwall`), never lifetime-average `ps -o %cpu=` on a young process — startup work inflates the lifetime average (observed 89% on an idle daemon) and false-fails the test.
+* **Rationale:** Discovered during Phase 3 resource profiling (TASK-D04) on PR #161.
+
 
 
 
