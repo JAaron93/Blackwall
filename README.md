@@ -348,6 +348,7 @@ pytest tests/features/ -v
 | **[docs/graph_export_tools_guide.md](docs/graph_export_tools_guide.md)** | Attack graph export and visualization guide (NetworkX, Gephi, Cytoscape.js) |
 | **[docs/helper_functions.md](docs/helper_functions.md)** | Catalog of centralized validation helpers, utilities, and date/UUID formatters |
 | **[docs/adr/0005-rust-native-acceleration-hotpaths.md](docs/adr/0005-rust-native-acceleration-hotpaths.md)** | ADR 0005: Non-Greedy Rust Native Acceleration for Latency-Critical Interception Hot Paths |
+| **[docs/adr/0006-gcp-egress-data-privacy-boundary.md](docs/adr/0006-gcp-egress-data-privacy-boundary.md)** | ADR 0006: GCP Egress Control & Data Privacy Boundary as a Security Invariant (VPC-SC, CMEK, Data Residency) |
 | **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** | Known issues and performance workarounds |
 | **[AGENTS.md](AGENTS.md)** | Supreme Agent Constitution, architectural invariants, and workspace rules |
 | **[.kiro/specs/blackwall-rust-acceleration/](.kiro/specs/blackwall-rust-acceleration/)** | Technical design, requirements, and tasks for Native Rust Acceleration Subsystem |
@@ -366,6 +367,28 @@ pytest tests/features/ -v
   - **3-State Circuit Breaker:** Proactive failure isolation with 3-probe HALF-OPEN recovery and 3.0s timeout safeguards.
   - **Legacy VirusTotal Mode:** Retained as an opt-in fallback under `BW_THREAT_INTEL_BACKEND=virustotal`.
 - **Why Threat Signatures Enable 100x+ Speedup:** Novel attacks require external intelligence lookups and LLM evaluation (~1,010ms). Once blocked, Blackwall writes a normalized vector signature to local SQLite. Future variants match via cosine similarity in ~7.0ms—a **144x speedup** with zero LLM inference.
+
+### ☁️ Why GCP? (Inference Boundary Rationale)
+
+Blackwall's exclusive use of **GCP Vertex AI (Gemini Enterprise Agent Platform)** for all inline and out-of-band inference is governed by two independent, mutually reinforcing architectural decisions:
+
+#### Performance & API Primitives ([ADR 0004](docs/adr/0004-model-selection-rationale-inline-interception.md))
+The Gemini Interactions API exposes platform primitives that have no equivalent on competing providers:
+- **`previous_interaction_id` session chaining** — persists policy snapshots and tool context server-side across multi-turn interception sessions, delivering ≥50% token reduction on cache hits with zero client-side payload serialization.
+- **Native `background=True` webhook execution** — Gemini 3.8 Flash processes quarantined events out-of-band and delivers results directly to Blackwall's `/webhook/analysis_complete` endpoint, eliminating the need for external task queue brokers (Celery, Temporal, RabbitMQ).
+- **`thinking_level="minimal"` routing** — bypasses extended reasoning during inline gating, preserving the <150ms TTFT budget for sub-250ms end-to-end P99 latency.
+- **Native structured output decoding** — `response_mime_type="application/json"` with `response_schema=Verdict` enforces typed Pydantic deserialization directly, eliminating regex extraction fallbacks entirely.
+
+#### Data Privacy & Egress Control ([ADR 0006](docs/adr/0006-gcp-egress-data-privacy-boundary.md))
+Blackwall's inline evaluation pipeline processes **raw, unredacted tool call arguments** — which may contain file paths, SQL queries, shell commands, environment variable values, and credential fragments — before sanitization has occurred. Routing this traffic to an uncontrolled external cloud endpoint would itself constitute a security anti-pattern. GCP enforces a closed egress boundary through:
+
+- **VPC Service Controls & Private Service Connect** — Intercepted tool payloads are transmitted directly to Vertex AI regional endpoints via private internal IP routes within the operator's GCP VPC, never traversing the public internet.
+- **Data Residency Controls** — Inference requests can be pinned to specific GCP regions to satisfy GDPR, HIPAA, and FedRAMP data sovereignty requirements, backed by contractual Data Processing Addendums (DPAs).
+- **Customer-Managed Encryption Keys (CMEK)** — Operators supply their own Cloud KMS key material for inference payload encryption, with key revocation acting as a cryptographic kill-switch over all inference access.
+- **Immutable Cloud Logging Audit Trail** — Every inference request generates a tamper-evident Data Access audit log entry in `cloudaudit.googleapis.com`, providing forensic proof of each security evaluation with timestamp and model ID.
+
+> [!IMPORTANT]
+> **The Closed Side-Channel Invariant**: A security firewall that evaluates sensitive payloads via an external third-party API is itself an uncontrolled exfiltration channel. Keeping all inference within the GCP VPC perimeter closes this structural vulnerability. This invariant applies regardless of the performance characteristics of alternative providers.
 
 ---
 
