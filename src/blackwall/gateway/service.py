@@ -20,7 +20,6 @@ from __future__ import annotations
 import logging
 import os
 import pwd
-import shlex
 import shutil
 import subprocess
 import sys
@@ -196,6 +195,27 @@ def _escape_xml(text: str) -> str:
     )
 
 
+def _systemd_escape_value(value: str) -> str:
+    """Escape a value for systemd ``Environment=`` / ``ExecStart`` directives.
+
+    Systemd performs specifier expansion (``%``) and backslash handling
+    independent of POSIX shells, so ``shlex.quote`` output is insufficient:
+    double ``%`` to ``%%``, escape backslashes and double quotes, and reject
+    newlines that would corrupt the unit file.
+    """
+    if "\n" in value or "\r" in value:
+        raise ValueError("Service values must not contain newlines.")
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
+
+
+def _systemd_escape_arg(arg: str) -> str:
+    """Quote a single ExecStart token using systemd escaping rules."""
+    escaped = _systemd_escape_value(arg)
+    if any(ch in arg for ch in (" ", "\t", '"', "'", "\\", "%")):
+        return f'"{escaped}"'
+    return escaped
+
+
 def generate_launchd_plist(
     config_path: str,
     pidfile_path: str,
@@ -284,12 +304,12 @@ def generate_systemd_unit(
         if user == "root" or group == "root":
             raise ValueError("Running systemd units as root (User=root) is strictly disallowed.")
     args = build_exec_args(cfg, pid, log, db, wrap_cmd, port)
-    exec_start = shlex.join(prefix + args)
+    exec_start = " ".join(_systemd_escape_arg(a) for a in prefix + args)
     env_lines = []
     for key in ("GCP_PROJECT", "GOOGLE_CLOUD_PROJECT", "GOOGLE_APPLICATION_CREDENTIALS", "GEMINI_TIER", "PATH"):
         if key in env and env[key]:
-            env_lines.append(f'Environment="{key}={env[key]}"')
-    env_lines.append(f'Environment="BLACKWALL_DB_PATH={db}"')
+            env_lines.append(f'Environment="{key}={_systemd_escape_value(env[key])}"')
+    env_lines.append(f'Environment="BLACKWALL_DB_PATH={_systemd_escape_value(db)}"')
     env_block = "\n".join(env_lines)
     env_file_block = "EnvironmentFile=-/etc/default/blackwall\n" if system else ""
     identity_block = f"User={user}\nGroup={group}\n" if system else ""
@@ -757,18 +777,46 @@ def configure_user_service(
     env_file.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
     platform_name = detect_platform(platform_override)
+    patched: Path | None = None
+    if platform_name == "darwin":
+        plist = get_user_plist_path(active_home)
+        if plist.is_file():
+            _patch_plist_env(plist, project, cred_dest)
+            patched = plist
+    else:
+        unit = get_user_systemd_path(active_home)
+        if unit.is_file():
+            _patch_systemd_env(unit, project, cred_dest)
+            patched = unit
+    if patched is not None:
+        _reload_user_service(platform_name, patched)
+    return env_file, cred_dest
+
+
+def _reload_user_service(platform_name: str, definition: Path) -> None:
+    """Reload the user service so patched configuration takes effect.
+
+    Runs ``launchctl unload/load`` on macOS or ``systemctl --user
+    daemon-reload`` + ``try-restart`` on Linux. Failures raise
+    ``RuntimeError`` so callers never report success for a stale service.
+    """
     try:
         if platform_name == "darwin":
-            plist = get_user_plist_path(active_home)
-            if plist.is_file():
-                _patch_plist_env(plist, project, cred_dest)
+            unload = subprocess.run(["launchctl", "unload", str(definition)], check=False)
+            load = subprocess.run(["launchctl", "load", str(definition)], check=False)
+            if unload.returncode != 0 or load.returncode != 0:
+                raise RuntimeError(f"Failed reloading launchd service at {definition}.")
         else:
-            unit = get_user_systemd_path(active_home)
-            if unit.is_file():
-                _patch_systemd_env(unit, project, cred_dest)
+            reload = subprocess.run(
+                ["systemctl", "--user", "daemon-reload"], check=False
+            )
+            if reload.returncode != 0:
+                raise RuntimeError("systemctl --user daemon-reload failed.")
+            subprocess.run(
+                ["systemctl", "--user", "try-restart", "blackwall"], check=False
+            )
     except OSError as exc:
-        logger.warning("Could not patch installed user service: %s", exc)
-    return env_file, cred_dest
+        raise RuntimeError(f"Failed reloading user service: {exc}") from exc
 
 
 def _patch_plist_env(plist: Path, project: str | None, cred_dest: Path | None) -> None:

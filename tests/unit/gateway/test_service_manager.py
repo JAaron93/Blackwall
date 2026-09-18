@@ -396,3 +396,50 @@ class TestGreploopReviewFixes:
             home=tmp_path, platform_override="linux",
         )
         assert env_file.exists() and cred is not None and cred.exists()
+
+    def test_systemd_escapes_specifiers_and_rejects_newlines(self, tmp_path: Path) -> None:
+        cfg = tmp_path / "gateway.yaml"
+        cfg.write_text("upstream_servers: []\n", encoding="utf-8")
+        env = _test_env(tmp_path)
+        env["GCP_PROJECT"] = "BW_SYNTHETIC_100%_0192"
+        content = svc.generate_systemd_unit(
+            str(cfg), str(tmp_path / "a.pid"), str(tmp_path / "a.log"),
+            str(tmp_path / "a.db"), None, env, system=False,
+        )
+        assert "100%%" in content
+        with pytest.raises(ValueError):
+            svc.generate_systemd_unit(
+                str(cfg), str(tmp_path / "a.pid"), str(tmp_path / "a.log"),
+                str(tmp_path / "a.db"), None,
+                {"GCP_PROJECT": "bad\nvalue", "PATH": "/usr/bin"},
+                system=False,
+            )
+
+    def test_configure_user_service_reloads_patched_unit(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest.mock import patch
+
+        monkeypatch.setenv("GCP_PROJECT", "BW_SYNTHETIC_MOCK_PROJECT_0192")
+        monkeypatch.setenv(
+            "GOOGLE_APPLICATION_CREDENTIALS",
+            str(tmp_path / "adc.json"),
+        )
+        (tmp_path / "adc.json").write_text("{}", encoding="utf-8")
+        unit = tmp_path / ".config" / "systemd" / "user" / "blackwall.service"
+        unit.parent.mkdir(parents=True)
+        unit.write_text(
+            "[Unit]\nDescription=x\n\n[Service]\nType=exec\n"
+            'Environment="GCP_PROJECT=old"\n\n[Install]\nWantedBy=default.target\n',
+            encoding="utf-8",
+        )
+        with patch("blackwall.gateway.service.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            svc.configure_user_service(
+                project="BW_SYNTHETIC_MOCK_PROJECT_0192",
+                credentials_path=None,
+                home=tmp_path,
+                platform_override="linux",
+            )
+        assert mock_run.called
+        assert "BW_SYNTHETIC_MOCK_PROJECT_0192" in unit.read_text(encoding="utf-8")
