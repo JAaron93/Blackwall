@@ -58,12 +58,11 @@ def detect_platform(system: str | None = None) -> str:
 def resolve_absolute(path_str: str | Path) -> Path:
     """Expand user and resolve to an absolute filesystem path.
 
-    Usesabspath (no symlink chase) so Linux FHS constants (``/run``,
-    ``/var``) remain stable when tests run on macOS where ``/var`` is a
-    symlink to ``/private/var``. Output is always absolute with zero ``~``.
+    Repository invariant: install-time resolution MUST use ``Path.resolve()``
+    so systemd ``ExecStart`` and daemon runners never see shell-dependent
+    ``~`` or relative segments. Output is always absolute with zero ``~``.
     """
-    expanded = os.path.expanduser(str(path_str))
-    return Path(os.path.abspath(expanded))
+    return Path(path_str).expanduser().resolve()
 
 
 def assert_no_tilde(content: str) -> None:

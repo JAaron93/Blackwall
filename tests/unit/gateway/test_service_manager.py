@@ -60,6 +60,8 @@ class TestAbsolutePathResolution:
         resolved = svc.resolve_absolute("~/.blackwall/gateway.yaml")
         assert resolved.is_absolute()
         assert "~" not in str(resolved)
+        # Repository invariant: install-time resolution uses Path.resolve().
+        assert resolved == Path("~/.blackwall/gateway.yaml").expanduser().resolve()
 
     def test_assert_no_tilde_rejects(self) -> None:
         with pytest.raises(ValueError):
@@ -193,9 +195,15 @@ class TestSystemdUnitGeneration:
         assert "RuntimeDirectory=blackwall" in content
         assert "StateDirectory=blackwall" in content
         assert "LogsDirectory=blackwall" in content
-        assert "--pidfile /run/blackwall/blackwall.pid" in content
-        assert "--logfile /var/log/blackwall/blackwall.log" in content
-        assert "BLACKWALL_DB_PATH=/var/lib/blackwall/threat_signatures.db" in content
+        # Install-time invariant: paths resolved via Path.resolve(). Resolve the
+        # FHS expectations the same way so the test holds on macOS (where
+        # /var is a symlink to /private/var) and on Linux alike.
+        expected_pid = str(svc.resolve_absolute("/run/blackwall/blackwall.pid"))
+        expected_log = str(svc.resolve_absolute("/var/log/blackwall/blackwall.log"))
+        expected_db = str(svc.resolve_absolute("/var/lib/blackwall/threat_signatures.db"))
+        assert f"--pidfile {expected_pid}" in content
+        assert f"--logfile {expected_log}" in content
+        assert f"BLACKWALL_DB_PATH={expected_db}" in content
 
     def test_system_unit_rejects_root_user(self, tmp_path: Path) -> None:
         env = self._env(tmp_path)
