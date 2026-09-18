@@ -192,12 +192,56 @@ class TestGatewayResourceProfile:
                 proc.stdin.flush()
                 proc.stdout.readline()
             active_mb = _harness_rss_mb(proc.pid)
-            print(f"[D04] active RSS (during evaluation): {active_mb:.1f}MB (target <={ACTIVE_TARGET_MB:.0f}MB)")
-            if active_mb > ACTIVE_TARGET_MB:
-                print(f"[D04] BUDGET VIOLATION: active {active_mb:.1f}MB exceeds {ACTIVE_TARGET_MB:.0f}MB (flagged per AC6)")
+            print(f"[D04] active RSS (during evaluation): {active_mb:.1f}MB (budget <={ACTIVE_TARGET_MB:.0f}MB)")
             assert active_mb <= ACTIVE_TARGET_MB, f"Active RAM budget violated: {active_mb:.1f}MB > {ACTIVE_TARGET_MB:.0f}MB"
         finally:
             _terminate(proc)
+
+    def test_gateway_active_ram_during_sync_resolver_evaluation(self) -> None:
+        """D04 AC2: active RAM measured during real SyncResolver evaluation.
+
+        Runs genuine ``SyncResolver.evaluate()`` calls (mocked Gemini client,
+        no network) in an isolated subprocess and asserts its RSS stays within
+        the active budget — the harness echo path alone does not exercise the
+        resolver pipeline.
+        """
+        child_lines = [
+            "import asyncio, resource, sys",
+            "from unittest.mock import MagicMock",
+            "from blackwall.models import ToolCallContext",
+            "from blackwall.sync_resolver import SyncResolver",
+            "mock_client = MagicMock()",
+            "mock_resp = MagicMock(); mock_resp.text = 'benign pattern'",
+            "mock_client.models.generate_content.return_value = mock_resp",
+            "resolver = SyncResolver(client=mock_client, threat_intel=None, cbm_client=None, repo=None, demo_mode=False)",
+            "async def main():",
+            "    allows = 0",
+            "    for i in range(23):",
+            "        ctx = ToolCallContext(tool_name='read_file', arguments={'path': '/safe/data/sample.txt'})",
+            "        verdict = await resolver.evaluate(ctx)",
+            "        if i >= 3 and verdict.decision.value == 'ALLOW': allows += 1",
+            "    usage = resource.getrusage(resource.RUSAGE_SELF)",
+            "    rss = usage.ru_maxrss / (1024 * 1024) if sys.platform == 'darwin' else usage.ru_maxrss / 1024",
+            "    print(f'RSS_MB={rss:.1f} ALLOW={allows}')",
+            "asyncio.run(main())",
+        ]
+        child = "\n".join(child_lines)
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(REPO_ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
+        proc = subprocess.run(
+            [sys.executable, "-c", child],
+            capture_output=True, text=True, timeout=60, env=env,
+        )
+        assert proc.returncode == 0, f"SyncResolver probe failed: {proc.stderr[-500:]}"
+        rss_mb = allows = None
+        for line in proc.stdout.splitlines():
+            if line.startswith("RSS_MB="):
+                parts = dict(p.split("=") for p in line.split())
+                rss_mb, allows = float(parts["RSS_MB"]), int(parts["ALLOW"])
+        assert rss_mb is not None, f"No RSS report from probe: {proc.stdout[-300:]!r}"
+        print(f"\n[D04] active RSS (SyncResolver eval x20): {rss_mb:.1f}MB (budget <={ACTIVE_TARGET_MB:.0f}MB)")
+        assert allows == 20, f"Expected 20 ALLOW verdicts, got {allows}"
+        assert rss_mb <= ACTIVE_TARGET_MB, f"SyncResolver active RAM violated: {rss_mb:.1f}MB"
 
     @pytest.mark.asyncio
     async def test_gateway_per_call_cpu_burst(self) -> None:
