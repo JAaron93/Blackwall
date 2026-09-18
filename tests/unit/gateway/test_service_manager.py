@@ -201,6 +201,17 @@ class TestSystemdUnitGeneration:
         expected_pid = str(svc.resolve_absolute("/run/blackwall/blackwall.pid"))
         expected_log = str(svc.resolve_absolute("/var/log/blackwall/blackwall.log"))
         expected_db = str(svc.resolve_absolute("/var/lib/blackwall/threat_signatures.db"))
+        # Anti-circular-oracle guard (Rule 70): the resolver-derived
+        # expectation must itself be absolute, tilde-free, and carry the
+        # canonical FHS suffix so a regressed resolver still fails.
+        for expected, suffix in (
+            (expected_pid, "run/blackwall/blackwall.pid"),
+            (expected_log, "var/log/blackwall/blackwall.log"),
+            (expected_db, "var/lib/blackwall/threat_signatures.db"),
+        ):
+            assert Path(expected).is_absolute()
+            assert "~" not in expected
+            assert Path(expected).as_posix().endswith(suffix)
         assert f"--pidfile {expected_pid}" in content
         assert f"--logfile {expected_log}" in content
         assert f"BLACKWALL_DB_PATH={expected_db}" in content
