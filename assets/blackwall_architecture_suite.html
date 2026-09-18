@@ -24,13 +24,18 @@
     </div>
 
     <!-- Mode Selector Tabs -->
-    <div class="flex items-center bg-slate-900/90 p-1 rounded-xl border border-slate-700/60 font-mono text-xs">
-      <button id="tabCoreBtn" onclick="switchTier('core')" class="px-5 py-2 rounded-lg font-semibold transition-all flex items-center gap-2 bg-gradient-to-r from-cyan-600 to-sky-600 text-white shadow-md shadow-cyan-900/40">
-        <span>🛡️</span> Blackwall Core (Individual)
-      </button>
-      <button id="tabEntBtn" onclick="switchTier('enterprise')" class="px-5 py-2 rounded-lg font-semibold transition-all flex items-center gap-2 text-slate-400 hover:text-white">
-        <span>⚡</span> Blackwall Enterprise (Mesh)
-      </button>
+    <div class="flex flex-wrap items-center gap-2 font-mono text-xs">
+      <div class="flex items-center bg-slate-900/90 p-1 rounded-xl border border-slate-700/60">
+        <button id="tabCoreBtn" onclick="switchTier('core')" class="px-5 py-2 rounded-lg font-semibold transition-all flex items-center gap-2 bg-gradient-to-r from-cyan-600 to-sky-600 text-white shadow-md shadow-cyan-900/40">
+          <span>🛡️</span> Blackwall Core (Individual)
+        </button>
+        <button id="tabEntBtn" onclick="switchTier('enterprise')" class="px-5 py-2 rounded-lg font-semibold transition-all flex items-center gap-2 text-slate-400 hover:text-white">
+          <span>⚡</span> Blackwall Enterprise (Mesh)
+        </button>
+      </div>
+      <a id="openStandaloneLink" href="blackwall_core_architecture.html" target="_blank" title="Open active diagram standalone in new tab" class="px-3 py-2 rounded-xl bg-slate-900/90 border border-slate-700/60 text-slate-400 hover:text-cyan-300 transition flex items-center gap-1.5">
+        <span>Open Standalone ↗</span>
+      </a>
     </div>
   </div>
 
@@ -38,12 +43,12 @@
   <div class="w-full max-w-7xl flex-1 flex flex-col">
     <!-- Core Frame -->
     <div id="coreFrameContainer" class="w-full">
-      <iframe src="blackwall_core_architecture.html" class="w-full h-[980px] rounded-2xl border border-cyan-900/40 shadow-2xl bg-transparent" frameborder="0"></iframe>
+      <iframe id="coreIframe" src="blackwall_core_architecture.html" class="w-full h-[1050px] rounded-2xl border border-cyan-900/40 shadow-2xl bg-transparent" frameborder="0"></iframe>
     </div>
 
     <!-- Enterprise Frame (Initially Hidden) -->
     <div id="entFrameContainer" class="w-full hidden">
-      <iframe src="blackwall_enterprise_architecture.html" class="w-full h-[1020px] rounded-2xl border border-purple-900/40 shadow-2xl bg-transparent" frameborder="0"></iframe>
+      <iframe id="entIframe" src="blackwall_enterprise_architecture.html" class="w-full h-[1080px] rounded-2xl border border-purple-900/40 shadow-2xl bg-transparent" frameborder="0"></iframe>
     </div>
   </div>
 
@@ -53,6 +58,7 @@
       const entBtn = document.getElementById('tabEntBtn');
       const coreContainer = document.getElementById('coreFrameContainer');
       const entContainer = document.getElementById('entFrameContainer');
+      const standaloneLink = document.getElementById('openStandaloneLink');
 
       if (tier === 'core') {
         coreContainer.classList.remove('hidden');
@@ -60,14 +66,39 @@
 
         coreBtn.className = "px-5 py-2 rounded-lg font-semibold transition-all flex items-center gap-2 bg-gradient-to-r from-cyan-600 to-sky-600 text-white shadow-md shadow-cyan-900/40";
         entBtn.className = "px-5 py-2 rounded-lg font-semibold transition-all flex items-center gap-2 text-slate-400 hover:text-white";
+        if (standaloneLink) {
+          standaloneLink.href = 'blackwall_core_architecture.html';
+          standaloneLink.className = "px-3 py-2 rounded-xl bg-slate-900/90 border border-slate-700/60 text-slate-400 hover:text-cyan-300 transition flex items-center gap-1.5";
+        }
+        if (window.location.hash !== '#core') {
+          history.replaceState(null, '', '#core');
+        }
       } else {
         coreContainer.classList.add('hidden');
         entContainer.classList.remove('hidden');
 
         entBtn.className = "px-5 py-2 rounded-lg font-semibold transition-all flex items-center gap-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md shadow-purple-900/40";
         coreBtn.className = "px-5 py-2 rounded-lg font-semibold transition-all flex items-center gap-2 text-slate-400 hover:text-white";
+        if (standaloneLink) {
+          standaloneLink.href = 'blackwall_enterprise_architecture.html';
+          standaloneLink.className = "px-3 py-2 rounded-xl bg-slate-900/90 border border-slate-700/60 text-slate-400 hover:text-purple-300 transition flex items-center gap-1.5";
+        }
+        if (window.location.hash !== '#enterprise') {
+          history.replaceState(null, '', '#enterprise');
+        }
       }
     }
+
+    function initFromHash() {
+      if (window.location.hash === '#enterprise') {
+        switchTier('enterprise');
+      } else if (window.location.hash === '#core') {
+        switchTier('core');
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', initFromHash);
+    window.addEventListener('hashchange', initFromHash);
   </script>
 </body>
 </html>

@@ -5,6 +5,7 @@
 [![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
 [![Rust Accelerated](https://img.shields.io/badge/rust-compiled_core-orange.svg)](crates/blackwall_core_rs/)
 [![Platform](https://img.shields.io/badge/platform-100%25_GCP_Vertex_AI-4285F4.svg)](https://cloud.google.com/vertex-ai)
+[![Architecture Suite](https://img.shields.io/badge/architecture-interactive_v3.0_suite-00ffff.svg)](assets/blackwall_architecture_suite.html)
 [![Local Test Cost](https://img.shields.io/badge/local_cost-$0.00_free-green.svg)](#-dual-tier-product-architecture)
 [![License](https://img.shields.io/badge/license-Apache--2.0-lightgrey.svg)](LICENSE)
 
@@ -15,11 +16,24 @@ Blackwall is an autonomous **Agentic Security Firewall** designed to intercept e
 
 ---
 
-## 🏗 Architecture Overview
+## 🏗 Architecture Overview: Interactive Architecture Suite
 
-The diagram below illustrates the original end-to-end interception flow across the agent tool boundary, Python runtime audit hooks, local Threat Signature Graph (TSG), and the Threat Intelligence / Vertex AI semantic triage pipeline:
+Blackwall features an interactive, visual architecture suite with real-time packet flow animations, sub-millisecond stage latency SLAs, and deep-dive inspection into every stage of execution across both operational editions.
 
-![Blackwall Guardian Agent: Experimental Interception Architecture](assets/Blackwall_mermaid_diagram_gradient_theme.png)
+Select an interactive architectural diagram below to inspect the execution pipeline:
+
+| Edition | Interactive Diagram | Architecture Scope & Primary Drivers |
+| :--- | :--- | :--- |
+| 🌐 **Unified Suite** | [**Launch Architecture Suite**](assets/blackwall_architecture_suite.html) | Dual-pane interactive visualizer with dynamic switching between Core & Enterprise Mesh |
+| 🛡️ **Blackwall Core** | [**Core Interception Architecture**](assets/blackwall_core_architecture.html) | Single-host daemon &middot; In-process ADK callbacks &middot; Python audit hooks (`sys.addaudithook`) &middot; TSG FTS5 graph &middot; Native Rust SIMD (`_core_rs`) &middot; AlienVault OTX &middot; Async Attacker Attribution |
+| ⚡ **Enterprise Mesh** | [**Enterprise Security Mesh**](assets/blackwall_enterprise_architecture.html) | Multi-host distributed mesh &middot; Linux eBPF kernel probes (`bpf_send_signal(9)`) &middot; ZeroMQ pub/sub broadcast (<15ms) &middot; Vault STS sidecar &middot; gVisor sandbox pipeline &middot; Ollama forensic triage |
+
+> [!TIP]
+> **Live Interactive Exploration**:
+> Open **[`assets/blackwall_architecture_suite.html`](assets/blackwall_architecture_suite.html)** (or [`assets/blackwall_core_architecture.html`](assets/blackwall_core_architecture.html) / [`assets/blackwall_enterprise_architecture.html`](assets/blackwall_enterprise_architecture.html)) directly in any modern browser:
+> - **Interactive Stage Inspector**: Click any stage node (e.g. *Threat Signature Graph*, *Codebase Memory*, *AlienVault OTX*, *Native Rust Substrate*, *Attacker Attribution*, or *eBPF Tracepoints*) to inspect its sub-millisecond SLA, codebase file path, and operational data structures.
+> - **Live Flow Animations**: Toggle real-time animated packet flows across safe execution paths, quarantine, and block enforcement.
+> - **Dynamic Mode Switcher**: Seamlessly switch between Core (single-host individual edition) and Enterprise (multi-host security mesh) via top tabs or URL hash (`#core`, `#enterprise`).
 
 > [!NOTE]
 > For in-depth architectural deep-dives, sequence diagrams, and mathematical models, see **[ARCHITECTURE.md](ARCHITECTURE.md)** (Core) and **[ENTERPRISE_ARCHITECTURE.md](ENTERPRISE_ARCHITECTURE.md)** (Enterprise Mesh).

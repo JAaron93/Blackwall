@@ -52,7 +52,13 @@
         In-Process ADK Callbacks &middot; Python Audit Hooks &middot; Local SQLite Threat Graph &middot; Native Rust Acceleration &middot; AlienVault OTX Threat Intel
       </p>
     </div>
-    <div class="flex items-center gap-3 font-mono text-xs">
+    <div class="flex flex-wrap items-center gap-2 font-mono text-xs">
+      <a id="suiteNavBtn" href="blackwall_architecture_suite.html#core" class="hidden px-3 py-1.5 rounded-lg border border-indigo-500/40 bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-300 flex items-center gap-1.5 transition">
+        <span>📑 Architecture Suite</span>
+      </a>
+      <a id="entSwitchBtn" href="blackwall_enterprise_architecture.html" class="hidden px-3 py-1.5 rounded-lg border border-purple-500/40 bg-purple-950/40 hover:bg-purple-900/60 text-purple-300 flex items-center gap-1.5 transition">
+        <span>⚡ Enterprise View ↗</span>
+      </a>
       <button id="toggleAnimBtn" onclick="toggleFlowAnimation()" class="px-3 py-1.5 rounded-lg border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-300 flex items-center gap-2 transition">
         <span id="animStatusDot" class="w-2 h-2 rounded-full bg-cyan-400"></span>
         <span id="animStatusText">Animation: Active</span>
@@ -470,6 +476,11 @@
       });
       document.getElementById('animStatusText').innerText = isAnimated ? "Animation: Active" : "Animation: Paused";
       document.getElementById('animStatusDot').className = isAnimated ? "w-2 h-2 rounded-full bg-cyan-400" : "w-2 h-2 rounded-full bg-slate-500";
+    }
+
+    if (window.self === window.top) {
+      document.getElementById('suiteNavBtn')?.classList.remove('hidden');
+      document.getElementById('entSwitchBtn')?.classList.remove('hidden');
     }
   </script>
 </body>
