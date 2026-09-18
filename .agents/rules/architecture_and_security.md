@@ -681,6 +681,11 @@
 * **Rule (Child Process Reaping):** All child processes spawned via `subprocess.Popen` or `asyncio.create_subprocess_exec` MUST be properly reaped using `wait()`, `communicate()`, or non-blocking polling (`poll()`) upon termination to prevent zombie process table accumulation.
 * **Rationale:** Discovered during PR #160 implementation and review. PID reuse is common on Unix systems; signaling a process without verifying its command line risks killing unrelated user or system processes. Un-reaped child processes leak zombie entries.
 
+## 104. Failed Pool Initialization Must Not Leak Worker Threads
+* **Rule (Partial-Creation Cleanup):** Connection pools that spawn background threads per connection (e.g. `aiosqlite` worker threads, which are non-daemon) MUST close partially-created connections when `initialize()` fails mid-loop, and `close()` MUST drain whenever the pool container exists — never early-return solely on an uninitialized flag. A single leaked non-daemon thread blocks `threading._shutdown` forever, hanging the entire process with zero output.
+* **Rule (Thread-Leak Regression Coverage):** Regression tests for pool initialization MUST assert zero lingering live threads after a failed init + close cycle (in addition to the happy-path cycle).
+* **Rationale:** Discovered via `test_status_command_corrupted_database_reports_inaccessible` on PR #161: the test body passed in 0.03s against a corrupt DB, but the abandoned worker thread hung pytest process exit indefinitely.
+
 
 
 
