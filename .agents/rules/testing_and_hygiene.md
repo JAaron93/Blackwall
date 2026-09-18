@@ -15,6 +15,8 @@
 ## 5. Mock Credential Hygiene for Secret Scanners
 * **Rule (Honey-Tokens and Synthetics):** When creating synthetic test inputs or honey-token strings in unit/integration tests, NEVER use strings containing cloud provider keyword patterns (e.g. `AWS_KEY`, `AKIA`, `SLACK_TOKEN`) or high-entropy literals with `secret_`/`key_`/`pass_` prefixes. Always use generic prefixes such as `BW_SYNTHETIC_MOCK_SECRET_0192` to prevent secret scanners (GitGuardian) from triggering false-positive alerts.
 * **Rule (GitHub Push Protection & Secret Scanner Safe Tokens):** In evaluation datasets, benchmark suites, and test fixtures (e.g., `gcp_eval_datasets.py`, `test_hygiene_eval_dataset.py`), NEVER use realistic secret formats (such as OpenAI `sk-proj-*`, Stripe live `sk_live_*`, Slack `xoxb-*`, or valid base64 JWTs `eyJhbGci...`). All synthetic credentials MUST use explicit dummy mock prefixes (e.g., `sk-mock-dummy-...`, `sk_test_mock_...`, `xoxb-mock-...`, `eyJ_mock_...`, `MOCKAKIA...`) to prevent GitHub Push Protection (GH013) and GitGuardian CI scans from failing remote pushes.
+* **Rule (No Sensitive-Key Module Aliases in Tests):** Test code MUST NOT alias modules or variables to sensitive-key substrings (`pwd`, `passwd`, `secret`, `token`, `api_key`) — e.g. `import pwd as _pwd` combined with `monkeypatch.setattr(_pwd, "getpwnam", ...)` trips GitGuardian generic-password detection on the alias-adjacent quoted string. Patch OS account lookups via service-level indirection instead (e.g. `monkeypatch.setattr(svc, "_system_user_exists", ...)`).
+* **Rationale (alias extension):** Discovered on PR #164 (TASK-F01): a test-only stdlib alias with zero real credentials failed the GitGuardian PR check and required a dashboard dismissal.
 
 ## 6. Absolute Imports in Test Modules
 * **Rule:** In `tests/` subdirectories (e.g. `tests/integration/`, `tests/unit/`), always use absolute imports from the repository root (e.g. `from tests.integration.helpers import ...`) rather than relative imports (`from .helpers import ...`). Relative imports in test submodules cause `ImportError` during pytest collection.
@@ -585,6 +587,10 @@
 ## 69. Delta-Based Idle CPU Sampling
 * **Rule:** Idle-CPU assertions MUST sample cputime deltas over an interval (`ps -o time=` twice, `% = Δcpu/Δwall`), never lifetime-average `ps -o %cpu=` on a young process — startup work inflates the lifetime average (observed 89% on an idle daemon) and false-fails the test.
 * **Rationale:** Discovered during Phase 3 resource profiling (TASK-D04) on PR #161.
+
+## 70. Symlink-Aware FHS Path Assertions in Service Tests
+* **Rule:** Unit tests asserting Linux FHS paths (`/etc/blackwall/`, `/run/blackwall/`, `/var/log/blackwall/`, `/var/lib/blackwall/`) in generated service definitions MUST compute expectations through the production resolver (e.g. `svc.resolve_absolute("/var/log/blackwall/blackwall.log")`) rather than hardcoding literal `/var/...` strings. Install-time resolution uses `Path.resolve()`, which maps `/var` → `/private/var` on macOS where `/var` is a symlink — literal assertions false-fail on macOS while passing on Linux.
+* **Rationale:** Discovered on PR #164 (TASK-F01) during the `Path.resolve()` compliance fix: literal `--logfile /var/log/...` assertions failed on macOS dev hosts with `/private/var` output.
 
 
 
