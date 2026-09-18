@@ -1437,9 +1437,15 @@ def service_configure_command(
     from blackwall.gateway.service import configure_system_service as _configure
 
     if not as_system:
-        if not project_id:
-            raise click.ClickException("Nothing to configure: pass --project and/or --credentials.")
-        console.print(f"[bold green]Configured user service project {project_id}[/bold green]")
+        from blackwall.gateway.service import configure_user_service as _configure_user
+
+        try:
+            env_file, _cred = _configure_user(
+                project=project_id, credentials_path=credentials_path
+            )
+        except (ValueError, OSError) as exc:
+            raise click.ClickException(str(exc)) from exc
+        console.print(f"[bold green]Configured user service: {env_file}[/bold green]")
         return
     try:
         env_file, cred_file = _configure(

@@ -188,6 +188,7 @@ def check_system_unit(svc_state: dict[str, Any]) -> None:
     assert "User=root" not in unit
     assert "RuntimeDirectory=blackwall" in unit
     assert "StateDirectory=blackwall" in unit
+    assert "EnvironmentFile=-/etc/default/blackwall" in unit
 
 
 @then("User root is strictly rejected")

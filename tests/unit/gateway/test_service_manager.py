@@ -327,3 +327,72 @@ class TestServiceCLI:
         runner = CliRunner()
         result = runner.invoke(cli, ["service", "install"])
         assert result.exit_code != 0
+
+
+class TestGreploopReviewFixes:
+    def test_fallback_command_uses_module_invocation(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(svc.shutil, "which", lambda _name: None)
+        prefix = svc.build_service_command_prefix()
+        assert prefix[0].endswith("python") or "python" in prefix[0]
+        assert "-m" in prefix and "blackwall.cli" in prefix
+
+    def test_systemd_execstart_quotes_wrap_command(self, tmp_path: Path) -> None:
+        cfg = tmp_path / "gateway.yaml"
+        cfg.write_text("upstream_servers: []\n", encoding="utf-8")
+        env = _test_env(tmp_path)
+        content = svc.generate_systemd_unit(
+            str(cfg), str(tmp_path / "a.pid"), str(tmp_path / "a.log"),
+            str(tmp_path / "a.db"), "python -m BW_SYNTHETIC_MOCK_SERVER_0192",
+            env, system=False,
+        )
+        import shlex as _shlex
+
+        exec_line = next(ln for ln in content.splitlines() if ln.startswith("ExecStart="))
+        argv = _shlex.split(exec_line[len("ExecStart="):])
+        assert "--wrap" in argv
+        assert "python -m BW_SYNTHETIC_MOCK_SERVER_0192" in argv
+
+    def test_system_unit_includes_environment_file(self, tmp_path: Path) -> None:
+        env = _test_env(tmp_path)
+        content = svc.generate_systemd_unit(
+            "/etc/blackwall/gateway.yaml", "/run/blackwall/blackwall.pid",
+            "/var/log/blackwall/blackwall.log", "/var/lib/blackwall/threat_signatures.db",
+            None, env, system=True, user="svcuser", group="svcuser",
+        )
+        assert "EnvironmentFile=-/etc/default/blackwall" in content
+
+    def test_ensure_system_user_provisions_dedicated(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import pwd as _pwd
+
+        monkeypatch.setattr(_pwd, "getpwnam", lambda _u: (_ for _ in ()).throw(KeyError(_u)))
+        from unittest.mock import patch
+
+        with patch("blackwall.gateway.service.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            svc.ensure_system_user("blackwall")
+        assert mock_run.called
+        invited = mock_run.call_args[0][0]
+        assert "useradd" in invited and "/var/lib/blackwall" in invited
+
+    def test_configure_user_service_persists_project_and_credentials(self, tmp_path: Path) -> None:
+        src = tmp_path / "src.json"
+        src.write_text('{"client_id": "BW_SYNTHETIC_MOCK_CLIENT_0192"}', encoding="utf-8")
+        env_file, cred = svc.configure_user_service(
+            project="BW_SYNTHETIC_MOCK_PROJECT_0192",
+            credentials_path=str(src),
+            home=tmp_path,
+            platform_override="linux",
+        )
+        assert env_file is not None and env_file.exists()
+        assert "BW_SYNTHETIC_MOCK_PROJECT_0192" in env_file.read_text(encoding="utf-8")
+        assert cred is not None and cred.exists()
+        assert stat.S_IMODE(cred.stat().st_mode) == 0o600
+
+    def test_configure_user_service_accepts_credentials_only(self, tmp_path: Path) -> None:
+        src = tmp_path / "src.json"
+        src.write_text('{"client_id": "BW_SYNTHETIC_MOCK_CLIENT_0192"}', encoding="utf-8")
+        env_file, cred = svc.configure_user_service(
+            project=None, credentials_path=str(src),
+            home=tmp_path, platform_override="linux",
+        )
+        assert env_file.exists() and cred is not None and cred.exists()

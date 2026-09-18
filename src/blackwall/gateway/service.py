@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import os
 import pwd
+import shlex
 import shutil
 import subprocess
 import sys
@@ -140,11 +141,28 @@ def derive_system_user(explicit_user: str | None = None) -> tuple[str, str]:
 
 
 def get_blackwall_executable() -> str:
-    """Return absolute path to the blackwall executable for ExecStart."""
+    """Return absolute path to the blackwall executable for ExecStart.
+
+    Callers MUST NOT append ``serve`` directly to ``sys.executable``: when
+    ``blackwall`` is absent from ``PATH`` the runnable entrypoint is
+    ``python -m blackwall.cli``. Use :func:`build_service_command` instead.
+    """
     found = shutil.which("blackwall")
     if found:
         return str(resolve_absolute(found))
     return str(resolve_absolute(sys.executable))
+
+
+def build_service_command_prefix() -> list[str]:
+    """Return executable prefix that can run ``serve --foreground``.
+
+    Either ``[blackwall]`` or ``[python, -m, blackwall.cli]`` fallback so the
+    generated ``ExecStart``/``ProgramArguments`` always start a real gateway.
+    """
+    found = shutil.which("blackwall")
+    if found:
+        return [str(resolve_absolute(found))]
+    return [str(resolve_absolute(sys.executable)), "-m", "blackwall.cli"]
 
 
 def build_exec_args(
@@ -193,11 +211,11 @@ def generate_launchd_plist(
     pid = str(resolve_absolute(pidfile_path))
     log = str(resolve_absolute(logfile_path))
     db = str(resolve_absolute(db_path))
-    exe = get_blackwall_executable()
-    for value in (cfg, pid, log, db, exe):
+    prefix = build_service_command_prefix()
+    for value in (cfg, pid, log, db, *prefix):
         assert_no_tilde(value)
     args = build_exec_args(cfg, pid, log, db, wrap_cmd, port)
-    program_args = [exe] + args
+    program_args = prefix + args
     program_xml = "\n".join(f"        <string>{_escape_xml(a)}</string>" for a in program_args)
     env_entries = []
     for key in ("GCP_PROJECT", "GOOGLE_CLOUD_PROJECT", "GOOGLE_APPLICATION_CREDENTIALS", "GEMINI_TIER", "PATH"):
@@ -257,8 +275,8 @@ def generate_systemd_unit(
     pid = str(resolve_absolute(pidfile_path))
     log = str(resolve_absolute(logfile_path))
     db = str(resolve_absolute(db_path))
-    exe = get_blackwall_executable()
-    for value in (cfg, pid, log, db, exe):
+    prefix = build_service_command_prefix()
+    for value in (cfg, pid, log, db, *prefix):
         assert_no_tilde(value)
     if system:
         if not user or not group:
@@ -266,13 +284,14 @@ def generate_systemd_unit(
         if user == "root" or group == "root":
             raise ValueError("Running systemd units as root (User=root) is strictly disallowed.")
     args = build_exec_args(cfg, pid, log, db, wrap_cmd, port)
-    exec_start = " ".join([exe] + args)
+    exec_start = shlex.join(prefix + args)
     env_lines = []
     for key in ("GCP_PROJECT", "GOOGLE_CLOUD_PROJECT", "GOOGLE_APPLICATION_CREDENTIALS", "GEMINI_TIER", "PATH"):
         if key in env and env[key]:
             env_lines.append(f'Environment="{key}={env[key]}"')
     env_lines.append(f'Environment="BLACKWALL_DB_PATH={db}"')
     env_block = "\n".join(env_lines)
+    env_file_block = "EnvironmentFile=-/etc/default/blackwall\n" if system else ""
     identity_block = f"User={user}\nGroup={group}\n" if system else ""
     dirs_block = (
         "RuntimeDirectory=blackwall\nStateDirectory=blackwall\nLogsDirectory=blackwall\n"
@@ -293,7 +312,7 @@ Restart=on-failure
 RestartSec=5s
 MemoryHigh=320M
 MemoryMax=350M
-{identity_block}{dirs_block}{env_block}
+{identity_block}{dirs_block}{env_file_block}{env_block}
 
 [Install]
 WantedBy={"multi-user.target" if system else "default.target"}
@@ -343,6 +362,86 @@ def collect_service_env(project: str, adc_path: Path | None) -> dict[str, str]:
     return env
 
 
+def ensure_system_user(svc_user: str) -> None:
+    """Verify or provision the systemd execution identity.
+
+    For the dedicated ``blackwall`` account, attempts provisioning via
+    ``useradd --system --home-dir /var/lib/blackwall --create-home`` when
+    absent. Explicit ``--user``/``SUDO_USER`` identities must already exist.
+    Provisioning failures are logged (non-root dev/CI) rather than fatal so
+    unit generation remains testable without privileges.
+    """
+    try:
+        pwd.getpwnam(svc_user)
+        return
+    except KeyError:
+        pass
+    if svc_user != DEDICATED_USER:
+        raise ValueError(f"Service user '{svc_user}' does not exist on this host.")
+    try:
+        result = subprocess.run(
+            [
+                "useradd", "--system",
+                "--home-dir", str(DEDICATED_HOME),
+                "--create-home", DEDICATED_USER,
+            ],
+            check=False,
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "Dedicated service user '%s' absent and provisioning exited %s; "
+                "create it with: useradd --system --home-dir %s --create-home %s",
+                svc_user, result.returncode, DEDICATED_HOME, DEDICATED_USER,
+            )
+    except OSError as exc:
+        logger.warning("Could not provision service user '%s': %s", svc_user, exc)
+
+
+def _provision_system_credentials(
+    src: Path | None, etc_root: Path | None = None
+) -> Path | None:
+    """Best-effort copy of ADC to ``/etc/blackwall/credentials.json`` (0600).
+
+    Returns the provisioned path when it exists, else ``None``. ``etc_root``
+    overrides the filesystem root for testing.
+    """
+    root = etc_root if etc_root is not None else Path("/")
+    if etc_root is not None:
+        target = root / "etc" / "blackwall" / "credentials.json"
+    else:
+        target = SYSTEM_CREDENTIALS_PATH
+    if target.is_file():
+        return target
+    if src is None or not src.is_file():
+        return target if target.is_file() else None
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        data = src.read_bytes()
+        fd = os.open(str(target), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(data)
+        except BaseException:
+            try:
+                target.unlink()
+            except OSError:
+                pass
+            raise
+        try:
+            target.chmod(0o600)
+        except OSError:
+            pass
+        try:
+            shutil.chown(str(target), user=DEDICATED_USER, group=DEDICATED_USER)
+        except (LookupError, PermissionError, OSError):
+            logger.debug("Skipping chown to %s (not available).", DEDICATED_USER)
+        return target
+    except OSError as exc:
+        logger.warning("Could not provision system credentials at '%s': %s", target, exc)
+        return target if target.is_file() else None
+
+
 def install_service(
     config_path: str | None = None,
     wrap_cmd: str | None = None,
@@ -354,6 +453,7 @@ def install_service(
     platform_override: str | None = None,
     home: Path | None = None,
     output_path: Path | None = None,
+    etc_root: Path | None = None,
 ) -> Path:
     """Install the platform service definition and return its path.
 
@@ -368,6 +468,7 @@ def install_service(
 
     if system:
         svc_user, svc_group = derive_system_user(user)
+        ensure_system_user(svc_user)
         service_home = get_service_home(None, svc_user)
         adc = resolve_adc_path(credentials, service_home)
         if adc is None:
@@ -376,11 +477,13 @@ def install_service(
                 f"ensure {service_home}/.config/gcloud/application_default_credentials.json "
                 "exists, or pass --credentials <path>."
             )
+        provisioned = _provision_system_credentials(adc, etc_root)
+        effective_adc = provisioned if provisioned is not None and provisioned.is_file() else adc
         cfg = FHS_CONFIG
         pid = FHS_PID
         log = FHS_LOG
         db = FHS_DB
-        env = collect_service_env(resolved_project, adc)
+        env = collect_service_env(resolved_project, effective_adc)
         content = generate_systemd_unit(
             str(cfg), str(pid), str(log), str(db), wrap_cmd, env,
             system=True, user=svc_user, group=svc_group, port=port,
@@ -584,3 +687,145 @@ def configure_system_service(
         except (LookupError, PermissionError, OSError):
             logger.debug("Skipping chown to %s (not available in this environment).", DEDICATED_USER)
     return env_file, cred_file
+
+
+def configure_user_service(
+    project: str | None = None,
+    credentials_path: str | None = None,
+    home: Path | None = None,
+    platform_override: str | None = None,
+) -> tuple[Path | None, Path | None]:
+    """Persist user-service environment settings and patch installed units.
+
+    Writes ``~/.blackwall/service.env``, provisions
+    ``~/.blackwall/credentials.json`` (0600) when ``credentials_path`` is
+    given, and patches ``GCP_PROJECT``/``GOOGLE_APPLICATION_CREDENTIALS`` in
+    the installed plist/unit when present. Accepts project-only,
+    credentials-only, or both.
+    """
+    if not project and not credentials_path:
+        raise ValueError("Nothing to configure: pass --project and/or --credentials.")
+    active_home = home if home is not None else Path.home()
+    blackwall_dir = active_home / ".blackwall"
+    blackwall_dir.mkdir(parents=True, exist_ok=True)
+    env_file = blackwall_dir / "service.env"
+    cred_dest: Path | None = None
+
+    if credentials_path:
+        src = resolve_absolute(credentials_path)
+        if not src.is_file():
+            raise ValueError(f"Credentials file not found: {src}")
+        cred_dest = blackwall_dir / "credentials.json"
+        data = src.read_bytes()
+        tmp = cred_dest.with_suffix(".tmp")
+        fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(data)
+        except BaseException:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+            raise
+        tmp.replace(cred_dest)
+        try:
+            cred_dest.chmod(0o600)
+        except OSError:
+            pass
+
+    lines: list[str] = []
+    if env_file.exists():
+        try:
+            lines = env_file.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            lines = []
+    if project:
+        cleaned = project.strip()
+        if not cleaned:
+            raise ValueError("Project ID cannot be empty.")
+        lines = [
+            ln for ln in lines
+            if not ln.startswith("GCP_PROJECT=") and not ln.startswith("GOOGLE_CLOUD_PROJECT=")
+        ]
+        lines.append(f"GCP_PROJECT={cleaned}")
+        lines.append(f"GOOGLE_CLOUD_PROJECT={cleaned}")
+        lines.append('GEMINI_TIER="paid"')
+    if cred_dest is not None:
+        lines = [ln for ln in lines if not ln.startswith("GOOGLE_APPLICATION_CREDENTIALS=")]
+        lines.append(f"GOOGLE_APPLICATION_CREDENTIALS={cred_dest}")
+    env_file.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+
+    platform_name = detect_platform(platform_override)
+    try:
+        if platform_name == "darwin":
+            plist = get_user_plist_path(active_home)
+            if plist.is_file():
+                _patch_plist_env(plist, project, cred_dest)
+        else:
+            unit = get_user_systemd_path(active_home)
+            if unit.is_file():
+                _patch_systemd_env(unit, project, cred_dest)
+    except OSError as exc:
+        logger.warning("Could not patch installed user service: %s", exc)
+    return env_file, cred_dest
+
+
+def _patch_plist_env(plist: Path, project: str | None, cred_dest: Path | None) -> None:
+    """Update ``EnvironmentVariables`` entries in an installed plist."""
+    import xml.etree.ElementTree as ET
+
+    tree = ET.parse(str(plist))
+    root = tree.getroot()
+    main_dict = root.find("dict")
+    if main_dict is None:
+        return
+    children = list(main_dict)
+    env_dict = None
+    for idx in range(0, len(children) - 1, 2):
+        if children[idx].tag == "key" and children[idx].text == "EnvironmentVariables":
+            if children[idx + 1].tag == "dict":
+                env_dict = children[idx + 1]
+    if env_dict is None:
+        return
+    entries = dict(zip(
+        [e.text for e in env_dict.findall("key")],
+        env_dict.findall("string"),
+    ))
+    updates: dict[str, str] = {}
+    if project:
+        updates["GCP_PROJECT"] = project.strip()
+        updates["GOOGLE_CLOUD_PROJECT"] = project.strip()
+        updates["GEMINI_TIER"] = "paid"
+    if cred_dest is not None:
+        updates["GOOGLE_APPLICATION_CREDENTIALS"] = str(cred_dest)
+    for key, value in updates.items():
+        if key in entries:
+            entries[key].text = value
+        else:
+            key_el = ET.SubElement(env_dict, "key")
+            key_el.text = key
+            str_el = ET.SubElement(env_dict, "string")
+            str_el.text = value
+    tree.write(str(plist), encoding="utf-8", xml_declaration=True)
+
+
+def _patch_systemd_env(unit: Path, project: str | None, cred_dest: Path | None) -> None:
+    """Update ``Environment=`` directives in an installed user unit."""
+    import re
+
+    text = unit.read_text(encoding="utf-8")
+    updates: dict[str, str] = {}
+    if project:
+        updates["GCP_PROJECT"] = project.strip()
+        updates["GOOGLE_CLOUD_PROJECT"] = project.strip()
+    if cred_dest is not None:
+        updates["GOOGLE_APPLICATION_CREDENTIALS"] = str(cred_dest)
+    for key, value in updates.items():
+        pattern = re.compile(rf'^Environment="{re.escape(key)}=.*"$', re.MULTILINE)
+        replacement = f'Environment="{key}={value}"'
+        if pattern.search(text):
+            text = pattern.sub(replacement, text)
+        else:
+            text = text.replace("[Service]", f"[Service]\n{replacement}", 1)
+    unit.write_text(text, encoding="utf-8")
