@@ -136,16 +136,21 @@ def _launch_harness(args: list[str]) -> subprocess.Popen[str]:
 
 def _readline_timeout(proc: subprocess.Popen[str], timeout: float = 15.0) -> str:
     assert proc.stdout is not None
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(proc.stdout.readline)
+    pool = ThreadPoolExecutor(max_workers=1)
+    future = pool.submit(proc.stdout.readline)
+    try:
         line = future.result(timeout=timeout)
-    if not line:
-        stderr_tail = ""
+    except BaseException:
+        # Never block teardown on a worker stuck in readline(): drop the pool
+        # without waiting so the caller can still killpg the process group.
         try:
-            _, stderr_tail = proc.communicate(timeout=1)
-        except Exception:
-            pass
-        raise AssertionError(f"No response line from gateway subprocess. stderr={stderr_tail!r}")
+            future.cancel()
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    pool.shutdown(wait=True, cancel_futures=True)
+    if not line:
+        raise AssertionError("No response line from gateway subprocess.")
     return line
 
 

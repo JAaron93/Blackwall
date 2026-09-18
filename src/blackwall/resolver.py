@@ -20,10 +20,6 @@ from blackwall.models import (
     ResolverMetrics,
 )
 from blackwall.exceptions import APIRateLimitException
-from blackwall.config import (
-    DEFAULT_RAPID_TRIAGE_MODEL,
-    get_gemini_thinking_level,
-)
 from blackwall.validators import normalize_text
 
 logger = logging.getLogger(__name__)
@@ -636,6 +632,10 @@ class BatchResolver:
 
         # Call Gemini Interactions API
         try:
+            # Lazy import: keeps gateway import-time off the google-genai
+            # chain so daemon cold start stays within the <2s budget.
+            from blackwall.config import DEFAULT_RAPID_TRIAGE_MODEL, get_gemini_thinking_level
+
             # Call Gemini Interactions API
             thinking_lvl = get_gemini_thinking_level(
                 model=DEFAULT_RAPID_TRIAGE_MODEL, task_type="rapid_triage"

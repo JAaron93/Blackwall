@@ -7,11 +7,11 @@ Verifies Blackwall Core gateway budgets on the 2019 Intel MacBook Pro baseline:
 - Startup time < 2s.
 
 Methodology:
-- RSS is measured on an isolated harness subprocess (``tests/gateway_harness.py``)
-  via ``ps -o rss=`` so pytest framework overhead is excluded (Rule 1 warmup applied).
-- Targets are documented; minor overages are flagged via explicit print
-  (``BUDGET VIOLATION``) while hard ceilings (2x target) fail to prevent CI churn
-  on small platform variance. See TASK-D04 AC6.
+- RSS and %CPU are measured on an isolated harness subprocess
+  (``tests/gateway_harness.py``) via portable ``ps`` so pytest framework
+  overhead is excluded (Rule 1 warmup applied).
+- Cold startup is measured in a fresh interpreter (imports + server init).
+- All budgets are strictly enforced; violations fail explicitly (TASK-D04 AC6).
 """
 
 from __future__ import annotations
@@ -45,6 +45,35 @@ def _harness_rss_mb(pid: int) -> float:
     out = subprocess.check_output(["ps", "-o", "rss=", "-p", str(pid)], text=True)
     kb = float(out.strip().split()[0])
     return kb / 1024.0
+
+
+def _harness_cpu_pct(pid: int) -> float:
+    raise AssertionError("Use _harness_idle_cpu_pct for interval-based sampling.")
+
+
+def _cputime_seconds(pid: int) -> float:
+    """Returns cumulative CPU time in seconds for a pid via portable ``ps``."""
+    out = subprocess.check_output(["ps", "-o", "time=", "-p", str(pid)], text=True).strip()
+    # Format: [[dd-]hh:]mm:ss (macOS/Linux portable subset)
+    days = 0
+    if "-" in out:
+        day_part, out = out.split("-", 1)
+        days = int(day_part.strip())
+    parts = out.strip().split(":")
+    seconds = float(parts[-1]) if len(parts) >= 1 else 0.0
+    minutes = int(parts[-2]) if len(parts) >= 2 else 0
+    hours = int(parts[-3]) if len(parts) >= 3 else 0
+    return days * 86400 + hours * 3600 + minutes * 60 + seconds
+
+
+def _harness_idle_cpu_pct(pid: int, interval: float = 2.0) -> float:
+    """Samples %CPU over an idle interval (delta cputime / wall)."""
+    c0 = _cputime_seconds(pid)
+    t0 = time.monotonic()
+    time.sleep(interval)
+    c1 = _cputime_seconds(pid)
+    wall = time.monotonic() - t0
+    return ((c1 - c0) / wall * 100.0) if wall > 0 else 0.0
 
 
 def _launch_stdio_harness(db_path: Path) -> subprocess.Popen[str]:
@@ -107,13 +136,21 @@ class TestGatewayResourceProfile:
     """TASK-D04: Intel MacBook baseline resource budgets."""
 
     def test_gateway_startup_time_under_2s(self) -> None:
-        from tests.step_defs.async_utils import run_async  # noqa: F401  # keeps helper linkage
-
+        # Cold start measured in a fresh interpreter (imports + server init),
+        # not in-process after imports have completed.
+        cmd = [
+            sys.executable,
+            "-c",
+            "from blackwall.gateway.server import MCPGatewayServer; "
+            "s = MCPGatewayServer(); s.create_app(); print('READY')",
+        ]
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(REPO_ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
         t0 = time.perf_counter()
-        server = MCPGatewayServer(resolver=_fast_resolver(), downstream_handler=_fast_downstream)
-        server.create_app()
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=env)
         elapsed = time.perf_counter() - t0
-        print(f"\n[D04] gateway startup: {elapsed:.3f}s (budget <{STARTUP_TARGET_S:.1f}s)")
+        print(f"\n[D04] gateway cold startup: {elapsed:.3f}s (budget <{STARTUP_TARGET_S:.1f}s)")
+        assert proc.returncode == 0, f"Cold-start probe failed: {proc.stderr[-500:]}"
         assert elapsed < STARTUP_TARGET_S, f"Startup budget violated: {elapsed:.3f}s >= {STARTUP_TARGET_S}s"
 
     def test_gateway_idle_and_active_ram_budgets(self, tmp_path: Path) -> None:
@@ -123,10 +160,14 @@ class TestGatewayResourceProfile:
             time.sleep(2.0)  # allow interpreter + imports to settle
             assert proc.poll() is None, "Harness exited prematurely"
             idle_mb = _harness_rss_mb(proc.pid)
-            print(f"\n[D04] idle RSS (isolated daemon): {idle_mb:.1f}MB (target <={IDLE_TARGET_MB:.0f}MB)")
-            if idle_mb > IDLE_TARGET_MB:
-                print(f"[D04] BUDGET VIOLATION: idle {idle_mb:.1f}MB exceeds {IDLE_TARGET_MB:.0f}MB target (flagged per AC6)")
-            assert idle_mb <= IDLE_TARGET_MB * 2, f"Idle RAM hard ceiling violated: {idle_mb:.1f}MB"
+            print(f"\n[D04] idle RSS (isolated daemon): {idle_mb:.1f}MB (budget <={IDLE_TARGET_MB:.0f}MB)")
+            assert idle_mb <= IDLE_TARGET_MB, f"Idle RAM budget violated: {idle_mb:.1f}MB > {IDLE_TARGET_MB:.0f}MB"
+
+            # Idle CPU sampled on the live daemon while it sleeps on stdio
+            # (delta cputime over a 2s idle window; event loop sleeping ~0%).
+            cpu_pct = _harness_idle_cpu_pct(proc.pid, interval=2.0)
+            print(f"[D04] idle CPU (sampled daemon): {cpu_pct:.2f}% (budget ~0%)")
+            assert cpu_pct < 2.0, f"Idle CPU budget violated: {cpu_pct:.2f}% >= 2%"
 
             # Drive active evaluation through the stdio pipe (warmup + measured).
             assert proc.stdin is not None and proc.stdout is not None
