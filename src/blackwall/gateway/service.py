@@ -812,9 +812,11 @@ def _reload_user_service(platform_name: str, definition: Path) -> None:
             )
             if reload.returncode != 0:
                 raise RuntimeError("systemctl --user daemon-reload failed.")
-            subprocess.run(
+            restart = subprocess.run(
                 ["systemctl", "--user", "try-restart", "blackwall"], check=False
             )
+            if restart.returncode != 0:
+                raise RuntimeError("systemctl --user try-restart blackwall failed.")
     except OSError as exc:
         raise RuntimeError(f"Failed reloading user service: {exc}") from exc
 

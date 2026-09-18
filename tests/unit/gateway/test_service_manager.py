@@ -443,3 +443,29 @@ class TestGreploopReviewFixes:
             )
         assert mock_run.called
         assert "BW_SYNTHETIC_MOCK_PROJECT_0192" in unit.read_text(encoding="utf-8")
+
+    def test_configure_user_service_surfaces_restart_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest.mock import MagicMock, patch
+
+        unit = tmp_path / ".config" / "systemd" / "user" / "blackwall.service"
+        unit.parent.mkdir(parents=True)
+        unit.write_text(
+            "[Unit]\nDescription=x\n\n[Service]\nType=exec\n\n[Install]\nWantedBy=default.target\n",
+            encoding="utf-8",
+        )
+        ok = MagicMock()
+        ok.returncode = 0
+        failed = MagicMock()
+        failed.returncode = 1
+        with patch(
+            "blackwall.gateway.service.subprocess.run", side_effect=[ok, failed]
+        ):
+            with pytest.raises(RuntimeError):
+                svc.configure_user_service(
+                    project="BW_SYNTHETIC_MOCK_PROJECT_0192",
+                    credentials_path=None,
+                    home=tmp_path,
+                    platform_override="linux",
+                )
