@@ -5,6 +5,7 @@
 [![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
 [![Rust Accelerated](https://img.shields.io/badge/rust-compiled_core-orange.svg)](crates/blackwall_core_rs/)
 [![Platform](https://img.shields.io/badge/platform-100%25_GCP_Vertex_AI-4285F4.svg)](https://cloud.google.com/vertex-ai)
+[![Architecture Overview](https://img.shields.io/badge/architecture-v3.0_vector_suite-00ffff.svg)](#-architecture-overview)
 [![Local Test Cost](https://img.shields.io/badge/local_cost-$0.00_free-green.svg)](#-dual-tier-product-architecture)
 [![License](https://img.shields.io/badge/license-Apache--2.0-lightgrey.svg)](LICENSE)
 
@@ -17,11 +18,31 @@ Blackwall is an autonomous **Agentic Security Firewall** designed to intercept e
 
 ## 🏗 Architecture Overview
 
-The diagram below illustrates the original end-to-end interception flow across the agent tool boundary, Python runtime audit hooks, local Threat Signature Graph (TSG), and the Threat Intelligence / Vertex AI semantic triage pipeline:
+The diagrams below illustrate the end-to-end interception flow across the agent tool boundary, Python runtime audit hooks, local Threat Signature Graph (TSG), and the Threat Intelligence / Vertex AI semantic triage pipeline:
 
-![Blackwall Guardian Agent: Experimental Interception Architecture](assets/Blackwall_mermaid_diagram_gradient_theme.png)
+### 🛡️ Blackwall Core Architecture (Single-Host Developer Edition)
+
+[![Blackwall Core: Zero-Trust Interception Architecture](assets/blackwall_core_architecture.svg)](assets/blackwall_core_architecture.svg)
+
+> [!TIP]
+> **Core Architecture Scope**: Single-host daemon &middot; In-process ADK callbacks (`before_tool_callback`) &middot; Python audit hooks (`sys.addaudithook`) &middot; SQLite Threat Signature Graph (TSG) in WAL mode (<1.0ms) &middot; Native Rust SIMD acceleration (`blackwall._core_rs`) &middot; AlienVault OTX Threat Intel Engine (conditional high-risk branch) &middot; Asynchronous background Attacker Attribution.
+
+### ⚡ Blackwall Enterprise Security Mesh (Multi-Host Enterprise Edition)
+
+[![Blackwall Enterprise Security Mesh Architecture](assets/blackwall_enterprise_architecture.svg)](assets/blackwall_enterprise_architecture.svg)
+
+> [!TIP]
+> **Enterprise Architecture Scope**: Multi-host distributed threat mesh &middot; Linux eBPF kernel probes (`bpf_send_signal(9)`) &middot; ZeroMQ pub/sub broadcast (<15ms SLA) &middot; HashiCorp Vault STS Ephemeral Identity Sidecar (`BW_SYNTHETIC_*`) &middot; gVisor microVM sandbox pipeline guards (`guard_pipeline`) &middot; Dual-mode local Ollama forensic triage engine.
 
 > [!NOTE]
+> **Interactive Architecture Suite (Local Browser Execution)**:
+> The repository includes a standalone interactive visual suite ([`assets/blackwall_architecture_suite.html`](assets/blackwall_architecture_suite.html)) featuring live animated packet flows, sub-millisecond stage latency SLAs, and component-level code inspection:
+> ```bash
+> # Clone repository and open the interactive suite in your local browser:
+> open assets/blackwall_architecture_suite.html
+> ```
+> *(Note: GitHub blob pages display HTML files as raw source code. To experience the interactive animations, node detail drawer, and dynamic tier switcher, clone the repository and open the HTML files locally in any modern browser).*
+>
 > For in-depth architectural deep-dives, sequence diagrams, and mathematical models, see **[ARCHITECTURE.md](ARCHITECTURE.md)** (Core) and **[ENTERPRISE_ARCHITECTURE.md](ENTERPRISE_ARCHITECTURE.md)** (Enterprise Mesh).
 
 ---
