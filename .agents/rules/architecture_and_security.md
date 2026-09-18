@@ -663,5 +663,24 @@
 * **Rule (Context-Preserving Recursive List Traversal):** Payload interceptors sanitizing sensitive arguments (`ContextHygiene`) MUST preserve parameter key names (`key_name`) across recursive list traversals (e.g. `{"tokens": ["secret1", "secret2"]}`) so nested list values are properly matched and masked against sensitive keyword lists.
 * **Rationale:** Discovered during Phase 1 implementation and review on PR #159. Naive host splitting broke IPv6 loopback clients, while un-scoped list recursion left credential strings exposed in nested argument lists.
 
+## 100. Interception Resolver Sequence Invariant: Structural Policy Non-Short-Circuiting
+* **Rule:** In `SyncResolver.evaluate()`, structural policy evaluations (`policy_server.structural_engine.evaluate()`) MUST NOT early-return on `StructuralAction.BLOCK` or `StructuralAction.ALLOW`. Structural policy evaluations MUST record the decision (`structural_blocked = True`, `structural_rule_id = ...`) and allow the pipeline to proceed sequentially through CBM (Codebase Memory), Threat Intelligence validation, and Semantic Triage. The structural block verdict (`VerdictDecision.BLOCK`, `score = 1.0`) MUST be enforced at the Score Aggregation and Threshold Verdict stages (Steps 5 and 5b).
+* **Rationale:** The base architectural constitution (`AGENTS.md` Section 3) mandates the sequential execution flow: `Rate Check` -> `ContextHygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Threat Intelligence Validation` -> `Optional Semantic Triage` -> `Score Aggregation` -> `Threshold Verdict` -> `Optional Inline Signature Generation`. Early returning on structural policy blocks short-circuits the pipeline before CBM and Threat Intel can enrich the threat context or generate comprehensive attribution telemetry.
+
+## 101. Gateway Client Metadata Security Isolation & Trusted Role Enforcement
+* **Rule:** Gateway payload interceptors (`PayloadInterceptor`) MUST NOT blindly merge or elevate untrusted client-supplied metadata (`params._meta`) into root context metadata (`ToolCallContext.metadata`). Security-sensitive context properties—including `environment_role`, `is_evaluation`, `is_evaluation_mode`, `agent_id`, and `session_id`—MUST strictly originate from trusted gateway configuration or validated authentication credentials. Untrusted client `_meta` MUST be namespaced under `context.metadata["client_meta"]` and restricted to an explicit allow-list of non-security protocol properties (`client_name`, `client_version`, `progress_token`, `traceparent`, `tracestate`).
+* **Rationale:** Confirmed during Greptile P1 review on PR #160. Allowing client `_meta` to control root metadata permits attackers to spoof `environment_role: "sandbox"`, evading production-only blocking rules, or forge session and agent identities to evade attribution profiling.
+
+## 102. Fail-Closed Security Policy Loading Invariant
+* **Rule:** During security gateway startup (`_run_gateway`), if any security policy configuration file (whether explicitly supplied via `--policy` or automatically discovered via default search paths such as `~/.blackwall/policy.yaml`) exists on disk but fails to parse or load, startup MUST fail closed and immediately raise `RuntimeError`. Daemons MUST NEVER log a warning and fall back to un-gated execution (`policy_server=None`).
+* **Rationale:** Confirmed during Greptile P1 review on PR #160. Falling back to un-gated execution when a discovered policy is malformed allows dangerous tool calls to bypass structural policy rules silently.
+
+## 103. Child Process Reaping, Positive PID Enforcement, & Safe Process Identity Verification
+* **Rule (Positive PID Validation):** Daemon and process management utilities (`daemon.py`, `upstream.py`) MUST validate that target PIDs are strictly positive integers (`pid > 0`) before sending signals (`os.kill`), preventing accidental signaling of process groups (PID 0) or all system processes (PID -1).
+* **Rule (Process Identity Verification):** Utilities MUST verify process identity (`is_blackwall_process`) by inspecting process cmdline before issuing termination signals (`SIGTERM` / `SIGKILL`), ensuring the PID has not been recycled by the operating system for an unrelated process.
+* **Rule (Child Process Reaping):** All child processes spawned via `subprocess.Popen` or `asyncio.create_subprocess_exec` MUST be properly reaped using `wait()`, `communicate()`, or non-blocking polling (`poll()`) upon termination to prevent zombie process table accumulation.
+* **Rationale:** Discovered during PR #160 implementation and review. PID reuse is common on Unix systems; signaling a process without verifying its command line risks killing unrelated user or system processes. Un-reaped child processes leak zombie entries.
+
+
 
 

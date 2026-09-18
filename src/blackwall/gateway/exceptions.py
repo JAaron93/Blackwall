@@ -43,3 +43,19 @@ class DuplicateRequestIdError(GatewayError):
 
 class InvalidVerdictError(GatewayError, ValueError):
     """Raised when ResponseSynthesizer receives an invalid verdict (such as ALLOW)."""
+
+
+class UpstreamServerNotFoundError(GatewayError):
+    """Raised when a requested tool cannot be mapped to any upstream server."""
+
+
+class UpstreamProcessError(GatewayError):
+    """Raised when an upstream process fails, crashes, or cannot be reached."""
+
+
+class UpstreamTimeoutError(GatewayError):
+    """Raised when an upstream server request times out."""
+
+
+class InvalidGatewayConfigError(GatewayError):
+    """Raised when gateway.yaml configuration is invalid, malformed, or missing required keys."""

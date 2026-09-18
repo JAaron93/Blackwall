@@ -38,7 +38,7 @@
     },
     {
       "id": "async-resolver-interception-order",
-      "rule": "Async Interception Pipeline Resolver Order: Verify SyncResolver execution flow strictly maintains: Rate Check -> ContextHygiene Sanitization -> Threat Signature Graph (TSG) Check -> Codebase Memory MCP AST Query -> Threat Intelligence Validation (AlienVault OTX / Multi-Provider Orchestrator) -> Optional Semantic Triage (Gemini 3.5 Flash-Lite) -> Score Aggregation -> Threshold Verdict.",
+      "rule": "Async Interception Pipeline Resolver Order: Verify SyncResolver execution flow strictly maintains: Rate Check -> ContextHygiene Sanitization -> Threat Signature Graph (TSG) Check -> Codebase Memory MCP AST Query -> Threat Intelligence Validation (AlienVault OTX / Multi-Provider Orchestrator) -> Optional Semantic Triage (Gemini 3.5 Flash-Lite) -> Score Aggregation -> Threshold Verdict. Structural policy checks MUST NOT early-return or short-circuit stages prior to Score Aggregation.",
       "severity": "high"
     },
     {
@@ -83,7 +83,7 @@
     },
     {
       "id": "mcp-gateway-architecture",
-      "rule": "MCP Gateway Architecture Invariants: Verify gateway components under src/blackwall/gateway/ (Architectural Specification per .kiro/specs/blackwall-mcp-gateway/ - apply when implemented) enforce: (1) HTTP transport binds to 127.0.0.1 by default with Origin/Host header validation, (2) JSON-RPC request id tracking for concurrent call isolation, (3) BLOCK verdicts synthesize error code -32603 with bounded generic messages (no internal threat reasoning leaked), (4) ALLOW verdicts forward original payloads unchanged to downstream tool servers, (5) daemon mode writes PID to ~/.blackwall/blackwall.pid with graceful SIGTERM shutdown.",
+      "rule": "MCP Gateway Architecture Invariants: Verify gateway components under src/blackwall/gateway/ (Architectural Specification per .kiro/specs/blackwall-mcp-gateway/ - apply when implemented) enforce: (1) HTTP transport binds to 127.0.0.1 by default with Origin/Host header validation, (2) JSON-RPC request id tracking for concurrent call isolation, (3) BLOCK verdicts synthesize error code -32603 with bounded generic messages (no internal threat reasoning leaked), (4) ALLOW verdicts forward original payloads unchanged to downstream tool servers, (5) daemon mode writes PID to ~/.blackwall/blackwall.pid with graceful SIGTERM shutdown, (6) client _meta cannot spoof environment_role or security properties, and (7) policy configuration loading fails closed without un-gated fallback.",
       "severity": "high"
     },
     {

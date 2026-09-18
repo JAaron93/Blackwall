@@ -9,6 +9,7 @@ Enforces transport security (Origin/Host validation, loopback default, bearer au
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -24,7 +25,6 @@ from blackwall.gateway.exceptions import (
     GatewayAuthError,
     MalformedPayloadError,
     QueueOverflowError,
-    RequestTimeoutError,
 )
 from blackwall.gateway.flow import FlowController
 from blackwall.gateway.interceptor import PayloadInterceptor
@@ -72,10 +72,12 @@ class MCPGatewayServer:
         timeout_seconds: float = 30.0,
         allowed_origins: list[str] | None = None,
         allowed_hosts: list[str] | None = None,
+        environment_role: str = "production",
     ) -> None:
         self.host = host
         self.port = port
         self.is_loopback = self._is_loopback_host(host)
+        self.environment_role = environment_role
 
         # Authentication boundary & startup guard
         resolved_token = auth_token or os.getenv("BLACKWALL_AUTH_TOKEN")
@@ -87,7 +89,7 @@ class MCPGatewayServer:
         self.auth_token = resolved_token
 
         self.flow_controller = flow_controller or FlowController()
-        self.interceptor = interceptor or PayloadInterceptor()
+        self.interceptor = interceptor or PayloadInterceptor(environment_role=environment_role)
         self.synthesizer = synthesizer or ResponseSynthesizer()
         self.resolver = resolver
         self.downstream_handler = downstream_handler
@@ -350,7 +352,9 @@ class MCPGatewayServer:
         if self.downstream_handler is not None:
             if is_notification:
                 try:
-                    await self.downstream_handler(raw_data)
+                    res = self.downstream_handler(raw_data)
+                    if inspect.isawaitable(res):
+                        await res
                 except Exception as exc:
                     logger.warning(
                         "Downstream notification error for '%s': %s", method, exc
@@ -358,7 +362,10 @@ class MCPGatewayServer:
                 return {}
 
             try:
-                return await self.downstream_handler(raw_data)
+                res = self.downstream_handler(raw_data)
+                if inspect.isawaitable(res):
+                    return await res
+                return res
             except Exception as exc:
                 logger.error(
                     "Downstream passthrough error for method '%s': %s", method, exc
@@ -461,7 +468,12 @@ class MCPGatewayServer:
         """Evaluates policy and forwards allowed tool execution to downstream handler."""
         try:
             if self.resolver is not None:
-                verdict = await self.resolver.evaluate(context)
+                eval_res = self.resolver.evaluate(context)
+                if inspect.isawaitable(eval_res):
+                    verdict = await eval_res
+                else:
+                    verdict = eval_res
+
                 if verdict.decision in (
                     VerdictDecision.BLOCK,
                     VerdictDecision.QUARANTINE,
@@ -475,7 +487,11 @@ class MCPGatewayServer:
             # ALLOW verdict (or standalone without attached resolver)
             if self.downstream_handler is not None:
                 try:
-                    downstream_response = await self.downstream_handler(raw_payload)
+                    res = self.downstream_handler(raw_payload)
+                    if inspect.isawaitable(res):
+                        downstream_response = await res
+                    else:
+                        downstream_response = res
                     self.flow_controller.resolve_request(req_id, downstream_response)
                 except Exception as down_exc:
                     logger.error(

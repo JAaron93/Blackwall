@@ -569,5 +569,10 @@
 * **Rule (Sandbox Bypass for Loopback Sockets):** Unit and integration tests that bind local loopback network sockets (e.g., `aiohttp.test_utils.TestClient` in `test_server.py`) require running the terminal runner with `BypassSandbox: true` on macOS, because standard sandbox isolation blocks local socket creation/binding by default, producing `PermissionError` or connection refused errors even when connecting to `127.0.0.1`.
 * **Rationale:** Discovered during MCP Gateway test execution on macOS. Standard sandbox execution rejects local loopback socket binding, requiring sandbox bypass for test suites exercising HTTP/SSE server endpoints.
 
+## 66. Active Test Suite Timers & Progress Monitoring for Background Commands
+* **Rule:** When running test suites (especially full suite runs, long-running suites, or background test tasks), agents MUST NOT rely on passive, blind waiting. Agents MUST set an explicit timer via the `schedule` tool with an estimated upper bound or incremental check intervals (e.g. 10–30s) to monitor test progress, inspect logs, and immediately kill and diagnose hanging test loops, deadlock conditions, or leaking non-daemon background threads.
+* **Rationale:** Mandated by user correction during Phase 2 testing. Blind waiting allows hanging subprocesses or socket deadlocks to run indefinitely without visibility or diagnostic intervention.
+
+
 
 

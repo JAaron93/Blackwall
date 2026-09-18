@@ -41,7 +41,7 @@ dependencies = [
 ]
 
 [project.scripts]
-blackwall = "blackwall.cli:cli"
+blackwall = "blackwall.cli:main"
 
 [project.optional-dependencies]
 enterprise = [

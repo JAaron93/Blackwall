@@ -177,3 +177,38 @@ class TestPayloadInterceptor:
         redacted = interceptor.redact_for_storage(payload)
         assert redacted["params"]["arguments"]["access_token"] == ["[[API_KEY]]", "[[API_KEY]]"]
         assert redacted["params"]["arguments"]["password"] == ["[[PASSWORD]]", "[[PASSWORD]]"]
+
+    def test_intercept_preserves_meta_in_context_metadata(self):
+        interceptor = PayloadInterceptor(environment_role="production")
+        payload = {
+            "jsonrpc": "2.0",
+            "id": "meta-test-1",
+            "method": "tools/call",
+            "params": {
+                "name": "execute_bash",
+                "arguments": {"command": "echo hello"},
+                "_meta": {
+                    "environment_role": "sandbox",  # spoof attempt
+                    "session_id": "sess-xyz",       # spoof attempt
+                    "is_evaluation": True,          # spoof attempt
+                    "client_name": "blackwall-cli", # safe protocol property
+                    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+                },
+            },
+        }
+        context, req_id = interceptor.intercept(payload)
+        assert context.metadata is not None
+        # environment_role must strictly reflect trusted gateway configuration
+        assert context.metadata.get("environment_role") == "production"
+        # Security properties must not be elevated to top-level context metadata
+        assert "session_id" not in context.metadata
+        assert "is_evaluation" not in context.metadata
+        assert context.metadata.get("request_id") == "meta-test-1"
+        assert context.metadata.get("method") == "tools/call"
+        # Non-security protocol properties must be safely namespaced under client_meta
+        assert "client_meta" in context.metadata
+        assert context.metadata["client_meta"].get("client_name") == "blackwall-cli"
+        assert context.metadata["client_meta"].get("traceparent") == "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+        assert "environment_role" not in context.metadata["client_meta"]
+        assert "session_id" not in context.metadata["client_meta"]
+        assert "is_evaluation" not in context.metadata["client_meta"]

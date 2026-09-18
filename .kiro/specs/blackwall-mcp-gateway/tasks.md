@@ -96,7 +96,7 @@ Build the synthesizer that translates Blackwall verdicts into MCP-compliant JSON
 ### Track C: End-to-End Pipeline & CLI
 
 #### TASK-C01: Wire Gateway → Interceptor → SyncResolver → Synthesizer
-**Status:** ⏳ Not Started
+**Status:** [x] Completed
 **Dependencies:** TASK-A02, TASK-B01, TASK-B02
 **Requirements Satisfied:** FR-04, NFR-02, US-01
 
@@ -111,7 +111,7 @@ Wire the Protocol Gateway (A02) to the `SyncResolver` pipeline using the Payload
 5. Gateway overhead is demonstrably < 10ms in benchmarking tests.
 
 #### TASK-C02: Implement Upstream Tool Server Manager
-**Status:** ⏳ Not Started
+**Status:** [x] Completed
 **Dependencies:** TASK-C01
 **Requirements Satisfied:** FR-07
 
@@ -128,7 +128,7 @@ Implement the upstream/downstream tool server management module:
 4. All unit tests pass (TDD).
 
 #### TASK-C03: Implement CLI Entry Point & Daemon Lifecycle
-**Status:** ⏳ Not Started
+**Status:** [x] Completed
 **Dependencies:** TASK-C01
 **Requirements Satisfied:** FR-02, FR-06, FR-08, FR-09, US-04, US-05
 

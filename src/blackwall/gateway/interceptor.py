@@ -22,6 +22,24 @@ from blackwall.resolver import ContextHygiene
 logger = logging.getLogger(__name__)
 
 
+ALLOWED_CLIENT_META_KEYS = frozenset({
+    "client_name",
+    "client_version",
+    "progress_token",
+    "traceparent",
+    "tracestate",
+})
+
+DISALLOWED_OVERRIDE_KEYS = frozenset({
+    "environment_role",
+    "environmentrole",
+    "is_evaluation",
+    "is_evaluation_mode",
+    "agent_id",
+    "session_id",
+})
+
+
 class PayloadInterceptor:
     """
     Parses and sanitizes MCP tools/call JSON-RPC 2.0 requests.
@@ -32,10 +50,16 @@ class PayloadInterceptor:
     - Sensitive values (API keys, tokens, passwords, AWS/GCP secrets) are redacted
       via ContextHygiene before ToolCallContext construction.
     - Blocked payloads are redacted prior to persistence into Threat Signature Graph.
+    - Untrusted client _meta cannot spoof environment_role or security boundaries.
     """
 
-    def __init__(self, hygiene: ContextHygiene | None = None) -> None:
+    def __init__(
+        self,
+        hygiene: ContextHygiene | None = None,
+        environment_role: str = "production",
+    ) -> None:
         self.hygiene = hygiene or ContextHygiene(preserve_iocs=True)
+        self.environment_role = environment_role
 
     def intercept(
         self, payload: dict[str, Any] | str
@@ -96,13 +120,25 @@ class PayloadInterceptor:
         # Context Hygiene: redact sensitive credentials, tokens, and passwords
         sanitized_arguments = self._sanitize_value(raw_arguments)
 
+        meta = params.get("_meta")
+        context_metadata: dict[str, Any] = {
+            "request_id": request_id,
+            "method": method,
+            "environment_role": self.environment_role,
+        }
+        if isinstance(meta, dict):
+            safe_client_meta = {
+                k: self._sanitize_value(v)
+                for k, v in meta.items()
+                if k.lower() in ALLOWED_CLIENT_META_KEYS
+                and k.lower() not in DISALLOWED_OVERRIDE_KEYS
+            }
+            context_metadata["client_meta"] = safe_client_meta
+
         context = ToolCallContext(
             tool_name=tool_name,
             arguments=sanitized_arguments,
-            metadata={
-                "request_id": request_id,
-                "method": method,
-            },
+            metadata=context_metadata,
         )
 
         logger.debug(
@@ -151,6 +187,11 @@ class PayloadInterceptor:
                 params["arguments"] = self._sanitize_value(args)
             elif isinstance(args, (list, str)):
                 params["arguments"] = self._sanitize_value(args)
+            meta = params.get("_meta")
+            if isinstance(meta, dict):
+                params["_meta"] = self._sanitize_value(meta)
+            elif isinstance(meta, (list, str)):
+                params["_meta"] = self._sanitize_value(meta)
 
         return redacted
 
