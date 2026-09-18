@@ -16,26 +16,33 @@ Blackwall is an autonomous **Agentic Security Firewall** designed to intercept e
 
 ---
 
-## 🏗 Architecture Overview: Interactive Architecture Suite
+## 🏗 Architecture Overview
 
-Blackwall features an interactive, visual architecture suite with real-time packet flow animations, sub-millisecond stage latency SLAs, and deep-dive inspection into every stage of execution across both operational editions.
+The diagrams below illustrate the end-to-end interception flow across the agent tool boundary, Python runtime audit hooks, local Threat Signature Graph (TSG), and the Threat Intelligence / Vertex AI semantic triage pipeline:
 
-Select an interactive architectural diagram below to inspect the execution pipeline:
+<details open>
+<summary><b>🛡️ Blackwall Core Architecture (Single-Host Developer Edition)</b> <i>[Click to collapse / expand]</i></summary>
+<br/>
 
-| Edition | Interactive Diagram | Architecture Scope & Primary Drivers |
-| :--- | :--- | :--- |
-| 🌐 **Unified Suite** | [**Launch Architecture Suite**](assets/blackwall_architecture_suite.html) | Dual-pane interactive visualizer with dynamic switching between Core & Enterprise Mesh |
-| 🛡️ **Blackwall Core** | [**Core Interception Architecture**](assets/blackwall_core_architecture.html) | Single-host daemon &middot; In-process ADK callbacks &middot; Python audit hooks (`sys.addaudithook`) &middot; TSG FTS5 graph &middot; Native Rust SIMD (`_core_rs`) &middot; AlienVault OTX &middot; Async Attacker Attribution |
-| ⚡ **Enterprise Mesh** | [**Enterprise Security Mesh**](assets/blackwall_enterprise_architecture.html) | Multi-host distributed mesh &middot; Linux eBPF kernel probes (`bpf_send_signal(9)`) &middot; ZeroMQ pub/sub broadcast (<15ms) &middot; Vault STS sidecar &middot; gVisor sandbox pipeline &middot; Ollama forensic triage |
+[![Blackwall Core: Zero-Trust Interception Architecture](assets/blackwall_core_architecture.svg)](assets/blackwall_architecture_suite.html#core)
 
 > [!TIP]
-> **Live Interactive Exploration**:
-> Open **[`assets/blackwall_architecture_suite.html`](assets/blackwall_architecture_suite.html)** (or [`assets/blackwall_core_architecture.html`](assets/blackwall_core_architecture.html) / [`assets/blackwall_enterprise_architecture.html`](assets/blackwall_enterprise_architecture.html)) directly in any modern browser:
-> - **Interactive Stage Inspector**: Click any stage node (e.g. *Threat Signature Graph*, *Codebase Memory*, *AlienVault OTX*, *Native Rust Substrate*, *Attacker Attribution*, or *eBPF Tracepoints*) to inspect its sub-millisecond SLA, codebase file path, and operational data structures.
-> - **Live Flow Animations**: Toggle real-time animated packet flows across safe execution paths, quarantine, and block enforcement.
-> - **Dynamic Mode Switcher**: Seamlessly switch between Core (single-host individual edition) and Enterprise (multi-host security mesh) via top tabs or URL hash (`#core`, `#enterprise`).
+> **Core Architecture Scope**: Single-host daemon &middot; In-process ADK callbacks (`before_tool_callback`) &middot; Python audit hooks (`sys.addaudithook`) &middot; SQLite Threat Signature Graph (TSG) in WAL mode (<1.0ms) &middot; Native Rust SIMD acceleration (`blackwall._core_rs`) &middot; AlienVault OTX Threat Intel Engine &middot; Asynchronous background Attacker Attribution.
+</details>
+
+<details>
+<summary><b>⚡ Blackwall Enterprise Security Mesh (Multi-Host Enterprise Edition)</b> <i>[Click to expand]</i></summary>
+<br/>
+
+[![Blackwall Enterprise Security Mesh Architecture](assets/blackwall_enterprise_architecture.svg)](assets/blackwall_architecture_suite.html#enterprise)
+
+> [!TIP]
+> **Enterprise Architecture Scope**: Multi-host distributed threat mesh &middot; Linux eBPF kernel probes (`bpf_send_signal(9)`) &middot; ZeroMQ pub/sub broadcast (<15ms SLA) &middot; HashiCorp Vault STS Ephemeral Identity Sidecar (`BW_SYNTHETIC_*`) &middot; gVisor microVM sandbox pipeline guards (`guard_pipeline`) &middot; Dual-mode local Ollama forensic triage engine.
+</details>
 
 > [!NOTE]
+> **Interactive Architecture Suite**:
+> Want live animated packet flows, sub-millisecond stage latency SLAs, and deep-dive code component inspection? Open the **[Interactive Architecture Suite](assets/blackwall_architecture_suite.html)** in any browser, or click either diagram above.
 > For in-depth architectural deep-dives, sequence diagrams, and mathematical models, see **[ARCHITECTURE.md](ARCHITECTURE.md)** (Core) and **[ENTERPRISE_ARCHITECTURE.md](ENTERPRISE_ARCHITECTURE.md)** (Enterprise Mesh).
 
 ---
