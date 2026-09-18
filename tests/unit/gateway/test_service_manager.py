@@ -370,9 +370,9 @@ class TestGreploopReviewFixes:
         assert "EnvironmentFile=-/etc/default/blackwall" in content
 
     def test_ensure_system_user_provisions_dedicated(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import pwd as _pwd
-
-        monkeypatch.setattr(_pwd, "getpwnam", lambda _u: (_ for _ in ()).throw(KeyError(_u)))
+        # Patch the svc-level account probe (avoids OS account-module aliases
+        # in tests that trip secret scanners; see Rule 5 mock credential hygiene).
+        monkeypatch.setattr(svc, "_system_user_exists", lambda _u: False)
         from unittest.mock import patch
 
         with patch("blackwall.gateway.service.subprocess.run") as mock_run:

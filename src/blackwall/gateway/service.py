@@ -381,6 +381,15 @@ def collect_service_env(project: str, adc_path: Path | None) -> dict[str, str]:
     return env
 
 
+def _system_user_exists(svc_user: str) -> bool:
+    """Return True when the OS account exists (isolated for testability)."""
+    try:
+        pwd.getpwnam(svc_user)
+        return True
+    except KeyError:
+        return False
+
+
 def ensure_system_user(svc_user: str) -> None:
     """Verify or provision the systemd execution identity.
 
@@ -390,11 +399,8 @@ def ensure_system_user(svc_user: str) -> None:
     Provisioning failures are logged (non-root dev/CI) rather than fatal so
     unit generation remains testable without privileges.
     """
-    try:
-        pwd.getpwnam(svc_user)
+    if _system_user_exists(svc_user):
         return
-    except KeyError:
-        pass
     if svc_user != DEDICATED_USER:
         raise ValueError(f"Service user '{svc_user}' does not exist on this host.")
     try:
