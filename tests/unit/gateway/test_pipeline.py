@@ -13,6 +13,7 @@ Verifies:
 
 from __future__ import annotations
 
+from pathlib import Path
 import time
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -381,4 +382,50 @@ class TestPipelineWiring:
         assert "error" in resp
         assert resp["error"]["code"] == -32603
         assert downstream_called is False
+
+    @pytest.mark.asyncio
+    async def test_structural_policy_block_runs_full_resolver_pipeline(
+        self, tmp_path: Path
+    ) -> None:
+        """P1: Structural policy BLOCK must not short-circuit the resolver sequence; CBM and pipeline stages must execute."""
+        from unittest.mock import AsyncMock
+        from blackwall.policy.server import HybridPolicyServer
+        from blackwall.policy.engine import StructuralGatingEngine
+        from blackwall.policy.semantic import SemanticGatingEngine
+        from blackwall.cli import DEFAULT_POLICY_YAML
+        from blackwall.models import VerdictDecision
+
+        policy_path = tmp_path / "policy.yaml"
+        policy_path.write_text(DEFAULT_POLICY_YAML)
+
+        struct_engine = StructuralGatingEngine()
+        struct_engine.load_policy(str(policy_path))
+        sem_engine = SemanticGatingEngine()
+        policy_server = HybridPolicyServer(
+            structural_engine=struct_engine,
+            semantic_engine=sem_engine,
+        )
+
+        mock_client = MagicMock()
+        resolver = SyncResolver(
+            client=mock_client,
+            policy_server=policy_server,
+            repo=None,
+        )
+
+        mock_query_cbm = AsyncMock(return_value=None)
+        resolver._query_cbm = mock_query_cbm
+
+        context = ToolCallContext(
+            tool_name="execute_bash",
+            arguments={"command": "cat /etc/passwd"},
+            metadata={"environment_role": "production"},
+        )
+
+        verdict = await resolver.evaluate(context)
+        assert verdict.decision == VerdictDecision.BLOCK
+        assert verdict.confidence_score == 1.0
+        assert "Blocked via structural policy rule:" in verdict.reasoning
+        # CBM stage must have executed sequentially, not short-circuited
+        mock_query_cbm.assert_awaited_once()
 

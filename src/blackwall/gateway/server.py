@@ -72,10 +72,12 @@ class MCPGatewayServer:
         timeout_seconds: float = 30.0,
         allowed_origins: list[str] | None = None,
         allowed_hosts: list[str] | None = None,
+        environment_role: str = "production",
     ) -> None:
         self.host = host
         self.port = port
         self.is_loopback = self._is_loopback_host(host)
+        self.environment_role = environment_role
 
         # Authentication boundary & startup guard
         resolved_token = auth_token or os.getenv("BLACKWALL_AUTH_TOKEN")
@@ -87,7 +89,7 @@ class MCPGatewayServer:
         self.auth_token = resolved_token
 
         self.flow_controller = flow_controller or FlowController()
-        self.interceptor = interceptor or PayloadInterceptor()
+        self.interceptor = interceptor or PayloadInterceptor(environment_role=environment_role)
         self.synthesizer = synthesizer or ResponseSynthesizer()
         self.resolver = resolver
         self.downstream_handler = downstream_handler

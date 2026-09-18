@@ -1084,16 +1084,10 @@ async def _run_gateway(
                 )
                 logger.info("Loaded security policy from %s", pol_path)
             except Exception as exc:
-                if policy_path:
-                    raise RuntimeError(
-                        f"Failed to load policy from '{pol_path}': {exc}"
-                    ) from exc
-                else:
-                    logger.warning(
-                        "Default policy.yaml exists at %s but failed to load: %s",
-                        pol_path,
-                        exc,
-                    )
+                raise RuntimeError(
+                    f"Failed to load security policy from '{pol_path}': {exc}. "
+                    "Startup aborted to prevent bypassing structural policy rules."
+                ) from exc
 
         # Resolver initialization - FAIL FAST, never fall back to resolver=None
         try:

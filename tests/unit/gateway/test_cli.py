@@ -440,7 +440,6 @@ class TestBlackwallCLI:
         """P1: _run_gateway loads policy.yaml into HybridPolicyServer and passes it to SyncResolver."""
         from blackwall.cli import _run_gateway
         from blackwall.policy.engine import StructuralGatingEngine
-        from blackwall.sync_resolver import SyncResolver
 
         db_path = tmp_path / "threats.db"
         policy_file = tmp_path / "policy.yaml"
@@ -508,10 +507,10 @@ class TestBlackwallCLI:
             )
 
     @pytest.mark.asyncio
-    async def test_run_gateway_corrupted_default_policy_falls_back_with_warning(
+    async def test_run_gateway_corrupted_default_policy_fails_closed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """P1: A corrupted ~/.blackwall/policy.yaml logs a warning and falls back to policy_server=None without crashing."""
+        """P1: A corrupted ~/.blackwall/policy.yaml fails closed and raises RuntimeError."""
         from blackwall.cli import _run_gateway
 
         fake_home = tmp_path / "home"
@@ -523,33 +522,14 @@ class TestBlackwallCLI:
         monkeypatch.setattr(Path, "home", lambda: fake_home)
 
         db_path = tmp_path / "threats.db"
-        mock_client = MagicMock()
-        mock_resolver = MagicMock()
 
-        with patch("google.genai.Client", return_value=mock_client), \
-             patch("blackwall.sync_resolver.SyncResolver", return_value=mock_resolver) as mock_sync_cls, \
-             patch("blackwall.gateway.server.MCPGatewayServer.start_http", return_value=None), \
-             patch("blackwall.gateway.server.MCPGatewayServer.stop", return_value=None):
-
-            task = asyncio.create_task(
-                _run_gateway(
-                    transport="http",
-                    host="127.0.0.1",
-                    port=9229,
-                    auth_token=None,
-                    upstream_mgr=None,
-                    db_path=str(db_path),
-                    policy_path=None,
-                )
+        with pytest.raises(RuntimeError, match="Failed to load security policy"):
+            await _run_gateway(
+                transport="http",
+                host="127.0.0.1",
+                port=9229,
+                auth_token=None,
+                upstream_mgr=None,
+                db_path=str(db_path),
+                policy_path=None,
             )
-            await asyncio.sleep(0.05)
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-
-            # SyncResolver must still initialize with policy_server=None fallback
-            mock_sync_cls.assert_called_once()
-            call_kwargs = mock_sync_cls.call_args.kwargs
-            assert call_kwargs.get("policy_server") is None

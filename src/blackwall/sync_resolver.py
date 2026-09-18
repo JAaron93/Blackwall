@@ -385,6 +385,8 @@ class SyncResolver:
                 return verdict
 
         # 2c. Evaluate structural policy rules if policy_server is configured
+        structural_blocked = False
+        structural_rule_id: Optional[str] = None
         if self.policy_server:
             pol = getattr(
                 getattr(self.policy_server, "structural_engine", None),
@@ -419,29 +421,9 @@ class SyncResolver:
                             from blackwall.policy.models import StructuralAction
 
                             if struct_result.decision == StructuralAction.BLOCK:
-                                self._block_count += 1
-                                self._total_evaluations += 1
-                                elapsed = (time.time() - t0) * 1000.0
-                                self._total_latency_ms += elapsed
-                                verdict = Verdict(
-                                    decision=VerdictDecision.BLOCK,
-                                    reasoning=f"Blocked via structural policy rule: {getattr(struct_result, 'ruleId', None) or 'rule'}",
-                                    confidence_score=1.0,
-                                )
-                                self._schedule_attribution(context, verdict)
-                                return verdict
-                            elif (
-                                struct_result.decision == StructuralAction.ALLOW
-                                and not getattr(struct_result, "requireSemanticReview", False)
-                            ):
-                                self._allow_count += 1
-                                self._total_evaluations += 1
-                                elapsed = (time.time() - t0) * 1000.0
-                                self._total_latency_ms += elapsed
-                                return Verdict(
-                                    decision=VerdictDecision.ALLOW,
-                                    reasoning=f"Allowed via structural policy rule: {getattr(struct_result, 'ruleId', None) or 'rule'}",
-                                    confidence_score=0.0,
+                                structural_blocked = True
+                                structural_rule_id = (
+                                    getattr(struct_result, "ruleId", None) or "rule"
                                 )
                     except Exception as struct_exc:
                         logger.warning("Error evaluating structural policy: %s", struct_exc)
@@ -453,7 +435,11 @@ class SyncResolver:
         ctx_score = self._score_context(sanitized)
         cbm_score = self._score_cbm(cbm_resp)
         preliminary_score = cbm_score * 0.50 + ctx_score * 0.50
-        is_high_risk = preliminary_score >= 0.30 or bool(self._extract_indicator(sanitized))
+        is_high_risk = (
+            structural_blocked
+            or preliminary_score >= 0.30
+            or bool(self._extract_indicator(sanitized))
+        )
 
         # 4. Query threat intelligence for high-risk events or events with indicators
         threat_resp: Optional[Any] = None
@@ -469,13 +455,17 @@ class SyncResolver:
         score = await self._compute_threat_score(
             sanitized, threat_resp, cbm_resp, semantic_score=semantic_score
         )
-        if threat_resp and getattr(threat_resp, "is_malicious", False):
+        if structural_blocked:
+            score = 1.0
+        elif threat_resp and getattr(threat_resp, "is_malicious", False):
             # Escalate malicious detections to trigger BLOCK verdicts
             score = max(score, 0.85 if not self.demo_mode else 0.50)
         score = clamp_score(score)
 
         # 5b. Apply verdict thresholds
-        if self.demo_mode:
+        if structural_blocked:
+            decision = VerdictDecision.BLOCK
+        elif self.demo_mode:
             if score >= 0.20:
                 decision = VerdictDecision.BLOCK
             elif score >= 0.10:
@@ -508,11 +498,17 @@ class SyncResolver:
             else:
                 decision = VerdictDecision.ALLOW
 
+        base_reasoning = self._build_reasoning(
+            score, threat_resp, cbm_resp, semantic_score=semantic_score
+        )
+        if structural_blocked:
+            reasoning = f"Blocked via structural policy rule: {structural_rule_id} | {base_reasoning}"
+        else:
+            reasoning = base_reasoning
+
         verdict = Verdict(
             decision=decision,
-            reasoning=self._build_reasoning(
-                score, threat_resp, cbm_resp, semantic_score=semantic_score
-            ),
+            reasoning=reasoning,
             confidence_score=score,
         )
 
