@@ -872,6 +872,19 @@ def _(mo):
 
 
 @app.cell
+def _(mo):
+    return mo.md(r"""
+    > **📌 Reminder — why ablation leads and Shapley stays opt-in:**
+    > Full Shapley-style sampling works on any black box, but each sample is
+    > a live Gateway call (~1–9s). 8 spans × 12 permutations ≈ 100+ calls
+    > *per explanation* — fascinating once, miserable routinely, with
+    > sampling noise on top. Span ablation gives the same "why" intuition
+    > deterministically and cheaply, so it is the default; sampled Shapley
+    > is here for corroboration when a case is worth the spend.
+    """)
+
+
+@app.cell
 def _(jev_by_id, mo):
     # Case picker: escalation-band cases first (most interesting), then the rest.
     _ids = list(jev_by_id.keys())
