@@ -158,3 +158,28 @@ BLACKWALL_EXPORT_CLOUD_TRACE=true
 ```
 
 For detailed CI/CD pipeline stage integration and Workload Identity Federation (WIF) setup, refer to [`docs/ci_evaluation_stage_template.md`](ci_evaluation_stage_template.md).
+
+---
+
+## 7. Tier-1 Jev Triage Evaluation & Analytics Dashboard
+
+The Tier-1 Jev classifier (`typesafe-ai/jev`, governed by `.kiro/specs/tier-1-jev-addition/`) is evaluated separately from the Vertex-judged suites above, then inspected in the Marimo dashboard.
+
+### Running the triage eval
+
+```bash
+# Paid Vercel AI Gateway credits recommended (free tier is rate-capped).
+# Every call sets disallowPromptTraining; states are ContextHygiene-sanitized.
+AI_GATEWAY_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py
+# Options: --limit N (subset), --suites security evasion_proof, --pace-ms 2000
+```
+
+This writes `tests/eval/results/jev_triage_results.json` — one record per case (`eval_case_id`, `p_threat`, `backend`, `latency_ms`, token usage). Runs checkpoint and resume safely; re-running after fixture changes re-evaluates only changed cases (resume is keyed on content hash).
+
+### Inspecting results
+
+```bash
+.venv/bin/python -m marimo edit notebooks/benchmark_analytics.py
+```
+
+The **Tier-1 Classifier Analytics** section shows gate stats (accuracy ≥98%, AUROC ≥0.95, ECE ≤0.10, escalation ≤25%), plotly confusion matrix / ROC / reliability / separation views, per-case `P(threat)` with band zones, and an Explainable-AI panel (exact span ablation plus opt-in sampled Shapley, both button-gated live calls). Acceptance is computed at the fixed `0.35/0.75` band; sliders are exploratory only. With no artifact present the section renders an empty state — never placeholder data.
