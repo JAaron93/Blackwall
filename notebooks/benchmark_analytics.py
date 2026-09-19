@@ -467,13 +467,13 @@ def _(mo, report):
 
 
 @app.cell
-def _(actual_results, category_filter, eval_cases, jev_by_id, jev_hi_slider, jev_lo_slider, mo, pd):
-    # Scenario Drill-down: recorded verdicts + Jev P(threat). Unmeasured
-    # cases render as "—" — expected verdicts are never substituted.
+def _(actual_results, category_filter, eval_cases, jev_by_id, mo, pd):
+    # Scenario Drill-down: recorded verdicts + Jev P(threat) at the FIXED
+    # acceptance band (0.35/0.75). Unmeasured cases render as "—" —
+    # expected verdicts are never substituted.
     filtered_cases = []
     selected_cat = category_filter.value
-    _lo = float(jev_lo_slider.value)
-    _hi = float(jev_hi_slider.value)
+    _lo, _hi = 0.35, 0.75
 
     for c in eval_cases:
         _cid = c.get("eval_case_id", "—")
@@ -614,8 +614,12 @@ def _(jev_backends, mo):
 
 @app.cell
 def _(jev_backend_filter, jev_hi_slider, jev_lo_slider, jev_records):
-    # Classifier metrics at the selected operating point. Escalations are
-    # abstentions here (a separate as-escalated view is reported alongside).
+    # Classifier metrics. ACCEPTANCE is computed at the fixed canonical band
+    # (0.35/0.75 — spec amendment required to change); the sliders drive an
+    # explicitly exploratory readout only. Escalations abstain from the
+    # decided confusion matrix; coverage-adjusted (conservative) accuracy
+    # counts them as incorrect since no Tier-2 disposition is recorded.
+    ACC_LO, ACC_HI = 0.35, 0.75
     _lo = float(jev_lo_slider.value)
     _hi = float(jev_hi_slider.value)
     _be = jev_backend_filter.value
@@ -625,15 +629,15 @@ def _(jev_backend_filter, jev_hi_slider, jev_lo_slider, jev_records):
         and r.get("error") is None and r.get("ground_truth") in ("BENIGN", "MALICIOUS")
     ]
 
-    def _zone(p):
-        if p < _lo:
+    def _zone(p, lo, hi):
+        if p < lo:
             return "allow"
-        if p > _hi:
+        if p > hi:
             return "block"
         return "escalate"
 
     for _r in _scored:
-        _r["_zone"] = _zone(float(_r["p_threat"]))
+        _r["_zone"] = _zone(float(_r["p_threat"]), ACC_LO, ACC_HI)
         _r["_label"] = 1 if _r["ground_truth"] == "MALICIOUS" else 0
 
     _decided = [r for r in _scored if r["_zone"] != "escalate"]
@@ -646,15 +650,23 @@ def _(jev_backend_filter, jev_hi_slider, jev_lo_slider, jev_records):
     _rec = _tp / (_tp + _fn) if (_tp + _fn) else 0.0
     _prec = _tp / (_tp + _fp) if (_tp + _fp) else 0.0
     _f1 = 2 * _prec * _rec / (_prec + _rec) if (_prec + _rec) else 0.0
+    _coverage = len(_decided) / len(_scored) if _scored else 0.0
+    _conservative = (_tp + _tn) / len(_scored) if _scored else 0.0
+    _expl_esc = sum(
+        1 for r in _scored
+        if _zone(float(r["p_threat"]), _lo, _hi) == "escalate"
+    )
 
-    # AUROC via Mann-Whitney (no sklearn dependency).
-    _pos = sorted(float(r["p_threat"]) for r in _scored if r["_label"] == 1)
-    _neg = sorted(float(r["p_threat"]) for r in _scored if r["_label"] == 0)
+    # AUROC by pairwise concordance (ties = half win; no rank artifacts).
+    _pos = [float(r["p_threat"]) for r in _scored if r["_label"] == 1]
+    _neg = [float(r["p_threat"]) for r in _scored if r["_label"] == 0]
     _auroc = 0.0
     if _pos and _neg:
-        _ranked = sorted(((float(r["p_threat"]), r["_label"]) for r in _scored))
-        _rs = sum(i + 1 for i, (_, lab) in enumerate(_ranked) if lab == 1)
-        _auroc = (_rs - len(_pos) * (len(_pos) + 1) / 2) / (len(_pos) * len(_neg))
+        _s = sum(
+            1.0 if p1 > p0 else (0.5 if p1 == p0 else 0.0)
+            for p1 in _pos for p0 in _neg
+        )
+        _auroc = _s / (len(_pos) * len(_neg))
 
     # ECE, 10 equal-width bins.
     _ece = 0.0
@@ -671,7 +683,10 @@ def _(jev_backend_filter, jev_hi_slider, jev_lo_slider, jev_records):
         "n": len(_scored), "tp": _tp, "fn": _fn, "fp": _fp, "tn": _tn,
         "escalations": _esc, "esc_rate": (_esc / len(_scored)) if _scored else 0.0,
         "accuracy": _acc, "recall": _rec, "precision": _prec, "f1": _f1,
-        "auroc": _auroc, "ece": _ece, "lo": _lo, "hi": _hi, "backend": _be,
+        "coverage": _coverage, "conservative_acc": _conservative,
+        "auroc": _auroc, "ece": _ece, "lo": ACC_LO, "hi": ACC_HI,
+        "expl_lo": _lo, "expl_hi": _hi, "expl_esc": _expl_esc,
+        "backend": _be,
     }
     return jev_metrics,
 
@@ -679,7 +694,7 @@ def _(jev_backend_filter, jev_hi_slider, jev_lo_slider, jev_records):
 @app.cell
 def _(jev_metrics, mo):
     _m = jev_metrics
-    return mo.md(f"**Backend `{_m['backend']}`** · n={_m['n']} · band [{_m['lo']:.2f}, {_m['hi']:.2f}]")
+    return mo.md(f"**Backend `{_m['backend']}`** · n={_m['n']} · acceptance band fixed [{_m['lo']:.2f}, {_m['hi']:.2f}] (sliders exploratory only)")
 
 
 @app.cell
@@ -695,9 +710,13 @@ def _(jev_metrics, mo):
                      caption=f"Gate ≤0.10 {_m['ece'] <= 0.10 and '✅' or '❌'}")
     _s_esc = mo.stat(value=f"{_m['esc_rate']:.1%} ({_m['escalations']})", label="Escalation rate",
                      caption=f"Gate ≤25% {_m['esc_rate'] <= 0.25 and '✅' or '❌'}")
+    _s_cov = mo.stat(value=f"{_m['coverage']:.1%}", label="Decided coverage",
+                     caption=f"Conservative acc (esc=wrong): {_m['conservative_acc']:.2%}")
+    _s_expl = mo.stat(value=f"{_m['expl_esc']}", label="Exploratory esc",
+                      caption=f"At sliders [{_m['expl_lo']:.2f}, {_m['expl_hi']:.2f}] — non-acceptance")
     _s_cm = mo.stat(value=f"{_m['tp']}/{_m['fn']}/{_m['fp']}/{_m['tn']}", label="TP/FN/FP/TN",
                     caption=f"F1={_m['f1']:.3f} Prec={_m['precision']:.3f}")
-    mo.hstack([_s_acc, _s_rec, _s_auroc, _s_ece, _s_esc, _s_cm], justify="space-between")
+    mo.hstack([_s_acc, _s_rec, _s_auroc, _s_ece, _s_esc, _s_cov, _s_expl, _s_cm], justify="space-between")
 
 
 @app.cell
@@ -709,7 +728,7 @@ def _(go, jev_metrics):
         text=[[_m["tn"], _m["fp"]], [_m["fn"], _m["tp"]]],
         texttemplate="%{text}", colorscale="Blues", showscale=False,
     ))
-    _fig_cm.update_layout(title="Confusion Matrix (escalations abstained)",
+    _fig_cm.update_layout(title="Confusion Matrix (fixed 0.35/0.75, escalations abstained)",
                           height=320, margin=dict(l=40, r=20, t=50, b=40))
     _fig_cm
 
@@ -792,7 +811,7 @@ def _(go, jev_backend_filter, jev_hi_slider, jev_lo_slider, jev_records):
                                      marker_color="#f43f5e", nbinsx=20))
     _fig_dist.add_vrect(x0=float(jev_lo_slider.value), x1=float(jev_hi_slider.value),
                         fillcolor="#f59e0b", opacity=0.15, line_width=0,
-                        annotation_text="escalation band")
+                        annotation_text="exploratory band (non-acceptance)")
     _fig_dist.update_layout(title="P(threat) Separation", barmode="overlay",
                             xaxis_title="P(threat)", yaxis_title="Count",
                             height=320, margin=dict(l=50, r=20, t=50, b=50))
@@ -941,7 +960,7 @@ def _(go, jev_by_id, mo, os, repo_root, subprocess, xai_button, xai_case, xai_pe
         _spans = _spans[:7] + [" ".join(_spans[7:])]
     _K = len(_spans)
     _m = int(xai_perms.value)
-    _est_calls = (_K + 1) + _m * _K
+    _est_calls = (_K + 2) + _m * _K
     _est_cost = _est_calls * 320 * 0.042 / 1e6
 
     def _jev_once(state):
@@ -969,11 +988,19 @@ def _(go, jev_by_id, mo, os, repo_root, subprocess, xai_button, xai_case, xai_pe
     for _i in range(_K):
         _r = _jev_once(_masked({_i}))
         _loo.append((_p0 - float(_r["p"])) if _r.get("p") is not None else 0.0)
+    # Sampled Shapley over spans with subset caching. The empty subset is
+    # the all-masked state (measured, not assumed); the full subset is the
+    # already-measured baseline. Marginals therefore run all-masked → full.
+    _all = frozenset(range(_K))
+    _r_masked = _jev_once(_masked(set(range(_K))))
+    mo.stop(_r_masked.get("p") is None,
+            mo.md(f"All-masked baseline query failed: `{_r_masked.get('error', 'unknown')}`"))
+    _cache = {frozenset(): float(_r_masked["p"])}
 
-    # Sampled Shapley over spans with subset caching.
-    _cache = {frozenset(): _p0}
     def _v(sub):
         _key = frozenset(sub)
+        if _key == _all:
+            return _p0
         if _key not in _cache:
             _r = _jev_once(_masked(set(range(_K)) - set(sub)))
             _cache[_key] = float(_r["p"]) if _r.get("p") is not None else _p0

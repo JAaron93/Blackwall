@@ -8,8 +8,10 @@
  * Reads AI_GATEWAY_API_KEY from the environment (never from argv/files).
  * Every call sets providerOptions.gateway.disallowPromptTraining = true.
  * Rate limits (429, no retry-after on free tier) are retried with bounded
- * exponential backoff; batch mode checkpoints after every case so runs
- * resume with --resume semantics by default (completed ids are skipped).
+ * exponential backoff; batch mode checkpoints after every case. Resume
+ * reuses a row ONLY when (id, state hash, suite) all match the current
+ * cases file, so changed content, suite selections, or --limit runs can
+ * never pair an old probability with a new state.
  *
  * Env knobs: JEV_PACE_MS (batch delay between calls, default 2000),
  *   JEV_TIMEOUT_MS (per-call abort, default 60000), JEV_MAX_ATTEMPTS (default 8).
@@ -100,16 +102,17 @@ if (mode === 'single') {
     } catch {}
   }
   out = out.filter((r) => !r.error);
-  const done = new Set(out.map((r) => r.id));
+  const keyOf = (id, h, suite) => `${id}|${h ?? ""}|${suite ?? ""}`;
+  const done = new Set(out.map((r) => keyOf(r.id, r.h, r.suite)));
   let n = 0;
   for (const c of cases) {
-    if (done.has(c.id)) continue;
+    if (done.has(keyOf(c.id, c.h, c.suite))) continue;
     if (n > 0) await sleep(PACE_MS);
     const t0 = Date.now();
     try {
       const r = await ask(c.state, null);
       out.push({
-        id: c.id, suite: c.suite, label: c.label, expected: c.expected,
+        id: c.id, suite: c.suite, h: c.h ?? null, label: c.label, expected: c.expected,
         scenario: c.scenario, tool: c.tool,
         p: r.answers?.is_threat?.probability ?? null,
         confidence: r.providerMetadata?.typesafe ?? null,
@@ -117,7 +120,7 @@ if (mode === 'single') {
       });
     } catch (e) {
       out.push({
-        id: c.id, suite: c.suite, label: c.label, expected: c.expected,
+        id: c.id, suite: c.suite, h: c.h ?? null, label: c.label, expected: c.expected,
         scenario: c.scenario, tool: c.tool, p: null, confidence: null,
         latency_ms: Date.now() - t0, usage: null,
         error: String(e?.message ?? e).slice(0, 300),

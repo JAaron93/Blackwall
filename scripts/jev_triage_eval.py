@@ -19,8 +19,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -30,6 +32,21 @@ sys.path.insert(0, str(REPO_ROOT))
 
 INSTALL_DIR = Path.home() / ".cache" / "blackwall" / "jev-eval"
 NODE_RUNNER = REPO_ROOT / "scripts" / "jev_evaluate.mjs"
+
+
+# Ground-truth-bearing meta words that never appear in production
+# Tool/Arguments/Metadata states. Scrubbed so Jev must classify the actual
+# tool-call payload instead of reading the eval harness's answer key.
+# Attached forms (e.g. parent-case IDs like malicious_sql_001) match too.
+LABEL_WORDS_RE = re.compile(
+    r"[\w]*(benign|malicious|evasion|evasive|evade|evading)[\w]*", re.IGNORECASE
+)
+PROOF_TOOL_RE = re.compile(r"Execute tool '([^']+)'")
+
+
+def neutralize(text: str) -> str:
+    scrubbed = LABEL_WORDS_RE.sub("", text)
+    return re.sub(r"\s+", " ", scrubbed).strip()
 
 
 def user_text(case: dict) -> str:
@@ -61,7 +78,27 @@ def tool_name(case: dict) -> str:
 def build_cases(suites: list[str]) -> list[dict]:
     from blackwall.resolver import ContextHygiene
 
-    hygiene = ContextHygiene()
+    # Production semantic triage preserves IOCs (URLs, IPs, paths) while
+    # redacting secrets — the eval MUST use the same mode.
+    hygiene = ContextHygiene(preserve_iocs=True)
+
+    def finalize(case_id: str, suite: str, tool: str, text: str,
+                 label: int, expected: str, scenario: str) -> dict:
+        # Production-shaped state: Tool + payload only. No Scenario line
+        # and no ground-truth-bearing words (neutralize()).
+        raw = f"Tool: {tool}\nRequest: {neutralize(text)}"
+        state = hygiene.sanitize_string(raw)
+        return {
+            "id": case_id,
+            "suite": suite,
+            "state": state,
+            "h": hashlib.sha256(state.encode()).hexdigest()[:16],
+            "label": label,
+            "expected": expected,
+            "scenario": scenario,
+            "tool": tool,
+        }
+
     cases: list[dict] = []
     if "security" in suites:
         sec = json.loads(
@@ -70,38 +107,23 @@ def build_cases(suites: list[str]) -> list[dict]:
         for c in sec["eval_cases"]:
             md = c.get("metadata", {})
             label = 1 if md.get("ground_truth") == "MALICIOUS" else 0
-            raw = (
-                f"Tool: {tool_name(c)}\nRequest: {user_text(c)}\n"
-                f"Scenario: {md.get('scenario_type', '')}"
-            )
-            cases.append(
-                {
-                    "id": c["eval_case_id"],
-                    "suite": "security",
-                    "state": hygiene.sanitize_string(raw),
-                    "label": label,
-                    "expected": c.get("expected_verdict", "BLOCK" if label else "ALLOW"),
-                    "scenario": md.get("scenario_type", ""),
-                    "tool": tool_name(c),
-                }
-            )
+            cases.append(finalize(
+                c["eval_case_id"], "security", tool_name(c), user_text(c), label,
+                c.get("expected_verdict", "BLOCK" if label else "ALLOW"),
+                md.get("scenario_type", ""),
+            ))
     if "evasion_proof" in suites:
         proof = json.loads(
             (REPO_ROOT / "tests/eval/evalsets/blackwall_evasion_proof.evalset.json").read_text()
         )
         for c in proof["eval_cases"]:
-            raw = f"Tool: database_query\nRequest: {user_text(c)}\nScenario: evasion_proof"
-            cases.append(
-                {
-                    "id": c.get("eval_id", "proof"),
-                    "suite": "evasion_proof",
-                    "state": hygiene.sanitize_string(raw),
-                    "label": 1,
-                    "expected": "BLOCK",
-                    "scenario": "evasion",
-                    "tool": "database_query",
-                }
-            )
+            text = user_text(c)
+            m = PROOF_TOOL_RE.search(text)
+            tool = m.group(1) if m else "database_query"
+            cases.append(finalize(
+                c.get("eval_id", "proof"), "evasion_proof", tool, text,
+                1, "BLOCK", "evasion",
+            ))
     return cases
 
 
@@ -150,27 +172,34 @@ def main() -> int:
         return proc.returncode
 
     raw = json.loads(raw_out.read_text())
-    states = {c["id"]: c["state"] for c in cases}
-    records = [
-        {
-            "eval_case_id": r["id"],
-            "suite": r["suite"],
-            "ground_truth": "MALICIOUS" if r["label"] == 1 else "BENIGN",
-            "scenario": r["scenario"],
-            "expected_verdict": r["expected"],
-            "tool_name": r.get("tool", "unknown"),
-            "backend": "jev",
-            "model": "typesafe-ai/jev",
-            "state": states.get(r["id"], ""),
-            "p_threat": r["p"],
-            "confidence": r["confidence"],
-            "latency_ms": r["latency_ms"],
-            "input_tokens": (r.get("usage") or {}).get("inputTokens"),
-            "output_tokens": (r.get("usage") or {}).get("outputTokens"),
-            "error": r["error"],
-        }
-        for r in raw
-    ]
+    states = {c["id"]: (c["state"], c["h"]) for c in cases}
+    records = []
+    for r in raw:
+        # Drop rows that are out of scope for this run (different suite
+        # selection, --limit) or stale (state content changed since).
+        current = states.get(r["id"])
+        if current is None or r.get("h") != current[1]:
+            continue
+        records.append(
+            {
+                "eval_case_id": r["id"],
+                "suite": r["suite"],
+                "ground_truth": "MALICIOUS" if r["label"] == 1 else "BENIGN",
+                "scenario": r["scenario"],
+                "expected_verdict": r["expected"],
+                "tool_name": r.get("tool", "unknown"),
+                "backend": "jev",
+                "model": "typesafe-ai/jev",
+                "state": current[0],
+                "p_threat": r["p"],
+                "confidence": r["confidence"],
+                "latency_ms": r["latency_ms"],
+                "input_tokens": (r.get("usage") or {}).get("inputTokens"),
+                "output_tokens": (r.get("usage") or {}).get("outputTokens"),
+                "tier2_disposition": None,
+                "error": r["error"],
+            }
+        )
     out_path = REPO_ROOT / args.out
     out_path.write_text(json.dumps(records, indent=1))
     ok = sum(1 for r in records if not r["error"])
