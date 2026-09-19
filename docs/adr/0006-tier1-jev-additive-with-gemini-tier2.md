@@ -90,8 +90,8 @@ replacement** — precisely because of the measured C2 weakness:
 ### Negative & Trade-offs
 - **Residual C2 risk**: Jev under-scores beacon-like POSTs; Tier-2 MUST stay
   funded and monitored — per-run C2-class recall is a standing review item.
-- **Paid external dependency**: Tier-1 now requires Vercel AI Gateway paid
+- **Paid external dependency**: Tier-1 runs on Vercel AI Gateway paid
   credits (`AI_GATEWAY_API_KEY`, `disallowPromptTraining` mandatory,
-  sanitization-before-egress); free tier is rate-capped to ~20-call bursts.
+  sanitization-before-egress).
 - **Latency**: Gateway-mediated triage runs ~0.9s p50; sub-100ms awaits a
   future local deployment (which must re-run the A/B before claiming it).
