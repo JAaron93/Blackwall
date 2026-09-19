@@ -27,6 +27,36 @@ decisively (malicious `P ≥ 0.88`, benign `P ≤ 0.06`). Routine-beacon POSTs
 with valid-looking fields read as legitimate telemetry to a zero-shot
 classifier never fine-tuned on Blackwall's threat model.
 
+## Why Jev — What We Gain (Cost-Led)
+
+Every novel tool call that misses the TSG currently pays a full Gemini
+semantic evaluation, and every ambiguous one can escalate to 3.8 Flash
+deep reasoning ($0.75/1M in, $3.75/1M out). At 300 RPM interception scale,
+that prices routine traffic — benign SELECTs, log reads, health checks —
+at deep-reasoning rates. Jev breaks that coupling:
+
+- **Two orders of magnitude cheaper Tier-1.** Jev bills $0.042/1M input
+  tokens with zero output tokens (no text generation — typed answers only).
+  Measured: the full 167-case golden pass cost **$0.0025** (~$0.000015 per
+  triaged call, ~$15 per million). The equivalent Gemini 3.5 Flash-Lite
+  path ($0.30/1M in + $2.50/1M out, with generated JSON) runs roughly
+  50–100× that per call — before any Tier-2 escalation.
+- **Tier-2 spend collapses to ambiguity-only.** Measured Tier-2 fire rate:
+  ~0% on routine suites, ~30% on hard evasion probes. Gemini (especially
+  3.8 Flash) now bills only where the data shows judgment exists instead
+  of on every novel call.
+- **Calibrated abstention as a primitive.** Jev's RLCD-trained
+  probabilities come with confidence, giving the `0.35/0.75` escalation
+  band natively. An LLM `threat_score` offers no equivalent selective-
+  prediction mechanism without parsing verbalized confidence.
+- **Robust typed outputs.** Boolean P + confidence decode deterministically;
+  no JSON-schema repair loops, no prompt-scaffolding drift, no reasoning-
+  token overhead on clear cases.
+
+In short: Jev absorbs the boring 95%+ at micro-cent scale so the
+Vertex/Gemini budget is spent on ambiguity, forensics, and judges —
+the workloads that actually need generation.
+
 ## Decision
 Adopt Jev as an **additive Tier-1 triage signal — never a Gemini
 replacement** — precisely because of the measured C2 weakness:
