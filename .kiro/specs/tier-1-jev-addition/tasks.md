@@ -55,6 +55,10 @@ in unit/BDD tests (mocked); live calls only in the eval harness.
     When the resolver aggregates the verdict
     Then Tier-2 Gemini is invoked and the final verdict is recorded
   ```
+  plus aggregation-supremacy regression tests: a clear-low Jev signal
+  (P=0.05) combined with a structural BLOCK still verdicts BLOCK, and a
+  clear-high Jev signal (P=0.95) with all other signals benign still
+  passes through Score Aggregation (no direct-to-verdict short-circuit).
 * [ ] **TASK-C02: Async signature path untouched** (FR-04). Regression tests
   proving every novel (non-signature-matched) BLOCK still yields
   `ThreatSignaturePayload` → TSG append off the hot path, and that

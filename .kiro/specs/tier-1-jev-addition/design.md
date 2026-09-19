@@ -64,10 +64,18 @@ Tier 0: Deterministic & AST Graph (<5ms)  [UNCHANGED]
                     │
 Tier 1: SemanticTriageProvider  [NEW ABSTRACTION]
         ├── backend=jev (paid Gateway): P(threat) [+ confidence]
-        │     ├── P < 0.35 → ALLOW (immediate)
-        │     ├── P > 0.75 → BLOCK + Incident Action
+        │     ├── P < 0.35 → clear-low SIGNAL → Score Aggregation (no Tier-2 call)
+        │     ├── P > 0.75 → clear-high SIGNAL → Score Aggregation (no Tier-2 call)
         │     └── 0.35 ≤ P ≤ 0.75 → Tier-2 escalation
         └── backend=gemini (legacy): threat_score float [PRESERVED, default-off]
+                    │
+          AGGREGATION SUPREMACY: triage outputs are weighted SIGNALS only.
+          Terminal ALLOW/BLOCK/QUARANTINE are decided exclusively at Score
+          Aggregation + Threshold Verdict (weights and thresholds unchanged),
+          so deterministic BLOCKs (structural, TSG) can never be overridden
+          by a low P, and a high P alone cannot BLOCK. The Tier-1 win is
+          skipping the Tier-2 Gemini call — never skipping aggregation
+          (local, microseconds).
                     │
 Tier 2 Escalation: Gemini (3.8 Flash, high thinking)  [RETAINED]
         ├── Ambiguity band referrals from Tier-1
@@ -151,7 +159,7 @@ experimental plan (accuracy ≥98%, AUROC ≥0.95, ECE ≤0.10, escalation ≤25
 
 ## Glossary
 
-* **Tier-1**: Calibrated fast classifier path (Jev `P(threat)`), clear-case verdicts.
+* **Tier-1**: Calibrated fast classifier path (Jev `P(threat)`), clear-case signals feeding aggregation.
 * **Tier-2**: Gemini deep-reasoning escalation for ambiguity/disagreement + forensics.
 * **Escalation band**: `0.35 ≤ P ≤ 0.75` — Jev abstains, Gemini decides.
 * **Disagreement trigger**: deterministic high-risk novelty with `P < 0.2`.

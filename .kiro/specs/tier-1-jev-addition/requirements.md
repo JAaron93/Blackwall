@@ -25,11 +25,15 @@ selectable via `BW_SEMANTIC_BACKEND` (`jev` default post-validation, `gemini`
 preserved). `_compute_threat_score` SHALL consume only
 `SemanticTriageResult.threat_score`, with no weight changes.
 
-### FR-02: Jev Tier-1 Evaluation
+### FR-02: Jev Tier-1 Evaluation (Signals, Not Verdicts)
 The `jev` backend SHALL issue one boolean `is_threat` evaluation per novel
-tool call with fixed thresholds: `P < 0.35` → ALLOW signal, `P > 0.75` →
-BLOCK signal, otherwise `escalate=true`. Threshold changes SHALL require a
-spec amendment with fresh labeled evidence.
+tool call with fixed thresholds: `P < 0.35` → clear-low signal,
+`P > 0.75` → clear-high signal, otherwise `escalate=true`. These are
+weighted triage SIGNALS feeding Score Aggregation (`_compute_threat_score`,
+weights and verdict thresholds unchanged) — NEVER terminal verdicts.
+Terminal ALLOW/BLOCK/QUARANTINE SHALL be decided exclusively at Score
+Aggregation + Threshold Verdict, preserving deterministic overrides.
+Threshold changes SHALL require a spec amendment with fresh labeled evidence.
 
 ### FR-03: Tier-2 Escalation Routing
 The system SHALL route to Gemini Tier-2 on (a) `escalate=true`, or
