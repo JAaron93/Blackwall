@@ -589,3 +589,19 @@
 
 
 
+
+## 70. Marimo Notebook Cell Conventions
+* **Rule (Display Expression Endings):** Marimo cells MUST end with the display expression — trailing bare `return` statements break marimo's static analysis (`SyntaxError: 'return' outside function`) even though the file compiles under CPython. Use single-return pattern (compute into `_name`, one `return` of the display object).
+* **Rule (Cell-Local Underscore Prefix):** All cell-local bindings (loop variables, file handles, temporaries) MUST be underscore-prefixed (`_cid`, `_fh`). Unprefixed names collide across cells and break reactivity (observed: `cid`/`f` collisions failed `marimo export`).
+* **Rule (Export Validation):** Notebook changes MUST validate via `marimo export html <notebook> -o <tmp>` completing with zero failed cells before commit.
+* **Rationale:** Discovered while building the Jev analytics section on PR #169: every export failure in the session traced to one of these three patterns.
+
+## 71. Eval Input Decontamination
+* **Rule (No Answer-Bearing Inputs):** Model inputs built from eval fixtures MUST NOT contain ground-truth-bearing text. Scrub standalone label words AND case-ID references (`malicious_sql_001`-style), and drop scenario-label lines, so the model classifies the payload rather than reading the harness's answer key.
+* **Rule (Payload Preservation):** Scrub patterns MUST be verified against a placeholder inventory — meaningful attack content such as `[[MALICIOUS_COMMAND]]` MUST survive (an overbroad `[\w]*label[\w]*` scrub gutted it to `[[]]` on PR #169).
+* **Rationale:** The first Jev A/B reached 100% partly by label-reading; decontaminated re-measurement is the trustworthy record.
+
+## 72. Content-Hash Checkpointing for Long Eval Runs
+* **Rule (Hash-Scoped Resume):** Bulk model-API eval runs MUST checkpoint per case and resume on `(case_id, content-hash, scope)` — never ID-only — and MUST filter stale rows at serialization, so fixture/suite/`--limit` changes cannot pair old probabilities with new states.
+* **Rule (Commit Artifacts, Not Scratch):** Per-case results MUST be written to a versioned artifact path (e.g. `tests/eval/results/`) and committed; scratch-only results are data loss waiting to happen (the first Jev 167-case run was deleted with its temp dir).
+* **Rationale:** Free-tier Gateway evals trickle over hours and inevitably span restarts; learned across three Jev eval executions on PR #169.

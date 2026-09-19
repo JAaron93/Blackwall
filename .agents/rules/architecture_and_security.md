@@ -689,3 +689,7 @@
 
 
 
+
+## 105. Gateway Evaluation-Modality Client Constraint
+* **Rule (AI-SDK-Only Access):** Vercel AI Gateway evaluation-modality models (e.g. `typesafe-ai/jev`) are reachable ONLY through AI SDK 7+ — no REST or OpenAI-compatible endpoint exists. The Node helper that speaks to them MUST sit behind a pure-Python producer seam (`scripts/jev_triage_eval.py` pattern); no Node.js runtime may leak into the packaged dependency closure.
+* **Rationale:** Protects the F04 packaging pipeline (`.dmg`/`.deb`) and NFR-01 Python exclusivity while integrating the Tier-1 Jev backend (PR #169).
