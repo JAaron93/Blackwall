@@ -56,8 +56,9 @@ in unit/BDD tests (mocked); live calls only in the eval harness.
     Then Tier-2 Gemini is invoked and the final verdict is recorded
   ```
 * [ ] **TASK-C02: Async signature path untouched** (FR-04). Regression tests
-  proving every BLOCK still yields `ThreatSignaturePayload` → TSG append
-  off the hot path.
+  proving every novel (non-signature-matched) BLOCK still yields
+  `ThreatSignaturePayload` → TSG append off the hot path, and that
+  TSG-matched BLOCKs return immediately with zero generation calls.
   Dependencies: TASK-C01.
 
 ## Track D — Validation & Rollout (depends on Tracks B + C)

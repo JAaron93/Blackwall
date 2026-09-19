@@ -36,10 +36,14 @@ The system SHALL route to Gemini Tier-2 on (a) `escalate=true`, or
 (b) deterministic-vs-semantic disagreement (high-risk argument novelty with
 `P < 0.2`). Tier-2 SHALL return the final ALLOW/BLOCK verdict.
 
-### FR-04: Async Forensics Preservation
-Every BLOCK (Tier-1 or Tier-2) SHALL trigger async Gemini generation of
+### FR-04: Async Forensics Preservation (Novel Blocks Only)
+Every novel BLOCK — i.e. a block with NO existing TSG signature match,
+whether from Tier-1 or Tier-2 — SHALL trigger async Gemini generation of
 `ThreatSignaturePayload` appended to the SQLite TSG without stalling the
-agent. Jev SHALL NOT be used for signature synthesis.
+agent. Blocks served by an existing signature match return immediately
+(`SyncResolver.evaluate` TSG fast path) and SHALL NOT invoke generation —
+the signature already exists, and regenerating per repeat would add
+Gemini cost and graph churn. Jev SHALL NOT be used for signature synthesis.
 
 ### FR-05: Sanitization-Before-Egress
 `ContextHygiene` sanitization SHALL execute before any Gateway payload is

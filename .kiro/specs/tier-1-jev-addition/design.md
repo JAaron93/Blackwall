@@ -75,8 +75,10 @@ Tier 2 Escalation: Gemini (3.8 Flash, high thinking)  [RETAINED]
         │     (high-risk keywords present but P < 0.2)
         └── Final verdict: ALLOW / BLOCK
                     │
-Async Background (on BLOCK): Gemini signature & forensics gen  [RETAINED]
-        └── ThreatSignaturePayload → SQLite TSG (Wave-2 learning)
+Async Background (on novel BLOCK): Gemini signature & forensics gen  [RETAINED, NOVEL-ONLY]
+        └── ThreatSignaturePayload → SQLite TSG (Wave-2 learning). Blocks
+            served by an existing TSG match return immediately with no
+            generation — regenerating per repeat would add cost and churn.
 ```
 
 ## Components
