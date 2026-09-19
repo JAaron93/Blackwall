@@ -46,7 +46,7 @@ LABEL_STANDALONE_RE = re.compile(
 LABEL_CASEID_RE = re.compile(
     r"\b(?:benign|malicious|evasion)(?:_[a-z]+)+_\d+\b", re.IGNORECASE
 )
-PROOF_TOOL_RE = re.compile(r"Execute tool '([^']+)'")
+PROOF_TOOL_RE = re.compile(r"tool '([^']+)'")
 
 
 def neutralize(text: str) -> str:
