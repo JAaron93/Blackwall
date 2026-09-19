@@ -81,6 +81,7 @@ if (mode === 'single') {
         latency_ms: Date.now() - t0,
         usage: r.usage ?? null,
         error: null,
+        is_fallback: false,
       }),
     );
   } catch (e) {
@@ -88,6 +89,7 @@ if (mode === 'single') {
       JSON.stringify({
         p: null, confidence: null, latency_ms: Date.now() - t0, usage: null,
         error: String(e?.message ?? e).slice(0, 300),
+        is_fallback: true,
       }),
     );
     process.exitCode = 1;
@@ -117,6 +119,7 @@ if (mode === 'single') {
         p: r.answers?.is_threat?.probability ?? null,
         confidence: r.providerMetadata?.typesafe ?? null,
         latency_ms: Date.now() - t0, usage: r.usage ?? null, error: null,
+        is_fallback: false,
       });
     } catch (e) {
       out.push({
@@ -124,6 +127,7 @@ if (mode === 'single') {
         scenario: c.scenario, tool: c.tool, p: null, confidence: null,
         latency_ms: Date.now() - t0, usage: null,
         error: String(e?.message ?? e).slice(0, 300),
+        is_fallback: true,
       });
     }
     n++;

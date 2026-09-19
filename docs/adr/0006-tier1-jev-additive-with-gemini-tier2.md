@@ -80,9 +80,15 @@ replacement** — precisely because of the measured C2 weakness:
 - **Cost discipline with measured coverage**: ~99% of routine traffic
   verdicts without Tier-2 spend; expensive reasoning fires only where the
   data shows judgment exists (C2 band).
-- **Fail-closed layering preserved**: aggregation supremacy plus the
-  TSG-matched fast path mean Jev's one miss class degrades to escalation,
-  never silent ALLOW, once Tier-2 is wired.
+- **Fail-closed layering, with one honest residual risk**: aggregation
+  supremacy plus the TSG-matched fast path mean deterministic signals still
+  vote on every call. But the documented routing sends `P<0.35` down the
+  clear-low path with no Tier-2 call — so the known `wave1_c2_beacon_001`
+  miss (P=0.26) would ALLOW unless structural, CBM, or threat-intel signals
+  independently fire. This ADR does NOT claim otherwise. Mitigations:
+  per-run C2-class recall is a standing review item, and the 0.26 case must
+  be re-probed after Track C wires Tier-2; widening the disagreement
+  trigger requires its own spec amendment with re-measured Tier-2 rates.
 - **Reproducible evidence**: committed producer (`scripts/jev_triage_eval.py`),
   artifact (`tests/eval/results/jev_triage_results.json`), and dashboard
   (`notebooks/benchmark_analytics.py`) make every future run comparable.

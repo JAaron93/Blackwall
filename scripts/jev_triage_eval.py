@@ -202,6 +202,7 @@ def main() -> int:
                 "input_tokens": (r.get("usage") or {}).get("inputTokens"),
                 "output_tokens": (r.get("usage") or {}).get("outputTokens"),
                 "tier2_disposition": None,
+                "is_fallback": bool(r.get("is_fallback", r.get("error") is not None)),
                 "error": r["error"],
             }
         )

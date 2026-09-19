@@ -626,8 +626,13 @@ def _(jev_backend_filter, jev_hi_slider, jev_lo_slider, jev_records):
     _scored = [
         r for r in jev_records
         if r.get("backend", "jev") == _be and r.get("p_threat") is not None
-        and r.get("error") is None and r.get("ground_truth") in ("BENIGN", "MALICIOUS")
+        and r.get("error") is None and not r.get("is_fallback")
+        and r.get("ground_truth") in ("BENIGN", "MALICIOUS")
     ]
+    _fallbacks = sum(
+        1 for r in jev_records
+        if r.get("backend", "jev") == _be and r.get("is_fallback")
+    )
 
     def _zone(p, lo, hi):
         if p < lo:
@@ -682,6 +687,7 @@ def _(jev_backend_filter, jev_hi_slider, jev_lo_slider, jev_records):
     jev_metrics = {
         "n": len(_scored), "tp": _tp, "fn": _fn, "fp": _fp, "tn": _tn,
         "escalations": _esc, "esc_rate": (_esc / len(_scored)) if _scored else 0.0,
+        "fallbacks": _fallbacks,
         "accuracy": _acc, "recall": _rec, "precision": _prec, "f1": _f1,
         "coverage": _coverage, "conservative_acc": _conservative,
         "auroc": _auroc, "ece": _ece, "lo": ACC_LO, "hi": ACC_HI,
@@ -694,7 +700,7 @@ def _(jev_backend_filter, jev_hi_slider, jev_lo_slider, jev_records):
 @app.cell
 def _(jev_metrics, mo):
     _m = jev_metrics
-    return mo.md(f"**Backend `{_m['backend']}`** · n={_m['n']} · acceptance band fixed [{_m['lo']:.2f}, {_m['hi']:.2f}] (sliders exploratory only)")
+    return mo.md(f"**Backend `{_m['backend']}`** · n={_m['n']} · band [{_m['lo']:.2f}, {_m['hi']:.2f}] (sliders exploratory only) · fallbacks excluded: {_m['fallbacks']}")
 
 
 @app.cell
@@ -741,7 +747,8 @@ def _(go, jev_backend_filter, jev_records):
         (float(r["p_threat"]), 1 if r["ground_truth"] == "MALICIOUS" else 0)
         for r in jev_records
         if r.get("backend", "jev") == _be and r.get("p_threat") is not None
-        and r.get("error") is None and r.get("ground_truth") in ("BENIGN", "MALICIOUS")
+        and r.get("error") is None and not r.get("is_fallback")
+        and r.get("ground_truth") in ("BENIGN", "MALICIOUS")
     )
     _P = sum(l for _, l in _pts)
     _N = len(_pts) - _P
@@ -772,7 +779,8 @@ def _(go, jev_backend_filter, jev_records):
         (float(r["p_threat"]), 1 if r["ground_truth"] == "MALICIOUS" else 0)
         for r in jev_records
         if r.get("backend", "jev") == _be and r.get("p_threat") is not None
-        and r.get("error") is None and r.get("ground_truth") in ("BENIGN", "MALICIOUS")
+        and r.get("error") is None and not r.get("is_fallback")
+        and r.get("ground_truth") in ("BENIGN", "MALICIOUS")
     ]
     _xs, _ys, _ns = [], [], []
     for _k in range(10):
@@ -800,10 +808,12 @@ def _(go, jev_backend_filter, jev_hi_slider, jev_lo_slider, jev_records):
     _be = jev_backend_filter.value
     _ben = [float(r["p_threat"]) for r in jev_records
             if r.get("backend", "jev") == _be and r.get("ground_truth") == "BENIGN"
-            and r.get("p_threat") is not None and r.get("error") is None]
+            and r.get("p_threat") is not None and r.get("error") is None
+            and not r.get("is_fallback")]
     _mal = [float(r["p_threat"]) for r in jev_records
             if r.get("backend", "jev") == _be and r.get("ground_truth") == "MALICIOUS"
-            and r.get("p_threat") is not None and r.get("error") is None]
+            and r.get("p_threat") is not None and r.get("error") is None
+            and not r.get("is_fallback")]
     _fig_dist = go.Figure()
     _fig_dist.add_trace(go.Histogram(x=_ben, name="Benign", opacity=0.7,
                                      marker_color="#10b981", nbinsx=20))
@@ -823,7 +833,7 @@ def _(jev_backend_filter, jev_records, mo):
     _be = jev_backend_filter.value
     _lat = sorted(float(r["latency_ms"]) for r in jev_records
                   if r.get("backend", "jev") == _be and r.get("latency_ms") is not None
-                  and r.get("error") is None)
+                  and r.get("error") is None and not r.get("is_fallback"))
     _ti = sum(int(r.get("input_tokens") or 0) for r in jev_records
               if r.get("backend", "jev") == _be)
     _to = sum(int(r.get("output_tokens") or 0) for r in jev_records
