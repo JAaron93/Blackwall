@@ -12,7 +12,7 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 - **Single-Host Daemon**: Core components under `src/blackwall/` (outside `src/blackwall/enterprise/`) must remain a lightweight single-host daemon.
 - **Core Attacker Attribution**: Single-host local attacker attribution (`AttackerIdentityExtractor`, `AttackerProfile`, `IncidentReportGenerator` in `src/blackwall/attribution/` & `SyncResolver`) is a shared baseline Core capability.
 - **Zero Cluster-Mesh / eBPF Dependencies**: Core must contain zero imports or dependencies on ZeroMQ, NATS, or eBPF C headers.
-- **Support**: Core fully supports 100% GCP Vertex AI Mode (`google-genai` with `vertexai=True`).
+- **Support**: Core fully supports 100% GCP Vertex AI Mode (`google-genai` with `vertexai=True`) for Tier-2 reasoning, forensics, and evaluation judges. Tier-1 semantic triage runs the approved Jev classifier via paid Vercel AI Gateway credits (`AI_GATEWAY_API_KEY`, `disallowPromptTraining: true` on every call, sanitization-before-egress) per `.kiro/specs/tier-1-jev-addition/`.
 
 ### Blackwall MCP Gateway (Core Entry Point Specification)
 - **Location (Specification)**: Architecture governed by `.kiro/specs/blackwall-mcp-gateway/`, implemented via `src/blackwall/cli.py` with planned specification target src/blackwall/gateway/ (server, interceptor, synthesizer, upstream manager).
@@ -40,7 +40,7 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 ## 2. Interception Resolver & Scoring Rules
 
 - **Execution Flow**: In `SyncResolver`, execution flow MUST follow:
-  `Rate Check` -> `ContextHygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Threat Intelligence Validation (AlienVault OTX / Multi-Provider Orchestrator)` -> `Optional Semantic Triage (Gemini 3.5 Flash-Lite)` -> `Score Aggregation` -> `Threshold Verdict` -> `Optional Inline Signature Generation`.
+  `Rate Check` -> `ContextHygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Threat Intelligence Validation (AlienVault OTX / Multi-Provider Orchestrator)` -> `Semantic Triage via pluggable jev|gemini backend (Tier-1 Jev P(threat) with 0.35/0.75 band, Gemini Tier-2 escalation; governed by .kiro/specs/tier-1-jev-addition/)` -> `Score Aggregation` -> `Threshold Verdict` -> `Optional Inline Signature Generation`.
 - **Rust Substrate & Asynchronous Attribution Invariants**:
   - Native Rust SIMD acceleration (`blackwall._core_rs`) underpins individual operations (ContextSanitizer regex in Step 1, FTS5 word-intersection quality in Step 2, entropy calculation); it is NOT a standalone sequential pipeline stage.
   - Attacker attribution (`_schedule_attribution`) is executed out-of-band as an async background task dispatched only post-verdict on `BLOCK` or `QUARANTINE` with a non-blocking `<5ms` budget.
@@ -66,7 +66,7 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 - **Serialization & Persistence Casing**: When serializing Pydantic models for SQLite or database persistence, keys must map to expected column conventions without silent field dropping. Batch insertion methods must defensively accept both snake_case and camelCase field aliases.
 - **In-Process Task Dispatch**: When executing background analysis tasks in-process, candidate responses must be consumed and dispatched to downstream generators rather than abandoned in a pending state.
 - **Timeout Contract Scoping**: Mandatory HTTP client request timeout floors for LLM APIs (e.g. 120s) must never overwrite or inflate explicit caller synchronous execution deadlines.
-- **Native Structured Outputs & Model Standards**: Interception triage and signature generation must use native `response_schema` and `response_mime_type="application/json"`. Manual regex JSON extractors and defensive prompt scaffolding are strictly prohibited. Production models default to `gemini-3.5-flash-lite` (rapid triage) and `gemini-3.8-flash` (deep reasoning); all `gemini-3.1-*` models, Pro models, and preview variants are deprecated.
+- **Native Structured Outputs & Model Standards**: Interception triage and signature generation must use native `response_schema` and `response_mime_type="application/json"`. Manual regex JSON extractors and defensive prompt scaffolding are strictly prohibited. Rapid triage defaults to the Tier-1 Jev classifier (`typesafe-ai/jev`) fronting `SemanticTriageProvider`, with `gemini-3.5-flash-lite` retained as fallback/legacy backend; deep reasoning stays `gemini-3.8-flash`; all `gemini-3.1-*` models, Pro models, and preview variants are deprecated. The Jev backend is exempt from `response_schema` (evaluation models return typed answers, not text) — it MUST instead use a single boolean `is_threat` question, fixed `0.35/0.75` thresholds, and `disallowPromptTraining: true` on every call.
 
 
 ---
@@ -127,7 +127,7 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 - **Dual-Tiered Red-Teaming & Evaluation Strategy**:
   - **Tier 1 (Core & Fast CI/CD)**: Google Cloud Agent Platform / ADK Adversarial Harness in 100% GCP Vertex AI Mode (`before_tool_callback`, Gemini in Vertex AI mode via Application Default Credentials).
   - **Tier 2 (Enterprise Kernel & Multi-Stage Attack Simulations)**: Cybench / CyberGym on GCP Cloud Run with gVisor container sandbox isolation for testing eBPF socket drops, ZeroMQ signature broadcast, and Vault token invalidation.
-- **Weave Deprecation & Zero-SaaS Standard**: Weights & Biases (Weave) is deprecated and replaced by Google Cloud Vertex AI Gen AI Evaluation Service (`vertexai.preview.evaluation` / `EvalTask`) and Google Cloud Trace (`opentelemetry-exporter-gcp-trace`). Evaluation pipelines MUST NOT require third-party SaaS credentials (`WANDB_API_KEY`, AI Studio keys) and must authenticate exclusively via GCP Application Default Credentials (ADC).
+- **Weave Deprecation & Zero-SaaS Standard**: Weights & Biases (Weave) is deprecated and replaced by Google Cloud Vertex AI Gen AI Evaluation Service (`vertexai.preview.evaluation` / `EvalTask`) and Google Cloud Trace (`opentelemetry-exporter-gcp-trace`). Evaluation pipelines MUST NOT require third-party SaaS credentials (`WANDB_API_KEY`, AI Studio keys) and must authenticate exclusively via GCP Application Default Credentials (ADC). This zero-SaaS rule governs the evaluation harness and judges only — it does NOT prohibit the approved production Tier-1 Jev backend via paid Vercel AI Gateway credits (governed by `.kiro/specs/tier-1-jev-addition/`), nor candidate-side Gateway credentials in A/B eval runs.
 
 ---
 
