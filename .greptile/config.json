@@ -150,6 +150,11 @@
       "id": "subsystem-migration-and-citation-hygiene",
       "rule": "Subsystem Migration & Instruction Citation Hygiene: (1) In major subsystem migrations, do not perform blanket deletions if existing utility code, CLI command shapes, or test fixtures are consistent with the replacement engine; rename and modernize them in-place. (2) In developer instruction files (AGENTS.md, rules/), abstract specification targets (.kiro/specs/blackwall-mcp-gateway/) must be qualified as specification targets rather than concrete code. (3) Never naively renumber downstream numbered rules when modernizing rules in-place.",
       "severity": "medium"
+    },
+    {
+      "id": "tier-1-jev-invariants",
+      "rule": "Tier-1 Jev Safety Invariants (governed by .kiro/specs/tier-1-jev-addition/ and ADR-0006): For code touching the Jev triage path (SemanticTriageProvider, Jev backends, eval producers, notebooks consuming P(threat)), verify: (1) Fixed 0.35/0.75 ambiguity band — threshold changes require a spec amendment with fresh labeled evidence; flag adjustable acceptance gates. (2) Aggregation supremacy — Jev outputs are weighted signals only; terminal ALLOW/BLOCK/QUARANTINE are decided exclusively at Score Aggregation + Threshold Verdict; flag any Jev-to-verdict short-circuit. (3) Every Gateway call sets disallowPromptTraining:true and builds state only from sanitized Tool/Arguments/Metadata; flag raw context, env-var, or credential egress, and ground-truth-bearing label text in eval inputs. (4) Async signature generation fires only for novel (non-TSG-matched) BLOCKs. (5) AI_GATEWAY_API_KEY persists only to 0600 env files, never inline in service definitions, logs, or unit files. (6) Caught model/API failures in eval rows record is_fallback:true.",
+      "severity": "high"
     }
   ]
 }

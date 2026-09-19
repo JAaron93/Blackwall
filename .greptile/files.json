@@ -5,11 +5,11 @@
   },
   {
     "path": ".agents/rules/architecture_and_security.md",
-    "description": "Project architectural, database, security, and service supervision rules (Sections 54-56: launchd/systemd supervision, FHS separation, DGX Spark unified memory)."
+    "description": "Project architectural, database, security, and service supervision rules (launchd/systemd supervision, FHS separation, DGX Spark unified memory, Gateway eval-client constraints)."
   },
   {
     "path": ".agents/rules/testing_and_hygiene.md",
-    "description": "Project testing hygiene, TDD, and test matrix rules (Section 47: systemd unit testing matrix and DGX co-existence test scoping)."
+    "description": "Project testing hygiene, TDD, and test matrix rules (service test matrices, marimo notebook conventions, eval input decontamination, content-hash checkpointing)."
   },
   {
     "path": ".kiro/specs/blackwall-mcp-gateway/design.md",
@@ -46,5 +46,37 @@
   {
     "path": ".kiro/specs/blackwall-threat-intel-cli/tasks.md",
     "description": "Implementation tasks for Blackwall Threat Intelligence & Native CLI Engine across 4 phases."
+  },
+  {
+    "path": ".kiro/specs/tier-1-jev-addition/design.md",
+    "description": "Tier-1 Jev addition design — additive Jev classifier with aggregation supremacy, Tier-2 escalation, and A/B evidence table."
+  },
+  {
+    "path": ".kiro/specs/tier-1-jev-addition/requirements.md",
+    "description": "Tier-1 Jev functional requirements — provider seam, fixed 0.35/0.75 band, novel-only forensics, sanitization-before-egress."
+  },
+  {
+    "path": ".kiro/specs/tier-1-jev-addition/tasks.md",
+    "description": "Tier-1 Jev implementation tracks A-D with TDD/BDD acceptance and live re-run gates."
+  },
+  {
+    "path": "docs/adr/0006-tier1-jev-additive-with-gemini-tier2.md",
+    "description": "ADR recording the C2-weakness finding, cost-led Jev rationale, and retained Tier-2 justification."
+  },
+  {
+    "path": "docs/evaluation_guide.md",
+    "description": "Evaluation workflows including the Tier-1 Jev triage eval producer and Marimo analytics dashboard."
+  },
+  {
+    "path": "scripts/jev_triage_eval.py",
+    "description": "Jev triage eval producer — neutralized sanitized states, hash-scoped checkpoints, artifact emission."
+  },
+  {
+    "path": "scripts/jev_evaluate.mjs",
+    "description": "Gateway evaluation helper (AI SDK 7 batch/single modes, bounded 429 backoff, is_fallback contract)."
+  },
+  {
+    "path": "notebooks/benchmark_analytics.py",
+    "description": "Marimo benchmark dashboard — SLA scorecard plus Tier-1 Jev analytics (confusion matrix, ROC, calibration, XAI)."
   }
 ]
