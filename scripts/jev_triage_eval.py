@@ -34,18 +34,23 @@ INSTALL_DIR = Path.home() / ".cache" / "blackwall" / "jev-eval"
 NODE_RUNNER = REPO_ROOT / "scripts" / "jev_evaluate.mjs"
 
 
-# Ground-truth-bearing meta words that never appear in production
-# Tool/Arguments/Metadata states. Scrubbed so Jev must classify the actual
-# tool-call payload instead of reading the eval harness's answer key.
-# Attached forms (e.g. parent-case IDs like malicious_sql_001) match too.
-LABEL_WORDS_RE = re.compile(
-    r"[\w]*(benign|malicious|evasion|evasive|evade|evading)[\w]*", re.IGNORECASE
+# Ground-truth-bearing harness scaffolding that never appears in production
+# Tool/Arguments/Metadata states. Two precise patterns, nothing broader:
+# (1) standalone label words; (2) parent-case-ID references
+# (label_category_digits, e.g. malicious_sql_001). Payload placeholders
+# such as [[MALICIOUS_COMMAND]] match NEITHER pattern and are preserved —
+# erasing them would destroy the attack signal being measured.
+LABEL_STANDALONE_RE = re.compile(
+    r"\b(benign|malicious|evasion|evasive|evade|evading)\b", re.IGNORECASE
+)
+LABEL_CASEID_RE = re.compile(
+    r"\b(?:benign|malicious|evasion)(?:_[a-z]+)+_\d+\b", re.IGNORECASE
 )
 PROOF_TOOL_RE = re.compile(r"Execute tool '([^']+)'")
 
 
 def neutralize(text: str) -> str:
-    scrubbed = LABEL_WORDS_RE.sub("", text)
+    scrubbed = LABEL_CASEID_RE.sub("", LABEL_STANDALONE_RE.sub("", text))
     return re.sub(r"\s+", " ", scrubbed).strip()
 
 
