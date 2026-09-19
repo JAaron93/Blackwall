@@ -334,7 +334,7 @@ Build a lightweight native macOS Menu Bar application (`Blackwall.app`):
 #### TASK-F04: Build GitHub Actions Release Packaging Pipeline (macOS .dmg & Linux .deb / Tarball)
 **Status:** ⏳ Not Started
 **Dependencies:** TASK-F03
-**Requirements Satisfied:** FR-13, US-07, US-09, NFR-07
+**Requirements Satisfied:** FR-13, US-07, US-09, NFR-01, NFR-07
 
 **Description:**
 Create the GitHub Actions workflow (`.github/workflows/release_packages.yml`) to build, bundle, and package release artifacts:
@@ -351,6 +351,7 @@ Create the GitHub Actions workflow (`.github/workflows/release_packages.yml`) to
 3. Packaged `.deb` installs cleanly via `dpkg -i` on clean Ubuntu 24.04 LTS and DGX OS environments, creating the dedicated non-root `blackwall:blackwall` service account, setting directory permissions, and deploying `/lib/systemd/system/blackwall.service` configured with `EnvironmentFile=-/etc/default/blackwall`; upon providing valid GCP credentials (via postinst auto-capture from `$SUDO_USER`, populating `/etc/default/blackwall`, or `sudo blackwall service configure`), `systemctl enable --now blackwall` discovers and starts the service under the non-root identity without error, while unconfigured credentials trigger an immediate fail-fast exit.
 4. Release assets are attached automatically upon publishing a git tag.
 5. All build verification checks pass.
+6. Forward-compat (Tier-1 Jev, see `.kiro/specs/tier-1-jev-addition/`): the packaged dependency closure contains no non-Python runtime (NFR-01), and a packaged-environment smoke test imports the Jev triage backend (`BW_SEMANTIC_BACKEND=jev` import check, mocked evaluation) without error.
 
 #### TASK-F05: Implement NVIDIA DGX OS Co-Existence & Zero-VRAM Verification Tests
 **Status:** ⏳ Not Started
@@ -377,7 +378,7 @@ Implement verification tests ensuring complete non-interference, zero GPU VRAM c
 
 > [!TIP]
 > **PARALLEL EXECUTION**
-> `TASK-G02` ("The Heist"), `TASK-G03` ("The Quarantine"), and `TASK-G05` ("The Poisoned Package") can be developed concurrently once `TASK-G01` (Honeypot Server) is complete.
+> `TASK-G02` ("The Heist"), `TASK-G03` ("The Quarantine"), `TASK-G05` ("The Poisoned Package"), and `TASK-G06` ("The Bouncer") can be developed concurrently once `TASK-G01` (Honeypot Server) is complete.
 
 ### Track G: Demo Scenario Infrastructure & Recording
 
@@ -478,18 +479,18 @@ Demo flow:
 
 #### TASK-G04: Build Recording Infrastructure & README Integration
 **Status:** ⏳ Not Started
-**Dependencies:** TASK-G02, TASK-G03, TASK-G05
-**Requirements Satisfied:** FR-15, US-10, US-11, US-12
+**Dependencies:** TASK-G02, TASK-G03, TASK-G05, TASK-G06
+**Requirements Satisfied:** FR-15, US-10, US-11, US-12, US-13
 
 **Description:**
-Build the recording orchestration and README integration that packages all three demo scenarios into watchable, embeddable recordings for potential users.
+Build the recording orchestration and README integration that packages all four demo scenarios into watchable, embeddable recordings for potential users.
 
 Components:
-1.  **`scripts/gateway_demo/run_gateway_demo.sh`** — Master entry point that executes all three scenarios sequentially with zero manual intervention. Handles honeypot server lifecycle (start before scenarios, stop after), gateway startup/teardown, and exit-code aggregation.
+1.  **`scripts/gateway_demo/run_gateway_demo.sh`** — Master entry point that executes all four scenarios sequentially with zero manual intervention. Handles honeypot server lifecycle (start before scenarios, stop after), gateway startup/teardown, and exit-code aggregation.
 2.  **`scripts/gateway_demo/record_demo.sh`** — Recording orchestration using `asciinema rec` with `tmux` split-pane layout:
     - Left pane: Agent demo script execution (tool calls, verdicts, results)
     - Right pane: `blackwall serve --foreground` live gateway logs (threat scores, signature matches, colored verdict highlights)
-    - Produces `.cast` files for each scenario in `docs/recordings/` (`heist.cast`, `quarantine.cast`, `poisoned_package.cast`)
+    - Produces `.cast` files for each scenario in `docs/recordings/` (`heist.cast`, `quarantine.cast`, `poisoned_package.cast`, `bouncer.cast`)
 3.  **GIF/SVG Generation:** Post-processing step using `agg` (asciinema GIF generator) or `svg-term` to produce thumbnail images for README embedding.
 4.  **README Integration:** Add a new `## 🛡️ MCP Gateway Demos` section to `README.md` containing:
     - Brief prose introduction explaining the difference between the existing red-teamer demo and the MCP Gateway demos (direct adversarial vs. indirect prompt injection)
@@ -497,7 +498,7 @@ Components:
     - "Try it yourself" instructions: `./scripts/gateway_demo/run_gateway_demo.sh`
 
 **Acceptance Criteria:**
-1. `run_gateway_demo.sh` executes all three scenarios end-to-end with zero manual intervention and returns exit 0 on success.
+1. `run_gateway_demo.sh` executes all four scenarios end-to-end with zero manual intervention and returns exit 0 on success.
 2. `record_demo.sh` produces `.cast` recording files in `docs/recordings/` for each scenario.
 3. README.md contains a `## 🛡️ MCP Gateway Demos` section with scenario descriptions, OWASP/MITRE references, and run instructions.
 4. All demo scenarios pass as integration tests in CI (verifiable via `pytest tests/integration/test_gateway_demo_*.py`).
@@ -553,3 +554,25 @@ Demo flow:
 6. Gherkin BDD scenario (`tests/features/gateway_demo_poisoned_package.feature`) validates the defense-in-depth flow.
 7. Test isolation: `sys.addaudithook` is confined to the child subprocess and does not affect the parent test runner.
 8. All tests pass.
+
+#### TASK-G06: Implement "The Bouncer" Demo Scenario (Tier-1 Jev Fast Path + Tier-2 Escalation)
+**Status:** ⏳ Not Started
+**Dependencies:** TASK-G01, TASK-B01, TASK-B02, TASK-C01; Tier-1 Jev backend implementation (`.kiro/specs/tier-1-jev-addition/` Track B) MUST be complete
+**Requirements Satisfied:** FR-03, FR-04, FR-15, US-13
+
+**Description:**
+Build `scripts/gateway_demo/scenario_bouncer.py` — an automated demo script showcasing the additive triage architecture: cheap Jev fast-path verdicts for clear cases and Gemini Tier-2 escalation only for ambiguity.
+
+Demo flow (all fixtures synthetic; Jev evaluation calls are mocked — no live Gateway credentials required):
+1.  Start the gateway wrapping a mock tool server with `BW_SEMANTIC_BACKEND=jev` (mocked Jev responder returning canned `P` values).
+2.  Send a benign `tools/call` for `database_query` (parameterized SELECT) → assert **ALLOW** on the Jev fast path (`P≈0.02`), and assert Tier-2 was NOT invoked.
+3.  Send an obfuscated SQL injection `tools/call` → assert **BLOCK** (`-32603`) on the Jev fast path (`P≈0.98`), and assert Tier-2 was NOT invoked.
+4.  Send an ambiguous C2-beacon-like `tools/call` (mocked `P≈0.51`, inside the `0.35–0.75` band) → assert escalation to Tier-2 and a recorded final verdict, plus an async signature artifact for BLOCK outcomes.
+5.  Output structured JSON event log (`$TMPDIR/bouncer_results.json`) with per-call `P`, backend (`jev` vs `gemini-tier-2`), and verdicts.
+
+**Acceptance Criteria:**
+1. Integration test (`tests/integration/test_gateway_demo_bouncer.py`) passes end-to-end with mocked Jev + Tier-2 responders.
+2. Acts 1–2 complete without any Tier-2 invocation (assert via call counters).
+3. Act 3 escalates and records the Tier-2 final verdict.
+4. Gherkin BDD scenario (`tests/features/gateway_demo_bouncer.feature`) validates fast-path ALLOW, fast-path BLOCK, and escalation.
+5. All tests pass with zero live network calls.
