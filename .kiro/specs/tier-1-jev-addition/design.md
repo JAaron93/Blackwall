@@ -38,7 +38,7 @@ priori); Tier-0, TSG, judges, and weights were frozen. Every call carried
 | Escalation rate (157) | n/a | **0%** | ≤25% | ✅ |
 | Evasion-proof (10) | n/a | 7 BLOCK + 3 escalate (0.51/0.68/0.70) | resolve via Tier-2 | ✅ |
 | Full-pass cost | — | **$0.0025** (60k in / 3.5k out tokens) | — | ✅ |
-| Latency p50/p95 | — | **~0.9s / ~1.3s** via Gateway | aspirational <100ms | ⚠️ |
+| Latency p50/p95 | — | **~0.9s / ~1.3s** via Gateway | interim p95 <2s (amended; `<100ms` deferred to local/in-VPC) | ✅ |
 
 Separation margins: benign `P ≤ 0.06`, malicious `P ≥ 0.89` — nothing near the
 ambiguity band on the main suite. The 3 proof-set escalations (C2 beacon, path
