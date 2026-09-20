@@ -49,6 +49,8 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 - **Context Hygiene**: Sensitivity maskers MUST replace credentials with generic placeholders (`[[VARIABLE_NAME]]`). For semantic triage, `preserve_iocs=True` preserves target URLs, domains, and filesystem paths (`/etc/shadow`) while strictly redacting secrets and credentials.
 - **FTS5 Similarity Scoring**: SQLite Threat Signature Graph queries MUST use word-level intersection match quality calculation scaled by BM25 rank score: `fts_rank_scale = min(max(1.0 + abs(bm25_rank) / 10.0, 1.0), 1.5)`.
 - **Threat Signature Graph URL-Decoding**: SQLite TSG queries and pattern matching MUST perform URL-decoding (`urllib.parse.unquote`) on candidate queries/arguments prior to pattern matching to detect encoded evasion attempts against persisted plaintext patterns.
+- **Tier-1 Semantic Triage Seam**: Triage is reached only through the `SemanticTriageProvider` ABC in `src/blackwall/policy/semantic.py`. `SyncResolver._evaluate_semantic_intent` is a compatibility surface and MUST remain an `Optional[float]` adapter returning `SemanticTriageResult.threat_score` (existing tests patch that exact method). Providers MUST return `None` to signal abstention — never a synthetic `0.0`, which would defeat the fail-closed `max()` in `_score_argument_novelty`. An unimplemented `BW_SEMANTIC_BACKEND` value MUST warn and degrade to the shipped `gemini` backend; it MUST NOT raise or silently disable triage, and the default flips only at TASK-D04.
+- **Two Subsystems, One Module**: `src/blackwall/policy/semantic.py` deliberately hosts both the agent-side async `SemanticGatingEngine` (IOC/TSG/CBM gating) and the Tier-1 triage seam. They share no code and no verdict path; do not demand they be merged.
 
 ---
 
@@ -138,6 +140,9 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 - **Audit Hook Isolation**: Registrations of `sys.addaudithook` in tests MUST be scoped inside isolated test functions (never module-level).
 - **Process Group Cleanup**: Background test processes MUST clean up process groups using `os.killpg(os.getpgid(pid), signal.SIGTERM)`.
 - **Secret Scanner Hygiene**: Synthetic test credentials MUST NOT match live cloud provider key formats (e.g. `AWS_KEY_<digits>`).
+- **Formatter Rewrite Is Not a Defect**: at `target-version = "py314"`, black 26.x and `ruff format >= 0.16` both rewrite `except (A, B):` into the PEP 758 unparenthesized form, which parses to the same AST on Python 3.14. Neither spelling is a syntax error in this repository — do not flag it, and do not demand a formatter sweep, since roughly 284 files are formatter-dirty and `.git/hooks/pre-commit` is not installed.
+- **Baseline-Diff Environmental Failures**: `.venv` (Python 3.14.7) is the sole repository environment and is installed without the `evaluation` / `eval` optional extras, so GCP/Vertex evaluation-suite failures are frequently environmental rather than defects. Compare the failing subset against pristine `main` before attributing any failure to the change under review.
+- **Spec-Track Scope Overrides the Coverage Triad**: where a spec track's own acceptance gates conflict with the unit + property + BDD triad above, the track's scope governs. Deferred coverage must be cited to the task that owns it (for `.kiro/specs/tier-1-jev-addition/`, BDD acceptance is TASK-D01) rather than pulled forward into the current track.
 
 ---
 
@@ -255,8 +260,8 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
   - Companion bridges lacking CLI support for auxiliary methods (e.g. `get_pulse`) MUST transparently delegate to their in-process fallback provider rather than raising `NotImplementedError`.
 - **CLI Teardown Metric Flushing**:
   - CLI commands performing threat lookups MUST flush in-memory metric buffers in a `finally` block before process exit.
-- **Legacy VirusTotal Compatibility**:
-  - VirusTotal GTI client is retained exclusively as an opt-in fallback when `BW_THREAT_INTEL_BACKEND=virustotal` is explicitly configured.
+- **Threat Intelligence Selector Reality**:
+  - No VirusTotal GTI client ships in `src/blackwall/threat_intel/`, and `BW_THREAT_INTEL_BACKEND` is read by no code path. The only configured alternative primary provider is `HarpoonBridge` wrapping OTX, selected via `BW_THREAT_INTEL_PRIMARY=harpoon|harpoon-otx`. Do not flag absent VT support as a regression, and do not accept new code reintroducing a `BW_THREAT_INTEL_BACKEND` reader without a spec amendment.
 - **SyncResolver Integration & Typed Exception Propagation**:
   - `SyncResolver._query_threat_intel` integrates with `ThreatIntelOrchestrator` (`lookup`), escalating malicious detections to trigger `BLOCK` verdicts.
   - Typed exceptions (`OTXCircuitBreakerOpenError`, `OTXTokenBucketExhaustedError`, `OTXLookupError`, `ThreatIntelError`, `CircuitBreakerError`, `AbuseIPDBError`, `AbuseChError`, `HarpoonError`) MUST propagate out of `_query_threat_intel` without being suppressed into `None` (which would mask failures as benign / `ALLOW`). Lookups returning provider failure error responses MUST raise `OTXLookupError`.
