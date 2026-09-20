@@ -9,18 +9,21 @@ in unit/BDD tests (mocked); live calls only in the eval harness.
 > [!TIP] PARALLEL EXECUTION — TASK-A01 and TASK-A02 may run concurrently once
 > the `SemanticTriageResult` schema is agreed.
 
-* [ ] **TASK-A01: `SemanticTriageResult` schema + provider interface**
+* [x] **TASK-A01: `SemanticTriageResult` schema + provider interface**
   (FR-01; NFR-03). Define the dataclass and `SemanticTriageProvider` ABC in
   `src/blackwall/policy/semantic.py`; port the existing Gemini inline logic
   behind `GeminiTriageBackend` with byte-identical behavior.
   Dependencies: none. Acceptance: existing
   `tests/unit/test_sync_resolver_semantic_triage.py` passes unmodified
   against the `gemini` backend.
-* [ ] **TASK-A02: `BW_SEMANTIC_BACKEND` selection + `_compute_threat_score` wiring**
+* [x] **TASK-A02: `BW_SEMANTIC_BACKEND` selection + `_compute_threat_score` wiring**
   (FR-01). Env-gated backend choice (`jev|gemini`), default `gemini` until
   Track D signs off; `_compute_threat_score` consumes only
   `result.threat_score` (weights untouched).
   Dependencies: TASK-A01. Acceptance: suite green under both settings.
+  > [!NOTE] Track A lands unit-layer coverage only (`tests/unit/test_policy_semantic_triage_provider.py`,
+  > `tests/unit/test_sync_resolver_semantic_backend_selection.py`). The Gherkin
+  > acceptance scenarios for this seam are owned by TASK-D01 (NFR-04).
 
 ## Track B — Jev Backend (depends on Track A)
 
