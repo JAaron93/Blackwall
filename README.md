@@ -364,7 +364,7 @@ pytest tests/features/ -v
   - **Multi-Provider Orchestrator:** Cache-first cascade routing with multi-source risk score aggregation and scoped SQLite persistence.
   - **Fast-Path SQLite Cache:** Sub-millisecond (<1ms) lookups for known indicators, preventing repeated external network latency.
   - **3-State Circuit Breaker:** Proactive failure isolation with 3-probe HALF-OPEN recovery and 3.0s timeout safeguards.
-  - **Legacy VirusTotal Mode:** Retained as an opt-in fallback under `BW_THREAT_INTEL_BACKEND=virustotal`.
+  - **Harpoon Companion Bridge:** Optional alternative primary provider via `BW_THREAT_INTEL_PRIMARY=harpoon|harpoon-otx`. No VirusTotal client ships in `src/blackwall/threat_intel/`.
 - **Why Threat Signatures Enable 100x+ Speedup:** Novel attacks require external intelligence lookups and LLM evaluation (~1,010ms). Once blocked, Blackwall writes a normalized vector signature to local SQLite. Future variants match via cosine similarity in ~7.0ms—a **144x speedup** with zero LLM inference.
 
 ---

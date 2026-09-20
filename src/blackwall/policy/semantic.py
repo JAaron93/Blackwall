@@ -1,11 +1,22 @@
+import asyncio
+import inspect
 import logging
 import json
 import re
 import ipaddress
 import math
+from abc import ABC, abstractmethod
 from collections import Counter
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Callable, ClassVar, Dict, List, Optional
 
+from pydantic import BaseModel, Field
+
+from blackwall.config import (
+    DEFAULT_RAPID_TRIAGE_MODEL,
+    get_gemini_http_timeout,
+    get_gemini_thinking_level,
+)
 from blackwall.models import (
     ToolCallContext,
     VerdictDecision,
@@ -15,7 +26,7 @@ from blackwall.models import (
 from blackwall.policy.models import GateResult, StructuralAction
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.mcp.codebase_memory import CodebaseMemoryClient
-from blackwall.validators import clamp_score
+from blackwall.validators import clamp_score, normalize_text
 
 try:
     try:
@@ -772,3 +783,208 @@ class SemanticGatingEngine:
         score += cbm_penalty
 
         return clamp_score(score)
+
+
+# ---------------------------------------------------------------------------
+# Tier-1 semantic triage provider seam
+# (.kiro/specs/tier-1-jev-addition/ — FR-01)
+# ---------------------------------------------------------------------------
+
+SEMANTIC_BACKEND_ENV_VAR = "BW_SEMANTIC_BACKEND"
+DEFAULT_SEMANTIC_BACKEND = "gemini"
+
+# Backends named by FR-01 that remain unimplemented until their owning task.
+# They resolve to DEFAULT_SEMANTIC_BACKEND rather than raising or disabling
+# triage, which would be fail-open relative to the pre-seam behaviour.
+PENDING_SEMANTIC_BACKENDS: frozenset[str] = frozenset({"jev"})
+
+
+class SemanticTriageEvaluation(BaseModel):
+    threat_score: float = Field(
+        ..., ge=0.0, le=1.0, description="Risk assessment score between 0.0 and 1.0"
+    )
+    is_suspicious: bool = Field(
+        ..., description="Whether the tool call exhibits malicious intent"
+    )
+    reasoning: str = Field(..., description="Concise rationale for the verdict")
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticTriageResult:
+    """Backend-agnostic Tier-1 signal handed to Score Aggregation.
+
+    Only ``threat_score`` is consumed today; the remaining fields are the
+    contract Tracks B/C add on top of this seam.
+    """
+
+    threat_score: float
+    confidence: Optional[float] = None
+    """Calibration confidence — populated by the Jev backend (FR-07)."""
+
+    backend: str = DEFAULT_SEMANTIC_BACKEND
+    escalate: bool = False
+    """Ambiguity-band flag — consumed by Tier-2 routing (FR-03)."""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "threat_score", clamp_score(float(self.threat_score)))
+        if self.confidence is not None:
+            object.__setattr__(self, "confidence", clamp_score(float(self.confidence)))
+        if not normalize_text(self.backend):
+            raise ValueError("SemanticTriageResult.backend must be a non-empty string")
+
+
+class SemanticTriageProvider(ABC):
+    """Pluggable Tier-1 semantic triage backend (``jev`` | ``gemini``)."""
+
+    name: ClassVar[str] = ""
+
+    @abstractmethod
+    async def triage(self, context: ToolCallContext) -> Optional[SemanticTriageResult]:
+        """Evaluate a tool call, or return None when no signal is available.
+
+        None means "abstain" and is deliberately distinct from a
+        ``threat_score`` of 0.0: the fail-closed ``max()`` in
+        ``SyncResolver._score_argument_novelty`` must not let a synthetic zero
+        mask a deterministic high-risk signal.
+        """
+
+
+class GeminiTriageBackend(SemanticTriageProvider):
+    """Gemini 3.5 Flash-Lite rapid triage — behaviour-preserving port of the
+    inline call that previously lived in ``SyncResolver._evaluate_semantic_intent``.
+    """
+
+    name: ClassVar[str] = "gemini"
+
+    def __init__(
+        self,
+        client: Any,
+        *,
+        model: str = DEFAULT_RAPID_TRIAGE_MODEL,
+        timeout: float = 5.0,
+    ) -> None:
+        self.client = client
+        self.model = model
+        self.timeout = timeout
+
+    async def triage(self, context: ToolCallContext) -> Optional[SemanticTriageResult]:
+        if not self.client or not (
+            hasattr(self.client, "models")
+            or (hasattr(self.client, "aio") and hasattr(self.client.aio, "models"))
+        ):
+            return None
+        try:
+            from google.genai import types
+
+            thinking_lvl = get_gemini_thinking_level(
+                task_type="rapid_triage", default="minimal"
+            )
+            config = types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=SemanticTriageEvaluation,
+                thinking_config=(
+                    types.ThinkingConfig(thinking_level=thinking_lvl)
+                    if thinking_lvl
+                    else None
+                ),
+            )
+            prompt = (
+                "Analyze this tool execution for malicious intent, unauthorized actions, "
+                "privilege escalation, or sensitive data exfiltration.\n"
+                f"Tool: {context.tool_name}\n"
+                f"Arguments: {context.arguments}\n"
+                f"Metadata: {context.metadata or {}}\n"
+            )
+            timeout = get_gemini_http_timeout(
+                configured=self.timeout, task_type="rapid_triage"
+            )
+            aio_models = getattr(getattr(self.client, "aio", None), "models", None)
+            aio_gen = getattr(aio_models, "generate_content", None)
+            if aio_gen is not None and inspect.iscoroutinefunction(aio_gen):
+                coro = aio_gen(
+                    model=self.model,
+                    contents=prompt,
+                    config=config,
+                )
+            else:
+                coro = asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model=self.model,
+                    contents=prompt,
+                    config=config,
+                )
+            response = await asyncio.wait_for(coro, timeout=timeout)
+
+            # 1. Parsed Pydantic model
+            if hasattr(response, "parsed") and response.parsed is not None:
+                parsed = response.parsed
+                if isinstance(parsed, SemanticTriageEvaluation):
+                    return SemanticTriageResult(
+                        threat_score=float(parsed.threat_score), backend=self.name
+                    )
+                if isinstance(parsed, dict) and "threat_score" in parsed:
+                    return SemanticTriageResult(
+                        threat_score=float(parsed["threat_score"]), backend=self.name
+                    )
+                if hasattr(parsed, "threat_score"):
+                    try:
+                        return SemanticTriageResult(
+                            threat_score=float(parsed.threat_score), backend=self.name
+                        )
+                    except (TypeError, ValueError):
+                        pass
+
+            # 2. Text JSON parsing
+            text = getattr(response, "text", None)
+            if text:
+                try:
+                    data = json.loads(text)
+                    if isinstance(data, dict) and "threat_score" in data:
+                        return SemanticTriageResult(
+                            threat_score=float(data["threat_score"]), backend=self.name
+                        )
+                except Exception:
+                    pass
+
+            return None
+        except Exception as exc:
+            logger.debug("Semantic intent evaluation fell back to heuristics: %s", exc)
+            return None
+
+
+SEMANTIC_TRIAGE_BACKENDS: Dict[str, Callable[[Any], SemanticTriageProvider]] = {
+    GeminiTriageBackend.name: lambda client: GeminiTriageBackend(client)
+}
+
+
+def resolve_semantic_backend(raw: Optional[str]) -> str:
+    """Map a configured backend name onto a shipped provider name.
+
+    Defaults to ``gemini`` — the Jev default flip is TASK-D04, not this seam.
+    """
+    name = normalize_text(raw)
+    if not name or name in SEMANTIC_TRIAGE_BACKENDS:
+        return name or DEFAULT_SEMANTIC_BACKEND
+    if name in PENDING_SEMANTIC_BACKENDS:
+        logger.warning(
+            "Semantic triage backend %r is specified by FR-01 but is not "
+            "implemented until TASK-B01 (.kiro/specs/tier-1-jev-addition/) — "
+            "degrading to %r.",
+            name,
+            DEFAULT_SEMANTIC_BACKEND,
+        )
+    else:
+        logger.warning(
+            "unknown semantic triage backend %r — degrading to %r",
+            name,
+            DEFAULT_SEMANTIC_BACKEND,
+        )
+    return DEFAULT_SEMANTIC_BACKEND
+
+
+def build_semantic_provider(
+    client: Any, backend: Optional[str] = None
+) -> SemanticTriageProvider:
+    """Instantiate the provider for ``backend`` (defaults to the shipped one)."""
+    name = resolve_semantic_backend(backend)
+    return SEMANTIC_TRIAGE_BACKENDS[name](client)

@@ -283,8 +283,7 @@ To ensure synchronous evaluation strictly obeys the $<5\text{ms}$ latency budget
 - **3-State Circuit Breaker Resilience**: Proactively halts upstream queries on 5 consecutive failures (`OPEN`), testing connectivity in `HALF-OPEN` mode with a mandatory 3-probe success threshold before restoring to `CLOSED`. Any failure during `HALF-OPEN` immediately trips back to `OPEN`.
 - **Fail-Safe Exception Propagation**: Provider failures raise explicit typed exceptions (`OTXCircuitBreakerOpenError`, `OTXTokenBucketExhaustedError`, `OTXLookupError`) rather than returning benign default responses, ensuring callers fall back cleanly to secondary feeds or local threat graph heuristics.
 - **URL Credential Redaction**: All logged indicators pass through `_sanitize_indicator_for_log` to redact user-info credentials (`user:pass`) and query parameter secrets before persisting in log files.
-- **Harpoon OSINT Companion Bridge**: Subprocess integration (`HarpoonBridge`) for deep interactive OSINT investigation via the `harpoon` CLI when installed.
-- **Legacy VirusTotal Mode**: Retained as an opt-in fallback under `BW_THREAT_INTEL_BACKEND=virustotal` for organizations with existing commercial VirusTotal subscriptions.
+- **Harpoon OSINT Companion Bridge**: Subprocess integration (`HarpoonBridge`) for deep interactive OSINT investigation via the `harpoon` CLI when installed, selected as an alternative primary provider via `BW_THREAT_INTEL_PRIMARY=harpoon|harpoon-otx`.
 
 ### 6.2 Supplementary Threat Providers & Multi-Provider Cascade
 - **AbuseIPDB Provider (`AbuseIPDBProvider`)**: Dedicated IP reputation adapter for `IPV4` and `IPV6` indicators. Queries `https://api.abuseipdb.com/api/v2/check`, linearly mapping `abuseConfidenceScore` ($0–100 \rightarrow 0.0–1.0$, with $\ge 25$ flagged as `is_malicious = True`). Strictly rejects non-IP indicators via `ValueError` without triggering network requests.

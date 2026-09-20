@@ -70,4 +70,4 @@ The resilience infrastructure built in ADR 0002 is directly reused and upgraded:
 - Deprecates and removes `GTIMCPClient` and `GTIQueryBudgetTracker`.
 - Removes `GTIBudgetExhaustedError` and `GTIDegradedError` exceptions.
 - Requires migrating `gti_cache` SQLite table schema to `threat_intel_cache`.
-- Legacy VirusTotal access is retained strictly as an opt-in fallback via `BW_THREAT_INTEL_BACKEND=virustotal`.
+- ~~Legacy VirusTotal access is retained strictly as an opt-in fallback via `BW_THREAT_INTEL_BACKEND=virustotal`.~~ **Corrected during the PR #170 agent-instruction audit:** this fallback was never implemented. No VirusTotal client exists in `src/blackwall/threat_intel/` and `BW_THREAT_INTEL_BACKEND` is read by no code path. The configured alternative primary provider is `HarpoonBridge` wrapping OTX, selected via `BW_THREAT_INTEL_PRIMARY=harpoon|harpoon-otx`.

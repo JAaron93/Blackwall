@@ -139,9 +139,10 @@ class ThreatIntelResponse(BaseModel):
 * **Pricing:** 100% Free community fair-use API with `Auth-Key`.
 * **Zero Cost Parity:** Provides high-fidelity malware family correlation (e.g., QakBot, Cobalt Strike, Lumma Stealer) without commercial subscriptions.
 
-#### C. `VirusTotalProvider` (Legacy Opt-in)
-* Retained under `BW_THREAT_INTEL_BACKEND=virustotal` for enterprise organizations with existing commercial VirusTotal subscriptions.
-* Constrained to 4 RPM if an unauthenticated or public API key is detected.
+#### C. `VirusTotalProvider` (Legacy Opt-in) — NOT IMPLEMENTED
+* ~~Retained under `BW_THREAT_INTEL_BACKEND=virustotal` for enterprise organizations with existing commercial VirusTotal subscriptions.~~
+* ~~Constrained to 4 RPM if an unauthenticated or public API key is detected.~~
+* **Corrected during the PR #170 agent-instruction audit:** this provider was never built. No `VirusTotalProvider` exists in `src/blackwall/threat_intel/` and `BW_THREAT_INTEL_BACKEND` is read by no code path; `GTIResponse` survives only as a response schema. The alternative primary provider that does exist is `HarpoonBridge`, selected via `BW_THREAT_INTEL_PRIMARY=harpoon|harpoon-otx`.
 
 ---
 
