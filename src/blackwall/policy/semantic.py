@@ -931,7 +931,7 @@ class GeminiTriageBackend(SemanticTriageProvider):
                         return SemanticTriageResult(
                             threat_score=float(parsed.threat_score), backend=self.name
                         )
-                    except TypeError, ValueError:
+                    except (TypeError, ValueError):
                         pass
 
             # 2. Text JSON parsing
