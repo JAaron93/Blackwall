@@ -27,7 +27,7 @@ in unit/BDD tests (mocked); live calls only in the eval harness.
 
 ## Track B — Jev Backend (depends on Track A)
 
-* [ ] **TASK-B01: `JevTriageBackend` evaluation call** (FR-02, FR-05).
+* [x] **TASK-B01: `JevTriageBackend` evaluation call** (FR-02, FR-05).
   Sanitized `state` build → single boolean `is_threat` via a pure-Python
   Gateway evaluation client (Python AI SDK beta or minimal vendored HTTPS
   caller — Node.js sidecar prohibited per NFR-06),

@@ -8,6 +8,7 @@ from blackwall.policy.models import (
 from blackwall.policy.watcher import PolicyWatcher
 from blackwall.policy.semantic import (
     GeminiTriageBackend,
+    JevTriageBackend,
     SemanticGatingEngine,
     SemanticTriageEvaluation,
     SemanticTriageProvider,
@@ -26,6 +27,7 @@ __all__ = [
     "PolicyWatcher",
     "SemanticGatingEngine",
     "GeminiTriageBackend",
+    "JevTriageBackend",
     "SemanticTriageEvaluation",
     "SemanticTriageProvider",
     "SemanticTriageResult",

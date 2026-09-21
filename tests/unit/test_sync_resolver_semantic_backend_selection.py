@@ -11,7 +11,9 @@ import pytest
 
 from blackwall.models import ToolCallContext
 from blackwall.policy.semantic import (
+    JEV_API_KEY_ENV_VAR,
     GeminiTriageBackend,
+    JevTriageBackend,
     SemanticTriageProvider,
     SemanticTriageResult,
 )
@@ -72,19 +74,33 @@ async def test_semantic_backend_defaults_to_gemini(monkeypatch):
 @pytest.mark.asyncio
 async def test_explicit_backend_argument_wins_over_env(monkeypatch, caplog):
     monkeypatch.setenv(BACKEND_ENV, "gemini")
+    monkeypatch.delenv(JEV_API_KEY_ENV_VAR, raising=False)
     with caplog.at_level(logging.WARNING, logger=SEMANTIC_LOGGER):
         resolver = SyncResolver(client=MagicMock(), semantic_backend="jev")
     assert resolver._semantic_backend_name == "gemini"
-    assert "TASK-B01" in caplog.text
+    assert JEV_API_KEY_ENV_VAR in caplog.text
 
 
 @pytest.mark.asyncio
-async def test_jev_env_yields_gemini_provider_and_warns(monkeypatch, caplog):
+async def test_jev_env_without_key_yields_gemini_provider_and_warns(
+    monkeypatch, caplog
+):
     monkeypatch.setenv(BACKEND_ENV, "jev")
+    monkeypatch.delenv(JEV_API_KEY_ENV_VAR, raising=False)
     with caplog.at_level(logging.WARNING, logger=SEMANTIC_LOGGER):
         resolver = SyncResolver(client=MagicMock())
     assert isinstance(resolver.semantic_provider, GeminiTriageBackend)
-    assert "TASK-B01" in caplog.text
+    assert JEV_API_KEY_ENV_VAR in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_jev_env_with_key_yields_jev_provider(monkeypatch):
+    monkeypatch.setenv(BACKEND_ENV, "jev")
+    monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "test-gateway-key")
+    resolver = SyncResolver(client=MagicMock())
+    assert resolver._semantic_backend_name == "jev"
+    assert isinstance(resolver.semantic_provider, JevTriageBackend)
+    assert isinstance(resolver.semantic_provider.fallback, GeminiTriageBackend)
 
 
 @pytest.mark.asyncio
@@ -142,17 +158,25 @@ async def test_compute_threat_score_routes_through_the_adapter():
 
 
 @pytest.mark.asyncio
-async def test_backend_selection_does_not_shift_aggregation():
-    """NFR-02 guard: the knob may not move the weighted score."""
+async def test_backend_selection_does_not_shift_aggregation(monkeypatch):
+    """NFR-02 guard: the knob may not move the weighted score — equal-strength
+    signals from either backend must aggregate identically."""
+    monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "test-gateway-key")
     resolver_gemini = SyncResolver(
-        client=_gemini_client(0.6),
+        client=MagicMock(),
         enable_semantic_triage=True,
         semantic_backend="gemini",
     )
     resolver_jev = SyncResolver(
-        client=_gemini_client(0.6),
+        client=MagicMock(),
         enable_semantic_triage=True,
         semantic_backend="jev",
+    )
+    resolver_gemini._semantic_provider = _StubProvider(
+        result=SemanticTriageResult(threat_score=0.6, backend="gemini")
+    )
+    resolver_jev._semantic_provider = _StubProvider(
+        result=SemanticTriageResult(threat_score=0.6, backend="jev")
     )
     score_gemini = await resolver_gemini._compute_threat_score(
         _make_context(), None, None
