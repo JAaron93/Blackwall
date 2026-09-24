@@ -1184,9 +1184,7 @@ class JevTriageBackend(SemanticTriageProvider):
                     )
                     break
                 if response.status_code == 429 and attempt + 1 < self.max_attempts:
-                    delay = min(
-                        self.backoff_cap_s, self.backoff_base_s * 2**attempt
-                    )
+                    delay = min(self.backoff_cap_s, self.backoff_base_s * 2**attempt)
                     logger.warning(
                         "Jev gateway rate-limited (HTTP 429) — retrying in "
                         "%.1fs (attempt %s/%s, paid-credit bounded backoff)",

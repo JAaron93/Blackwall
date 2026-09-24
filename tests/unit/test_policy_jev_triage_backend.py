@@ -53,9 +53,7 @@ def _gateway_payload(
         provider_metadata["typesafe"] = confidence
     return {
         "model": JEV_DEFAULT_MODEL,
-        "answers": {
-            "is_threat": {"type": "boolean", "probability": probability}
-        },
+        "answers": {"is_threat": {"type": "boolean", "probability": probability}},
         "usage": {"inputTokens": input_tokens, "outputTokens": output_tokens},
         "providerMetadata": provider_metadata,
     }
@@ -231,9 +229,7 @@ async def test_missing_api_key_abstains(monkeypatch):
 )
 async def test_malformed_gateway_payload_abstains(payload: Dict[str, Any]):
     requests: List[httpx.Request] = []
-    backend = _backend(
-        lambda request: httpx.Response(200, json=payload), requests
-    )
+    backend = _backend(lambda request: httpx.Response(200, json=payload), requests)
     assert await backend.triage(_context()) is None
 
 
@@ -413,9 +409,7 @@ async def test_non_429_client_error_falls_back_without_retry():
 async def test_fallback_failure_abstains_never_allows():
     requests: List[httpx.Request] = []
     fallback = _StubFallback(error=RuntimeError("gemini down"))
-    backend = _backend(
-        _rate_limited, requests, fallback=fallback, sleep=_FakeSleep()
-    )
+    backend = _backend(_rate_limited, requests, fallback=fallback, sleep=_FakeSleep())
     assert await backend.triage(_context()) is None
 
 
@@ -465,9 +459,7 @@ async def test_snake_case_usage_keys_are_tolerated(caplog):
     payload = _gateway_payload(0.98)
     payload["usage"] = {"input_tokens": 200, "output_tokens": 12}
     requests: List[httpx.Request] = []
-    backend = _backend(
-        lambda request: httpx.Response(200, json=payload), requests
-    )
+    backend = _backend(lambda request: httpx.Response(200, json=payload), requests)
     with caplog.at_level(logging.INFO, logger=SEMANTIC_LOGGER):
         await backend.triage(_context())
     record = _triage_records(caplog)[0]
@@ -480,9 +472,7 @@ async def test_fallback_emits_honest_is_fallback_record(caplog):
     fallback = _StubFallback(
         result=SemanticTriageResult(threat_score=0.9, backend="gemini")
     )
-    backend = _backend(
-        _rate_limited, requests, fallback=fallback, sleep=_FakeSleep()
-    )
+    backend = _backend(_rate_limited, requests, fallback=fallback, sleep=_FakeSleep())
     with caplog.at_level(logging.INFO, logger=SEMANTIC_LOGGER):
         result = await backend.triage(_context())
     assert result is not None
