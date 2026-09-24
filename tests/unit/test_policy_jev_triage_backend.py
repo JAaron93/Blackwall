@@ -71,7 +71,13 @@ def _backend(
         return handler(request)
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(_capture))
+    # Pin ctor defaults explicitly so ambient JEV_* env vars (e.g. a
+    # suite-wide JEV_GATEWAY_URL) cannot leak into these tests.
     kwargs.setdefault("api_key", "test-gateway-key")
+    kwargs.setdefault("gateway_url", JEV_DEFAULT_GATEWAY_URL)
+    kwargs.setdefault("model", JEV_DEFAULT_MODEL)
+    kwargs.setdefault("timeout", 5.0)
+    kwargs.setdefault("max_attempts", 3)
     return JevTriageBackend(http_client=client, **kwargs)
 
 
@@ -234,6 +240,26 @@ async def test_malformed_gateway_payload_abstains(payload: Dict[str, Any]):
 async def test_backend_is_a_provider():
     assert issubclass(JevTriageBackend, SemanticTriageProvider)
     assert JevTriageBackend(api_key="k").name == "jev"
+
+
+def test_env_knobs_configure_backend(monkeypatch):
+    monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "env-key")
+    monkeypatch.setenv("JEV_GATEWAY_URL", "https://gateway.internal/evaluate")
+    monkeypatch.setenv("JEV_MODEL", "typesafe-ai/jev-custom")
+    monkeypatch.setenv("JEV_MAX_ATTEMPTS", "7")
+    monkeypatch.setenv("JEV_TIMEOUT_S", "2.5")
+    backend = JevTriageBackend()
+    assert backend.api_key == "env-key"
+    assert backend.gateway_url == "https://gateway.internal/evaluate"
+    assert backend.model == "typesafe-ai/jev-custom"
+    assert backend.max_attempts == 7
+    assert backend.timeout == pytest.approx(2.5)
+
+
+def test_ctor_args_beat_env(monkeypatch):
+    monkeypatch.setenv("JEV_MAX_ATTEMPTS", "7")
+    backend = JevTriageBackend(api_key="k", max_attempts=2)
+    assert backend.max_attempts == 2
 
 
 # ----------------------------------------------------------------------
