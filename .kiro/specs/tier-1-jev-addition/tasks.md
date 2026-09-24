@@ -37,7 +37,7 @@ in unit/BDD tests (mocked); live calls only in the eval harness.
   Dependencies: TASK-A01. Acceptance: threshold unit tests + SVM-style
   boundary tests at 0.349/0.35/0.75/0.751; `pip install` closure gains no
   non-Python runtime deps.
-* [ ] **TASK-B02: Bounded 429 backoff + fail-closed** (FR-06).
+* [x] **TASK-B02: Bounded 429 backoff + fail-closed** (FR-06).
   Exponential backoff (bounded attempts), then fail-closed to `gemini`
   backend/Tier-2 — never ALLOW. Mock `429` storms in tests.
   Dependencies: TASK-B01.

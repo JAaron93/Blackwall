@@ -1107,17 +1107,57 @@ class JevTriageBackend(SemanticTriageProvider):
                 JEV_API_KEY_ENV_VAR,
             )
             return None
-        try:
-            response = await self._post(self._build_payload(context))
-            if response.status_code != 200:
+        payload = self._build_payload(context)
+        for attempt in range(self.max_attempts):
+            try:
+                response = await self._post(payload)
+                if response.status_code == 200:
+                    result = self._parse_response(response.json())
+                    if result is not None:
+                        return result
+                    logger.debug(
+                        "Jev gateway returned a malformed payload — failing closed"
+                    )
+                    break
+                if response.status_code == 429 and attempt + 1 < self.max_attempts:
+                    delay = min(
+                        self.backoff_cap_s, self.backoff_base_s * 2**attempt
+                    )
+                    logger.warning(
+                        "Jev gateway rate-limited (HTTP 429) — retrying in "
+                        "%.1fs (attempt %s/%s, paid-credit bounded backoff)",
+                        delay,
+                        attempt + 1,
+                        self.max_attempts,
+                    )
+                    await self._sleep(delay)
+                    continue
                 logger.debug(
-                    "Jev gateway returned HTTP %s — abstaining",
+                    "Jev gateway returned HTTP %s — failing closed",
                     response.status_code,
                 )
-                return None
-            return self._parse_response(response.json())
+                break
+            except Exception as exc:
+                logger.debug(
+                    "Jev gateway call failed (attempt %s/%s) — failing closed: %s",
+                    attempt + 1,
+                    self.max_attempts,
+                    exc,
+                )
+                break
+        return await self._fail_closed(context)
+
+    async def _fail_closed(
+        self, context: ToolCallContext
+    ) -> Optional[SemanticTriageResult]:
+        """FR-06: degraded Jev operation routes to the gemini backend — never
+        fail open to ALLOW; abstain only when no fallback signal exists."""
+        if self.fallback is None:
+            return None
+        try:
+            return await self.fallback.triage(context)
         except Exception as exc:
-            logger.debug("Jev triage failed — abstaining: %s", exc)
+            logger.debug("Jev fallback backend failed — abstaining: %s", exc)
             return None
 
 

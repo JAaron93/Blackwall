@@ -22,6 +22,7 @@ from blackwall.policy.semantic import (
     GeminiTriageBackend,
     JevTriageBackend,
     SemanticTriageProvider,
+    SemanticTriageResult,
     build_semantic_provider,
 )
 
@@ -252,3 +253,147 @@ def test_build_semantic_provider_jev_without_key_degrades(monkeypatch):
     monkeypatch.delenv(JEV_API_KEY_ENV_VAR, raising=False)
     provider = build_semantic_provider(object(), "jev")
     assert isinstance(provider, GeminiTriageBackend)
+
+
+# ----------------------------------------------------------------------
+# Bounded 429 backoff + fail-closed fallback (TASK-B02, FR-06)
+# ----------------------------------------------------------------------
+
+
+class _StubFallback(SemanticTriageProvider):
+    """Gemini-side fallback double for fail-closed routing assertions."""
+
+    name = "gemini"
+
+    def __init__(
+        self,
+        result: Optional[SemanticTriageResult] = None,
+        error: Optional[BaseException] = None,
+    ) -> None:
+        self.result = result
+        self.error = error
+        self.calls = 0
+
+    async def triage(self, context: ToolCallContext) -> Optional[SemanticTriageResult]:
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return self.result
+
+
+class _FakeSleep:
+    def __init__(self) -> None:
+        self.calls: List[float] = []
+
+    async def __call__(self, seconds: float) -> None:
+        self.calls.append(seconds)
+
+
+def _rate_limited(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(
+        429, json={"message": "rate limit exceeded", "error_type": "rate_limit"}
+    )
+
+
+async def test_429_storm_exhausts_bounded_attempts_then_falls_back():
+    requests: List[httpx.Request] = []
+    sleep = _FakeSleep()
+    fallback = _StubFallback(
+        result=SemanticTriageResult(threat_score=0.9, backend="gemini")
+    )
+    backend = _backend(_rate_limited, requests, fallback=fallback, sleep=sleep)
+    result = await backend.triage(_context())
+    assert len(requests) == backend.max_attempts == 3
+    assert sleep.calls == [0.5, 1.0]  # min(cap, base * 2**attempt)
+    assert fallback.calls == 1
+    assert result is not None
+    assert result.backend == "gemini"  # signal attributed to its producer
+    assert result.threat_score == pytest.approx(0.9)
+
+
+async def test_429_then_success_retries_once_with_backoff():
+    requests: List[httpx.Request] = []
+    sleep = _FakeSleep()
+    responses = iter(
+        [
+            httpx.Response(429, json={"message": "slow down"}),
+            httpx.Response(200, json=_gateway_payload(0.02)),
+        ]
+    )
+    backend = _backend(lambda request: next(responses), requests, sleep=sleep)
+    result = await backend.triage(_context())
+    assert len(requests) == 2
+    assert sleep.calls == [0.5]
+    assert result is not None
+    assert result.backend == "jev"
+    assert result.threat_score == pytest.approx(0.02)
+
+
+async def test_backoff_delay_is_capped():
+    requests: List[httpx.Request] = []
+    sleep = _FakeSleep()
+    backend = _backend(
+        _rate_limited,
+        requests,
+        max_attempts=4,
+        backoff_base_s=2.0,
+        backoff_cap_s=3.0,
+        sleep=sleep,
+    )
+    assert await backend.triage(_context()) is None
+    assert sleep.calls == [2.0, 3.0, 3.0]
+
+
+async def test_timeout_falls_back_immediately_without_retry():
+    requests: List[httpx.Request] = []
+    sleep = _FakeSleep()
+
+    def _hang(request: httpx.Request) -> httpx.Response:
+        raise httpx.TimeoutException("gateway stalled", request=request)
+
+    fallback = _StubFallback(
+        result=SemanticTriageResult(threat_score=0.4, backend="gemini")
+    )
+    backend = _backend(_hang, requests, fallback=fallback, sleep=sleep)
+    result = await backend.triage(_context())
+    assert len(requests) == 1  # transient network errors are not retried
+    assert sleep.calls == []
+    assert fallback.calls == 1
+    assert result is not None and result.backend == "gemini"
+
+
+async def test_non_429_client_error_falls_back_without_retry():
+    requests: List[httpx.Request] = []
+    sleep = _FakeSleep()
+    fallback = _StubFallback(
+        result=SemanticTriageResult(threat_score=0.4, backend="gemini")
+    )
+    backend = _backend(
+        lambda request: httpx.Response(
+            400, json={"message": "bad request", "error_type": "invalid_request"}
+        ),
+        requests,
+        fallback=fallback,
+        sleep=sleep,
+    )
+    result = await backend.triage(_context())
+    assert len(requests) == 1  # 4xx contract errors must never be retried
+    assert sleep.calls == []
+    assert fallback.calls == 1
+    assert result is not None and result.backend == "gemini"
+
+
+async def test_fallback_failure_abstains_never_allows():
+    requests: List[httpx.Request] = []
+    fallback = _StubFallback(error=RuntimeError("gemini down"))
+    backend = _backend(
+        _rate_limited, requests, fallback=fallback, sleep=_FakeSleep()
+    )
+    assert await backend.triage(_context()) is None
+
+
+async def test_429_storm_without_fallback_abstains():
+    requests: List[httpx.Request] = []
+    backend = _backend(_rate_limited, requests, sleep=_FakeSleep())
+    assert await backend.triage(_context()) is None
+    assert len(requests) == 3
