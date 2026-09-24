@@ -7,6 +7,7 @@ tests (NFR-03); live Jev traffic is eval-harness-only.
 """
 
 import json
+import logging
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -397,3 +398,83 @@ async def test_429_storm_without_fallback_abstains():
     backend = _backend(_rate_limited, requests, sleep=_FakeSleep())
     assert await backend.triage(_context()) is None
     assert len(requests) == 3
+
+
+# ----------------------------------------------------------------------
+# Observability (TASK-B03, FR-07): one structured record per triage
+# ----------------------------------------------------------------------
+
+SEMANTIC_LOGGER = "blackwall.policy.semantic"
+
+
+def _triage_records(caplog: Any) -> List[Any]:
+    return [r for r in caplog.records if r.message == "jev_triage"]
+
+
+async def test_success_emits_structured_triage_record(caplog):
+    requests: List[httpx.Request] = []
+    backend = _backend(
+        lambda request: httpx.Response(
+            200, json=_gateway_payload(0.02, confidence=0.97)
+        ),
+        requests,
+    )
+    with caplog.at_level(logging.INFO, logger=SEMANTIC_LOGGER):
+        result = await backend.triage(_context())
+    assert result is not None
+    records = _triage_records(caplog)
+    assert len(records) == 1
+    record = records[0]
+    assert record.backend == "jev"
+    assert record.p == pytest.approx(0.02)
+    assert record.confidence == pytest.approx(0.97)
+    assert record.latency_ms >= 0.0
+    assert record.input_tokens == 120
+    assert record.output_tokens == 8
+    assert record.gateway_cost == "0.00001155"
+    assert record.is_fallback is False
+
+
+async def test_snake_case_usage_keys_are_tolerated(caplog):
+    payload = _gateway_payload(0.98)
+    payload["usage"] = {"input_tokens": 200, "output_tokens": 12}
+    requests: List[httpx.Request] = []
+    backend = _backend(
+        lambda request: httpx.Response(200, json=payload), requests
+    )
+    with caplog.at_level(logging.INFO, logger=SEMANTIC_LOGGER):
+        await backend.triage(_context())
+    record = _triage_records(caplog)[0]
+    assert record.input_tokens == 200
+    assert record.output_tokens == 12
+
+
+async def test_fallback_emits_honest_is_fallback_record(caplog):
+    requests: List[httpx.Request] = []
+    fallback = _StubFallback(
+        result=SemanticTriageResult(threat_score=0.9, backend="gemini")
+    )
+    backend = _backend(
+        _rate_limited, requests, fallback=fallback, sleep=_FakeSleep()
+    )
+    with caplog.at_level(logging.INFO, logger=SEMANTIC_LOGGER):
+        result = await backend.triage(_context())
+    assert result is not None
+    records = _triage_records(caplog)
+    assert len(records) == 1
+    record = records[0]
+    assert record.is_fallback is True
+    assert record.backend == "gemini"
+    assert record.p == pytest.approx(0.9)
+    assert record.latency_ms >= 0.0
+    assert record.input_tokens is None
+    assert record.output_tokens is None
+    assert record.gateway_cost is None
+
+
+async def test_total_abstention_emits_no_triage_record(caplog):
+    requests: List[httpx.Request] = []
+    backend = _backend(_rate_limited, requests, sleep=_FakeSleep())
+    with caplog.at_level(logging.INFO, logger=SEMANTIC_LOGGER):
+        assert await backend.triage(_context()) is None
+    assert _triage_records(caplog) == []

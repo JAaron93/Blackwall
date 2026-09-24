@@ -6,6 +6,7 @@ import os
 import re
 import ipaddress
 import math
+import time
 from abc import ABC, abstractmethod
 from collections import Counter
 from dataclasses import dataclass
@@ -1100,6 +1101,58 @@ class JevTriageBackend(SemanticTriageProvider):
             escalate=JEV_CLEAR_LOW_THRESHOLD <= p <= JEV_CLEAR_HIGH_THRESHOLD,
         )
 
+    @staticmethod
+    def _extract_usage(data: Dict[str, Any]) -> Dict[str, Optional[int]]:
+        usage = data.get("usage")
+        if not isinstance(usage, dict):
+            return {"input": None, "output": None}
+        input_tokens = usage.get("inputTokens", usage.get("input_tokens"))
+        output_tokens = usage.get("outputTokens", usage.get("output_tokens"))
+        return {
+            "input": input_tokens if isinstance(input_tokens, int) else None,
+            "output": output_tokens if isinstance(output_tokens, int) else None,
+        }
+
+    @staticmethod
+    def _extract_gateway_cost(data: Dict[str, Any]) -> Optional[str]:
+        metadata = data.get("providerMetadata")
+        if not isinstance(metadata, dict):
+            return None
+        gateway = metadata.get("gateway")
+        if not isinstance(gateway, dict):
+            return None
+        cost = gateway.get("cost")
+        return cost if isinstance(cost, str) else None
+
+    def _record_triage(
+        self,
+        result: Optional[SemanticTriageResult],
+        *,
+        is_fallback: bool,
+        started: float,
+        input_tokens: Optional[int] = None,
+        output_tokens: Optional[int] = None,
+        gateway_cost: Optional[str] = None,
+    ) -> None:
+        """FR-07: one structured record per completed triage for logs,
+        budgets, and HistoricalRegressionTracker baselines. Abstentions carry
+        no signal, so they emit nothing (the 429/egress warnings still log)."""
+        if result is None:
+            return
+        logger.info(
+            "jev_triage",
+            extra={
+                "backend": result.backend,
+                "p": result.threat_score,
+                "confidence": result.confidence,
+                "latency_ms": round((time.monotonic() - started) * 1000.0, 3),
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "gateway_cost": gateway_cost,
+                "is_fallback": is_fallback,
+            },
+        )
+
     async def triage(self, context: ToolCallContext) -> Optional[SemanticTriageResult]:
         if not self.api_key:
             logger.debug(
@@ -1107,13 +1160,24 @@ class JevTriageBackend(SemanticTriageProvider):
                 JEV_API_KEY_ENV_VAR,
             )
             return None
+        started = time.monotonic()
         payload = self._build_payload(context)
         for attempt in range(self.max_attempts):
             try:
                 response = await self._post(payload)
                 if response.status_code == 200:
-                    result = self._parse_response(response.json())
+                    data = response.json()
+                    result = self._parse_response(data)
                     if result is not None:
+                        usage = self._extract_usage(data)
+                        self._record_triage(
+                            result,
+                            is_fallback=False,
+                            started=started,
+                            input_tokens=usage["input"],
+                            output_tokens=usage["output"],
+                            gateway_cost=self._extract_gateway_cost(data),
+                        )
                         return result
                     logger.debug(
                         "Jev gateway returned a malformed payload — failing closed"
@@ -1145,7 +1209,9 @@ class JevTriageBackend(SemanticTriageProvider):
                     exc,
                 )
                 break
-        return await self._fail_closed(context)
+        fallback_result = await self._fail_closed(context)
+        self._record_triage(fallback_result, is_fallback=True, started=started)
+        return fallback_result
 
     async def _fail_closed(
         self, context: ToolCallContext

@@ -42,7 +42,7 @@ in unit/BDD tests (mocked); live calls only in the eval harness.
   backend/Tier-2 — never ALLOW. Mock `429` storms in tests.
   Dependencies: TASK-B01.
   > [!TIP] PARALLEL EXECUTION — TASK-B03 may run alongside TASK-B02.
-* [ ] **TASK-B03: Observability fields** (FR-07). Record `backend`, `P`,
+* [x] **TASK-B03: Observability fields** (FR-07). Record `backend`, `P`,
   `confidence`, `latency_ms`, token usage per triage into existing telemetry.
   Dependencies: TASK-B01.
 
