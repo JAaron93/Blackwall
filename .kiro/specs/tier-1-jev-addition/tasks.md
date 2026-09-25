@@ -9,22 +9,25 @@ in unit/BDD tests (mocked); live calls only in the eval harness.
 > [!TIP] PARALLEL EXECUTION — TASK-A01 and TASK-A02 may run concurrently once
 > the `SemanticTriageResult` schema is agreed.
 
-* [ ] **TASK-A01: `SemanticTriageResult` schema + provider interface**
+* [x] **TASK-A01: `SemanticTriageResult` schema + provider interface**
   (FR-01; NFR-03). Define the dataclass and `SemanticTriageProvider` ABC in
   `src/blackwall/policy/semantic.py`; port the existing Gemini inline logic
   behind `GeminiTriageBackend` with byte-identical behavior.
   Dependencies: none. Acceptance: existing
   `tests/unit/test_sync_resolver_semantic_triage.py` passes unmodified
   against the `gemini` backend.
-* [ ] **TASK-A02: `BW_SEMANTIC_BACKEND` selection + `_compute_threat_score` wiring**
+* [x] **TASK-A02: `BW_SEMANTIC_BACKEND` selection + `_compute_threat_score` wiring**
   (FR-01). Env-gated backend choice (`jev|gemini`), default `gemini` until
   Track D signs off; `_compute_threat_score` consumes only
   `result.threat_score` (weights untouched).
   Dependencies: TASK-A01. Acceptance: suite green under both settings.
+  > [!NOTE] Track A lands unit-layer coverage only (`tests/unit/test_policy_semantic_triage_provider.py`,
+  > `tests/unit/test_sync_resolver_semantic_backend_selection.py`). The Gherkin
+  > acceptance scenarios for this seam are owned by TASK-D01 (NFR-04).
 
 ## Track B — Jev Backend (depends on Track A)
 
-* [ ] **TASK-B01: `JevTriageBackend` evaluation call** (FR-02, FR-05).
+* [x] **TASK-B01: `JevTriageBackend` evaluation call** (FR-02, FR-05).
   Sanitized `state` build → single boolean `is_threat` via a pure-Python
   Gateway evaluation client (Python AI SDK beta or minimal vendored HTTPS
   caller — Node.js sidecar prohibited per NFR-06),
@@ -34,12 +37,12 @@ in unit/BDD tests (mocked); live calls only in the eval harness.
   Dependencies: TASK-A01. Acceptance: threshold unit tests + SVM-style
   boundary tests at 0.349/0.35/0.75/0.751; `pip install` closure gains no
   non-Python runtime deps.
-* [ ] **TASK-B02: Bounded 429 backoff + fail-closed** (FR-06).
+* [x] **TASK-B02: Bounded 429 backoff + fail-closed** (FR-06).
   Exponential backoff (bounded attempts), then fail-closed to `gemini`
   backend/Tier-2 — never ALLOW. Mock `429` storms in tests.
   Dependencies: TASK-B01.
   > [!TIP] PARALLEL EXECUTION — TASK-B03 may run alongside TASK-B02.
-* [ ] **TASK-B03: Observability fields** (FR-07). Record `backend`, `P`,
+* [x] **TASK-B03: Observability fields** (FR-07). Record `backend`, `P`,
   `confidence`, `latency_ms`, token usage per triage into existing telemetry.
   Dependencies: TASK-B01.
 

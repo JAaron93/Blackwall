@@ -95,7 +95,7 @@ Blackwall 3.0 MUST update the synchronous firewall resolution pipeline:
 1. **Deprecate GTI Client:** Completely remove `GTIMCPClient` and `GTIQueryBudgetTracker`.
 2. **Integrate `ThreatIntelOrchestrator`:** Step 5 of `SyncResolver` evaluates indicators via `ThreatIntelOrchestrator.lookup()`.
 3. **Throughput Contract:** The firewall MUST support sustained workloads of at least 150 requests per minute without dropping or deferring queries due to external threat intelligence rate limits.
-4. **Backward Compatibility Mode:** If `BW_THREAT_INTEL_BACKEND=virustotal` is explicitly configured, Blackwall routes requests to the legacy `VirusTotalProvider`.
+4. **Backward Compatibility Mode:** ~~If `BW_THREAT_INTEL_BACKEND=virustotal` is explicitly configured, Blackwall routes requests to the legacy `VirusTotalProvider`.~~ **Corrected during the PR #170 agent-instruction audit:** never implemented. No `VirusTotalProvider` exists in `src/blackwall/threat_intel/` and no code reads `BW_THREAT_INTEL_BACKEND`. The configured alternative primary provider is `HarpoonBridge` wrapping OTX, selected via `BW_THREAT_INTEL_PRIMARY=harpoon|harpoon-otx`.
 
 ---
 

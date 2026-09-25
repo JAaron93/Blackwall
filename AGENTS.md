@@ -9,7 +9,7 @@ Blackwall is structured into **two distinct product tiers**:
 1. **Blackwall Core (Individual Developer Edition)**:
    - Single-host Python daemon centered around ADK callbacks (`before_tool_callback`), Python runtime audit hooks (`sys.addaudithook`), local SQLite threat graph, native compiled Rust acceleration extension (`crates/blackwall_core_rs/` / `blackwall._core_rs` with pure-Python fallback), and baseline single-host Attacker Attribution (`src/blackwall/attribution/` & `SyncResolver`).
    - Primary local entry point: **Blackwall MCP Gateway** (specification governed by `.kiro/specs/blackwall-mcp-gateway/`, implemented via `src/blackwall/cli.py` with future specification target src/blackwall/gateway/), providing an agent-agnostic stdio/HTTP security proxy on `localhost:9229` with background PID daemon management (`~/.blackwall/blackwall.pid`) and macOS LaunchAgent service integration.
-   - Zero cluster-mesh/peer-to-peer networking (ZeroMQ/NATS) or C-kernel eBPF dependencies (exemption: 100% GCP Vertex AI Mode clients for Gemini Enterprise Agent Platform and AlienVault OTX Threat Intelligence Engine are fully supported in Core; red-teamer attack agents in demo harness use Hyperbolic API).
+   - Zero cluster-mesh/peer-to-peer networking (ZeroMQ/NATS) or C-kernel eBPF dependencies (exemption: 100% GCP Vertex AI Mode clients for Gemini Enterprise Agent Platform and AlienVault OTX Threat Intelligence Engine are fully supported in Core; the approved Tier-1 Jev classifier `typesafe-ai/jev` egresses to Vercel AI Gateway on paid credits per ADR 0006 — sanitization-before-egress with mandatory `disallowPromptTraining: true`; red-teamer attack agents in demo harness use Hyperbolic API).
 2. **Blackwall Enterprise Mesh (Enterprise Edition)**:
    - Multi-host security mesh isolated under `src/blackwall/enterprise/`.
    - Features C/Python eBPF kernel probes, Ephemeral Identity Sidecar, Data Pipeline Wrappers, Dual-Mode Local Forensic Triage Engine, 4 Open-Source Local MCP adapters, and Distributed Threat Mesh (`src/blackwall/enterprise/mesh/`).
@@ -33,14 +33,14 @@ All code submitted via pull requests or feature branches must be reviewed agains
 Greptile reviews must enforce the existing base branch architectural patterns:
 
 1. **Interception Resolver (`SyncResolver`) Sequence**:
-   - Execution flow MUST follow: `Rate Check` -> `ContextHygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Threat Intelligence Validation (AlienVault OTX / Multi-Provider Orchestrator)` -> `Optional Semantic Triage (Gemini 3.5 Flash-Lite)` -> `Score Aggregation` -> `Threshold Verdict` -> `Optional Inline Signature Generation`.
+   - Execution flow MUST follow: `Rate Check` -> `ContextHygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Threat Intelligence Validation (AlienVault OTX / Multi-Provider Orchestrator)` -> `Semantic Triage via pluggable jev|gemini backend (Tier-1 Jev P(threat) with 0.35/0.75 band, Gemini Tier-2 escalation; governed by .kiro/specs/tier-1-jev-addition/)` -> `Score Aggregation` -> `Threshold Verdict` -> `Optional Inline Signature Generation`.
 2. **FTS5 Similarity Scoring & Match Quality**:
    - SQLite Threat Signature Graph queries MUST use word-level intersection match quality calculation (`match_quality = len(intersection) / min_len`) scaled by FTS fallback score and capped by dynamic threshold limits to prevent false positives.
 3. **Context Hygiene & Sanitization**:
    - `ContextHygiene` middleware (production interception path uses the implementation in `src/blackwall/resolver.py`; the async variant in `src/blackwall/middleware/context_hygiene.py` is exercised by `tests/middleware/` only) must replace sensitive environment variable patterns with generic placeholders (`[[VARIABLE_NAME]]`).
    - Integration tests querying external hostnames (e.g. GTI / VirusTotal) must use un-redacted standalone hostnames (e.g. `wd-bouygues.com`) to prevent accidental sanitization matching.
 4. **Threat Intelligence High-Capacity Invariant (AlienVault OTX & Legacy Fallback)**:
-   - External threat intelligence is powered by in-process `AlienVaultOTXProvider` (10,000 queries/hour, ~166 RPM) with SQLite `threat_intel_cache` (<1ms SLA), replacing the restrictive 4 RPM VirusTotal GTI bottleneck. VirusTotal is retained solely as an opt-in legacy fallback under `BW_THREAT_INTEL_BACKEND=virustotal`.
+   - External threat intelligence is powered by in-process `AlienVaultOTXProvider` (10,000 queries/hour, ~166 RPM) with SQLite `threat_intel_cache` (<1ms SLA), replacing the restrictive 4 RPM VirusTotal GTI bottleneck. The only configured alternative primary provider is the Harpoon companion bridge, selected via `BW_THREAT_INTEL_PRIMARY=harpoon|harpoon-otx`; no VirusTotal client ships in `src/blackwall/threat_intel/` (see `docs/adr/0005-alienvault-otx-threat-intel-engine.md`).
 
 ---
 

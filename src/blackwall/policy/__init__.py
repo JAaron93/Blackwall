@@ -6,7 +6,16 @@ from blackwall.policy.models import (
     GateResult,
 )
 from blackwall.policy.watcher import PolicyWatcher
-from blackwall.policy.semantic import SemanticGatingEngine
+from blackwall.policy.semantic import (
+    GeminiTriageBackend,
+    JevTriageBackend,
+    SemanticGatingEngine,
+    SemanticTriageEvaluation,
+    SemanticTriageProvider,
+    SemanticTriageResult,
+    build_semantic_provider,
+    resolve_semantic_backend,
+)
 from blackwall.policy.server import HybridPolicyServer
 
 __all__ = [
@@ -17,6 +26,13 @@ __all__ = [
     "StructuralRule",
     "PolicyWatcher",
     "SemanticGatingEngine",
+    "GeminiTriageBackend",
+    "JevTriageBackend",
+    "SemanticTriageEvaluation",
+    "SemanticTriageProvider",
+    "SemanticTriageResult",
+    "build_semantic_provider",
+    "resolve_semantic_backend",
     "GateResult",
     "HybridPolicyServer",
 ]

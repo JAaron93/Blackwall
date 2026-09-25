@@ -52,6 +52,13 @@ from blackwall.models import (
     Verdict,
     VerdictDecision,
 )
+from blackwall.policy.semantic import (
+    SEMANTIC_BACKEND_ENV_VAR,
+    SemanticTriageEvaluation as SemanticTriageEvaluation,
+    SemanticTriageProvider,
+    build_semantic_provider,
+    resolve_semantic_backend,
+)
 from blackwall.threat_intel.abusech import AbuseChError
 from blackwall.threat_intel.abuseipdb import AbuseIPDBError
 from blackwall.threat_intel.circuit_breaker import CircuitBreakerError
@@ -149,16 +156,6 @@ _SUSPICIOUS_KEYWORDS = frozenset(
 )
 
 
-class SemanticTriageEvaluation(BaseModel):
-    threat_score: float = Field(
-        ..., ge=0.0, le=1.0, description="Risk assessment score between 0.0 and 1.0"
-    )
-    is_suspicious: bool = Field(
-        ..., description="Whether the tool call exhibits malicious intent"
-    )
-    reasoning: str = Field(..., description="Concise rationale for the verdict")
-
-
 class ThreatSignaturePayload(BaseModel):
     attacker_intent: str = Field(
         ..., description="Concise description of the attacker's intent"
@@ -193,6 +190,7 @@ class SyncResolver:
         on_attacker_identified: Optional[Callable[[IncidentReport], Any]] = None,
         telemetry: Optional[Any] = None,
         enable_semantic_triage: Optional[bool] = None,
+        semantic_backend: Optional[str] = None,
         aba: Optional[Any] = None,
         swarm_provider: Optional[SwarmContextProvider] = None,
     ) -> None:
@@ -242,6 +240,16 @@ class SyncResolver:
         else:
             self.enable_semantic_triage = bool(enable_semantic_triage)
 
+        # Tier-1 semantic triage backend (FR-01). Resolved per instance so a
+        # stray BW_SEMANTIC_BACKEND can never disable triage — unimplemented
+        # names degrade to the shipped Gemini backend.
+        self._semantic_backend_name = resolve_semantic_backend(
+            semantic_backend
+            if semantic_backend is not None
+            else os.getenv(SEMANTIC_BACKEND_ENV_VAR, "")
+        )
+        self._semantic_provider: Optional[SemanticTriageProvider] = None
+
         # Wire MCP client URLs from policy server if configured
         policy = getattr(
             getattr(self.policy_server, "structural_engine", None), "_policy", None
@@ -289,6 +297,15 @@ class SyncResolver:
         self._block_count: int = 0
         self._quarantine_count: int = 0
         self._allow_count: int = 0
+
+    @property
+    def semantic_provider(self) -> SemanticTriageProvider:
+        """Active Tier-1 triage backend, built once per resolver instance."""
+        if self._semantic_provider is None:
+            self._semantic_provider = build_semantic_provider(
+                self.client, self._semantic_backend_name
+            )
+        return self._semantic_provider
 
     @property
     def gti_budget_tracker(self) -> Any:
@@ -569,6 +586,12 @@ class SyncResolver:
         """Flushes background tasks and shuts down executor pools."""
         await self.flush_background_tasks()
         self._callback_executor.shutdown(wait=False, cancel_futures=True)
+        # Close an already-built semantic provider's owned resources (e.g. the
+        # Jev backend's Gateway connection pool) without constructing one.
+        provider = self._semantic_provider
+        provider_aclose = getattr(provider, "aclose", None)
+        if provider_aclose is not None:
+            await provider_aclose()
 
     # ------------------------------------------------------------------
     # Attacker Attribution processing
@@ -879,80 +902,20 @@ class SyncResolver:
         self, context: ToolCallContext
     ) -> Optional[float]:
         """
-        Evaluate tool execution intent semantically using Gemini 3.5 Flash-Lite.
-        Enforces thinking_level='minimal' for rapid latency (<50ms).
-        Falls back gracefully to None on timeout, missing client, or failure.
+        Adapter onto the pluggable Tier-1 SemanticTriageProvider (FR-01).
+
+        Returns only SemanticTriageResult.threat_score so Score Aggregation
+        stays weight-identical across backends, and degrades to None — never a
+        synthetic 0.0 — when the backend abstains or fails.
         """
-        if not self.client or not (
-            hasattr(self.client, "models")
-            or (hasattr(self.client, "aio") and hasattr(self.client.aio, "models"))
-        ):
-            return None
         try:
-            from google.genai import types
-
-            thinking_lvl = get_gemini_thinking_level(
-                task_type="rapid_triage", default="minimal"
-            )
-            config = types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=SemanticTriageEvaluation,
-                thinking_config=types.ThinkingConfig(thinking_level=thinking_lvl)
-                if thinking_lvl
-                else None,
-            )
-            prompt = (
-                "Analyze this tool execution for malicious intent, unauthorized actions, "
-                "privilege escalation, or sensitive data exfiltration.\n"
-                f"Tool: {context.tool_name}\n"
-                f"Arguments: {context.arguments}\n"
-                f"Metadata: {context.metadata or {}}\n"
-            )
-            timeout = get_gemini_http_timeout(configured=5.0, task_type="rapid_triage")
-            aio_models = getattr(getattr(self.client, "aio", None), "models", None)
-            aio_gen = getattr(aio_models, "generate_content", None)
-            if aio_gen is not None and inspect.iscoroutinefunction(aio_gen):
-                coro = aio_gen(
-                    model=DEFAULT_RAPID_TRIAGE_MODEL,
-                    contents=prompt,
-                    config=config,
-                )
-            else:
-                coro = asyncio.to_thread(
-                    self.client.models.generate_content,
-                    model=DEFAULT_RAPID_TRIAGE_MODEL,
-                    contents=prompt,
-                    config=config,
-                )
-            response = await asyncio.wait_for(coro, timeout=timeout)
-
-            # 1. Parsed Pydantic model
-            if hasattr(response, "parsed") and response.parsed is not None:
-                parsed = response.parsed
-                if isinstance(parsed, SemanticTriageEvaluation):
-                    return float(parsed.threat_score)
-                if isinstance(parsed, dict) and "threat_score" in parsed:
-                    return float(parsed["threat_score"])
-                if hasattr(parsed, "threat_score"):
-                    try:
-                        return float(parsed.threat_score)
-                    except (TypeError, ValueError):
-                        pass
-
-            # 2. Text JSON parsing
-            text = getattr(response, "text", None)
-            if text:
-                try:
-                    data = json.loads(text)
-                    if isinstance(data, dict) and "threat_score" in data:
-                        return float(data["threat_score"])
-                except Exception:
-                    pass
-
-            return None
+            result = await self.semantic_provider.triage(context)
         except Exception as exc:
             logger.debug("Semantic intent evaluation fell back to heuristics: %s", exc)
             return None
+        if result is None:
+            return None
+        return result.threat_score
 
     async def _compute_threat_score(
         self,
@@ -964,6 +927,10 @@ class SyncResolver:
     ) -> float:
         """
         Weighted aggregation: Threat Intel 40% + CBM 30% + Context 30%.
+
+        Consumes only SemanticTriageResult.threat_score (FR-01) via
+        _evaluate_semantic_intent; weights and verdict thresholds are
+        backend-independent and unchanged by the provider seam.
 
         The −0.20 penalty and weight redistribution (CBM 50% + Context 50%)
         only applies when the budget tracker explicitly denied the query

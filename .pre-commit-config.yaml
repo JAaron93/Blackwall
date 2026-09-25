@@ -7,16 +7,16 @@ repos:
       - id: check-yaml
       - id: check-added-large-files
 
-  - repo: https://github.com/psf/black
-    rev: 24.3.0
-    hooks:
-      - id: black
-
-  - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.3.0
+  # ruff format replaced black here. The lint hook still runs ruff's default rule
+  # selection, which at v0.16.8 reports ~2.1k findings across src/ and tests/;
+  # hooks are not installed in this checkout, so nothing enforces that until
+  # someone runs `pre-commit install` and scopes [tool.ruff.lint] deliberately.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.8
     hooks:
       - id: ruff
         args: [ --fix, --exit-non-zero-on-fix ]
+      - id: ruff-format
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.9.0
