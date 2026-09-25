@@ -586,6 +586,12 @@ class SyncResolver:
         """Flushes background tasks and shuts down executor pools."""
         await self.flush_background_tasks()
         self._callback_executor.shutdown(wait=False, cancel_futures=True)
+        # Close an already-built semantic provider's owned resources (e.g. the
+        # Jev backend's Gateway connection pool) without constructing one.
+        provider = self._semantic_provider
+        provider_aclose = getattr(provider, "aclose", None)
+        if provider_aclose is not None:
+            await provider_aclose()
 
     # ------------------------------------------------------------------
     # Attacker Attribution processing

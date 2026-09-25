@@ -9,6 +9,7 @@ tests (NFR-03); live Jev traffic is eval-harness-only.
 import json
 import logging
 from typing import Any, Dict, List, Optional
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -187,7 +188,8 @@ async def test_state_is_tool_arguments_metadata_lines_verbatim():
 
 async def test_sanitized_placeholders_pass_through_verbatim():
     """FR-05: [[PLACEHOLDER]] redactions must reach the Gateway untouched;
-    no raw secret material is ever introduced by the backend."""
+    no raw secret material is ever introduced by the backend. Exact-equality
+    assertion — substring checks on hostnames trip static analysis."""
     requests: List[httpx.Request] = []
     backend = _backend(
         lambda request: httpx.Response(200, json=_gateway_payload(0.02)), requests
@@ -197,8 +199,11 @@ async def test_sanitized_placeholders_pass_through_verbatim():
     )
     await backend.triage(context)
     state = json.loads(requests[0].content.decode())["state"]
-    assert "[[AWS_SECRET_ACCESS_KEY]]" in state
-    assert "wd-bouygues.com" in state
+    assert state == (
+        "Tool: execute_bash\n"
+        "Arguments: {'token': '[[AWS_SECRET_ACCESS_KEY]]', 'host': 'wd-bouygues.com'}\n"
+        "Metadata: {}"
+    )
 
 
 # ----------------------------------------------------------------------
@@ -231,6 +236,40 @@ async def test_malformed_gateway_payload_abstains(payload: Dict[str, Any]):
     requests: List[httpx.Request] = []
     backend = _backend(lambda request: httpx.Response(200, json=payload), requests)
     assert await backend.triage(_context()) is None
+
+
+@pytest.mark.parametrize(
+    "probability",
+    [
+        -1.0,  # negative — out of range
+        1.5,  # above range
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+    ],
+)
+async def test_out_of_range_probability_abstains_never_clamps_into_signal(
+    probability: float,
+):
+    """P1: invalid probabilities must abstain (fail-closed to fallback), never
+    clamp into a legitimate-looking 0.0/1.0 signal that bypasses fallback."""
+    requests: List[httpx.Request] = []
+    payload = {
+        "model": JEV_DEFAULT_MODEL,
+        "answers": {"is_threat": {"type": "boolean", "probability": probability}},
+    }
+    fallback = _StubFallback(
+        result=SemanticTriageResult(threat_score=0.9, backend="gemini")
+    )
+    backend = _backend(
+        lambda request: httpx.Response(200, content=json.dumps(payload)),
+        requests,
+        fallback=fallback,
+    )
+    result = await backend.triage(_context())
+    assert result is not None
+    assert result.backend == "gemini"  # routed through the fail-closed fallback
+    assert fallback.calls == 1
 
 
 async def test_backend_is_a_provider():
@@ -488,9 +527,75 @@ async def test_fallback_emits_honest_is_fallback_record(caplog):
     assert record.gateway_cost is None
 
 
-async def test_total_abstention_emits_no_triage_record(caplog):
+async def test_total_abstention_emits_abstention_record(caplog):
+    """FR-07: degraded triages must still record — outage, latency, and budget
+    baselines omit nothing. Abstain shape: p/confidence None, backend 'jev',
+    is_fallback False when no fallback is configured."""
     requests: List[httpx.Request] = []
     backend = _backend(_rate_limited, requests, sleep=_FakeSleep())
     with caplog.at_level(logging.INFO, logger=SEMANTIC_LOGGER):
         assert await backend.triage(_context()) is None
-    assert _triage_records(caplog) == []
+    records = _triage_records(caplog)
+    assert len(records) == 1
+    record = records[0]
+    assert record.backend == "jev"
+    assert record.p is None
+    assert record.confidence is None
+    assert record.latency_ms >= 0.0
+    assert record.input_tokens is None
+    assert record.output_tokens is None
+    assert record.gateway_cost is None
+    assert record.is_fallback is False
+
+
+async def test_failed_fallback_abstention_records_is_fallback_true(caplog):
+    requests: List[httpx.Request] = []
+    fallback = _StubFallback(error=RuntimeError("gemini down"))
+    backend = _backend(_rate_limited, requests, fallback=fallback, sleep=_FakeSleep())
+    with caplog.at_level(logging.INFO, logger=SEMANTIC_LOGGER):
+        assert await backend.triage(_context()) is None
+    record = _triage_records(caplog)[0]
+    assert record.is_fallback is True
+    assert record.p is None
+
+
+# ----------------------------------------------------------------------
+# HTTP client lifecycle: owned clients close, injected clients survive
+# ----------------------------------------------------------------------
+
+
+async def test_aclose_closes_owned_client():
+    backend = JevTriageBackend(api_key="k")  # no injected client -> owns it
+    mock_client = AsyncMock()
+    backend._http_client = mock_client
+    await backend.aclose()
+    mock_client.aclose.assert_awaited_once()
+    assert backend._http_client is None
+
+
+async def test_aclose_skips_injected_client():
+    injected = AsyncMock()
+    backend = JevTriageBackend(api_key="k", http_client=injected)
+    await backend.aclose()
+    injected.aclose.assert_not_awaited()
+    assert backend._http_client is injected
+
+
+async def test_aclose_without_client_is_a_noop():
+    backend = JevTriageBackend(api_key="k")
+    await backend.aclose()  # never created a client
+
+
+async def test_resolver_close_closes_owned_jev_provider_client(monkeypatch):
+    """Greptile P2: SyncResolver.close() must reach the semantic provider so
+    repeatedly created resolvers cannot leak Gateway connection pools."""
+    from blackwall.sync_resolver import SyncResolver
+
+    monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "test-gateway-key")
+    resolver = SyncResolver(client=MagicMock(), semantic_backend="jev")
+    provider = resolver.semantic_provider
+    assert isinstance(provider, JevTriageBackend)
+    mock_client = AsyncMock()
+    provider._http_client = mock_client
+    await resolver.close()
+    mock_client.aclose.assert_awaited_once()

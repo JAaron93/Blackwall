@@ -1040,6 +1040,7 @@ class JevTriageBackend(SemanticTriageProvider):
         self.backoff_cap_s = backoff_cap_s
         self.fallback = fallback
         self._http_client = http_client
+        self._owns_http = http_client is None
         self._sleep = sleep
 
     @staticmethod
@@ -1094,6 +1095,11 @@ class JevTriageBackend(SemanticTriageProvider):
         if isinstance(probability, bool) or not isinstance(probability, (int, float)):
             return None
         p = float(probability)
+        # P1: reject NaN/inf/out-of-range values — clamping them via
+        # SemanticTriageResult would mint a legitimate-looking signal that
+        # bypasses the fail-closed fallback. Malformed means abstain.
+        if not math.isfinite(p) or not 0.0 <= p <= 1.0:
+            return None
         return SemanticTriageResult(
             threat_score=p,
             confidence=self._parse_confidence(data.get("providerMetadata")),
@@ -1134,17 +1140,15 @@ class JevTriageBackend(SemanticTriageProvider):
         output_tokens: Optional[int] = None,
         gateway_cost: Optional[str] = None,
     ) -> None:
-        """FR-07: one structured record per completed triage for logs,
-        budgets, and HistoricalRegressionTracker baselines. Abstentions carry
-        no signal, so they emit nothing (the 429/egress warnings still log)."""
-        if result is None:
-            return
+        """FR-07: one structured record per triage — including abstentions,
+        whose outage/latency/budget signal baselines must not omit degraded
+        calls. Abstain shape: ``p``/``confidence`` None, ``backend`` = jev."""
         logger.info(
             "jev_triage",
             extra={
-                "backend": result.backend,
-                "p": result.threat_score,
-                "confidence": result.confidence,
+                "backend": result.backend if result is not None else self.name,
+                "p": result.threat_score if result is not None else None,
+                "confidence": result.confidence if result is not None else None,
                 "latency_ms": round((time.monotonic() - started) * 1000.0, 3),
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
@@ -1155,9 +1159,10 @@ class JevTriageBackend(SemanticTriageProvider):
 
     async def triage(self, context: ToolCallContext) -> Optional[SemanticTriageResult]:
         if not self.api_key:
+            # Static message: never pass credential-adjacent variables into
+            # log calls (CodeQL clear-text logging).
             logger.debug(
-                "Jev backend selected but %s is unset — abstaining",
-                JEV_API_KEY_ENV_VAR,
+                "Jev backend selected but AI_GATEWAY_API_KEY is unset — abstaining"
             )
             return None
         started = time.monotonic()
@@ -1208,7 +1213,11 @@ class JevTriageBackend(SemanticTriageProvider):
                 )
                 break
         fallback_result = await self._fail_closed(context)
-        self._record_triage(fallback_result, is_fallback=True, started=started)
+        self._record_triage(
+            fallback_result,
+            is_fallback=self.fallback is not None,
+            started=started,
+        )
         return fallback_result
 
     async def _fail_closed(
@@ -1223,6 +1232,13 @@ class JevTriageBackend(SemanticTriageProvider):
         except Exception as exc:
             logger.debug("Jev fallback backend failed — abstaining: %s", exc)
             return None
+
+    async def aclose(self) -> None:
+        """Close the lazily-created Gateway client — only when this backend
+        owns it (injected clients belong to the caller)."""
+        if self._owns_http and self._http_client is not None:
+            await self._http_client.aclose()
+            self._http_client = None
 
 
 SEMANTIC_TRIAGE_BACKENDS: Dict[str, Callable[[Any], SemanticTriageProvider]] = {
@@ -1245,11 +1261,12 @@ def resolve_semantic_backend(raw: Optional[str]) -> str:
         return DEFAULT_SEMANTIC_BACKEND
     if name in SEMANTIC_TRIAGE_BACKENDS:
         if name == JevTriageBackend.name and not os.getenv(JEV_API_KEY_ENV_VAR):
+            # Static message: never pass credential-adjacent variables into
+            # log calls (CodeQL clear-text logging).
             logger.warning(
-                "Semantic triage backend 'jev' requires %s (paid Vercel AI "
-                "Gateway credits), which is not set — degrading to %r.",
-                JEV_API_KEY_ENV_VAR,
-                DEFAULT_SEMANTIC_BACKEND,
+                "Semantic triage backend 'jev' requires AI_GATEWAY_API_KEY "
+                "(paid Vercel AI Gateway credits), which is not set — "
+                "degrading to 'gemini'."
             )
             return DEFAULT_SEMANTIC_BACKEND
         return name
