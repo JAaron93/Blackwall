@@ -54,8 +54,13 @@ from blackwall.models import (
 )
 from blackwall.policy.semantic import (
     SEMANTIC_BACKEND_ENV_VAR,
+    TIER2_DISAGREEMENT_NOVELTY,
+    TIER2_DISAGREEMENT_P,
+    GeminiTier2Backend,
     SemanticTriageEvaluation as SemanticTriageEvaluation,
     SemanticTriageProvider,
+    SemanticTriageResult,
+    Tier2EscalationVerdict,
     build_semantic_provider,
     resolve_semantic_backend,
 )
@@ -249,6 +254,8 @@ class SyncResolver:
             else os.getenv(SEMANTIC_BACKEND_ENV_VAR, "")
         )
         self._semantic_provider: Optional[SemanticTriageProvider] = None
+        self._tier2_backend: Optional[GeminiTier2Backend] = None
+        self.tier2_calls: int = 0
 
         # Wire MCP client URLs from policy server if configured
         policy = getattr(
@@ -463,14 +470,33 @@ class SyncResolver:
         if is_high_risk:
             threat_resp = await self._query_threat_intel(sanitized)
 
-        # 4b. Optional semantic triage via Gemini 3.5 Flash-Lite
+        # 4b. Optional Tier-1 semantic triage (pluggable jev|gemini backend)
+        # with Tier-2 Gemini escalation on the ambiguity band or
+        # deterministic-vs-semantic disagreement (FR-03). Structural BLOCKs
+        # short-circuit the outcome, so Tier-2 is never spent on them.
         semantic_score: Optional[float] = None
+        tier1_result: Optional[SemanticTriageResult] = None
+        tier2_verdict: Optional[Tier2EscalationVerdict] = None
         if self.enable_semantic_triage and self.client is not None:
-            semantic_score = await self._evaluate_semantic_intent(sanitized)
+            tier1_result = await self._semantic_triage_result(sanitized)
+            if tier1_result is not None:
+                semantic_score = tier1_result.threat_score
+                if not structural_blocked:
+                    tier2_verdict = await self._maybe_escalate_tier2(
+                        sanitized, tier1_result
+                    )
 
-        # 5. Compute weighted threat score
+        # 5. Compute weighted threat score (Tier-2's calibrated score replaces
+        # the Tier-1 signal as the semantic input when it fires)
         score = await self._compute_threat_score(
-            sanitized, threat_resp, cbm_resp, semantic_score=semantic_score
+            sanitized,
+            threat_resp,
+            cbm_resp,
+            semantic_score=(
+                tier2_verdict.threat_score
+                if tier2_verdict is not None
+                else semantic_score
+            ),
         )
         if structural_blocked:
             score = 1.0
@@ -515,11 +541,27 @@ class SyncResolver:
             else:
                 decision = VerdictDecision.ALLOW
 
+        # 5c. FR-03: a successful Tier-2 escalation returns the FINAL
+        # ALLOW/BLOCK verdict (QUARANTINE excluded). Structural BLOCKs were
+        # decided earlier and can never be overridden (aggregation supremacy).
+        if tier2_verdict is not None and not structural_blocked:
+            decision = (
+                VerdictDecision.BLOCK
+                if tier2_verdict.decision == "BLOCK"
+                else VerdictDecision.ALLOW
+            )
+
         base_reasoning = self._build_reasoning(
             score, threat_resp, cbm_resp, semantic_score=semantic_score
         )
         if structural_blocked:
             reasoning = f"Blocked via structural policy rule: {structural_rule_id} | {base_reasoning}"
+        elif tier2_verdict is not None and tier1_result is not None:
+            reasoning = (
+                f"Tier-2 escalation ({tier1_result.backend} "
+                f"P={tier1_result.threat_score:.2f}): {tier2_verdict.reasoning}"
+                f" | {base_reasoning}"
+            )
         else:
             reasoning = base_reasoning
 
@@ -908,14 +950,76 @@ class SyncResolver:
         stays weight-identical across backends, and degrades to None — never a
         synthetic 0.0 — when the backend abstains or fails.
         """
-        try:
-            result = await self.semantic_provider.triage(context)
-        except Exception as exc:
-            logger.debug("Semantic intent evaluation fell back to heuristics: %s", exc)
-            return None
+        result = await self._semantic_triage_result(context)
         if result is None:
             return None
         return result.threat_score
+
+    async def _semantic_triage_result(
+        self, context: ToolCallContext
+    ) -> Optional[SemanticTriageResult]:
+        """
+        Full Tier-1 triage result (threat_score, confidence, backend, escalate)
+        from the active SemanticTriageProvider. None = abstain — deliberately
+        distinct from 0.0 so the fail-closed max() in _score_argument_novelty
+        is never masked.
+        """
+        try:
+            return await self.semantic_provider.triage(context)
+        except Exception as exc:
+            logger.debug("Semantic intent evaluation fell back to heuristics: %s", exc)
+            return None
+
+    @property
+    def tier2_backend(self) -> GeminiTier2Backend:
+        """Tier-2 deep-reasoning escalation backend, built once per resolver."""
+        if self._tier2_backend is None:
+            self._tier2_backend = GeminiTier2Backend(self.client)
+        return self._tier2_backend
+
+    async def _maybe_escalate_tier2(
+        self, context: ToolCallContext, tier1: SemanticTriageResult
+    ) -> Optional[Tier2EscalationVerdict]:
+        """
+        FR-03 routing: fire Tier-2 Gemini deep reasoning on (a) the Tier-1
+        ambiguity band (escalate=True) or (b) deterministic-vs-semantic
+        disagreement (high-risk argument novelty with a clear-low P). Returns
+        None when no trigger fires or Tier-2 abstains — the caller then fails
+        closed to the normal aggregation + thresholds path (never fail-open).
+        """
+        trigger: Optional[str] = None
+        if tier1.escalate:
+            trigger = "ambiguity"
+        elif (
+            self._score_argument_novelty(context.arguments)
+            >= TIER2_DISAGREEMENT_NOVELTY
+            and tier1.threat_score < TIER2_DISAGREEMENT_P
+        ):
+            trigger = "disagreement"
+        if trigger is None:
+            return None
+        self.tier2_calls += 1
+        started = time.monotonic()
+        verdict = await self.tier2_backend.escalate(context, tier1)
+        if verdict is None:
+            logger.warning(
+                "Tier-2 escalation triggered (%s) but Gemini abstained — "
+                "failing closed to Score Aggregation with the Tier-1 signal",
+                trigger,
+            )
+            return None
+        logger.info(
+            "tier2_escalation",
+            extra={
+                "backend": self.tier2_backend.name,
+                "trigger": trigger,
+                "p_tier1": tier1.threat_score,
+                "decision": verdict.decision,
+                "p_tier2": verdict.threat_score,
+                "latency_ms": round((time.monotonic() - started) * 1000.0, 3),
+            },
+        )
+        return verdict
 
     async def _compute_threat_score(
         self,
