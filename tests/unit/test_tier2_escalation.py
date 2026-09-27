@@ -8,7 +8,7 @@ to the normal aggregation path — never fail-open.
 """
 
 from typing import Any, Dict, Optional
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -318,3 +318,40 @@ async def test_clear_low_with_structural_block_supremacy():
 async def test_disagreement_constants_are_spec_pinned():
     assert TIER2_DISAGREEMENT_NOVELTY == pytest.approx(0.4)
     assert TIER2_DISAGREEMENT_P == pytest.approx(0.2)
+
+
+@pytest.mark.asyncio
+async def test_tier2_allow_never_downgrades_threat_intel_block():
+    """P1: threat-intel-malicious aggregation floors the score to a BLOCK;
+    a Tier-2 ALLOW must never downgrade it (aggregation supremacy)."""
+    client = _tier2_client("ALLOW", 0.2, "looks benign to deep reasoning")
+    resolver = _resolver(client, _StubTier1(_in_band(0.51)))
+    ti_resp = MagicMock()
+    ti_resp.is_malicious = True
+    ti_resp.risk_score = 0.9
+    ti_resp.provider_name = "AlienVaultOTX"
+    ti_resp.detection_rate = 90.0
+    resolver._query_threat_intel = AsyncMock(return_value=ti_resp)
+    verdict = await resolver.evaluate(_beacon_context())
+    assert verdict.decision == VerdictDecision.BLOCK
+    assert resolver.tier2_calls == 1  # escalation still ran and is recorded
+    assert "Tier-2" in verdict.reasoning
+
+
+@pytest.mark.asyncio
+async def test_tier2_http_deadline_stays_at_ctor_bound(monkeypatch):
+    """P1: the analytical HTTP floor (120s) must not apply to Tier-2 — an
+    ambiguous call may not outlive the interception deadline."""
+    import asyncio
+
+    captured: Dict[str, Any] = {}
+    real_wait_for = asyncio.wait_for
+
+    async def spy(coro: Any, timeout: Any = None) -> Any:
+        captured["timeout"] = timeout
+        return await real_wait_for(coro, timeout=timeout)
+
+    monkeypatch.setattr(asyncio, "wait_for", spy)
+    backend = GeminiTier2Backend(_tier2_client())  # default timeout: 30.0
+    await backend.escalate(_beacon_context(), _in_band(0.51))
+    assert captured["timeout"] == 30.0

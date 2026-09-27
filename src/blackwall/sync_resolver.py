@@ -542,14 +542,17 @@ class SyncResolver:
                 decision = VerdictDecision.ALLOW
 
         # 5c. FR-03: a successful Tier-2 escalation returns the FINAL
-        # ALLOW/BLOCK verdict (QUARANTINE excluded). Structural BLOCKs were
-        # decided earlier and can never be overridden (aggregation supremacy).
+        # ALLOW/BLOCK verdict (QUARANTINE excluded) — unless deterministic
+        # aggregation already demands BLOCK. Structural calls never reach
+        # triage, and a threat-intel-malicious or block-threshold aggregate
+        # is never downgraded (aggregation supremacy, ADR 0006).
         if tier2_verdict is not None and not structural_blocked:
-            decision = (
-                VerdictDecision.BLOCK
-                if tier2_verdict.decision == "BLOCK"
-                else VerdictDecision.ALLOW
-            )
+            if decision != VerdictDecision.BLOCK:
+                decision = (
+                    VerdictDecision.BLOCK
+                    if tier2_verdict.decision == "BLOCK"
+                    else VerdictDecision.ALLOW
+                )
 
         base_reasoning = self._build_reasoning(
             score, threat_resp, cbm_resp, semantic_score=semantic_score

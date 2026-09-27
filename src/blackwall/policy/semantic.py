@@ -1327,9 +1327,12 @@ class GeminiTier2Backend:
                 f"Arguments: {context.arguments}\n"
                 f"Metadata: {context.metadata or {}}\n"
             )
-            timeout = get_gemini_http_timeout(
-                configured=self.timeout, task_type="tier2_escalation"
-            )
+            # Deliberately NO analytical task_type here: it would floor the
+            # HTTP timeout at 120s and let an ambiguous call outlive the
+            # interception deadline. Deep-reasoning THINKING stays pinned
+            # HIGH above; the request deadline stays at the 30s ctor bound,
+            # and a timeout fails closed to the aggregation path.
+            timeout = get_gemini_http_timeout(configured=self.timeout)
             aio_models = getattr(getattr(self.client, "aio", None), "models", None)
             aio_gen = getattr(aio_models, "generate_content", None)
             if aio_gen is not None and inspect.iscoroutinefunction(aio_gen):
