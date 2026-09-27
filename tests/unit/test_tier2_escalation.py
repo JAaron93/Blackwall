@@ -38,9 +38,7 @@ class _StubTier1(SemanticTriageProvider):
         self.result = result
         self.calls = 0
 
-    async def triage(
-        self, context: ToolCallContext
-    ) -> Optional[SemanticTriageResult]:
+    async def triage(self, context: ToolCallContext) -> Optional[SemanticTriageResult]:
         self.calls += 1
         return self.result
 
@@ -181,9 +179,7 @@ async def test_backend_error_abstains():
     client = MagicMock()
     client.models.generate_content = MagicMock(side_effect=RuntimeError("boom"))
     assert (
-        await GeminiTier2Backend(client).escalate(
-            _beacon_context(), _in_band(0.51)
-        )
+        await GeminiTier2Backend(client).escalate(_beacon_context(), _in_band(0.51))
         is None
     )
 
