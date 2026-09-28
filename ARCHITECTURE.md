@@ -32,19 +32,24 @@ flowchart TD
         AuditHookCheck{"OS Audit Hook (sys.addaudithook)"}
     end
 
-    subgraph Tier 1: Fast-Path Structural Gating
+    subgraph Tier 0: Deterministic Fast Path
         ContextHygiene["ContextHygiene Redaction (Rust / Python)"]
         StructuralGating{"Structural Gating Engine (YAML Policy)"}
     end
 
-    subgraph Tier 2: Rapid Semantic Triage
+    subgraph Tier 1: Semantic Triage Signals (System-1)
         TSGQuery{"Threat Signature Graph (SQLite Cosine Match)"}
         TIQuery["Threat Intel Engine (AlienVault OTX / Cache)"]
         CBMQuery["Codebase Memory MCP (AST & Sink Blast Radius)"]
+        Tier1Triage{"Tier-1 Triage Backend (Jev via Vercel AI Gateway | Gemini fallback)"}
         SemanticEngine["Semantic Gating Engine (Score Aggregation)"]
     end
 
-    subgraph Tier 3: Self-Learning & Mitigation
+    subgraph Tier 2: Deep Reasoning Escalation (System-2)
+        Tier2Gemini["Gemini 3.8 Flash High Thinking (ambiguity band / disagreement)"]
+    end
+
+    subgraph Post-Verdict: Self-Learning & Mitigation
         ABAPipeline["Agent Behavioral Analytics (ABA)"]
         TSGPersist[("Write Threat Signature to SQLite Graph")]
         VerdictDispatch["Dispatch Final Verdict"]
@@ -62,10 +67,14 @@ flowchart TD
     TSGQuery -- "Similarity >= 0.85" --> MatchBlock["BLOCK via Signature (~7.0ms)"]
     TSGQuery -- "No Match (< 0.85)" --> TIQuery
     TSGQuery -- "No Match (< 0.85)" --> CBMQuery
+    TSGQuery -- "No Match (< 0.85)" --> Tier1Triage
 
     TIQuery --> SemanticEngine
     CBMQuery --> SemanticEngine
-    SemanticEngine --> ThresholdEval{"Threat Score Threshold"}
+    Tier1Triage -- "P(threat) weighted signal" --> SemanticEngine
+    Tier1Triage -- "0.35 <= P <= 0.75 or disagreement" --> Tier2Gemini
+    Tier2Gemini -- "final ALLOW/BLOCK (never overrides deterministic BLOCK)" --> ThresholdEval{"Threat Score Threshold"}
+    SemanticEngine --> ThresholdEval
 
     ThresholdEval -- "Score >= 0.75" --> SemanticBlock["BLOCK"]
     ThresholdEval -- "0.50 <= Score < 0.75" --> SemanticQuarantine["QUARANTINE"]
@@ -78,18 +87,18 @@ flowchart TD
     SemanticAllow --> VerdictDispatch
 ```
 
-### 2.1 Tier 1: Structural Gating Engine (<5ms)
+### 2.1 Tier 0: Deterministic Fast Path (Structural Gating Engine, <5ms)
 - **Policy Definition**: Configured via `config/policy.yaml` (and root `policy.yaml`), defining environment roles (`sandbox`, `development`, `staging`, `production`), permitted tools, and forbidden operations.
 - **Rule Hierarchy**: Priority-ordered structural rules evaluating tool names, arguments, and caller environment roles using boolean logic.
 - **Deterministic Outcomes**:
   - `ALLOW`: Instant pass-through for safe read-only operations (e.g., `read_file`, `list_dir` in `development`).
   - `BLOCK`: Immediate reject for dangerous execution tools (e.g., `execute_bash`, `run_python`, `install_package` in `production`).
-  - `ESCALATE`: Routes sensitive operations (e.g., `write_file`, `http_request`, `database_query`) to Tier 2 for semantic analysis.
+  - `ESCALATE`: Routes sensitive operations (e.g., `write_file`, `http_request`, `database_query`) to Tier 1 for semantic triage.
 - **Zero API Overhead**: Evaluates purely in-process in `< 5ms` with hot-reload capabilities.
 - **Debounced Hot-Reload Engine (`PolicyWatcher`)**: Watches policy YAML on disk using `watchdog` with 50ms timestamp-based debouncing and trailing retries. Prevents policy thrashing and ensures segmented/atomic file writes (e.g., temp-file creation, truncation, flush, and rename) do not drop subsequent completed writes. Supports context management via `with PolicyWatcher(...):` for clean lifecycle teardown.
 
-### 2.2 Tier 2: Semantic Gating Engine (<100ms @ P99)
-For escalated operations, Blackwall aggregates signals from three independent vectors:
+### 2.2 Tier 1: Semantic Triage Signals & Score Aggregation (System-1)
+For escalated operations (no TSG signature match), Blackwall aggregates signals from three independent vectors:
 $$\text{ThreatScore} = w_{\text{TI}} \cdot S_{\text{TI}} + w_{\text{CBM}} \cdot S_{\text{CBM}} + w_{\text{Context}} \cdot S_{\text{Context}}$$
 
 - **Baseline Weights**:
@@ -100,8 +109,10 @@ $$\text{ThreatScore} = w_{\text{TI}} \cdot S_{\text{TI}} + w_{\text{CBM}} \cdot 
   - $\text{ThreatScore} \ge 0.75 \implies \mathbf{BLOCK}$
   - $0.50 \le \text{ThreatScore} < 0.75 \implies \mathbf{QUARANTINE}$
   - $\text{ThreatScore} < 0.50 \implies \mathbf{ALLOW}$
-- **Structured Output Schema Enforcement**: When delegating semantic intent analysis to Gemini 3.5 Flash-Lite, Blackwall enforces Pydantic schemas via `response_schema=Verdict` (or `list[Verdict]`) with `response_mime_type="application/json"`. The model directly outputs structured verdict instances, eliminating markdown fence parsing and regex recovery heuristics.
-- **Thinking Level Routing**: Inline fast-path resolution operates with `thinking_level="minimal"` to satisfy the `<150ms` TTFT budget, while complex out-of-band forensics and behavioral analytics dynamically leverage `thinking_level="high"` or `None` on frontier reasoning models (e.g., Gemini 3.8 Flash).
+- **Pluggable Tier-1 Triage (Jev — System 1)**: Semantic intent is classified by the `SemanticTriageProvider` seam (`BW_SEMANTIC_BACKEND=jev|gemini`). The primary `jev` backend evaluates a single boolean `is_threat` question via TypeSafe Jev on the Vercel AI Gateway (`POST /v1/evaluate`, paid credits, `disallowPromptTraining: true`, sanitization-before-egress) and returns a calibrated `P(threat)` + confidence; `P ≥ 0.89` / `P ≤ 0.06` separation on the golden suite (ADR 0006), with the fixed `0.35/0.75` band marking ambiguity. Jev outputs are weighted SIGNALS only — never terminal verdicts. The `gemini` backend (Gemini 3.5 Flash-Lite) remains shipped as the fallback/default, and a Jev outage (bounded 429 backoff) fails closed to it.
+- **Tier-2 Deep Reasoning Escalation (System 2)**: `GeminiTier2Backend` (Gemini 3.8 Flash, immutable HIGH thinking) fires only on the ambiguity band or deterministic-vs-semantic disagreement (novelty ≥ 0.4 with P < 0.2). Its verdict is the final ALLOW/BLOCK — but structural, TSG, and threat-intel-malicious BLOCKs are decided earlier and can never be overridden (aggregation supremacy), and a Tier-2 abstention fails closed to the aggregation path. QUARANTINE remains a Score Aggregation outcome.
+- **Structured Output Schema Enforcement**: Gemini-based triage and Tier-2 escalation enforce Pydantic schemas via `response_schema` (e.g. `Tier2EscalationVerdict`) with `response_mime_type="application/json"` — no markdown-fence parsing or regex recovery. The Jev backend is exempt by design (ADR 0006 / Rule 76): it is a non-generative evaluation model returning typed answers, parsed strictly from the Gateway's JSON contract.
+- **Thinking Level Routing**: The Gemini rapid-triage backend operates with `thinking_level="minimal"` to satisfy the fast-path budget, while Tier-2 escalation (`tier2_escalation` analytical task type) and out-of-band forensics dynamically leverage `thinking_level="high"` on frontier reasoning models (e.g., Gemini 3.8 Flash) — with the Tier-2 request deadline held at its 30s constructor bound so an ambiguous call can never outlive the interception deadline.
 - **Native Non-Blocking Async Calling (`client.aio`)**: Both `SyncResolver` and `BatchResolver` directly await native Google GenAI SDK `client.aio.models.generate_content` and `client.aio.interactions.create` coroutines. Eliminates thread-pool worker context switches, reduces memory overhead, and enforces the strict async non-blocking I/O standard across all high-throughput evaluation loops.
 
 ---
@@ -341,12 +352,12 @@ stateDiagram-v2
     ReadyForWave2 --> [*]
 ```
 
-1. **Trigger Event**: Whenever a tool call receives a `BLOCK` verdict from Tier 2 semantic evaluation, `AgentBehavioralAnalytics.generate_signature()` is invoked.
+1. **Trigger Event**: Whenever a tool call receives a `BLOCK` verdict from the Tier-1/Tier-2 semantic pipeline, `AgentBehavioralAnalytics.generate_signature()` is invoked.
 2. **Payload Generalization**: Extracts invariant structural tokens from the malicious payload while stripping dynamic session parameters (e.g., ports, ephemeral timestamps, temporary process IDs).
 3. **Structured Signature Synthesis**: Invokes Gemini with a typed schema (`ThreatSignaturePayload`), natively synthesizing pattern, threat level, mitigation action, and structured reasoning without regex or markdown repair heuristics.
 4. **Vector Synthesis**: Calls the Gemini Embedding API (`text-embedding-004`) to generate a 768-dimensional normalized embedding vector.
 5. **Graph Persistence**: Atomically writes the signature, payload regex, and vector to the SQLite `threat_signatures` table and broadcasts the event across OpenTelemetry.
-6. **Adaptive Immunity**: When an attacker subsequently attempts a polymorphic variant of the same exploit, Tier 2 vector similarity matches the stored signature and blocks the attack locally in **~7.0ms**.
+6. **Adaptive Immunity**: When an attacker subsequently attempts a polymorphic variant of the same exploit, TSG vector similarity matches the stored signature and blocks the attack locally in **~7.0ms** — with zero further generation calls (novel-only synthesis, FR-04).
 
 ---
 

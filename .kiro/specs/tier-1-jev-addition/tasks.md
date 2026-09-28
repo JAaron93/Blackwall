@@ -48,7 +48,7 @@ in unit/BDD tests (mocked); live calls only in the eval harness.
 
 ## Track C — Escalation & Forensics (depends on Track A; integrates Track B)
 
-* [ ] **TASK-C01: Tier-2 routing rules** (FR-03). Ambiguity-band and
+* [x] **TASK-C01: Tier-2 routing rules** (FR-03). Ambiguity-band and
   disagreement (`P < 0.2` + high-risk novelty) escalation to Gemini high
   thinking; final verdict contract.
   Dependencies: TASK-A02, TASK-B01. Acceptance: BDD scenarios —
@@ -62,7 +62,7 @@ in unit/BDD tests (mocked); live calls only in the eval harness.
   (P=0.05) combined with a structural BLOCK still verdicts BLOCK, and a
   clear-high Jev signal (P=0.95) with all other signals benign still
   passes through Score Aggregation (no direct-to-verdict short-circuit).
-* [ ] **TASK-C02: Async signature path untouched** (FR-04). Regression tests
+* [x] **TASK-C02: Async signature path untouched** (FR-04). Regression tests
   proving every novel (non-signature-matched) BLOCK still yields
   `ThreatSignaturePayload` → TSG append off the hot path, and that
   TSG-matched BLOCKs return immediately with zero generation calls.
@@ -70,7 +70,12 @@ in unit/BDD tests (mocked); live calls only in the eval harness.
 
 ## Track D — Validation & Rollout (depends on Tracks B + C)
 
-* [ ] **TASK-D01: BDD acceptance suite** (NFR-04). `tests/features/`
+> [!NOTE] DEFERRAL (2026-09-25): TASK-D02 and TASK-D03 are deferred until a
+> paid `AI_GATEWAY_API_KEY` exists (the live golden A/B and GCP dual-gate are
+> NFR-05/NFR-01 acceptance, not mockable). TASK-D04 remains gated on D03.
+> TASK-D01 is complete on `feature/tier1-jev-escalation`.
+
+* [x] **TASK-D01: BDD acceptance suite** (NFR-04). `tests/features/`
   scenarios: clear ALLOW (P≈0.02), clear BLOCK (P≈0.98), ambiguity
   escalation (P≈0.60), disagreement escalation, async signature write,
   sanitization-before-egress (assert `[[PLACEHOLDER]]` in outbound state,

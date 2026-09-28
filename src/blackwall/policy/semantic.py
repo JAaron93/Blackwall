@@ -10,12 +10,13 @@ import time
 from abc import ABC, abstractmethod
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any, Callable, ClassVar, Dict, List, Optional
+from typing import Any, Callable, ClassVar, Dict, List, Literal, Optional
 
 import httpx
 from pydantic import BaseModel, Field
 
 from blackwall.config import (
+    DEFAULT_GEMINI_MODEL,
     DEFAULT_RAPID_TRIAGE_MODEL,
     get_gemini_http_timeout,
     get_gemini_thinking_level,
@@ -824,6 +825,13 @@ JEV_DEFAULT_BACKOFF_CAP_S = 4.0
 JEV_CLEAR_LOW_THRESHOLD = 0.35
 JEV_CLEAR_HIGH_THRESHOLD = 0.75
 
+# Tier-2 escalation triggers (FR-03): the ambiguity band maps to
+# SemanticTriageResult.escalate; the disagreement trigger fires when
+# deterministic argument novelty is high-risk (>= 2 suspicious-keyword hits
+# under _score_argument_novelty's 0.2 multiplier) while Jev is clear-low.
+TIER2_DISAGREEMENT_NOVELTY = 0.4
+TIER2_DISAGREEMENT_P = 0.2
+
 # Verbatim from the decontaminated A/B harness (scripts/jev_evaluate.mjs).
 JEV_IS_THREAT_QUESTION: Dict[str, Any] = {
     "type": "boolean",
@@ -1247,6 +1255,119 @@ SEMANTIC_TRIAGE_BACKENDS: Dict[str, Callable[[Any], SemanticTriageProvider]] = {
         fallback=GeminiTriageBackend(client)
     ),
 }
+
+
+class Tier2EscalationVerdict(BaseModel):
+    """Final ALLOW/BLOCK ruling from Tier-2 deep reasoning (FR-03).
+
+    QUARANTINE is deliberately excluded: escalation resolves ambiguity into a
+    binary verdict, and quarantine remains a Score Aggregation outcome.
+    """
+
+    decision: Literal["ALLOW", "BLOCK"]
+    threat_score: float = Field(..., ge=0.0, le=1.0)
+    reasoning: str = Field(..., description="Concise deep-reasoning rationale")
+
+
+class GeminiTier2Backend:
+    """Gemini 3.8 Flash deep-reasoning escalation (Tier-2, FR-03).
+
+    Fired only on the ambiguity band or deterministic-vs-semantic
+    disagreement; its verdict is final unless a structural/TSG BLOCK already
+    decided the call (aggregation supremacy, ADR 0006). An abstention (error,
+    timeout, malformed payload) fails closed: the caller falls back to the
+    normal aggregation path with the Tier-1 signal.
+    """
+
+    name: ClassVar[str] = "gemini_tier2"
+
+    def __init__(
+        self,
+        client: Any,
+        *,
+        model: str = DEFAULT_GEMINI_MODEL,
+        timeout: float = 30.0,
+    ) -> None:
+        self.client = client
+        self.model = model
+        self.timeout = timeout
+
+    async def escalate(
+        self, context: ToolCallContext, tier1: SemanticTriageResult
+    ) -> Optional[Tier2EscalationVerdict]:
+        if not self.client or not (
+            hasattr(self.client, "models")
+            or (hasattr(self.client, "aio") and hasattr(self.client.aio, "models"))
+        ):
+            return None
+        try:
+            from google.genai import types
+
+            thinking_lvl = get_gemini_thinking_level(
+                model=self.model, task_type="tier2_escalation", default="high"
+            )
+            config = types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=Tier2EscalationVerdict,
+                thinking_config=(
+                    types.ThinkingConfig(thinking_level=thinking_lvl)
+                    if thinking_lvl
+                    else None
+                ),
+            )
+            prompt = (
+                "You are the Tier-2 security arbiter for an agentic firewall. "
+                "A Tier-1 classifier scored this tool call in the ambiguity "
+                f"band (P(threat)={tier1.threat_score:.2f}) or disagreed with "
+                "deterministic risk signals. Perform deep contextual reasoning "
+                "over the sanitized tool call below and return the FINAL "
+                "verdict: decision ALLOW or BLOCK, a calibrated threat_score, "
+                "and a concise rationale.\n"
+                f"Tool: {context.tool_name}\n"
+                f"Arguments: {context.arguments}\n"
+                f"Metadata: {context.metadata or {}}\n"
+            )
+            # Deliberately NO analytical task_type here: it would floor the
+            # HTTP timeout at 120s and let an ambiguous call outlive the
+            # interception deadline. Deep-reasoning THINKING stays pinned
+            # HIGH above; the request deadline stays at the 30s ctor bound,
+            # and a timeout fails closed to the aggregation path.
+            timeout = get_gemini_http_timeout(configured=self.timeout)
+            aio_models = getattr(getattr(self.client, "aio", None), "models", None)
+            aio_gen = getattr(aio_models, "generate_content", None)
+            if aio_gen is not None and inspect.iscoroutinefunction(aio_gen):
+                coro = aio_gen(
+                    model=self.model,
+                    contents=prompt,
+                    config=config,
+                )
+            else:
+                coro = asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model=self.model,
+                    contents=prompt,
+                    config=config,
+                )
+            response = await asyncio.wait_for(coro, timeout=timeout)
+
+            parsed = getattr(response, "parsed", None)
+            if isinstance(parsed, Tier2EscalationVerdict):
+                return parsed
+            if isinstance(parsed, dict) and "decision" in parsed:
+                return Tier2EscalationVerdict.model_validate(parsed)
+
+            text = getattr(response, "text", None)
+            if text:
+                try:
+                    data = json.loads(text)
+                    if isinstance(data, dict) and "decision" in data:
+                        return Tier2EscalationVerdict.model_validate(data)
+                except Exception:
+                    pass
+            return None
+        except Exception as exc:
+            logger.debug("Tier-2 escalation abstained: %s", exc)
+            return None
 
 
 def resolve_semantic_backend(raw: Optional[str]) -> str:

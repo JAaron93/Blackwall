@@ -18,7 +18,7 @@ Blackwall is an autonomous **Agentic Security Firewall** designed to intercept e
 
 ## 🏗 Architecture Overview
 
-The diagrams below illustrate the end-to-end interception flow across the agent tool boundary, Python runtime audit hooks, local Threat Signature Graph (TSG), and the Threat Intelligence / Vertex AI semantic triage pipeline:
+The diagrams below illustrate the end-to-end interception flow across the agent tool boundary, Python runtime audit hooks, local Threat Signature Graph (TSG), Threat Intelligence validation, Tier-1 calibrated semantic triage (Jev ⇄ Gemini), and Tier-2 Gemini deep-reasoning escalation:
 
 ### 🛡️ Blackwall Core Architecture (Single-Host Developer Edition)
 
@@ -97,7 +97,7 @@ python3 demo_live.py --plain
 
 **Terminal Layout:**
 - **Left Column (🔴 Rogue Attacker):** Real-time adversarial actions (reverse shells, credential exfiltration, SQL injection, token theft).
-- **Right Column (🛡️ Blackwall Guardian):** Multi-signal interception stages (OS Audit Hook $\to$ Context Hygiene $\to$ Structural YAML Gating $\to$ Local TSG Lookup $\to$ Semantic Scoring).
+- **Right Column (🛡️ Blackwall Guardian):** Multi-signal interception stages (OS Audit Hook $\to$ Context Hygiene $\to$ Structural YAML Gating $\to$ Local TSG Lookup $\to$ Tier-1 Jev/Gemini Triage $\to$ Score Aggregation $\to$ Tier-2 Gemini Escalation on ambiguity).
 - **Footer Scoreboard:** Real-time metrics tracking verdicts (BLOCK, QUARANTINE, ALLOW), Evasion Rate (<10% target), latency, and Zero Ambient Authority verification.
 
 ### 4. Local MCP Security Gateway
@@ -272,18 +272,18 @@ F1 Score (Malicious):     100.0%
 | Component | `SyncResolver` (Core Single-Request) | `BatchResolver` (Enterprise High-Throughput) |
 | :--- | :--- | :--- |
 | **Primary Class** | `SyncResolver` | `ADKIntegration` / `BatchResolver` |
-| **API Method** | `client.models.generate_content()` | `client.interactions.create()` |
+| **API Method** | Tier-1 Jev: `POST /v1/evaluate` (Vercel AI Gateway) or Gemini: `client.models.generate_content()`; Tier-2: Gemini deep reasoning | `client.interactions.create()` |
 | **Batching** | None (1 req / interception) | Yes (up to 5 reqs / batch) |
 | **Rate Limit** | 300 RPM (token bucket) | 300 RPM (token bucket) |
 | **Context Caching** | None | Server-side (`previous_interaction_id`) |
 | **Threat Intel / CBM Queries** | Awaits CBM, then conditionally awaits Threat Intel (high-risk only) | Batched API evaluation without inline MCP gather |
 | **Signature Generation** | Asynchronous background task (`loop.create_task`) | Asynchronous background task / webhook |
-| **Billing Mode** | 100% GCP Vertex AI Mode (Paid Tier) | 100% GCP Vertex AI Mode (Paid Tier) |
+| **Billing Mode** | GCP Vertex AI (paid) + Tier-1 Jev on Vercel AI Gateway paid credits (ADR 0006) | 100% GCP Vertex AI Mode (Paid Tier) |
 
-### Three-Tier Evaluation Model
-- **Tier 1: Structural Gating** (<5ms, deterministic): In-memory YAML policy evaluation without LLM calls. Returns `ALLOW`, `BLOCK`, or `ESCALATE`.
-- **Tier 2: Rapid Semantic Triage** (<100ms @ P99, Gemini 3.5 Flash-Lite): CBM AST analysis with conditional Threat Intel queries (AlienVault OTX / GTI) for high-risk indicators, evaluated via Gemini 3.5 Flash-Lite with structured Pydantic output.
-- **Tier 3: Deep Reasoning** (Background, non-blocking, Gemini 3.8 Flash): Asynchronous behavioral analysis and threat signature synthesis triggered after `BLOCK`/`QUARANTINE` verdicts. Zero added latency to the execution path.
+### Three-Tier Interception Model (ADR 0006)
+- **Tier 0: Deterministic & AST Graph** (<5ms): OS audit hooks, Context Hygiene redaction, in-memory YAML structural gating, and Threat Signature Graph matching. Purely deterministic — no LLM calls. Structural/TSG BLOCKs are final and can never be overridden by any downstream signal.
+- **Tier 1: Calibrated Decision Classifier (Jev — System 1)**: every novel (non-TSG-matched) call is evaluated by TypeSafe Jev (`typesafe-ai/jev`, via paid Vercel AI Gateway credits, `disallowPromptTraining` mandatory, sanitization-before-egress). `P(threat)` is a weighted SIGNAL into Score Aggregation with the fixed `0.35/0.75` ambiguity band — never a terminal verdict. The legacy Gemini 3.5 Flash-Lite backend remains shipped and selectable via `BW_SEMANTIC_BACKEND=jev|gemini` (default `gemini` until the Track-D validation gate passes); a Jev outage fails closed to the Gemini backend.
+- **Tier 2: Gemini Deep Reasoning (System 2)**: Gemini 3.8 Flash (high thinking) fires only on the ambiguity band or deterministic-vs-semantic disagreement, returning the final ALLOW/BLOCK verdict (structural/TSG/threat-intel-malicious BLOCKs always win). Also owns async forensic `ThreatSignaturePayload` synthesis after novel BLOCKs — zero added latency to the execution path, and never triggered for TSG-matched blocks.
 
 ### Native CLI Tool Suite & Harpoon OSINT Bridge
 

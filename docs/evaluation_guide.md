@@ -183,3 +183,7 @@ This writes `tests/eval/results/jev_triage_results.json` — one record per case
 ```
 
 The **Tier-1 Classifier Analytics** section shows gate stats (accuracy ≥98%, AUROC ≥0.95, ECE ≤0.10, escalation ≤25%), plotly confusion matrix / ROC / reliability / separation views, per-case `P(threat)` with band zones, and an Explainable-AI panel (exact span ablation plus opt-in sampled Shapley, both button-gated live calls). Acceptance is computed at the fixed `0.35/0.75` band; sliders are exploratory only. With no artifact present the section renders an empty state — never placeholder data.
+
+### Production integration status
+
+Jev is wired into the interception path as the Tier-1 **System-1** classifier (ADR 0006): `JevTriageBackend` evaluates every novel tool call through the `SemanticTriageProvider` seam with the fixed `0.35/0.75` band, bounded 429 backoff failing closed to the Gemini backend, and structured `jev_triage` observability records. Ambiguous calls escalate to **Tier-2** Gemini 3.8 Flash deep reasoning, which returns the final ALLOW/BLOCK verdict (deterministic BLOCKs always win — aggregation supremacy). `BW_SEMANTIC_BACKEND` still defaults to `gemini`; the flip to `jev` is TASK-D04, gated on the TASK-D02 live golden re-run (167 cases) through this shipped backend, which will also record the Tier-2 fire rate. BDD acceptance for the wired pipeline lives in `tests/features/jev_tier1_triage.feature`.

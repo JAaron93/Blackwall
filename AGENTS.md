@@ -21,7 +21,7 @@ Blackwall is structured into **two distinct product tiers**:
 All code submitted via pull requests or feature branches must be reviewed against these Greptile agent guardrails:
 
 * **Greptile Review Directives**: Enforce Greptile agent review standards configured in `.greptile/config.json`, `.greptile/rules.md`, and `.greptile/files.json`. Greptile reviews must verify both Core and Enterprise architecture invariants.
-* **Spec-Driven Consistency**: All edits must align with `.kiro/specs/` (`agent-swarm-attribution-logic`, `blackwall-advanced-threat-detection`, `blackwall-agentic-firewall`, `blackwall-attacker-attribution`, `blackwall-enterprise-security-mesh`, `blackwall-gcp-evaluation-coverage`, `blackwall-mcp-gateway`, `blackwall-rust-acceleration`, `blackwall-test-coverage-remediation`, `blackwall-threat-intel-cli` — `design.md`, `requirements.md`, `tasks.md`).
+* **Spec-Driven Consistency**: All edits must align with `.kiro/specs/` (`agent-swarm-attribution-logic`, `blackwall-advanced-threat-detection`, `blackwall-agentic-firewall`, `blackwall-attacker-attribution`, `blackwall-enterprise-security-mesh`, `blackwall-gcp-evaluation-coverage`, `blackwall-mcp-gateway`, `blackwall-rust-acceleration`, `blackwall-test-coverage-remediation`, `blackwall-threat-intel-cli`, `tier-1-jev-addition` — `design.md`, `requirements.md`, `tasks.md`).
 
 * **Behavior-Driven Specifications**: Verify all security behavior contracts using Gherkin syntax via `pytest-bdd` scenarios in `tests/features/`.
 * **Strict Test-Driven Development (TDD)**: Every feature addition or bug fix must include a failing unit test or reproduction script before code changes are staged.
@@ -60,7 +60,7 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
   - Dual-mode out-of-band telemetry log analyzer (local Ollama LLM with AST/regex fallback) and OpenTelemetry exporter.
 * **Pillar 6: Advanced Threat Detection & Evaluation (`blackwall.enterprise.advanced_threat_detection`)**
   - Cross-pillar swarm, exploit chain, AILM, and C2 detection with `ActiveReactionEngine`.
-  - **Dual-Tiered Evaluation Strategy**: Tier 1 (ADK Adversarial Harness in 100% GCP Vertex AI Mode) + Tier 2 (Cybench on Cloud Run with gVisor container isolation).
+  - **Dual-Tiered Evaluation Strategy**: Evaluation Tier I (ADK Adversarial Harness in 100% GCP Vertex AI Mode) + Evaluation Tier II (Cybench on Cloud Run with gVisor container isolation) — evaluation-harness tiers, distinct from the interception Tier-0/1/2 pipeline (ADR 0006).
   - **100% Cloud-Native GCP Evaluation**: Zero-SaaS evaluation using GCP Vertex AI Gen AI Evaluation Service (`vertexai.preview.evaluation` / `EvalTask`), Google Cloud Trace, and ADK Trajectory Gating (`tool_trajectory_avg_score: 1.0` dual-gate protocol governed by `.agents/rules/testing_and_hygiene.md#51`), fully replacing legacy Weights & Biases (Weave).
   - **Agent-as-a-Judge Evaluation Pipeline**: 9 domain-specific autonomous Antigravity SDK judge agents (`google.antigravity.Agent`, `vertex=True`, `AgentBehavior.AUTONOMOUS`) producing structured Pydantic rubric scores under zero-trust XML prompt delimitation. Requires `GEMINI_TIER=paid` for 300+ RPM quota contract.
   - **Tier-1 CI Entry Point**: `scripts/run_gcp_eval.py` orchestrates domain judges, `SLAValidator` component latency measurement, the managed Vertex AI `EvalTask` gate (`COMPLETED` required), and `HistoricalRegressionTracker` baselines, exiting 0/1 as the CI gate.
@@ -89,6 +89,8 @@ Agents updating or expanding project rules (e.g. via `/learn` or code review res
 
 3. **Learning & Proposal Workflow**:
    - Before modifying project rules, agents MUST draft a proposal artifact (`learning_proposal` or `implementation_plan`) outlining the classification, rationale, and exact diffs, and obtain explicit user approval before staging changes.
+4. **Same-Change Invariant Synchronization**:
+   - A PR that changes an architectural invariant MUST amend `AGENTS.md`, `.agents/rules/`, and `.greptile/` in the same change (labelled commit). Stale instructions are review-loop fuel: every automated-review Catch-22 traces to an invariant that predated the code that invalidated it. Deferring instruction synchronization to a later track or PR is prohibited.
 
 
 ---

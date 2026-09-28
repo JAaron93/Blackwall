@@ -32,6 +32,7 @@ ANALYTICAL_TASK_TYPES: frozenset[str] = frozenset({
     "attribution",
     "forensics",
     "signature_generation",
+    "tier2_escalation",
 })
 
 ROUTER_TASK_TYPES: frozenset[str] = frozenset({
