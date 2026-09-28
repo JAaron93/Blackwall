@@ -90,7 +90,10 @@ def resolver_with_stub_jev(state: BDDState, p: str) -> None:
         client=state.gemini_client, enable_semantic_triage=True
     )
     state.resolver._semantic_provider = state.tier1
-    state.resolver.aba = AsyncMock()  # keep signature writes hermetic
+    # Keep signature writes hermetic in the generic scenarios; the repo
+    # scenario restores the real ABA so the TSG write is genuinely asserted.
+    state.real_aba = state.resolver.aba
+    state.resolver.aba = AsyncMock()
 
 
 @given(
@@ -120,9 +123,15 @@ def resolver_with_repo_and_stub_jev(state: BDDState, p: str) -> None:
     state.repo = MagicMock()
     state.repo.find_matching_signature = AsyncMock(return_value=None)
     state.repo.writeSignature = AsyncMock()
-    state.aba = AsyncMock()
-    state.resolver.repo = state.repo
-    state.resolver.aba = state.aba
+    # Rebuild with the repo wired at construction so the resolver's real
+    # AgentBehavioralAnalytics binds to it — the writeSignature capture
+    # below asserts the genuine ABA → repository TSG write, not a mock.
+    state.resolver = SyncResolver(
+        client=state.gemini_client,
+        repo=state.repo,
+        enable_semantic_triage=True,
+    )
+    state.resolver._semantic_provider = state.tier1
 
 
 @given("a real Jev backend bound to a capturing gateway")
@@ -274,9 +283,13 @@ def assert_tier2_provenance(state: BDDState) -> None:
 def assert_signature_written(state: BDDState) -> None:
     run_async(state.resolver.flush_background_tasks())
     assert state.resolver._inline_signatures_generated == 1
-    state.aba.generateSignature.assert_awaited_once()
-    event = state.aba.generateSignature.await_args.args[0]
-    assert event.verdict.decision == VerdictDecision.BLOCK
+    state.repo.writeSignature.assert_awaited_once()
+    signature = state.repo.writeSignature.await_args.args[0]
+    assert signature["attackerIntent"]
+    assert signature["payloadPattern"]
+    assert signature["targetTool"] == state.context.tool_name
+    assert signature["mitigationAction"] == "BLOCK"
+    assert signature["similarityVector"] is not None  # 768-dim TSG embedding
 
 
 @then(parsers.parse('the outbound state contains "{fragment}"'))

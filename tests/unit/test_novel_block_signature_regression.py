@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from blackwall.models import SecurityEvent, ToolCallContext, VerdictDecision
+from blackwall.models import ToolCallContext, VerdictDecision
 from blackwall.policy.models import StructuralAction
 from blackwall.policy.semantic import SemanticTriageProvider, SemanticTriageResult
 from blackwall.sync_resolver import SyncResolver, ThreatSignaturePayload
@@ -52,7 +52,7 @@ def _resolver(
     resolver = SyncResolver(
         client=client,
         repo=repo,
-        aba=AsyncMock(),
+        aba=None,  # force the repo persistence path — aba must not mask it
         enable_semantic_triage=True,
     )
     if tier1 is not None:
@@ -79,9 +79,15 @@ async def test_novel_tier2_block_triggers_async_signature_generation():
     assert verdict.decision == VerdictDecision.BLOCK
     await resolver.flush_background_tasks()
     assert resolver._inline_signatures_generated == 1
-    resolver.aba.generateSignature.assert_awaited_once()
-    event: SecurityEvent = resolver.aba.generateSignature.await_args.args[0]
-    assert event.verdict.decision == VerdictDecision.BLOCK
+    repo.writeSignature.assert_awaited_once()
+    signature = repo.writeSignature.await_args.args[0]
+    # aba=None exercises the real AgentBehavioralAnalytics → repo path, so
+    # these fields are the actual persisted TSG signature, not a mock echo.
+    assert signature["attackerIntent"] == "Credential exfiltration via shadow read"
+    assert signature["payloadPattern"] == "cat /etc/shadow; reverse shell"
+    assert signature["targetTool"] == "http_request"
+    assert signature["mitigationAction"] == "BLOCK"
+    assert signature["similarityVector"] is not None  # 768-dim TSG embedding
 
 
 @pytest.mark.asyncio
@@ -101,6 +107,7 @@ async def test_novel_structural_block_still_generates_signature():
     await resolver.evaluate(_high_risk_context())
     await resolver.flush_background_tasks()
     assert resolver._inline_signatures_generated == 1
+    repo.writeSignature.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -116,7 +123,6 @@ async def test_tsg_matched_block_returns_immediately_with_zero_generation():
     assert client.models.generate_content.call_count == 0
     assert resolver._inline_signatures_generated == 0
     repo.writeSignature.assert_not_awaited()
-    resolver.aba.generateSignature.assert_not_awaited()
 
 
 @pytest.mark.asyncio
