@@ -66,7 +66,7 @@
     },
     {
       "id": "tdd-and-bdd-coverage",
-      "rule": "Test-Driven Development (TDD) & BDD Coverage: Flag any PR modifying src/ without corresponding unit or integration tests under tests/, property-based tests under tests/property/, and BDD feature scenarios in tests/features/.",
+      "rule": "Test-Driven Development (TDD) & BDD Coverage: Flag any PR modifying src/ without corresponding unit or integration tests under tests/, property-based tests under tests/property/, and BDD feature scenarios in tests/features/. Additionally enforce testing_and_hygiene.md Rules 74/75: (Rule 74 — Live-Paid-Credential Acceptance Gates) acceptance tasks requiring live paid credentials (AI_GATEWAY_API_KEY, GCP Vertex budget) must never be claimed via mocks/stubs — verify deferral notes in tasks.md gate them and that dependent tasks (e.g. the TASK-D04 default flip) stay gated; (Rule 75 — Same-Loop Background-Task Assertions) tests asserting scheduled background work must flush in the same run_async event loop that drove the scheduling call — a second loop makes the assertions vacuous.",
       "severity": "high"
     },
     {

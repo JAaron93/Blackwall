@@ -89,6 +89,8 @@ Agents updating or expanding project rules (e.g. via `/learn` or code review res
 
 3. **Learning & Proposal Workflow**:
    - Before modifying project rules, agents MUST draft a proposal artifact (`learning_proposal` or `implementation_plan`) outlining the classification, rationale, and exact diffs, and obtain explicit user approval before staging changes.
+4. **Same-Change Invariant Synchronization**:
+   - A PR that changes an architectural invariant MUST amend `AGENTS.md`, `.agents/rules/`, and `.greptile/` in the same change (labelled commit). Stale instructions are review-loop fuel: every automated-review Catch-22 traces to an invariant that predated the code that invalidated it. Deferring instruction synchronization to a later track or PR is prohibited.
 
 
 ---
