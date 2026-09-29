@@ -365,19 +365,6 @@ class SQLiteThreatRepository:
                 """
                 )
 
-                # GTI Cache table
-                await conn.execute(
-                    """
-                CREATE TABLE IF NOT EXISTS gti_cache (
-                    indicator TEXT NOT NULL,
-                    indicator_type TEXT NOT NULL,
-                    response_data TEXT NOT NULL,
-                    cached_at INTEGER NOT NULL,
-                    PRIMARY KEY (indicator, indicator_type)
-                );
-                """
-                )
-
                 # Threat Intelligence Cache table (3.0.0)
                 await conn.execute(
                     """
@@ -394,6 +381,35 @@ class SQLiteThreatRepository:
                 );
                 """
                 )
+
+                # Legacy GTI cache absorption (pre-3.0.0 schema): move surviving
+                # rows into the unified threat_intel_cache, then drop the old
+                # table. Idempotent — guarded by table existence.
+                legacy_cursor = await conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='gti_cache'"
+                )
+                if await legacy_cursor.fetchone():
+                    await conn.execute(
+                        """
+                        INSERT OR IGNORE INTO threat_intel_cache (
+                            indicator, indicator_type, provider, is_malicious,
+                            risk_score, payload, created_at, expires_at
+                        )
+                        SELECT
+                            indicator,
+                            indicator_type,
+                            COALESCE(json_extract(response_data, '$.provider_name'), 'legacy'),
+                            COALESCE(json_extract(response_data, '$.is_malicious'), 0),
+                            COALESCE(json_extract(response_data, '$.risk_score'), 0.0),
+                            response_data,
+                            CAST(cached_at AS REAL),
+                            CAST(cached_at AS REAL) + 86400.0
+                        FROM gti_cache
+                        """
+                    )
+                    await conn.execute("DROP TABLE gti_cache")
+                    await conn.commit()
+
                 await conn.execute(
                     """
                 CREATE INDEX IF NOT EXISTS idx_threat_cache_lookup 
@@ -938,62 +954,70 @@ class SQLiteThreatRepository:
     async def cache_threat_intel_response(
         self, indicator: str, indicator_type: str, response: dict[str, Any]
     ) -> None:
-        """Caches a raw threat intelligence dictionary response.
+        """Caches a raw threat intelligence dictionary response into the
+        unified ``threat_intel_cache`` (24h TTL).
 
-        Deprecated: use cache_threat_intel() directly. Maintained for backward compatibility.
+        Kept for the ``SemanticGatingEngine`` raw-dictionary contract; prefer
+        :meth:`cache_threat_intel` for typed ``ThreatIntelResponse`` objects.
         """
         await self.initialize()
+        now = time.time()
+        provider = str(response.get("provider_name") or "legacy")
+        is_malicious = 1 if response.get("is_malicious") else 0
+        risk_score = float(response.get("risk_score") or 0.0)
         async with self.pool.connection() as conn:
             await conn.execute(
                 """
-                INSERT OR REPLACE INTO gti_cache (indicator, indicator_type, response_data, cached_at)
-                VALUES (?, ?, ?, ?)
+                INSERT OR REPLACE INTO threat_intel_cache (
+                    indicator, indicator_type, provider, is_malicious,
+                    risk_score, payload, created_at, expires_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (indicator, indicator_type, json.dumps(response), int(time.time())),
+                (
+                    indicator,
+                    indicator_type,
+                    provider,
+                    is_malicious,
+                    risk_score,
+                    json.dumps(response),
+                    now,
+                    now + 86400.0,
+                ),
             )
-
-    cache_gti_response = cache_threat_intel_response
+            await conn.commit()
 
     async def get_cached_threat_intel_response(
         self, indicator: str, indicator_type: str
     ) -> dict[str, Any] | None:
-        """Look up cached threat intelligence dictionary response.
+        """Look up a cached threat intelligence dictionary response from the
+        unified ``threat_intel_cache`` (freshest non-expired row).
 
-        Deprecated: use get_cached_threat_intel() directly. Maintained for backward compatibility.
+        Kept for the ``SemanticGatingEngine`` raw-dictionary contract; prefer
+        :meth:`get_cached_threat_intel` for typed responses.
         """
         await self.initialize()
+        now = time.time()
         async with self.pool.connection() as conn:
             cursor = await conn.execute(
-                "SELECT response_data, cached_at FROM gti_cache WHERE indicator = ? AND indicator_type = ?",
-                (indicator, indicator_type),
+                """
+                SELECT payload FROM threat_intel_cache
+                WHERE indicator = ? AND indicator_type = ? AND expires_at > ?
+                ORDER BY expires_at DESC LIMIT 1
+                """,
+                (indicator, indicator_type, now),
             )
             row = await cursor.fetchone()
             if row:
-                response_data_str, cached_at = row
-                # 24-hour TTL (86400 seconds)
-                if time.time() - cached_at > 86400:
-                    # Expired. Delete from cache.
-                    await conn.execute(
-                        "DELETE FROM gti_cache WHERE indicator = ? AND indicator_type = ?",
-                        (indicator, indicator_type),
-                    )
-                else:
-                    try:
-                        result: dict[str, Any] = json.loads(response_data_str)
-                        return result
-                    except json.JSONDecodeError:
-                        pass
-
-        # Interoperability fallback: check unified threat_intel_cache table
-        cached_ti = await self.get_cached_threat_intel(indicator, indicator_type)
-        if cached_ti is not None:
-            if hasattr(cached_ti, "model_dump"):
-                return cached_ti.model_dump()
-            return dict(cached_ti)
-
+                try:
+                    result: dict[str, Any] = json.loads(row[0])
+                    return result
+                except json.JSONDecodeError:
+                    pass
+            await conn.execute(
+                "DELETE FROM threat_intel_cache WHERE indicator = ? AND indicator_type = ? AND expires_at <= ?",
+                (indicator, indicator_type, now),
+            )
         return None
-
-    get_cached_gti_response = get_cached_threat_intel_response
 
     async def cache_threat_intel(
         self,

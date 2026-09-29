@@ -855,7 +855,7 @@ async def test_threat_intel_budget_exhaustion_does_not_skip_cached_iocs(temp_rep
         "related_campaigns": ["campaign-xyz"],
         "confidence": 0.95,
     }
-    await temp_repo.cache_gti_response(
+    await temp_repo.cache_threat_intel_response(
         indicator="evil.example.com",
         indicator_type="domain",
         response=malicious_domain_response,
@@ -952,7 +952,7 @@ async def test_cached_ioc_uses_repo_payload_not_queryioc(temp_repo):
         "related_campaigns": [],
         "confidence": 0.75,
     }
-    await temp_repo.cache_gti_response(
+    await temp_repo.cache_threat_intel_response(
         indicator="8.8.8.8", indicator_type="ip_address", response=cached_ip_response
     )
 
@@ -965,7 +965,7 @@ async def test_cached_ioc_uses_repo_payload_not_queryioc(temp_repo):
         "related_campaigns": [],
         "confidence": 0.8,
     }
-    await temp_repo.cache_gti_response(
+    await temp_repo.cache_threat_intel_response(
         indicator="http://malicious.example.com/payload",
         indicator_type="url",
         response=cached_url_response,
@@ -980,7 +980,7 @@ async def test_cached_ioc_uses_repo_payload_not_queryioc(temp_repo):
         "related_campaigns": [],
         "confidence": 0.85,
     }
-    await temp_repo.cache_gti_response(
+    await temp_repo.cache_threat_intel_response(
         indicator="evil.example.com",
         indicator_type="domain",
         response=cached_domain_response,
@@ -995,7 +995,7 @@ async def test_cached_ioc_uses_repo_payload_not_queryioc(temp_repo):
         "related_campaigns": [],
         "confidence": 0.9,
     }
-    await temp_repo.cache_gti_response(
+    await temp_repo.cache_threat_intel_response(
         indicator="a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
         indicator_type="file_hash",
         response=cached_hash_response,

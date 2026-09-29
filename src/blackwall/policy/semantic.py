@@ -274,7 +274,7 @@ class SemanticGatingEngine:
                 break
             # Or if it's unknown/not in cache, reputation is suspicious
             if self.repo:
-                cached = await self.repo.get_cached_gti_response(
+                cached = await self.repo.get_cached_threat_intel_response(
                     domain, IndicatorType.DOMAIN.value
                 )
                 if not cached:
