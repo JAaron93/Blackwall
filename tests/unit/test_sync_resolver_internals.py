@@ -2,7 +2,7 @@
 
 Covers: _build_reasoning, _extract_indicator, _inline_generate_signature,
 _process_attribution, _schedule_attribution, _score_argument_novelty,
-_score_tool_name, _score_context, _score_gti, _score_cbm,
+_score_tool_name, _score_context, _score_threat_intel, _score_cbm,
 _emit_sinks, close, get_metrics.
 """
 
@@ -322,13 +322,13 @@ def test_score_context_capped_at_one():
 
 # ===========================================================================
 # ===========================================================================
-# Section 5: _score_threat_intel() and _score_gti()
+# Section 5: _score_threat_intel() and _score_threat_intel()
 # ===========================================================================
 
 def test_score_threat_intel_none():
     r = make_resolver()
     assert r._score_threat_intel(None) == 0.0
-    assert r._score_gti(None) == 0.0
+    assert r._score_threat_intel(None) == 0.0
 
 
 test_score_gti_none = test_score_threat_intel_none
@@ -338,7 +338,7 @@ def test_score_threat_intel_not_malicious_no_detection():
     r = make_resolver()
     ti = make_threat_intel_response(is_malicious=False, detection_rate=0.0)
     assert r._score_threat_intel(ti) == 0.0
-    assert r._score_gti(ti) == 0.0
+    assert r._score_threat_intel(ti) == 0.0
 
 
 test_score_gti_not_malicious_no_detection = test_score_threat_intel_not_malicious_no_detection
@@ -350,7 +350,7 @@ def test_score_threat_intel_not_malicious_with_detection():
     # detection_rate=50.0 is a percentage (50%) -> mapped to 0.50
     score = r._score_threat_intel(ti)
     assert abs(score - 0.50) < 0.01
-    assert abs(r._score_gti(ti) - 0.50) < 0.01
+    assert abs(r._score_threat_intel(ti) - 0.50) < 0.01
 
 
 test_score_gti_not_malicious_with_detection = test_score_threat_intel_not_malicious_with_detection
@@ -362,7 +362,7 @@ def test_score_threat_intel_not_malicious_capped_detection():
     # detection_rate=150.0 is capped at 1.0
     score = r._score_threat_intel(ti)
     assert score == 1.0
-    assert r._score_gti(ti) == 1.0
+    assert r._score_threat_intel(ti) == 1.0
 
 
 test_score_gti_not_malicious_capped_detection = test_score_threat_intel_not_malicious_capped_detection
@@ -373,7 +373,7 @@ def test_score_threat_intel_not_malicious_low_detection():
     ti = make_threat_intel_response(is_malicious=False, detection_rate=0.3)
     score = r._score_threat_intel(ti)
     assert abs(score - 0.3) < 0.01
-    assert abs(r._score_gti(ti) - 0.3) < 0.01
+    assert abs(r._score_threat_intel(ti) - 0.3) < 0.01
 
 
 test_score_gti_not_malicious_low_detection = test_score_threat_intel_not_malicious_low_detection
@@ -385,7 +385,7 @@ def test_score_threat_intel_malicious():
     # is_malicious=True: (1.0 + min(1, 0.8)) / 2 = (1.0 + 0.8) / 2 = 0.9
     score = r._score_threat_intel(ti)
     assert abs(score - 0.9) < 0.01
-    assert abs(r._score_gti(ti) - 0.9) < 0.01
+    assert abs(r._score_threat_intel(ti) - 0.9) < 0.01
 
 
 test_score_gti_malicious = test_score_threat_intel_malicious
@@ -397,7 +397,7 @@ def test_score_threat_intel_malicious_zero_detection():
     # (1.0 + 0.0) / 2 = 0.5
     score = r._score_threat_intel(ti)
     assert abs(score - 0.5) < 0.01
-    assert abs(r._score_gti(ti) - 0.5) < 0.01
+    assert abs(r._score_threat_intel(ti) - 0.5) < 0.01
 
 
 test_score_gti_malicious_zero_detection = test_score_threat_intel_malicious_zero_detection

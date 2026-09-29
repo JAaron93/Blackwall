@@ -252,7 +252,7 @@ async def test_batch_resolver_background_submission():
         quarantined_context=ctx,
         related_signatures=[],
         cbm_chain=["db_sink"],
-        gti_data={"is_malicious": False},
+        threat_intel_data={"is_malicious": False},
     )
 
     assert task_id == "bg-task-456"

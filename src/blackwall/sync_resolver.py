@@ -187,8 +187,6 @@ class SyncResolver:
         repo: Any = None,
         threat_intel: Optional[Any] = None,
         cbm_client: Any = None,
-        gti_client: Any = None,
-        gti_budget_tracker: Any = None,
         threat_intel_budget_tracker: Any = None,
         threat_intel_provider: Optional[Any] = None,
         demo_mode: bool = False,
@@ -205,14 +203,14 @@ class SyncResolver:
         ti = (
             threat_intel
             if threat_intel is not None
-            else (threat_intel_provider if threat_intel_provider is not None else gti_client)
+            else threat_intel_provider
         )
         self.threat_intel = ti
         self.cbm_client = cbm_client
         self.threat_intel_budget_tracker = (
             threat_intel_budget_tracker
             if threat_intel_budget_tracker is not None
-            else gti_budget_tracker
+            else None
         )
         self.demo_mode = demo_mode
         self.on_attacker_identified = on_attacker_identified
@@ -263,7 +261,7 @@ class SyncResolver:
         )
         if policy and hasattr(policy, "mcpServers"):
             mcp = policy.mcpServers
-            ti_conf = getattr(mcp, "threatIntel", None) or getattr(mcp, "gti", None)
+            ti_conf = getattr(mcp, "threatIntel", None)
             if (
                 ti_conf
                 and getattr(ti_conf, "url", None)
@@ -313,30 +311,6 @@ class SyncResolver:
                 self.client, self._semantic_backend_name
             )
         return self._semantic_provider
-
-    @property
-    def gti_budget_tracker(self) -> Any:
-        return self.threat_intel_budget_tracker
-
-    @gti_budget_tracker.setter
-    def gti_budget_tracker(self, val: Any) -> None:
-        self.threat_intel_budget_tracker = val
-
-    @property
-    def _gti_budget_exhausted(self) -> bool:
-        return self._threat_intel_budget_exhausted
-
-    @_gti_budget_exhausted.setter
-    def _gti_budget_exhausted(self, val: bool) -> None:
-        self._threat_intel_budget_exhausted = val
-
-    @property
-    def gti_client(self) -> Any:
-        return self.threat_intel
-
-    @gti_client.setter
-    def gti_client(self, val: Any) -> None:
-        self.threat_intel = val
 
     # ------------------------------------------------------------------
     # Public API
@@ -793,7 +767,7 @@ class SyncResolver:
             return None
 
         # Budget check (if legacy or token tracker present)
-        tracker = self.threat_intel_budget_tracker or self.gti_budget_tracker
+        tracker = self.threat_intel_budget_tracker
         if tracker is not None:
             acquired = False
             try:
@@ -898,7 +872,6 @@ class SyncResolver:
             self._threat_intel_queries_deferred += 1
             return None
 
-    _query_gti = _query_threat_intel
 
     # ------------------------------------------------------------------
     # CBM query
@@ -1025,7 +998,7 @@ class SyncResolver:
 
         The −0.20 penalty and weight redistribution (CBM 50% + Context 50%)
         only applies when the budget tracker explicitly denied the query
-        (self._gti_budget_exhausted is True). Other reasons for threat_resp
+        (self._threat_intel_budget_exhausted is True). Other reasons for threat_resp
         being None — Threat intel not configured, no extractable indicator, or a
         transient query failure — use normal weights with threat_score = 0.0,
         which is already the correct fallback from _score_threat_intel(None).
@@ -1043,7 +1016,7 @@ class SyncResolver:
 
         ctx_score = self._score_context(context, semantic_score=semantic_score)
 
-        if self._gti_budget_exhausted:
+        if self._threat_intel_budget_exhausted:
             # Budget depletion: apply spec-mandated weight redistribution
             # and −0.2 penalty to reflect reduced detection confidence.
             score = cbm_score * 0.50 + ctx_score * 0.50 - 0.20
@@ -1294,7 +1267,6 @@ class SyncResolver:
             return max(1.0, clamp_score(risk_score))
         return clamp_score(risk_score)
 
-    _score_gti = _score_threat_intel
 
     def _score_cbm(self, cbm_resp: Optional[CBMResponse]) -> float:
         """

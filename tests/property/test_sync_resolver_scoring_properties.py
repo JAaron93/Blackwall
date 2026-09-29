@@ -5,7 +5,7 @@ Uses Hypothesis to verify invariants across the private scoring pipeline:
   - _score_argument_novelty
   - _score_context
   - _score_cbm
-  - _score_gti
+  - _score_threat_intel
   - _compute_threat_score
 
 All scoring functions must return values in [0.0, 1.0].
@@ -52,7 +52,7 @@ def _make_resolver(demo_mode: bool = False) -> SyncResolver:
         repo=mock_repo,
         threat_intel_client=mock_gti_client,
         cbm_client=mock_cbm_client,
-        gti_budget_tracker=mock_gti_budget_tracker,
+        threat_intel_budget_tracker=mock_gti_budget_tracker,
         demo_mode=demo_mode,
     )
 
@@ -225,7 +225,7 @@ def test_score_cbm_none_returns_zero() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Property 5: _score_threat_intel & _score_gti — output bounded in [0, 1]
+# Property 5: _score_threat_intel & _score_threat_intel — output bounded in [0, 1]
 # ---------------------------------------------------------------------------
 
 
@@ -237,8 +237,8 @@ def test_score_threat_intel_bounded_with_response(ti_resp: CachedIndicatorRespon
     score = resolver._score_threat_intel(ti_resp)
     assert isinstance(score, float), f"Expected float, got {type(score)}"
     assert 0.0 <= score <= 1.0, f"Threat intel score {score!r} out of [0, 1]"
-    # Also verify legacy _score_gti alias
-    legacy_score = resolver._score_gti(ti_resp)
+    # Also verify legacy _score_threat_intel alias
+    legacy_score = resolver._score_threat_intel(ti_resp)
     assert legacy_score == score
 
 
@@ -250,7 +250,7 @@ def test_score_threat_intel_none_returns_zero() -> None:
     resolver = _make_resolver()
     score = resolver._score_threat_intel(None)
     assert score == 0.0, f"Expected 0.0 for None input, got {score!r}"
-    assert resolver._score_gti(None) == 0.0
+    assert resolver._score_threat_intel(None) == 0.0
 
 
 test_score_gti_none_returns_zero = test_score_threat_intel_none_returns_zero
@@ -300,7 +300,7 @@ def test_compute_threat_score_bounded_budget_exhausted(
 ) -> None:
     """Property: _compute_threat_score is bounded when GTI budget is exhausted."""
     resolver = _make_resolver()
-    resolver._gti_budget_exhausted = True
+    resolver._threat_intel_budget_exhausted = True
     raw_score = _run(resolver._compute_threat_score(context, threat_resp, cbm_resp))
     assert isinstance(raw_score, float)
     # Under budget exhaustion: score = cbm*0.5 + ctx*0.5 − 0.20
@@ -409,7 +409,7 @@ def test_compute_threat_score_all_zero_inputs_near_zero() -> None:
     # - no metadata → zero role modifier
     context = ToolCallContext(tool_name="safe_helper", arguments={})
 
-    # GTI: not malicious, detection_rate=0.0 → _score_gti = 0.0
+    # GTI: not malicious, detection_rate=0.0 → _score_threat_intel = 0.0
     threat_resp = CachedIndicatorResponse(
         indicator="safe.example.com",
         is_malicious=False,
@@ -466,7 +466,7 @@ def test_compute_threat_score_all_max_inputs_produces_high_score() -> None:
         metadata={"environment_role": "production"},
     )
 
-    # GTI: malicious, high detection rate → _score_gti ≈ 1.0
+    # GTI: malicious, high detection rate → _score_threat_intel ≈ 1.0
     threat_resp = CachedIndicatorResponse(
         indicator="evil-domain.ru",
         is_malicious=True,
@@ -540,7 +540,7 @@ def test_score_threat_intel_malicious_flag_dominance(detection_rate: float) -> N
         f"Malicious score {malicious_score!r} should be >= benign score {benign_score!r} "
         f"at detection_rate={detection_rate!r}"
     )
-    assert resolver._score_gti(malicious_resp) >= resolver._score_gti(benign_resp)
+    assert resolver._score_threat_intel(malicious_resp) >= resolver._score_threat_intel(benign_resp)
 
 
 test_score_gti_malicious_flag_dominance = test_score_threat_intel_malicious_flag_dominance

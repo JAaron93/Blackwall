@@ -72,7 +72,7 @@ def _create_test_resolver(demo_mode: bool = False) -> SyncResolver:
 
     cbm_client.query.side_effect = mock_cbm_query
 
-    gti_client = AsyncMock()
+    threat_intel_client = AsyncMock()
 
     async def mock_gti_query(indicator: str) -> CachedIndicatorResponse:
         if indicator and any(
@@ -95,7 +95,7 @@ def _create_test_resolver(demo_mode: bool = False) -> SyncResolver:
             indicator=indicator or "none", is_malicious=False, detection_rate=0.0
         )
 
-    gti_client.query.side_effect = mock_gti_query
+    threat_intel_client.query.side_effect = mock_gti_query
 
     mock_repo = AsyncMock()
 
@@ -147,7 +147,7 @@ def _create_test_resolver(demo_mode: bool = False) -> SyncResolver:
     return SyncResolver(
         client=mock_client,
         cbm_client=cbm_client,
-        threat_intel_client=gti_client,
+        threat_intel_client=threat_intel_client,
         repo=mock_repo,
         demo_mode=demo_mode,
     )
