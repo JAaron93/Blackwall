@@ -242,7 +242,6 @@ def test_score_threat_intel_bounded_with_response(ti_resp: CachedIndicatorRespon
     assert legacy_score == score
 
 
-test_score_gti_bounded_with_response = test_score_threat_intel_bounded_with_response
 
 
 def test_score_threat_intel_none_returns_zero() -> None:
@@ -253,7 +252,6 @@ def test_score_threat_intel_none_returns_zero() -> None:
     assert resolver._score_threat_intel(None) == 0.0
 
 
-test_score_gti_none_returns_zero = test_score_threat_intel_none_returns_zero
 
 
 # ---------------------------------------------------------------------------
@@ -543,7 +541,6 @@ def test_score_threat_intel_malicious_flag_dominance(detection_rate: float) -> N
     assert resolver._score_threat_intel(malicious_resp) >= resolver._score_threat_intel(benign_resp)
 
 
-test_score_gti_malicious_flag_dominance = test_score_threat_intel_malicious_flag_dominance
 
 
 # ---------------------------------------------------------------------------

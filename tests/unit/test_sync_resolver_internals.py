@@ -95,7 +95,6 @@ def test_build_reasoning_with_threat_intel_malicious():
     assert "80.00" in result
 
 
-test_build_reasoning_with_gti_malicious = test_build_reasoning_with_threat_intel_malicious
 
 
 def test_build_reasoning_with_threat_intel_not_malicious():
@@ -105,7 +104,6 @@ def test_build_reasoning_with_threat_intel_not_malicious():
     assert "50.00" in result
 
 
-test_build_reasoning_with_gti_not_malicious = test_build_reasoning_with_threat_intel_not_malicious
 
 
 def test_build_reasoning_with_threat_intel_response():
@@ -331,7 +329,6 @@ def test_score_threat_intel_none():
     assert r._score_threat_intel(None) == 0.0
 
 
-test_score_gti_none = test_score_threat_intel_none
 
 
 def test_score_threat_intel_not_malicious_no_detection():
@@ -341,7 +338,6 @@ def test_score_threat_intel_not_malicious_no_detection():
     assert r._score_threat_intel(ti) == 0.0
 
 
-test_score_gti_not_malicious_no_detection = test_score_threat_intel_not_malicious_no_detection
 
 
 def test_score_threat_intel_not_malicious_with_detection():
@@ -353,7 +349,6 @@ def test_score_threat_intel_not_malicious_with_detection():
     assert abs(r._score_threat_intel(ti) - 0.50) < 0.01
 
 
-test_score_gti_not_malicious_with_detection = test_score_threat_intel_not_malicious_with_detection
 
 
 def test_score_threat_intel_not_malicious_capped_detection():
@@ -365,7 +360,6 @@ def test_score_threat_intel_not_malicious_capped_detection():
     assert r._score_threat_intel(ti) == 1.0
 
 
-test_score_gti_not_malicious_capped_detection = test_score_threat_intel_not_malicious_capped_detection
 
 
 def test_score_threat_intel_not_malicious_low_detection():
@@ -376,7 +370,6 @@ def test_score_threat_intel_not_malicious_low_detection():
     assert abs(r._score_threat_intel(ti) - 0.3) < 0.01
 
 
-test_score_gti_not_malicious_low_detection = test_score_threat_intel_not_malicious_low_detection
 
 
 def test_score_threat_intel_malicious():
@@ -388,7 +381,6 @@ def test_score_threat_intel_malicious():
     assert abs(r._score_threat_intel(ti) - 0.9) < 0.01
 
 
-test_score_gti_malicious = test_score_threat_intel_malicious
 
 
 def test_score_threat_intel_malicious_zero_detection():
@@ -400,7 +392,6 @@ def test_score_threat_intel_malicious_zero_detection():
     assert abs(r._score_threat_intel(ti) - 0.5) < 0.01
 
 
-test_score_gti_malicious_zero_detection = test_score_threat_intel_malicious_zero_detection
 
 
 def test_score_threat_intel_response_malicious():
