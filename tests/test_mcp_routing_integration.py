@@ -35,10 +35,6 @@ def mock_threat_intel_client() -> AsyncMock:
 mock_ti_client = mock_threat_intel_client
 
 
-def test_gti_router_alias_in_integration() -> None:
-    assert ThreatIntelRouter is ThreatIntelRouter
-
-
 # ============================================================================
 # Synchronous Path Gating Integration Tests
 # ============================================================================
@@ -69,7 +65,6 @@ async def test_synchronous_path_blocks_threat_intel_queries(
     mock_threat_intel_client.lookup_ip.assert_not_called()
 
 
-test_synchronous_path_blocks_gti_queries = test_synchronous_path_blocks_threat_intel_queries
 
 
 @pytest.mark.asyncio
@@ -91,7 +86,6 @@ async def test_async_analysis_path_allows_threat_intel_queries(
     mock_threat_intel_client.lookup_ip.assert_called_once_with(ip="198.51.100.12")
 
 
-test_async_analysis_path_allows_gti_queries = test_async_analysis_path_allows_threat_intel_queries
 
 
 # ============================================================================
@@ -162,7 +156,6 @@ async def test_attack_simulation_threat_intel_operations(
     assert "[ESCAPE_ATTEMPT]" in str(exc_info.value)
 
 
-test_attack_simulation_gti_operations = test_attack_simulation_threat_intel_operations
 
 
 # ============================================================================

@@ -153,7 +153,7 @@ async def test_attack_sequences() -> None:
         await repo.initialize()
         repo_initialized = True
 
-        # Mock GTI and CBM clients to prevent external network calls
+        # Mock threat-intel and CBM clients to prevent external network calls
         mock_ti = MagicMock()
         mock_ti.query = AsyncMock(return_value=None)
 

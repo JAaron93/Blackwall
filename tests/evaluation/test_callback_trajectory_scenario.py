@@ -76,7 +76,7 @@ def _create_eval_resolver() -> SyncResolver:
 
     threat_intel_client = AsyncMock()
 
-    async def mock_gti_query(indicator: str) -> CachedIndicatorResponse:
+    async def mock_ti_query(indicator: str) -> CachedIndicatorResponse:
         if indicator and any(
             bad in indicator.lower()
             for bad in [
@@ -97,7 +97,7 @@ def _create_eval_resolver() -> SyncResolver:
             indicator=indicator or "none", is_malicious=False, detection_rate=0.0
         )
 
-    threat_intel_client.query.side_effect = mock_gti_query
+    threat_intel_client.query.side_effect = mock_ti_query
 
     mock_repo = AsyncMock()
 

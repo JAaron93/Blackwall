@@ -54,7 +54,7 @@ async def test_structural_gating_latency_p99() -> None:
 @pytest.mark.asyncio
 async def test_semantic_gating_latency_p99() -> None:
     """
-    Subtask 26.2: Assert semantic gating p99 latency < 300ms with GTI/CBM mock responses.
+    Subtask 26.2: Assert semantic gating p99 latency < 300ms with threat-intel/CBM mock responses.
     Validates Requirement 16.6.
     """
     runner = BenchmarkRunner()

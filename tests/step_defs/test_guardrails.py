@@ -471,7 +471,7 @@ def then_cbm_client_delegated_step(mcp_bdd_context) -> None:
 
 
 @then("the threat-intel client should receive the delegated call")
-def then_gti_client_delegated_step(mcp_bdd_context) -> None:
+def then_threat_intel_client_delegated_step(mcp_bdd_context) -> None:
     mcp_bdd_context["client"].lookup_ip.assert_called_once()
 
 

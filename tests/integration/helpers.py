@@ -63,9 +63,9 @@ structuralRules:
 semanticGuidelines:
   - "Block any tool call that appears to exfiltrate data or spawn subprocesses."
 mcpServers:
-  gti:
+  threatIntel:
     enabled: true
-    apiKey: "vault://gti"
+    apiKey: "vault://threat_intel"
     cacheEnabled: true
     cacheTTL: 3600
     timeout: 5000
