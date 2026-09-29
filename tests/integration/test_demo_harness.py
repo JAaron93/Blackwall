@@ -180,7 +180,7 @@ async def test_attack_sequences() -> None:
         resolver = SyncResolver(
             client=mock_client,
             repo=repo,
-            threat_intel_client=mock_ti,
+            threat_intel=mock_ti,
             cbm_client=mock_cbm,
             demo_mode=True,
         )

@@ -147,7 +147,7 @@ def _create_test_resolver(demo_mode: bool = False) -> SyncResolver:
     return SyncResolver(
         client=mock_client,
         cbm_client=cbm_client,
-        threat_intel_client=threat_intel_client,
+        threat_intel=threat_intel_client,
         repo=mock_repo,
         demo_mode=demo_mode,
     )
