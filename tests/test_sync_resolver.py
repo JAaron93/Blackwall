@@ -53,7 +53,7 @@ def _make_resolver(
     cbm_client=None,
     repo=None,
     threat_intel_budget_tracker=None,
-    gti_client=None,
+    threat_intel_client=None,
     gti_budget_tracker=None,
 ) -> SyncResolver:
     """Creates a SyncResolver with a mocked Gemini client."""

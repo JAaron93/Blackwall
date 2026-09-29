@@ -154,8 +154,8 @@ async def test_attack_sequences() -> None:
         repo_initialized = True
 
         # Mock GTI and CBM clients to prevent external network calls
-        mock_gti = MagicMock()
-        mock_gti.query = AsyncMock(return_value=None)
+        mock_ti = MagicMock()
+        mock_ti.query = AsyncMock(return_value=None)
 
         mock_cbm = MagicMock()
         mock_cbm.query = AsyncMock(
@@ -180,7 +180,7 @@ async def test_attack_sequences() -> None:
         resolver = SyncResolver(
             client=mock_client,
             repo=repo,
-            gti_client=mock_gti,
+            threat_intel_client=mock_ti,
             cbm_client=mock_cbm,
             demo_mode=True,
         )

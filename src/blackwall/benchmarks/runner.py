@@ -60,7 +60,7 @@ structuralRules:
 semanticGuidelines:
   - "Block shell commands that download and execute remote scripts."
 mcpServers:
-  gti:
+  threatIntel:
     enabled: true
     cacheEnabled: true
     cacheTTL: 3600

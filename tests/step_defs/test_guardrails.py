@@ -555,7 +555,7 @@ def adk_interception_ctx() -> dict:
         "queue": None,
         "repo": None,
         "integration": None,
-        "mock_gti": None,
+        "mock_ti": None,
         "policy_server": None,
         "daemon_task": None,
         "tool_name": None,
@@ -591,9 +591,9 @@ def step_daemon_running(adk_interception_ctx, request) -> dict:
     adk_interception_ctx["integration"] = integration
 
     # Set up mock components
-    mock_gti = AsyncMock()
+    mock_ti = AsyncMock()
     mock_cbm = AsyncMock()
-    adk_interception_ctx["mock_gti"] = mock_gti
+    adk_interception_ctx["mock_ti"] = mock_ti
 
     repo = SQLiteThreatRepository(db_path=TEST_BDD_DB)
     adk_interception_ctx["repo"] = repo
@@ -615,7 +615,7 @@ def step_daemon_running(adk_interception_ctx, request) -> dict:
 
     semantic_engine = SemanticGatingEngine(
         repo=repo,
-        gti_client=mock_gti,
+        threat_intel_client=mock_ti,
         cbm_client=mock_cbm,
     )
     policy_server = HybridPolicyServer(struct_engine, semantic_engine)
@@ -799,5 +799,5 @@ def step_tool_aborted_verdict(adk_interception_ctx, verdict, safe_sla_limit) -> 
 
 @then("zero external Gemini API calls must be initiated")
 def step_zero_external_api_calls(adk_interception_ctx) -> None:
-    mock_gti = adk_interception_ctx["mock_gti"]
-    mock_gti.lookup_ip.assert_not_called()
+    mock_ti = adk_interception_ctx["mock_ti"]
+    mock_ti.lookup_ip.assert_not_called()

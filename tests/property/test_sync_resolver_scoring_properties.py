@@ -50,7 +50,7 @@ def _make_resolver(demo_mode: bool = False) -> SyncResolver:
         client=mock_client,
         policy_server=mock_policy_server,
         repo=mock_repo,
-        gti_client=mock_gti_client,
+        threat_intel_client=mock_gti_client,
         cbm_client=mock_cbm_client,
         gti_budget_tracker=mock_gti_budget_tracker,
         demo_mode=demo_mode,
@@ -423,7 +423,7 @@ def test_compute_threat_score_all_zero_inputs_near_zero() -> None:
 
     # With safe_helper: tool_score ≈ 0.1 (baseline), novelty = 0.0
     # ctx_score = (0.1 * 0.5 + 0.0 * 0.5) + 0.0 = 0.05
-    # gti_score = 0.0, cbm_score = 0.0
+    # threat_intel_score = 0.0, cbm_score = 0.0
     # total = 0.0*0.4 + 0.0*0.3 + 0.05*0.3 = 0.015
     assert raw_score <= 0.1, (
         f"Expected near-zero score for all-zero inputs, got {raw_score!r}"
@@ -436,7 +436,7 @@ def test_compute_threat_score_none_responses_near_zero() -> None:
     context = ToolCallContext(tool_name="list_directory", arguments={})
     raw_score = _run(resolver._compute_threat_score(context, None, None))
 
-    # gti_score = 0.0, cbm_score = 0.0
+    # threat_intel_score = 0.0, cbm_score = 0.0
     # ctx: tool_score ≈ 0.1 (baseline), novelty = 0.0 → ctx_score ≈ 0.05
     # total = 0.0*0.4 + 0.0*0.3 + 0.05*0.3 = 0.015
     assert raw_score <= 0.1, (

@@ -173,8 +173,8 @@ async def test_signature_match_count_increment(temp_repo):
 @pytest.mark.asyncio
 async def test_threat_intel_malicious_ioc_increases_threat_score(temp_repo):
     # Setup mock GTI Client
-    mock_gti = MagicMock(spec=GTIMCPClient)
-    mock_gti.is_degraded.return_value = False
+    mock_ti = MagicMock(spec=GTIMCPClient)
+    mock_ti.is_degraded.return_value = False
 
     # Mock malicious response
     mock_response = CachedIndicatorResponse(
@@ -184,9 +184,9 @@ async def test_threat_intel_malicious_ioc_increases_threat_score(temp_repo):
         detection_rate=80.0,
         confidence=0.9,
     )
-    mock_gti.queryIOC = AsyncMock(return_value=mock_response)
+    mock_ti.queryIOC = AsyncMock(return_value=mock_response)
 
-    engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
+    engine = SemanticGatingEngine(repo=temp_repo, threat_intel_client=mock_ti)
     context = ToolCallContext(tool_name="safe_tool", arguments={"ip": "1.2.3.4"})
 
     result = await engine.evaluate(context, "sandbox")
@@ -257,9 +257,9 @@ async def test_cbm_critical_sink_detection_increases_threat_score(temp_repo):
 @pytest.mark.asyncio
 async def test_weighted_threat_score_aggregation_and_redistribution(temp_repo):
     # Setup mocks
-    mock_gti = MagicMock(spec=GTIMCPClient)
-    mock_gti.is_degraded.return_value = False
-    mock_gti.queryIOC = AsyncMock(
+    mock_ti = MagicMock(spec=GTIMCPClient)
+    mock_ti.is_degraded.return_value = False
+    mock_ti.queryIOC = AsyncMock(
         return_value=CachedIndicatorResponse(
             indicator="1.2.3.4",
             is_malicious=True,
@@ -304,7 +304,7 @@ async def test_weighted_threat_score_aggregation_and_redistribution(temp_repo):
 
     # Test Case 1: All three signals available (GTI, CBM, Context)
     engine_all = SemanticGatingEngine(
-        repo=temp_repo, gti_client=mock_gti, cbm_client=mock_cbm
+        repo=temp_repo, threat_intel_client=mock_ti, cbm_client=mock_cbm
     )
     context_all = ToolCallContext(
         tool_name="safe_tool",
@@ -326,7 +326,7 @@ async def test_weighted_threat_score_aggregation_and_redistribution(temp_repo):
     assert abs(result_no_gti.threat_score - 0.54) < 0.01
 
     # Test Case 3: CBM unavailable (redistributed to GTI and Context)
-    engine_no_cbm = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
+    engine_no_cbm = SemanticGatingEngine(repo=temp_repo, threat_intel_client=mock_ti)
     result_no_cbm = await engine_no_cbm.evaluate(context_all, "sandbox")
     # GTI (57.14%), Context (42.86%)
     # Expected: (4/7) * 0.84 + (3/7) * 0.14 = 0.48 + 0.06 = 0.54
@@ -342,16 +342,16 @@ async def test_weighted_threat_score_aggregation_and_redistribution(temp_repo):
 @pytest.mark.asyncio
 async def test_threat_intel_degraded_penalty_applied(temp_repo):
     # Setup mock degraded GTI Client
-    mock_gti = MagicMock(spec=GTIMCPClient)
-    mock_gti.is_degraded.return_value = True
+    mock_ti = MagicMock(spec=GTIMCPClient)
+    mock_ti.is_degraded.return_value = True
     # queryIOC raises GTIDegradedError
-    mock_gti.queryIOC = AsyncMock(side_effect=GTIDegradedError("Degraded"))
+    mock_ti.queryIOC = AsyncMock(side_effect=GTIDegradedError("Degraded"))
 
-    engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
+    engine = SemanticGatingEngine(repo=temp_repo, threat_intel_client=mock_ti)
     context = ToolCallContext(tool_name="safe_tool", arguments={"ip": "1.2.3.4"})
 
     result = await engine.evaluate(context, "sandbox")
-    # GTI is degraded, so it's treated as unavailable (redistributed), but gti_penalty=0.2 is applied.
+    # GTI is degraded, so it's treated as unavailable (redistributed), but threat_intel_penalty=0.2 is applied.
     # Base score (context 100% since CBM is also unavailable) = 0.14
     # Final threat score = 0.14 + 0.2 = 0.34
     assert abs(result.threat_score - 0.34) < 0.01
@@ -459,12 +459,12 @@ async def test_threat_score_bounded_property(
 ):
     # Setup stubs manually to keep tests fast (no SQLite or real network)
     # We call evaluate with mock clients and verify bounds.
-    mock_gti = MagicMock(spec=GTIMCPClient)
-    mock_gti.is_degraded.return_value = gti_degraded
+    mock_ti = MagicMock(spec=GTIMCPClient)
+    mock_ti.is_degraded.return_value = gti_degraded
     if gti_degraded:
-        mock_gti.queryIOC = AsyncMock(side_effect=GTIDegradedError("Degraded"))
+        mock_ti.queryIOC = AsyncMock(side_effect=GTIDegradedError("Degraded"))
     else:
-        mock_gti.queryIOC = AsyncMock(
+        mock_ti.queryIOC = AsyncMock(
             return_value=CachedIndicatorResponse(
                 indicator="test",
                 is_malicious=gti_is_malicious,
@@ -497,7 +497,7 @@ async def test_threat_score_bounded_property(
     mock_cbm.identifyCriticalSinks = AsyncMock(return_value=[])
     mock_cbm.identifyUnsafeSinks = lambda sinks: [MagicMock()] if cbm_unsafe else []
 
-    engine = SemanticGatingEngine(repo=None, gti_client=mock_gti, cbm_client=mock_cbm)
+    engine = SemanticGatingEngine(repo=None, threat_intel_client=mock_ti, cbm_client=mock_cbm)
 
     # Always include targetFunction to trigger CBM evaluation
     args = dict(arguments)
@@ -654,8 +654,8 @@ async def test_threat_intel_query_budget_tracker_integration():
 @pytest.mark.asyncio
 async def test_threat_intel_query_skipped_and_redistributed_on_budget_exhaustion(temp_repo):
     # Mock GTI and CBM
-    mock_gti = MagicMock(spec=GTIMCPClient)
-    mock_gti.is_degraded.return_value = False
+    mock_ti = MagicMock(spec=GTIMCPClient)
+    mock_ti.is_degraded.return_value = False
 
     mock_cbm = MagicMock(spec=CodebaseMemoryClient)
     mock_cbm.get_threat_score_penalty.return_value = 0.0
@@ -689,7 +689,7 @@ async def test_threat_intel_query_skipped_and_redistributed_on_budget_exhaustion
 
         engine = SemanticGatingEngine(
             repo=temp_repo,
-            gti_client=mock_gti,
+            threat_intel_client=mock_ti,
             cbm_client=mock_cbm,
             budget_tracker=tracker,
         )
@@ -701,7 +701,7 @@ async def test_threat_intel_query_skipped_and_redistributed_on_budget_exhaustion
         result = await engine.evaluate(context, "sandbox")
 
         # GTI should not be queried
-        mock_gti.queryIOC.assert_not_called()
+        mock_ti.queryIOC.assert_not_called()
 
         # GTI penalty (0.2) must be applied
         # Weights redistributed: CBM gets 50%, Context gets 50%
@@ -718,17 +718,17 @@ async def test_threat_intel_query_skipped_and_redistributed_on_budget_exhaustion
 @pytest.mark.asyncio
 async def test_threat_intel_budget_exhausted_penalty_applied(temp_repo):
     # Setup mock GTI Client that raises GTIBudgetExhaustedError
-    mock_gti = MagicMock(spec=GTIMCPClient)
-    mock_gti.is_degraded.return_value = False
-    mock_gti.queryIOC = AsyncMock(
+    mock_ti = MagicMock(spec=GTIMCPClient)
+    mock_ti.is_degraded.return_value = False
+    mock_ti.queryIOC = AsyncMock(
         side_effect=GTIBudgetExhaustedError("Budget exhausted")
     )
 
-    engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
+    engine = SemanticGatingEngine(repo=temp_repo, threat_intel_client=mock_ti)
     context = ToolCallContext(tool_name="safe_tool", arguments={"ip": "1.2.3.4"})
 
     result = await engine.evaluate(context, "sandbox")
-    # GTI is budget exhausted, treated as unavailable (redistributed), gti_penalty=0.2 is applied.
+    # GTI is budget exhausted, treated as unavailable (redistributed), threat_intel_penalty=0.2 is applied.
     # Base score (context 100% since CBM is also unavailable) = 0.14
     # Final threat score = 0.14 + 0.2 = 0.34
     assert abs(result.threat_score - 0.34) < 0.01
@@ -738,9 +738,9 @@ async def test_threat_intel_budget_exhausted_penalty_applied(temp_repo):
 @pytest.mark.asyncio
 async def test_weight_redistribution_on_budget_exhaustion(temp_repo):
     # Setup mock GTI Client that raises GTIBudgetExhaustedError
-    mock_gti = MagicMock(spec=GTIMCPClient)
-    mock_gti.is_degraded.return_value = False
-    mock_gti.queryIOC = AsyncMock(
+    mock_ti = MagicMock(spec=GTIMCPClient)
+    mock_ti.is_degraded.return_value = False
+    mock_ti.queryIOC = AsyncMock(
         side_effect=GTIBudgetExhaustedError("Budget exhausted")
     )
 
@@ -772,7 +772,7 @@ async def test_weight_redistribution_on_budget_exhaustion(temp_repo):
     # Since GTI is budget exhausted: CBM (50%), Context (50%) + penalty (0.2)
     # Expected: 0.5 * 0.64 + 0.5 * 0.14 + 0.2 = 0.32 + 0.07 + 0.2 = 0.59
     engine = SemanticGatingEngine(
-        repo=temp_repo, gti_client=mock_gti, cbm_client=mock_cbm
+        repo=temp_repo, threat_intel_client=mock_ti, cbm_client=mock_cbm
     )
     context = ToolCallContext(
         tool_name="safe_tool",
@@ -790,8 +790,8 @@ async def test_threat_intel_partial_results_preserved_on_budget_exhaustion(temp_
     and incorporated into the threat score, not discarded.
     """
     # Setup mock GTI Client: first call succeeds with malicious result, second call raises budget exhaustion
-    mock_gti = MagicMock(spec=GTIMCPClient)
-    mock_gti.is_degraded.return_value = False
+    mock_ti = MagicMock(spec=GTIMCPClient)
+    mock_ti.is_degraded.return_value = False
 
     malicious_response = CachedIndicatorResponse(
         indicator="1.2.3.4",
@@ -802,14 +802,14 @@ async def test_threat_intel_partial_results_preserved_on_budget_exhaustion(temp_
     )
 
     # First queryIOC call succeeds, second raises budget exhausted
-    mock_gti.queryIOC = AsyncMock(
+    mock_ti.queryIOC = AsyncMock(
         side_effect=[
             malicious_response,  # First IP query succeeds
             GTIBudgetExhaustedError("Budget exhausted"),  # Second URL query fails
         ]
     )
 
-    engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
+    engine = SemanticGatingEngine(repo=temp_repo, threat_intel_client=mock_ti)
 
     # Context with two IOCs: IP and URL
     context = ToolCallContext(
@@ -825,7 +825,7 @@ async def test_threat_intel_partial_results_preserved_on_budget_exhaustion(temp_
     # Weights: GTI (40% / 70% = 57.14%), Context (30% / 70% = 42.86%)
     # Context score: 0.14
     # Base score: 0.5714 * 0.955 + 0.4286 * 0.14 = 0.5457 + 0.06 = 0.6057
-    # With gti_penalty (0.2): 0.6057 + 0.2 = 0.8057
+    # With threat_intel_penalty (0.2): 0.6057 + 0.2 = 0.8057
     # Expected threat score should be >= 0.75 (BLOCK threshold)
 
     assert (
@@ -834,7 +834,7 @@ async def test_threat_intel_partial_results_preserved_on_budget_exhaustion(temp_
     assert result.verdict == VerdictDecision.BLOCK
 
     # Verify that queryIOC was called twice (once successfully, once with budget exhaustion)
-    assert mock_gti.queryIOC.call_count == 2
+    assert mock_ti.queryIOC.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -862,17 +862,17 @@ async def test_threat_intel_budget_exhaustion_does_not_skip_cached_iocs(temp_rep
     )
 
     # Setup mock GTI Client: IP query raises budget exhaustion
-    mock_gti = MagicMock(spec=GTIMCPClient)
-    mock_gti.is_degraded.return_value = False
-    mock_gti.repo = temp_repo
+    mock_ti = MagicMock(spec=GTIMCPClient)
+    mock_ti.is_degraded.return_value = False
+    mock_ti.repo = temp_repo
 
     # queryIOC should only be called for uncached IP (and fail with budget exhaustion)
     # Cached domain should NOT call queryIOC - it should use the cached payload directly
-    mock_gti.queryIOC = AsyncMock(
+    mock_ti.queryIOC = AsyncMock(
         side_effect=GTIBudgetExhaustedError("Budget exhausted")
     )
 
-    engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
+    engine = SemanticGatingEngine(repo=temp_repo, threat_intel_client=mock_ti)
 
     # Context with IP (will fail) and domain (cached, should succeed)
     context = ToolCallContext(
@@ -886,7 +886,7 @@ async def test_threat_intel_budget_exhaustion_does_not_skip_cached_iocs(temp_rep
     # Weights: GTI (57.14%), Context (42.86%)
     # Context score: 0.14
     # Base score: 0.5714 * 0.97 + 0.4286 * 0.14 = 0.5542 + 0.06 = 0.6142
-    # With gti_penalty (0.2): 0.6142 + 0.2 = 0.8142
+    # With threat_intel_penalty (0.2): 0.6142 + 0.2 = 0.8142
     # Expected threat score should be >= 0.75 (BLOCK threshold)
 
     assert (
@@ -895,7 +895,7 @@ async def test_threat_intel_budget_exhaustion_does_not_skip_cached_iocs(temp_rep
     assert result.verdict == VerdictDecision.BLOCK
 
     # Verify that queryIOC was only called once for the uncached IP (not for cached domain)
-    assert mock_gti.queryIOC.call_count == 1
+    assert mock_ti.queryIOC.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -906,11 +906,11 @@ async def test_threat_intel_not_applicable_does_not_dilute_threat_score(temp_rep
     assign a synthetic clean score of 0.0 that dilutes the overall threat score.
     """
     # Setup mock GTI Client (available, not degraded)
-    mock_gti = MagicMock(spec=GTIMCPClient)
-    mock_gti.is_degraded.return_value = False
-    mock_gti.queryIOC = AsyncMock()  # Should not be called
+    mock_ti = MagicMock(spec=GTIMCPClient)
+    mock_ti.is_degraded.return_value = False
+    mock_ti.queryIOC = AsyncMock()  # Should not be called
 
-    engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
+    engine = SemanticGatingEngine(repo=temp_repo, threat_intel_client=mock_ti)
 
     # High-risk command with no GTI-applicable IOCs (no IPs, URLs, domains, hashes)
     # Context score: run_command (1.0) + suspicious patterns (1.0) + production (1.0)
@@ -922,7 +922,7 @@ async def test_threat_intel_not_applicable_does_not_dilute_threat_score(temp_rep
     result = await engine.evaluate(context, "production")
 
     # GTI should NOT be queried (no applicable IOCs)
-    mock_gti.queryIOC.assert_not_called()
+    mock_ti.queryIOC.assert_not_called()
 
     # GTI should be None (not 0.0), so weight redistribution happens
     # Context gets 100% weight since both GTI and CBM are unavailable
@@ -1002,12 +1002,12 @@ async def test_cached_ioc_uses_repo_payload_not_queryioc(temp_repo):
     )
 
     # Setup mock GTI Client
-    mock_gti = MagicMock(spec=GTIMCPClient)
-    mock_gti.is_degraded.return_value = False
+    mock_ti = MagicMock(spec=GTIMCPClient)
+    mock_ti.is_degraded.return_value = False
     # queryIOC should NEVER be called for cached IOCs
-    mock_gti.queryIOC = AsyncMock()
+    mock_ti.queryIOC = AsyncMock()
 
-    engine = SemanticGatingEngine(repo=temp_repo, gti_client=mock_gti)
+    engine = SemanticGatingEngine(repo=temp_repo, threat_intel_client=mock_ti)
 
     # Context with all cached IOCs
     context = ToolCallContext(
@@ -1024,7 +1024,7 @@ async def test_cached_ioc_uses_repo_payload_not_queryioc(temp_repo):
 
     # CRITICAL: queryIOC should NEVER be called for cached IOCs
     # The cached payload should be consumed directly from the repo
-    mock_gti.queryIOC.assert_not_called()
+    mock_ti.queryIOC.assert_not_called()
 
     # The threat score should still be high because cached responses indicate malicious IOCs
     # Even though queryIOC wasn't called, the engine should detect the cached malicious responses

@@ -135,14 +135,12 @@ class SemanticGatingEngine:
     def __init__(
         self,
         repo: Optional[SQLiteThreatRepository] = None,
-        gti_client: Optional[Any] = None,
         cbm_client: Optional[CodebaseMemoryClient] = None,
         budget_tracker: Optional[Any] = None,
         threat_intel_client: Optional[Any] = None,
     ) -> None:
         self.repo = repo
-        self.threat_intel_client = threat_intel_client or gti_client
-        self.gti_client = self.threat_intel_client
+        self.threat_intel_client = threat_intel_client
         self.cbm_client = cbm_client
         self.budget_tracker = budget_tracker or getattr(self.threat_intel_client, "budget_tracker", None)
 
@@ -150,7 +148,7 @@ class SemanticGatingEngine:
         """Applies MCP server configurations from policy to active MCP clients."""
         if not mcp_config:
             return
-        ti_conf = getattr(mcp_config, "threatIntel", None) or getattr(mcp_config, "gti", None)
+        ti_conf = getattr(mcp_config, "threatIntel", None)
         if ti_conf and getattr(ti_conf, "url", None) and self.threat_intel_client:
             if hasattr(self.threat_intel_client, "base_url"):
                 self.threat_intel_client.base_url = ti_conf.url
@@ -353,7 +351,7 @@ class SemanticGatingEngine:
         threat_intel_budget_exhausted = False
         threat_intel_error = False
 
-        ti_client = self.threat_intel_client or self.gti_client
+        ti_client = self.threat_intel_client
         if ti_client and is_high:
             try:
                 for ip in iocs["ips"]:
@@ -726,30 +724,21 @@ class SemanticGatingEngine:
 
     def computeThreatScore(
         self,
-        gti_score: Optional[float] = None,
+        threat_intel_score: Optional[float] = None,
         cbm_score: Optional[float] = None,
         context_score: float = 0.0,
         suspicion_score: float = 0.0,
-        gti_penalty: float = 0.0,
-        cbm_penalty: float = 0.0,
-        gti_unavailable: bool = False,
-        threat_intel_score: Optional[float] = None,
         threat_intel_penalty: float = 0.0,
+        cbm_penalty: float = 0.0,
         threat_intel_unavailable: Optional[bool] = None,
         **kwargs: Any,
     ) -> float:
         """
         Computes the final threat score by aggregating available signals.
         """
-        ti_score = threat_intel_score if threat_intel_score is not None else gti_score
-        ti_penalty = (
-            threat_intel_penalty if threat_intel_penalty != 0.0 else gti_penalty
-        )
-        ti_unavailable = (
-            threat_intel_unavailable
-            if threat_intel_unavailable is not None
-            else gti_unavailable
-        )
+        ti_score = threat_intel_score
+        ti_penalty = threat_intel_penalty
+        ti_unavailable = bool(threat_intel_unavailable)
 
         signals = {
             "threat_intel": ti_score if not ti_unavailable else None,

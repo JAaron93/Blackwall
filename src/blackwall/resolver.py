@@ -926,7 +926,7 @@ def create_resolver(
             repo=repo,
             threat_intel=ti,
             cbm_client=cbm_client,
-            gti_client=ti,
+            threat_intel_client=ti,
             gti_budget_tracker=gti_budget_tracker,
         )
     return BatchResolver(

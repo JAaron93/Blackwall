@@ -72,8 +72,8 @@ def test_concrete_policy_yaml_loading() -> None:
     assert production_role.maxThreatScore == 0.5
 
     # Verify MCP server endpoints
-    assert policy.mcpServers.gti.enabled is True
-    assert policy.mcpServers.gti.url == "https://gti.googleapis.com/mcp"
+    assert policy.mcpServers.threatIntel.enabled is True
+    assert policy.mcpServers.threatIntel.url == "https://gti.googleapis.com/mcp"
     assert policy.mcpServers.codebaseMemory.enabled is True
     assert policy.mcpServers.codebaseMemory.url == "http://localhost:8080/mcp"
 
@@ -176,7 +176,7 @@ def test_policy_yaml_schema_validation_passes() -> None:
         assert isinstance(rule.enabled, bool)
 
     # MCP Server endpoints
-    assert policy.mcpServers.gti.url.startswith("http")
+    assert policy.mcpServers.threatIntel.url.startswith("http")
     assert policy.mcpServers.codebaseMemory.url.startswith("http")
 
 

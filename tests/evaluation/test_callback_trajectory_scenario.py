@@ -149,7 +149,7 @@ def _create_eval_resolver() -> SyncResolver:
     return SyncResolver(
         client=mock_client,
         cbm_client=cbm_client,
-        gti_client=gti_client,
+        threat_intel_client=gti_client,
         repo=mock_repo,
         demo_mode=False,
     )
