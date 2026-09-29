@@ -272,20 +272,20 @@ class TestSignaturesAndScores:
         with pytest.raises(ValidationError):
             RefactoringHint(suggestion="Fix", confidence=1.5)
 
-    def test_gti_response_valid_and_defaults(self):
-        gti = CachedIndicatorResponse(
+    def test_cached_indicator_response_valid_and_defaults(self):
+        cached = CachedIndicatorResponse(
             indicator="198.51.100.23",
             is_malicious=True,
             threat_categories=["c2", "botnet"],
             detection_rate=0.88,
             confidence=0.95,
         )
-        assert gti.is_malicious is True
-        assert gti.threat_categories == ["c2", "botnet"]
-        assert gti.detection_rate == 0.88
-        assert gti.confidence == 0.95
-        assert gti.related_campaigns == []
-        assert CachedIndicatorResponse(**gti.model_dump()) == gti
+        assert cached.is_malicious is True
+        assert cached.threat_categories == ["c2", "botnet"]
+        assert cached.detection_rate == 0.88
+        assert cached.confidence == 0.95
+        assert cached.related_campaigns == []
+        assert CachedIndicatorResponse(**cached.model_dump()) == cached
 
         # Confidence boundary validation
         with pytest.raises(ValidationError):

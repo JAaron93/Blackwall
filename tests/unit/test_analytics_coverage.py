@@ -261,14 +261,14 @@ async def test_generate_signature_mitigation_actions(repo: SQLiteThreatRepositor
     sig1 = await analytics.generateSignature(event_critical)
     assert sig1.sink_type == SinkType.PROCESS
 
-    # 2. GTI Malicious -> BLOCK_AND_ALERT_SECURITY_TEAM
-    event_gti = SecurityEvent(
+    # 2. Threat-intel malicious -> BLOCK_AND_ALERT_SECURITY_TEAM
+    event_ti = SecurityEvent(
         event_type=EventType.BLOCK,
         tool_context=ToolCallContext(tool_name="network_call", arguments={"url": "https://c2.evil.com"}),
         verdict=Verdict(decision=VerdictDecision.BLOCK, reasoning="C2 network call", confidence_score=0.95),
         threat_intel_response=CachedIndicatorResponse(indicator="c2.evil.com", is_malicious=True, detection_rate=95.0),
     )
-    sig2 = await analytics.generateSignature(event_gti)
+    sig2 = await analytics.generateSignature(event_ti)
     assert sig2.pattern == '{"url": "[[URL]]"}'
 
     # 3. Neither -> BLOCK_AND_LOG

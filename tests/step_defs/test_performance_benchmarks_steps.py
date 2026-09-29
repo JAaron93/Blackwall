@@ -83,7 +83,7 @@ def verify_structural_p99(bdd_bench_state: PerformanceBenchmarkState) -> None:
 # ---------------------------------------------------------------------------
 
 
-@given("a SyncResolver with mock GTI and CBM intelligence")
+@given("a SyncResolver with mock threat-intel and CBM intelligence")
 def init_semantic_resolver(bdd_bench_state: PerformanceBenchmarkState) -> None:
     pass
 

@@ -440,7 +440,6 @@ async def test_no_penalty_when_threat_intel_not_budget_exhausted(
     ), f"[{label}] Expected normal-path score ~{expected_normal:.4f}, got {score:.4f}"
 
 
-test_no_penalty_when_gti_not_budget_exhausted = test_no_penalty_when_threat_intel_not_budget_exhausted
 
 
 # ---------------------------------------------------------------------------
