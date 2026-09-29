@@ -68,6 +68,19 @@ async def test_legacy_gti_cache_absorbed_and_dropped(tmp_path):
     assert ip_row is not None
     assert ip_row["risk_score"] == 0.9
 
+    # Cache TTL contract: malicious verdicts expire in 6h, benign in 24h.
+    conn = sqlite3.connect(db)
+    try:
+        rows = dict(
+            conn.execute(
+                "SELECT indicator, expires_at - created_at FROM threat_intel_cache"
+            ).fetchall()
+        )
+    finally:
+        conn.close()
+    assert rows["1.2.3.4"] == 21600.0  # malicious
+    assert rows["evil.example.com"] == 86400.0  # benign/unknown
+
     domain_row = await repo.get_cached_threat_intel_response(
         "evil.example.com", "domain"
     )

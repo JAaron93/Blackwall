@@ -53,8 +53,6 @@ def _make_resolver(
     cbm_client=None,
     repo=None,
     threat_intel_budget_tracker=None,
-    threat_intel_client=None,
-    threat_intel_budget_tracker=None,
 ) -> SyncResolver:
     """Creates a SyncResolver with a mocked Gemini client."""
     mock_client = MagicMock()
@@ -66,7 +64,7 @@ def _make_resolver(
     ti_client = (
         threat_intel
         if threat_intel is not None
-        else (threat_intel_client if threat_intel_client is not None else threat_intel_client)
+        else threat_intel_client
     )
     tracker = (
         threat_intel_budget_tracker

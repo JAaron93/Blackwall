@@ -403,7 +403,10 @@ class SQLiteThreatRepository:
                             COALESCE(json_extract(response_data, '$.risk_score'), 0.0),
                             response_data,
                             CAST(cached_at AS REAL),
-                            CAST(cached_at AS REAL) + 86400.0
+                            CAST(cached_at AS REAL) + CASE
+                                WHEN COALESCE(json_extract(response_data, '$.is_malicious'), 0) THEN 21600.0
+                                ELSE 86400.0
+                            END
                         FROM gti_cache
                         """
                     )
@@ -965,6 +968,8 @@ class SQLiteThreatRepository:
         provider = str(response.get("provider_name") or "legacy")
         is_malicious = 1 if response.get("is_malicious") else 0
         risk_score = float(response.get("risk_score") or 0.0)
+        # Cache TTL contract: 24h benign, 6h malicious (matches cache_threat_intel).
+        ttl = 21600.0 if response.get("is_malicious") else 86400.0
         async with self.pool.connection() as conn:
             await conn.execute(
                 """
@@ -981,7 +986,7 @@ class SQLiteThreatRepository:
                     risk_score,
                     json.dumps(response),
                     now,
-                    now + 86400.0,
+                    now + ttl,
                 ),
             )
             await conn.commit()
@@ -990,10 +995,14 @@ class SQLiteThreatRepository:
         self, indicator: str, indicator_type: str
     ) -> dict[str, Any] | None:
         """Look up a cached threat intelligence dictionary response from the
-        unified ``threat_intel_cache`` (freshest non-expired row).
+        unified ``threat_intel_cache``.
 
         Kept for the ``SemanticGatingEngine`` raw-dictionary contract; prefer
-        :meth:`get_cached_threat_intel` for typed responses.
+        :meth:`get_cached_threat_intel` for typed responses. Pure read (no
+        writes on the lookup path — the <1ms SLA forbids them): expired rows
+        are purged at schema init and by ``evict_expired_threat_intel``.
+        Conflicting provider verdicts resolve fail-closed: a malicious row
+        always outranks a benign one.
         """
         await self.initialize()
         now = time.time()
@@ -1002,7 +1011,7 @@ class SQLiteThreatRepository:
                 """
                 SELECT payload FROM threat_intel_cache
                 WHERE indicator = ? AND indicator_type = ? AND expires_at > ?
-                ORDER BY expires_at DESC LIMIT 1
+                ORDER BY is_malicious DESC, expires_at DESC LIMIT 1
                 """,
                 (indicator, indicator_type, now),
             )
@@ -1013,10 +1022,6 @@ class SQLiteThreatRepository:
                     return result
                 except json.JSONDecodeError:
                     pass
-            await conn.execute(
-                "DELETE FROM threat_intel_cache WHERE indicator = ? AND indicator_type = ? AND expires_at <= ?",
-                (indicator, indicator_type, now),
-            )
         return None
 
     async def cache_threat_intel(
