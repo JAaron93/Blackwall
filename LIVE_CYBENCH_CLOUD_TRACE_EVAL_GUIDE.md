@@ -112,8 +112,8 @@ BLACKWALL_EXPORT_CLOUD_TRACE=true
 # =============================================================================
 # 4. Third-Party Threat Intelligence & Red-Teaming (Optional / As Needed)
 # =============================================================================
-# Live IOC queries via VirusTotal / Google Threat Intelligence (GTI)
-GTI_MCP_API_KEY=your_gti_api_key
+# Live IOC queries via AlienVault OTX
+BW_OTX_API_KEY=your_otx_api_key
 
 # Hyperbolic API key for live Qwen3-Coder 480B red-teamer agent in demo harness
 HYPERBOLIC_API_KEY=your_hyperbolic_api_key

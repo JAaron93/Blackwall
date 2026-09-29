@@ -38,7 +38,7 @@ Greptile reviews must enforce the existing base branch architectural patterns:
    - SQLite Threat Signature Graph queries MUST use word-level intersection match quality calculation (`match_quality = len(intersection) / min_len`) scaled by FTS fallback score and capped by dynamic threshold limits to prevent false positives.
 3. **Context Hygiene & Sanitization**:
    - `ContextHygiene` middleware (production interception path uses the implementation in `src/blackwall/resolver.py`; the async variant in `src/blackwall/middleware/context_hygiene.py` is exercised by `tests/middleware/` only) must replace sensitive environment variable patterns with generic placeholders (`[[VARIABLE_NAME]]`).
-   - Integration tests querying external hostnames (e.g. GTI / VirusTotal) must use un-redacted standalone hostnames (e.g. `wd-bouygues.com`) to prevent accidental sanitization matching.
+   - Integration tests querying external threat-intel hostnames must use un-redacted standalone hostnames (e.g. `wd-bouygues.com`) to prevent accidental sanitization matching.
 4. **Threat Intelligence High-Capacity Invariant (AlienVault OTX & Legacy Fallback)**:
    - External threat intelligence is powered by in-process `AlienVaultOTXProvider` (10,000 queries/hour, ~166 RPM) with SQLite `threat_intel_cache` (<1ms SLA), replacing the restrictive 4 RPM VirusTotal GTI bottleneck. The only configured alternative primary provider is the Harpoon companion bridge, selected via `BW_THREAT_INTEL_PRIMARY=harpoon|harpoon-otx`; no VirusTotal client ships in `src/blackwall/threat_intel/` (see `docs/adr/0005-alienvault-otx-threat-intel-engine.md`).
 
