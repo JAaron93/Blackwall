@@ -338,22 +338,6 @@ class SyncResolver:
     def gti_client(self, val: Any) -> None:
         self.threat_intel = val
 
-    @property
-    def _gti_queries_executed(self) -> int:
-        return self._threat_intel_queries_executed
-
-    @_gti_queries_executed.setter
-    def _gti_queries_executed(self, val: int) -> None:
-        self._threat_intel_queries_executed = val
-
-    @property
-    def _gti_queries_deferred(self) -> int:
-        return self._threat_intel_queries_deferred
-
-    @_gti_queries_deferred.setter
-    def _gti_queries_deferred(self, val: int) -> None:
-        self._threat_intel_queries_deferred = val
-
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -1046,7 +1030,7 @@ class SyncResolver:
         transient query failure — use normal weights with threat_score = 0.0,
         which is already the correct fallback from _score_threat_intel(None).
         """
-        resp = threat_resp if threat_resp is not None else kwargs.get("gti_resp")
+        resp = threat_resp
         ti_score = self._score_threat_intel(resp)
         cbm_score = self._score_cbm(cbm_resp)
 
@@ -1081,7 +1065,6 @@ class SyncResolver:
         cbm_resp: Optional[CBMResponse] = None,
         **kwargs: Any,
     ) -> None:
-        gti_resp = threat_resp if threat_resp is not None else kwargs.get("gti_resp")
         """
         After BLOCK: generate a threat signature inline using
         ABA.generateSignature() and write it to the SQLite repo.
@@ -1201,7 +1184,6 @@ class SyncResolver:
                     confidence_score=verdict.confidence_score,
                 ),
                 threat_intel_response=threat_resp,
-                gti_response=gti_resp,
                 cbm_response=cbm_resp,
                 agent_id=context.metadata.get("agent_id") if context.metadata else None,
             )
@@ -1244,14 +1226,12 @@ class SyncResolver:
         """
         if not self.aba:
             return None
-        gti_resp = threat_resp if threat_resp is not None else kwargs.get("gti_resp")
         try:
             sec_event = SecurityEvent(
                 event_type=EventType.QUARANTINE,
                 tool_context=context,
                 verdict=verdict,
                 threat_intel_response=threat_resp,
-                gti_response=gti_resp,
                 cbm_response=cbm_resp,
                 agent_id=context.metadata.get("agent_id") if context.metadata else None,
             )
@@ -1277,8 +1257,6 @@ class SyncResolver:
             rate_limit_hits=self._rate_limit_hits,
             threat_intel_queries_executed=self._threat_intel_queries_executed,
             threat_intel_queries_deferred=self._threat_intel_queries_deferred,
-            gti_queries_executed=self._threat_intel_queries_executed,
-            gti_queries_deferred=self._threat_intel_queries_deferred,
             inline_signatures_generated=self._inline_signatures_generated,
             block_count=self._block_count,
             quarantine_count=self._quarantine_count,
@@ -1443,14 +1421,14 @@ class SyncResolver:
         if semantic_score is not None:
             parts.append(f"Semantic: score={semantic_score:.2f}")
 
-        resp = threat_resp if threat_resp is not None else kwargs.get("gti_resp")
+        resp = threat_resp
         if resp is not None:
             provider = getattr(resp, "provider_name", None)
             if provider is None:
-                if type(resp).__name__ == "GTIResponse" or (
+                if type(resp).__name__ == "CachedIndicatorResponse" or (
                     hasattr(resp, "detection_rate") and not hasattr(resp, "risk_score")
                 ):
-                    provider = "GTI"
+                    provider = "ThreatIntel"
                 else:
                     provider = "ThreatIntel"
             is_mal = getattr(resp, "is_malicious", False)

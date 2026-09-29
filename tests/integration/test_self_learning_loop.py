@@ -18,7 +18,7 @@ from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.models import (
     CBMResponse,
     EventType,
-    GTIResponse,
+    CachedIndicatorResponse,
     RefactoringHint,
     SecurityEvent,
     SinkType,
@@ -224,7 +224,7 @@ async def test_signature_embedding_generation_gemini_api(temp_repo: SQLiteThreat
             confidence_score=0.95,
         ),
         cbm_response=CBMResponse(blast_radius=3, critical_sinks=[SinkType.PROCESS]),
-        gti_response=GTIResponse(indicator="192.168.1.1", is_malicious=True, detection_rate=90.0),
+        threat_intel_response=CachedIndicatorResponse(indicator="192.168.1.1", is_malicious=True, detection_rate=90.0),
     )
 
     signature = await analytics.generateSignature(sec_event)

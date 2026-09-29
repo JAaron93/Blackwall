@@ -11,7 +11,7 @@ from blackwall.eval.metrics import calculateMetrics
 from blackwall.models import (
     CBMResponse,
     EventType,
-    GTIResponse,
+    CachedIndicatorResponse,
     GroundTruthLabel,
     SecurityEvent,
     SinkType,
@@ -266,7 +266,7 @@ async def test_generate_signature_mitigation_actions(repo: SQLiteThreatRepositor
         event_type=EventType.BLOCK,
         tool_context=ToolCallContext(tool_name="network_call", arguments={"url": "https://c2.evil.com"}),
         verdict=Verdict(decision=VerdictDecision.BLOCK, reasoning="C2 network call", confidence_score=0.95),
-        gti_response=GTIResponse(indicator="c2.evil.com", is_malicious=True, detection_rate=95.0),
+        threat_intel_response=CachedIndicatorResponse(indicator="c2.evil.com", is_malicious=True, detection_rate=95.0),
     )
     sig2 = await analytics.generateSignature(event_gti)
     assert sig2.pattern == '{"url": "[[URL]]"}'

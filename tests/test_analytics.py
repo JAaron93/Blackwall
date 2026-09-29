@@ -7,7 +7,7 @@ import pytest_asyncio
 
 from blackwall.models import (
     EventType,
-    GTIResponse,
+    CachedIndicatorResponse,
     CBMResponse,
     SecurityEvent,
     ToolCallContext,
@@ -139,7 +139,7 @@ async def test_generate_signature_basic(repo: SQLiteThreatRepository) -> None:
             confidence_score=0.95,
         ),
         cbm_response=CBMResponse(blast_radius=2, critical_sinks=[SinkType.PROCESS]),
-        gti_response=GTIResponse(
+        threat_intel_response=CachedIndicatorResponse(
             indicator="192.168.1.50", is_malicious=True, detection_rate=80.0
         ),
     )

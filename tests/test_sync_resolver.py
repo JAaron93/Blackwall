@@ -19,7 +19,7 @@ import pytest
 
 from blackwall.models import (
     CBMResponse,
-    GTIResponse,
+    CachedIndicatorResponse,
     SinkType,
     ThreatIntelResponse,
     ToolCallContext,
@@ -132,7 +132,7 @@ async def test_threat_intel_cbm_queries_execute_serially():
         call_order.append("threat_intel_start")
         await asyncio.sleep(0)  # yield to event loop
         call_order.append("threat_intel_end")
-        return GTIResponse(
+        return CachedIndicatorResponse(
             indicator=indicator,
             is_malicious=False,
             detection_rate=0.0,
@@ -181,7 +181,7 @@ async def test_threat_score_calculation_matches_formula():
 
     Expected total ≈ 0.20 + 0.075 + 0.0675 = 0.3425  → ALLOW (< 0.5)
     """
-    gti_resp = GTIResponse(
+    threat_resp = CachedIndicatorResponse(
         indicator="192.168.1.100",
         is_malicious=True,
         detection_rate=0.0,
@@ -195,7 +195,7 @@ async def test_threat_score_calculation_matches_formula():
         arguments={"path": "/tmp/report.txt"},
     )
 
-    score = await resolver._compute_threat_score(context, gti_resp, cbm_resp)
+    score = await resolver._compute_threat_score(context, threat_resp, cbm_resp)
 
     # Verify the formula components
     expected_gti = (1.0 + 0.0) / 2.0 * 0.40  # 0.20

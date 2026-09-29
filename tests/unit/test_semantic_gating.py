@@ -4,7 +4,7 @@ import pytest_asyncio
 from unittest.mock import AsyncMock, MagicMock
 from hypothesis import given, strategies as st, settings
 
-from blackwall.models import ToolCallContext, VerdictDecision, GTIResponse
+from blackwall.models import ToolCallContext, VerdictDecision, CachedIndicatorResponse
 from blackwall.policy.semantic import SemanticGatingEngine
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.mcp.codebase_memory import (
@@ -177,7 +177,7 @@ async def test_threat_intel_malicious_ioc_increases_threat_score(temp_repo):
     mock_gti.is_degraded.return_value = False
 
     # Mock malicious response
-    mock_response = GTIResponse(
+    mock_response = CachedIndicatorResponse(
         indicator="1.2.3.4",
         is_malicious=True,
         threat_categories=["botnet"],
@@ -260,7 +260,7 @@ async def test_weighted_threat_score_aggregation_and_redistribution(temp_repo):
     mock_gti = MagicMock(spec=GTIMCPClient)
     mock_gti.is_degraded.return_value = False
     mock_gti.queryIOC = AsyncMock(
-        return_value=GTIResponse(
+        return_value=CachedIndicatorResponse(
             indicator="1.2.3.4",
             is_malicious=True,
             threat_categories=["botnet"],
@@ -465,7 +465,7 @@ async def test_threat_score_bounded_property(
         mock_gti.queryIOC = AsyncMock(side_effect=GTIDegradedError("Degraded"))
     else:
         mock_gti.queryIOC = AsyncMock(
-            return_value=GTIResponse(
+            return_value=CachedIndicatorResponse(
                 indicator="test",
                 is_malicious=gti_is_malicious,
                 threat_categories=gti_categories,
@@ -793,7 +793,7 @@ async def test_threat_intel_partial_results_preserved_on_budget_exhaustion(temp_
     mock_gti = MagicMock(spec=GTIMCPClient)
     mock_gti.is_degraded.return_value = False
 
-    malicious_response = GTIResponse(
+    malicious_response = CachedIndicatorResponse(
         indicator="1.2.3.4",
         is_malicious=True,
         threat_categories=["botnet", "c2"],

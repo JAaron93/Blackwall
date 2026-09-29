@@ -11,7 +11,7 @@ from blackwall.models import (
     VerdictDecision,
     SinkType,
     CBMResponse,
-    GTIResponse,
+    CachedIndicatorResponse,
 )
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.analytics.BackgroundTaskSubmitter import AgentBehavioralAnalytics
@@ -49,7 +49,7 @@ def security_event():
             confidence_score=0.9,
         ),
         cbm_response=CBMResponse(blast_radius=3, critical_sinks=[SinkType.FILE_SYSTEM]),
-        gti_response=GTIResponse(indicator="192.168.1.1", is_malicious=True),
+        threat_intel_response=CachedIndicatorResponse(indicator="192.168.1.1", is_malicious=True),
         related_signatures=[uuid4()],
     )
 

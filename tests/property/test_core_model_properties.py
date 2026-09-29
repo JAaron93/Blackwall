@@ -25,7 +25,7 @@ from blackwall.models import (
     CBMResponse,
     EventType,
     GraphStatistics,
-    GTIResponse,
+    CachedIndicatorResponse,
     IdentitySource,
     IncidentReport,
     PolicyServerState,
@@ -110,7 +110,7 @@ cbm_response_st = st.builds(
 )
 
 gti_response_st = st.builds(
-    GTIResponse,
+    CachedIndicatorResponse,
     indicator=non_empty_str_st,
     is_malicious=st.booleans(),
     threat_categories=st.lists(st.text(max_size=20), max_size=3),
@@ -164,8 +164,8 @@ sync_resolver_metrics_st = st.builds(
     total_evaluations=st.integers(min_value=0, max_value=10000),
     average_latency_ms=st.floats(min_value=0.0, max_value=5000.0, allow_nan=False, allow_infinity=False),
     rate_limit_hits=st.integers(min_value=0, max_value=1000),
-    gti_queries_executed=st.integers(min_value=0, max_value=1000),
-    gti_queries_deferred=st.integers(min_value=0, max_value=1000),
+    threat_intel_queries_executed=st.integers(min_value=0, max_value=1000),
+    threat_intel_queries_deferred=st.integers(min_value=0, max_value=1000),
     inline_signatures_generated=st.integers(min_value=0, max_value=1000),
     block_count=st.integers(min_value=0, max_value=1000),
     quarantine_count=st.integers(min_value=0, max_value=1000),
@@ -263,7 +263,7 @@ def security_event_strategy(draw):
         verdict=verdict,
         behavior_score=draw(st.one_of(st.none(), behavior_score_st)),
         agent_id=draw(st.one_of(st.none(), non_empty_str_st)),
-        gti_response=draw(st.one_of(st.none(), gti_response_st)),
+        threat_intel_response=draw(st.one_of(st.none(), gti_response_st)),
         cbm_response=draw(st.one_of(st.none(), cbm_response_st)),
         related_signatures=draw(st.lists(valid_uuid4_st, max_size=3)),
         telemetry_span_id=draw(st.one_of(st.none(), st.text(max_size=30))),
@@ -318,9 +318,9 @@ def test_refactoring_hint_construction_soundness(rh: RefactoringHint) -> None:
 
 @settings(max_examples=200)
 @given(gti=gti_response_st)
-def test_gti_response_construction_soundness(gti: GTIResponse) -> None:
-    """Property: GTIResponse constructs successfully and confidence is bounded in [0.0, 1.0]."""
-    assert isinstance(gti, GTIResponse)
+def test_gti_response_construction_soundness(gti: CachedIndicatorResponse) -> None:
+    """Property: CachedIndicatorResponse constructs successfully and confidence is bounded in [0.0, 1.0]."""
+    assert isinstance(gti, CachedIndicatorResponse)
     assert 0.0 <= gti.confidence <= 1.0
 
 
@@ -563,10 +563,10 @@ def test_cbm_response_serialization_round_trip(cbm: CBMResponse) -> None:
 
 @settings(max_examples=200)
 @given(gti=gti_response_st)
-def test_gti_response_serialization_round_trip(gti: GTIResponse) -> None:
-    """Property: GTIResponse.model_validate(gti.model_dump()) preserves all field values."""
+def test_gti_response_serialization_round_trip(gti: CachedIndicatorResponse) -> None:
+    """Property: CachedIndicatorResponse.model_validate(gti.model_dump()) preserves all field values."""
     dumped = gti.model_dump()
-    reconstructed = GTIResponse.model_validate(dumped)
+    reconstructed = CachedIndicatorResponse.model_validate(dumped)
     assert reconstructed == gti
 
 

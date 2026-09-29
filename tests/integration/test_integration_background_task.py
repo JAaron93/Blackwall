@@ -12,7 +12,7 @@ from blackwall.models import (
     Verdict,
     VerdictDecision,
     CBMResponse,
-    GTIResponse,
+    CachedIndicatorResponse,
     SinkType,
 )
 from blackwall.db.repository import SQLiteThreatRepository
@@ -53,7 +53,7 @@ async def test_integration_background_task_submission(temp_db_path):
             confidence_score=0.9,
         ),
         cbm_response=CBMResponse(blast_radius=3, critical_sinks=[SinkType.FILE_SYSTEM]),
-        gti_response=GTIResponse(indicator="192.168.1.1", is_malicious=True),
+        threat_intel_response=CachedIndicatorResponse(indicator="192.168.1.1", is_malicious=True),
         related_signatures=[],
     )
 

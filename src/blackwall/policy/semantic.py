@@ -25,7 +25,7 @@ from blackwall.models import (
     ToolCallContext,
     VerdictDecision,
     IndicatorType,
-    GTIResponse,
+    CachedIndicatorResponse,
 )
 from blackwall.policy.models import GateResult, StructuralAction
 from blackwall.db.repository import SQLiteThreatRepository
@@ -367,7 +367,7 @@ class SemanticGatingEngine:
                     if cached:
                         try:
                             # Use cached payload directly instead of re-querying
-                            resp = GTIResponse(
+                            resp = CachedIndicatorResponse(
                                 indicator=cached.get("indicator", ip),
                                 is_malicious=cached.get("is_malicious", False),
                                 threat_categories=cached.get("threat_categories", []),
@@ -424,7 +424,7 @@ class SemanticGatingEngine:
                     if cached:
                         try:
                             # Use cached payload directly instead of re-querying
-                            resp = GTIResponse(
+                            resp = CachedIndicatorResponse(
                                 indicator=cached.get("indicator", url),
                                 is_malicious=cached.get("is_malicious", False),
                                 threat_categories=cached.get("threat_categories", []),
@@ -482,7 +482,7 @@ class SemanticGatingEngine:
                         if cached:
                             try:
                                 # Use cached payload directly instead of re-querying
-                                resp = GTIResponse(
+                                resp = CachedIndicatorResponse(
                                     indicator=cached.get("indicator", domain),
                                     is_malicious=cached.get("is_malicious", False),
                                     threat_categories=cached.get(
@@ -545,7 +545,7 @@ class SemanticGatingEngine:
                     if cached:
                         try:
                             # Use cached payload directly instead of re-querying
-                            resp = GTIResponse(
+                            resp = CachedIndicatorResponse(
                                 indicator=cached.get("indicator", h),
                                 is_malicious=cached.get("is_malicious", False),
                                 threat_categories=cached.get("threat_categories", []),

@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from blackwall.sync_resolver import SyncResolver
 from blackwall.models import (
     CBMResponse,
-    GTIResponse,
+    CachedIndicatorResponse,
     SinkType,
     ToolCallContext,
     Verdict,
@@ -52,15 +52,14 @@ def make_threat_intel_response(
     is_malicious: bool = False,
     detection_rate: float = 0.0,
     indicator: str = "8.8.8.8",
-) -> GTIResponse:
-    return GTIResponse(
+) -> CachedIndicatorResponse:
+    return CachedIndicatorResponse(
         indicator=indicator,
         is_malicious=is_malicious,
         detection_rate=detection_rate,
     )
 
 
-make_gti_response = make_threat_intel_response
 
 
 def make_cbm_response(
@@ -133,12 +132,12 @@ def test_build_reasoning_with_cbm():
 
 
 def test_build_reasoning_all_present():
-    gti = make_gti_response(is_malicious=True, detection_rate=60.0)
+    ti = make_threat_intel_response(is_malicious=True, detection_rate=60.0)
     cbm = make_cbm_response(blast_radius=3.0, critical_sinks=[SinkType.FILE_SYSTEM])
-    result = SyncResolver._build_reasoning(0.7, gti, cbm)
+    result = SyncResolver._build_reasoning(0.7, ti, cbm)
     assert "|" in result
     assert "Threat score" in result
-    assert "GTI" in result
+    assert "ThreatIntel" in result
     assert "CBM" in result
 
 
@@ -566,7 +565,7 @@ def test_get_metrics_initial_state():
     assert metrics["block_count"] == 0
     assert metrics["quarantine_count"] == 0
     assert metrics["allow_count"] == 0
-    assert metrics["gti_queries_executed"] == 0
+    assert metrics["threat_intel_queries_executed"] == 0
     assert metrics["threat_intel_queries_executed"] == 0
 
 
@@ -578,8 +577,8 @@ def test_get_metrics_after_increments():
     r._quarantine_count = 4
     r._allow_count = 3
     r._rate_limit_hits = 1
-    r._gti_queries_executed = 5
-    r._gti_queries_deferred = 2
+    r._threat_intel_queries_executed = 5
+    r._threat_intel_queries_deferred = 2
     r._inline_signatures_generated = 3
 
     metrics = r.get_metrics()
@@ -589,8 +588,8 @@ def test_get_metrics_after_increments():
     assert metrics["quarantine_count"] == 4
     assert metrics["allow_count"] == 3
     assert metrics["rate_limit_hits"] == 1
-    assert metrics["gti_queries_executed"] == 5
-    assert metrics["gti_queries_deferred"] == 2
+    assert metrics["threat_intel_queries_executed"] == 5
+    assert metrics["threat_intel_queries_deferred"] == 2
     assert metrics["threat_intel_queries_executed"] == 5
     assert metrics["threat_intel_queries_deferred"] == 2
     assert metrics["inline_signatures_generated"] == 3

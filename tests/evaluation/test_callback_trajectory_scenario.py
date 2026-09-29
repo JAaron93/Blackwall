@@ -18,7 +18,7 @@ from blackwall.eval.scenarios import ThreatInterceptionScenario
 from blackwall.models import (
     AttackerProfile,
     CBMResponse,
-    GTIResponse,
+    CachedIndicatorResponse,
     SinkType,
     ToolCallContext,
 )
@@ -76,7 +76,7 @@ def _create_eval_resolver() -> SyncResolver:
 
     gti_client = AsyncMock()
 
-    async def mock_gti_query(indicator: str) -> GTIResponse:
+    async def mock_gti_query(indicator: str) -> CachedIndicatorResponse:
         if indicator and any(
             bad in indicator.lower()
             for bad in [
@@ -90,10 +90,10 @@ def _create_eval_resolver() -> SyncResolver:
                 "pastebin",
             ]
         ):
-            return GTIResponse(
+            return CachedIndicatorResponse(
                 indicator=indicator, is_malicious=True, detection_rate=0.95
             )
-        return GTIResponse(
+        return CachedIndicatorResponse(
             indicator=indicator or "none", is_malicious=False, detection_rate=0.0
         )
 

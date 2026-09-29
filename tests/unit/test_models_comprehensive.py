@@ -17,7 +17,7 @@ from blackwall.models import (
     CallbackToken,
     CBMResponse,
     EventType,
-    GTIResponse,
+    CachedIndicatorResponse,
     GraphStatistics,
     GroundTruthLabel,
     IdentitySource,
@@ -273,7 +273,7 @@ class TestSignaturesAndScores:
             RefactoringHint(suggestion="Fix", confidence=1.5)
 
     def test_gti_response_valid_and_defaults(self):
-        gti = GTIResponse(
+        gti = CachedIndicatorResponse(
             indicator="198.51.100.23",
             is_malicious=True,
             threat_categories=["c2", "botnet"],
@@ -285,11 +285,11 @@ class TestSignaturesAndScores:
         assert gti.detection_rate == 0.88
         assert gti.confidence == 0.95
         assert gti.related_campaigns == []
-        assert GTIResponse(**gti.model_dump()) == gti
+        assert CachedIndicatorResponse(**gti.model_dump()) == gti
 
         # Confidence boundary validation
         with pytest.raises(ValidationError):
-            GTIResponse(indicator="1.2.3.4", is_malicious=False, confidence=-0.5)
+            CachedIndicatorResponse(indicator="1.2.3.4", is_malicious=False, confidence=-0.5)
 
     def test_cbm_response_construction(self):
         cbm = CBMResponse(
@@ -358,8 +358,8 @@ class TestMetricsModels:
         assert srm.total_evaluations == 0
         assert srm.average_latency_ms == 0.0
         assert srm.rate_limit_hits == 0
-        assert srm.gti_queries_executed == 0
-        assert srm.gti_queries_deferred == 0
+        assert srm.threat_intel_queries_executed == 0
+        assert srm.threat_intel_queries_deferred == 0
         assert srm.inline_signatures_generated == 0
         assert srm.block_count == 0
         assert srm.quarantine_count == 0
@@ -417,7 +417,7 @@ class TestSecurityEvent:
             verdict=valid_verdict,
             agent_id="agent-01",
             behavior_score=BehaviorScore(score=0.1, risk_level="LOW"),
-            gti_response=GTIResponse(indicator="example.com", is_malicious=False),
+            threat_intel_response=CachedIndicatorResponse(indicator="example.com", is_malicious=False),
             cbm_response=CBMResponse(blast_radius=1, critical_sinks=[]),
             related_signatures=[uuid4()],
             telemetry_span_id="span-1234",
