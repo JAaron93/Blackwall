@@ -13,7 +13,6 @@ from blackwall.mcp.codebase_memory import (
 )
 from blackwall.mcp.mcp_routing import (
     CodebaseMemoryRouter,
-    GTIRouter,
     ThreatIntelRouter,
     MCPRoutingViolation,
 )
@@ -35,7 +34,6 @@ __all__ = [
     "BlastRadiusIsolation",
     "BlastRadiusReport",
     "CodebaseMemoryRouter",
-    "GTIRouter",
     "ThreatIntelRouter",
     "MCPRoutingViolation",
     "call_mcp_tool_http",

@@ -1,6 +1,6 @@
 """Unit tests for the MCP Routing Layer.
 
-Tests CodebaseMemoryRouter, GTIRouter, MCPRoutingViolation,
+Tests CodebaseMemoryRouter, ThreatIntelRouter, MCPRoutingViolation,
 escape-attempt detection, and logging behavior.
 """
 
@@ -14,7 +14,7 @@ import pytest
 from blackwall.mcp.codebase_memory import CodebaseMemoryClient
 from blackwall.mcp.mcp_routing import (
     CodebaseMemoryRouter,
-    GTIRouter,
+    ThreatIntelRouter,
     MCPRoutingViolation,
     ThreatIntelRouter,
 )
@@ -40,7 +40,7 @@ def mock_threat_intel_client() -> AsyncMock:
     return client
 
 
-mock_gti_client = mock_threat_intel_client
+mock_ti_client = mock_threat_intel_client
 
 
 # ============================================================================
@@ -129,12 +129,12 @@ async def test_cbm_router_detects_escape_in_args(mock_cbm_client: AsyncMock) -> 
 
 
 # ============================================================================
-# ThreatIntelRouter (formerly GTIRouter) Tests
+# ThreatIntelRouter (formerly ThreatIntelRouter) Tests
 # ============================================================================
 
 
 def test_gti_router_is_threat_intel_router_alias() -> None:
-    assert GTIRouter is ThreatIntelRouter
+    assert ThreatIntelRouter is ThreatIntelRouter
 
 
 @pytest.mark.asyncio

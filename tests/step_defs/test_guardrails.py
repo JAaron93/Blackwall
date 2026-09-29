@@ -34,7 +34,7 @@ from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.interception import InterceptionQueue
 from blackwall.mcp.mcp_routing import (
     CodebaseMemoryRouter,
-    GTIRouter,
+    ThreatIntelRouter,
     MCPRoutingViolation,
     ThreatIntelRouter,
 )
@@ -306,22 +306,6 @@ def test_bdd_cbm_router_blocks_prohibited_ops() -> None:
 
 @scenario(
     _BLACKWALL_GUARDRAILS,
-    "GTIRouter permits async analysis context",
-)
-def test_bdd_gti_router_permits_async_context() -> None:
-    pass
-
-
-@scenario(
-    _BLACKWALL_GUARDRAILS,
-    "GTIRouter blocks synchronous interception context",
-)
-def test_bdd_gti_router_blocks_sync_context() -> None:
-    pass
-
-
-@scenario(
-    _BLACKWALL_GUARDRAILS,
     "ThreatIntelRouter permits async analysis context",
 )
 def test_bdd_threat_intel_router_permits_async_context() -> None:
@@ -430,23 +414,12 @@ def given_cbm_router_step(mock_cbm_client) -> dict:
     }
 
 
-@given("a GTIRouter with a mock GTI client", target_fixture="mcp_bdd_context")
-def given_gti_router_step(mock_gti_client) -> dict:
-    router = GTIRouter(mock_gti_client)
+@given("a ThreatIntelRouter with a mock threat-intel client", target_fixture="mcp_bdd_context")
+def given_threat_intel_router_step(mock_ti_client) -> dict:
+    router = ThreatIntelRouter(mock_ti_client)
     return {
         "router": router,
-        "client": mock_gti_client,
-        "result": None,
-        "exception": None,
-    }
-
-
-@given("a ThreatIntelRouter with a mock threat intel client", target_fixture="mcp_bdd_context")
-def given_threat_intel_router_step(mock_gti_client) -> dict:
-    router = ThreatIntelRouter(mock_gti_client)
-    return {
-        "router": router,
-        "client": mock_gti_client,
+        "client": mock_ti_client,
         "result": None,
         "exception": None,
     }
@@ -463,19 +436,7 @@ def when_operation_routed_step(mcp_bdd_context, operation) -> None:
         mcp_bdd_context["exception"] = e
 
 
-@when(parsers.parse('a GTI query is routed in "{context}" context'))
-def when_gti_query_routed_step(mcp_bdd_context, context) -> None:
-    router = mcp_bdd_context["router"]
-    ctx_enum = GTIRouter.ExecutionContext(context)
-    try:
-        mcp_bdd_context["result"] = asyncio.run(
-            router.route(ctx_enum, "lookup_ip", ip="192.168.1.1")
-        )
-    except Exception as e:
-        mcp_bdd_context["exception"] = e
-
-
-@when(parsers.parse('a threat intel query is routed in "{context}" context'))
+@when(parsers.parse('a threat-intel query is routed in "{context}" context'))
 def when_threat_intel_query_routed_step(mcp_bdd_context, context) -> None:
     router = mcp_bdd_context["router"]
     ctx_enum = ThreatIntelRouter.ExecutionContext(context)
@@ -509,7 +470,7 @@ def then_cbm_client_delegated_step(mcp_bdd_context) -> None:
     mcp_bdd_context["client"].queryDependencyChain.assert_called_once()
 
 
-@then("the GTI client should receive the delegated call")
+@then("the threat-intel client should receive the delegated call")
 def then_gti_client_delegated_step(mcp_bdd_context) -> None:
     mcp_bdd_context["client"].lookup_ip.assert_called_once()
 
