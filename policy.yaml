@@ -71,11 +71,11 @@ semanticGuidelines:
 
 mcpServers:
   threatIntel:
-    url: "https://gti.googleapis.com/mcp"
+    url: "https://otx.alienvault.com"
     enabled: true
-    apiKey: "vault://threat_intel"
+    apiKey: null
     cacheEnabled: true
-    cacheTTL: 86400
+    cacheTTL: 3600
     timeout: 5000
   codebaseMemory:
     url: "http://localhost:8080/mcp"

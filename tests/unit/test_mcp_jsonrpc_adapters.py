@@ -141,7 +141,7 @@ async def test_call_mcp_tool_http_bearer_auth():
 
     with patch("aiohttp.ClientSession", return_value=mock_session):
         await call_mcp_tool_http(
-            endpoint_url="https://gti.googleapis.com/mcp",
+            endpoint_url="https://otx.alienvault.com",
             tool_name="lookup_indicator",
             arguments={"indicator": "1.1.1.1"},
             api_key="Bearer ya29.oauth-token",
