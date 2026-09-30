@@ -799,7 +799,7 @@ semanticGuidelines:
 mcpServers:
   threatIntel:
     enabled: true
-    url: "https://otx.alienvault.com"
+    url: "https://otx.alienvault.com/api/v1"
     apiKey: null
     cacheEnabled: true
     cacheTTL: 3600

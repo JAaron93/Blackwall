@@ -71,7 +71,7 @@ semanticGuidelines:
 
 mcpServers:
   threatIntel:
-    url: "https://otx.alienvault.com"
+    url: "https://otx.alienvault.com/api/v1"
     enabled: true
     apiKey: null
     cacheEnabled: true
