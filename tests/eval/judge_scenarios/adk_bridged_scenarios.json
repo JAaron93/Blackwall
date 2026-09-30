@@ -2488,7 +2488,7 @@
         "attack_type": "C2_IOC",
         "cwe_id": "CWE-200",
         "severity": "CRITICAL",
-        "description": "C2 endpoint with high detection rate (VirusTotal)"
+        "description": "C2 endpoint with high detection rate (threat-intel flagged)"
       },
       "tool_call": {
         "tool_input": {

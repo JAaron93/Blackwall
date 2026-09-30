@@ -14,7 +14,7 @@ The dataset is designed to validate that Blackwall correctly:
 
 This reference dataset is used to test the following Blackwall security mechanisms:
 
-- **Semantic Gating Engine**: Multi-source threat scoring using GTI, CBM, and context analysis
+- **Semantic Gating Engine**: Multi-source threat scoring using threat intel, CBM, and context analysis
 - **Threat Signature Graph**: Fast similarity search and signature-based blocking (<10ms lookup)
 - **Agent Behavioral Analytics**: Threat signature generation from blocked attacks
 - **Structural Gating**: YAML-based policy rule matching (fast-path blocking)

@@ -382,37 +382,6 @@ class SQLiteThreatRepository:
                 """
                 )
 
-                # Legacy GTI cache absorption (pre-3.0.0 schema): move surviving
-                # rows into the unified threat_intel_cache, then drop the old
-                # table. Idempotent — guarded by table existence.
-                legacy_cursor = await conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name='gti_cache'"
-                )
-                if await legacy_cursor.fetchone():
-                    await conn.execute(
-                        """
-                        INSERT OR IGNORE INTO threat_intel_cache (
-                            indicator, indicator_type, provider, is_malicious,
-                            risk_score, payload, created_at, expires_at
-                        )
-                        SELECT
-                            indicator,
-                            indicator_type,
-                            COALESCE(json_extract(response_data, '$.provider_name'), 'legacy'),
-                            COALESCE(json_extract(response_data, '$.is_malicious'), 0),
-                            COALESCE(json_extract(response_data, '$.risk_score'), 0.0),
-                            response_data,
-                            CAST(cached_at AS REAL),
-                            CAST(cached_at AS REAL) + CASE
-                                WHEN COALESCE(json_extract(response_data, '$.is_malicious'), 0) THEN 21600.0
-                                ELSE 86400.0
-                            END
-                        FROM gti_cache
-                        """
-                    )
-                    await conn.execute("DROP TABLE gti_cache")
-                    await conn.commit()
-
                 await conn.execute(
                     """
                 CREATE INDEX IF NOT EXISTS idx_threat_cache_lookup 
