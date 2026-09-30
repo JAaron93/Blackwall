@@ -42,17 +42,17 @@ def _make_resolver(demo_mode: bool = False) -> SyncResolver:
 
     mock_policy_server = AsyncMock()
     mock_repo = AsyncMock()
-    mock_gti_client = AsyncMock()
+    mock_ti_client = AsyncMock()
     mock_cbm_client = AsyncMock()
-    mock_gti_budget_tracker = AsyncMock()
+    mock_ti_budget_tracker = AsyncMock()
 
     return SyncResolver(
         client=mock_client,
         policy_server=mock_policy_server,
         repo=mock_repo,
-        threat_intel=mock_gti_client,
+        threat_intel=mock_ti_client,
         cbm_client=mock_cbm_client,
-        threat_intel_budget_tracker=mock_gti_budget_tracker,
+        threat_intel_budget_tracker=mock_ti_budget_tracker,
         demo_mode=demo_mode,
     )
 
@@ -117,7 +117,7 @@ cbm_response_st = st.builds(
 )
 
 # CachedIndicatorResponse strategy
-gti_response_st = st.builds(
+cached_response_st = st.builds(
     CachedIndicatorResponse,
     indicator=st.text(min_size=1, max_size=50).filter(str.strip),
     is_malicious=st.booleans(),
@@ -128,7 +128,7 @@ gti_response_st = st.builds(
     confidence=st.floats(min_value=0.0, max_value=1.0),
 )
 
-threat_intel_response_st = gti_response_st
+threat_intel_response_st = cached_response_st
 
 # Scores dict for _compute_threat_score (legacy interface for direct scoring)
 # Note: _compute_threat_score is async and takes context, threat_resp, cbm_resp
@@ -262,7 +262,7 @@ def test_score_threat_intel_none_returns_zero() -> None:
 @settings(max_examples=100)
 @given(
     context=tool_call_context_st,
-    threat_resp=st.one_of(st.none(), gti_response_st),
+    threat_resp=st.one_of(st.none(), cached_response_st),
     cbm_resp=st.one_of(st.none(), cbm_response_st),
 )
 def test_compute_threat_score_bounded(
@@ -274,11 +274,11 @@ def test_compute_threat_score_bounded(
     resolver = _make_resolver()
     # _compute_threat_score is async; run it synchronously
     raw_score = _run(resolver._compute_threat_score(context, threat_resp, cbm_resp))
-    # The method may return raw score slightly outside [0,1] due to GTI budget penalty;
+    # The method may return raw score slightly outside [0,1] due to TI budget penalty;
     # verify that the score is a finite float
     assert isinstance(raw_score, float), f"Expected float, got {type(raw_score)}"
     # The Verdict clamp happens at the threshold comparison layer; raw score can be
-    # negative only when GTI budget is exhausted (−0.20 penalty). We verify raw
+    # negative only when TI budget is exhausted (−0.20 penalty). We verify raw
     # output is bounded to a sane range: [−0.20, 1.0].
     assert -0.20 <= raw_score <= 1.0, (
         f"_compute_threat_score returned {raw_score!r}, outside expected range"
@@ -288,7 +288,7 @@ def test_compute_threat_score_bounded(
 @settings(max_examples=100)
 @given(
     context=tool_call_context_st,
-    threat_resp=st.one_of(st.none(), gti_response_st),
+    threat_resp=st.one_of(st.none(), cached_response_st),
     cbm_resp=st.one_of(st.none(), cbm_response_st),
 )
 def test_compute_threat_score_bounded_budget_exhausted(
@@ -296,7 +296,7 @@ def test_compute_threat_score_bounded_budget_exhausted(
     threat_resp: Optional[CachedIndicatorResponse],
     cbm_resp: Optional[CBMResponse],
 ) -> None:
-    """Property: _compute_threat_score is bounded when GTI budget is exhausted."""
+    """Property: _compute_threat_score is bounded when TI budget is exhausted."""
     resolver = _make_resolver()
     resolver._threat_intel_budget_exhausted = True
     raw_score = _run(resolver._compute_threat_score(context, threat_resp, cbm_resp))
@@ -407,7 +407,7 @@ def test_compute_threat_score_all_zero_inputs_near_zero() -> None:
     # - no metadata → zero role modifier
     context = ToolCallContext(tool_name="safe_helper", arguments={})
 
-    # GTI: not malicious, detection_rate=0.0 → _score_threat_intel = 0.0
+    # TI: not malicious, detection_rate=0.0 → _score_threat_intel = 0.0
     threat_resp = CachedIndicatorResponse(
         indicator="safe.example.com",
         is_malicious=False,
@@ -429,7 +429,7 @@ def test_compute_threat_score_all_zero_inputs_near_zero() -> None:
 
 
 def test_compute_threat_score_none_responses_near_zero() -> None:
-    """Property: _compute_threat_score with None GTI/CBM and benign context produces low score."""
+    """Property: _compute_threat_score with None TI/CBM and benign context produces low score."""
     resolver = _make_resolver()
     context = ToolCallContext(tool_name="list_directory", arguments={})
     raw_score = _run(resolver._compute_threat_score(context, None, None))
@@ -464,7 +464,7 @@ def test_compute_threat_score_all_max_inputs_produces_high_score() -> None:
         metadata={"environment_role": "production"},
     )
 
-    # GTI: malicious, high detection rate → _score_threat_intel ≈ 1.0
+    # TI: malicious, high detection rate → _score_threat_intel ≈ 1.0
     threat_resp = CachedIndicatorResponse(
         indicator="evil-domain.ru",
         is_malicious=True,
@@ -574,7 +574,7 @@ def test_score_context_no_role_modifier_formula(tool_name: str) -> None:
 @settings(max_examples=100)
 @given(
     context=tool_call_context_st,
-    threat_resp=st.one_of(st.none(), gti_response_st),
+    threat_resp=st.one_of(st.none(), cached_response_st),
     cbm_resp=st.one_of(st.none(), cbm_response_st),
 )
 def test_compute_threat_score_deterministic(
