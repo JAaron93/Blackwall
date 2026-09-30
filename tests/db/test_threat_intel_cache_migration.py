@@ -1,5 +1,5 @@
 """Tests the raw-dictionary threat-intel cache API over the unified
-threat_intel_cache table (GTI→TI janitorial rename)."""
+threat_intel_cache table."""
 
 import json
 import sqlite3
