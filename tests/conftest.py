@@ -69,7 +69,7 @@ def mock_cbm_client() -> AsyncMock:
 
 
 @pytest.fixture
-def mock_gti_client() -> AsyncMock:
+def mock_ti_client() -> AsyncMock:
     client = AsyncMock()
     client.lookup_ip = AsyncMock(return_value="mock_ip")
     client.lookup_url = AsyncMock(return_value="mock_url")

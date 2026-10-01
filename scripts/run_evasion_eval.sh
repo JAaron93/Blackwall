@@ -6,7 +6,7 @@
 #   Reproduces the full two-wave evasion detection evaluation for judges.
 #
 #   Wave 1: Presents 5 novel attacks Blackwall has never seen.
-#           Each is blocked via full semantic evaluation (GTI threat
+#           Each is blocked via full semantic evaluation (threat-intel
 #           intelligence + codebase AST analysis + LLM intent classification).
 #
 #   Wave 2: Presents 5 structurally similar variants of the Wave-1 attacks.

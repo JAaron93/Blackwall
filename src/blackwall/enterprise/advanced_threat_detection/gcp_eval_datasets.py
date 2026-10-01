@@ -1085,7 +1085,7 @@ def get_sync_resolver_eval_samples() -> list[dict[str, Any]]:
             "ground_truth_label": "MALICIOUS",
             "expected_score_range": (0.85, 1.0),
             "reference_trajectory": ["before_tool_callback"],
-            "metadata": {"category": "GTI_MALICIOUS_DOMAIN"},
+            "metadata": {"category": "THREAT_INTEL_MALICIOUS_DOMAIN"},
         },
         {
             "scenario_id": "resolver_018",

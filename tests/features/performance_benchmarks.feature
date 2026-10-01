@@ -9,7 +9,7 @@ Feature: Performance Benchmarking and Resource Validation
     Then the structural gating p99 latency must be under 5.0 milliseconds
 
   Scenario: Semantic gating satisfies sub-300ms p99 latency SLA
-    Given a SyncResolver with mock GTI and CBM intelligence
+    Given a SyncResolver with mock threat-intel and CBM intelligence
     When 50 semantic tool calls are evaluated
     Then the semantic gating p99 latency must be under 300.0 milliseconds
 

@@ -65,7 +65,7 @@ sequenceDiagram
         MockApp-->>Blackwall: sys.addaudithook / before_tool_callback triggers
         Blackwall->>Blackwall: Structural Gating -> ESCALATE
         Blackwall->>LocalTSG: Cosine Search: Novel pattern (No Match)
-        Blackwall->>Blackwall: Semantic Gating (GTI + CBM + Intent Scoring = 0.88)
+        Blackwall->>Blackwall: Semantic Gating (Threat Intel + CBM + Intent Scoring = 0.88)
         Blackwall-->>RogueAgent: VERDICT: BLOCK (PermissionError Raised)
         Blackwall->>LocalTSG: Auto-Generate Threat Signature (768-dim Vector)
     end

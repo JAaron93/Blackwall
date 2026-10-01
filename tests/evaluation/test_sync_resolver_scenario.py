@@ -16,7 +16,7 @@ from blackwall.eval.scenarios import ThreatInterceptionScenario
 from blackwall.models import (
     AttackerProfile,
     CBMResponse,
-    GTIResponse,
+    CachedIndicatorResponse,
     SinkType,
     ToolCallContext,
 )
@@ -24,7 +24,7 @@ from blackwall.sync_resolver import SyncResolver
 
 
 def _create_test_resolver(demo_mode: bool = False) -> SyncResolver:
-    """Create a SyncResolver instance configured with CBM, GTI, and TSG mock adapters."""
+    """Create a SyncResolver instance configured with CBM, threat-intel, and TSG mock adapters."""
     mock_client = MagicMock()
     mock_response = MagicMock()
     mock_response.text = "generated signature"
@@ -72,9 +72,9 @@ def _create_test_resolver(demo_mode: bool = False) -> SyncResolver:
 
     cbm_client.query.side_effect = mock_cbm_query
 
-    gti_client = AsyncMock()
+    threat_intel_client = AsyncMock()
 
-    async def mock_gti_query(indicator: str) -> GTIResponse:
+    async def mock_ti_query(indicator: str) -> CachedIndicatorResponse:
         if indicator and any(
             bad in indicator.lower()
             for bad in [
@@ -88,14 +88,14 @@ def _create_test_resolver(demo_mode: bool = False) -> SyncResolver:
                 "pastebin",
             ]
         ):
-            return GTIResponse(
+            return CachedIndicatorResponse(
                 indicator=indicator, is_malicious=True, detection_rate=0.95
             )
-        return GTIResponse(
+        return CachedIndicatorResponse(
             indicator=indicator or "none", is_malicious=False, detection_rate=0.0
         )
 
-    gti_client.query.side_effect = mock_gti_query
+    threat_intel_client.query.side_effect = mock_ti_query
 
     mock_repo = AsyncMock()
 
@@ -147,7 +147,7 @@ def _create_test_resolver(demo_mode: bool = False) -> SyncResolver:
     return SyncResolver(
         client=mock_client,
         cbm_client=cbm_client,
-        gti_client=gti_client,
+        threat_intel=threat_intel_client,
         repo=mock_repo,
         demo_mode=demo_mode,
     )

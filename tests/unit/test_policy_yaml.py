@@ -72,8 +72,8 @@ def test_concrete_policy_yaml_loading() -> None:
     assert production_role.maxThreatScore == 0.5
 
     # Verify MCP server endpoints
-    assert policy.mcpServers.gti.enabled is True
-    assert policy.mcpServers.gti.url == "https://gti.googleapis.com/mcp"
+    assert policy.mcpServers.threatIntel.enabled is True
+    assert policy.mcpServers.threatIntel.url == "https://otx.alienvault.com/api/v1"
     assert policy.mcpServers.codebaseMemory.enabled is True
     assert policy.mcpServers.codebaseMemory.url == "http://localhost:8080/mcp"
 
@@ -176,7 +176,7 @@ def test_policy_yaml_schema_validation_passes() -> None:
         assert isinstance(rule.enabled, bool)
 
     # MCP Server endpoints
-    assert policy.mcpServers.gti.url.startswith("http")
+    assert policy.mcpServers.threatIntel.url.startswith("http")
     assert policy.mcpServers.codebaseMemory.url.startswith("http")
 
 
@@ -389,7 +389,7 @@ def test_policy_mcp_endpoints_applied_to_clients() -> None:
         cbm_client=CodebaseMemoryClient(base_url=""),
     )
     server = HybridPolicyServer(structural_engine=engine, semantic_engine=sem_engine)
-    assert sem_engine.threat_intel_client.base_url == "https://gti.googleapis.com/mcp"
+    assert sem_engine.threat_intel_client.base_url == "https://otx.alienvault.com/api/v1"
     assert sem_engine.cbm_client.base_url == "http://localhost:8080/mcp"
 
     # 3. Test SyncResolver propagation
@@ -402,5 +402,5 @@ def test_policy_mcp_endpoints_applied_to_clients() -> None:
         threat_intel=sync_ti,
         cbm_client=sync_cbm,
     )
-    assert resolver.threat_intel.base_url == "https://gti.googleapis.com/mcp"
+    assert resolver.threat_intel.base_url == "https://otx.alienvault.com/api/v1"
     assert resolver.cbm_client.base_url == "http://localhost:8080/mcp"

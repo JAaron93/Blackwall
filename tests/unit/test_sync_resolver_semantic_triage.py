@@ -104,7 +104,7 @@ async def test_compute_threat_score_integrates_semantic_triage():
     with patch.object(resolver, "_evaluate_semantic_intent", AsyncMock(return_value=0.9)):
         score = await resolver._compute_threat_score(context, None, None)
         # Context score: tool execute_bash (0.9) * 0.5 + novelty (semantic 0.9) * 0.5 = 0.9
-        # Total: GTI 0.0 * 0.4 + CBM 0.0 * 0.3 + Context 0.9 * 0.3 = 0.27
+        # Total: TI 0.0 * 0.4 + CBM 0.0 * 0.3 + Context 0.9 * 0.3 = 0.27
         assert abs(score - 0.27) < 0.02
 
 

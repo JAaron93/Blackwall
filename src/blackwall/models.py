@@ -125,7 +125,14 @@ class IndicatorType(str, Enum):
     FILE_HASH = "FILE_HASH"
 
 
-class GTIResponse(BaseModel):
+class CachedIndicatorResponse(BaseModel):
+    """Raw cached threat-intelligence verdict for a single indicator.
+
+    Shape originates from the SQLite threat-intel cache payloads consumed by
+    the SemanticGatingEngine; the standardized provider model is
+    ``blackwall.threat_intel.models.ThreatIntelResponse``.
+    """
+
     indicator: str
     is_malicious: bool
     threat_categories: list[str] = Field(default_factory=list)
@@ -171,25 +178,10 @@ class SyncResolverMetrics(BaseModel):
     rate_limit_hits: int = 0
     threat_intel_queries_executed: int = 0
     threat_intel_queries_deferred: int = 0
-    gti_queries_executed: int = 0
-    gti_queries_deferred: int = 0
     inline_signatures_generated: int = 0
     block_count: int = 0
     quarantine_count: int = 0
     allow_count: int = 0
-
-    @model_validator(mode="after")
-    def sync_metrics_aliases(self) -> "SyncResolverMetrics":
-        if self.threat_intel_queries_executed and not self.gti_queries_executed:
-            self.gti_queries_executed = self.threat_intel_queries_executed
-        elif self.gti_queries_executed and not self.threat_intel_queries_executed:
-            self.threat_intel_queries_executed = self.gti_queries_executed
-
-        if self.threat_intel_queries_deferred and not self.gti_queries_deferred:
-            self.gti_queries_deferred = self.threat_intel_queries_deferred
-        elif self.gti_queries_deferred and not self.threat_intel_queries_deferred:
-            self.threat_intel_queries_deferred = self.gti_queries_deferred
-        return self
 
 
 class PolicyServerState(BaseModel):
@@ -211,8 +203,7 @@ class SecurityEvent(BaseModel):
     verdict: Verdict | None = None
     behavior_score: BehaviorScore | None = None
     agent_id: str | None = None
-    threat_intel_response: ThreatIntelResponse | GTIResponse | Any = None
-    gti_response: GTIResponse | ThreatIntelResponse | Any = None
+    threat_intel_response: ThreatIntelResponse | CachedIndicatorResponse | Any = None
     cbm_response: CBMResponse | None = None
     related_signatures: list[UUID] = Field(default_factory=list)
     telemetry_span_id: str | None = None
@@ -234,11 +225,6 @@ class SecurityEvent(BaseModel):
 
     @model_validator(mode="after")
     def validate_verdict_presence(self) -> "SecurityEvent":
-        if self.threat_intel_response is not None and self.gti_response is None:
-            self.gti_response = self.threat_intel_response
-        elif self.gti_response is not None and self.threat_intel_response is None:
-            self.threat_intel_response = self.gti_response
-
         if self.verdict is None and self.event_type in {
             EventType.INTERCEPTION,
             EventType.BLOCK,

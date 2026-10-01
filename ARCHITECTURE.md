@@ -247,7 +247,7 @@ To ensure synchronous evaluation strictly obeys the $<5\text{ms}$ latency budget
 +---------------------------------------------------+-----------------------------------------------+
 | - Async Interception Resolvers (Sync / Batch)     | - DFA Regex Sanitization (O(N), No IPC)       |
 | - SQLite Async Connection Pool & WAL persistence  | - SIMD 768-dim Vector Cosine Similarity       |
-| - Google GenAI SDK (Vertex AI Mode) & GTI MCP     | - Word-Level Intersection Scoring (<5µs)      |
+| - Google GenAI SDK (Vertex AI Mode) & Threat-Intel MCP     | - Word-Level Intersection Scoring (<5µs)      |
 | - Pydantic Data Models & Semantic Routing Policy  | - Single-Pass RegexSet IOC & Entropy Engine   |
 | - Cloud-Native Vertex AI Eval & OpenTelemetry     | - Graph DFS Path Traversal & Swarm Correlator |
 +---------------------------------------------------+-----------------------------------------------+
@@ -328,7 +328,7 @@ To ensure synchronous evaluation strictly obeys the $<5\text{ms}$ latency budget
 - **Taint Flow & Blast Radius**: Calculates taint propagation and blast radius [0.0, 1.0] across dependent modules to inform the semantic threat score.
 
 ### 6.5 Zero-Disk-I/O Cached SSL Context Factory
-- **Shared Transport Caching (`get_certifi_ssl_context`)**: Outbound Model Context Protocol (MCP) HTTP calls and external GTI queries route through a centralized SSLContext factory in `src/blackwall/mcp/transport.py`.
+- **Shared Transport Caching (`get_certifi_ssl_context`)**: Outbound Model Context Protocol (MCP) HTTP calls and external threat-intel queries route through a centralized SSLContext factory in `src/blackwall/mcp/transport.py`.
 - **LRU Cache Singleton**: Backed by `@functools.lru_cache(maxsize=4)`, the factory initializes and caches the `certifi.where()` CA bundle once per process, reducing $O(N)$ filesystem reads and certificate parsing overhead to $O(1)$ on the hot interception path.
 
 ---
@@ -371,7 +371,6 @@ Blackwall instruments every stage of the interception lifecycle using OpenTeleme
     - `blackwall.threat_signature_lookup` (SQLite cosine search)
     - `blackwall.batch_queue_wait` (Interception queue accumulation duration)
     - `blackwall.semantic_evaluation` (LLM inference + MCP calls)
-      - `blackwall.gti_query` (VirusTotal IOC check)
       - `blackwall.cbm_query` (Codebase AST query)
     - `blackwall.signature_generation` (Self-learning loop)
 - **Trace Attributes**: Emits `blackwall.verdict`, `blackwall.threat_score`, `blackwall.rule_id`, `blackwall.agent_id`, and `blackwall.tool_name`, as well as OpenTelemetry GenAI semantic conventions: `gen_ai.request.model`, `gen_ai.request.thinking_level`, and `gen_ai.usage.thought_tokens`.

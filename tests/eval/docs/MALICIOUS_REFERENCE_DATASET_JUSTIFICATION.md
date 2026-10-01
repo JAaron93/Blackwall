@@ -189,7 +189,7 @@ If Blackwall were hardcoding verdicts, Wave 2 wouldn't be 100x faster—it would
 
 **A:** Covered by the semantic layer:
 - Blackwall doesn't rely solely on the Threat Signature Graph
-- Unknown attacks are evaluated by the Semantic Gating Engine (GTI + CBM + LLM)
+- Unknown attacks are evaluated by the Semantic Gating Engine (threat intel + CBM + LLM)
 - The 3.8% evasion rate includes attacks that evaded both signature AND semantic layers
 
 This is why the evasion rate isn't 0%—because there are semantically ambiguous cases that fool both mechanisms.

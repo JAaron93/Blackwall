@@ -214,7 +214,7 @@ These datasets integrate with:
 
 - **Malicious Cases**: Based on OWASP Top 10, CWE/CVSS standards
 - **Benign Cases**: Modeled on real ADK 2.0 usage patterns
-- **Schema**: Aligned with Gemini API and GTI MCP specifications
+- **Schema**: Aligned with Gemini API and threat-intel MCP specifications
 - **Compliance**: Follows Blackwall's Zero-Trust safety architecture
 
 ## Contributing

@@ -2,7 +2,7 @@
 
 Covers: _build_reasoning, _extract_indicator, _inline_generate_signature,
 _process_attribution, _schedule_attribution, _score_argument_novelty,
-_score_tool_name, _score_context, _score_gti, _score_cbm,
+_score_tool_name, _score_context, _score_threat_intel, _score_cbm,
 _emit_sinks, close, get_metrics.
 """
 
@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from blackwall.sync_resolver import SyncResolver
 from blackwall.models import (
     CBMResponse,
-    GTIResponse,
+    CachedIndicatorResponse,
     SinkType,
     ToolCallContext,
     Verdict,
@@ -52,15 +52,14 @@ def make_threat_intel_response(
     is_malicious: bool = False,
     detection_rate: float = 0.0,
     indicator: str = "8.8.8.8",
-) -> GTIResponse:
-    return GTIResponse(
+) -> CachedIndicatorResponse:
+    return CachedIndicatorResponse(
         indicator=indicator,
         is_malicious=is_malicious,
         detection_rate=detection_rate,
     )
 
 
-make_gti_response = make_threat_intel_response
 
 
 def make_cbm_response(
@@ -96,7 +95,6 @@ def test_build_reasoning_with_threat_intel_malicious():
     assert "80.00" in result
 
 
-test_build_reasoning_with_gti_malicious = test_build_reasoning_with_threat_intel_malicious
 
 
 def test_build_reasoning_with_threat_intel_not_malicious():
@@ -106,7 +104,6 @@ def test_build_reasoning_with_threat_intel_not_malicious():
     assert "50.00" in result
 
 
-test_build_reasoning_with_gti_not_malicious = test_build_reasoning_with_threat_intel_not_malicious
 
 
 def test_build_reasoning_with_threat_intel_response():
@@ -133,12 +130,12 @@ def test_build_reasoning_with_cbm():
 
 
 def test_build_reasoning_all_present():
-    gti = make_gti_response(is_malicious=True, detection_rate=60.0)
+    ti = make_threat_intel_response(is_malicious=True, detection_rate=60.0)
     cbm = make_cbm_response(blast_radius=3.0, critical_sinks=[SinkType.FILE_SYSTEM])
-    result = SyncResolver._build_reasoning(0.7, gti, cbm)
+    result = SyncResolver._build_reasoning(0.7, ti, cbm)
     assert "|" in result
     assert "Threat score" in result
-    assert "GTI" in result
+    assert "ThreatIntel" in result
     assert "CBM" in result
 
 
@@ -323,26 +320,24 @@ def test_score_context_capped_at_one():
 
 # ===========================================================================
 # ===========================================================================
-# Section 5: _score_threat_intel() and _score_gti()
+# Section 5: _score_threat_intel() and _score_threat_intel()
 # ===========================================================================
 
 def test_score_threat_intel_none():
     r = make_resolver()
     assert r._score_threat_intel(None) == 0.0
-    assert r._score_gti(None) == 0.0
+    assert r._score_threat_intel(None) == 0.0
 
 
-test_score_gti_none = test_score_threat_intel_none
 
 
 def test_score_threat_intel_not_malicious_no_detection():
     r = make_resolver()
     ti = make_threat_intel_response(is_malicious=False, detection_rate=0.0)
     assert r._score_threat_intel(ti) == 0.0
-    assert r._score_gti(ti) == 0.0
+    assert r._score_threat_intel(ti) == 0.0
 
 
-test_score_gti_not_malicious_no_detection = test_score_threat_intel_not_malicious_no_detection
 
 
 def test_score_threat_intel_not_malicious_with_detection():
@@ -351,10 +346,9 @@ def test_score_threat_intel_not_malicious_with_detection():
     # detection_rate=50.0 is a percentage (50%) -> mapped to 0.50
     score = r._score_threat_intel(ti)
     assert abs(score - 0.50) < 0.01
-    assert abs(r._score_gti(ti) - 0.50) < 0.01
+    assert abs(r._score_threat_intel(ti) - 0.50) < 0.01
 
 
-test_score_gti_not_malicious_with_detection = test_score_threat_intel_not_malicious_with_detection
 
 
 def test_score_threat_intel_not_malicious_capped_detection():
@@ -363,10 +357,9 @@ def test_score_threat_intel_not_malicious_capped_detection():
     # detection_rate=150.0 is capped at 1.0
     score = r._score_threat_intel(ti)
     assert score == 1.0
-    assert r._score_gti(ti) == 1.0
+    assert r._score_threat_intel(ti) == 1.0
 
 
-test_score_gti_not_malicious_capped_detection = test_score_threat_intel_not_malicious_capped_detection
 
 
 def test_score_threat_intel_not_malicious_low_detection():
@@ -374,10 +367,9 @@ def test_score_threat_intel_not_malicious_low_detection():
     ti = make_threat_intel_response(is_malicious=False, detection_rate=0.3)
     score = r._score_threat_intel(ti)
     assert abs(score - 0.3) < 0.01
-    assert abs(r._score_gti(ti) - 0.3) < 0.01
+    assert abs(r._score_threat_intel(ti) - 0.3) < 0.01
 
 
-test_score_gti_not_malicious_low_detection = test_score_threat_intel_not_malicious_low_detection
 
 
 def test_score_threat_intel_malicious():
@@ -386,10 +378,9 @@ def test_score_threat_intel_malicious():
     # is_malicious=True: (1.0 + min(1, 0.8)) / 2 = (1.0 + 0.8) / 2 = 0.9
     score = r._score_threat_intel(ti)
     assert abs(score - 0.9) < 0.01
-    assert abs(r._score_gti(ti) - 0.9) < 0.01
+    assert abs(r._score_threat_intel(ti) - 0.9) < 0.01
 
 
-test_score_gti_malicious = test_score_threat_intel_malicious
 
 
 def test_score_threat_intel_malicious_zero_detection():
@@ -398,10 +389,9 @@ def test_score_threat_intel_malicious_zero_detection():
     # (1.0 + 0.0) / 2 = 0.5
     score = r._score_threat_intel(ti)
     assert abs(score - 0.5) < 0.01
-    assert abs(r._score_gti(ti) - 0.5) < 0.01
+    assert abs(r._score_threat_intel(ti) - 0.5) < 0.01
 
 
-test_score_gti_malicious_zero_detection = test_score_threat_intel_malicious_zero_detection
 
 
 def test_score_threat_intel_response_malicious():
@@ -566,7 +556,7 @@ def test_get_metrics_initial_state():
     assert metrics["block_count"] == 0
     assert metrics["quarantine_count"] == 0
     assert metrics["allow_count"] == 0
-    assert metrics["gti_queries_executed"] == 0
+    assert metrics["threat_intel_queries_executed"] == 0
     assert metrics["threat_intel_queries_executed"] == 0
 
 
@@ -578,8 +568,8 @@ def test_get_metrics_after_increments():
     r._quarantine_count = 4
     r._allow_count = 3
     r._rate_limit_hits = 1
-    r._gti_queries_executed = 5
-    r._gti_queries_deferred = 2
+    r._threat_intel_queries_executed = 5
+    r._threat_intel_queries_deferred = 2
     r._inline_signatures_generated = 3
 
     metrics = r.get_metrics()
@@ -589,8 +579,8 @@ def test_get_metrics_after_increments():
     assert metrics["quarantine_count"] == 4
     assert metrics["allow_count"] == 3
     assert metrics["rate_limit_hits"] == 1
-    assert metrics["gti_queries_executed"] == 5
-    assert metrics["gti_queries_deferred"] == 2
+    assert metrics["threat_intel_queries_executed"] == 5
+    assert metrics["threat_intel_queries_deferred"] == 2
     assert metrics["threat_intel_queries_executed"] == 5
     assert metrics["threat_intel_queries_deferred"] == 2
     assert metrics["inline_signatures_generated"] == 3

@@ -478,7 +478,7 @@ async def test_policy_configuration_integration():
         structuralRules=[],
         semanticGuidelines=[],
         mcpServers=MCPServersConfig(
-            gti=MCPServerConfig(
+            threatIntel=MCPServerConfig(
                 enabled=True, cacheEnabled=True, cacheTTL=3600, timeout=1000
             ),
             codebaseMemory=MCPServerConfig(
@@ -537,7 +537,7 @@ async def test_policy_configuration_default_omission():
         structuralRules=[],
         semanticGuidelines=[],
         mcpServers=MCPServersConfig(
-            gti=MCPServerConfig(
+            threatIntel=MCPServerConfig(
                 enabled=True, cacheEnabled=True, cacheTTL=3600, timeout=1000
             ),
             codebaseMemory=MCPServerConfig(

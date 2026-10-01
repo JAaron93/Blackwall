@@ -726,14 +726,13 @@ class BatchResolver:
         related_signatures: List[Any],
         cbm_chain: List[Any],
         threat_intel_data: Any = None,
-        gti_data: Any = None,
     ) -> str:
         """Submits deep analysis in the background to Gemini 3.8 Flash.
 
         Returns:
             task_id: The ID of the background interaction.
         """
-        ti_data = threat_intel_data if threat_intel_data is not None else gti_data
+        ti_data = threat_intel_data
         # Ensure we conform to local rate limits
         await self._acquire_rate_limit_token()
 
@@ -752,7 +751,6 @@ class BatchResolver:
             ],
             "cbm_dependency_chain": cbm_chain,
             "threat_intel_ioc_data": ti_data,
-            "gti_ioc_data": ti_data,
         }
 
         webhook_url = f"http://localhost:{self.webhook_port}/webhook/analysis_complete"
@@ -888,8 +886,6 @@ def create_resolver(
     repo: Any = None,
     threat_intel: Any = None,
     cbm_client: Any = None,
-    gti_client: Any = None,
-    gti_budget_tracker: Any = None,
     webhook_port: int = 8090,
     policy_snapshot: Optional[Dict[str, Any]] = None,
 ) -> Any:
@@ -911,7 +907,7 @@ def create_resolver(
     if mode == "sync" or tier in ("sync", "free"):
         from blackwall.sync_resolver import SyncResolver
 
-        ti = threat_intel or gti_client
+        ti = threat_intel
         if ti is None and repo is not None:
             try:
                 from blackwall.threat_intel import ThreatIntelOrchestrator
@@ -926,8 +922,6 @@ def create_resolver(
             repo=repo,
             threat_intel=ti,
             cbm_client=cbm_client,
-            gti_client=ti,
-            gti_budget_tracker=gti_budget_tracker,
         )
     return BatchResolver(
         client=client,

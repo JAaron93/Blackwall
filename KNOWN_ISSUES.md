@@ -1,5 +1,8 @@
 # Known Issues
 
+> [!NOTE]
+> Code snippets below predate the v3.0 GTI→AlienVault OTX migration (ADR 0005): `blackwall.mcp.gti_client.GTIMCPClient` no longer exists and `GTI_MCP_API_KEY` is unread; see `src/blackwall/threat_intel/` for the current provider surface.
+
 ## Evaluation Script Performance (Non-Blocking)
 
 ### Issue Description

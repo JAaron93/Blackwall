@@ -13,7 +13,7 @@ import pytest
 from blackwall.mcp.codebase_memory import CodebaseMemoryClient
 from blackwall.mcp.mcp_routing import (
     CodebaseMemoryRouter,
-    GTIRouter,
+    ThreatIntelRouter,
     MCPRoutingViolation,
     ThreatIntelRouter,
 )
@@ -32,11 +32,7 @@ def mock_threat_intel_client() -> AsyncMock:
     return client
 
 
-mock_gti_client = mock_threat_intel_client
-
-
-def test_gti_router_alias_in_integration() -> None:
-    assert GTIRouter is ThreatIntelRouter
+mock_ti_client = mock_threat_intel_client
 
 
 # ============================================================================
@@ -63,13 +59,12 @@ async def test_synchronous_path_blocks_threat_intel_queries(
             ip="198.51.100.12",
         )
 
-    assert exc_info.value.router in ("GTIRouter", "ThreatIntelRouter")
+    assert exc_info.value.router in ("ThreatIntelRouter", "ThreatIntelRouter")
     assert "Execution context" in str(exc_info.value)
     assert "forbidden" in str(exc_info.value)
     mock_threat_intel_client.lookup_ip.assert_not_called()
 
 
-test_synchronous_path_blocks_gti_queries = test_synchronous_path_blocks_threat_intel_queries
 
 
 @pytest.mark.asyncio
@@ -91,7 +86,6 @@ async def test_async_analysis_path_allows_threat_intel_queries(
     mock_threat_intel_client.lookup_ip.assert_called_once_with(ip="198.51.100.12")
 
 
-test_async_analysis_path_allows_gti_queries = test_async_analysis_path_allows_threat_intel_queries
 
 
 # ============================================================================
@@ -162,7 +156,6 @@ async def test_attack_simulation_threat_intel_operations(
     assert "[ESCAPE_ATTEMPT]" in str(exc_info.value)
 
 
-test_attack_simulation_gti_operations = test_attack_simulation_threat_intel_operations
 
 
 # ============================================================================

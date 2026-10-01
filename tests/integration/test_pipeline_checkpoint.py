@@ -217,7 +217,7 @@ async def test_synchronous_path_latency_no_external_calls(
 ) -> None:
     """
     Ensures that the synchronous interception path (structural fast-path only,
-    no Gemini/GTI/CBM calls) completes in < 10 ms on average over 100 samples.
+    no Gemini/threat-intel/CBM calls) completes in < 10 ms on average over 100 samples.
 
     Uses ``read_file`` which maps to ALLOW without semantic review, guaranteeing
     zero async I/O in the evaluation path.

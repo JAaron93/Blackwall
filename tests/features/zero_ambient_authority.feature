@@ -11,11 +11,11 @@ Feature: Zero Ambient Authority and JIT Token Downscoping
     And the process GID must be unprivileged
 
   Scenario: JIT token downscoping per tool call
-    Given a Local Vault is initialized with secret "gti-api-key" as "gti-real-key"
+    Given a Local Vault is initialized with secret "threat-intel-api-key" as "threat-intel-real-key"
     And a JIT credential manager is active
     When an intercepted tool call begins execution
     Then a temporary scoped credential must be generated
-    And the temporary credential must resolve to the real secret "gti-real-key"
+    And the temporary credential must resolve to the real secret "threat-intel-real-key"
     And the temporary credential must be revoked immediately after tool execution
     And resolving the revoked credential must fail
 

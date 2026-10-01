@@ -91,10 +91,10 @@ def then_gid_unprivileged(state):
 # --- Scenario: JIT token downscoping per tool call ---
 
 
-@given('a Local Vault is initialized with secret "gti-api-key" as "gti-real-key"')
+@given('a Local Vault is initialized with secret "threat-intel-api-key" as "threat-intel-real-key"')
 def given_local_vault_initialized(state):
     state.vault = LocalVault(filepath=state.vault_file, master_key="test-master-key")
-    state.vault.set_secret("gti-api-key", "gti-real-key")
+    state.vault.set_secret("threat-intel-api-key", "threat-intel-real-key")
 
 
 @given("a JIT credential manager is active")
@@ -105,7 +105,7 @@ def given_jit_credential_manager_active(state):
 @when("an intercepted tool call begins execution")
 def when_tool_call_begins(state):
     state.context_manager = JITCredentialContext(
-        state.manager, "vault://secrets/gti-api-key", "tool_execution"
+        state.manager, "vault://secrets/threat-intel-api-key", "tool_execution"
     )
     state.token_id = state.context_manager.__enter__()
 
@@ -116,10 +116,10 @@ def then_temp_credential_generated(state):
     assert state.token_id.startswith("tmp_")
 
 
-@then('the temporary credential must resolve to the real secret "gti-real-key"')
+@then('the temporary credential must resolve to the real secret "threat-intel-real-key"')
 def then_credential_resolves(state):
     state.resolved_val = state.manager.resolve_token(state.token_id)
-    assert state.resolved_val == "gti-real-key"
+    assert state.resolved_val == "threat-intel-real-key"
 
 
 @then("the temporary credential must be revoked immediately after tool execution")

@@ -34,7 +34,7 @@ from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.interception import InterceptionQueue
 from blackwall.mcp.mcp_routing import (
     CodebaseMemoryRouter,
-    GTIRouter,
+    ThreatIntelRouter,
     MCPRoutingViolation,
     ThreatIntelRouter,
 )
@@ -306,22 +306,6 @@ def test_bdd_cbm_router_blocks_prohibited_ops() -> None:
 
 @scenario(
     _BLACKWALL_GUARDRAILS,
-    "GTIRouter permits async analysis context",
-)
-def test_bdd_gti_router_permits_async_context() -> None:
-    pass
-
-
-@scenario(
-    _BLACKWALL_GUARDRAILS,
-    "GTIRouter blocks synchronous interception context",
-)
-def test_bdd_gti_router_blocks_sync_context() -> None:
-    pass
-
-
-@scenario(
-    _BLACKWALL_GUARDRAILS,
     "ThreatIntelRouter permits async analysis context",
 )
 def test_bdd_threat_intel_router_permits_async_context() -> None:
@@ -430,23 +414,12 @@ def given_cbm_router_step(mock_cbm_client) -> dict:
     }
 
 
-@given("a GTIRouter with a mock GTI client", target_fixture="mcp_bdd_context")
-def given_gti_router_step(mock_gti_client) -> dict:
-    router = GTIRouter(mock_gti_client)
+@given("a ThreatIntelRouter with a mock threat-intel client", target_fixture="mcp_bdd_context")
+def given_threat_intel_router_step(mock_ti_client) -> dict:
+    router = ThreatIntelRouter(mock_ti_client)
     return {
         "router": router,
-        "client": mock_gti_client,
-        "result": None,
-        "exception": None,
-    }
-
-
-@given("a ThreatIntelRouter with a mock threat intel client", target_fixture="mcp_bdd_context")
-def given_threat_intel_router_step(mock_gti_client) -> dict:
-    router = ThreatIntelRouter(mock_gti_client)
-    return {
-        "router": router,
-        "client": mock_gti_client,
+        "client": mock_ti_client,
         "result": None,
         "exception": None,
     }
@@ -463,19 +436,7 @@ def when_operation_routed_step(mcp_bdd_context, operation) -> None:
         mcp_bdd_context["exception"] = e
 
 
-@when(parsers.parse('a GTI query is routed in "{context}" context'))
-def when_gti_query_routed_step(mcp_bdd_context, context) -> None:
-    router = mcp_bdd_context["router"]
-    ctx_enum = GTIRouter.ExecutionContext(context)
-    try:
-        mcp_bdd_context["result"] = asyncio.run(
-            router.route(ctx_enum, "lookup_ip", ip="192.168.1.1")
-        )
-    except Exception as e:
-        mcp_bdd_context["exception"] = e
-
-
-@when(parsers.parse('a threat intel query is routed in "{context}" context'))
+@when(parsers.parse('a threat-intel query is routed in "{context}" context'))
 def when_threat_intel_query_routed_step(mcp_bdd_context, context) -> None:
     router = mcp_bdd_context["router"]
     ctx_enum = ThreatIntelRouter.ExecutionContext(context)
@@ -509,8 +470,8 @@ def then_cbm_client_delegated_step(mcp_bdd_context) -> None:
     mcp_bdd_context["client"].queryDependencyChain.assert_called_once()
 
 
-@then("the GTI client should receive the delegated call")
-def then_gti_client_delegated_step(mcp_bdd_context) -> None:
+@then("the threat-intel client should receive the delegated call")
+def then_threat_intel_client_delegated_step(mcp_bdd_context) -> None:
     mcp_bdd_context["client"].lookup_ip.assert_called_once()
 
 
@@ -555,7 +516,7 @@ def adk_interception_ctx() -> dict:
         "queue": None,
         "repo": None,
         "integration": None,
-        "mock_gti": None,
+        "mock_ti": None,
         "policy_server": None,
         "daemon_task": None,
         "tool_name": None,
@@ -591,9 +552,9 @@ def step_daemon_running(adk_interception_ctx, request) -> dict:
     adk_interception_ctx["integration"] = integration
 
     # Set up mock components
-    mock_gti = AsyncMock()
+    mock_ti = AsyncMock()
     mock_cbm = AsyncMock()
-    adk_interception_ctx["mock_gti"] = mock_gti
+    adk_interception_ctx["mock_ti"] = mock_ti
 
     repo = SQLiteThreatRepository(db_path=TEST_BDD_DB)
     adk_interception_ctx["repo"] = repo
@@ -615,7 +576,7 @@ def step_daemon_running(adk_interception_ctx, request) -> dict:
 
     semantic_engine = SemanticGatingEngine(
         repo=repo,
-        gti_client=mock_gti,
+        threat_intel_client=mock_ti,
         cbm_client=mock_cbm,
     )
     policy_server = HybridPolicyServer(struct_engine, semantic_engine)
@@ -799,5 +760,5 @@ def step_tool_aborted_verdict(adk_interception_ctx, verdict, safe_sla_limit) -> 
 
 @then("zero external Gemini API calls must be initiated")
 def step_zero_external_api_calls(adk_interception_ctx) -> None:
-    mock_gti = adk_interception_ctx["mock_gti"]
-    mock_gti.lookup_ip.assert_not_called()
+    mock_ti = adk_interception_ctx["mock_ti"]
+    mock_ti.lookup_ip.assert_not_called()

@@ -22,10 +22,8 @@ def main():
 
     approved_locations = {
         "blackwall/resolver.py",
-        "blackwall/mcp/gti_client.py",
         "blackwall/interception.py",
         "blackwall/middleware/context_hygiene.py",
-        "blackwall/mcp/gti_budget_tracker.py",
         "blackwall/enterprise/advanced_threat_detection/collector.py",
         "blackwall/enterprise/advanced_threat_detection/alert_bus.py",
         "blackwall/enterprise/advanced_threat_detection/store.py",

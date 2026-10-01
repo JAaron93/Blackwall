@@ -373,13 +373,13 @@ class AgentBehavioralAnalytics:
         if event.tool_context.metadata and event.tool_context.metadata.get("mitigation_action"):
             mitigation_action = str(event.tool_context.metadata["mitigation_action"])
         else:
-            is_gti_malicious = False
-            if event.gti_response:
-                is_gti_malicious = event.gti_response.is_malicious
+            is_ti_malicious = False
+            if event.threat_intel_response:
+                is_ti_malicious = event.threat_intel_response.is_malicious
 
             if has_critical_sink:
                 mitigation_action = "BLOCK_AND_QUARANTINE_CODE_PATH"
-            elif is_gti_malicious:
+            elif is_ti_malicious:
                 mitigation_action = "BLOCK_AND_ALERT_SECURITY_TEAM"
             else:
                 mitigation_action = "BLOCK_AND_LOG"

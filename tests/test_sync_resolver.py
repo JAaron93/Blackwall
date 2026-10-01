@@ -3,11 +3,11 @@ Unit tests for SyncResolver (100% GCP Vertex AI 300 RPM mode).
 
 Tests:
   - Single-request eval with mocked Gemini
-  - Serial GTI / CBM query ordering
+  - Serial threat-intel / CBM query ordering
   - Threat score formula correctness
   - TokenBucketRateLimiter integration (<5ms SLA, 300 RPM)
   - Rate limit enforcement (exhaustion → QUARANTINE)
-  - GTI budget degradation (-0.2 penalty, weight shift)
+  - Threat-intel budget degradation (-0.2 penalty, weight shift)
   - Verdict thresholds (0.8→BLOCK, 0.6→QUARANTINE, 0.3→ALLOW)
 """
 
@@ -19,7 +19,7 @@ import pytest
 
 from blackwall.models import (
     CBMResponse,
-    GTIResponse,
+    CachedIndicatorResponse,
     SinkType,
     ThreatIntelResponse,
     ToolCallContext,
@@ -53,8 +53,6 @@ def _make_resolver(
     cbm_client=None,
     repo=None,
     threat_intel_budget_tracker=None,
-    gti_client=None,
-    gti_budget_tracker=None,
 ) -> SyncResolver:
     """Creates a SyncResolver with a mocked Gemini client."""
     mock_client = MagicMock()
@@ -66,12 +64,12 @@ def _make_resolver(
     ti_client = (
         threat_intel
         if threat_intel is not None
-        else (threat_intel_client if threat_intel_client is not None else gti_client)
+        else threat_intel_client
     )
     tracker = (
         threat_intel_budget_tracker
         if threat_intel_budget_tracker is not None
-        else gti_budget_tracker
+        else threat_intel_budget_tracker
     )
 
     return SyncResolver(
@@ -116,7 +114,7 @@ async def test_single_request_evaluation_with_mocked_gemini():
 
 
 # ---------------------------------------------------------------------------
-# Test 2: GTI and CBM queries execute serially (GTI before CBM)
+# Test 2: Threat-intel and CBM queries execute serially (TI before CBM)
 # ---------------------------------------------------------------------------
 
 
@@ -132,7 +130,7 @@ async def test_threat_intel_cbm_queries_execute_serially():
         call_order.append("threat_intel_start")
         await asyncio.sleep(0)  # yield to event loop
         call_order.append("threat_intel_end")
-        return GTIResponse(
+        return CachedIndicatorResponse(
             indicator=indicator,
             is_malicious=False,
             detection_rate=0.0,
@@ -171,7 +169,7 @@ async def test_threat_intel_cbm_queries_execute_serially():
 @pytest.mark.asyncio
 async def test_threat_score_calculation_matches_formula():
     """
-    GTI malicious=True (score 1.0 → averaged with detection_rate 0.0 → 0.5)
+    TI malicious=True (score 1.0 → averaged with detection_rate 0.0 → 0.5)
     × 0.40 weight = 0.20
     CBM blast_radius=5 → 0.5 score; no sinks → sink_score=0.0 → combined=0.25
     × 0.30 weight = 0.075
@@ -181,7 +179,7 @@ async def test_threat_score_calculation_matches_formula():
 
     Expected total ≈ 0.20 + 0.075 + 0.0675 = 0.3425  → ALLOW (< 0.5)
     """
-    gti_resp = GTIResponse(
+    threat_resp = CachedIndicatorResponse(
         indicator="192.168.1.100",
         is_malicious=True,
         detection_rate=0.0,
@@ -195,13 +193,13 @@ async def test_threat_score_calculation_matches_formula():
         arguments={"path": "/tmp/report.txt"},
     )
 
-    score = await resolver._compute_threat_score(context, gti_resp, cbm_resp)
+    score = await resolver._compute_threat_score(context, threat_resp, cbm_resp)
 
     # Verify the formula components
-    expected_gti = (1.0 + 0.0) / 2.0 * 0.40  # 0.20
+    expected_ti = (1.0 + 0.0) / 2.0 * 0.40  # 0.20
     expected_cbm = ((5 / 10.0) + 0.0) / 2.0 * 0.30  # 0.075
     expected_ctx = (0.45 * 0.50 + 0.0 * 0.50) * 0.30  # 0.0675
-    expected_total = expected_gti + expected_cbm + expected_ctx
+    expected_total = expected_ti + expected_cbm + expected_ctx
 
     assert (
         abs(score - expected_total) < 0.01
@@ -395,7 +393,6 @@ async def test_threat_intel_weight_redistribution_when_budget_exhausted():
     ), f"Score {score:.4f} differs from expected {expected_degraded:.4f}"
 
 
-test_gti_weight_redistribution_when_budget_exhausted = test_threat_intel_weight_redistribution_when_budget_exhausted
 
 
 # ---------------------------------------------------------------------------
@@ -441,7 +438,6 @@ async def test_no_penalty_when_threat_intel_not_budget_exhausted(
     ), f"[{label}] Expected normal-path score ~{expected_normal:.4f}, got {score:.4f}"
 
 
-test_no_penalty_when_gti_not_budget_exhausted = test_no_penalty_when_threat_intel_not_budget_exhausted
 
 
 # ---------------------------------------------------------------------------

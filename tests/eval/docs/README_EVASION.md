@@ -16,7 +16,7 @@ A rogue agent submits a novel attack tool call. Blackwall has no prior signature
 
 1. **Structural Gating** evaluates YAML-based deterministic rules — fast path, < 5ms
 2. If escalated: **Threat Signature Graph** is queried for cosine similarity — no match found
-3. **Semantic Gating Engine** invokes the LLM (with optional GTI + CBM inputs) to evaluate intent
+3. **Semantic Gating Engine** invokes the LLM (with optional threat-intel + CBM inputs) to evaluate intent
 4. Verdict: **BLOCK** (threat score ≥ 0.75)
 5. A **Threat Signature** is generated from the blocked attack and written to the SQLite TSG
 
@@ -39,7 +39,7 @@ The latency delta between Wave 1 (~1,400ms) and Wave 2 (~12ms) is the empirical 
 
 ```
 Wave 1: Novel Attack
-  → Semantic Evaluation (LLM + GTI + CBM) → BLOCK → Write Signature
+  → Semantic Evaluation (LLM + threat-intel + CBM) → BLOCK → Write Signature
   Latency: ~1,400ms
 
 Wave 2: Evasion Variant (derived from Wave 1 attack)

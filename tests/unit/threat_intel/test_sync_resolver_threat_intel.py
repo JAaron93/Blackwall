@@ -41,7 +41,7 @@ async def test_sync_resolver_initializes_with_threat_intel(mock_genai_client, mo
     """SyncResolver should accept threat_intel orchestrator and expose it."""
     resolver = SyncResolver(client=mock_genai_client, threat_intel=mock_threat_intel)
     assert resolver.threat_intel is mock_threat_intel
-    assert resolver.gti_client is mock_threat_intel
+    assert resolver.threat_intel is mock_threat_intel
 
 
 @pytest.mark.asyncio
@@ -133,7 +133,7 @@ async def test_sync_resolver_async_budget_tracker_enforced(mock_genai_client, mo
     resolver = SyncResolver(
         client=mock_genai_client,
         threat_intel=mock_threat_intel,
-        gti_budget_tracker=async_tracker,
+        threat_intel_budget_tracker=async_tracker,
         demo_mode=False,
     )
 
@@ -165,7 +165,7 @@ async def test_sync_resolver_async_budget_tracker_allowed(mock_genai_client, moc
     resolver = SyncResolver(
         client=mock_genai_client,
         threat_intel=mock_threat_intel,
-        gti_budget_tracker=async_tracker,
+        threat_intel_budget_tracker=async_tracker,
         demo_mode=False,
     )
 
@@ -189,7 +189,7 @@ async def test_sync_resolver_budget_tracker_fails_closed_on_error(mock_genai_cli
     resolver = SyncResolver(
         client=mock_genai_client,
         threat_intel=mock_threat_intel,
-        gti_budget_tracker=faulty_tracker,
+        threat_intel_budget_tracker=faulty_tracker,
         demo_mode=False,
     )
 

@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from blackwall.models import (
     CBMResponse,
-    GTIResponse,
+    CachedIndicatorResponse,
     SinkType,
     ToolCallContext,
 )
@@ -60,7 +60,7 @@ structuralRules:
 semanticGuidelines:
   - "Block shell commands that download and execute remote scripts."
 mcpServers:
-  gti:
+  threatIntel:
     enabled: true
     cacheEnabled: true
     cacheTTL: 3600
@@ -234,7 +234,7 @@ class BenchmarkRunner:
 
         mock_threat_intel = MagicMock()
         mock_threat_intel.query = AsyncMock(
-            return_value=GTIResponse(
+            return_value=CachedIndicatorResponse(
                 indicator="192.168.1.1",
                 is_malicious=True,
                 detection_rate=85.0,

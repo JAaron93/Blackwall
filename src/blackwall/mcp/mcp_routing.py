@@ -1,6 +1,6 @@
 """MCP Routing Layer for Blackwall Agentic Firewall.
 
-Enforces hardcoded routing boundaries for codebase-memory-mcp and GTI MCP.
+Enforces hardcoded routing boundaries for codebase-memory-mcp and the threat-intel MCP.
 Prevents agent escape attempts and blocks unauthorized tool invocations.
 """
 
@@ -210,10 +210,9 @@ class ThreatIntelRouter:
         """Raise MCPRoutingViolation if operation is not in PERMITTED_OPS."""
         canonical_op = operation.strip()
         if canonical_op not in self.PERMITTED_OPS:
-            target_name = "GTI router" if "GTI" in self.router_name else "threat intel router"
+            target_name = "threat intel router"
             reason = f"Operation '{operation}' is not permitted on {target_name}."
             logger.warning("%s blocked '%s': %s", self.router_name, operation, reason)
             raise MCPRoutingViolation(self.router_name, operation, reason)
 
 
-GTIRouter = ThreatIntelRouter

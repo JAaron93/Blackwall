@@ -18,27 +18,15 @@ Feature: Blackwall Agentic Firewall Guardrails
     Then the operation should raise MCPRoutingViolation
     And the error should contain "list_files"
 
-  Scenario: GTIRouter permits async analysis context
-    Given a GTIRouter with a mock GTI client
-    When a GTI query is routed in "async_analysis" context
-    Then the operation should be permitted
-    And the GTI client should receive the delegated call
-
-  Scenario: GTIRouter blocks synchronous interception context
-    Given a GTIRouter with a mock GTI client
-    When a GTI query is routed in "sync_interception" context
-    Then the operation should raise MCPRoutingViolation
-    And the error should contain "sync_interception"
-
   Scenario: ThreatIntelRouter permits async analysis context
-    Given a ThreatIntelRouter with a mock threat intel client
-    When a threat intel query is routed in "async_analysis" context
+    Given a ThreatIntelRouter with a mock threat-intel client
+    When a threat-intel query is routed in "async_analysis" context
     Then the operation should be permitted
-    And the threat intel client should receive the delegated call
+    And the threat-intel client should receive the delegated call
 
   Scenario: ThreatIntelRouter blocks synchronous interception context
-    Given a ThreatIntelRouter with a mock threat intel client
-    When a threat intel query is routed in "sync_interception" context
+    Given a ThreatIntelRouter with a mock threat-intel client
+    When a threat-intel query is routed in "sync_interception" context
     Then the operation should raise MCPRoutingViolation
     And the error should contain "sync_interception"
 

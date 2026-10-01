@@ -70,12 +70,12 @@ semanticGuidelines:
   - "Block any tool argument patterns matching SQL injection, path traversal, or command injection payloads."
 
 mcpServers:
-  gti:
-    url: "https://gti.googleapis.com/mcp"
+  threatIntel:
+    url: "https://otx.alienvault.com/api/v1"
     enabled: true
-    apiKey: "vault://gti"
+    apiKey: null
     cacheEnabled: true
-    cacheTTL: 86400
+    cacheTTL: 3600
     timeout: 5000
   codebaseMemory:
     url: "http://localhost:8080/mcp"

@@ -365,19 +365,6 @@ class SQLiteThreatRepository:
                 """
                 )
 
-                # GTI Cache table
-                await conn.execute(
-                    """
-                CREATE TABLE IF NOT EXISTS gti_cache (
-                    indicator TEXT NOT NULL,
-                    indicator_type TEXT NOT NULL,
-                    response_data TEXT NOT NULL,
-                    cached_at INTEGER NOT NULL,
-                    PRIMARY KEY (indicator, indicator_type)
-                );
-                """
-                )
-
                 # Threat Intelligence Cache table (3.0.0)
                 await conn.execute(
                     """
@@ -394,6 +381,7 @@ class SQLiteThreatRepository:
                 );
                 """
                 )
+
                 await conn.execute(
                     """
                 CREATE INDEX IF NOT EXISTS idx_threat_cache_lookup 
@@ -935,65 +923,98 @@ class SQLiteThreatRepository:
                 for r in rows
             ]
 
+    @staticmethod
+    def _threat_indicator_type_for(indicator_type: str, indicator: str) -> str:
+        """Map a caller's indicator_type onto the ThreatIndicatorType value
+        space so raw-dictionary rows remain readable by the typed lookup."""
+        if indicator_type == "IP_ADDRESS":
+            return "IPV6" if ":" in indicator else "IPV4"
+        if indicator_type in ("DOMAIN", "URL", "FILE_HASH"):
+            return indicator_type
+        return indicator_type
+
     async def cache_threat_intel_response(
         self, indicator: str, indicator_type: str, response: dict[str, Any]
     ) -> None:
-        """Caches a raw threat intelligence dictionary response.
+        """Caches a raw threat intelligence dictionary response into the
+        unified ``threat_intel_cache`` (24h TTL).
 
-        Deprecated: use cache_threat_intel() directly. Maintained for backward compatibility.
+        Kept for the ``SemanticGatingEngine`` raw-dictionary contract; prefer
+        :meth:`cache_threat_intel` for typed ``ThreatIntelResponse`` objects.
+        The stored payload is enriched with the canonical fields the typed
+        lookup validates (``indicator``, ``indicator_type``, ``provider_name``,
+        ``is_malicious``, ``risk_score``) so a row written through either API
+        is readable by both readers.
         """
         await self.initialize()
+        now = time.time()
+        provider = str(response.get("provider_name") or "legacy")
+        is_malicious = 1 if response.get("is_malicious") else 0
+        risk_score = float(response.get("risk_score") or 0.0)
+        # Cache TTL contract: 24h benign, 6h malicious (matches cache_threat_intel).
+        ttl = 21600.0 if response.get("is_malicious") else 86400.0
+        payload = dict(response)
+        payload.setdefault("indicator", indicator)
+        payload.setdefault(
+            "indicator_type",
+            self._threat_indicator_type_for(indicator_type, indicator),
+        )
+        payload.setdefault("provider_name", provider)
+        payload.setdefault("is_malicious", response.get("is_malicious", False))
+        payload.setdefault("risk_score", risk_score)
         async with self.pool.connection() as conn:
             await conn.execute(
                 """
-                INSERT OR REPLACE INTO gti_cache (indicator, indicator_type, response_data, cached_at)
-                VALUES (?, ?, ?, ?)
+                INSERT OR REPLACE INTO threat_intel_cache (
+                    indicator, indicator_type, provider, is_malicious,
+                    risk_score, payload, created_at, expires_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (indicator, indicator_type, json.dumps(response), int(time.time())),
+                (
+                    indicator,
+                    indicator_type,
+                    provider,
+                    is_malicious,
+                    risk_score,
+                    json.dumps(payload),
+                    now,
+                    now + ttl,
+                ),
             )
-
-    cache_gti_response = cache_threat_intel_response
+            await conn.commit()
 
     async def get_cached_threat_intel_response(
         self, indicator: str, indicator_type: str
     ) -> dict[str, Any] | None:
-        """Look up cached threat intelligence dictionary response.
+        """Look up a cached threat intelligence dictionary response from the
+        unified ``threat_intel_cache``.
 
-        Deprecated: use get_cached_threat_intel() directly. Maintained for backward compatibility.
+        Kept for the ``SemanticGatingEngine`` raw-dictionary contract; prefer
+        :meth:`get_cached_threat_intel` for typed responses. Pure read (no
+        writes on the lookup path — the <1ms SLA forbids them): expired rows
+        are purged at schema init and by ``evict_expired_threat_intel``.
+        Conflicting provider verdicts resolve fail-closed: a malicious row
+        always outranks a benign one.
         """
         await self.initialize()
+        now = time.time()
         async with self.pool.connection() as conn:
             cursor = await conn.execute(
-                "SELECT response_data, cached_at FROM gti_cache WHERE indicator = ? AND indicator_type = ?",
-                (indicator, indicator_type),
+                """
+                SELECT payload FROM threat_intel_cache
+                WHERE indicator = ? AND indicator_type = ? AND expires_at > ?
+                ORDER BY is_malicious DESC, expires_at DESC LIMIT 1
+                """,
+                (indicator, indicator_type, now),
             )
             row = await cursor.fetchone()
             if row:
-                response_data_str, cached_at = row
-                # 24-hour TTL (86400 seconds)
-                if time.time() - cached_at > 86400:
-                    # Expired. Delete from cache.
-                    await conn.execute(
-                        "DELETE FROM gti_cache WHERE indicator = ? AND indicator_type = ?",
-                        (indicator, indicator_type),
-                    )
-                else:
-                    try:
-                        result: dict[str, Any] = json.loads(response_data_str)
-                        return result
-                    except json.JSONDecodeError:
-                        pass
-
-        # Interoperability fallback: check unified threat_intel_cache table
-        cached_ti = await self.get_cached_threat_intel(indicator, indicator_type)
-        if cached_ti is not None:
-            if hasattr(cached_ti, "model_dump"):
-                return cached_ti.model_dump()
-            return dict(cached_ti)
-
+                try:
+                    result: dict[str, Any] = json.loads(row[0])
+                    return result
+                except json.JSONDecodeError:
+                    pass
         return None
-
-    get_cached_gti_response = get_cached_threat_intel_response
 
     async def cache_threat_intel(
         self,
