@@ -62,7 +62,7 @@ async def run_wave(wave: int) -> float:
     resolver = SyncResolver(
         client=client,
         repo=repo,
-        threat_intel_client=None,
+        threat_intel=None,
         cbm_client=None,
         demo_mode=True,
         enable_semantic_triage=True,

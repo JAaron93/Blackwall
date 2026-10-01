@@ -923,6 +923,16 @@ class SQLiteThreatRepository:
                 for r in rows
             ]
 
+    @staticmethod
+    def _threat_indicator_type_for(indicator_type: str, indicator: str) -> str:
+        """Map a caller's indicator_type onto the ThreatIndicatorType value
+        space so raw-dictionary rows remain readable by the typed lookup."""
+        if indicator_type == "IP_ADDRESS":
+            return "IPV6" if ":" in indicator else "IPV4"
+        if indicator_type in ("DOMAIN", "URL", "FILE_HASH"):
+            return indicator_type
+        return indicator_type
+
     async def cache_threat_intel_response(
         self, indicator: str, indicator_type: str, response: dict[str, Any]
     ) -> None:
@@ -931,6 +941,10 @@ class SQLiteThreatRepository:
 
         Kept for the ``SemanticGatingEngine`` raw-dictionary contract; prefer
         :meth:`cache_threat_intel` for typed ``ThreatIntelResponse`` objects.
+        The stored payload is enriched with the canonical fields the typed
+        lookup validates (``indicator``, ``indicator_type``, ``provider_name``,
+        ``is_malicious``, ``risk_score``) so a row written through either API
+        is readable by both readers.
         """
         await self.initialize()
         now = time.time()
@@ -939,6 +953,15 @@ class SQLiteThreatRepository:
         risk_score = float(response.get("risk_score") or 0.0)
         # Cache TTL contract: 24h benign, 6h malicious (matches cache_threat_intel).
         ttl = 21600.0 if response.get("is_malicious") else 86400.0
+        payload = dict(response)
+        payload.setdefault("indicator", indicator)
+        payload.setdefault(
+            "indicator_type",
+            self._threat_indicator_type_for(indicator_type, indicator),
+        )
+        payload.setdefault("provider_name", provider)
+        payload.setdefault("is_malicious", response.get("is_malicious", False))
+        payload.setdefault("risk_score", risk_score)
         async with self.pool.connection() as conn:
             await conn.execute(
                 """
@@ -953,7 +976,7 @@ class SQLiteThreatRepository:
                     provider,
                     is_malicious,
                     risk_score,
-                    json.dumps(response),
+                    json.dumps(payload),
                     now,
                     now + ttl,
                 ),
