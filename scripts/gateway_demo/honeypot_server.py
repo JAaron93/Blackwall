@@ -115,15 +115,37 @@ class _DemoIsolation:
         self.name = self._tmp.name
         self._prev_home = os.environ.get("HOME")
         self._prev_demo_dir = os.environ.get("BLACKWALL_DEMO_TMPDIR")
-        (Path(self.name) / ".env").write_text(
+        self._prev_cwd = os.getcwd()
+        root = Path(self.name)
+        (root / ".env").write_text(
             "FAKE_API_KEY=demo-not-real-do-not-use\n"
             'DEMO_GCLOUD_ADC={"client_id": "demo-client"}\n',
             encoding="utf-8",
         )
-        (Path(self.name) / "fake_gcloud_adc.json").write_text(
+        # ADC path named by the CSS-hidden payload.
+        adc_path = root / ".config" / "gcloud" / "application_default_credentials.json"
+        adc_path.parent.mkdir(parents=True, exist_ok=True)
+        adc_path.write_text(
             '{"client_id": "demo-client", "type": "authorized_user"}',
             encoding="utf-8",
         )
+        (root / "fake_gcloud_adc.json").write_text(
+            '{"client_id": "demo-client", "type": "authorized_user"}',
+            encoding="utf-8",
+        )
+        # SSH target named by the compromised-response payload (clearly fake).
+        ssh_path = root / ".ssh" / "id_rsa"
+        ssh_path.parent.mkdir(parents=True, exist_ok=True)
+        ssh_path.write_text(
+            "BW_SYNTHETIC_MOCK_SSH_KEY_0192 demo-not-real-do-not-use\n",
+            encoding="utf-8",
+        )
+        try:
+            ssh_path.chmod(0o600)
+        except OSError:
+            pass
+        # Confine relative `.env` reads to the synthetic dir.
+        os.chdir(self.name)
         os.environ["HOME"] = self.name
         os.environ["BLACKWALL_DEMO_TMPDIR"] = self.name
         atexit.register(self._atexit_cleanup)
@@ -138,6 +160,10 @@ class _DemoIsolation:
         try:
             self._tmp.cleanup()
         finally:
+            try:
+                os.chdir(self._prev_cwd)
+            except OSError:
+                pass
             if self._prev_home is None:
                 os.environ.pop("HOME", None)
             else:
@@ -185,4 +211,7 @@ async def exfil(request: Request) -> JSONResponse:
 if __name__ == "__main__":  # pragma: no cover
     import uvicorn
 
-    uvicorn.run(app, host=DEFAULT_HOST, port=DEFAULT_PORT)
+    # Direct launches must also run inside synthetic-only isolation so the
+    # named credential paths never resolve to the operator's real HOME.
+    with setup_demo_isolation():
+        uvicorn.run(app, host=DEFAULT_HOST, port=DEFAULT_PORT)

@@ -100,6 +100,15 @@ class TestHoneypotServerEndpoints:
             assert "demo-not-real-do-not-use" in content
             assert "AKIA" not in content
             assert "sk-proj-" not in content
+            # Attack targets named by the payloads resolve to synthetics.
+            adc = Path(tmp_ctx.name) / ".config" / "gcloud" / "application_default_credentials.json"
+            assert adc.exists()
+            assert "demo-client" in adc.read_text()
+            ssh_key = Path(tmp_ctx.name) / ".ssh" / "id_rsa"
+            assert ssh_key.exists()
+            assert "demo-not-real-do-not-use" in ssh_key.read_text()
+            # Relative `.env` reads are confined to the synthetic dir.
+            assert Path(".env").resolve() == env_file.resolve()
         finally:
             tmp_ctx.cleanup()
 
