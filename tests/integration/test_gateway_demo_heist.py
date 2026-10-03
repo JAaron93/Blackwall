@@ -25,6 +25,9 @@ class TestGatewayDemoHeist:
 
         result = run_heist(tmp_path)
 
+        # Lure: the poisoned page is delivered to the agent through the gateway.
+        assert "FakeLib" in json.dumps(result["read_url_response"])
+
         # BLOCK on read_file via credential-path pattern.
         read_file = result["read_file_response"]
         assert read_file["error"]["code"] == -32603
@@ -33,6 +36,9 @@ class TestGatewayDemoHeist:
         http_req = result["http_request_response"]
         assert http_req["error"]["code"] == -32603
         assert http_req["id"] == "heist-http-2"
+
+        # Both BLOCKs persisted as redacted rows in the SQLite threat graph.
+        assert result["persisted_signature_count"] >= 2
 
         # Zero leaked threat reasoning in both agent-facing errors.
         for resp in (read_file, http_req):

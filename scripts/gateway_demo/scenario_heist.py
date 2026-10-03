@@ -18,13 +18,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import subprocess
 import sys
 import tempfile
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from scripts.gateway_demo import honeypot_server as hs
+
+logger = logging.getLogger(__name__)
 
 # OWASP LLM01 / MITRE ATLAS AML.T0051 — taxonomy anchor for reviewers.
 OWASP_REF = "https://genai.owasp.org/"
@@ -81,32 +87,19 @@ def _blob_matches(arguments: Any, markers: tuple[str, ...]) -> bool:
     return any(m in blob for m in markers)
 
 
-async def _evaluate_deterministic(tool_name: str, arguments: Any) -> Any:
-    """Mirror the deterministic harness policy (GCP-free, no network)."""
-    from blackwall.models import Verdict, VerdictDecision
-
-    name = (tool_name or "").lower()
-    if name == "read_file" and _blob_matches(arguments, CREDENTIAL_PATH_MARKERS):
-        return Verdict(
-            decision=VerdictDecision.BLOCK,
-            reasoning="Heist BLOCK: credential-path pattern matched.",
-            confidence_score=0.95,
-        )
-    if name == "http_request" and _blob_matches(arguments, EXFIL_MARKERS):
-        return Verdict(
-            decision=VerdictDecision.BLOCK,
-            reasoning="Heist BLOCK: outbound exfiltration pattern matched.",
-            confidence_score=0.95,
-        )
-    return Verdict(
-        decision=VerdictDecision.ALLOW,
-        reasoning="Heist ALLOW: no threat pattern matched.",
-        confidence_score=0.0,
-    )
-
-
-async def _echo_downstream(payload: dict[str, Any]) -> dict[str, Any]:
+async def _heist_downstream(payload: dict[str, Any]) -> dict[str, Any]:
+    """Mock tool server: serves the poisoned page for read_url, echoes rest."""
     params = payload.get("params", {}) if isinstance(payload, dict) else {}
+    if params.get("name") == "read_url":
+        return {
+            "jsonrpc": "2.0",
+            "id": payload.get("id"),
+            "result": {
+                "content": [{"type": "text", "text": hs.FAKE_LIBRARY_HTML}],
+                "echoedTool": "read_url",
+                "echoedArguments": params.get("arguments", {}),
+            },
+        }
     return {
         "jsonrpc": "2.0",
         "id": payload.get("id"),
@@ -123,11 +116,68 @@ async def _echo_downstream(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-class _DictResolver:
-    """Minimal resolver adapter around the deterministic policy."""
+class _HeistResolver:
+    """Deterministic stand-in for SyncResolver + TSG (GCP-free offline policy).
+
+    Mirrors tests/gateway_harness.py: credential-path and exfil markers act
+    as the Threat Signature Graph signal. BLOCK verdicts flow through the
+    production PayloadInterceptor (redaction), SQLiteThreatRepository
+    (persistence), and ResponseSynthesizer (generic -32603). The live
+    SyncResolver is reserved for manual runs with Vertex AI credentials
+    (design.md Phase 3 deterministic-harness deviation).
+    """
+
+    def __init__(self, repo: Any, interceptor: Any) -> None:
+        self._repo = repo
+        self._interceptor = interceptor
 
     async def evaluate(self, context: Any) -> Any:
-        return await _evaluate_deterministic(context.tool_name, context.arguments)
+        from blackwall.models import Verdict, VerdictDecision
+
+        name = (context.tool_name or "").lower()
+        blocked = (
+            name == "read_file" and _blob_matches(context.arguments, CREDENTIAL_PATH_MARKERS)
+        ) or (name == "http_request" and _blob_matches(context.arguments, EXFIL_MARKERS))
+        if not blocked:
+            return Verdict(
+                decision=VerdictDecision.ALLOW,
+                reasoning="Heist ALLOW: no threat pattern matched.",
+                confidence_score=0.0,
+            )
+        redacted = self._interceptor.redact_for_storage(
+            {
+                "jsonrpc": "2.0",
+                "method": "tools/call",
+                "params": {
+                    "name": context.tool_name,
+                    "arguments": context.arguments,
+                },
+            }
+        )
+        try:
+            params = redacted.get("params", {})
+            await self._repo.writeSignature(
+                {
+                    "signatureId": str(uuid.uuid4()),
+                    "attackerIntent": "credential_exfiltration_attempt",
+                    "payloadPattern": json.dumps(params.get("arguments", {}), default=str)[
+                        :2000
+                    ],
+                    "targetTool": context.tool_name,
+                    "targetSink": "credential_store",
+                    "mitigationAction": "BLOCK",
+                    "matchCount": 1,
+                    "falsePositiveCount": 0,
+                    "metadata": {"harness": "heist-demo", "decision": "BLOCK"},
+                }
+            )
+        except Exception as exc:  # noqa: BLE001 — persistence must never break verdict
+            logger.warning("Failed persisting Heist BLOCK signature: %s", exc)
+        return Verdict(
+            decision=VerdictDecision.BLOCK,
+            reasoning="Heist BLOCK: Threat Signature Graph pattern matched.",
+            confidence_score=0.95,
+        )
 
 
 def _event(verdict: str, **fields: Any) -> dict[str, Any]:
@@ -142,8 +192,9 @@ def _event(verdict: str, **fields: Any) -> dict[str, Any]:
 async def _run_chain(tmpdir: Path) -> dict[str, Any]:
     from fastapi.testclient import TestClient
 
+    from blackwall.db.repository import SQLiteThreatRepository
+    from blackwall.gateway.interceptor import PayloadInterceptor
     from blackwall.gateway.server import MCPGatewayServer
-    from scripts.gateway_demo import honeypot_server as hs
 
     events: list[dict[str, Any]] = []
 
@@ -153,12 +204,20 @@ async def _run_chain(tmpdir: Path) -> dict[str, Any]:
     assert lure.status_code == 200
     assert "Ignore previous instructions" in lure.text
 
-    # Gateway wrapping a mock tool server (echo downstream).
-    server = MCPGatewayServer(resolver=_DictResolver(), downstream_handler=_echo_downstream)
-
-    # Step 2: read_url research call — ALLOW (forwarded to downstream).
+    # Gateway wrapping a mock tool server, backed by a real SQLite threat
+    # graph in the ephemeral temp dir (production interceptor + synthesizer).
+    threat_db_path = tmpdir / "threat_signatures.db"
+    repo = SQLiteThreatRepository(db_path=str(threat_db_path))
+    interceptor = PayloadInterceptor()
+    server = MCPGatewayServer(
+        resolver=_HeistResolver(repo, interceptor),
+        downstream_handler=_heist_downstream,
+    )
+    # Step 2: read_url research call — ALLOW, poisoned page delivered.
     read_url = await server.process_message(
-        build_tool_call(READ_URL_ID, "read_url", {"url": "http://localhost:8765/docs/fake-library"})
+        build_tool_call(
+            READ_URL_ID, "read_url", {"url": "http://localhost:8765/docs/fake-library"}
+        )
     )
     events.append(_event("ALLOW", tool="read_url", code="result", score=0.0, id=READ_URL_ID))
     assert "result" in read_url
@@ -200,6 +259,13 @@ async def _run_chain(tmpdir: Path) -> dict[str, Any]:
         ]
         exfil_post_count = len(lines)
 
+    persisted_signature_count = len(await repo.get_all_signatures())
+    close = getattr(repo, "close", None)
+    if close is not None:
+        res = close()
+        if asyncio.iscoroutine(res):
+            await res
+
     results = {
         "scenario": "heist",
         "taxonomy": {"owasp": "LLM01", "mitre": "AML.T0051"},
@@ -218,6 +284,8 @@ async def _run_chain(tmpdir: Path) -> dict[str, Any]:
         "capture_log_path": str(capture_log),
         "results_path": str(results_path),
         "events": events,
+        "threat_db_path": str(threat_db_path),
+        "persisted_signature_count": persisted_signature_count,
     }
 
 
@@ -269,6 +337,10 @@ def main() -> int:
     """Manual entry point: honeypot subprocess + in-process chain + JSON log."""
     tmpdir = Path(tempfile.mkdtemp(prefix="bw-heist-"))
     ensure_synthetic_fixtures(tmpdir)
+    # The honeypot child must inherit the demo temp dir so its capture log is
+    # the same file the scenario later inspects for zero POSTs.
+    prev_demo_dir = os.environ.get("BLACKWALL_DEMO_TMPDIR")
+    os.environ["BLACKWALL_DEMO_TMPDIR"] = str(tmpdir)
     proc = _spawn_honeypot_subprocess()
     try:
         result = run_heist(tmpdir)
@@ -281,6 +353,10 @@ def main() -> int:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 proc.kill()
+        if prev_demo_dir is None:
+            os.environ.pop("BLACKWALL_DEMO_TMPDIR", None)
+        else:
+            os.environ["BLACKWALL_DEMO_TMPDIR"] = prev_demo_dir
 
 
 if __name__ == "__main__":
