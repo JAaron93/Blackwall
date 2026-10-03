@@ -62,3 +62,31 @@ class TestGatewayDemoHeist:
         assert verdicts == ["ALLOW", "BLOCK", "BLOCK"]
         assert logged["taxonomy"]["owasp"] == "LLM01"
         assert logged["taxonomy"]["mitre"] == "AML.T0051"
+
+    def test_heist_live_transport_blocks_chain_over_real_subprocesses(self, tmp_path):
+        """Live mode: real honeypot HTTP + real gateway stdio process (G04-ready)."""
+        from scripts.gateway_demo.scenario_heist import run_heist
+
+        result = run_heist(tmp_path, transport="live")
+        assert result["transport"] == "live"
+
+        # Research lure served live over HTTP with the injection present.
+        assert "FakeLib" in result["research_page"]
+        assert "Ignore previous instructions" in result["research_page"]
+
+        # Same chain verdicts through the live gateway process.
+        assert result["read_url_response"].get("result") is not None
+        assert result["read_file_response"]["error"]["code"] == -32603
+        assert result["http_request_response"]["error"]["code"] == -32603
+        for resp in (
+            result["read_file_response"],
+            result["http_request_response"],
+        ):
+            assert resp["error"]["message"] == "Blackwall Firewall: Execution blocked"
+            for fragment in FORBIDDEN_FRAGMENTS:
+                assert fragment not in json.dumps(resp)
+
+        assert result["exfil_post_count"] == 0
+        assert result["persisted_signature_count"] >= 2
+        verdicts = [e["verdict"] for e in result["events"]]
+        assert verdicts == ["ALLOW", "ALLOW", "BLOCK", "BLOCK"]
