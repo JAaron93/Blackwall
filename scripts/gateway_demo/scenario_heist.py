@@ -489,29 +489,54 @@ def _count_persisted_signatures(threat_db_path: Path) -> int:
     return asyncio.run(_query())
 
 
-def _write_results(tmpdir: Path, events: list[dict[str, Any]]) -> Path:
-    results = {
+def _write_results(
+    tmpdir: Path, events: list[dict[str, Any]], research: dict[str, Any] | None = None
+) -> Path:
+    results: dict[str, Any] = {
         "scenario": "heist",
         "taxonomy": {"owasp": "LLM01", "mitre": "AML.T0051"},
         "owasp_ref": OWASP_REF,
         "mitre_ref": MITRE_REF,
         "events": events,
     }
+    if research is not None:
+        results["research"] = research
     results_path = tmpdir / HEIST_RESULT_FILENAME
     results_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
     return results_path
 
 
+def _ensure_honeypot_port_free() -> None:
+    """Fail fast if something already answers on 8765 (stale demo or squatter)."""
+    import socket
+
+    try:
+        with socket.create_connection(("127.0.0.1", 8765), timeout=1.0):
+            pass
+    except OSError:
+        return
+    raise AssertionError(
+        "Port 8765 is already occupied — stop the stale honeypot/server "
+        "before running the Heist demo, or the zero-exfil claim is unverifiable."
+    )
+
+
 def _run_live(tmpdir: Path) -> dict[str, Any]:
     """Live-transport Heist: real honeypot HTTP + real gateway stdio process."""
     events: list[dict[str, Any]] = []
+    # Ownership: refuse to start if the port is already served — otherwise the
+    # readiness page and the capture log could belong to a different server.
+    _ensure_honeypot_port_free()
     honeypot = _spawn_honeypot_subprocess(env=os.environ.copy())
+    assert honeypot.poll() is None, "Honeypot exited immediately after start"
     gateway: subprocess.Popen[str] | None = None
     try:
-        # Step 1: agent researches the fake library over real HTTP (lure).
+        # Research lure served live over HTTP (not a gateway verdict — the
+        # agent fetches the poisoned page directly, as in the spec narrative).
         page = _wait_for_honeypot()
+        assert honeypot.poll() is None, "Honeypot died while serving the lure page"
         assert "FakeLib" in page
-        events.append(_event("ALLOW", tool="research_fetch", code="http-200", score=0.0))
+        research = {"status": 200, "injection_present": "Ignore previous instructions" in page}
 
         # Gateway wrapping a mock echo downstream, isolated threat graph.
         gateway = _spawn_gateway_harness(tmpdir)
@@ -560,13 +585,14 @@ def _run_live(tmpdir: Path) -> dict[str, Any]:
     exfil_post_count = _count_capture_lines(capture_log)
     threat_db_path = tmpdir / "threat_signatures.db"
     persisted_signature_count = _count_persisted_signatures(threat_db_path)
-    results_path = _write_results(tmpdir, events)
+    results_path = _write_results(tmpdir, events, research=research)
 
     return {
         "read_url_response": read_url,
         "read_file_response": read_file,
         "http_request_response": http_request,
         "research_page": page,
+        "research": research,
         "exfil_post_count": exfil_post_count,
         "capture_log_path": str(capture_log),
         "results_path": str(results_path),

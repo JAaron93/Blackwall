@@ -72,7 +72,7 @@ class TestGatewayDemoHeist:
 
         # Research lure served live over HTTP with the injection present.
         assert "FakeLib" in result["research_page"]
-        assert "Ignore previous instructions" in result["research_page"]
+        assert result["research"]["injection_present"] is True
 
         # Same chain verdicts through the live gateway process.
         assert result["read_url_response"].get("result") is not None
@@ -89,4 +89,4 @@ class TestGatewayDemoHeist:
         assert result["exfil_post_count"] == 0
         assert result["persisted_signature_count"] >= 2
         verdicts = [e["verdict"] for e in result["events"]]
-        assert verdicts == ["ALLOW", "ALLOW", "BLOCK", "BLOCK"]
+        assert verdicts == ["ALLOW", "BLOCK", "BLOCK"]
