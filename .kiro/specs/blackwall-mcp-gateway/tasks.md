@@ -385,7 +385,7 @@ Implement verification tests ensuring complete non-interference, zero GPU VRAM c
 ### Track G: Demo Scenario Infrastructure & Recording
 
 #### TASK-G01: Build Local Honeypot Web Server & Prompt Injection Payload Fixtures
-**Status:** ⏳ Not Started
+**Status:** [x] Completed (PR #175)
 **Dependencies:** TASK-C01, TASK-C03
 **Requirements Satisfied:** FR-15, US-10
 
@@ -421,7 +421,7 @@ All pages and fixtures MUST reference the corresponding OWASP/MITRE taxonomy ent
 6. All unit tests pass.
 
 #### TASK-G02: Implement "The Heist" Demo Scenario (BLOCK — Indirect Prompt Injection Credential Exfiltration)
-**Status:** ⏳ Not Started
+**Status:** [x] Completed (PR #176)
 **Dependencies:** TASK-G01, TASK-B01, TASK-B02, TASK-C01
 **Requirements Satisfied:** FR-03, FR-04, FR-15, US-10
 
