@@ -451,7 +451,7 @@ Demo flow:
 8. All tests pass.
 
 #### TASK-G03: Implement "The Quarantine" Demo Scenario (Surgical BLOCK Isolation — ALLOW + BLOCK + ALLOW)
-**Status:** ⏳ Not Started
+**Status:** [x] Completed (PR #177)
 **Dependencies:** TASK-G01, TASK-B01, TASK-B02, TASK-C01
 **Requirements Satisfied:** FR-04, FR-15, US-11
 
