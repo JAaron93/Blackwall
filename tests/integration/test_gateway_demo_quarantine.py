@@ -25,6 +25,11 @@ class TestGatewayDemoQuarantine:
         result = run_quarantine(tmp_path)
         assert result["transport"] == "in-process"
 
+        # The compromised response reaches the agent THROUGH the gateway.
+        assert result["research"]["delivered_via_gateway"] is True
+        assert result["research"]["hijack_present"] is True
+        assert "id_rsa" in json.dumps(result["read_docs_response"])
+
         # First write_file ALLOW'd — downstream confirms receipt.
         write1 = result["write1_response"]
         assert write1["id"] == "quarantine-write-1"
@@ -50,8 +55,9 @@ class TestGatewayDemoQuarantine:
         assert write2["id"] == "quarantine-write-3"
         assert write2["result"]["echoedTool"] == "write_file"
 
-        # Only the malicious call reached no downstream: forwarding log proves it.
-        assert result["forwarded_tools"] == ["write_file", "write_file"]
+        # Only legitimate calls reached a downstream: the BLOCK'd read is absent.
+        assert result["forwarded_tools"] == ["read_docs", "write_file", "write_file"]
+        assert "read_file" not in result["forwarded_tools"]
 
         # BLOCK persisted as a redacted row in the SQLite threat graph.
         assert result["persisted_signature_count"] >= 1
@@ -72,7 +78,7 @@ class TestGatewayDemoQuarantine:
         result = run_quarantine(tmp_path, transport="live")
         assert result["transport"] == "live"
 
-        # Compromised response fetched live over HTTP with the hijack present.
+        # Compromised response staged live over HTTP with the hijack present.
         assert result["research"]["hijack_present"] is True
 
         assert result["write1_response"]["result"]["echoedTool"] == "write_file"

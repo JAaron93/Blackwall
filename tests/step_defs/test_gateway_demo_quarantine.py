@@ -51,6 +51,13 @@ def quarantine_run_chain(quarantine_state):
     quarantine_state["result"] = _run(_run_chain())
 
 
+@then("the compromised response is delivered through the gateway")
+def quarantine_hijack_delivered(quarantine_state):
+    state = quarantine_state["result"]
+    assert state["research"]["delivered_via_gateway"] is True
+    assert "id_rsa" in json.dumps(state["read_docs_response"])
+
+
 @then("the first write_file call is allowed and forwarded downstream")
 def quarantine_write1_allowed(quarantine_state):
     resp = quarantine_state["result"]["write1_response"]
@@ -70,4 +77,5 @@ def quarantine_read_blocked(quarantine_state):
 def quarantine_write2_allowed(quarantine_state):
     state = quarantine_state["result"]
     assert state["write2_response"]["result"]["echoedTool"] == "write_file"
-    assert state["forwarded_tools"] == ["write_file", "write_file"]
+    assert state["forwarded_tools"] == ["read_docs", "write_file", "write_file"]
+    assert "read_file" not in state["forwarded_tools"]

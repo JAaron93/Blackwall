@@ -8,6 +8,7 @@ Feature: Gateway Demo Quarantine surgically isolates the malicious call
   Scenario: Quarantine allows writes while blocking the SSH key read
     Given the quarantine demo isolation with synthetic credentials
     When the agent refactors while a compromised tool pushes a hijack
-    Then the first write_file call is allowed and forwarded downstream
+    Then the compromised response is delivered through the gateway
+    And the first write_file call is allowed and forwarded downstream
     And the read_file call is blocked with JSON-RPC error -32603
     And the second write_file call is allowed proving session continuity

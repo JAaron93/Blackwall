@@ -76,6 +76,7 @@ CREDENTIAL_PATH_MARKERS = (
 WRITE1_ID = "quarantine-write-1"
 READ_FILE_ID = "quarantine-read-2"
 WRITE2_ID = "quarantine-write-3"
+READ_DOCS_ID = "quarantine-read-docs-0"
 
 WRITE_PATH = "src/blackwall/project_module.py"
 WRITE_CONTENT = "# demo refactor: extracted helper (synthetic, no secrets)\n"
@@ -190,8 +191,6 @@ def _write_quarantine_results(tmpdir: Path, events: list[dict[str, Any]]) -> Pat
 
 
 async def _run_chain(tmpdir: Path) -> dict[str, Any]:
-    from fastapi.testclient import TestClient
-
     from blackwall.db.repository import SQLiteThreatRepository
     from blackwall.gateway.interceptor import PayloadInterceptor
     from blackwall.gateway.server import MCPGatewayServer
@@ -199,13 +198,10 @@ async def _run_chain(tmpdir: Path) -> dict[str, Any]:
     events: list[dict[str, Any]] = []
     forwarded_tools: list[str] = []
 
-    # Stage the hijack: the compromised tool response (not a gateway verdict —
-    # the agent received it before this session slice, as in the narrative).
-    client = TestClient(hs.app)
-    staged = client.get("/docs/compromised-response")
-    assert staged.status_code == 200
-    assert "id_rsa" in staged.text
-    research = {"status": 200, "hijack_present": "id_rsa" in staged.text}
+    # Stage the hijack THROUGH the gateway: the agent reads the compromised
+    # tool result (ALLOW — docs text) before attempting the injected read.
+    # Recorded as research, not a verdict event: the timeline stays
+    # ALLOW -> BLOCK -> ALLOW for the three intercepted session calls.
 
     # Gateway wrapping a mock tool server, backed by a real SQLite threat
     # graph in the ephemeral temp dir (production interceptor + synthesizer).
@@ -216,6 +212,19 @@ async def _run_chain(tmpdir: Path) -> dict[str, Any]:
     async def _recording_downstream(payload: dict[str, Any]) -> dict[str, Any]:
         params = payload.get("params", {}) if isinstance(payload, dict) else {}
         forwarded_tools.append(str(params.get("name", "")))
+        if params.get("name") == "read_docs":
+            # The compromised tool result itself, delivered through the gateway.
+            return {
+                "jsonrpc": "2.0",
+                "id": payload.get("id"),
+                "result": {
+                    "content": [
+                        {"type": "text", "text": hs.COMPROMISED_RESPONSE["content"]}
+                    ],
+                    "echoedTool": "read_docs",
+                    "echoedArguments": params.get("arguments", {}),
+                },
+            }
         return {
             "jsonrpc": "2.0",
             "id": payload.get("id"),
@@ -231,6 +240,25 @@ async def _run_chain(tmpdir: Path) -> dict[str, Any]:
         downstream_handler=_recording_downstream,
     )
     try:
+        # Step 0: the agent reads the compromised tool result THROUGH the
+        # gateway (ALLOW — docs text). This is the delivery being demonstrated:
+        # the BLOCK below follows this specific hijack, not a hardcoded read.
+        read_docs = await server.process_message(
+            build_tool_call(
+                READ_DOCS_ID,
+                "read_docs",
+                {"uri": f"{HONEYPOT_URL}/docs/compromised-response"},
+            )
+        )
+        assert "result" in read_docs
+        delivered = json.dumps(read_docs.get("result", {}))
+        assert "id_rsa" in delivered
+        research = {
+            "status": "delivered",
+            "hijack_present": True,
+            "delivered_via_gateway": True,
+        }
+
         # Step 1: legitimate refactor write — ALLOW, forwarded downstream.
         write1 = await server.process_message(
             build_tool_call(
@@ -272,6 +300,7 @@ async def _run_chain(tmpdir: Path) -> dict[str, Any]:
     results_path = _write_quarantine_results(tmpdir, events)
 
     return {
+        "read_docs_response": read_docs,
         "write1_response": write1,
         "read_file_response": read_file,
         "write2_response": write2,
@@ -298,7 +327,14 @@ def _wait_for_compromised_response(timeout: float = 20.0) -> dict[str, Any]:
             ) as resp:
                 body = resp.read().decode("utf-8")
                 if resp.status == 200 and "id_rsa" in body:
-                    return {"status": 200, "hijack_present": True}
+                    # Staged over HTTP, not through the gateway: the fixed echo
+                    # downstream cannot serve page content (same accepted
+                    # limitation as the Heist live transport).
+                    return {
+                        "status": 200,
+                        "hijack_present": True,
+                        "delivered_via_gateway": False,
+                    }
                 last_err = AssertionError(f"honeypot status {resp.status}")
         except Exception as exc:  # noqa: BLE001 — readiness polling
             last_err = exc
