@@ -15,7 +15,7 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 - **Support**: Core fully supports 100% GCP Vertex AI Mode (`google-genai` with `vertexai=True`) for Tier-2 reasoning, forensics, and evaluation judges. Tier-1 semantic triage runs the approved Jev classifier via paid Vercel AI Gateway credits (`AI_GATEWAY_API_KEY`, `disallowPromptTraining: true` on every call, sanitization-before-egress) per `.kiro/specs/tier-1-jev-addition/`.
 
 ### Blackwall MCP Gateway (Core Entry Point Specification)
-- **Location (Specification)**: Architecture governed by `.kiro/specs/blackwall-mcp-gateway/`, implemented via `src/blackwall/cli.py` with planned specification target src/blackwall/gateway/ (server, interceptor, synthesizer, upstream manager).
+- **Location (Implementation)**: Architecture governed by `.kiro/specs/blackwall-mcp-gateway/`, implemented via `src/blackwall/cli.py` and the concrete `src/blackwall/gateway/` module (`server.py`, `interceptor.py`, `synthesizer.py`, `flow.py`, `daemon.py`, `upstream.py`).
 - **Standalone Daemon**: The gateway is the primary way Blackwall runs — a local background daemon on `localhost:9229` with PID file management (`~/.blackwall/blackwall.pid`). It is NOT a sidecar or proxy for any specific agent runtime.
 - **Agent Agnosticism**: The gateway MUST NOT contain hardcoded rules or references specific to any particular agent (no Hermes, no Antigravity-specific, no Warp-specific logic). It operates purely at the MCP protocol level.
 - **Transport Security**: HTTP transport MUST bind to `127.0.0.1` by default. `Origin` and `Host` header validation is mandatory. Network-bound requests require authentication.
