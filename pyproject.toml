@@ -117,4 +117,5 @@ strict = true
 
 [tool.uv]
 prerelease = "allow"
+exclude-newer = "7 days"
 
