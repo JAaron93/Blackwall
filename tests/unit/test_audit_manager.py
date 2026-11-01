@@ -581,3 +581,19 @@ class TestHandleEventSlowHookWarning:
             mock_logger.warn.assert_not_called()
         finally:
             mgr.stop()
+
+
+class TestStopClosesConnection:
+    def test_stop_closes_thread_local_connection(self, tmp_path):
+        """Regression: stop() must close the thread-local SQLite connection.
+
+        Without this, every manager instance leaks an open connection that
+        emits 'ResourceWarning: unclosed database' when garbage collected.
+        """
+        mgr = _make_manager(tmp_path)
+        mgr.start()
+        with pytest.raises(PermissionError):
+            mgr.handle_event("subprocess.Popen", ("/bin/ls", []))
+        assert getattr(mgr._local, "conn", None) is not None
+        mgr.stop()
+        assert not hasattr(mgr._local, "conn")

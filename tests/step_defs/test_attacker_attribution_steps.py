@@ -67,7 +67,17 @@ class AttributionScenarioState:
 
 @pytest.fixture
 def state():
-    return AttributionScenarioState()
+    state = AttributionScenarioState()
+    yield state
+    import asyncio as _asyncio
+
+    for attr in ("profile_db_repo", "e2e_repo"):
+        repo = getattr(state, attr, None)
+        if repo is not None and hasattr(repo, "close"):
+            try:
+                _asyncio.run(repo.close())
+            except Exception:
+                pass
 
 
 # Scenario: Generate deterministic SHA-256 fingerprint

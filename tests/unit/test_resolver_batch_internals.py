@@ -661,3 +661,26 @@ class TestGetMetrics:
         assert isinstance(resolver, BatchResolver)
         assert resolver.rate_limiter.capacity == 300.0
         assert resolver.rate_limiter.refill_rate == 5.0
+
+
+def test_schedule_task_without_running_loop_closes_coroutine():
+    """Regression: _schedule_task must not drop an un-awaited coroutine when
+    no event loop is running (RuntimeWarning: coroutine was never awaited)."""
+    import gc
+    import warnings
+
+    resolver = BatchResolver(client=MagicMock())
+
+    async def _work() -> None:
+        return None
+
+    coro = _work()
+    resolver._schedule_task(coro)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        del coro
+        gc.collect()
+
+    leaked = [w for w in caught if issubclass(w.category, RuntimeWarning)]
+    assert not leaked, f"coroutine leaked without loop: {[str(w.message) for w in leaked]}"

@@ -49,6 +49,17 @@ class AuditHookManager:
         self.enabled = False
         if self in _active_managers:
             _active_managers.remove(self)
+        self._close_local_conn()
+
+    def _close_local_conn(self) -> None:
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            return
+        delattr(self._local, "conn")
+        try:
+            conn.close()
+        except Exception as e:
+            logger.debug("Failed to close SQLite connection", error=str(e))
 
     def _is_handling(self) -> bool:
         return bool(getattr(self._local, "handling", False))

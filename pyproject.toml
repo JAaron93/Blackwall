@@ -82,6 +82,15 @@ eval = [
 pythonpath = ["src"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Scoped filters for third-party deprecation emitters only (Bucket B).
+# First-party warnings are never filtered.
+filterwarnings = [
+    'ignore::DeprecationWarning:google\.genai\.types',
+    'ignore::DeprecationWarning:gherkin\.gherkin_line',
+    'ignore:Inheritance class AiohttpClientSession from ClientSession is discouraged:DeprecationWarning',
+    'ignore::starlette.exceptions.StarletteDeprecationWarning',
+    'ignore:The anyio\.abc\.BlockingPortal alias is deprecated.*:DeprecationWarning',
+]
 markers = [
     "attribution: Attacker attribution BDD test scenarios",
     "extractor: Identity extractor BDD scenarios (Track 2A)",
