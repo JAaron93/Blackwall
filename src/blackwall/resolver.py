@@ -350,17 +350,20 @@ class BatchResolver:
         """Schedules background learning work with lifecycle tracking and error logging."""
         try:
             loop = asyncio.get_running_loop()
-            task = loop.create_task(coro)
-            self._background_tasks.add(task)
-
-            def _done(t: asyncio.Task[Any]) -> None:
-                self._background_tasks.discard(t)
-                if not t.cancelled() and t.exception():
-                    logger.warning("Background learning task failed: %s", t.exception())
-
-            task.add_done_callback(_done)
         except RuntimeError:
-            pass
+            # No running loop: background work is skipped, but the coroutine
+            # must be closed explicitly or it emits RuntimeWarning at GC.
+            coro.close()
+            return
+        task = loop.create_task(coro)
+        self._background_tasks.add(task)
+
+        def _done(t: asyncio.Task[Any]) -> None:
+            self._background_tasks.discard(t)
+            if not t.cancelled() and t.exception():
+                logger.warning("Background learning task failed: %s", t.exception())
+
+        task.add_done_callback(_done)
 
     async def flush_background_tasks(self) -> None:
         """Awaits all pending background learning tasks to complete."""
