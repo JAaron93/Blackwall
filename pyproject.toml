@@ -85,10 +85,25 @@ testpaths = ["tests"]
 # Scoped filters for third-party deprecation emitters only (Bucket B).
 # First-party warnings are never filtered.
 filterwarnings = [
+    # google-genai: _UnionGenericAlias removed in Python 3.17; remove when the
+    # locked google-genai release stops emitting it at import.
     'ignore::DeprecationWarning:google\.genai\.types',
+    # gherkin (pytest-bdd parser): positional maxsplit in re.split; remove when
+    # the locked gherkin release adopts the keyword form.
     'ignore::DeprecationWarning:gherkin\.gherkin_line',
+    # aiohttp: ClientSession subclassing discouraged — google-genai's transport
+    # defines AiohttpClientSession at import; message-scoped because the warning
+    # fires at whichever module triggers the import. Remove when google-genai
+    # stops subclassing ClientSession or aiohttp retires the discouragement.
     'ignore:Inheritance class AiohttpClientSession from ClientSession is discouraged:DeprecationWarning',
+    # starlette: library-owned deprecation subclass (subclasses UserWarning, not
+    # DeprecationWarning) raised during TestClient import; class-scoped because
+    # module attribution lands on the import site. Remove when the httpx -> httpx2
+    # transition lands and starlette retires the warning.
     'ignore::starlette.exceptions.StarletteDeprecationWarning',
+    # anyio via starlette TestClient: BlockingPortal alias moved to
+    # anyio.from_thread; message-scoped for the same import-site reason. Remove
+    # when the locked starlette/anyio pair stops touching the alias.
     'ignore:The anyio\.abc\.BlockingPortal alias is deprecated.*:DeprecationWarning',
 ]
 markers = [

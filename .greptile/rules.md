@@ -301,3 +301,7 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 
 
 
+
+## 15. Test-Suite Warning Governance
+* **First-party warnings are never suppressed**: warnings originating under `src/`, `tests/`, or `scripts/` are fixed at the source (see `.agents/rules/testing_and_hygiene.md` §77). Do NOT request filter entries for first-party warnings, and do not treat their suppression as a valid fix.
+* **Third-party filters are scoped debt**: `[tool.pytest.ini_options] filterwarnings` entries must be precisely scoped — exact class + emitting module, exact library-owned warning class, or exact message prefix + class where module attribution is import-site dependent (full taxonomy in `.agents/rules/testing_and_hygiene.md` §77; e.g. `starlette.exceptions.StarletteDeprecationWarning` subclasses `UserWarning`). Blanket ignores are prohibited; each entry carries its removal condition and is removed in the same change that bumps past the upstream fix. The PR #190 baseline of 1 residual gc-drift `RuntimeWarning` is the floor — flag regressions above it.
