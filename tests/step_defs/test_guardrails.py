@@ -778,9 +778,11 @@ def audit_manager_tmp_db(tmp_path):
 
 @when("a blocked subprocess event is handled and the manager is stopped")
 def handle_blocked_subprocess_and_stop(audit_manager_tmp_db):
-    with pytest.raises(PermissionError):
-        audit_manager_tmp_db.handle_event("subprocess.Popen", ("/bin/ls", []))
-    audit_manager_tmp_db.stop()
+    try:
+        with pytest.raises(PermissionError):
+            audit_manager_tmp_db.handle_event("subprocess.Popen", ("/bin/ls", []))
+    finally:
+        audit_manager_tmp_db.stop()
 
 
 @then("the manager must not retain an open SQLite connection")

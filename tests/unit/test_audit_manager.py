@@ -592,8 +592,10 @@ class TestStopClosesConnection:
         """
         mgr = _make_manager(tmp_path)
         mgr.start()
-        with pytest.raises(PermissionError):
-            mgr.handle_event("subprocess.Popen", ("/bin/ls", []))
-        assert getattr(mgr._local, "conn", None) is not None
-        mgr.stop()
+        try:
+            with pytest.raises(PermissionError):
+                mgr.handle_event("subprocess.Popen", ("/bin/ls", []))
+            assert getattr(mgr._local, "conn", None) is not None
+        finally:
+            mgr.stop()
         assert not hasattr(mgr._local, "conn")

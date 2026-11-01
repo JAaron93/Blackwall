@@ -19,6 +19,16 @@ from blackwall.audit.manager import AuditHookManager
 from blackwall.resolver import BatchResolver
 from blackwall.sync_resolver import SyncResolver
 
+
+def _run(coro):
+    """Fresh event loop per invocation per .agents/rules #27 (never asyncio.run)."""
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
 # Per .agents/rules/testing_and_hygiene.md #17: no bare st.text(min_size=1)
 # for validated string inputs; use regex-bound or stripped strategies.
 executable_st = st.from_regex(r"/[a-zA-Z0-9_./-]{1,40}", fullmatch=True)
@@ -32,10 +42,12 @@ def test_property_stop_releases_connection(executable):
     with tempfile.TemporaryDirectory() as td:
         mgr = AuditHookManager(db_path=str(Path(td) / "prop.db"))
         mgr.start()
-        with pytest.raises(PermissionError):
-            mgr.handle_event("subprocess.Popen", (executable, []))
-        assert getattr(mgr._local, "conn", None) is not None
-        mgr.stop()
+        try:
+            with pytest.raises(PermissionError):
+                mgr.handle_event("subprocess.Popen", (executable, []))
+            assert getattr(mgr._local, "conn", None) is not None
+        finally:
+            mgr.stop()
         assert not hasattr(mgr._local, "conn")
 
 
@@ -76,4 +88,4 @@ def test_property_schedule_task_with_loop_executes(payload):
         assert tasks[0].done()
         assert tasks[0].result() == payload
 
-    asyncio.run(_main())
+    return _run(_main())
