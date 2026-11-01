@@ -237,3 +237,43 @@ def verify_quarantine_verdict(state):
     assert len(state.response.verdicts) == 1
     assert state.response.verdicts[0].decision == VerdictDecision.QUARANTINE
     assert "Rate limit exceeded" in state.response.verdicts[0].reasoning
+
+
+# --- Scenario: Background scheduling without a running event loop closes the dropped coroutine ---
+
+
+@given("an identical Sync Resolver is initialized with a mock Gemini client")
+def init_sync_resolver(state):
+    from blackwall.sync_resolver import SyncResolver
+
+    state.sync_resolver = SyncResolver(client=create_mock_client())
+
+
+@when("background work is scheduled with no event loop running")
+def schedule_background_work_without_loop(state):
+    import gc
+    import warnings
+
+    async def _work():
+        return "never-runs"
+
+    coros = []
+    for resolver in (state.resolver, state.sync_resolver):
+        coro = _work()
+        resolver._schedule_task(coro)
+        coros.append(coro)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        coros.clear()
+        gc.collect()
+    state.leaked = [
+        str(w.message) for w in caught if issubclass(w.category, RuntimeWarning)
+    ]
+
+
+@then(
+    "both resolvers must close the dropped coroutine without leaking a never-awaited warning"
+)
+def assert_coroutines_closed(state):
+    assert state.leaked == [], f"coroutines leaked without loop: {state.leaked}"

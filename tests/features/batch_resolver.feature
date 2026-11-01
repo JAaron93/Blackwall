@@ -35,3 +35,9 @@ Feature: Batch Resolver Security and Rate Limiting
     When the batch is processed by the resolver
     Then the resolver must retry the submission 3 times with exponential backoff
     And the final verdicts must all be "QUARANTINE" with reason "Rate limit exceeded"
+
+  Scenario: Background scheduling without a running event loop closes the dropped coroutine
+    Given a Batch Resolver is initialized with a mock Gemini client
+    And an identical Sync Resolver is initialized with a mock Gemini client
+    When background work is scheduled with no event loop running
+    Then both resolvers must close the dropped coroutine without leaking a never-awaited warning

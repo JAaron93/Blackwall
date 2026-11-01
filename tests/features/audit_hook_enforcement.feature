@@ -14,3 +14,8 @@ Feature: Python Runtime Audit Hook Enforcement
     When an adversarial agent attempts to spawn a process via "os.system"
     Then the audit hook must raise a "PermissionError" before the OS executes the command
     And the structlog configuration must be restored to its original state
+
+  Scenario: Audit hook manager releases its SQLite connection on stop
+    Given an audit hook manager is backed by a temporary SQLite database
+    When a blocked subprocess event is handled and the manager is stopped
+    Then the manager must not retain an open SQLite connection

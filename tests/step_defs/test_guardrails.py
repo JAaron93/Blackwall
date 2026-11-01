@@ -762,3 +762,27 @@ def step_tool_aborted_verdict(adk_interception_ctx, verdict, safe_sla_limit) -> 
 def step_zero_external_api_calls(adk_interception_ctx) -> None:
     mock_ti = adk_interception_ctx["mock_ti"]
     mock_ti.lookup_ip.assert_not_called()
+
+
+# --- Scenario: Audit hook manager releases its SQLite connection on stop ---
+
+
+@given("an audit hook manager is backed by a temporary SQLite database")
+def audit_manager_tmp_db(tmp_path):
+    from blackwall.audit.manager import AuditHookManager
+
+    mgr = AuditHookManager(db_path=str(tmp_path / "audit-lifecycle.db"))
+    mgr.start()
+    return mgr
+
+
+@when("a blocked subprocess event is handled and the manager is stopped")
+def handle_blocked_subprocess_and_stop(audit_manager_tmp_db):
+    with pytest.raises(PermissionError):
+        audit_manager_tmp_db.handle_event("subprocess.Popen", ("/bin/ls", []))
+    audit_manager_tmp_db.stop()
+
+
+@then("the manager must not retain an open SQLite connection")
+def audit_manager_connection_released(audit_manager_tmp_db):
+    assert not hasattr(audit_manager_tmp_db._local, "conn")
