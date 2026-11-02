@@ -3,6 +3,12 @@ import structlog
 from structlog.testing import LogCapture
 from unittest.mock import AsyncMock
 
+from dotenv import load_dotenv
+
+# Make gitignored .env credentials (e.g. BW_OTX_API_KEY) visible to tests the
+# same way scripts/ loads them. override=False: real environment always wins.
+load_dotenv(override=False)
+
 
 @pytest.fixture(name="log_output")
 def fixture_log_output() -> LogCapture:
