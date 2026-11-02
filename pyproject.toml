@@ -82,6 +82,10 @@ eval = [
 pythonpath = ["src"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# SLA/load benchmarks assert pytest-process-wide metrics (RUSAGE_SELF high-water
+# mark, wall-clock latency under GIL contention) and only validate in a fresh
+# dedicated process; deselect by default, run via `pytest -m sla_benchmark`.
+addopts = '-m "not sla_benchmark"'
 # Scoped filters for third-party deprecation emitters only (Bucket B).
 # First-party warnings are never filtered.
 filterwarnings = [
@@ -113,6 +117,7 @@ markers = [
     "guardrails: Security guardrail test scenarios",
     "zero_ambient_authority: Zero ambient authority test scenarios",
     "enterprise: Enterprise security mesh test scenarios",
+    "sla_benchmark: load/memory/latency SLA benchmarks; run via pytest -m sla_benchmark in a fresh process",
     "advanced_threat_detection: Advanced threat detection test scenarios",
     "retrospective: Retrospective analysis and historical query test scenarios",
     "evaluation: Evaluation environment and containment test scenarios",

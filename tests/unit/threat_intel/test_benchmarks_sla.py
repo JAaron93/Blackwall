@@ -18,6 +18,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 from benchmark_threat_intel import check_zero_cuda_allocations, run_benchmark
 
 
+pytestmark = pytest.mark.sla_benchmark
+
+
 @pytest.mark.asyncio
 async def test_threat_intel_cache_latency_sla() -> None:
     """Assert that 100 cache lookups resolve within the 1.0ms SLA."""

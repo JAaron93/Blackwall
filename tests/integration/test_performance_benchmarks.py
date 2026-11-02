@@ -13,6 +13,10 @@ import pytest_asyncio
 from blackwall.benchmarks.runner import BenchmarkReport, BenchmarkRunner
 from blackwall.db.repository import SQLiteThreatRepository
 
+# All tests in this module are load/memory/latency SLA benchmarks measuring the
+# pytest process itself; run in a dedicated session via `pytest -m sla_benchmark`.
+pytestmark = pytest.mark.sla_benchmark
+
 
 @pytest_asyncio.fixture
 async def benchmark_repo() -> AsyncGenerator[SQLiteThreatRepository, None]:
@@ -34,6 +38,8 @@ async def benchmark_repo() -> AsyncGenerator[SQLiteThreatRepository, None]:
 
 
 @pytest.mark.asyncio
+
+
 async def test_structural_gating_latency_p99() -> None:
     """
     Subtask 26.2: Assert structural gating p99 latency < 5ms under 100 concurrent requests.

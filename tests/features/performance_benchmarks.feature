@@ -18,6 +18,7 @@ Feature: Performance Benchmarking and Resource Validation
     When 100 similarity queries are executed
     Then the TSG query p99 latency must be under 10.0 milliseconds
 
+  @sla_benchmark
   Scenario: Firewall resource consumption remains under 350MB RSS and 2% CPU during sustained load
     Given an active Blackwall firewall instance under sustained 300 RPM load
     When 100 tool calls are processed at sustained rate

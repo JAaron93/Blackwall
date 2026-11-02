@@ -3,6 +3,7 @@
 import os
 import threading
 import time
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -546,10 +547,15 @@ class TestHandleEventSlowHookWarning:
 
         # Sequence of perf_counter values: start, then start + 2ms (exceeds 1ms threshold)
         counter_values = iter([0.0, 0.002])
+        # Patch the manager's OWN `time` reference, NOT the process-global
+        # time.perf_counter: suite-wide background threads calling the real
+        # time.perf_counter exhausted the 2-value side_effect iterator before
+        # handle_event's first read (StopIteration — see the PR #190-era audit).
+        fake_time = SimpleNamespace(perf_counter=counter_values.__next__)
 
         try:
             with (
-                patch("blackwall.audit.manager.time.perf_counter", side_effect=counter_values),
+                patch("blackwall.audit.manager.time", fake_time),
                 patch("blackwall.audit.manager.logger") as mock_logger,
             ):
                 # Use a benign event that does not raise
@@ -570,10 +576,11 @@ class TestHandleEventSlowHookWarning:
 
         # Both reads return the same value → 0ms elapsed
         counter_values = iter([0.0, 0.0])
+        fake_time = SimpleNamespace(perf_counter=counter_values.__next__)
 
         try:
             with (
-                patch("blackwall.audit.manager.time.perf_counter", side_effect=counter_values),
+                patch("blackwall.audit.manager.time", fake_time),
                 patch("blackwall.audit.manager.logger") as mock_logger,
             ):
                 mgr.handle_event("socket.connect", (None, ("127.0.0.1", 80)))
