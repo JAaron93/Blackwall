@@ -194,7 +194,7 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 * **Agent Entrypoint Knowledge Graph Client**: The agent entrypoint (`agent/__init__.py`) must wire `SyncResolver` with `cbm_client=CodebaseMemoryClient(base_url=os.getenv("CBM_MCP_BASE_URL"))` to satisfy the base branch interception flow.
 * **Evaluation Dashboard & Interactive Analytics Standards (Marimo / Jupyter)**:
   - Developer analytics dashboards under `notebooks/` declared in `[project.optional-dependencies] dev` MUST include all direct and transitive dependencies (such as `pandas>=3.0.0`) within the `dev` extra.
-  - Evaluation dashboards and scenario drill-downs MUST recognize canonical `ground_truth: "MALICIOUS"` from `blackwall_security.evalset.json` alongside `"ADVERSARIAL"` to avoid scoring hostile test cases as benign.
+  - Evaluation dashboards and scenario drill-downs MUST recognize the canonical post-Tier-1-Jev vocabulary of `blackwall_security.evalset.json` — `ground_truth` is exclusively `"BENIGN"` or `"MALICIOUS"` (89 hostile / 68 benign cases; the legacy `"ADVERSARIAL"` label no longer exists). Hostile test cases are exactly `ground_truth == "MALICIOUS"`; records outside the vocabulary MUST NOT be scored (see `tests/unit/test_marimo_notebook_syntax.py`).
   - Cases not present in recorded evaluation reports (`security_report.json`) MUST be rendered as unmeasured (`"—"`); code must NOT substitute expected verdicts or assume passing matches.
   - Performance SLA contract matrices MUST use strict `<` boundary checks matching the authoritative benchmark runner (`runner.py`).
   - Append-only evaluation history streams (`history.jsonl`) MUST catch JSON decoding errors per-line, skipping individual corrupted lines without discarding valid history.
