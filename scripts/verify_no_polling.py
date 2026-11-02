@@ -31,6 +31,11 @@ def main():
         "blackwall/enterprise/mesh/receiver.py",
         "blackwall/enterprise/mesh/broadcaster.py",
         "blackwall/benchmarks/runner.py",
+        # Shutdown lifecycle polling only: stop_daemon()'s SIGTERM wait loop and
+        # post-SIGKILL settle delay run in the controlling (non-async) process.
+        # The event-driven invariant targets the analysis path, not process
+        # teardown. Added in the baseline-test-defects fix.
+        "blackwall/gateway/daemon.py",
     }
 
     violations = []

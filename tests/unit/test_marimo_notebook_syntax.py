@@ -94,7 +94,10 @@ def test_notebook_malicious_ground_truth_recognition():
     """Verify notebook recognizes 'MALICIOUS' evalset scenarios as hostile."""
     source = NOTEBOOK_PATH.read_text(encoding="utf-8")
     assert '"MALICIOUS"' in source
-    assert 'ground_truth in ("MALICIOUS", "ADVERSARIAL")' in source or 'is_hostile' in source
+    # Jev scoring filter: only records with BENIGN/MALICIOUS ground truth are scored.
+    assert 'r.get("ground_truth") in ("BENIGN", "MALICIOUS")' in source
+    # Hostile label assignment: MALICIOUS ground truth maps to label 1.
+    assert '_r["ground_truth"] == "MALICIOUS"' in source
     assert 'actual_results' in source
 
 
@@ -107,7 +110,9 @@ def test_notebook_unmeasured_recorded_eval_handling():
     assert 'recorded_verdict if recorded_verdict else exp_verdict' not in source
 
 
-def test_notebook_decision_match_covers_critical_and_block():
-    """Verify BLOCK simulated verdict satisfies BLOCK or CRITICAL expectations."""
+def test_notebook_block_zone_satisfies_malicious_expectation():
+    """Verify the Jev confusion matrix counts a block-zone decision as a true
+    positive only for MALICIOUS ground truth (the current form of
+    'predicted BLOCK satisfies a hostile expectation')."""
     source = NOTEBOOK_PATH.read_text(encoding="utf-8")
-    assert 'simulated_verdict == "BLOCK" and exp_verdict in ("BLOCK", "CRITICAL")' in source
+    assert '_tp = sum(1 for r in _decided if r["_label"] == 1 and r["_zone"] == "block")' in source

@@ -7,14 +7,28 @@ from urllib.parse import urlparse
 
 
 def test_rust_module_import():
-    """Verify that the compiled Rust extension _core_rs is importable and exposes version."""
+    """Verify that the compiled Rust extension _core_rs is importable and its
+    version matches the crate manifest (survives crate version bumps)."""
+    import tomllib
+    from pathlib import Path
+
     from blackwall import _core_rs
     import blackwall
 
+    manifest = tomllib.loads(
+        (
+            Path(__file__).resolve().parents[1]
+            / "crates"
+            / "blackwall_core_rs"
+            / "Cargo.toml"
+        ).read_text(encoding="utf-8")
+    )
+    manifest_version = manifest["package"]["version"]
+
     assert hasattr(_core_rs, "__version__")
-    assert _core_rs.__version__ == "0.1.0"
+    assert _core_rs.__version__ == manifest_version
     assert blackwall._core_rs is not None
-    assert blackwall._core_rs.__version__ == "0.1.0"
+    assert blackwall._core_rs.__version__ == manifest_version
 
 
 def test_rust_similarity_bindings():
