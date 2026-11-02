@@ -10,7 +10,11 @@ def test_policy_file_handler_debouncing():
     """Verify rapid consecutive events coalesce into a single callback execution."""
     callback = MagicMock()
     file_path = "/tmp/test_policy.yaml"
-    handler = PolicyFileHandler(file_path, callback, debounce_interval=0.1)
+    # 1.0s window vs 10ms event spacing: suite scheduling jitter can stretch a
+    # 10ms sleep past a 100ms window, splitting the coalesce group (a fresh
+    # leading-edge callback per event). 10x headroom keeps the semantics
+    # identical and the test deterministic under load.
+    handler = PolicyFileHandler(file_path, callback, debounce_interval=1.0)
 
     mock_event = MagicMock()
     mock_event.is_directory = False
