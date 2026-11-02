@@ -330,6 +330,11 @@ python3 scripts/run_gcp_eval.py --eval-threshold 3.5
 
 # 6. Run Enterprise Gherkin BDD scenarios across all 6 pillars
 pytest tests/features/ -v
+
+# 7. Run SLA/load benchmarks in a dedicated fresh-process session
+#    (deselected from default runs — they assert process-wide metrics
+#    like the RUSAGE_SELF high-water mark; see testing_and_hygiene §73)
+pytest -m sla_benchmark
 ```
 
 ---
