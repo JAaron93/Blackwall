@@ -3,6 +3,7 @@
 import os
 import threading
 import time
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -545,17 +546,22 @@ class TestHandleEventSlowHookWarning:
         mgr.start()
 
         # Sequence of perf_counter values: start, then start + 2ms (exceeds 1ms threshold)
-        counter_values = iter([0.0, 0.002])
-
         try:
             with (
-                patch("blackwall.audit.manager.time.perf_counter", side_effect=counter_values),
+                # Real 5ms stall at the evaluation seam: exercises the warning
+                # path with genuine wall-clock timing. Clock patching (global or
+                # module-local) is not suite-safe: concurrent threads and audit
+                # re-entry from other threads (whose thread-local guard differs)
+                # consume or misalign any bounded fake clock.
+                patch.object(mgr, "_evaluate_event", side_effect=lambda *a: time.sleep(0.005)),
                 patch("blackwall.audit.manager.logger") as mock_logger,
             ):
                 # Use a benign event that does not raise
                 mgr.handle_event("socket.connect", (None, ("127.0.0.1", 80)))
 
-            mock_logger.warn.assert_called_once()
+            # `.called` (not assert_called_once): a background thread's audit
+            # event may re-enter handle_event in-suite and log the same warning.
+            assert mock_logger.warn.called
             call_kwargs = mock_logger.warn.call_args
             # First positional arg is the message string
             msg = call_kwargs[0][0]
@@ -566,14 +572,19 @@ class TestHandleEventSlowHookWarning:
     def test_fast_hook_does_not_warn(self, tmp_path):
         """handle_event does NOT log a warning when execution is below 1ms."""
         mgr = _make_manager(tmp_path)
-        mgr.start()
+        # enabled=True WITHOUT start(): the manager stays out of
+        # _active_managers, so no cross-thread audit event can re-enter it
+        # while the controlled clock is installed.
+        mgr.enabled = True
 
-        # Both reads return the same value → 0ms elapsed
-        counter_values = iter([0.0, 0.0])
+        # Controlled module-local clock: both reads return 0.0 -> 0ms elapsed
+        # -> no warning, deterministically. A real clock can cross the 1ms
+        # threshold under a GC/scheduler pause despite correct behavior.
+        fake_time = SimpleNamespace(perf_counter=iter([0.0, 0.0]).__next__)
 
         try:
             with (
-                patch("blackwall.audit.manager.time.perf_counter", side_effect=counter_values),
+                patch("blackwall.audit.manager.time", fake_time),
                 patch("blackwall.audit.manager.logger") as mock_logger,
             ):
                 mgr.handle_event("socket.connect", (None, ("127.0.0.1", 80)))

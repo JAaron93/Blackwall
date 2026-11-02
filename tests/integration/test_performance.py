@@ -253,6 +253,7 @@ async def test_sustained_throughput():
 
 
 @pytest.mark.asyncio
+@pytest.mark.sla_benchmark
 async def test_sustained_load_stream_harness():
     """Test continuous streamed event ingestion over time asserting sustained throughput stability."""
     import os

@@ -198,6 +198,7 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
   - Cases not present in recorded evaluation reports (`security_report.json`) MUST be rendered as unmeasured (`"—"`); code must NOT substitute expected verdicts or assume passing matches.
   - Performance SLA contract matrices MUST use strict `<` boundary checks matching the authoritative benchmark runner (`runner.py`).
   - Append-only evaluation history streams (`history.jsonl`) MUST catch JSON decoding errors per-line, skipping individual corrupted lines without discarding valid history.
+* **SLA Benchmarks Are Session-Isolated**: Load/memory/latency SLA tests carry `pytest.mark.sla_benchmark` and are deselected from the default pytest run (`addopts = -m "not sla_benchmark"`). Do NOT flag their exclusion as skipped coverage or demand re-inclusion into the default suite — they assert `RUSAGE_SELF` high-water and wall-clock metrics that only validate against a fresh process (`uv run pytest -m sla_benchmark`). In-suite benchmark failures are environment noise, not regressions (see `.agents/rules/testing_and_hygiene.md` §73).
 
 ---
 

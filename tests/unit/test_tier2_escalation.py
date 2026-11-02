@@ -344,6 +344,12 @@ async def test_tier2_http_deadline_stays_at_ctor_bound(monkeypatch):
     ambiguous call may not outlive the interception deadline."""
     import asyncio
 
+    # Isolate operator-provided overrides (gitignored .env carries
+    # GEMINI_HTTP_TIMEOUT=120 from .env.example): this test verifies the
+    # ctor-vs-analytical-floor contract, not env-override precedence, which
+    # get_gemini_http_timeout honors by design.
+    monkeypatch.delenv("GEMINI_HTTP_TIMEOUT", raising=False)
+
     captured: Dict[str, Any] = {}
     real_wait_for = asyncio.wait_for
 

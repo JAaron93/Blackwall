@@ -98,6 +98,7 @@ async def test_threat_intel_cache_ttl_and_pruning(
     assert deleted >= 1
 
 
+@pytest.mark.sla_benchmark
 @pytest.mark.asyncio
 async def test_threat_intel_cache_sub_millisecond_sla(
     temp_repo: SQLiteThreatRepository,
