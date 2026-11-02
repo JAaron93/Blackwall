@@ -3,6 +3,7 @@
 import os
 import threading
 import time
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -571,12 +572,19 @@ class TestHandleEventSlowHookWarning:
     def test_fast_hook_does_not_warn(self, tmp_path):
         """handle_event does NOT log a warning when execution is below 1ms."""
         mgr = _make_manager(tmp_path)
-        mgr.start()
+        # enabled=True WITHOUT start(): the manager stays out of
+        # _active_managers, so no cross-thread audit event can re-enter it
+        # while the controlled clock is installed.
+        mgr.enabled = True
 
-        # Both reads return the same value → 0ms elapsed
+        # Controlled module-local clock: both reads return 0.0 -> 0ms elapsed
+        # -> no warning, deterministically. A real clock can cross the 1ms
+        # threshold under a GC/scheduler pause despite correct behavior.
+        fake_time = SimpleNamespace(perf_counter=iter([0.0, 0.0]).__next__)
+
         try:
             with (
-                patch.object(mgr, "_evaluate_event", side_effect=lambda *a: None),
+                patch("blackwall.audit.manager.time", fake_time),
                 patch("blackwall.audit.manager.logger") as mock_logger,
             ):
                 mgr.handle_event("socket.connect", (None, ("127.0.0.1", 80)))
