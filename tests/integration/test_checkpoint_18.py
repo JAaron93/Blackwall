@@ -166,6 +166,7 @@ async def test_system_latency_targets(policy_yaml_path: str) -> None:
 # Test 3: Resource usage under load (Memory < 512MB, CPU < 50%)
 # ===========================================================================
 @pytest.mark.asyncio
+@pytest.mark.sla_benchmark
 async def test_system_resource_consumption_load(policy_yaml_path: str) -> None:
     structural = make_structural_engine(policy_yaml_path)
     # cpu_spin_ms=5.0 replicates the original 5 ms busy-wait to generate measurable CPU load
