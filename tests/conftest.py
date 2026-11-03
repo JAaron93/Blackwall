@@ -1,5 +1,7 @@
 import pytest
 import structlog
+
+pytest_plugins = ["pytester"]
 from structlog.testing import LogCapture
 from unittest.mock import AsyncMock
 

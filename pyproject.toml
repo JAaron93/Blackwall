@@ -109,6 +109,23 @@ filterwarnings = [
     # anyio.from_thread; message-scoped for the same import-site reason. Remove
     # when the locked starlette/anyio pair stops touching the alias.
     'ignore:The anyio\.abc\.BlockingPortal alias is deprecated.*:DeprecationWarning',
+    # First-party zero-tolerance guard (TWO entries — both required):
+    # Python 3.12+ wait_for chain-awaits bare coroutines, so a cancellation
+    # landing before the inner first step abandons the Gemini submission
+    # un-started. The un-awaited warning is emitted from coroutine __del__,
+    # where CPython evaluates filters and, on "error", raises INSIDE __del__
+    # — the exception routes through sys.unraisablehook, NOT the normal
+    # warning path. pytest's unraisable plugin captures it and re-emits
+    # pytest.PytestUnraisableExceptionWarning at teardown. Hence:
+    #   1) error the RuntimeWarning at emission (creates the unraisable) —
+    #      the explicit :RuntimeWarning category field is REQUIRED: without
+    #      it the filter defaults to UserWarning and never matches;
+    #   2) error the re-emitted unraisable warning at teardown (fails the
+    #      owning test). Message scoping is impossible for entry 2 (the
+    #      unraisable text's colons break filterwarnings field syntax); the
+    #      class scope doubles as a zero-unraisable baseline doctrine.
+    "error:coroutine 'BatchResolver.submit_to_gemini_sync' was never awaited:RuntimeWarning",
+    "error::pytest.PytestUnraisableExceptionWarning",
 ]
 markers = [
     "attribution: Attacker attribution BDD test scenarios",

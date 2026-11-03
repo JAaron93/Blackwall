@@ -684,3 +684,43 @@ def test_schedule_task_without_running_loop_closes_coroutine():
 
     leaked = [w for w in caught if issubclass(w.category, RuntimeWarning)]
     assert not leaked, f"coroutine leaked without loop: {[str(w.message) for w in leaked]}"
+
+
+_INNER_LEAK_TEST = """
+import gc
+from unittest.mock import MagicMock
+
+from blackwall.models import CallbackToken, ToolCallContext
+from blackwall.resolver import BatchResolver
+
+
+def test_drop_gemini_coroutine():
+    resolver = BatchResolver(client=MagicMock())
+    token = CallbackToken(
+        tool_context=ToolCallContext(tool_name="read_file", arguments={"path": "/x"}),
+        thread_id="t",
+    )
+    coro = resolver.submit_to_gemini_sync([token])
+    del coro
+    gc.collect()
+"""
+
+
+def test_unraisable_gemini_coroutine_guard(pytester):
+    """Regression: the un-awaited-coroutine warning is emitted from coroutine
+    __del__, so an error filter on RuntimeWarning surfaces via
+    sys.unraisablehook as pytest.PytestUnraisableExceptionWarning — never as a
+    catchable RuntimeWarning. The guard must error THAT class: guard on, the
+    leak fails; guard off, the same leak is silently green (the CI-green hole
+    this closes)."""
+    pytester.makepyfile(test_coro_leak=_INNER_LEAK_TEST)
+
+    guarded = pytester.runpytest_subprocess(
+        "-p", "no:cacheprovider",
+        "-W", "error:coroutine 'BatchResolver.submit_to_gemini_sync' was never awaited:RuntimeWarning",
+        "-W", "error::pytest.PytestUnraisableExceptionWarning",
+    )
+    guarded.assert_outcomes(failed=1)
+
+    unguarded = pytester.runpytest_subprocess("-p", "no:cacheprovider")
+    unguarded.assert_outcomes(passed=1)
