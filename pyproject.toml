@@ -109,6 +109,12 @@ filterwarnings = [
     # anyio.from_thread; message-scoped for the same import-site reason. Remove
     # when the locked starlette/anyio pair stops touching the alias.
     'ignore:The anyio\.abc\.BlockingPortal alias is deprecated.*:DeprecationWarning',
+    # First-party zero-tolerance guard: Python 3.12+ wait_for chain-awaits bare
+    # coroutines, so a cancellation landing before the inner first step can
+    # abandon the Gemini submission un-started (RuntimeWarning at GC, previously
+    # attributed only by drift). Escalate to a hard error so any recurrence
+    # fails the owning test with full attribution instead of drifting through.
+    "error:coroutine 'BatchResolver.submit_to_gemini_sync' was never awaited",
 ]
 markers = [
     "attribution: Attacker attribution BDD test scenarios",
