@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import inspect
 import json
 import logging
@@ -430,9 +431,24 @@ class BatchResolver:
 
                     # Execute submitToGeminiSync (API call only) with a hardcoded 30-second timeout for local MVP.
                     # asyncio.wait_for() raises TimeoutError to the caller and cancels the wrapped coroutine.
-                    response = await asyncio.wait_for(
-                        self.submit_to_gemini_sync(sanitized_contexts), timeout=30.0
+                    # The call runs as an explicitly owned Task: 3.12+ wait_for
+                    # chain-awaits bare coroutines, so a cancellation landing before
+                    # the inner coroutine's first step abandons it un-started and
+                    # emits "RuntimeWarning: ... never awaited" at GC — caught live
+                    # by the zero-tolerance unraisable guard (pyproject filterwarnings).
+                    gemini_task = asyncio.ensure_future(
+                        self.submit_to_gemini_sync(sanitized_contexts)
                     )
+                    try:
+                        response = await asyncio.wait_for(gemini_task, timeout=30.0)
+                    except BaseException:
+                        # Timeout/cancellation: cancel-and-await the owned task so
+                        # the inner coroutine is always closed, never abandoned.
+                        if not gemini_task.done():
+                            gemini_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError, Exception):
+                            await gemini_task
+                        raise
 
                     # Post-response telemetry (best-effort, guarded)
                     latency_ms = (time.time() - start_time) * 1000.0
