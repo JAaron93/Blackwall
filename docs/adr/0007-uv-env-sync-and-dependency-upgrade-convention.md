@@ -45,11 +45,19 @@ presented, verified, and committed.
   treat "packages removed" as a signal about surface, not as corruption; and
   never "fix" it with ad-hoc `pip install`s (which create drift the lock
   cannot see).
-* Housekeeping alignment steps run `uv sync --all-extras` followed by
-  `uv pip check`; a *green* `uv pip check` against the lock is the
-  environment's health certificate.
+* Housekeeping alignment steps run `uv sync --all-extras` first — the
+  package *selection* authority — followed by `uv pip check`, which is a
+  **dependency-consistency check only**: it verifies installed packages
+  satisfy each other's requirements. It does not compare against `uv.lock`
+  and does not confirm optional extras are present (a base-only environment
+  passes while dev tooling is absent — precisely the incident above). Where
+  drift actually matters, the certificate is a no-op
+  `uv sync --all-extras --dry-run`: an empty pending-diff proves the
+  installed state matches lock + extras.
 
 ### D2 — Dependency upgrade loop (per ecosystem)
+
+**Lane A — constraint changes** (the manifest moved):
 
 1. Edit the manifest (`pyproject.toml` / `Cargo.toml`) — the constraint's
    only home.
@@ -61,6 +69,21 @@ presented, verified, and committed.
    numbers (and vice versa); the PR body (not rulebook prose) is the right
    place to record the before/after narrative, including any vendor-metadata
    collisions.
+
+**Lane B — transitive refreshes** (manifest untouched):
+
+1. Target the refresh explicitly: `uv lock --upgrade-package <pkg>` (or
+   `--upgrade-package <pkg>==<version>` to pin intent; `--upgrade` flushes
+   everything). A plain `uv lock` prefers previously locked versions whenever
+   they still satisfy the constraints — it cannot be relied on to move the
+   intended package — and `uv lock --check` proves manifest/lock agreement,
+   not that anything moved.
+2. Prove the move in the artifact: the lock diff itself must show the
+   targeted package's version entry change (e.g. `git diff -- uv.lock`).
+3. Commit the lockfile alone — a lockfile-only diff is valid in this lane:
+   the lock is the generated surface, no manifest constraint changed, and
+   the §6.5 prose co-edit boundaries are inapplicable. `uv lock --check`
+   still gates pre-commit.
 
 ### D3 — `uv` toolchain settings invariant
 
@@ -82,8 +105,11 @@ presented, verified, and committed.
 
 * The one-call contract for a working dev environment becomes unobservable
   to chance: `uv sync --all-extras`, and the environment is lock-exact.
-* Upgrades look identical in review regardless of ecosystem philosophy:
-  manifest edit → lock regen → `--check` gate → atomic commit.
+* Upgrades reach review through exactly two lanes regardless of ecosystem
+  philosophy — constraint changes: manifest edit → lock regen → `--check`
+  gate → manifest+lock atomic commit; transitive refreshes:
+  `--upgrade-package` → lock-diff proof of the intended move → lockfile-only
+  commit.
 * The fleet-parseability guard turns uv-release-related parse failures into
   loud CI/test signals instead of SilentDrop behavior — the failure mode
   that disabled a supply-chain cooldown unnoticed for weeks.
