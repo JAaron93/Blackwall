@@ -162,6 +162,9 @@ python_version = "3.14"
 strict = true
 
 [tool.uv]
+# Floor keeps [tool.uv] settings (prerelease allow + dependency cooldown) from
+# being silently dropped by older uv releases during settings discovery.
+required-version = ">=0.11"
 prerelease = "allow"
 exclude-newer = "7 days"
 
