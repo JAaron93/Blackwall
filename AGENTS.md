@@ -49,7 +49,7 @@ Greptile reviews must enforce the existing base branch architectural patterns:
 When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/`:
 
 * **Pillar 1: Kernel-Level Interception (`blackwall.enterprise.kernel`) & `ebpf-falco-mcp`**
-  - Dual-driver kernel probe: `LinuxeBPFDriver` (Linux kernel >= 5.4) with fallback to `UserSpaceAuditDriver` (`sys.addaudithook` on macOS).
+  - Dual-driver kernel probe: `LinuxeBPFDriver` (Linux 5.x-line kernel with `bpf_send_signal(9)` support — the platform floor is owned by runtime kernel feature detection, not by rule prose) with fallback to `UserSpaceAuditDriver` (`sys.addaudithook` on macOS).
 * **Pillar 2: Distributed Threat Mesh (`blackwall.enterprise.mesh`)**
   - `MeshBroadcaster` and `MeshReceiver` communicating over ZeroMQ pub/sub sockets with <15ms SQLite signature persistence (integrated with `ActiveReactionEngine` reactions and `SQLiteThreatRepository` in WAL mode).
 * **Pillar 3: Ephemeral Identity Sidecar (`blackwall.enterprise.identity`) & `hashicorp-vault-mcp`**
@@ -92,6 +92,11 @@ Agents updating or expanding project rules (e.g. via `/learn` or code review res
 4. **Same-Change Invariant Synchronization**:
    - A PR that changes an architectural invariant MUST amend `AGENTS.md`, `.agents/rules/`, and `.greptile/` in the same change (labelled commit). Stale instructions are review-loop fuel: every automated-review Catch-22 traces to an invariant that predated the code that invalidated it. Deferring instruction synchronization to a later track or PR is prohibited.
 
+5. **Version-Free Rules Doctrine**:
+   - Constraint-bearing dependency versions (floors, ceilings, exact pins) MUST be stated exactly once, in the manifests (`pyproject.toml`, `crates/blackwall_core_rs/Cargo.toml`; `uv.lock` / `Cargo.lock` are generated lockfile surfaces). The advisory source of truth is the vendor's own declared dependency metadata (`importlib.metadata` on installed distributions, PyPI/npm/crates.io registry JSON for the target ecosystem, and the `uv lock` PubGrub resolution narrative).
+   - Rulebooks (`AGENTS.md`, `.agents/rules/**`, `.greptile/rules.md`, README claims) and review directives MUST reference version *series* only (e.g. "the legacy pytest major line"). Quoting package floors/ceilings in prose is prohibited — they age into falsehood (precedent, 2026-11 audit: the transitive-bump rule quoted the era google-adk cap `opentelemetry-api<=1.44` while the active google-adk 2.14.0 release already declares `<=1.45.2,>=1.39`; the test-hygiene rule quoted a `pytest>=8.0.0` floor while the manifest had drifted to `>=8.4.2`).
+   - Exceptions: archived specs (`.kiro/specs/**`) and dated architecture decision records (`docs/adr/**`) are immutable historical snapshots and may quote era-specific versions; within living rulebooks, historical numbers may appear ONLY when explicitly labeled as dated drift evidence.
+   - PR discipline: a diff that changes a manifest constraint MUST NOT also edit rule-prose version numbers (and vice versa); dependency PRs MUST verify resolvability (`uv lock`, `cargo check`, per ecosystem, of the affected packages against the manifest) before commit.
 
 ---
 
