@@ -162,9 +162,13 @@ python_version = "3.14"
 strict = true
 
 [tool.uv]
-# Floor keeps [tool.uv] settings (prerelease allow + dependency cooldown) from
-# being silently dropped by older uv releases during settings discovery.
-required-version = ">=0.11"
+# Static admission cutoff — chosen over a cooldown duration deliberately:
+# cooldown durations ("7 days", "1 week") are only understood by uv releases with
+# dependency-cooldown support; older uv releases fail settings discovery on them
+# and silently drop the whole [tool.uv] block (warn + exit 0), including
+# prerelease=allow. An RFC 3339 timestamp parses on every uv generation.
+# Bump with the dependency-refresh cadence; a stale date over-excludes
+# (fail-closed) — it never admits packages published after the cutoff.
 prerelease = "allow"
-exclude-newer = "7 days"
+exclude-newer = "2026-11-01T00:00:00Z"
 
