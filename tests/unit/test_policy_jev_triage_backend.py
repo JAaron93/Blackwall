@@ -23,6 +23,7 @@ from blackwall.policy.semantic import (
     JEV_DEFAULT_BASE_URL,
     JEV_DEFAULT_MODEL,
     JEV_IS_THREAT_QUESTION,
+    JEV_RETRY_DELAY_S,
     JEV_SYSTEM_ONE_PATH,
     GeminiTriageBackend,
     JevTriageBackend,
@@ -77,7 +78,6 @@ def _backend(
     kwargs.setdefault("base_url", JEV_DEFAULT_BASE_URL)
     kwargs.setdefault("model", JEV_DEFAULT_MODEL)
     kwargs.setdefault("timeout", 5.0)
-    kwargs.setdefault("max_attempts", 3)
     return JevTriageBackend(http_client=client, **kwargs)
 
 
@@ -333,7 +333,6 @@ def test_defaults_match_the_env_example_contract(monkeypatch):
         JEV_BASE_URL_ENV_VAR,
         "JEV_MODEL",
         "JEV_TIMEOUT_S",
-        "JEV_MAX_ATTEMPTS",
     ):
         monkeypatch.delenv(name, raising=False)
     backend = JevTriageBackend()
@@ -341,20 +340,17 @@ def test_defaults_match_the_env_example_contract(monkeypatch):
     assert backend.base_url == "https://api.typesafe.ai"
     assert backend.model == "jev-latest"
     assert backend.timeout == pytest.approx(5.0)
-    assert backend.max_attempts == 3
 
 
 def test_env_knobs_configure_backend(monkeypatch):
     monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "env-key")
     monkeypatch.setenv(JEV_BASE_URL_ENV_VAR, "https://typesafe.internal")
     monkeypatch.setenv("JEV_MODEL", "jev-1.13.0")
-    monkeypatch.setenv("JEV_MAX_ATTEMPTS", "7")
     monkeypatch.setenv("JEV_TIMEOUT_S", "2.5")
     backend = JevTriageBackend()
     assert backend.api_key == "env-key"
     assert backend.base_url == "https://typesafe.internal"
     assert backend.model == "jev-1.13.0"
-    assert backend.max_attempts == 7
     assert backend.timeout == pytest.approx(2.5)
 
 
@@ -365,12 +361,10 @@ def test_blank_env_values_fall_back_to_defaults(monkeypatch):
     monkeypatch.setenv(JEV_BASE_URL_ENV_VAR, "")
     monkeypatch.setenv("JEV_MODEL", "")
     monkeypatch.setenv("JEV_TIMEOUT_S", "")
-    monkeypatch.setenv("JEV_MAX_ATTEMPTS", "")
     backend = JevTriageBackend(api_key="k")
     assert backend.base_url == JEV_DEFAULT_BASE_URL
     assert backend.model == JEV_DEFAULT_MODEL
     assert backend.timeout == pytest.approx(5.0)
-    assert backend.max_attempts == 3
 
 
 def test_legacy_vercel_env_vars_are_ignored(monkeypatch):
@@ -386,10 +380,12 @@ def test_legacy_vercel_env_vars_are_ignored(monkeypatch):
     assert isinstance(build_semantic_provider(object(), "jev"), GeminiTriageBackend)
 
 
-def test_ctor_args_beat_env(monkeypatch):
-    monkeypatch.setenv("JEV_MAX_ATTEMPTS", "7")
-    backend = JevTriageBackend(api_key="k", max_attempts=2)
-    assert backend.max_attempts == 2
+@pytest.mark.parametrize("removed", ["max_attempts", "backoff_base_s", "backoff_cap_s"])
+def test_removed_retry_tuning_params_are_not_accepted(removed: str):
+    """The retry budget is a fixed single retry on the paid API (ADR 0008); the
+    old free-tier tuning surface must not quietly grow back."""
+    with pytest.raises(TypeError):
+        JevTriageBackend(api_key="k", **{removed: 1})
 
 
 # ----------------------------------------------------------------------
@@ -454,7 +450,10 @@ def _overloaded(request: httpx.Request) -> httpx.Response:
     return httpx.Response(529, json={"message": "temporarily overloaded"})
 
 
-async def test_429_storm_exhausts_bounded_attempts_then_falls_back():
+async def test_429_storm_retries_once_then_falls_back():
+    """Paid-API policy (ADR 0008): one retry after a short fixed delay, then
+    fail closed to the fallback. Throttling is rare on a paid plan, and this is a
+    latency-bounded hot path with a ready fallback, so there is no retry loop."""
     requests: List[httpx.Request] = []
     sleep = _FakeSleep()
     fallback = _StubFallback(
@@ -462,15 +461,15 @@ async def test_429_storm_exhausts_bounded_attempts_then_falls_back():
     )
     backend = _backend(_rate_limited, requests, fallback=fallback, sleep=sleep)
     result = await backend.triage(_context())
-    assert len(requests) == backend.max_attempts == 3
-    assert sleep.calls == [0.5, 1.0]  # min(cap, base * 2**attempt)
+    assert len(requests) == 2
+    assert sleep.calls == [JEV_RETRY_DELAY_S]
     assert fallback.calls == 1
     assert result is not None
     assert result.backend == "gemini"  # signal attributed to its producer
     assert result.threat_score == pytest.approx(0.9)
 
 
-async def test_429_then_success_retries_once_with_backoff():
+async def test_429_then_success_retries_once():
     requests: List[httpx.Request] = []
     sleep = _FakeSleep()
     responses = iter(
@@ -482,14 +481,14 @@ async def test_429_then_success_retries_once_with_backoff():
     backend = _backend(lambda request: next(responses), requests, sleep=sleep)
     result = await backend.triage(_context())
     assert len(requests) == 2
-    assert sleep.calls == [0.5]
+    assert sleep.calls == [JEV_RETRY_DELAY_S]
     assert result is not None
     assert result.backend == "jev"
     assert result.threat_score == pytest.approx(0.02)
 
 
-async def test_529_overloaded_is_retried_with_backoff_like_429():
-    """TypeSafe documents 429 *and* 529 (Overloaded) as retry-with-backoff."""
+async def test_529_overloaded_is_retried_once_like_429():
+    """TypeSafe documents 429 *and* 529 (Overloaded) as retry-after-a-delay."""
     requests: List[httpx.Request] = []
     sleep = _FakeSleep()
     responses = iter(
@@ -501,13 +500,13 @@ async def test_529_overloaded_is_retried_with_backoff_like_429():
     backend = _backend(lambda request: next(responses), requests, sleep=sleep)
     result = await backend.triage(_context())
     assert len(requests) == 2
-    assert sleep.calls == [0.5]
+    assert sleep.calls == [JEV_RETRY_DELAY_S]
     assert result is not None
     assert result.backend == "jev"
     assert result.threat_score == pytest.approx(0.98)
 
 
-async def test_529_storm_exhausts_bounded_attempts_then_falls_back():
+async def test_529_storm_retries_once_then_falls_back():
     requests: List[httpx.Request] = []
     sleep = _FakeSleep()
     fallback = _StubFallback(
@@ -515,25 +514,20 @@ async def test_529_storm_exhausts_bounded_attempts_then_falls_back():
     )
     backend = _backend(_overloaded, requests, fallback=fallback, sleep=sleep)
     result = await backend.triage(_context())
-    assert len(requests) == backend.max_attempts == 3
-    assert sleep.calls == [0.5, 1.0]
+    assert len(requests) == 2
+    assert sleep.calls == [JEV_RETRY_DELAY_S]
     assert fallback.calls == 1
     assert result is not None and result.backend == "gemini"
 
 
-async def test_backoff_delay_is_capped():
+async def test_stale_max_attempts_env_cannot_enlarge_the_retry_budget(monkeypatch):
+    """JEV_MAX_ATTEMPTS was removed from .env.example; an old value lingering in
+    someone's .env must not turn the single retry back into a retry loop."""
+    monkeypatch.setenv("JEV_MAX_ATTEMPTS", "9")
     requests: List[httpx.Request] = []
-    sleep = _FakeSleep()
-    backend = _backend(
-        _rate_limited,
-        requests,
-        max_attempts=4,
-        backoff_base_s=2.0,
-        backoff_cap_s=3.0,
-        sleep=sleep,
-    )
+    backend = _backend(_rate_limited, requests, sleep=_FakeSleep())
     assert await backend.triage(_context()) is None
-    assert sleep.calls == [2.0, 3.0, 3.0]
+    assert len(requests) == 2
 
 
 async def test_timeout_falls_back_immediately_without_retry():
@@ -587,7 +581,7 @@ async def test_429_storm_without_fallback_abstains():
     requests: List[httpx.Request] = []
     backend = _backend(_rate_limited, requests, sleep=_FakeSleep())
     assert await backend.triage(_context()) is None
-    assert len(requests) == 3
+    assert len(requests) == 2
 
 
 # ----------------------------------------------------------------------

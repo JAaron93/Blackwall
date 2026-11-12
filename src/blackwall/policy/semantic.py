@@ -802,24 +802,25 @@ PENDING_SEMANTIC_BACKENDS: frozenset[str] = frozenset()
 JEV_API_KEY_ENV_VAR = "TYPESAFE_API_KEY"
 JEV_BASE_URL_ENV_VAR = "TYPESAFE_BASE_URL"
 JEV_MODEL_ENV_VAR = "JEV_MODEL"
-JEV_MAX_ATTEMPTS_ENV_VAR = "JEV_MAX_ATTEMPTS"
 JEV_TIMEOUT_ENV_VAR = "JEV_TIMEOUT_S"
 
 # API root (no path); requests go to ``<root>/v1/systemone``.
 JEV_DEFAULT_BASE_URL = "https://api.typesafe.ai"
 JEV_SYSTEM_ONE_PATH = "/v1/systemone"
 # ``jev-latest`` is the vendor's moving alias for the newest stable release.
-# Pin a versioned ID via JEV_MODEL to freeze behavior: the fixed 0.35/0.75 band
-# below was calibrated against a specific release (ADR 0008).
+# Policy (ADR 0008): deliberately NOT pinned, so Blackwall always runs the
+# newest Jev. The fixed 0.35/0.75 band below was set on an earlier release and is
+# re-validated by re-running the TASK-D02 eval when TypeSafe ships a new one.
 JEV_DEFAULT_MODEL = "jev-latest"
 JEV_DEFAULT_TIMEOUT_S = 5.0
-JEV_DEFAULT_MAX_ATTEMPTS = 3
-JEV_DEFAULT_BACKOFF_BASE_S = 0.5
-JEV_DEFAULT_BACKOFF_CAP_S = 4.0
 
-# Statuses TypeSafe documents as retry-with-backoff: 429 Too Many Requests and
-# 529 Overloaded. Every other non-200 outcome fails closed immediately.
+# Statuses TypeSafe documents as "retry after a short delay": 429 Too Many
+# Requests and 529 Overloaded. On the paid API throttling is rare and this is a
+# latency-bounded hot path with a ready fallback, so there is exactly ONE retry
+# after a short fixed delay (no loop, no tuning knobs), then fail closed. Every
+# other non-200 outcome fails closed immediately.
 JEV_RETRYABLE_STATUSES: frozenset[int] = frozenset({429, 529})
+JEV_RETRY_DELAY_S = 0.5
 
 # Fixed a priori by the 2026-09-19 A/B run (ADR 0006); recalibration requires
 # a spec amendment with fresh labeled evidence — never tune silently.
@@ -1031,9 +1032,6 @@ class JevTriageBackend(SemanticTriageProvider):
         base_url: Optional[str] = None,
         model: Optional[str] = None,
         timeout: Optional[float] = None,
-        max_attempts: Optional[int] = None,
-        backoff_base_s: float = JEV_DEFAULT_BACKOFF_BASE_S,
-        backoff_cap_s: float = JEV_DEFAULT_BACKOFF_CAP_S,
         fallback: Optional[SemanticTriageProvider] = None,
         http_client: Optional[httpx.AsyncClient] = None,
         sleep: Callable[[float], Any] = asyncio.sleep,
@@ -1052,13 +1050,6 @@ class JevTriageBackend(SemanticTriageProvider):
             if timeout is not None
             else float(os.getenv(JEV_TIMEOUT_ENV_VAR) or JEV_DEFAULT_TIMEOUT_S)
         )
-        self.max_attempts = (
-            max_attempts
-            if max_attempts is not None
-            else int(os.getenv(JEV_MAX_ATTEMPTS_ENV_VAR) or JEV_DEFAULT_MAX_ATTEMPTS)
-        )
-        self.backoff_base_s = backoff_base_s
-        self.backoff_cap_s = backoff_cap_s
         self.fallback = fallback
         self._http_client = http_client
         self._owns_http = http_client is None
@@ -1094,6 +1085,21 @@ class JevTriageBackend(SemanticTriageProvider):
             json=payload,
             headers={"Authorization": f"Bearer {self.api_key}"},
         )
+
+    async def _post_with_one_retry(self, payload: Dict[str, Any]) -> httpx.Response:
+        """POST once; on a documented throttle status (429/529) wait a short
+        fixed delay and POST exactly once more. A second throttle is returned
+        to the caller, which fails closed."""
+        response = await self._post(payload)
+        if response.status_code in JEV_RETRYABLE_STATUSES:
+            logger.warning(
+                "Jev TypeSafe API throttled (HTTP %s) — retrying once in %.1fs",
+                response.status_code,
+                JEV_RETRY_DELAY_S,
+            )
+            await self._sleep(JEV_RETRY_DELAY_S)
+            response = await self._post(payload)
+        return response
 
     def _parse_response(self, data: Dict[str, Any]) -> Optional[SemanticTriageResult]:
         answers = data.get("answers")
@@ -1169,54 +1175,31 @@ class JevTriageBackend(SemanticTriageProvider):
             return None
         started = time.monotonic()
         payload = self._build_payload(context)
-        for attempt in range(self.max_attempts):
-            try:
-                response = await self._post(payload)
-                if response.status_code == 200:
-                    data = response.json()
-                    result = self._parse_response(data)
-                    if result is not None:
-                        usage = self._extract_usage(data)
-                        self._record_triage(
-                            result,
-                            is_fallback=False,
-                            started=started,
-                            input_tokens=usage["input"],
-                            output_tokens=usage["output"],
-                        )
-                        return result
-                    logger.debug(
-                        "Jev TypeSafe API returned a malformed payload — failing closed"
+        try:
+            response = await self._post_with_one_retry(payload)
+            if response.status_code == 200:
+                data = response.json()
+                result = self._parse_response(data)
+                if result is not None:
+                    usage = self._extract_usage(data)
+                    self._record_triage(
+                        result,
+                        is_fallback=False,
+                        started=started,
+                        input_tokens=usage["input"],
+                        output_tokens=usage["output"],
                     )
-                    break
-                if (
-                    response.status_code in JEV_RETRYABLE_STATUSES
-                    and attempt + 1 < self.max_attempts
-                ):
-                    delay = min(self.backoff_cap_s, self.backoff_base_s * 2**attempt)
-                    logger.warning(
-                        "Jev TypeSafe API throttled (HTTP %s) — retrying in "
-                        "%.1fs (attempt %s/%s, paid-usage bounded backoff)",
-                        response.status_code,
-                        delay,
-                        attempt + 1,
-                        self.max_attempts,
-                    )
-                    await self._sleep(delay)
-                    continue
+                    return result
+                logger.debug(
+                    "Jev TypeSafe API returned a malformed payload — failing closed"
+                )
+            else:
                 logger.debug(
                     "Jev TypeSafe API returned HTTP %s — failing closed",
                     response.status_code,
                 )
-                break
-            except Exception as exc:
-                logger.debug(
-                    "Jev TypeSafe API call failed (attempt %s/%s) — failing closed: %s",
-                    attempt + 1,
-                    self.max_attempts,
-                    exc,
-                )
-                break
+        except Exception as exc:
+            logger.debug("Jev TypeSafe API call failed — failing closed: %s", exc)
         fallback_result = await self._fail_closed(context)
         self._record_triage(
             fallback_result,

@@ -13,7 +13,9 @@ only sanitized states, probabilities, and usage.
 
 Each record carries the Jev release that actually answered (``model``), so
 evidence stays attributable even though JEV_MODEL defaults to the moving
-``jev-latest`` alias. Pin JEV_MODEL to a versioned ID to freeze a run.
+``jev-latest`` alias (deliberately unpinned, ADR 0008). Calls run back to back;
+a throttled call is retried once, and any row that still fails is recorded as a
+fallback — re-running the script fills in just those rows.
 
 Usage:
   TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py
@@ -178,7 +180,6 @@ def build_records(raw: list[dict], cases: list[dict]) -> list[dict]:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Jev triage eval over golden evalsets")
     ap.add_argument("--out", default="tests/eval/results/jev_triage_results.json")
-    ap.add_argument("--pace-ms", type=int, default=2000)
     ap.add_argument("--limit", type=int, default=0, help="0 = all cases")
     ap.add_argument("--suites", nargs="+", default=["security", "evasion_proof"])
     args = ap.parse_args()
@@ -202,11 +203,9 @@ def main() -> int:
     raw_out = INSTALL_DIR / "jev_raw_systemone.json"
     work.write_text(json.dumps(cases, indent=1))
 
-    env = dict(os.environ, JEV_PACE_MS=str(args.pace_ms))
     proc = subprocess.run(
         ["node", str(NODE_RUNNER), "batch", str(work), str(raw_out)],
         cwd=INSTALL_DIR,
-        env=env,
     )
     if proc.returncode != 0 and not raw_out.exists():
         return proc.returncode

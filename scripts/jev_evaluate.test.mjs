@@ -26,7 +26,7 @@ import {
   buildRequestBody,
   parseSystemOne,
   isRetryableStatus,
-  retryDelayMs,
+  RETRY_DELAY_MS,
   reusableRows,
   resumeKey,
 } from './jev_evaluate.mjs';
@@ -92,15 +92,8 @@ test('only 429 and 529 are retryable', () => {
   }
 });
 
-test('backoff is exponential, capped, and honors retry-after headers', () => {
-  const opts = { baseMs: 1000, capMs: 8000 };
-  assert.equal(retryDelayMs(0, new Headers(), opts), 1000);
-  assert.equal(retryDelayMs(2, new Headers(), opts), 4000);
-  assert.equal(retryDelayMs(9, new Headers(), opts), 8000);
-  assert.equal(retryDelayMs(0, new Headers({ 'retry-after': '3' }), opts), 3000);
-  assert.equal(retryDelayMs(0, new Headers({ 'retry-after-ms': '250' }), opts), 250);
-  assert.equal(retryDelayMs(0, new Headers({ 'retry-after': '3600' }), opts), 8000);
-  assert.equal(retryDelayMs(0, new Headers({ 'retry-after': 'garbage' }), opts), 1000);
+test('the retry delay is a short fixed constant (paid API, single retry)', () => {
+  assert.equal(RETRY_DELAY_MS, 500);
 });
 
 test('resume reuses only error-free rows produced by the same requested model', () => {
@@ -148,7 +141,7 @@ const ok = (p, extra = {}) => ({
 function runHelper(args, env, stdin = '') {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [HELPER, ...args], {
-      env: { PATH: process.env.PATH, JEV_BACKOFF_BASE_MS: '5', JEV_BACKOFF_CAP_MS: '20', ...env },
+      env: { PATH: process.env.PATH, ...env },
     });
     let stdout = '';
     let stderr = '';
@@ -218,6 +211,27 @@ test('single: 529 then 200 is retried with backoff', async () => {
   }
 });
 
+test('single: throttled twice is a recorded fallback after exactly two requests', async () => {
+  const api = await fakeApi([{ status: 429, json: { message: 'slow down' } }]);
+  try {
+    // Removed pre-ADR-0008 knobs must be inert: a stale JEV_MAX_ATTEMPTS cannot
+    // turn the single retry back into a loop.
+    const out = await runHelper(
+      ['single'],
+      { TYPESAFE_API_KEY: 'k', TYPESAFE_BASE_URL: api.url, JEV_MAX_ATTEMPTS: '9' },
+      JSON.stringify({ state: 's' }),
+    );
+    const result = JSON.parse(out.stdout);
+    assert.equal(out.code, 1);
+    assert.equal(result.p, null);
+    assert.equal(result.is_fallback, true);
+    assert.match(result.error, /429/);
+    assert.equal(api.seen.length, 2);
+  } finally {
+    await api.close();
+  }
+});
+
 test('single: a non-retryable status is a recorded fallback, never retried', async () => {
   const api = await fakeApi([{ status: 401, json: { message: 'bad key' } }]);
   try {
@@ -272,7 +286,7 @@ test('batch: rows without this run\'s model (Vercel-era) are never reused or kep
   try {
     const out = await runHelper(
       ['batch', casesPath, outPath],
-      { TYPESAFE_API_KEY: 'k', TYPESAFE_BASE_URL: api.url, JEV_PACE_MS: '0' },
+      { TYPESAFE_API_KEY: 'k', TYPESAFE_BASE_URL: api.url },
     );
     assert.equal(out.code, 0, out.stderr);
     assert.equal(api.seen.length, 1, 'legacy row must not satisfy resume');
@@ -297,7 +311,7 @@ test('batch: a row from the same model is reused without any API call', async ()
   try {
     const out = await runHelper(
       ['batch', casesPath, outPath],
-      { TYPESAFE_API_KEY: 'k', TYPESAFE_BASE_URL: api.url, JEV_PACE_MS: '0' },
+      { TYPESAFE_API_KEY: 'k', TYPESAFE_BASE_URL: api.url },
     );
     assert.equal(out.code, 0, out.stderr);
     assert.equal(api.seen.length, 0);

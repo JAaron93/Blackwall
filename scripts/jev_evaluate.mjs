@@ -14,19 +14,19 @@
  * legacy AI_GATEWAY_API_KEY is deliberately ignored: a Vercel credential must
  * never be presented to a different vendor.
  *
- * 429 and 529 (Overloaded) are retried with bounded exponential backoff,
- * honoring retry-after headers; any other failure is recorded as a fallback
- * row. Batch mode checkpoints after every case. Resume reuses a row ONLY when
- * (id, state hash, suite, requested model) all match the current run, so
- * changed content, suite selections, --limit runs, a different JEV_MODEL, or
- * rows produced by the pre-ADR-0008 Vercel Gateway can never pair an old
- * probability with a new state or a different classifier.
+ * Paid API, so no free-tier machinery: calls run back to back (no pacing) and a
+ * throttled response (429, or 529 Overloaded) is retried exactly once after a
+ * short fixed delay. Any other failure — or a second throttle — is recorded as
+ * a fallback row; re-running the batch fills in just those rows. Batch mode
+ * checkpoints after every case. Resume reuses a row ONLY when (id, state hash,
+ * suite, requested model) all match the current run, so changed content, suite
+ * selections, --limit runs, a different JEV_MODEL, or rows produced by the
+ * pre-ADR-0008 Vercel Gateway can never pair an old probability with a new
+ * state or a different classifier.
  *
  * Env knobs: TYPESAFE_BASE_URL (API root, default https://api.typesafe.ai),
- *   JEV_MODEL (default jev-latest; pin a versioned ID to freeze behavior),
- *   JEV_PACE_MS (batch delay between calls, default 2000),
- *   JEV_TIMEOUT_MS (per-call abort, default 60000), JEV_MAX_ATTEMPTS (default 8),
- *   JEV_BACKOFF_BASE_MS (default 1000), JEV_BACKOFF_CAP_MS (default 60000).
+ *   JEV_MODEL (default jev-latest, deliberately unpinned — ADR 0008),
+ *   JEV_TIMEOUT_MS (per-call abort, default 60000).
  *
  * Tests: node --test scripts/jev_evaluate.test.mjs
  */
@@ -79,20 +79,8 @@ export function parseSystemOne(data) {
 
 export const isRetryableStatus = (status) => RETRYABLE_STATUSES.has(status);
 
-/** Exponential backoff, capped; retry-after(-ms) response headers win. */
-export function retryDelayMs(attempt, headers, { baseMs, capMs }) {
-  // Number(null) === 0 and Number('') === 0, so a missing/blank header must be
-  // ruled out before parsing or it would read as "retry immediately".
-  const headerMs = (name, unit) => {
-    const raw = headers?.get?.(name);
-    if (raw === null || raw === undefined || raw.trim() === '') return null;
-    const value = Number(raw);
-    return Number.isFinite(value) && value >= 0 ? value * unit : null;
-  };
-  const advised = headerMs('retry-after-ms', 1) ?? headerMs('retry-after', 1000);
-  if (advised !== null) return Math.min(capMs, advised);
-  return Math.min(capMs, baseMs * 2 ** attempt);
-}
+/** One retry after this fixed delay; a paid API throttles rarely (ADR 0008). */
+export const RETRY_DELAY_MS = 500;
 
 export const resumeKey = (id, hash, suite, model) =>
   `${id}|${hash ?? ''}|${suite ?? ''}|${model ?? ''}`;
@@ -115,42 +103,32 @@ function readConfig(env = process.env) {
     key: env.TYPESAFE_API_KEY,
     baseUrl: env.TYPESAFE_BASE_URL || DEFAULT_BASE_URL,
     model: env.JEV_MODEL || DEFAULT_MODEL,
-    paceMs: Number(env.JEV_PACE_MS ?? 2000),
-    timeoutMs: Number(env.JEV_TIMEOUT_MS ?? 60000),
-    maxAttempts: Number(env.JEV_MAX_ATTEMPTS ?? 8),
-    backoff: {
-      baseMs: Number(env.JEV_BACKOFF_BASE_MS ?? 1000),
-      capMs: Number(env.JEV_BACKOFF_CAP_MS ?? 60000),
-    },
+    timeoutMs: Number(env.JEV_TIMEOUT_MS || 60000),
   };
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+const post = (cfg, body) =>
+  fetch(endpointFor(cfg.baseUrl), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cfg.key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(cfg.timeoutMs),
+  });
+
 async function ask(cfg, state, instructions) {
   const body = buildRequestBody({ model: cfg.model, state, instructions });
-  for (let attempt = 0; ; attempt++) {
-    const response = await fetch(endpointFor(cfg.baseUrl), {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${cfg.key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(cfg.timeoutMs),
-    });
-    if (response.ok) {
-      const parsed = parseSystemOne(await response.json());
-      if (parsed.p === null) throw new ApiError(200, 'malformed System One payload', null);
-      return parsed;
-    }
-    if (isRetryableStatus(response.status) && attempt + 1 < cfg.maxAttempts) {
-      const wait = retryDelayMs(attempt, response.headers, cfg.backoff);
-      console.error(
-        `HTTP ${response.status}, waiting ${(wait / 1000).toFixed(1)}s (attempt ${attempt + 1})`,
-      );
-      await sleep(wait);
-      continue;
-    }
-    throw new ApiError(response.status, `HTTP ${response.status}`, response.headers);
+  let response = await post(cfg, body);
+  if (isRetryableStatus(response.status)) {
+    console.error(`HTTP ${response.status}, retrying once in ${RETRY_DELAY_MS}ms`);
+    await sleep(RETRY_DELAY_MS);
+    response = await post(cfg, body);
   }
+  if (!response.ok) throw new ApiError(response.status, `HTTP ${response.status}`, response.headers);
+  const parsed = parseSystemOne(await response.json());
+  if (parsed.p === null) throw new ApiError(200, 'malformed System One payload', null);
+  return parsed;
 }
 
 const errorText = (e) => String(e?.message ?? e).slice(0, 300);
@@ -198,7 +176,6 @@ async function runBatch(cfg, casesPath, outPath) {
   let n = 0;
   for (const c of cases) {
     if (done.has(resumeKey(c.id, c.h, c.suite, cfg.model))) continue;
-    if (n > 0) await sleep(cfg.paceMs);
     const t0 = Date.now();
     const base = {
       id: c.id, suite: c.suite, h: c.h ?? null, label: c.label, expected: c.expected,

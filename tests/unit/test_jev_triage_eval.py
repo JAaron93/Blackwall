@@ -128,6 +128,25 @@ def test_producer_requires_typesafe_key_and_ignores_legacy(
     assert list(tmp_path.iterdir()) == []  # nothing written anywhere
 
 
+def test_pacing_flag_is_gone(eval_module, monkeypatch, tmp_path):
+    """The 2s inter-call pacing existed for the Gateway free tier's ~20-call burst
+    cap. On the paid API calls run back to back (ADR 0008)."""
+    monkeypatch.setattr(eval_module, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(eval_module, "INSTALL_DIR", tmp_path / "cache")
+    # Hermetic even in a regression: no key, and no process may be spawned.
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+
+    def _forbidden(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("must not spawn a process")
+
+    monkeypatch.setattr(eval_module.subprocess, "run", _forbidden)
+    monkeypatch.setattr(sys, "argv", ["jev_triage_eval.py", "--pace-ms", "1"])
+    with pytest.raises(SystemExit) as exc:
+        eval_module.main()
+    assert exc.value.code == 2  # argparse: unrecognized arguments
+    assert "pace" not in SCRIPT.read_text(encoding="utf-8").lower()
+
+
 def test_producer_has_no_npm_bootstrap(eval_module):
     """The helper uses Node's built-in fetch; the `npm install ai` bootstrap
     (Vercel AI SDK) must be gone."""
