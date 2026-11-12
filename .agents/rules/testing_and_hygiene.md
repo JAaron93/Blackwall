@@ -616,7 +616,7 @@
 * **Rationale:** Codified on PR #170. A formatter pass over hand-edited files rewrote two `except` tuples inside a port that TASK-A01 requires be byte-identical, and the drift survived 141 green tests; baseline diffing separately reduced 30 apparent regressions to 28 pre-existing environment failures plus 2 flaky, and confirmed zero regressions.
 
 ## 74. Live-Paid-Credential Acceptance Gates
-* **Rule:** Acceptance tasks that require live paid credentials (e.g. `AI_GATEWAY_API_KEY` for the Vercel AI Gateway, GCP Vertex budget for `EvalTask` runs) are NEVER simulated, stubbed, or mocked in order to claim acceptance. If the credential or budget is absent, the owning task MUST be deferred in `tasks.md` with an explicit deferral note BEFORE implementation begins, the deferred gate's checkbox stays unchecked, and dependent tasks remain gated on it (e.g. the TASK-D04 backend default flip is gated on the TASK-D03 live GCP gate).
+* **Rule:** Acceptance tasks that require live paid credentials (e.g. `TYPESAFE_API_KEY` for the TypeSafe AI API, GCP Vertex budget for `EvalTask` runs) are NEVER simulated, stubbed, or mocked in order to claim acceptance. If the credential or budget is absent, the owning task MUST be deferred in `tasks.md` with an explicit deferral note BEFORE implementation begins, the deferred gate's checkbox stays unchecked, and dependent tasks remain gated on it (e.g. the TASK-D04 backend default flip is gated on the TASK-D03 live GCP gate).
 * **Rationale:** Codified during the Tier-1 Jev rollout (TASK-D02/D03 deferred 2026-09-25 pending the paid Gateway key): faking a live gate silently voids the golden A/B acceptance contract (NFR-05), while stalling on it blocks unrelated shipped work.
 
 ## 75. Same-Loop Background-Task Assertions
