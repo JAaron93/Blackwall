@@ -73,7 +73,7 @@
   },
   {
     "path": "scripts/jev_evaluate.mjs",
-    "description": "TypeSafe AI API evaluation helper (zero-dependency Node fetch; batch/single modes, bounded 429/529 backoff, model-keyed resume, is_fallback contract)."
+    "description": "TypeSafe AI API evaluation helper (zero-dependency Node fetch; batch/single modes, single 429/529 retry, no pacing, model-keyed resume, is_fallback contract)."
   },
   {
     "path": "scripts/jev_evaluate.test.mjs",

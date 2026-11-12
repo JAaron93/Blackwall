@@ -53,8 +53,10 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   Exponential backoff (bounded attempts), then fail-closed to `gemini`
   backend/Tier-2 — never ALLOW. Mock `429` storms in tests.
   Dependencies: TASK-B01.
-  > **Amended by ADR 0008:** the retryable set is `429` and `529` (Overloaded),
-  > the two statuses TypeSafe documents; storms of both are tested.
+  > **Amended by ADR 0008:** now a single retry (not a backoff loop) on `429`
+  > and `529` (Overloaded), the two statuses TypeSafe documents; storms of both
+  > are tested, and the old tuning knobs (`JEV_MAX_ATTEMPTS`, backoff
+  > parameters) are gone.
   > [!TIP] PARALLEL EXECUTION — TASK-B03 may run alongside TASK-B02.
 * [x] **TASK-B03: Observability fields** (FR-07). Record `backend`, `P`,
   `confidence`, `latency_ms`, token usage per triage into existing telemetry.
@@ -86,9 +88,10 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
 
 ## Track D — Validation & Rollout (depends on Tracks B + C)
 
-> [!NOTE] DEFERRAL (2026-09-25): TASK-D02 and TASK-D03 are deferred until a
-> paid `TYPESAFE_API_KEY` exists (the live golden A/B and GCP dual-gate are
-> NFR-05/NFR-01 acceptance, not mockable). TASK-D04 remains gated on D03.
+> [!NOTE] DEFERRAL (2026-09-25, updated 2026-11-12): a paid `TYPESAFE_API_KEY`
+> now exists, so TASK-D02 is no longer deferred (it is a live run, not
+> mockable). TASK-D03 stays deferred until the GCP dual-gate (Vertex
+> `EvalTask`) can run on paid Vertex budget. TASK-D04 remains gated on D03.
 > TASK-D01 is complete on `feature/tier1-jev-escalation`.
 
 * [x] **TASK-D01: BDD acceptance suite** (NFR-04). `tests/features/`
@@ -100,19 +103,19 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   > **Amended by ADR 0008:** the "disallows prompt training" assertion became
   > "targets the System One endpoint" and "carries only the allowlisted
   > fields", and a 529 fail-closed scenario was added.
-* [ ] **TASK-D02: Golden A/B re-run + gate check** (NFR-05, US-01, US-02).
-  Live paid-credit run over 157 + 10 golden cases; must meet A/B gates
-  (accuracy ≥98%, AUROC ≥0.95, ECE ≤0.10, escalation ≤25%) vs the
-  2026-09-19 baseline (100% / 1.0 / 0.028 / 0%). Record results + Tier-2
-  fire rate.
-  Dependencies: TASK-C02, TASK-D01. Requires `TYPESAFE_API_KEY` (paid).
-  > **Retargeted by ADR 0008:** this is now also the acceptance gate for the
-  > first-party API transport, the only evidence that the Gateway-era `0.35 /
-  > 0.75` calibration carries over to native `noul` answers and to the Jev
-  > release `jev-latest` resolves to. Run
-  > `TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py`, compare
-  > per-case `p_threat` and C2-class recall with the committed Gateway-era
-  > artifact, and record the served release (`model` field). Do not simulate it.
+* [ ] **TASK-D02: Golden A/B re-run on the TypeSafe API + gate check** (NFR-05,
+  US-01, US-02). Live paid run of `scripts/jev_triage_eval.py` over the 157 + 10
+  golden cases against `jev-latest` (deliberately unpinned, ADR 0008); it
+  regenerates `tests/eval/results/jev_triage_results.json`. The Gateway-era
+  artifact it replaces came from the Gateway's rate-limited free tier on the
+  previous Jev release and is not valid evidence for this transport. Must meet
+  the A/B gates (accuracy ≥98%, AUROC ≥0.95, ECE ≤0.10, escalation ≤25%).
+  Record the results, the served release (`model` field) and the Tier-2 fire
+  rate. The 2026-09-19 figures (100% / 1.0 / 0.028 / 0%) are historical context,
+  not the pass criteria. Re-run after TypeSafe ships a release behind
+  `jev-latest`, since the band is fixed and the model is not.
+  Dependencies: TASK-C02, TASK-D01. Requires `TYPESAFE_API_KEY` (paid). Never
+  simulated (testing rules, Live Paid-Credential Acceptance Gates).
 * [ ] **TASK-D03: Benchmark + dual-gate CI confirmation** (NFR-01, NFR-02).
   `benchmark_report.json` SLAs green; full suite green under
   `BW_SEMANTIC_BACKEND=gemini` (GCP-only no-regression) and `jev`.
@@ -121,10 +124,9 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   packaging-compat note for Gateway F04 (re-verify when F04 lands).
   Dependencies: TASK-D02.
 * [ ] **TASK-D04: Default-flip + docs** (US-01, US-03). Flip default to
-  `jev`, document paid-usage ops (budgets derived from token counts, any
-  free-tier/trial eval-only note, the account's ZDR status, and whether to pin
-  `JEV_MODEL` to the release validated in TASK-D02), update `AGENTS.md`
-  interception sequence
+  `jev`, document paid-usage ops (budgets derived from token counts, the
+  organization's rate limits, and the retention terms of a non-ZDR account),
+  update `AGENTS.md` interception sequence
   (Rate → Hygiene → TSG → Jev Tier-1 → Gemini Tier-2 → forensics).
   Dependencies: TASK-D03.
 

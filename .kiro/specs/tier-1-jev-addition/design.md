@@ -120,8 +120,10 @@ Single-question `noul` evaluation per intercepted call:
 (recalibration requires a spec amendment with fresh labeled data — no silent
 tuning). Records `latency_ms` and token usage per call for the regression
 tracker; `confidence` is `None` because a `noul` answer carries none, and cost
-is derived from the token counts. Sequential issuance with bounded `429` /
-`529` backoff; never parallel-burst the API.
+is derived from the token counts. A throttled call (`429` / `529`) is retried
+once after a fixed 0.5s, then fails closed. Rate limits are per organization
+(requests/s and tokens/s, set in the TypeSafe console); there is no client-side
+pacing. The model is `jev-latest`, deliberately unpinned (ADR 0008).
 
 ### 3. Tier-2 Escalation Policy (retained, narrowed)
 
@@ -141,9 +143,13 @@ The Vercel-era `disallowPromptTraining: true` flag does not exist on the
 first-party API (ADR 0008), so no request can assert it. The remaining
 no-training protection is TypeSafe's published data-handling commitment
 ("Jev is not trained on customer requests or responses"); that is a vendor
-assurance, not a control Blackwall can verify per request. TypeSafe's Legal
-page describes zero data retention (ZDR) for enterprise customers; whether it
-applies to this account is unverified — see ADR 0008 Open Items.
+assurance, not a control Blackwall can verify per request. Zero data retention
+(ZDR) is an enterprise feature and is **not available on this account** (a
+regular customer; maintainer-confirmed 2026-11-12). TypeSafe's DPA (last updated
+2026-04-24) sets no fixed retention period: personal data is retained "for as
+long as necessary taking into account the purpose of the Processing".
+`preserve_iocs=True` leaves IOCs (URLs, IPs, hostnames, paths) in the state by
+design, so those are what TypeSafe receives and may retain. See ADR 0008.
 
 ### 5. Evaluation & Regression Coupling
 

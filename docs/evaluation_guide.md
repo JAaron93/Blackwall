@@ -172,9 +172,11 @@ The Tier-1 Jev classifier (TypeSafe Jev via the official TypeSafe AI API, govern
 # zero-dependency helper (scripts/jev_evaluate.mjs); there is no npm install step.
 # States are ContextHygiene-sanitized; request bodies carry only model/state/questions.
 TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py
-# Options: --limit N (subset), --suites security evasion_proof, --pace-ms 2000
-# Pin JEV_MODEL (a versioned ID such as jev-x.y.z) to freeze the classifier: the
-# default alias jev-latest moves when TypeSafe ships a new release.
+# Options: --limit N (subset), --suites security evasion_proof
+# The model is the jev-latest alias, deliberately unpinned (ADR 0008): it moves
+# when TypeSafe ships a release, so re-run after one. Calls run back to back; a
+# throttled call is retried once, and rows that still fail are recorded as
+# is_fallback — re-running fills in just those rows.
 # Helper contract tests (no network): node --test scripts/jev_evaluate.test.mjs
 ```
 
@@ -190,4 +192,4 @@ The **Tier-1 Classifier Analytics** section shows gate stats (accuracy ≥98%, A
 
 ### Production integration status
 
-Jev is wired into the interception path as the Tier-1 **System-1** classifier (ADR 0006): `JevTriageBackend` evaluates every novel tool call through the `SemanticTriageProvider` seam with the fixed `0.35/0.75` band, bounded 429 backoff failing closed to the Gemini backend, and structured `jev_triage` observability records. Ambiguous calls escalate to **Tier-2** Gemini 3.8 Flash deep reasoning, which returns the final ALLOW/BLOCK verdict (deterministic BLOCKs always win — aggregation supremacy). `BW_SEMANTIC_BACKEND` still defaults to `gemini`; the flip to `jev` is TASK-D04, gated on the TASK-D02 live golden re-run (167 cases) through this shipped backend, which will also record the Tier-2 fire rate. BDD acceptance for the wired pipeline lives in `tests/features/jev_tier1_triage.feature`.
+Jev is wired into the interception path as the Tier-1 **System-1** classifier (ADR 0006): `JevTriageBackend` evaluates every novel tool call through the `SemanticTriageProvider` seam with the fixed `0.35/0.75` band, a single 429/529 retry failing closed to the Gemini backend, and structured `jev_triage` observability records. Ambiguous calls escalate to **Tier-2** Gemini 3.8 Flash deep reasoning, which returns the final ALLOW/BLOCK verdict (deterministic BLOCKs always win — aggregation supremacy). `BW_SEMANTIC_BACKEND` still defaults to `gemini`; the flip to `jev` is TASK-D04, gated on the TASK-D02 live golden re-run (167 cases) through this shipped backend, which will also record the Tier-2 fire rate. BDD acceptance for the wired pipeline lives in `tests/features/jev_tier1_triage.feature`.

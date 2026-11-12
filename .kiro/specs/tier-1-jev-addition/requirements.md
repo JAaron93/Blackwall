@@ -68,13 +68,15 @@ SHALL NEVER leave the host. Every Jev request body SHALL contain exactly
 > is a vendor assurance and not something a request can assert or a test can
 > verify (see ADR 0008, Open Items).
 
-### FR-06: Paid Operation with Bounded Retries
+### FR-06: Paid Operation with a Single Bounded Retry
 Jev traffic SHALL run on paid per-token billing on the official TypeSafe AI
-API. The backend SHALL retry `429` and `529` (Overloaded), the two statuses
-TypeSafe documents as retry-with-backoff, with exponential backoff (bounded
-attempts, then fail-closed to the `gemini` backend or Tier-2 — never fail-open
-to ALLOW). Every other non-200 outcome SHALL fail closed without retry.
-Free-tier or trial behavior, if any, SHALL be documented as eval-only.
+API. The backend SHALL retry a throttled response (`429`, or `529` Overloaded,
+the two statuses TypeSafe documents as "retry after a short delay") exactly
+once after a short fixed delay, then fail closed to the `gemini` backend or
+Tier-2 — never fail-open to ALLOW. Every other non-200 outcome SHALL fail
+closed without retry. There is no client-side pacing and no retry-tuning
+environment variable; the organization's rate limit is set by TypeSafe (see
+ADR 0008).
 
 ### FR-07: Observability
 Each triage SHALL record `backend`, `P`, `confidence`, `latency_ms`, and token
