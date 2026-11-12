@@ -583,7 +583,7 @@ def _(jev_records, mo):
     if not jev_records:
         _notice = mo.md(
             "> ⚠️ No Jev triage records found. Run "
-            "`AI_GATEWAY_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py` "
+            "`TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py` "
             "to generate `tests/eval/results/jev_triage_results.json`, then re-run."
         )
     return _notice
@@ -895,8 +895,9 @@ def _(mo):
       averaged over random span orderings, with subset caching. Noisy but
       principled; should broadly agree with ablation.
     Live calls are **button-gated** (nothing fires on load), use
-    `AI_GATEWAY_API_KEY` from the environment only, and always set
-    `disallowPromptTraining`. Estimates shown upfront: calls, time, cost.
+    `TYPESAFE_API_KEY` from the environment only, and query the recorded
+    (already ContextHygiene-sanitized) states. Estimates shown upfront: calls,
+    time, cost.
     """)
 
 
@@ -905,7 +906,7 @@ def _(mo):
     return mo.md(r"""
     > **📌 Reminder — why ablation leads and Shapley stays opt-in:**
     > Full Shapley-style sampling works on any black box, but each sample is
-    > a live Gateway call (~1–9s). 8 spans × 12 permutations ≈ 100+ calls
+    > a live API call (~1–9s). 8 spans × 12 permutations ≈ 100+ calls
     > *per explanation* — fascinating once, miserable routinely, with
     > sampling noise on top. Span ablation gives the same "why" intuition
     > deterministically and cheaply, so it is the default; sampled Shapley
@@ -929,7 +930,7 @@ def _(jev_by_id, mo):
     )
     xai_perms = mo.ui.slider(start=4, stop=24, step=4, value=12,
                              label="Shapley permutations (× spans cost)")
-    xai_button = mo.ui.button(label="▶ Run explanation (live Gateway calls)")
+    xai_button = mo.ui.button(label="▶ Run explanation (live TypeSafe API calls)")
     mo.md(
         f"""
         {mo.hstack([xai_case, xai_perms, xai_button], justify="space-between")}
@@ -949,12 +950,12 @@ def _(go, jev_by_id, mo, os, repo_root, subprocess, xai_button, xai_case, xai_pe
     _state = _rec.get("state", "")
     mo.stop(not _state, mo.md("Selected case has no recorded `state` — re-run the producer."))
 
-    _install = os.path.expanduser("~/.cache/blackwall/jev-eval")
+    import shutil as _shutil
     _runner = repo_root / "scripts" / "jev_evaluate.mjs"
-    mo.stop(not os.path.exists(os.path.join(_install, "node_modules", "ai", "package.json")),
-            mo.md("Node helper not installed — run `scripts/jev_triage_eval.py` once first."))
-    mo.stop(not os.environ.get("AI_GATEWAY_API_KEY"),
-            mo.md("`AI_GATEWAY_API_KEY` is not set in this environment — export it, never paste it here."))
+    mo.stop(_shutil.which("node") is None,
+            mo.md("Node.js 18+ not found on PATH — the eval helper uses Node's built-in `fetch` (no npm install needed)."))
+    mo.stop(not os.environ.get("TYPESAFE_API_KEY"),
+            mo.md("`TYPESAFE_API_KEY` is not set in this environment — export it, never paste it here."))
 
     # Split state into ≤8 meaningful spans (tool line, request chunks, scenario line).
     _lines = [ln for ln in _state.splitlines() if ln.strip()]
@@ -977,7 +978,7 @@ def _(go, jev_by_id, mo, os, repo_root, subprocess, xai_button, xai_case, xai_pe
         _proc = subprocess.run(
             ["node", str(_runner), "single"],
             input=_json.dumps({"state": state}), capture_output=True, text=True,
-            timeout=180, cwd=_install,
+            timeout=180,
         )
         try:
             return _json.loads(_proc.stdout or "{}")
