@@ -1,8 +1,14 @@
 # Implementation Plan: Tier-1 Jev Addition
 
 Traceability: tasks map to FR/NFR/US IDs in `requirements.md`. TDD-first
-throughout: failing test → minimum code → green suite. No live Gateway calls
-in unit/BDD tests (mocked); live calls only in the eval harness.
+throughout: failing test → minimum code → green suite. No live TypeSafe API
+calls in unit/BDD tests (mocked); live calls only in the eval harness.
+
+> **Amendment (2026-11-12, ADR 0008):** Track B/C/D tasks marked `[x]` below
+> were completed against the Vercel AI Gateway contract and are kept as the
+> historical record. The transport has since moved to the official TypeSafe AI
+> API; each affected task carries an "Amended by ADR 0008" note, and the
+> deferred live-acceptance tasks (D02, D03) now target the new transport.
 
 ## Track A — Provider Seam (foundation; all else depends on this)
 
@@ -32,19 +38,29 @@ in unit/BDD tests (mocked); live calls only in the eval harness.
   Gateway evaluation client (Python AI SDK beta or minimal vendored HTTPS
   caller — Node.js sidecar prohibited per NFR-06),
   `disallowPromptTraining: true` mandatory, fixed
-  `0.35/0.75` mapping to `escalate`. TDD with mocked SDK responses
+  `0.35/0.75` mapping to `escalate`. *(As completed on 2026-09; see the
+  ADR 0008 note below.)* TDD with mocked SDK responses
   (P=0.02 allow, P=0.98 block, P=0.60 escalate).
   Dependencies: TASK-A01. Acceptance: threshold unit tests + SVM-style
   boundary tests at 0.349/0.35/0.75/0.751; `pip install` closure gains no
   non-Python runtime deps.
+  > **Amended by ADR 0008:** now a single `noul` `is_threat` question via
+  > `POST /v1/systemone` on the official TypeSafe AI API (minimal vendored
+  > `httpx` caller, still no SDK or Node sidecar). The mandatory
+  > `disallowPromptTraining` flag is replaced by a `model`/`state`/`questions`
+  > request-body allowlist. The 0.35/0.75 mapping is unchanged.
 * [x] **TASK-B02: Bounded 429 backoff + fail-closed** (FR-06).
   Exponential backoff (bounded attempts), then fail-closed to `gemini`
   backend/Tier-2 — never ALLOW. Mock `429` storms in tests.
   Dependencies: TASK-B01.
+  > **Amended by ADR 0008:** the retryable set is `429` and `529` (Overloaded),
+  > the two statuses TypeSafe documents; storms of both are tested.
   > [!TIP] PARALLEL EXECUTION — TASK-B03 may run alongside TASK-B02.
 * [x] **TASK-B03: Observability fields** (FR-07). Record `backend`, `P`,
   `confidence`, `latency_ms`, token usage per triage into existing telemetry.
   Dependencies: TASK-B01.
+  > **Amended by ADR 0008:** `confidence` is `None` (a `noul` answer carries
+  > none) and the per-call `gateway_cost` field is gone; token counts remain.
 
 ## Track C — Escalation & Forensics (depends on Track A; integrates Track B)
 
@@ -71,7 +87,7 @@ in unit/BDD tests (mocked); live calls only in the eval harness.
 ## Track D — Validation & Rollout (depends on Tracks B + C)
 
 > [!NOTE] DEFERRAL (2026-09-25): TASK-D02 and TASK-D03 are deferred until a
-> paid `AI_GATEWAY_API_KEY` exists (the live golden A/B and GCP dual-gate are
+> paid `TYPESAFE_API_KEY` exists (the live golden A/B and GCP dual-gate are
 > NFR-05/NFR-01 acceptance, not mockable). TASK-D04 remains gated on D03.
 > TASK-D01 is complete on `feature/tier1-jev-escalation`.
 
@@ -81,12 +97,22 @@ in unit/BDD tests (mocked); live calls only in the eval harness.
   sanitization-before-egress (assert `[[PLACEHOLDER]]` in outbound state,
   no raw secrets), 429 fail-closed. All mocked.
   Dependencies: TASK-B02, TASK-C01.
+  > **Amended by ADR 0008:** the "disallows prompt training" assertion became
+  > "targets the System One endpoint" and "carries only the allowlisted
+  > fields", and a 529 fail-closed scenario was added.
 * [ ] **TASK-D02: Golden A/B re-run + gate check** (NFR-05, US-01, US-02).
   Live paid-credit run over 157 + 10 golden cases; must meet A/B gates
   (accuracy ≥98%, AUROC ≥0.95, ECE ≤0.10, escalation ≤25%) vs the
   2026-09-19 baseline (100% / 1.0 / 0.028 / 0%). Record results + Tier-2
   fire rate.
-  Dependencies: TASK-C02, TASK-D01. Requires `AI_GATEWAY_API_KEY` (paid).
+  Dependencies: TASK-C02, TASK-D01. Requires `TYPESAFE_API_KEY` (paid).
+  > **Retargeted by ADR 0008:** this is now also the acceptance gate for the
+  > first-party API transport, the only evidence that the Gateway-era `0.35 /
+  > 0.75` calibration carries over to native `noul` answers and to the Jev
+  > release `jev-latest` resolves to. Run
+  > `TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py`, compare
+  > per-case `p_threat` and C2-class recall with the committed Gateway-era
+  > artifact, and record the served release (`model` field). Do not simulate it.
 * [ ] **TASK-D03: Benchmark + dual-gate CI confirmation** (NFR-01, NFR-02).
   `benchmark_report.json` SLAs green; full suite green under
   `BW_SEMANTIC_BACKEND=gemini` (GCP-only no-regression) and `jev`.
@@ -95,8 +121,10 @@ in unit/BDD tests (mocked); live calls only in the eval harness.
   packaging-compat note for Gateway F04 (re-verify when F04 lands).
   Dependencies: TASK-D02.
 * [ ] **TASK-D04: Default-flip + docs** (US-01, US-03). Flip default to
-  `jev`, document paid-credit ops (budgets, free-tier eval-only note,
-  per-request ZDR when on Pro), update `AGENTS.md` interception sequence
+  `jev`, document paid-usage ops (budgets derived from token counts, any
+  free-tier/trial eval-only note, the account's ZDR status, and whether to pin
+  `JEV_MODEL` to the release validated in TASK-D02), update `AGENTS.md`
+  interception sequence
   (Rate → Hygiene → TSG → Jev Tier-1 → Gemini Tier-2 → forensics).
   Dependencies: TASK-D03.
 

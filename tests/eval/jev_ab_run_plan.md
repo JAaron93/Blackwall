@@ -1,5 +1,12 @@
 # Jev vs Gemini 3.5 Flash-Lite — A/B Experimental Run Plan (EXECUTED 2026-09-19)
 
+> **Historical record.** This run was executed through the Vercel AI Gateway
+> (`typesafe-ai/jev`, `AI_GATEWAY_API_KEY`, `disallowPromptTraining`). Jev is
+> now called through the official TypeSafe AI API (ADR 0008). The plan below is
+> preserved as executed; the first-party transport is validated by TASK-D02 in
+> `.kiro/specs/tier-1-jev-addition/tasks.md`, not by this document.
+
+
 Branch: `exp/jev-ab-eval-plan` (off `main`). No prod wiring. Committed as
 evidence for `.kiro/specs/tier-1-jev-addition/`.
 Status: **APPROVED and EXECUTED 2026-09-19 — §5 gates 1–3 passed; gate 4

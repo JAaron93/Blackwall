@@ -163,18 +163,22 @@ For detailed CI/CD pipeline stage integration and Workload Identity Federation (
 
 ## 7. Tier-1 Jev Triage Evaluation & Analytics Dashboard
 
-The Tier-1 Jev classifier (`typesafe-ai/jev`, governed by `.kiro/specs/tier-1-jev-addition/`) is evaluated separately from the Vertex-judged suites above, then inspected in the Marimo dashboard.
+The Tier-1 Jev classifier (TypeSafe Jev via the official TypeSafe AI API, governed by `.kiro/specs/tier-1-jev-addition/` and ADR 0008) is evaluated separately from the Vertex-judged suites above, then inspected in the Marimo dashboard.
 
 ### Running the triage eval
 
 ```bash
-# Paid Vercel AI Gateway credits recommended (free tier is rate-capped).
-# Every call sets disallowPromptTraining; states are ContextHygiene-sanitized.
-AI_GATEWAY_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py
+# Live, paid per-token calls to the TypeSafe AI API. Needs Node 18+ for the
+# zero-dependency helper (scripts/jev_evaluate.mjs); there is no npm install step.
+# States are ContextHygiene-sanitized; request bodies carry only model/state/questions.
+TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py
 # Options: --limit N (subset), --suites security evasion_proof, --pace-ms 2000
+# Pin JEV_MODEL (a versioned ID such as jev-x.y.z) to freeze the classifier: the
+# default alias jev-latest moves when TypeSafe ships a new release.
+# Helper contract tests (no network): node --test scripts/jev_evaluate.test.mjs
 ```
 
-This writes `tests/eval/results/jev_triage_results.json` — one record per case (`eval_case_id`, `p_threat`, `backend`, `latency_ms`, token usage). Runs checkpoint and resume safely; re-running after fixture changes re-evaluates only changed cases (resume is keyed on content hash).
+This writes `tests/eval/results/jev_triage_results.json` — one record per case (`eval_case_id`, `p_threat`, `backend`, `model`, `latency_ms`, token usage). `model` is the Jev release that actually answered, so results stay attributable under the moving `jev-latest` alias. Runs checkpoint and resume safely; re-running after fixture changes re-evaluates only changed cases (resume is keyed on content hash **and** the requested model, so rows from a different model or from the pre-ADR-0008 Vercel Gateway are never reused). Raw rows live in `~/.cache/blackwall/jev-eval/jev_raw_systemone.json`; any older `jev_raw.json` there is the Gateway-era copy and is left untouched.
 
 ### Inspecting results
 
