@@ -360,12 +360,17 @@ def test_env_knobs_configure_backend(monkeypatch):
 
 def test_blank_env_values_fall_back_to_defaults(monkeypatch):
     """.env.example ships these knobs as active assignments; an operator who
-    blanks one (``JEV_MODEL=``) must get the default, not an empty model/URL."""
+    blanks one (``JEV_MODEL=``) must get the default, not an empty model/URL and
+    not a ``float('')`` crash at backend construction."""
     monkeypatch.setenv(JEV_BASE_URL_ENV_VAR, "")
     monkeypatch.setenv("JEV_MODEL", "")
+    monkeypatch.setenv("JEV_TIMEOUT_S", "")
+    monkeypatch.setenv("JEV_MAX_ATTEMPTS", "")
     backend = JevTriageBackend(api_key="k")
     assert backend.base_url == JEV_DEFAULT_BASE_URL
     assert backend.model == JEV_DEFAULT_MODEL
+    assert backend.timeout == pytest.approx(5.0)
+    assert backend.max_attempts == 3
 
 
 def test_legacy_vercel_env_vars_are_ignored(monkeypatch):

@@ -1050,12 +1050,12 @@ class JevTriageBackend(SemanticTriageProvider):
         self.timeout = (
             timeout
             if timeout is not None
-            else float(os.getenv(JEV_TIMEOUT_ENV_VAR, JEV_DEFAULT_TIMEOUT_S))
+            else float(os.getenv(JEV_TIMEOUT_ENV_VAR) or JEV_DEFAULT_TIMEOUT_S)
         )
         self.max_attempts = (
             max_attempts
             if max_attempts is not None
-            else int(os.getenv(JEV_MAX_ATTEMPTS_ENV_VAR, JEV_DEFAULT_MAX_ATTEMPTS))
+            else int(os.getenv(JEV_MAX_ATTEMPTS_ENV_VAR) or JEV_DEFAULT_MAX_ATTEMPTS)
         )
         self.backoff_base_s = backoff_base_s
         self.backoff_cap_s = backoff_cap_s
