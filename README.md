@@ -184,7 +184,7 @@ Operating on the principle that **no agent process should ever possess ambient a
 ### 4. **Sub-10% False Positive & Negative Rates**
 - **FRR (False Refusal Rate):** <10% benign actions incorrectly blocked (measured at **0.0%**)—maintains developer productivity.
 - **Evasion Rate:** <10% malicious actions that bypass detection (measured at **0.0%**)—maintains rock-solid defense.
-- **Reference-Based Dataset:** 157-case evaluation suite (68 benign + 59 malicious + 30 evasion variants) derived from public security literature (OWASP Top 10 for LLMs, MITRE ATT&CK, CWE/CVE).
+- **Reference Dataset:** 157-case evaluation suite (68 benign + 59 malicious + 30 evasion variants, class-blind: one shared prompt template, real attack text, no label words; ADR 0009) derived from public security literature (OWASP Top 10 for LLMs, MITRE ATT&CK, CWE/CVE).
 
 ---
 

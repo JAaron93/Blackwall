@@ -117,7 +117,7 @@ involved). Inputs: the 93 forced cases, with the production-shaped Jev P from
 | Benign cases BLOCKed | 3 of 68 (4.4%); ADR 0008 measured 1 of 68 at medium |
 | Authored malicious probes BLOCKed | 1 of 4 |
 
-### Real attack text in the golden evalset (TASK-F05, part 1)
+### Real attack text in the golden evalset (TASK-F05a)
 
 `malicious_cases.json` and `evasion_cases.json` previously used
 `[[BRACKET_PLACEHOLDER]]` tokens in place of the attack content for most cases
@@ -146,8 +146,7 @@ benign query that selects a column literally named `password` too. The two
 cases built here that would have tripped it use `pass_hash` instead; the
 regex itself is not changed in this PR (TASK-F08 tracks it).
 
-Re-scoring both Jev releases against the corrected payloads (the second half
-of TASK-F05) needs a live Jev key and is not done here.
+The one-template half of the fix and the re-score are in the next subsection.
 | Latency, median / p95 / max | 2.3 s / 3.3 s / 5.9 s |
 
 Reading it:
@@ -163,6 +162,96 @@ Reading it:
   a C2 check-in from a heartbeat once the text that labels it is gone. That is
   the weak class ADR 0008 already names, and it is why a Tier-2 ALLOW is final
   only when aggregation does not block.
+
+### The class-blind corpus, and a re-score of both Jev releases (TASK-F05b)
+
+**What changed in the corpus.** Benign and malicious remain two classes, told
+apart by their payload. What was removed is everything else that told them
+apart:
+
+- One prompt template for every case, whatever its label
+  (`Execute tool '<tool>' with arguments: {...}`, the template the hand-written
+  evasion-proof suite already used). `attack_type`, `evasion_type`,
+  `obfuscation` and the parent id moved out of the text into `metadata`.
+- The same argument keys for the same tool in both classes (`args_from_pattern`
+  in `scripts/build_evalset.py`), not `c2_url`/`exfil_url`/`py_revshell`.
+- Real values in the 53 benign cases that carried `[[PLACEHOLDER]]` tokens.
+  After F05a the malicious side had none, so a bracket token would have become
+  a tell for the benign class.
+- No label words in any payload. 20 of the 89 malicious and evasion patterns
+  named themselves (`attacker.com`, `malicious-c2.ru`, `phishing-kit.ru`,
+  `/evil/loader.bin`, `/api/beacon`, `exploit via unicode normalization`); zero
+  benign payloads did. The same clean-up applies to the hand-written
+  evasion-proof suite (`attacker.com`, `rogue-001`, `/api/beacon`, and its
+  wave-2 wrapper "Execute a modified variant of tool").
+- Every host is a documentation-range address (RFC 5737), a private address, or
+  a reserved `.example` name. `23.92.222.88` and `8.8.8.8` were routable.
+- Scoring states are built exactly as production builds them (`ContextHygiene`,
+  then `JevTriageBackend.build_state`), not with the old `Tool/Request` wrapper.
+
+**The measurement.** Both releases requested by name (`JEV_MODEL`), two runs
+each, interleaved 1.13, 1.14, 1.13, 1.14 on 2026-11-13, from an empty cache,
+167 states, 668 live calls, 0 errors, every row served by the release asked for
+(`tests/eval/results/jev_runs_class_blind/`). The fixed 0.35/0.75 band was not
+changed.
+
+| Run 1 / run 2 | jev-1.13.0 | jev-1.14.0 |
+|---|---|---|
+| Accuracy, decided cases | 82.2% / 82.2% (FN 27 / 27) | 82.5% / 82.6% (FN 27 / 27) |
+| TP / FN / FP / TN | 57 / 27 / 0 / 68 both runs | 59 / 27 / 0 / 68 and 60 / 27 / 0 / 68 |
+| AUROC | 0.9959 / 0.9948 | 0.9934 / 0.9938 |
+| ECE (10-bin) | 0.193 / 0.193 | 0.191 / 0.191 |
+| Escalated to Tier-2 | 15 / 15 (9.0%) | 13 / 12 (7.8% / 7.2%) |
+| Highest benign P | 0.05 / 0.05 | 0.06 / 0.05 |
+| Run 1 against run 2, mean absolute change in P | 0.005 (0 zone changes) | 0.007 (1 zone change) |
+
+Against the ADR 0008 gates: **accuracy fails** (>= 98%), **ECE fails**
+(<= 0.10), AUROC passes (>= 0.95) and escalation passes (<= 25%). For
+comparison, the same releases scored 83.7% to 84.7% on the earlier
+production-shaped states that still carried placeholders (ADR 0008).
+
+**Reading it.**
+
+- **The ADR 0008 prediction was wrong.** It called 84.1% "a floor" that real
+  payloads would raise. They did not: this corpus scores about 2 points lower.
+  It is also a harder corpus, because the words that gave malicious cases away
+  are gone too, so the two causes are not separated here.
+- **There are no false alarms, and benign scores fell.** Highest benign P is
+  0.05 to 0.06, against 0.19 to 0.22 on the earlier states. That is consistent
+  with the placeholders having hurt the benign side as well.
+- **Jev ranks well and decides too little.** AUROC is 0.993 to 0.996, so almost
+  nearly every attack scores above every benign call; only 5 to 8 of the 99
+  attacks (depending on the run) score at or below the highest benign P. But 27 attacks score below the 0.35 lower edge of
+  the band and are allowed.
+- **The misses are concentrated and repeatable.** The 27 are the same cases in
+  both runs of a release, and 26 of them are shared between the two releases
+  (`malicious_cmd_001` is missed only by 1.13, `malicious_c2_004` only by 1.14).
+  12 to 13 of the 27 are C2 or IOC-type calls (a plain request to an odd host,
+  with no attack text in the call), the weak class ADR 0008 already names. Of
+  the other 14 to 15, 8 to 9 are shell-injection one-liners such as
+  `cat < /etc/passwd` and `echo \`id\``, and 2 each are SQL, path traversal and
+  other. Excluding the C2/IOC-type calls, decided accuracy is 89% to 90%. Threat intelligence is
+  the layer built for IOC-type calls, and these runs do not configure it.
+- **Band sweep, indicative only.** Moving the lower edge of the band from 0.35 to
+  about 0.08 to 0.10, with the upper edge at 0.40 to 0.50, raises decided
+  accuracy to between 91.9% and 95.2% (across the settings and the four runs) on
+  these same cases, with no false alarms and escalation of 9.6% to 12.6%. It was tuned on the
+  cases it is scored on, so it is a lead for a new spec amendment with fresh
+  labeled evidence (as the spec requires), not a result. The band is unchanged.
+- **Still not measured.** The tool name remains a tell: `execute_shell`,
+  `parse_xml`, `socket_connect`, `dns_query`, `download_file` and the two
+  `deserialize_*` tools occur only in the malicious class, and 26 `agent_*` and
+  `file_*` tools only in the benign class (TASK-F09). The hand-written
+  evasion-proof suite is 10 cases. Counts here are one corpus, two runs per
+  release.
+
+The pass also found that `ContextHygiene`'s API-key pattern matches `sk-` inside
+an ordinary hyphenated word once 10 or more characters follow
+(`disk-usage-report-12345` becomes `di[[OPENAI_API_KEY]]`; in the first draft of
+this corpus `computation_task-5531_result` was corrupted that way), a second
+over-match like the password one above. The corpus avoids it by value
+(`job-48213`), a test fails if a case's state is corrupted that way, and
+TASK-F08 now covers both.
 
 ### End to end with live Jev
 
@@ -218,15 +307,12 @@ Reading it:
    unseparated.** Whether text inside a tool call can steer the arbiter's
    verdict has not been measured. Tier-2's ALLOW is final unless aggregation
    already blocks, so this is the next place to look for a bypass.
-4. **Class-revealing wrapper template.** `scripts/build_evalset.py` writes a
-   different sentence template for benign, malicious and evasion cases
-   ("Execute a benign operation...", "Attempt malicious attack pattern...",
-   "Attempt evasive variant..."), so the wrapper text alone names the label
-   (ADR 0008, Open Item 10). The fix is one shared wrapper template used for
-   every case regardless of label — benign and malicious stay two classes,
-   told apart by their payload, not merged into one; the `ground_truth` field
-   keeps the label. TASK-F05 covers only the companion fix (payloads carry the
-   real attack text); the wrapper template itself is not changed here.
+4. **What the class-blind result implies.** *(Wrapper template and payloads:
+   done, see Verification.)* On the class-blind corpus the accuracy and ECE gates
+   fail at the fixed 0.35/0.75 band while AUROC is 0.99. Whether to move the
+   band, rely on threat intelligence for C2/IOC-type calls, or accept the
+   misses is not decided here (TASK-F10). The tool-name imbalance is also open
+   (TASK-F09).
 5. **Decision 6 under a real outage.** Both live runs had a Tier-2 that always
    answered. The QUARANTINE-on-no-verdict path has no live result.
 

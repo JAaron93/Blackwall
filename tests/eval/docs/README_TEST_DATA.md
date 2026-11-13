@@ -64,23 +64,17 @@ All test cases follow this standard JSON schema:
 }
 ```
 
-### Sanitization Markers
+### Values and Sanitization (updated 2026-11-13, ADR 0009, TASK-F05b)
+The datasets carry **real values**, not `[[MARKER]]` tokens: `user_id = 4821`,
+`region = 'eu-west'`, concrete attack syntax in the malicious and evasion cases,
+and RFC 5737 documentation-range or reserved `.example` hosts, so no payload
+points at live infrastructure. A bracket token in only one class would let a
+classifier read the class from it, so neither class has them.
 
-To ensure data hygiene and prevent context hallucination, all sensitive values are replaced with semantic markers:
-
-```
-[[SANITIZED_ID]]      - User/record identifiers
-[[AUTH_TOKEN]]        - Authentication credentials
-[[FILE_PATH]]         - File system paths
-[[IP_ADDRESS]]        - IP addresses
-[[DOMAIN_NAME]]       - Domain names
-[[REGION_NAME]]       - Geographic/cloud regions
-[[TIMESTAMP]]         - Temporal values
-[[ISO_TIMESTAMP]]     - ISO 8601 datetime
-[[SESSION_ID]]        - Session/correlation IDs
-[[AGENT_ID]]          - Agent names/identifiers
-[[RESOURCE_NAME]]     - Resource identifiers
-```
+Secrets are still redacted before a classifier sees them, but by
+`ContextHygiene` at scoring time, in both classes alike (e.g. a bearer token
+becomes `[[API_KEY]]` in the state sent to Jev), exactly as in production. The
+earlier hand-written `[[SANITIZED_ID]]`-style markers are retired.
 
 ## Tool Coverage
 

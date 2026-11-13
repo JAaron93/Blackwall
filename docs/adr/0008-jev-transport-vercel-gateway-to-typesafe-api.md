@@ -384,6 +384,9 @@ Tier-1 Jev calls the official TypeSafe AI API directly. Everything else in ADR
   mean of 0.026 and accuracy by under one point, so the state-shape difference is
   small next to the tells.
 
+  *(Amended 2026-11-13: the "floor" prediction below was tested and did not hold.
+  With real attack text, real benign values and no label words the class-blind
+  corpus scores 82.2% to 82.6%, not above 84.1%. See ADR 0009, Verification.)*
   Read the blinded figures as a floor and the original figures as a ceiling. Many
   malicious payloads were only a placeholder in the evalset (`SELECT * FROM users
   WHERE id = [[INJECTED_INPUT]]`), so once the name is neutral no attack text
@@ -513,19 +516,18 @@ Tier-1 Jev calls the official TypeSafe AI API directly. Everything else in ADR
    latency tail. With `gemini-3.5-flash-lite` at medium thinking no call hit the
    deadline in 93 (p90 3.1 s, max 8.4 s), which shrinks the problem but does not
    remove quota exhaustion.
-10. **Re-run TASK-D02 on class-blind states.** `scripts/build_evalset.py` writes
-    class-specific templates ("Execute a benign operation using tool", "Attempt
-    malicious attack pattern using tool ... attack_type=", "Attempt evasive variant
-    of <parent id>"). `neutralize()` removes the label words and leaves the
-    skeleton, which is why "Execute a operation" and "Attempt attack pattern"
-    survive. Verification now measures the effect (98.8% falls to 84.1% on blinded
-    states, a floor because many payloads were only a placeholder). The durable
-    fix has two parts: malicious payloads that contain the real attack text
-    instead of a placeholder standing in for it (above all — done 2026-11-13,
-    ADR 0009 TASK-F05a), and one shared wrapper template used for every case
-    regardless of label, with no `attack_type`/`evasion_type`/`obfuscation`
-    fields in the state (ADR 0009 TASK-F05b, not yet done). The shared template
-    does not merge benign and malicious into one class — they stay two,
-    distinguished by the payload template fills in, not by the wrapper's
-    wording. Then re-score. Until TASK-F05b lands, read the gate figures as
-    upper bounds and the evasion-proof suite as the realistic signal.
+10. **Re-run TASK-D02 on class-blind states.** *(Done 2026-11-13, ADR 0009
+    TASK-F05a and F05b.)* `scripts/build_evalset.py` wrote class-specific
+    templates ("Execute a benign operation using tool", "Attempt malicious attack
+    pattern using tool ... attack_type=", "Attempt evasive variant of <parent
+    id>"), and many malicious payloads were a placeholder instead of attack text.
+    The fix had two parts, both now made: real attack text in every malicious
+    payload (and real values in every benign one), and one shared prompt template
+    for every case regardless of label, with no `attack_type`/`evasion_type`/
+    `obfuscation` fields in the state. The shared template does not merge benign
+    and malicious into one class; they stay two, told apart by their payload.
+    Result: the earlier "floor" prediction did not hold. Decided accuracy on the
+    class-blind corpus is 82.2% to 82.6%, with the accuracy and ECE gates failing
+    and the AUROC and escalation gates passing (ADR 0009, Verification). The
+    committed `jev_triage_results.json` and `jev_runs/` remain the record of the
+    earlier corpus, whose figures are upper bounds for the reason above.

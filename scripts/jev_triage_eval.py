@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Run the Tier-1 Jev triage backend over Blackwall golden evalsets.
 
-Produces tests/eval/results/jev_triage_results.json — per-case Jev P(threat)
-records consumed by notebooks/benchmark_analytics.py and the Track-D
-acceptance gate (.kiro/specs/tier-1-jev-addition/).
+Produces tests/eval/results/jev_triage_results_class_blind.json — per-case Jev
+P(threat) records for the class-blind corpus (TASK-F05b, ADR 0009): one shared
+prompt template, real attack text and real benign values, and states built the
+way production builds them (ContextHygiene, then JevTriageBackend.build_state).
+The committed jev_triage_results.json and tests/eval/results/jev_runs/ are the
+TASK-D02 evidence behind ADR 0008, scored on the earlier corpus, and are left
+alone; pass --out explicitly if you really mean to replace one.
 
 Live calls to the official TypeSafe AI API (System One, ADR 0008); requires
 TYPESAFE_API_KEY in the environment (paid per-token billing) and Node 18+ for
@@ -42,24 +46,12 @@ INSTALL_DIR = Path.home() / ".cache" / "blackwall" / "jev-eval"
 NODE_RUNNER = REPO_ROOT / "scripts" / "jev_evaluate.mjs"
 
 
-# Ground-truth-bearing harness scaffolding that never appears in production
-# Tool/Arguments/Metadata states. Two precise patterns, nothing broader:
-# (1) standalone label words; (2) parent-case-ID references
-# (label_category_digits, e.g. malicious_sql_001). Payload placeholders
-# such as [[MALICIOUS_COMMAND]] match NEITHER pattern and are preserved —
-# erasing them would destroy the attack signal being measured.
-LABEL_STANDALONE_RE = re.compile(
-    r"\b(benign|malicious|evasion|evasive|evade|evading)\b", re.IGNORECASE
-)
-LABEL_CASEID_RE = re.compile(
-    r"\b(?:benign|malicious|evasion)(?:_[a-z]+)+_\d+\b", re.IGNORECASE
-)
-PROOF_TOOL_RE = re.compile(r"tool '([^']+)'")
-
-
-def neutralize(text: str) -> str:
-    scrubbed = LABEL_CASEID_RE.sub("", LABEL_STANDALONE_RE.sub("", text))
-    return re.sub(r"\s+", " ", scrubbed).strip()
+# The evasion-proof suite stores its prompt as "Execute tool 'X' with arguments:
+# {json}"; the security suite stores the same shape plus ``metadata.tool_arguments``.
+# Both are scored as production builds the state (TASK-F05b, ADR 0009): sanitize
+# the context, then ``JevTriageBackend.build_state``. No harness wrapper, no
+# label words and no ground-truth fields ever reach Jev.
+PROOF_PROMPT_RE = re.compile(r"^Execute tool '([^']+)' with arguments: (\{.*\})$", re.S)
 
 
 def user_text(case: dict) -> str:
@@ -89,18 +81,20 @@ def tool_name(case: dict) -> str:
 
 
 def build_cases(suites: list[str]) -> list[dict]:
+    from blackwall.models import ToolCallContext
+    from blackwall.policy.semantic import JevTriageBackend
     from blackwall.resolver import ContextHygiene
 
     # Production semantic triage preserves IOCs (URLs, IPs, paths) while
-    # redacting secrets — the eval MUST use the same mode.
+    # redacting secrets - the eval MUST use the same mode.
     hygiene = ContextHygiene(preserve_iocs=True)
 
-    def finalize(case_id: str, suite: str, tool: str, text: str,
+    def finalize(case_id: str, suite: str, tool: str, arguments: dict,
                  label: int, expected: str, scenario: str) -> dict:
-        # Production-shaped state: Tool + payload only. No Scenario line
-        # and no ground-truth-bearing words (neutralize()).
-        raw = f"Tool: {tool}\nRequest: {neutralize(text)}"
-        state = hygiene.sanitize_string(raw)
+        ctx = hygiene.sanitize_context(
+            ToolCallContext(tool_name=tool, arguments=arguments)
+        )
+        state = JevTriageBackend.build_state(ctx)
         return {
             "id": case_id,
             "suite": suite,
@@ -121,7 +115,7 @@ def build_cases(suites: list[str]) -> list[dict]:
             md = c.get("metadata", {})
             label = 1 if md.get("ground_truth") == "MALICIOUS" else 0
             cases.append(finalize(
-                c["eval_case_id"], "security", tool_name(c), user_text(c), label,
+                c["eval_case_id"], "security", tool_name(c), md["tool_arguments"], label,
                 c.get("expected_verdict", "BLOCK" if label else "ALLOW"),
                 md.get("scenario_type", ""),
             ))
@@ -130,12 +124,12 @@ def build_cases(suites: list[str]) -> list[dict]:
             (REPO_ROOT / "tests/eval/evalsets/blackwall_evasion_proof.evalset.json").read_text()
         )
         for c in proof["eval_cases"]:
-            text = user_text(c)
-            m = PROOF_TOOL_RE.search(text)
-            tool = m.group(1) if m else "database_query"
+            m = PROOF_PROMPT_RE.match(user_text(c))
+            if m is None:
+                raise ValueError(f"unrecognised evasion-proof prompt: {c.get('eval_id')}")
             cases.append(finalize(
-                c.get("eval_id", "proof"), "evasion_proof", tool, text,
-                1, "BLOCK", "evasion",
+                c.get("eval_id", "proof"), "evasion_proof", m.group(1),
+                json.loads(m.group(2)), 1, "BLOCK", "evasion",
             ))
     return cases
 
@@ -179,9 +173,12 @@ def build_records(raw: list[dict], cases: list[dict]) -> list[dict]:
     return records
 
 
-def main() -> int:
+def _parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Jev triage eval over golden evalsets")
-    ap.add_argument("--out", default="tests/eval/results/jev_triage_results.json")
+    # NOT jev_triage_results.json: that file is the committed TASK-D02 artifact behind
+    # ADR 0008 (scored on the earlier corpus). This scorer builds the class-blind
+    # corpus, so its default output is a different file (TASK-F05b, ADR 0009).
+    ap.add_argument("--out", default="tests/eval/results/jev_triage_results_class_blind.json")
     ap.add_argument("--limit", type=int, default=0, help="0 = all cases")
     ap.add_argument("--suites", nargs="+", default=["security", "evasion_proof"])
     ap.add_argument(
@@ -194,6 +191,11 @@ def main() -> int:
             "this flag the old release's rows are replayed and nothing is called"
         ),
     )
+    return ap
+
+
+def main() -> int:
+    ap = _parser()
     args = ap.parse_args()
 
     # The legacy AI_GATEWAY_API_KEY is deliberately not honored: a Vercel

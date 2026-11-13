@@ -74,6 +74,10 @@ weak spot and weaker than on 1.13 (mean P 0.70 to 0.63; `wave1_c2_beacon_001`
 still missed at P 0.19). Same-model reruns differ by up to 0.03 per case and
 changed zone in 3 of 167, so a second run of the same pass scored 98.8% (one
 more C2 beacon missed), one case above the 98% gate. See ADR 0008.
+*(2026-11-13: these figures are for the earlier corpus, whose states reveal their
+class. On the class-blind corpus decided accuracy is 82.2% to 82.6% and ECE is
+0.19, so those two gates fail while AUROC and escalation pass; see ADR 0009,
+Verification.)*
 
 ## Architecture Diagram
 

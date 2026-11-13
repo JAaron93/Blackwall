@@ -18,7 +18,7 @@ This directory contains documentation for Task 20 (Create comprehensive test dat
 
 **Key Points**:
 - ✅ 59 malicious test cases (11 attack categories)
-- ✅ Reference-based approach (CWE/CVE IDs, pseudocode patterns, external references)
+- ✅ Reference-based approach (CWE/CVE IDs, external references). *Superseded 2026-11-13 (ADR 0009, TASK-F05): `attack_pattern` is now concrete published syntax, not pseudocode with `[[PLACEHOLDER]]` tokens; see `README_MALICIOUS.md`.*
 - ✅ All cases include attack patterns, tool names, expected verdicts, and severity levels
 - ✅ No functional exploit code stored (safe for public distribution)
 - ✅ Suffices and is optimal for security evaluation metrics reporting

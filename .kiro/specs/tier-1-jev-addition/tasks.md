@@ -134,7 +134,8 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   > class-revealing text (a prefix test alone classifies all 157 correctly).
   > Re-scoring the same cases with the tells removed gives 84.1% accuracy and
   > 13% escalation for `jev-1.14.0` (98.8% and 2 to 3% with them), so the figures
-  > above are a ceiling and the blinded ones a floor; the evasion-proof suite
+  > above are a ceiling and the blinded ones a floor (*amended 2026-11-13: the
+  > floor prediction did not hold, see TASK-F05b*); the evasion-proof suite
   > (8 blocked, 1 to 2 missed) is the only tell-free evidence. Pinned reruns of
   > `jev-1.13.0` and `jev-1.14.0` (two each) show 1.14 is not an improvement on
   > this suite and escalate 3 of 167 (so read the 3.0% above as 2 to 3%). The
@@ -210,15 +211,35 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   malicious remain two classes, told apart by payload — this does not merge or
   rename them, and does not touch the wrapper template. Figures in ADR 0009,
   Verification. Tests: `tests/unit/test_golden_evalset_no_placeholders.py`.
-* [ ] **TASK-F05b: One shared wrapper template** (ADR 0008 OI10, ADR 0009 OI4).
-  `scripts/build_evalset.py` still writes a different sentence template per
-  label ("Execute a benign operation...", "Attempt malicious attack
-  pattern..."), which is what lets a classifier read the class from the
-  wrapper. Use one template for every case regardless of label (the
-  `ground_truth` field keeps the label), and drop `attack_type` /
-  `evasion_type` / `obfuscation` from the state text. Then re-score both Jev
-  releases and update the gate figures. Needs a live Jev key to re-score.
+* [x] **TASK-F05b: One shared wrapper template, and the re-score** (ADR 0008
+  OI10, ADR 0009). Done 2026-11-13. One prompt template for every case, the same
+  argument keys per tool in both classes, `attack_type`/`evasion_type`/
+  `obfuscation` and the parent id moved out of the text into `metadata`, real
+  values in all 53 benign placeholders, no label words or routable addresses in
+  any payload, and production-shaped scoring states. Both releases re-scored,
+  two runs each, interleaved (668 live calls, 0 errors): decided accuracy
+  82.2% to 82.6%, ECE 0.19 (both gates FAIL), AUROC 0.993 to 0.996 and
+  escalation 7% to 9% (both pass); no false alarms. Benign and malicious stay
+  two classes. Figures and caveats: ADR 0009, Verification. Tests:
+  `tests/unit/test_class_blind_evalset.py`,
+  `tests/unit/test_jev_class_blind_runs_data.py`.
   Dependencies: TASK-F05a.
+* [ ] **TASK-F09: Balance the tool names across classes** (ADR 0009, Verification).
+  `execute_shell`, `parse_xml`, `socket_connect`, `dns_query`, `download_file`
+  and the two `deserialize_*` tools appear only in malicious cases, and 26
+  `agent_*`/`file_*` tools only in benign ones, so the tool name is still a tell.
+  Add benign cases for the malicious-only tools (and malicious ones for the
+  shared tools) test-first, re-score, and record the effect. Needs a live Jev key.
+  Dependencies: TASK-F05b.
+* [ ] **TASK-F10: Decide what to do about the failed accuracy and ECE gates**
+  (ADR 0009 OI4). On the class-blind corpus AUROC is 0.99 but 27 of 99 attacks
+  fall below the 0.35 lower band edge (12 to 13 are C2/IOC-type calls). Options:
+  a lower band edge (an indicative sweep reached 91.9% to 95.2% on the cases it
+  was tuned on, so it needs fresh labeled evidence), threat intelligence for the
+  IOC-type calls, or accepting the misses. Any band change is a spec amendment
+  with a same-change sync of `AGENTS.md`, `.agents/rules/` and `.greptile/`.
+  Needs a maintainer decision first.
+  Dependencies: TASK-F09.
 * [ ] **TASK-F06: Decide whether a clear-high Jev P alone may BLOCK** (ADR 0008
   OI8). Commit `176ad80` made it a kept invariant (rule 106). A clear-high score
   that cannot BLOCK is why Tier-2 availability matters so much. This is a
@@ -236,6 +257,13 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   Needs a regex that requires something credential-shaped after the keyword
   (a quoted string, or a value with no SQL/shell keyword characters), with a
   regression test using a column literally named `password`.
+  A second over-match was found during TASK-F05b: the `sk-` API-key pattern
+  matches inside ordinary hyphenated words once 10 or more characters follow, so
+  `disk-usage-report-12345` becomes `di[[OPENAI_API_KEY]]` and
+  `computation_task-5531_result` became `computation_ta[[OPENAI_API_KEY]]` (the
+  corpus avoids it with a different value, and a test fails if a state is
+  corrupted that way). The same fix should anchor `sk-` to a
+  word boundary and add a regression test for it.
 ## Execution Order
 
 `A01 → (A02 + B01) → (B02 + B03 + C01) → C02 → D01 → D02 → D03 → D04 → E01 → E02 → E03 → E04 → E05`; Track F items are independent except where a

@@ -49,7 +49,7 @@ Each test case is a JSON object with the following required fields:
   "cwe_id": "CWE-89",
   "cwe_url": "https://cwe.mitre.org/data/definitions/89.html",
   "description": "SQL injection via boolean-based OR condition",
-  "attack_pattern": "SELECT * FROM users WHERE id = [[INJECTED_INPUT]]",
+  "attack_pattern": "SELECT * FROM users WHERE id = 1 OR 1=1",
   "injection_technique": "boolean-based OR (1=1)",
   "tool_name": "database_query",
   "parameter_name": "user_id",

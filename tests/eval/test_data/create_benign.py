@@ -1,4 +1,16 @@
 #!/usr/bin/env python3
+import sys
+
+# RETIRED (TASK-F05b, ADR 0009). tests/eval/test_data/benign_cases.json is now the
+# source of truth: its 53 [[PLACEHOLDER]] values were replaced with real ones so
+# "contains a bracket token" cannot tell benign from malicious. This script
+# writes that file from literals that still contain the placeholders, so running
+# it would silently undo the fix. Edit benign_cases.json directly instead.
+sys.exit(
+    "create_benign scripts are retired (TASK-F05b, ADR 0009): edit "
+    "tests/eval/test_data/benign_cases.json directly; this script would "
+    "reintroduce [[PLACEHOLDER]] tokens."
+)
 import json
 
 benign_cases = [
