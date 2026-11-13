@@ -1122,13 +1122,20 @@ class GeminiTier2Backend:
         self.model = model
         self.timeout = timeout
 
+    @property
+    def available(self) -> bool:
+        """True when the client can send a request. ``escalate`` returns None
+        without sending one otherwise, so callers check this before they spend
+        rate-limit budget or count a call."""
+        return bool(self.client) and (
+            hasattr(self.client, "models")
+            or (hasattr(self.client, "aio") and hasattr(self.client.aio, "models"))
+        )
+
     async def escalate(
         self, context: ToolCallContext, tier1: SemanticTriageResult
     ) -> Optional[Tier2EscalationVerdict]:
-        if not self.client or not (
-            hasattr(self.client, "models")
-            or (hasattr(self.client, "aio") and hasattr(self.client.aio, "models"))
-        ):
+        if not self.available:
             return None
         try:
             from google.genai import types

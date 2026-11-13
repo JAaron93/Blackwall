@@ -60,8 +60,10 @@ organization limit, ADR 0008) it throttled the path that Vertex does not bound.
    guards every evaluation. A separate 300 RPM bucket (capacity 300, refill 5/s)
    is consumed immediately before a Tier-2 Vertex call. An empty Tier-2 bucket is
    one way Tier-2 can be unavailable; Decision 6 says what happens then.
-   `tier2_calls` counts only calls that reached Vertex; skipped calls are counted
-   in `tier2_rate_limit_hits`.
+   `tier2_calls` counts only calls that reached Vertex. A call skipped because
+   the bucket was empty is counted in `tier2_rate_limit_hits`. A call skipped
+   because there is no Gemini client that can send a request spends no token and
+   is counted in neither; its verdict reasoning says "no client".
 6. **A Tier-2 that fired and returned no verdict QUARANTINEs an ALLOW** (resolves
    ADR 0008, Open Item 9). "No verdict" covers an empty Tier-2 bucket, a deadline
    miss, a malformed answer, a Vertex error or 429, and a missing Gemini client.
@@ -99,6 +101,41 @@ organization limit, ADR 0008) it throttled the path that Vertex does not bound.
 - Enabling triage without a Gemini client means Tier-2 cannot run, so every
   ambiguity-band call is QUARANTINEd.
 
+## Verification
+
+`scripts/jev_tier2_eval.py forced`, run live on 2026-11-13 at commit `c71d2b1`
+(billed to the default gcloud project, application default credentials,
+`gemini-3.5-flash-lite` at the pinned medium level, concurrency 2, no Jev key
+involved). Inputs: the 93 forced cases, with the production-shaped Jev P from
+`jev-1.14.0` in the prompt. Figures are from one run.
+
+| Measure | Result |
+|---|---|
+| Calls answered / abstained / deadline misses | 93 / 0 / 0 |
+| C2 cases BLOCKed | 10 of 10 |
+| Other evasion-proof cases BLOCKed | 8 of 8 |
+| Benign cases BLOCKed | 3 of 68 (4.4%); ADR 0008 measured 1 of 68 at medium |
+| Authored malicious probes BLOCKed | 1 of 4 |
+| Latency, median / p95 / max | 2.3 s / 3.3 s / 5.9 s |
+
+Reading it:
+
+- The latency and zero deadline misses repeat ADR 0008 (median 2.2 s there).
+- The three benign BLOCKs all cite an unresolved placeholder or template variable
+  in the input, which is a data artifact (ADR 0008, Open Item 10), not a measured
+  property of the model. With 68 benign cases the interval around 3 versus 1 is
+  wide, so this is not evidence of a regression.
+- The one malicious probe BLOCKed is the one that carries tell-tale text
+  (`/api/beacon`, `rogue-001`). The three C2 probes without tells were ALLOWed
+  with score 0.05, as were their benign twins: on these inputs Tier-2 cannot tell
+  a C2 check-in from a heartbeat once the text that labels it is gone. That is
+  the weak class ADR 0008 already names, and it is why a Tier-2 ALLOW is final
+  only when aggregation does not block.
+
+**Not verified:** `scripts/jev_tier2_eval.py e2e` was not run. It needs
+`TYPESAFE_API_KEY`, and the tool environment blocked reading that key, so the
+real-Jev path through `SyncResolver` has no live result yet (TASK-F01).
+
 ## Open Items
 
 1. **Availability cost of Decision 6.** While Tier-2 is unavailable, benign calls
@@ -118,8 +155,8 @@ organization limit, ADR 0008) it throttled the path that Vertex does not bound.
 4. **Class-specific templates.** `scripts/build_evalset.py` writes different
    wording for benign and malicious cases (ADR 0008, Open Item 10). Not changed
    here.
-5. **Live verification of the harness.** `scripts/jev_tier2_eval.py` is covered
-   by unit tests only; its live path has not been run since it was committed.
+5. **Live verification of the `e2e` subcommand.** `forced` has a live result
+   (Verification above). `e2e` has not been run live.
 
 Items 1 to 5 are tracked as tasks in `.kiro/specs/tier-1-jev-addition/tasks.md`
 (Track F).

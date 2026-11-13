@@ -985,6 +985,15 @@ class SyncResolver:
             trigger = "disagreement"
         if trigger is None:
             return None
+        if not getattr(self.tier2_backend, "available", True):
+            # No request can be sent, so no token is spent and no call is
+            # counted; evaluate() still QUARANTINEs an ALLOW (ADR 0009).
+            logger.warning(
+                "Tier-2 escalation triggered (%s) but no Gemini client can send "
+                "a request — QUARANTINE unless the aggregate blocks",
+                trigger,
+            )
+            raise _Tier2Unavailable("no client")
         if not await self._tier2_rate_limiter.consume(1.0):
             # Not an abstention: see 5d in evaluate().
             self.tier2_rate_limit_hits += 1

@@ -410,6 +410,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         p.add_argument("--limit", type=int, default=0, help="first N cases only (smoke)")
     args = parser.parse_args(argv)
 
+    # Numeric flags are checked before anything else: Semaphore(0) would admit
+    # no case and wait forever.
+    problems = []
+    if args.concurrency < 1:
+        problems.append("--concurrency must be at least 1")
+    if args.limit < 0:
+        problems.append("--limit must be 0 (no limit) or more")
+    if args.command == "forced" and args.timeout <= 0:
+        problems.append("--timeout must be greater than 0")
+    if problems:
+        print("error: " + "; ".join(problems), file=sys.stderr)
+        return 2
+
     if _project() is None:
         print("error: set GCP_PROJECT (or GOOGLE_CLOUD_PROJECT) to a Vertex project", file=sys.stderr)
         return 2

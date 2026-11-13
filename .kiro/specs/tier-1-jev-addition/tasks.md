@@ -173,17 +173,20 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   Tests: `tests/unit/test_sync_resolver_rate_limits.py`,
   `tests/unit/test_tier2_escalation.py`.
 * [x] **TASK-E04: Live Tier-2 harness.** `scripts/jev_tier2_eval.py` (`forced`,
-  `e2e`). Unit-tested; the live path has not been run since it was committed.
+  `e2e`). Unit-tested. `forced` was run live on 2026-11-13 (ADR 0009,
+  Verification); `e2e` has not been run live (see TASK-F01).
 * [x] **TASK-E05: Same-change sync** of `AGENTS.md`, `.agents/rules/` and
   `.greptile/` (constitution 6.4). Approved by the maintainer 2026-11-13 and applied.
 ## Track F — Open work from ADR 0008 and ADR 0009
 Each item below is open. Every one that changes behavior starts with a failing
 test (repo TDD gate); every one that needs a live key or Vertex budget follows
 testing rule 74 (never simulated, deferred in this file until it can run).
-* [ ] **TASK-F01: Run the Tier-2 harness live** (ADR 0009 OI5; NFR-05). A
-  3-call `forced` smoke, then `forced` over the 93 inputs and `e2e` over the 167
-  cases; record the figures in ADR 0009 and compare them with ADR 0008.
-  Needs `GCP_PROJECT`, Vertex budget and `TYPESAFE_API_KEY`.
+* [ ] **TASK-F01: Run `e2e` live** (ADR 0009 OI5; NFR-05). `forced` is done
+  (2026-11-13, ADR 0009 Verification). Remaining: a 3-case `e2e` smoke, then
+  `e2e` over the 167 cases, with and without `policy.yaml`; record the figures in
+  ADR 0009 and compare them with ADR 0008. Needs `GCP_PROJECT`, Vertex budget and
+  `TYPESAFE_API_KEY` exported by the operator (an agent session may not be
+  allowed to read the key).
   Dependencies: TASK-E04.
 * [ ] **TASK-F02: Measure, then harden, Tier-2 against steering by tool-call
   text** (ADR 0009 OI3). The arbiter prompt interpolates tool name, arguments and

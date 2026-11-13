@@ -236,3 +236,31 @@ def test_harness_never_reads_credential_files_or_the_legacy_key():
     source = SCRIPT.read_text(encoding="utf-8")
     for needle in ("dotenv", "open(\".env", "AI_GATEWAY_API_KEY", "read_text(\".env"):
         assert needle not in source, needle
+
+
+# --------------------------------------------- numeric flags are validated first
+@pytest.mark.parametrize("command", ["forced", "e2e"])
+@pytest.mark.parametrize(
+    "flag,value",
+    [
+        ("--concurrency", "0"),  # asyncio.Semaphore(0) would never admit a case
+        ("--concurrency", "-1"),
+        ("--timeout", "0"),
+        ("--timeout", "-5"),
+        ("--limit", "-1"),
+    ],
+)
+def test_nonpositive_numeric_flags_are_rejected_before_any_client(
+    harness, monkeypatch, capsys, command, flag, value
+):
+    if command == "e2e" and flag == "--timeout":
+        pytest.skip("--timeout belongs to forced")
+    monkeypatch.setenv("GCP_PROJECT", "some-project")
+    monkeypatch.setenv("TYPESAFE_API_KEY", "test-key")
+
+    def _no_client(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("no client may be built for an invalid flag")
+
+    monkeypatch.setattr(harness, "get_genai_client", _no_client)
+    assert harness.main([command, flag, value]) == 2
+    assert flag in capsys.readouterr().err

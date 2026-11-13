@@ -139,3 +139,40 @@ async def test_tier2_exhaustion_does_not_quarantine_unrelated_calls():
     resolver._tier2_rate_limiter = TokenBucketRateLimiter(capacity=0.0, refill_rate=0.0)
     verdict = await resolver.evaluate(_benign_context())
     assert verdict.decision != VerdictDecision.QUARANTINE
+
+
+# ----------------------------------------------------------------------
+# A Tier-2 that cannot send a request spends nothing (Greptile, PR 202)
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("client", [None, object()], ids=["no-client", "no-models"])
+async def test_tier2_without_a_usable_client_spends_no_token_and_counts_no_call(client):
+    resolver = SyncResolver(client=client, enable_semantic_triage=True)
+    resolver._semantic_provider = _StubTier1(_in_band(0.51))
+    before = resolver._tier2_rate_limiter.tokens
+    verdict = await resolver.evaluate(_beacon_context())
+    assert verdict.decision == VerdictDecision.QUARANTINE  # fail closed is kept
+    assert "no client" in verdict.reasoning
+    assert resolver.tier2_calls == 0  # nothing reached Vertex
+    assert resolver.tier2_rate_limit_hits == 0
+    assert resolver._tier2_rate_limiter.tokens == pytest.approx(before, abs=0.5)
+
+
+@pytest.mark.asyncio
+async def test_a_usable_client_still_spends_one_token_and_counts_one_call():
+    client = _tier2_client(decision="BLOCK", threat_score=0.9)
+    resolver = _resolver(_StubTier1(_in_band(0.51)), client)
+    resolver._tier2_rate_limiter = TokenBucketRateLimiter(capacity=5.0, refill_rate=0.0)
+    await resolver.evaluate(_beacon_context())
+    assert resolver.tier2_calls == 1
+    assert resolver._tier2_rate_limiter.tokens == pytest.approx(4.0)
+
+
+def test_backend_reports_whether_it_can_send_a_request():
+    from blackwall.policy.semantic import GeminiTier2Backend
+
+    assert GeminiTier2Backend(None).available is False
+    assert GeminiTier2Backend(object()).available is False
+    assert GeminiTier2Backend(MagicMock()).available is True
