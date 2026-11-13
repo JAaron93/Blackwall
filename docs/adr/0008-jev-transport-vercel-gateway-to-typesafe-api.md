@@ -402,8 +402,11 @@ Tier-1 Jev calls the official TypeSafe AI API directly. Everything else in ADR
   reproduces on `main`; 1 is a wall-clock test that flakes under load. Since then
   only the results artifact and documentation changed.
 ## Open Items
-1. **Repeat TASK-D02 after each TypeSafe release behind `jev-latest`.** The band
-   is fixed and the model is not (Decision 7). Recalibration, if a run warrants
+1. **Repeat TASK-D02 after each TypeSafe release behind `jev-latest`, with
+   `--fresh`.** Resume is keyed on the requested model, which the alias never
+   changes, so a plain re-run replays the old release's cached rows and calls
+   nothing (found in review of this PR; `scripts/jev_triage_eval.py --fresh`
+   discards the cache). The band is fixed and the model is not (Decision 7). Recalibration, if a run warrants
    it, needs its own spec amendment with fresh labeled evidence.
 2. **The pipeline's Rate Check, not Jev, is the throughput limit, and Tier-2 has
    no limiter of its own.** `SyncResolver.evaluate()` begins with a hard-coded

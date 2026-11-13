@@ -12,6 +12,7 @@ execute ``node`` or touch the network (testing rule 61).
 import importlib.util
 import re
 import sys
+import types
 from pathlib import Path
 from typing import Any
 
@@ -162,3 +163,61 @@ def test_question_wording_is_identical_in_python_and_node():
     assert match is not None, "IS_THREAT_INSTRUCTIONS constant not found"
     assert match.group(1) == JEV_IS_THREAT_QUESTION["instructions"]
     assert JEV_IS_THREAT_QUESTION["type"] == "noul"
+
+
+# --------------------------------------------------------------- --fresh (Greptile P1, PR 201)
+
+
+def _run_main_with_fake_helper(
+    eval_module: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Any, extra_args: list[str]
+) -> dict[str, Any]:
+    """Run ``main()`` with the Node helper replaced by a fake that records what
+    the raw-row cache looked like when the helper started. No process, no network."""
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    raw = cache / "jev_raw_systemone.json"
+    raw.write_text('[{"marker": "cached-from-an-older-release"}]')
+    gateway_copy = cache / "jev_raw.json"
+    gateway_copy.write_text('[{"marker": "gateway-era"}]')
+    monkeypatch.setattr(eval_module, "INSTALL_DIR", cache)
+    monkeypatch.setenv("TYPESAFE_API_KEY", "test-key")
+    seen: dict[str, Any] = {"calls": 0}
+
+    def _fake_run(cmd: list[str], cwd: Any = None, **kwargs: Any) -> Any:
+        seen["calls"] += 1
+        helper_raw = Path(cmd[-1])
+        seen["raw_existed"] = helper_raw.exists()
+        seen["raw_text"] = helper_raw.read_text() if helper_raw.exists() else None
+        helper_raw.write_text("[]")
+        return types.SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(eval_module.subprocess, "run", _fake_run)
+    out = tmp_path / "out.json"
+    monkeypatch.setattr(
+        sys, "argv",
+        ["jev_triage_eval.py", "--limit", "2", "--out", str(out), *extra_args],
+    )
+    assert eval_module.main() == 0
+    seen["gateway_copy_intact"] = gateway_copy.read_text() == '[{"marker": "gateway-era"}]'
+    return seen
+
+
+def test_default_run_resumes_from_the_cached_raw_rows(eval_module, monkeypatch, tmp_path):
+    """Crash recovery: without --fresh the helper sees the cache and skips done cases."""
+    seen = _run_main_with_fake_helper(eval_module, monkeypatch, tmp_path, [])
+    assert seen["calls"] == 1
+    assert seen["raw_existed"] is True
+    assert "cached-from-an-older-release" in seen["raw_text"]
+
+
+def test_fresh_discards_cached_rows_so_a_new_release_is_actually_called(
+    eval_module, monkeypatch, tmp_path
+):
+    """``jev-latest`` is a moving alias and the resume key is the requested model, so
+    after TypeSafe ships a release the cache would replay the old release's
+    probabilities and call nothing. --fresh starts the helper with no cached rows."""
+    seen = _run_main_with_fake_helper(eval_module, monkeypatch, tmp_path, ["--fresh"])
+    assert seen["calls"] == 1
+    assert seen["raw_existed"] is False
+    # Only the current raw cache is discarded; the Gateway-era copy is never touched.
+    assert seen["gateway_copy_intact"] is True

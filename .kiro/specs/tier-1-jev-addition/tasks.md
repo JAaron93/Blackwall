@@ -112,8 +112,9 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   the A/B gates (accuracy ≥98%, AUROC ≥0.95, ECE ≤0.10, escalation ≤25%).
   Record the results, the served release (`model` field) and the Tier-2 fire
   rate. The 2026-09-19 figures (100% / 1.0 / 0.028 / 0%) are historical context,
-  not the pass criteria. Re-run after TypeSafe ships a release behind
-  `jev-latest`, since the band is fixed and the model is not.
+  not the pass criteria. Re-run with `--fresh` after TypeSafe ships a release
+  behind `jev-latest` (the resume cache would otherwise replay the old rows),
+  since the band is fixed and the model is not.
   Dependencies: TASK-C02, TASK-D01. Requires `TYPESAFE_API_KEY` (paid). Never
   simulated (testing rules, Live Paid-Credential Acceptance Gates).
   > **Done 2026-11-12** (commit `426166d`; 167 live calls, 0 errors, every row

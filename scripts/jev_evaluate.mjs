@@ -109,23 +109,43 @@ function readConfig(env = process.env) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// `cfg.fetch` and `cfg.sleep` exist so tests can observe the response lifecycle
+// without a socket or a real delay; production config never sets them.
 const post = (cfg, body) =>
-  fetch(endpointFor(cfg.baseUrl), {
+  (cfg.fetch ?? fetch)(endpointFor(cfg.baseUrl), {
     method: 'POST',
     headers: { Authorization: `Bearer ${cfg.key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(cfg.timeoutMs),
   });
 
-async function ask(cfg, state, instructions) {
+/**
+ * Release an error response's connection. An unread fetch body keeps its socket
+ * busy until it is garbage collected (undici), so a long batch that keeps
+ * hitting 429/529 would pile up open connections. The body of a failed call is
+ * never needed, so cancelling is enough.
+ */
+export async function drain(response) {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // already consumed or locked: nothing is left to release
+  }
+}
+
+export async function ask(cfg, state, instructions) {
   const body = buildRequestBody({ model: cfg.model, state, instructions });
   let response = await post(cfg, body);
   if (isRetryableStatus(response.status)) {
+    await drain(response);
     console.error(`HTTP ${response.status}, retrying once in ${RETRY_DELAY_MS}ms`);
-    await sleep(RETRY_DELAY_MS);
+    await (cfg.sleep ?? sleep)(RETRY_DELAY_MS);
     response = await post(cfg, body);
   }
-  if (!response.ok) throw new ApiError(response.status, `HTTP ${response.status}`, response.headers);
+  if (!response.ok) {
+    await drain(response);
+    throw new ApiError(response.status, `HTTP ${response.status}`, response.headers);
+  }
   const parsed = parseSystemOne(await response.json());
   if (parsed.p === null) throw new ApiError(200, 'malformed System One payload', null);
   return parsed;

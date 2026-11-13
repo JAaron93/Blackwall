@@ -20,6 +20,8 @@ fallback — re-running the script fills in just those rows.
 Usage:
   TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py
   TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py --limit 10
+  # after TypeSafe ships a release behind jev-latest (resume would replay old rows):
+  TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py --fresh
 """
 
 from __future__ import annotations
@@ -182,6 +184,16 @@ def main() -> int:
     ap.add_argument("--out", default="tests/eval/results/jev_triage_results.json")
     ap.add_argument("--limit", type=int, default=0, help="0 = all cases")
     ap.add_argument("--suites", nargs="+", default=["security", "evasion_proof"])
+    ap.add_argument(
+        "--fresh",
+        action="store_true",
+        help=(
+            "discard the cached raw rows and call the API for every case. Use it "
+            "after TypeSafe ships a release behind jev-latest: resume is keyed on "
+            "the requested model, and the alias name does not change, so without "
+            "this flag the old release's rows are replayed and nothing is called"
+        ),
+    )
     args = ap.parse_args()
 
     # The legacy AI_GATEWAY_API_KEY is deliberately not honored: a Vercel
@@ -202,6 +214,9 @@ def main() -> int:
     # rather than overwritten by a first-party-API run.
     raw_out = INSTALL_DIR / "jev_raw_systemone.json"
     work.write_text(json.dumps(cases, indent=1))
+    if args.fresh:
+        raw_out.unlink(missing_ok=True)
+        print("fresh run: cached raw rows discarded", file=sys.stderr)
 
     proc = subprocess.run(
         ["node", str(NODE_RUNNER), "batch", str(work), str(raw_out)],

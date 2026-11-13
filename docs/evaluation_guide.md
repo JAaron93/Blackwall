@@ -172,15 +172,20 @@ The Tier-1 Jev classifier (TypeSafe Jev via the official TypeSafe AI API, govern
 # zero-dependency helper (scripts/jev_evaluate.mjs); there is no npm install step.
 # States are ContextHygiene-sanitized; request bodies carry only model/state/questions.
 TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py
-# Options: --limit N (subset), --suites security evasion_proof
+# Options: --limit N (subset), --suites security evasion_proof, --fresh
 # The model is the jev-latest alias, deliberately unpinned (ADR 0008): it moves
-# when TypeSafe ships a release, so re-run after one. Calls run back to back; a
-# throttled call is retried once, and rows that still fail are recorded as
-# is_fallback — re-running fills in just those rows.
+# when TypeSafe ships a release, so re-run after one WITH --fresh:
+TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py --fresh
+# Resume is keyed on the requested model, which the alias never changes, so a
+# plain re-run replays the old release's cached rows and calls nothing. To score
+# a specific release, set JEV_MODEL=<release> (a different requested model never
+# reuses rows). Calls run back to back; a throttled call is retried once, and
+# rows that still fail are recorded as is_fallback — re-running (without --fresh)
+# fills in just those rows.
 # Helper contract tests (no network): node --test scripts/jev_evaluate.test.mjs
 ```
 
-This writes `tests/eval/results/jev_triage_results.json` — one record per case (`eval_case_id`, `p_threat`, `backend`, `model`, `latency_ms`, token usage). `model` is the Jev release that actually answered, so results stay attributable under the moving `jev-latest` alias. Runs checkpoint and resume safely; re-running after fixture changes re-evaluates only changed cases (resume is keyed on content hash **and** the requested model, so rows from a different model or from the pre-ADR-0008 Vercel Gateway are never reused). Raw rows live in `~/.cache/blackwall/jev-eval/jev_raw_systemone.json`; any older `jev_raw.json` there is the Gateway-era copy and is left untouched.
+This writes `tests/eval/results/jev_triage_results.json` — one record per case (`eval_case_id`, `p_threat`, `backend`, `model`, `latency_ms`, token usage). `model` is the Jev release that actually answered, so results stay attributable under the moving `jev-latest` alias. Runs checkpoint and resume safely; re-running after fixture changes re-evaluates only changed cases (resume is keyed on content hash **and** the requested model, so rows from a different model or from the pre-ADR-0008 Vercel Gateway are never reused). Resume exists for interrupted runs; pass `--fresh` to discard the cache and re-score every case, which is what a new release behind `jev-latest` needs. Raw rows live in `~/.cache/blackwall/jev-eval/jev_raw_systemone.json`; any older `jev_raw.json` there is the Gateway-era copy and is left untouched.
 
 ### Inspecting results
 

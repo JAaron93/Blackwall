@@ -29,6 +29,8 @@ import {
   RETRY_DELAY_MS,
   reusableRows,
   resumeKey,
+  ask,
+  drain,
 } from './jev_evaluate.mjs';
 
 const HELPER = join(dirname(fileURLToPath(import.meta.url)), 'jev_evaluate.mjs');
@@ -319,4 +321,82 @@ test('batch: a row from the same model is reused without any API call', async ()
   } finally {
     await api.close();
   }
+});
+
+// ------------------------------------------- error responses release their body
+
+/** A Response whose body reports when it is cancelled (Greptile P2, PR 201). */
+function spyResponse(status, onCancel) {
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('{"message":"error"}'));
+      controller.close(); // a finished body can be read to the end; an unread one is still cancellable
+    },
+    cancel() {
+      onCancel();
+    },
+  });
+  return new Response(body, { status, headers: { 'content-type': 'application/json' } });
+}
+
+const stubConfig = (fetchImpl) => ({
+  key: 'k',
+  baseUrl: 'http://unused.invalid',
+  model: 'jev-latest',
+  timeoutMs: 1000,
+  fetch: fetchImpl,
+  sleep: async () => {},
+});
+
+test('drain cancels an unread body and tolerates a consumed or absent one', async () => {
+  let cancelled = 0;
+  await drain(spyResponse(429, () => cancelled++));
+  assert.equal(cancelled, 1);
+
+  const consumed = spyResponse(529, () => cancelled++);
+  await consumed.text();
+  await drain(consumed); // must not throw
+  await drain(new Response(null, { status: 529 })); // no body at all
+  assert.equal(cancelled, 1);
+});
+
+test('ask releases the throttled response before retrying and the failing one before throwing', async () => {
+  const cancelled = [];
+  const replies = [
+    spyResponse(429, () => cancelled.push('first')),
+    spyResponse(429, () => cancelled.push('second')),
+  ];
+  let cancelledBeforeRetry = null;
+  const cfg = stubConfig(async () => {
+    if (replies.length === 1) cancelledBeforeRetry = [...cancelled];
+    return replies.shift();
+  });
+  await assert.rejects(ask(cfg, 'Tool: t', null), /HTTP 429/);
+  assert.deepEqual(cancelledBeforeRetry, ['first'], 'the first body is released before the retry');
+  assert.deepEqual(cancelled, ['first', 'second']);
+});
+
+test('ask releases a non-retryable error response too', async () => {
+  const cancelled = [];
+  const cfg = stubConfig(async () => spyResponse(401, () => cancelled.push('only')));
+  await assert.rejects(ask(cfg, 'Tool: t', null), /HTTP 401/);
+  assert.deepEqual(cancelled, ['only']);
+});
+
+test('ask returns the parsed answer for a 200 without touching the cancel path', async () => {
+  const cancelled = [];
+  const cfg = stubConfig(async () => {
+    const body = JSON.stringify({
+      model: 'jev-1.14.0',
+      answers: { is_threat: { type: 'noul', noul: 0.31 } },
+      usage: { input_tokens: 7, output_tokens: 1 },
+    });
+    const res = new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+    res.cancelled = () => cancelled.push('ok');
+    return res;
+  });
+  const out = await ask(cfg, 'Tool: t', null);
+  assert.equal(out.p, 0.31);
+  assert.equal(out.servedModel, 'jev-1.14.0');
+  assert.deepEqual(cancelled, []);
 });
