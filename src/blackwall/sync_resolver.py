@@ -1,12 +1,13 @@
 """
-sync_resolver.py — Synchronous single-request resolver (100% GCP Vertex AI 300 RPM Mode).
+sync_resolver.py — Synchronous single-request resolver (Jev Tier-1, Vertex AI Tier-2).
 
 Uses client.models.generate_content() (NOT interactions.create()).
 Single-request synchronous evaluation resolver for inline tool-call gating.
-Rate limited to 300 RPM via a token bucket (capacity=300, refill=5.0/s) under 100% GCP Vertex AI Mode.
+Rate limited by two token buckets: 80 req/s on every evaluation (Jev org limit) and
+300 RPM (5.0/s) on the Tier-2 Vertex AI call only (ADR 0009).
 Performs ContextHygiene sanitization, Threat Signature Graph lookup,
-CBM AST query, external threat intelligence check, optional Gemini 3.5 Flash-Lite
-semantic triage, threat score aggregation, and threshold-based verdict dispatch.
+CBM AST query, external threat intelligence check, optional Jev Tier-1 triage with
+Gemini 3.5 Flash-Lite Tier-2 escalation, threat score aggregation, and threshold-based verdict dispatch.
 
 Verdict thresholds (DEMO MODE - tuned for standalone testing):
   >= 0.20  → BLOCK
@@ -79,6 +80,14 @@ from blackwall.resolver import ContextHygiene, TokenBucketRateLimiter
 from blackwall.validators import clamp_score, normalize_text, utc_now
 
 logger = logging.getLogger(__name__)
+
+# Front bucket: every evaluation. Sized to Jev's organization limit of 80 req/s
+# (4,800 RPM; ADR 0008). Tier-1 is Jev only, so Vertex does not bound this path.
+FRONT_RATE_LIMIT_CAPACITY: float = 80.0
+FRONT_RATE_LIMIT_REFILL_PER_S: float = 80.0
+# Tier-2 bucket: only the Vertex AI call. 300 RPM paid tier = 5 tokens/s (ADR 0009).
+TIER2_RATE_LIMIT_CAPACITY: float = 300.0
+TIER2_RATE_LIMIT_REFILL_PER_S: float = 5.0
 
 # Upper bound for swarm lineage lookups. Provider queries carry a 15ms SLA
 # (NFR-4); this deadline only fires when a provider stalls, so background
@@ -171,7 +180,7 @@ class ThreatSignaturePayload(BaseModel):
 
 class SyncResolver:
     """
-    Synchronous single-request resolver for Blackwall Core (300 RPM Vertex AI Mode).
+    Synchronous single-request resolver for Blackwall Core (Jev Tier-1, Vertex AI Tier-2).
 
     Performs interception, evaluation, self-learning threat signature creation,
     and non-blocking attacker attribution (<5ms SLA, NFR-1 & NFR-2).
@@ -273,8 +282,17 @@ class SyncResolver:
             max_workers=2, thread_name_prefix="bw_callback"
         )
 
-        # Rate limiter: 100% GCP Vertex AI Mode (Paid Tier Exclusively: 300 RPM capacity, 5.0 t/s refill)
-        self._rate_limiter = TokenBucketRateLimiter(capacity=300.0, refill_rate=5.0)
+        # Front limiter sized to Jev's 80 req/s org limit; a separate Tier-2
+        # limiter guards only the Vertex AI call (300 RPM). ADR 0009.
+        self._rate_limiter = TokenBucketRateLimiter(
+            capacity=FRONT_RATE_LIMIT_CAPACITY,
+            refill_rate=FRONT_RATE_LIMIT_REFILL_PER_S,
+        )
+        self._tier2_rate_limiter = TokenBucketRateLimiter(
+            capacity=TIER2_RATE_LIMIT_CAPACITY,
+            refill_rate=TIER2_RATE_LIMIT_REFILL_PER_S,
+        )
+        self.tier2_rate_limit_hits: int = 0
 
         # Context hygiene sanitizer with security IOC preservation mode enabled
         self._hygiene = ContextHygiene(preserve_iocs=True)
@@ -327,7 +345,7 @@ class SyncResolver:
             return Verdict(
                 decision=VerdictDecision.QUARANTINE,
                 reasoning=(
-                    "Rate limit exhausted (300 RPM). "
+                    "Rate limit exhausted (80 req/s). "
                     "Fail-closed: QUARANTINE pending retry."
                 ),
                 confidence_score=1.0,
@@ -933,6 +951,17 @@ class SyncResolver:
         ):
             trigger = "disagreement"
         if trigger is None:
+            return None
+        if not await self._tier2_rate_limiter.consume(1.0):
+            # An empty Vertex bucket is a Tier-2 abstention: Score Aggregation
+            # decides with the Tier-1 signal, never an implicit ALLOW.
+            self.tier2_rate_limit_hits += 1
+            logger.warning(
+                "Tier-2 escalation triggered (%s) but the Vertex rate limit "
+                "(300 RPM) is exhausted — failing closed to Score Aggregation "
+                "with the Tier-1 signal",
+                trigger,
+            )
             return None
         self.tier2_calls += 1
         started = time.monotonic()
