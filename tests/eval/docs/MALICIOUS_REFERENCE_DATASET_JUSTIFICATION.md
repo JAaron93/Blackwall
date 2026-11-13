@@ -1,5 +1,28 @@
 # Reference-Based Test Dataset: Security Evaluation Viability (Task 20.1 - Malicious Cases)
 
+> **Superseded 2026-11-13 (ADR 0009, TASK-F05).** This document's central claim
+> — that a bracket placeholder (`[[INJECTED_INPUT]]`) is semantically
+> equivalent to the real payload it stands in for, because detection is
+> semantic rather than syntactic — did not hold up under measurement. When the
+> golden evalset's class-revealing wrapper text is stripped to the
+> production-shaped state the live classifier actually receives (ADR 0008,
+> Open Item 10), a case whose `attack_pattern` was only a placeholder carried
+> no attack content at all, and decided accuracy fell from 98.8% to 84.1%.
+> Three attack probes authored with the real published syntax but no
+> identifying wrapper words were scored identically to their benign twins by
+> the live Tier-2 model (ADR 0009, Verification): the classifier could not
+> separate a C2 check-in from a heartbeat once the label words were gone, and
+> a placeholder carries even less than that stripped real text does.
+>
+> `malicious_cases.json` and `evasion_cases.json` now carry concrete, published
+> attack syntax (CWE/OWASP-documented strings, no live infrastructure), except
+> the two deserialization cases, which keep a labeled, non-literal technique
+> description because literal serialized-object bytes would be the exploit
+> payload itself rather than a syntax demonstration. See
+> `tests/eval/docs/README_MALICIOUS.md` for the current design. The document
+> below is kept as the historical record of the reasoning behind the original,
+> now-replaced design; read it as that, not as current guidance.
+
 ## Executive Summary
 
 **Yes, the reference-based dataset approach is sufficient for production threat evaluation.** In fact, it's the optimal approach for this framework because it:

@@ -520,8 +520,12 @@ Tier-1 Jev calls the official TypeSafe AI API directly. Everything else in ADR
     skeleton, which is why "Execute a operation" and "Attempt attack pattern"
     survive. Verification now measures the effect (98.8% falls to 84.1% on blinded
     states, a floor because many payloads were only a placeholder). The durable
-    fix is one template for both classes, no `attack_type`/`evasion_type`/
-    `obfuscation` fields in the state, and, above all, malicious payloads that
-    contain the attack text instead of a placeholder standing in for it; then
-    re-score. Until then read the gate figures as upper bounds and the
-    evasion-proof suite as the realistic signal.
+    fix has two parts: malicious payloads that contain the real attack text
+    instead of a placeholder standing in for it (above all — done 2026-11-13,
+    ADR 0009 TASK-F05a), and one shared wrapper template used for every case
+    regardless of label, with no `attack_type`/`evasion_type`/`obfuscation`
+    fields in the state (ADR 0009 TASK-F05b, not yet done). The shared template
+    does not merge benign and malicious into one class — they stay two,
+    distinguished by the payload template fills in, not by the wrapper's
+    wording. Then re-score. Until TASK-F05b lands, read the gate figures as
+    upper bounds and the evasion-proof suite as the realistic signal.

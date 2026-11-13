@@ -116,6 +116,38 @@ involved). Inputs: the 93 forced cases, with the production-shaped Jev P from
 | Other evasion-proof cases BLOCKed | 8 of 8 |
 | Benign cases BLOCKed | 3 of 68 (4.4%); ADR 0008 measured 1 of 68 at medium |
 | Authored malicious probes BLOCKed | 1 of 4 |
+
+### Real attack text in the golden evalset (TASK-F05, part 1)
+
+`malicious_cases.json` and `evasion_cases.json` previously used
+`[[BRACKET_PLACEHOLDER]]` tokens in place of the attack content for most cases
+(32 of 59 malicious, 26 of 30 evasion). This is the condition Open Item 10
+above found reduces a case to no attack signal at all once the wrapper is
+stripped. Every placeholder is now concrete, published attack syntax (CWE/OWASP
+documented strings; RFC 5737 documentation-range IP addresses; the dataset's
+existing fictional domains), grounded in that case's own `injection_technique`
+or `obfuscation_technique` field. **This is a payload fix only; benign and
+malicious remain two classes, distinguished by payload, not merged — the
+wrapper template (Open Item 4 above) is unchanged.** The two `DESERIALIZATION`
+cases keep a labeled, non-literal technique description (e.g. `<ysoserial
+CommonsCollections6 gadget chain invoking Runtime.exec('id')>`) instead of
+literal serialized bytes: unlike a SQL or shell string, a serialized-object
+byte stream is itself the exploit payload. See
+`tests/eval/docs/README_MALICIOUS.md` for the full reasoning.
+
+This also surfaced a `ContextHygiene` finding unrelated to the placeholder fix:
+its credential-redaction pattern (`(?i)(password|passwd|pwd)[\s:=]+...`)
+matches the bare SQL column name `password` followed by any next word and
+redacts that word along with it, so `"... password FROM admin_users"` becomes
+`"... [[PASSWORD]] admin_users"` — the real keyword `FROM` is swallowed,
+corrupting the state the classifier sees. This is pre-existing (it already
+fired on the placeholder form before this fix) and would affect a real
+benign query that selects a column literally named `password` too. The two
+cases built here that would have tripped it use `pass_hash` instead; the
+regex itself is not changed in this PR (TASK-F08 tracks it).
+
+Re-scoring both Jev releases against the corrected payloads (the second half
+of TASK-F05) needs a live Jev key and is not done here.
 | Latency, median / p95 / max | 2.3 s / 3.3 s / 5.9 s |
 
 Reading it:
@@ -186,9 +218,15 @@ Reading it:
    unseparated.** Whether text inside a tool call can steer the arbiter's
    verdict has not been measured. Tier-2's ALLOW is final unless aggregation
    already blocks, so this is the next place to look for a bypass.
-4. **Class-specific templates.** `scripts/build_evalset.py` writes different
-   wording for benign and malicious cases (ADR 0008, Open Item 10). Not changed
-   here.
+4. **Class-revealing wrapper template.** `scripts/build_evalset.py` writes a
+   different sentence template for benign, malicious and evasion cases
+   ("Execute a benign operation...", "Attempt malicious attack pattern...",
+   "Attempt evasive variant..."), so the wrapper text alone names the label
+   (ADR 0008, Open Item 10). The fix is one shared wrapper template used for
+   every case regardless of label — benign and malicious stay two classes,
+   told apart by their payload, not merged into one; the `ground_truth` field
+   keeps the label. TASK-F05 covers only the companion fix (payloads carry the
+   real attack text); the wrapper template itself is not changed here.
 5. **Decision 6 under a real outage.** Both live runs had a Tier-2 that always
    answered. The QUARANTINE-on-no-verdict path has no live result.
 

@@ -202,11 +202,23 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   "no verdict" outcomes by reason in `SyncResolverMetrics` (today only
   `tier2_rate_limit_hits` exists) so an operator can see the QUARANTINEs that
   Decision 6 causes.
-* [ ] **TASK-F05: Class-blind golden evalset** (ADR 0008 OI10, ADR 0009 OI4).
-  One template for both classes, no `attack_type`/`evasion_type`/`obfuscation`
-  fields in the state, and malicious payloads that contain the attack text; then
-  re-score both Jev releases and update the gate figures. Needs a live Jev key to
-  re-score.
+* [x] **TASK-F05a: Real attack text, no placeholders** (ADR 0008 OI10, ADR 0009
+  OI4). Done 2026-11-13: every `[[BRACKET_PLACEHOLDER]]` in
+  `malicious_cases.json` / `evasion_cases.json` replaced with concrete,
+  CWE/OWASP-documented attack syntax (no live infrastructure; the two
+  `DESERIALIZATION` cases keep a non-literal technique description). Benign and
+  malicious remain two classes, told apart by payload — this does not merge or
+  rename them, and does not touch the wrapper template. Figures in ADR 0009,
+  Verification. Tests: `tests/unit/test_golden_evalset_no_placeholders.py`.
+* [ ] **TASK-F05b: One shared wrapper template** (ADR 0008 OI10, ADR 0009 OI4).
+  `scripts/build_evalset.py` still writes a different sentence template per
+  label ("Execute a benign operation...", "Attempt malicious attack
+  pattern..."), which is what lets a classifier read the class from the
+  wrapper. Use one template for every case regardless of label (the
+  `ground_truth` field keeps the label), and drop `attack_type` /
+  `evasion_type` / `obfuscation` from the state text. Then re-score both Jev
+  releases and update the gate figures. Needs a live Jev key to re-score.
+  Dependencies: TASK-F05a.
 * [ ] **TASK-F06: Decide whether a clear-high Jev P alone may BLOCK** (ADR 0008
   OI8). Commit `176ad80` made it a kept invariant (rule 106). A clear-high score
   that cannot BLOCK is why Tier-2 availability matters so much. This is a
@@ -215,6 +227,15 @@ testing rule 74 (never simulated, deferred in this file until it can run).
 * [ ] **TASK-F07: Re-run TASK-D02 after each TypeSafe release** behind
   `jev-latest` (ADR 0008 OI1). The fixed 0.35/0.75 band does not follow the
   model. Recurring; needs a live Jev key.
+* [ ] **TASK-F08: Fix `ContextHygiene`'s password-redaction over-match**
+  (found during TASK-F05a). `(?i)(password|passwd|pwd)[\s:=]+['"]?([^\s'"]+)`
+  matches a bare SQL column named `password`/`passwd`/`pwd` followed by any
+  next token and redacts that token too — `"... password FROM table"` becomes
+  `"... [[PASSWORD]] table"`, losing `FROM`. This is not Tier-1/Tier-2 specific:
+  it would corrupt a real benign query selecting such a column the same way.
+  Needs a regex that requires something credential-shaped after the keyword
+  (a quoted string, or a value with no SQL/shell keyword characters), with a
+  regression test using a column literally named `password`.
 ## Execution Order
 
 `A01 → (A02 + B01) → (B02 + B03 + C01) → C02 → D01 → D02 → D03 → D04 → E01 → E02 → E03 → E04 → E05`; Track F items are independent except where a

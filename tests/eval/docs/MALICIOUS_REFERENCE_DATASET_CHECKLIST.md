@@ -1,5 +1,13 @@
 # Reference-Based Dataset: Documentation Checklist (Task 20.1 - Malicious Cases)
 
+> **Partially superseded 2026-11-13 (ADR 0009, TASK-F05).** This is a dated
+> completion record for Task 20.1 and is left as written below, except two
+> lines that are now factually wrong: `attack_pattern` carries concrete,
+> published attack syntax, not a bracket placeholder, and the dataset
+> correspondingly is not payload-free in the sense this checklist originally
+> claimed. See `tests/eval/docs/README_MALICIOUS.md` for why and what line is
+> still drawn (no live infrastructure, no literal serialized-object bytes).
+
 ## Files Updated ✓
 
 - [x] `README.md`
@@ -65,7 +73,7 @@
   - `cwe_id`: MITRE CWE reference
   - `cwe_url`: Link to CWE definition
   - `description`: Human-readable explanation
-  - `attack_pattern`: Pseudocode (no functional payload)
+  - `attack_pattern`: Concrete attack syntax (ADR 0009; was pseudocode with `[[PLACEHOLDER]]` tokens)
   - `injection_technique`: Specific method
   - `tool_name`: ADK tool being called
   - `parameter_name`: Targeted parameter
@@ -74,7 +82,7 @@
   - `severity`: CRITICAL/HIGH/MEDIUM
   - `references`: External documentation links
 
-- [x] No functional exploit code stored
+- [x] No live infrastructure or literal serialized-object payload bytes stored (ADR 0009)
 - [x] All references point to public sources (OWASP, NVD, CWE, threat intel)
 - [x] JSON is well-formed and loadable
 
@@ -115,7 +123,7 @@ Dataset satisfies requirements:
 
 - [x] JSON is well-formed (can be parsed without errors)
 - [x] All 59 cases have required fields
-- [x] No functional exploit code embedded
+- [x] No live infrastructure or literal serialized-object payload bytes embedded (ADR 0009)
 - [x] All CWE references are valid (CWE-89, -22, -78, -200, -522, -611, -918, -502, -94)
 - [x] All tool names match ADK standard tools
 - [x] All severity levels are valid (CRITICAL/HIGH/MEDIUM)
