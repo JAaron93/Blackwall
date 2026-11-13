@@ -345,9 +345,11 @@ Tier-1 Jev calls the official TypeSafe AI API directly. Everything else in ADR
 6. **Optional:** log the served release (`response.model`) and
    `x-typesafe-request-id` in the `jev_triage` record. With an unpinned alias
    this is how a change in verdicts could be tied to a release change.
-7. **`.env.example` still recommends pinning** (lines 133-135) and shows
-   `jev-1.13.0` as an example; that conflicts with Decision 7. The file is not
-   edited by this PR.
+7. **Resolved: `.env.example` recommended pinning.** It told operators to pin
+   `JEV_MODEL` and showed `jev-1.13.0`, which conflicted with Decision 7. It now
+   documents the unpinned `jev-latest` default and says a specific release is for
+   a reproducible or comparative run only; a test pins this
+   (`test_env_example_keeps_jev_latest_unpinned`).
 8. **At production thresholds a clear-high Jev score alone does not block.**
    Aggregation supremacy (ADR 0006, FR-02) gives the semantic signal only the
    Context share of the score. With no TSG, structural, threat-intel or CBM signal,

@@ -8,6 +8,7 @@ unit tests (NFR-03); live Jev traffic is eval-harness-only.
 
 import json
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock
 
@@ -340,6 +341,24 @@ def test_defaults_match_the_env_example_contract(monkeypatch):
     assert backend.base_url == "https://api.typesafe.ai"
     assert backend.model == "jev-latest"
     assert backend.timeout == pytest.approx(5.0)
+
+
+def test_env_example_keeps_jev_latest_unpinned():
+    """ADR 0008 Decision 7: ``jev-latest`` is deliberately unpinned. .env.example
+    is the operator-facing contract, so it must keep that default as an active
+    assignment and must not tell operators to pin (a versioned ID is for a run
+    that has to be reproducible or compared against another release)."""
+    text = (Path(__file__).resolve().parents[2] / ".env.example").read_text(
+        encoding="utf-8"
+    )
+    lines = text.splitlines()
+    assert "JEV_MODEL=jev-latest" in lines
+    comment = "\n".join(
+        line for line in lines[: lines.index("JEV_MODEL=jev-latest")][-8:]
+        if line.startswith("#")
+    )
+    assert "unpinned" in comment
+    assert "Pin a versioned ID" not in text
 
 
 def test_env_knobs_configure_backend(monkeypatch):
