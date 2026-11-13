@@ -132,9 +132,43 @@ Reading it:
   the weak class ADR 0008 already names, and it is why a Tier-2 ALLOW is final
   only when aggregation does not block.
 
-**Not verified:** `scripts/jev_tier2_eval.py e2e` was not run. It needs
-`TYPESAFE_API_KEY`, and the tool environment blocked reading that key, so the
-real-Jev path through `SyncResolver` has no live result yet (TASK-F01).
+### End to end with live Jev
+
+`scripts/jev_tier2_eval.py e2e`, run live on 2026-11-13 at commit `7340d9c`: the
+real `JevTriageBackend` (`jev-latest`, `TYPESAFE_API_KEY` supplied by the
+maintainer's grant for this run) inside the real `SyncResolver`, with the real
+Tier-2 (`gemini-3.5-flash-lite`, medium), production thresholds, and the
+class-blinded production-shaped inputs for all 167 cases in two configurations,
+as in ADR 0008. 334 evaluations, 0 errors, concurrency 2. TSG, threat intelligence
+and CBM were not configured and background tasks were stubbed. Live Jev P agreed
+with the stored production-shaped `jev-1.14.0` run to a mean of 0.009 (largest
+0.06). The ADR 0008 column is the earlier run with `gemini-3.8-flash` HIGH.
+
+| | Semantic tiers only | ADR 0008 | With `policy.yaml` | ADR 0008 |
+|---|---|---|---|---|
+| Benign ALLOW | 68 / 68 | 68 / 68 | 68 / 68 | 68 / 68 |
+| Malicious BLOCK (of 99) | 18, all by Tier-2 | 16 | 58: 44 by tool name, 14 by Tier-2 | 54 |
+| Evasion-proof suite BLOCK (of 10) | 0 | 0 | 4 | 4 |
+| Malicious calls Jev scored above 0.75, ALLOWED | 56 of 56 | 56 of 56 | 29 of 56 | 29 of 56 |
+| Malicious calls in the band, BLOCKed | 18 of 18 | 16 of 19 | 20 of 20 | not reported |
+| Tier-2 called | 20 (12.0%) | 21 | 16 (9.6%) | 15 |
+| Tier-2 returned no verdict | 0 | 3 | 0 | 4 |
+| Tier-2 latency, answered calls, p50 / p90 | 2.3 s / 2.7 s | 10.7 s / 21.2 s | 2.2 s / 2.7 s | 6.3 s / 9.9 s |
+
+Reading it:
+
+- The change this ADR makes shows up where it should. Tier-2 returned a verdict
+  on every call, so none of the in-band attacks ADR 0008 saw ALLOWED on a
+  deadline miss (3 of 19) were allowed here, and Tier-2 was 3 to 5 times faster.
+  One run, so the exact counts could move by a case or two on a rerun; ADR 0008
+  measured that spread for Tier-1 as well.
+- **Decision 6 was not exercised.** Tier-2 never failed, so no call took the
+  "Tier-2 unavailable" QUARANTINE path. That path is covered by unit tests only.
+- **The weakness this ADR does not touch is unchanged:** the semantic tiers alone
+  still ALLOW all 56 malicious calls that Jev scored above 0.75 and block none of
+  the evasion-proof suite, because a clear-high P alone cannot BLOCK (ADR 0008,
+  Open Item 8; TASK-F06). Without the tool-name rules in `policy.yaml`, those
+  attacks pass.
 
 ## Open Items
 
@@ -155,8 +189,8 @@ real-Jev path through `SyncResolver` has no live result yet (TASK-F01).
 4. **Class-specific templates.** `scripts/build_evalset.py` writes different
    wording for benign and malicious cases (ADR 0008, Open Item 10). Not changed
    here.
-5. **Live verification of the `e2e` subcommand.** `forced` has a live result
-   (Verification above). `e2e` has not been run live.
+5. **Decision 6 under a real outage.** Both live runs had a Tier-2 that always
+   answered. The QUARANTINE-on-no-verdict path has no live result.
 
 Items 1 to 5 are tracked as tasks in `.kiro/specs/tier-1-jev-addition/tasks.md`
 (Track F).
