@@ -136,9 +136,11 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   > (8 blocked, 1 to 2 missed) is the only tell-free evidence. Pinned reruns of
   > `jev-1.13.0` and `jev-1.14.0` (two each) show 1.14 is not an improvement on
   > this suite and escalate 3 of 167 (so read the 3.0% above as 2 to 3%). The
-  > Tier-2 handoff was run live on Vertex. Results, and the findings that a
-  > clear-high P alone does not block and that a Tier-2 abstention is an ALLOW at
-  > production thresholds, are in ADR 0008, Verification and Open Items 8 to 10.
+  > Tier-2 handoff was run live on Vertex, end to end with the real Jev backend:
+  > with the semantic tiers alone, 0 of the 10 evasion-proof attacks and 0 of 56
+  > clear-high malicious calls were blocked (by design: "a high P alone cannot
+  > BLOCK"), and a Tier-2 abstention is an ALLOW at production thresholds. Results
+  > are in ADR 0008, Verification and Open Items 8 to 10.
 * [ ] **TASK-D03: Benchmark + dual-gate CI confirmation** (NFR-01, NFR-02).
   `benchmark_report.json` SLAs green; full suite green under
   `BW_SEMANTIC_BACKEND=gemini` (GCP-only no-regression) and `jev`.

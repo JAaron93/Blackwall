@@ -288,6 +288,32 @@ Tier-1 Jev calls the official TypeSafe AI API directly. Everything else in ADR
   - Answered calls (43) took p50 6.7 s, p90 20.0 s, max 35.6 s. Of the first 40
     calls (concurrency 4), 6 (15%) hit the 30 s deadline and abstained. Re-run one
     at a time with a 90 s deadline, 9 of 9 answered, one of them after 35.6 s.
+- **End to end with live Jev (2026-11-12).** The check above replayed Tier-1.
+  This one calls the real `JevTriageBackend` (`jev-latest`, served by
+  `jev-1.14.0`, with no fallback to gemini in any of the 334 calls) inside the real
+  `SyncResolver`, with the shipped Tier-2 (`gemini-3.8-flash`, HIGH), production
+  thresholds, and the class-blinded, production-shaped inputs for all 167 cases. No
+  TSG, threat-intel or CBM layer was configured and the background tasks were
+  stubbed. Two configurations: the semantic tiers alone, and the repo's
+  `policy.yaml` loaded as the CLI does (for the default `production` role it blocks
+  `execute_shell`, `execute_bash`, `run_python` and `install_package` by tool name,
+  and marks database, network and write tools `ESCALATE_TO_SEMANTIC`, which
+  `SyncResolver.evaluate()` does not act on).
+
+  | | Semantic tiers only | With `policy.yaml` |
+  |---|---|---|
+  | Benign ALLOW | 68 / 68 | 68 / 68 |
+  | Malicious BLOCK (of 99) | 16, all by Tier-2 | 54: 44 by tool name, 10 by Tier-2 |
+  | Evasion-proof suite BLOCK (of 10) | 0 | 4, all by tool name |
+  | Malicious calls Jev scored above 0.75, ALLOWED | 56 of 56 | 29 of 56 (the other 27 blocked by tool name) |
+  | Tier-2 called | 21 (12.6%), 3 abstained | 15 (9.0%), 4 abstained |
+  | Tier-2 latency, answered calls | p50 10.7 s, p90 21.2 s | p50 6.3 s, p90 9.9 s |
+
+  Live P agreed with the stored production-shaped run to a mean of 0.008 (largest
+  0.05). Of the 19 malicious calls in the band, 16 were BLOCKed and 3 were ALLOWED
+  because Tier-2 hit its 30 s deadline. Nothing Jev scored above 0.75 was stopped by
+  the semantic tiers; in the second configuration only the tool-name rule stopped
+  such a call.
 - **Tier-2 model and thinking level, measured (2026-11-12).** The maintainer
   proposed moving Tier-2 from `gemini-3.8-flash` (thinking pinned HIGH) to
   `gemini-3.5-flash-lite` at a lower level. Five configurations were forced over
@@ -427,12 +453,13 @@ Tier-1 Jev calls the official TypeSafe AI API directly. Everything else in ADR
    calls that includes benign heartbeats and webhooks, with the tells removed; (c)
    behavioural features (repetition, periodicity) in aggregation, because one
    beacon and one heartbeat can be identical.
-4. **Tier-2 handoff exercised live; what remains.** Verified (Verification
-   above): routing, the disagreement route, verdict parsing and finality, and that
-   clear-high and clear-low calls make no Tier-2 call. Not covered: Tier-1 was
-   replayed, so re-run end to end in a session that can read `TYPESAFE_API_KEY`;
-   no TSG, structural-policy, threat-intel or CBM layer was configured; the
-   background tasks were stubbed.
+4. **Tier-2 handoff exercised live, end to end; what remains.** Verified
+   (Verification above, with the real Jev backend inside the real resolver):
+   routing, the disagreement route, verdict parsing and finality, and that
+   clear-high and clear-low calls make no Tier-2 call. Not covered: no TSG,
+   threat-intel or CBM layer was configured, the background tasks (attribution,
+   signature synthesis, quarantine refactoring) were stubbed, and nothing was run
+   under production load.
 5. **Known limitation: no ZDR, no fixed retention period** (see Decision 3).
    Revisit if the IOC-bearing states sent to TypeSafe become a concern.
 6. **Optional:** log the served release (`response.model`) and
@@ -462,7 +489,9 @@ Tier-1 Jev calls the official TypeSafe AI API directly. Everything else in ADR
    other signals benign still passes through aggregation. Rule 106 lists
    aggregation supremacy as kept and non-negotiable. What the spec does not spell
    out is how far this goes: the aggregate stays below even the QUARANTINE line, so
-   at production thresholds a clear-high P alone changes no verdict. Two things
+   at production thresholds a clear-high P alone changes no verdict (56 of 56 such
+   malicious calls were ALLOWED end to end, and the semantic tiers alone blocked 0
+   of the 10 hand-written evasion-proof attacks). Two things
    read against it: US-01 says Jev should "verdict obvious tool calls", and the one
    clear-high BDD scenario gets its BLOCK from a stubbed malicious threat-intel
    response, not from Jev. Whether that is acceptable for novel attacks, or a
@@ -473,8 +502,9 @@ Tier-1 Jev calls the official TypeSafe AI API directly. Everything else in ADR
    abstaining Tier-2 "fails closed to Score Aggregation", but with no other signal
    the aggregate stays under 0.50, so a band-zone call whose Tier-2 times out,
    runs out of quota or returns malformed output is allowed (`malicious_c2_006` in
-   the live run). Fifteen percent of first-pass calls to `gemini-3.8-flash` hit the
-   30 s deadline, and a Vertex 429 (quota) is also an abstention. Candidate fixes,
+   the live run; 3 of 19 in-band malicious calls end to end). Fifteen percent of
+   first-pass calls to `gemini-3.8-flash` hit the 30 s deadline, and a Vertex 429
+   (quota) is also an abstention. Candidate fixes,
    each a spec change and left open by the maintainer until this PR is done:
    QUARANTINE on abstention for band calls, and a deadline set from the measured
    latency tail. With `gemini-3.5-flash-lite` at medium thinking no call hit the
