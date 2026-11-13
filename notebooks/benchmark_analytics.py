@@ -855,14 +855,15 @@ def _(mo):
     mo.md(r"""
     ### 🔁 Jev release comparison (1.13 vs 1.14)
     The same 167 golden states scored by different Jev releases, read from
-    `tests/eval/results/jev_runs/manifest.json`. Two things differ between runs
-    and they are kept apart on purpose: the **release** (1.13 vs 1.14) and the
-    **transport** (Vercel Gateway free tier vs the paid TypeSafe API). A rate
-    limit only paces calls, so it cannot move P: the Gateway-era and first-party
-    1.13 lines overlay each other. Read a release difference against the spread
-    between the two 1.14 runs, which is the run-to-run noise. Lines are sorted
-    by the first-party 1.13 run, so every other run shows as a deviation from
-    it. The shaded band is the fixed 0.35–0.75 Tier-2 escalation band.
+    `tests/eval/results/jev_runs/manifest.json`. The **headline** runs request
+    each release by name (`jev-1.13.0`, `jev-1.14.0`) on the paid TypeSafe API,
+    two runs each: read a release difference against the spread between the two
+    runs of one release, which is the run-to-run noise. **History** runs are
+    opt-in: the Vercel Gateway free-tier run (a rate limit only paces calls, so
+    it cannot move P; it overlays the pinned 1.13 lines) and the `jev-latest`
+    TASK-D02 runs. Lines are sorted by the first pinned 1.13 run, so every other
+    run shows as a deviation from it. The shaded band is the fixed 0.35–0.75
+    Tier-2 escalation band.
     """)
 
 
@@ -893,7 +894,7 @@ def _(json, repo_root):
 def _(jev_cmp_runs, mo):
     jev_cmp_series = mo.ui.multiselect(
         options={r["label"]: r["key"] for r in jev_cmp_runs},
-        value=[r["label"] for r in jev_cmp_runs],
+        value=[r["label"] for r in jev_cmp_runs if r.get("group") == "headline"],
         label="Runs",
     )
     jev_cmp_class = mo.ui.dropdown(
@@ -915,10 +916,13 @@ def _(jev_cmp_runs, mo):
 @app.cell
 def _(go, jev_cmp_class, jev_cmp_order, jev_cmp_runs, jev_cmp_series, mo):
     _style = {
+        "pinned_1_13_run1": dict(color="#38bdf8", dash="solid", width=2.5),
+        "pinned_1_13_run2": dict(color="#0369a1", dash="dash", width=2),
+        "pinned_1_14_run1": dict(color="#f43f5e", dash="solid", width=2.5),
+        "pinned_1_14_run2": dict(color="#fb923c", dash="dash", width=2),
         "gateway_1_13": dict(color="#94a3b8", dash="dot", width=2),
-        "firstparty_1_13": dict(color="#38bdf8", dash="solid", width=2.5),
-        "firstparty_1_14_run1": dict(color="#f43f5e", dash="solid", width=2.5),
-        "firstparty_1_14_run2": dict(color="#fb923c", dash="dash", width=2),
+        "latest_alias_run1": dict(color="#a855f7", dash="dot", width=2),
+        "latest_alias_run2": dict(color="#d8b4fe", dash="dot", width=2),
     }
     _picked = [r for r in jev_cmp_runs if r["key"] in jev_cmp_series.value]
     _out = mo.md("> Select at least one run.")
@@ -936,7 +940,7 @@ def _(go, jev_cmp_class, jev_cmp_order, jev_cmp_runs, jev_cmp_series, mo):
                 return rec["suite"] == "evasion_proof"
             return True
 
-        _anchor = next((r for r in _picked if r["key"] == "firstparty_1_13"), _picked[0])
+        _anchor = next((r for r in _picked if r["key"] == "pinned_1_13_run1"), _picked[0])
         _ids = [
             i for i, rec in _anchor["records"].items()
             if _keep(rec) and all(i in r["records"] for r in _picked)
@@ -978,9 +982,9 @@ def _(go, jev_cmp_class, jev_cmp_order, jev_cmp_runs, jev_cmp_series, mo):
                 tickangle=-60,
             ),
             yaxis=dict(title="P(threat)", range=[0, 1.02]),
-            height=520,
-            margin=dict(l=50, r=20, t=120, b=130 if len(_ids) <= 40 else 60),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+            height=500,
+            margin=dict(l=50, r=240, t=70, b=130 if len(_ids) <= 40 else 60),
+            legend=dict(orientation="v", yanchor="top", y=1.0, xanchor="left", x=1.02),
         )
         _out = _fig
     _out
@@ -1008,6 +1012,7 @@ def _(jev_cmp_runs, mo, pd):
         _is_c2 = lambda x: "c2" in x["eval_case_id"]  # noqa: E731
         _rows.append({
             "Run": _r["label"],
+            "Requested model": _r["requested_model"],
             "Served model": _r["served_model"],
             "Plan": _r["plan"],
             "Mean P · benign": _mean(_recs, lambda x: x["ground_truth"] == "BENIGN"),

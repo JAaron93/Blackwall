@@ -6,9 +6,10 @@ Governing spec: .kiro/specs/tier-1-jev-addition/ (transport: ADR 0008).
 A per-case comparison of two Jev releases is only meaningful when every run
 scored the SAME states, so these tests pin: identical case ids and states across
 runs, error-free rows, the served release recorded in each run's own ``model``
-field, and that the comparison separates the two things that changed (the Jev
-release and the transport) instead of mixing them. They read committed files
-only and never touch the network.
+field, that the headline runs asked for their release by name and got it, and
+that the comparison separates the two things that changed (the Jev release and
+the transport) instead of mixing them. They read committed files only and never
+touch the network.
 """
 
 import json
@@ -24,12 +25,13 @@ MANIFEST = RUNS_DIR / "manifest.json"
 MAIN_ARTIFACT = RESULTS_DIR / "jev_triage_results.json"
 NOTEBOOK = REPO_ROOT / "notebooks" / "benchmark_analytics.py"
 
-EXPECTED_KEYS = {
-    "gateway_1_13",
-    "firstparty_1_13",
-    "firstparty_1_14_run1",
-    "firstparty_1_14_run2",
+HEADLINE_KEYS = {
+    "pinned_1_13_run1",
+    "pinned_1_13_run2",
+    "pinned_1_14_run1",
+    "pinned_1_14_run2",
 }
+HISTORY_KEYS = {"gateway_1_13", "latest_alias_run1", "latest_alias_run2"}
 
 
 def _runs() -> list[dict[str, Any]]:
@@ -45,19 +47,26 @@ def runs() -> list[dict[str, Any]]:
     return _runs()
 
 
-def test_manifest_lists_the_four_comparison_runs(runs):
-    assert {r["key"] for r in runs} == EXPECTED_KEYS
+def test_manifest_lists_the_headline_and_history_runs(runs):
+    assert {r["key"] for r in runs} == HEADLINE_KEYS | HISTORY_KEYS
     for run in runs:
         for field in (
-            "label", "short_label", "file", "transport", "release", "date", "served_model"
+            "label", "short_label", "file", "group", "transport", "plan", "release",
+            "requested_model", "served_model", "date",
         ):
             assert run.get(field), f"{run['key']} is missing {field!r}"
 
 
+def test_the_headline_runs_are_exactly_the_pinned_ones(runs):
+    headline = {r["key"] for r in runs if r["group"] == "headline"}
+    assert headline == HEADLINE_KEYS
+    assert {r["group"] for r in runs} == {"headline", "history"}
+
+
 def test_the_committed_artifact_is_one_of_the_runs(runs):
-    """The dashboard's main artifact must be the 1.14 run 1 the ADR cites, not a copy."""
-    run1 = next(r for r in runs if r["key"] == "firstparty_1_14_run1")
-    assert (RUNS_DIR / run1["file"]).resolve() == MAIN_ARTIFACT.resolve()
+    """The dashboard's main artifact must be the TASK-D02 run the ADR cites, not a copy."""
+    run = next(r for r in runs if r["key"] == "latest_alias_run1")
+    assert (RUNS_DIR / run["file"]).resolve() == MAIN_ARTIFACT.resolve()
 
 
 def test_every_run_scores_the_same_cases_and_states(runs):
@@ -85,30 +94,49 @@ def test_served_release_matches_each_runs_own_model_field(runs):
         assert {r["model"] for r in _records(run)} == {run["served_model"]}, run["key"]
 
 
-def test_release_effect_is_isolated_on_one_transport(runs):
-    """1.13 vs 1.14 must be comparable without any transport difference."""
-    first_party = {r["release"]: r for r in runs if r["transport"] == "typesafe-api"}
-    assert {"jev-1.13.0", "jev-1.14.0"} <= first_party.keys()
+def test_headline_runs_asked_for_their_release_by_name_and_got_it(runs):
+    for run in (r for r in runs if r["group"] == "headline"):
+        assert run["requested_model"] == run["served_model"], run["key"]
+        assert run["requested_model"].startswith("jev-1."), run["key"]
+        assert run["release"] == run["requested_model"], run["key"]
+
+
+def test_each_release_has_two_pinned_runs_on_one_transport(runs):
+    """Two runs per release give a within-release noise to read the
+    between-release difference against, with no transport difference."""
+    for release in ("jev-1.13.0", "jev-1.14.0"):
+        group = [r for r in runs if r["group"] == "headline" and r["release"] == release]
+        assert len(group) == 2, release
+        assert {r["transport"] for r in group} == {"typesafe-api"}, release
 
 
 def test_transport_effect_is_isolated_on_one_release(runs):
-    """The Gateway-era run and the first-party 1.13 run differ only in transport.
+    """The Gateway-era run and the pinned 1.13 runs differ only in transport.
 
     The Gateway slug (``typesafe-ai/jev``) never recorded the version, so the
     manifest must say the 1.13 attribution is maintainer-reported, not measured.
     """
     gateway = next(r for r in runs if r["key"] == "gateway_1_13")
-    first_party = next(r for r in runs if r["key"] == "firstparty_1_13")
+    assert gateway["group"] == "history"
     assert gateway["transport"] == "vercel-gateway"
-    assert first_party["transport"] == "typesafe-api"
     assert gateway["release"] == "jev-1.13.0"
     assert gateway["release_evidence"] == "maintainer-reported"
+
+
+def test_latest_alias_runs_are_history_served_by_1_14(runs):
+    for key in ("latest_alias_run1", "latest_alias_run2"):
+        run = next(r for r in runs if r["key"] == key)
+        assert run["group"] == "history"
+        assert run["requested_model"] == "jev-latest"
+        assert run["served_model"] == "jev-1.14.0"
 
 
 def test_notebook_plots_the_release_comparison_from_the_manifest():
     source = NOTEBOOK.read_text(encoding="utf-8")
     assert "jev_runs" in source and "manifest.json" in source
     assert "Jev release comparison" in source
+    # Pinned (headline) runs are shown by default; history runs are opt-in.
+    assert '"headline"' in source
     # The fixed acceptance band is shaded, not recomputed from the exploratory sliders.
     assert "add_hrect" in source
     assert "y0=0.35, y1=0.75" in source
