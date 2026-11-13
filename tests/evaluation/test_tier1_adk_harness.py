@@ -38,7 +38,7 @@ async def test_tier1_adk_before_tool_callback_interception():
     harness = GCPVertexAIEvaluationHarness(
         config=GCPVertexEvalConfig(
             main_model="gemini-3.5-flash-lite",
-            reasoner_model="gemini-3.8-flash",
+            reasoner_model="gemini-3.5-flash-lite",
         )
     )
     exporter = GCPCloudTraceExporter(project_id="tier1-adk-eval")
@@ -115,7 +115,7 @@ async def test_eval_kernel_interception():
     harness = GCPVertexAIEvaluationHarness(
         config=GCPVertexEvalConfig(
             main_model="gemini-3.5-flash-lite",
-            reasoner_model="gemini-3.8-flash",
+            reasoner_model="gemini-3.5-flash-lite",
             allow_fallback=False,
         )
     )
@@ -248,7 +248,7 @@ async def test_eval_kernel_interception():
         eval_result = harness.run_eval_task(
             dataset=eval_dataset,
             metrics=["threat_interception_accuracy"],
-            model="gemini-3.8-flash",
+            model="gemini-3.5-flash-lite",
         )
         assert eval_result["status"] == "COMPLETED", f"Managed Vertex AI EvalTask failed: {eval_result}"
     finally:

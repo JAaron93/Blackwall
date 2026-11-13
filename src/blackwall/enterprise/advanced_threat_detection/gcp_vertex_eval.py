@@ -45,7 +45,7 @@ class GCPVertexEvalConfig(BaseModel):
         description="High-throughput model for rapid triage & fast evaluation turns.",
     )
     reasoner_model: str = Field(
-        default="gemini-3.8-flash",
+        default="gemini-3.5-flash-lite",
         description="Deep reasoning model for autoraters and trajectory evaluation.",
     )
     thinking_level: str = Field(

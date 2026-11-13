@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from blackwall.config import (
     DEFAULT_GEMINI_MODEL,
+    TIER2_THINKING_LEVEL,
     DEFAULT_RAPID_TRIAGE_MODEL,
     get_gemini_http_timeout,
     get_gemini_thinking_level,
@@ -1250,7 +1251,7 @@ class Tier2EscalationVerdict(BaseModel):
 
 
 class GeminiTier2Backend:
-    """Gemini 3.8 Flash deep-reasoning escalation (Tier-2, FR-03).
+    """Gemini 3.5 Flash-Lite deep-reasoning escalation (Tier-2, FR-03; ADR 0009).
 
     Fired only on the ambiguity band or deterministic-vs-semantic
     disagreement; its verdict is final unless a structural/TSG BLOCK already
@@ -1283,9 +1284,7 @@ class GeminiTier2Backend:
         try:
             from google.genai import types
 
-            thinking_lvl = get_gemini_thinking_level(
-                model=self.model, task_type="tier2_escalation", default="high"
-            )
+            thinking_lvl = TIER2_THINKING_LEVEL
             config = types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema=Tier2EscalationVerdict,
@@ -1310,7 +1309,7 @@ class GeminiTier2Backend:
             # Deliberately NO analytical task_type here: it would floor the
             # HTTP timeout at 120s and let an ambiguous call outlive the
             # interception deadline. Deep-reasoning THINKING stays pinned
-            # HIGH above; the request deadline stays at the 30s ctor bound,
+            # MEDIUM above; the request deadline stays at the 30s ctor bound,
             # and a timeout fails closed to the aggregation path.
             timeout = get_gemini_http_timeout(configured=self.timeout)
             aio_models = getattr(getattr(self.client, "aio", None), "models", None)

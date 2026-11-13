@@ -15,10 +15,12 @@ from google import genai
 
 from blackwall.validators import normalize_text
 
-# --- Single Source of Truth Runtime Constants (Gemini 3.8 Flash) ---
-DEFAULT_GEMINI_MODEL: str = "gemini-3.8-flash"
+# --- Single Source of Truth Runtime Constants (Gemini 3.5 Flash-Lite, ADR 0009) ---
+DEFAULT_GEMINI_MODEL: str = "gemini-3.5-flash-lite"
 DEFAULT_RAPID_TRIAGE_MODEL: str = "gemini-3.5-flash-lite"
 DEFAULT_THINKING_LEVEL: str = "high"
+# Tier-2 escalation thinking level: pinned, never read from the environment (ADR 0009).
+TIER2_THINKING_LEVEL: str = "medium"
 DEFAULT_MAX_OUTPUT_TOKENS: int = 65536
 DEFAULT_HTTP_TIMEOUT: float = 120.0
 
@@ -32,7 +34,6 @@ ANALYTICAL_TASK_TYPES: frozenset[str] = frozenset({
     "attribution",
     "forensics",
     "signature_generation",
-    "tier2_escalation",
 })
 
 ROUTER_TASK_TYPES: frozenset[str] = frozenset({
@@ -96,9 +97,6 @@ def get_gemini_thinking_level(
     if settings_level and str(settings_level).strip():
         return normalize_text(settings_level)
 
-    # 5. Default to HIGH for Gemini 3.8 models
-    if model and "3.8" in model:
-        return "high"
     return None
 
 

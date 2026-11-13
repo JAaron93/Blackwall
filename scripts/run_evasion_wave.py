@@ -52,7 +52,7 @@ async def run_wave(wave: int) -> float:
         project_id=project_id,
         location=vertex_location,
         main_model="gemini-3.5-flash-lite",
-        reasoner_model="gemini-3.8-flash",
+        reasoner_model="gemini-3.5-flash-lite",
         allow_fallback=True,
     )
     exporter = GCPCloudTraceExporter(project_id=project_id)
@@ -195,7 +195,7 @@ async def run_wave(wave: int) -> float:
         _eval_result = harness.run_eval_task(
             dataset=eval_dataset,
             metrics=[autorater],
-            model="gemini-3.8-flash",
+            model="gemini-3.5-flash-lite",
         )
 
         # Cancel lingering background tasks

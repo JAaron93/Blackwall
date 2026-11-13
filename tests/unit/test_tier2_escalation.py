@@ -123,10 +123,24 @@ async def test_backend_parses_schema_and_targets_deep_reasoning_model():
     assert verdict.decision == "BLOCK"
     assert verdict.threat_score == pytest.approx(0.9)
     call = client.models.generate_content.call_args
-    assert call.kwargs["model"] == "gemini-3.8-flash"
+    assert call.kwargs["model"] == "gemini-3.5-flash-lite"
     thinking = call.kwargs["config"].thinking_config.thinking_level
     thinking = getattr(thinking, "value", thinking)
-    assert str(thinking).lower() == "high"  # analytical floor: immutable
+    assert str(thinking).lower() == "medium"  # ADR 0009: pinned, not configurable
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("level", ["minimal", "low", "high"])
+async def test_backend_thinking_level_ignores_environment(monkeypatch, level):
+    monkeypatch.setenv("GEMINI_THINKING_LEVEL", level)
+    monkeypatch.setenv("GEMINI_ALLOW_ANALYTICAL_DOWNGRADE", "true")
+    client = _tier2_client()
+    await GeminiTier2Backend(client).escalate(_beacon_context(), _in_band(0.51))
+    thinking = client.models.generate_content.call_args.kwargs[
+        "config"
+    ].thinking_config.thinking_level
+    thinking = getattr(thinking, "value", thinking)
+    assert str(thinking).lower() == "medium"
 
 
 @pytest.mark.asyncio

@@ -26,7 +26,7 @@ def test_gcp_vertex_eval_config_validation():
         project_id="test-proj-eval",
         location="us-central1",
         main_model="gemini-3.5-flash-lite",
-        reasoner_model="gemini-3.8-flash",
+        reasoner_model="gemini-3.5-flash-lite",
         sampling_count=8,
     )
     assert config.project_id == "test-proj-eval"
