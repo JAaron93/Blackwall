@@ -252,3 +252,13 @@ async def test_enabled_triage_without_key_fails_on_first_use(monkeypatch):
     resolver = SyncResolver(client=None, enable_semantic_triage=True)
     with pytest.raises(JevUnavailableError):
         await resolver.evaluate(_context())
+
+
+def test_env_example_has_no_backend_selection_or_fallback_knobs():
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parents[2] / ".env.example").read_text(
+        encoding="utf-8"
+    )
+    for name in ("BW_SEMANTIC_BACKEND", "SEMANTIC_FALLBACK_ACTION", "gemini-3.8"):
+        assert name not in text, name

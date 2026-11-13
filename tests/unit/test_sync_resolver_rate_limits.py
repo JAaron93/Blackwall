@@ -6,8 +6,10 @@ Two buckets, each sized to the service it protects:
   (80 req/s, ADR 0008);
 * the Tier-2 bucket guards only the Vertex AI call (300 RPM, 5 tokens/s).
 
-An empty Tier-2 bucket is a Tier-2 abstention: the call fails closed to Score
-Aggregation with the Tier-1 signal, exactly as a Tier-2 deadline miss does.
+An empty Tier-2 bucket QUARANTINEs the call, exactly as the single 300 RPM
+bucket did before. It is not a Tier-2 abstention: an abstention reaches Score
+Aggregation, which allows a lone band signal at production thresholds (ADR 0008,
+Open Item 9), so draining the bucket would become a bypass.
 """
 
 import pytest
@@ -86,7 +88,7 @@ async def test_escalation_spends_exactly_one_tier2_token():
 
 
 @pytest.mark.asyncio
-async def test_empty_tier2_bucket_skips_the_vertex_call_and_fails_closed():
+async def test_empty_tier2_bucket_quarantines_and_skips_the_vertex_call():
     client = _tier2_client(decision="ALLOW", threat_score=0.0)
     resolver = _resolver(_StubTier1(_in_band(0.51)), client)
     resolver._tier2_rate_limiter = TokenBucketRateLimiter(capacity=1.0, refill_rate=0.0)
@@ -96,8 +98,38 @@ async def test_empty_tier2_bucket_skips_the_vertex_call_and_fails_closed():
     assert client.models.generate_content.call_count == calls_after_first
     assert resolver.tier2_calls == 1  # only calls that reached Vertex count
     assert resolver.tier2_rate_limit_hits == 1
-    # No Tier-2 verdict means Score Aggregation decides with the Tier-1 signal.
-    assert verdict.decision is not None
+    assert verdict.decision == VerdictDecision.QUARANTINE
+    assert "Tier-2" in verdict.reasoning and "300 RPM" in verdict.reasoning
+
+
+@pytest.mark.asyncio
+async def test_draining_the_tier2_bucket_never_yields_allow_for_a_band_call():
+    """The bypass this guards: aim calls at the band, drain Tier-2, get ALLOW."""
+    client = _tier2_client(decision="ALLOW", threat_score=0.0)
+    resolver = _resolver(_StubTier1(_in_band(0.51)), client)
+    resolver._tier2_rate_limiter = TokenBucketRateLimiter(capacity=0.0, refill_rate=0.0)
+    for _ in range(5):
+        verdict = await resolver.evaluate(_beacon_context())
+        assert verdict.decision == VerdictDecision.QUARANTINE
+    assert client.models.generate_content.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_structural_block_is_not_downgraded_by_an_empty_tier2_bucket():
+    from blackwall.policy.models import StructuralAction
+
+    resolver = _resolver(_StubTier1(_in_band(0.51)))
+    resolver._tier2_rate_limiter = TokenBucketRateLimiter(capacity=0.0, refill_rate=0.0)
+    engine = MagicMock()
+    engine._policy = None
+    engine.evaluate.return_value = MagicMock(
+        decision=StructuralAction.BLOCK, ruleId="rule"
+    )
+    server = MagicMock()
+    server.structural_engine = engine
+    resolver.policy_server = server
+    verdict = await resolver.evaluate(_beacon_context())
+    assert verdict.decision == VerdictDecision.BLOCK  # aggregation supremacy
 
 
 @pytest.mark.asyncio

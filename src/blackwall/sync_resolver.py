@@ -89,6 +89,10 @@ FRONT_RATE_LIMIT_REFILL_PER_S: float = 80.0
 TIER2_RATE_LIMIT_CAPACITY: float = 300.0
 TIER2_RATE_LIMIT_REFILL_PER_S: float = 5.0
 
+
+class _Tier2QuotaExhausted(Exception):
+    """Tier-2 was triggered but the Vertex bucket is empty (internal signal)."""
+
 # Upper bound for swarm lineage lookups. Provider queries carry a 15ms SLA
 # (NFR-4); this deadline only fires when a provider stalls, so background
 # attribution and shutdown can never block indefinitely (fail-safe NFR-2).
@@ -441,13 +445,17 @@ class SyncResolver:
         semantic_score: Optional[float] = None
         tier1_result: Optional[SemanticTriageResult] = None
         tier2_verdict: Optional[Tier2EscalationVerdict] = None
+        tier2_quota_denied = False
         if self.enable_semantic_triage:
             tier1_result = await self._semantic_triage_result(sanitized)
             semantic_score = tier1_result.threat_score
             if not structural_blocked:
-                tier2_verdict = await self._maybe_escalate_tier2(
-                    sanitized, tier1_result
-                )
+                try:
+                    tier2_verdict = await self._maybe_escalate_tier2(
+                        sanitized, tier1_result
+                    )
+                except _Tier2QuotaExhausted:
+                    tier2_quota_denied = True
 
         # 5. Compute weighted threat score (Tier-2's calibrated score replaces
         # the Tier-1 signal as the semantic input when it fires)
@@ -517,9 +525,21 @@ class SyncResolver:
                     else VerdictDecision.ALLOW
                 )
 
+        # 5d. Tier-2 was required but its Vertex quota is spent. An abstention
+        # would let Score Aggregation ALLOW a lone band signal (ADR 0008, Open
+        # Item 9), so an empty bucket would become a bypass. Raise an ALLOW to
+        # QUARANTINE; a BLOCK from deterministic aggregation stands.
+        quota_quarantine = tier2_quota_denied and decision == VerdictDecision.ALLOW
+        if quota_quarantine:
+            decision = VerdictDecision.QUARANTINE
         base_reasoning = self._build_reasoning(
             score, threat_resp, cbm_resp, semantic_score=semantic_score
         )
+        if quota_quarantine:
+            base_reasoning = (
+                "Tier-2 escalation required but the Vertex rate limit (300 RPM) "
+                f"is exhausted. Fail-closed: QUARANTINE pending retry. | {base_reasoning}"
+            )
         if structural_blocked:
             reasoning = f"Blocked via structural policy rule: {structural_rule_id} | {base_reasoning}"
         elif tier2_verdict is not None and tier1_result is not None:
@@ -938,8 +958,9 @@ class SyncResolver:
         FR-03 routing: fire Tier-2 Gemini deep reasoning on (a) the Tier-1
         ambiguity band (escalate=True) or (b) deterministic-vs-semantic
         disagreement (high-risk argument novelty with a clear-low P). Returns
-        None when no trigger fires or Tier-2 abstains — the caller then fails
-        closed to the normal aggregation + thresholds path (never fail-open).
+        None when no trigger fires or Tier-2 abstains — the caller then falls back
+        to the normal aggregation + thresholds path. Raises _Tier2QuotaExhausted
+        when Tier-2 fired but its Vertex bucket is empty; evaluate() QUARANTINEs.
         """
         trigger: Optional[str] = None
         if tier1.escalate:
@@ -953,16 +974,14 @@ class SyncResolver:
         if trigger is None:
             return None
         if not await self._tier2_rate_limiter.consume(1.0):
-            # An empty Vertex bucket is a Tier-2 abstention: Score Aggregation
-            # decides with the Tier-1 signal, never an implicit ALLOW.
+            # Not an abstention: see 5d in evaluate().
             self.tier2_rate_limit_hits += 1
             logger.warning(
                 "Tier-2 escalation triggered (%s) but the Vertex rate limit "
-                "(300 RPM) is exhausted — failing closed to Score Aggregation "
-                "with the Tier-1 signal",
+                "(300 RPM) is exhausted — QUARANTINE unless the aggregate blocks",
                 trigger,
             )
-            return None
+            raise _Tier2QuotaExhausted
         self.tier2_calls += 1
         started = time.monotonic()
         verdict = await self.tier2_backend.escalate(context, tier1)

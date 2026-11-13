@@ -22,13 +22,14 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   Dependencies: none. Acceptance: existing
   `tests/unit/test_sync_resolver_semantic_triage.py` passes unmodified
   against the `gemini` backend.
-* [x] **TASK-A02: `BW_SEMANTIC_BACKEND` selection + `_compute_threat_score` wiring**
-  (FR-01). Env-gated backend choice (`jev|gemini`), default `gemini` until
-  Track D signs off; `_compute_threat_score` consumes only
+* [x] **TASK-A02: Tier-1 provider wiring + `_compute_threat_score`**
+  (FR-01). *Amended by ADR 0009: the env-gated `jev|gemini` selection was
+  removed; Jev is the only backend.* `_compute_threat_score` consumes only
   `result.threat_score` (weights untouched).
   Dependencies: TASK-A01. Acceptance: suite green under both settings.
   > [!NOTE] Track A lands unit-layer coverage only (`tests/unit/test_policy_semantic_triage_provider.py`,
-  > `tests/unit/test_sync_resolver_semantic_backend_selection.py`). The Gherkin
+  > `tests/unit/test_sync_resolver_semantic_adapter.py`, renamed from
+  > `..._backend_selection.py` by ADR 0009). The Gherkin
   > acceptance scenarios for this seam are owned by TASK-D01 (NFR-04).
 
 ## Track B — Jev Backend (depends on Track A)
@@ -144,20 +145,36 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   > are in ADR 0008, Verification and Open Items 8 to 10.
 * [ ] **TASK-D03: Benchmark + dual-gate CI confirmation** (NFR-01, NFR-02).
   `benchmark_report.json` SLAs green; full suite green under
-  `BW_SEMANTIC_BACKEND=gemini` (GCP-only no-regression) and `jev`.
+  triage disabled (GCP-only no-regression) and enabled with Jev.
   Vertex `EvalTask` dual-gate still enforced. Additionally verify the
   `jev` install closure adds no system/non-Python deps and log a
   packaging-compat note for Gateway F04 (re-verify when F04 lands).
   Dependencies: TASK-D02.
-* [ ] **TASK-D04: Default-flip + docs** (US-01, US-03). Flip default to
-  `jev`, document paid-usage ops (budgets derived from token counts, the
+* [x] **TASK-D04: Default-flip + docs** (US-01, US-03). *Superseded by ADR
+  0009: there is no `gemini` backend to flip away from.* Document paid-usage ops (budgets derived from token counts, the
   organization's rate limits, and the retention terms of a non-ZDR account),
   update `AGENTS.md` interception sequence
   (Rate → Hygiene → TSG → Jev Tier-1 → Gemini Tier-2 → forensics).
   Dependencies: TASK-D03.
 
+## Track E — Jev-only, fail-fast and Flash-Lite Tier-2 (ADR 0009)
+* [x] **TASK-E01: Model standardization** (FR-03). `gemini-3.8-flash` removed
+  everywhere; Tier-2 on `gemini-3.5-flash-lite` with thinking pinned to `medium`
+  (`TIER2_THINKING_LEVEL`), unaffected by `GEMINI_THINKING_LEVEL`.
+  Tests: `tests/unit/test_tier2_escalation.py`, `test_gemini_model_optimization.py`.
+* [x] **TASK-E02: Jev only, fail fast** (FR-01, FR-06). `GeminiTriageBackend`,
+  the registry, `BW_SEMANTIC_BACKEND` and the fallback removed;
+  `JevUnavailableError` on any failure; Tier-1 no longer needs a Gemini client.
+  Tests: `tests/unit/test_jev_fail_fast.py`, `tests/features/jev_tier1_triage.feature`.
+* [x] **TASK-E03: Two rate limits** (FR-08). 80 req/s front bucket; 300 RPM
+  Tier-2 bucket; an empty Tier-2 bucket QUARANTINEs an ALLOW.
+  Tests: `tests/unit/test_sync_resolver_rate_limits.py`.
+* [x] **TASK-E04: Live Tier-2 harness.** `scripts/jev_tier2_eval.py` (`forced`,
+  `e2e`). Unit-tested; the live path has not been run since it was committed.
+* [ ] **TASK-E05: Same-change sync** of `AGENTS.md`, `.agents/rules/` and
+  `.greptile/` (constitution 6.4). Needs maintainer approval of the diffs.
 ## Execution Order
 
-`A01 → (A02 + B01) → (B02 + B03 + C01) → C02 → D01 → D02 → D03 → D04`.
+`A01 → (A02 + B01) → (B02 + B03 + C01) → C02 → D01 → D02 → D03 → D04 → E01 → E02 → E03 → E04 → E05`.
 Tracks B/C overlap after A01; D is strictly sequential. Each task lands with
 tests green; no batch commits without a test run (repo TDD gate).
