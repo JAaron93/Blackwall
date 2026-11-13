@@ -793,21 +793,34 @@ PENDING_SEMANTIC_BACKENDS: frozenset[str] = frozenset()
 
 # --- Tier-1 Jev backend (.kiro/specs/tier-1-jev-addition/ — FR-02/FR-05) ---
 #
-# Jev traffic runs on paid Vercel AI Gateway credits; the vendored pure-Python
+# Jev traffic calls the official TypeSafe AI API (System One endpoint) on paid
+# per-token billing (ADR 0008, amending ADR 0006). The vendored pure-Python
 # httpx caller below is the ONLY shipped runtime path (NFR-06: no Node.js
-# sidecar — scripts/jev_evaluate.mjs is dev-only eval tooling).
-JEV_API_KEY_ENV_VAR = "AI_GATEWAY_API_KEY"
-JEV_GATEWAY_URL_ENV_VAR = "JEV_GATEWAY_URL"
+# sidecar — scripts/jev_evaluate.mjs is dev-only eval tooling). The pre-ADR-0008
+# Vercel variables (AI_GATEWAY_API_KEY, JEV_GATEWAY_URL) are deliberately NOT
+# read: a Vercel credential must never be presented to a different vendor.
+JEV_API_KEY_ENV_VAR = "TYPESAFE_API_KEY"
+JEV_BASE_URL_ENV_VAR = "TYPESAFE_BASE_URL"
 JEV_MODEL_ENV_VAR = "JEV_MODEL"
-JEV_MAX_ATTEMPTS_ENV_VAR = "JEV_MAX_ATTEMPTS"
 JEV_TIMEOUT_ENV_VAR = "JEV_TIMEOUT_S"
 
-JEV_DEFAULT_GATEWAY_URL = "https://ai-gateway.vercel.sh/v1/evaluate"
-JEV_DEFAULT_MODEL = "typesafe-ai/jev"
+# API root (no path); requests go to ``<root>/v1/systemone``.
+JEV_DEFAULT_BASE_URL = "https://api.typesafe.ai"
+JEV_SYSTEM_ONE_PATH = "/v1/systemone"
+# ``jev-latest`` is the vendor's moving alias for the newest stable release.
+# Policy (ADR 0008): deliberately NOT pinned, so Blackwall always runs the
+# newest Jev. The fixed 0.35/0.75 band below was set on an earlier release and is
+# re-validated by re-running the TASK-D02 eval when TypeSafe ships a new one.
+JEV_DEFAULT_MODEL = "jev-latest"
 JEV_DEFAULT_TIMEOUT_S = 5.0
-JEV_DEFAULT_MAX_ATTEMPTS = 3
-JEV_DEFAULT_BACKOFF_BASE_S = 0.5
-JEV_DEFAULT_BACKOFF_CAP_S = 4.0
+
+# Statuses TypeSafe documents as "retry after a short delay": 429 Too Many
+# Requests and 529 Overloaded. On the paid API throttling is rare and this is a
+# latency-bounded hot path with a ready fallback, so there is exactly ONE retry
+# after a short fixed delay (no loop, no tuning knobs), then fail closed. Every
+# other non-200 outcome fails closed immediately.
+JEV_RETRYABLE_STATUSES: frozenset[int] = frozenset({429, 529})
+JEV_RETRY_DELAY_S = 0.5
 
 # Fixed a priori by the 2026-09-19 A/B run (ADR 0006); recalibration requires
 # a spec amendment with fresh labeled evidence — never tune silently.
@@ -821,9 +834,12 @@ JEV_CLEAR_HIGH_THRESHOLD = 0.75
 TIER2_DISAGREEMENT_NOVELTY = 0.4
 TIER2_DISAGREEMENT_P = 0.2
 
-# Verbatim from the decontaminated A/B harness (scripts/jev_evaluate.mjs).
+# ``instructions`` are verbatim from the decontaminated A/B harness
+# (scripts/jev_evaluate.mjs), so the calibrated prompt text is unchanged. Only
+# the question ``type`` moved: the Vercel Gateway's ``boolean`` became the
+# first-party API's native ``noul`` (yes/no probability) primitive (ADR 0008).
 JEV_IS_THREAT_QUESTION: Dict[str, Any] = {
-    "type": "boolean",
+    "type": "noul",
     "instructions": (
         "Is this tool call malicious: an injection attack, evasion/obfuscation "
         "attempt, privilege escalation, unauthorized access, credential theft, "
@@ -853,7 +869,9 @@ class SemanticTriageResult:
 
     threat_score: float
     confidence: Optional[float] = None
-    """Calibration confidence — populated by the Jev backend (FR-07)."""
+    """Calibration confidence, or None when the backend has none to report.
+    Always None for Jev: a ``noul`` answer carries no separate confidence — the
+    probability already encodes the uncertainty (ADR 0008)."""
 
     backend: str = DEFAULT_SEMANTIC_BACKEND
     escalate: bool = False
@@ -987,17 +1005,22 @@ class GeminiTriageBackend(SemanticTriageProvider):
 
 
 class JevTriageBackend(SemanticTriageProvider):
-    """TypeSafe Jev Tier-1 classifier via paid Vercel AI Gateway credits.
+    """TypeSafe Jev Tier-1 classifier via the official TypeSafe AI API.
 
     Emits weighted SIGNALS only (FR-02): ``threat_score`` is Jev's
-    ``P(is_threat=true)`` and ``escalate`` marks the fixed 0.35/0.75 ambiguity
-    band — terminal verdicts remain the exclusive domain of Score
-    Aggregation + Threshold Verdict.
+    ``P(is_threat=true)`` — the ``noul`` answer to a single yes/no question —
+    and ``escalate`` marks the fixed 0.35/0.75 ambiguity band. Terminal
+    verdicts remain the exclusive domain of Score Aggregation + Threshold
+    Verdict.
 
     FR-05: the context arrives pre-sanitized from ``SyncResolver``
     (``ContextHygiene(preserve_iocs=True)``); this backend builds the
-    Gateway ``state`` string verbatim and never re-sanitizes. Every request
-    carries ``disallowPromptTraining: true``.
+    ``state`` string verbatim and never re-sanitizes. The request body is an
+    allowlist of exactly ``model`` / ``state`` / ``questions`` — the egress
+    boundary is the sanitized state, and TypeSafe's documented data handling
+    (Jev is not trained on customer requests or responses) covers the vendor
+    side. There is no per-request no-training flag on the first-party API
+    (ADR 0008).
     """
 
     name: ClassVar[str] = "jev"
@@ -1006,12 +1029,9 @@ class JevTriageBackend(SemanticTriageProvider):
         self,
         *,
         api_key: Optional[str] = None,
-        gateway_url: Optional[str] = None,
+        base_url: Optional[str] = None,
         model: Optional[str] = None,
         timeout: Optional[float] = None,
-        max_attempts: Optional[int] = None,
-        backoff_base_s: float = JEV_DEFAULT_BACKOFF_BASE_S,
-        backoff_cap_s: float = JEV_DEFAULT_BACKOFF_CAP_S,
         fallback: Optional[SemanticTriageProvider] = None,
         http_client: Optional[httpx.AsyncClient] = None,
         sleep: Callable[[float], Any] = asyncio.sleep,
@@ -1019,22 +1039,17 @@ class JevTriageBackend(SemanticTriageProvider):
         self.api_key = (
             api_key if api_key is not None else os.getenv(JEV_API_KEY_ENV_VAR, "")
         )
-        self.gateway_url = gateway_url or os.getenv(
-            JEV_GATEWAY_URL_ENV_VAR, JEV_DEFAULT_GATEWAY_URL
+        # ``or`` chains (not getenv defaults) so a blank ``KEY=`` line in .env
+        # falls back to the default instead of yielding an empty URL / model.
+        self.base_url: str = (
+            base_url or os.getenv(JEV_BASE_URL_ENV_VAR) or JEV_DEFAULT_BASE_URL
         )
-        self.model = model or os.getenv(JEV_MODEL_ENV_VAR, JEV_DEFAULT_MODEL)
+        self.model: str = model or os.getenv(JEV_MODEL_ENV_VAR) or JEV_DEFAULT_MODEL
         self.timeout = (
             timeout
             if timeout is not None
-            else float(os.getenv(JEV_TIMEOUT_ENV_VAR, JEV_DEFAULT_TIMEOUT_S))
+            else float(os.getenv(JEV_TIMEOUT_ENV_VAR) or JEV_DEFAULT_TIMEOUT_S)
         )
-        self.max_attempts = (
-            max_attempts
-            if max_attempts is not None
-            else int(os.getenv(JEV_MAX_ATTEMPTS_ENV_VAR, JEV_DEFAULT_MAX_ATTEMPTS))
-        )
-        self.backoff_base_s = backoff_base_s
-        self.backoff_cap_s = backoff_cap_s
         self.fallback = fallback
         self._http_client = http_client
         self._owns_http = http_client is None
@@ -1050,36 +1065,41 @@ class JevTriageBackend(SemanticTriageProvider):
         )
 
     def _build_payload(self, context: ToolCallContext) -> Dict[str, Any]:
+        # Egress allowlist (FR-05): exactly these three fields leave the host.
         return {
             "model": self.model,
             "state": self.build_state(context),
             "questions": {"is_threat": JEV_IS_THREAT_QUESTION},
-            "providerOptions": {"gateway": {"disallowPromptTraining": True}},
         }
+
+    @property
+    def endpoint(self) -> str:
+        """``<api root>/v1/systemone`` — ``base_url`` is a root, never a path."""
+        return f"{self.base_url.rstrip('/')}{JEV_SYSTEM_ONE_PATH}"
 
     async def _post(self, payload: Dict[str, Any]) -> httpx.Response:
         if self._http_client is None:
             self._http_client = httpx.AsyncClient(timeout=self.timeout)
         return await self._http_client.post(
-            self.gateway_url,
+            self.endpoint,
             json=payload,
             headers={"Authorization": f"Bearer {self.api_key}"},
         )
 
-    @staticmethod
-    def _parse_confidence(provider_metadata: Any) -> Optional[float]:
-        if not isinstance(provider_metadata, dict):
-            return None
-        typesafe = provider_metadata.get("typesafe")
-        if isinstance(typesafe, (int, float)) and not isinstance(typesafe, bool):
-            return float(typesafe)
-        if isinstance(typesafe, dict):
-            confidence = typesafe.get("confidence")
-            if isinstance(confidence, (int, float)) and not isinstance(
-                confidence, bool
-            ):
-                return float(confidence)
-        return None
+    async def _post_with_one_retry(self, payload: Dict[str, Any]) -> httpx.Response:
+        """POST once; on a documented throttle status (429/529) wait a short
+        fixed delay and POST exactly once more. A second throttle is returned
+        to the caller, which fails closed."""
+        response = await self._post(payload)
+        if response.status_code in JEV_RETRYABLE_STATUSES:
+            logger.warning(
+                "Jev TypeSafe API throttled (HTTP %s) — retrying once in %.1fs",
+                response.status_code,
+                JEV_RETRY_DELAY_S,
+            )
+            await self._sleep(JEV_RETRY_DELAY_S)
+            response = await self._post(payload)
+        return response
 
     def _parse_response(self, data: Dict[str, Any]) -> Optional[SemanticTriageResult]:
         answers = data.get("answers")
@@ -1088,7 +1108,7 @@ class JevTriageBackend(SemanticTriageProvider):
         answer = answers.get("is_threat")
         if not isinstance(answer, dict):
             return None
-        probability = answer.get("probability")
+        probability = answer.get("noul")
         if isinstance(probability, bool) or not isinstance(probability, (int, float)):
             return None
         p = float(probability)
@@ -1097,9 +1117,11 @@ class JevTriageBackend(SemanticTriageProvider):
         # bypasses the fail-closed fallback. Malformed means abstain.
         if not math.isfinite(p) or not 0.0 <= p <= 1.0:
             return None
+        # A noul answer has no separate confidence (the probability already
+        # carries the uncertainty), so ``confidence`` stays None — never invent
+        # or borrow one from unrelated response fields.
         return SemanticTriageResult(
             threat_score=p,
-            confidence=self._parse_confidence(data.get("providerMetadata")),
             backend=self.name,
             escalate=JEV_CLEAR_LOW_THRESHOLD <= p <= JEV_CLEAR_HIGH_THRESHOLD,
         )
@@ -1109,23 +1131,12 @@ class JevTriageBackend(SemanticTriageProvider):
         usage = data.get("usage")
         if not isinstance(usage, dict):
             return {"input": None, "output": None}
-        input_tokens = usage.get("inputTokens", usage.get("input_tokens"))
-        output_tokens = usage.get("outputTokens", usage.get("output_tokens"))
+        input_tokens = usage.get("input_tokens")
+        output_tokens = usage.get("output_tokens")
         return {
             "input": input_tokens if isinstance(input_tokens, int) else None,
             "output": output_tokens if isinstance(output_tokens, int) else None,
         }
-
-    @staticmethod
-    def _extract_gateway_cost(data: Dict[str, Any]) -> Optional[str]:
-        metadata = data.get("providerMetadata")
-        if not isinstance(metadata, dict):
-            return None
-        gateway = metadata.get("gateway")
-        if not isinstance(gateway, dict):
-            return None
-        cost = gateway.get("cost")
-        return cost if isinstance(cost, str) else None
 
     def _record_triage(
         self,
@@ -1135,11 +1146,12 @@ class JevTriageBackend(SemanticTriageProvider):
         started: float,
         input_tokens: Optional[int] = None,
         output_tokens: Optional[int] = None,
-        gateway_cost: Optional[str] = None,
     ) -> None:
         """FR-07: one structured record per triage — including abstentions,
         whose outage/latency/budget signal baselines must not omit degraded
-        calls. Abstain shape: ``p``/``confidence`` None, ``backend`` = jev."""
+        calls. Abstain shape: ``p``/``confidence`` None, ``backend`` = jev.
+        Spend is derived downstream from the token counts (the API returns no
+        per-call cost)."""
         logger.info(
             "jev_triage",
             extra={
@@ -1149,7 +1161,6 @@ class JevTriageBackend(SemanticTriageProvider):
                 "latency_ms": round((time.monotonic() - started) * 1000.0, 3),
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
-                "gateway_cost": gateway_cost,
                 "is_fallback": is_fallback,
             },
         )
@@ -1159,56 +1170,36 @@ class JevTriageBackend(SemanticTriageProvider):
             # Static message: never pass credential-adjacent variables into
             # log calls (CodeQL clear-text logging).
             logger.debug(
-                "Jev backend selected but AI_GATEWAY_API_KEY is unset — abstaining"
+                "Jev backend selected but TYPESAFE_API_KEY is unset — abstaining"
             )
             return None
         started = time.monotonic()
         payload = self._build_payload(context)
-        for attempt in range(self.max_attempts):
-            try:
-                response = await self._post(payload)
-                if response.status_code == 200:
-                    data = response.json()
-                    result = self._parse_response(data)
-                    if result is not None:
-                        usage = self._extract_usage(data)
-                        self._record_triage(
-                            result,
-                            is_fallback=False,
-                            started=started,
-                            input_tokens=usage["input"],
-                            output_tokens=usage["output"],
-                            gateway_cost=self._extract_gateway_cost(data),
-                        )
-                        return result
-                    logger.debug(
-                        "Jev gateway returned a malformed payload — failing closed"
+        try:
+            response = await self._post_with_one_retry(payload)
+            if response.status_code == 200:
+                data = response.json()
+                result = self._parse_response(data)
+                if result is not None:
+                    usage = self._extract_usage(data)
+                    self._record_triage(
+                        result,
+                        is_fallback=False,
+                        started=started,
+                        input_tokens=usage["input"],
+                        output_tokens=usage["output"],
                     )
-                    break
-                if response.status_code == 429 and attempt + 1 < self.max_attempts:
-                    delay = min(self.backoff_cap_s, self.backoff_base_s * 2**attempt)
-                    logger.warning(
-                        "Jev gateway rate-limited (HTTP 429) — retrying in "
-                        "%.1fs (attempt %s/%s, paid-credit bounded backoff)",
-                        delay,
-                        attempt + 1,
-                        self.max_attempts,
-                    )
-                    await self._sleep(delay)
-                    continue
+                    return result
                 logger.debug(
-                    "Jev gateway returned HTTP %s — failing closed",
+                    "Jev TypeSafe API returned a malformed payload — failing closed"
+                )
+            else:
+                logger.debug(
+                    "Jev TypeSafe API returned HTTP %s — failing closed",
                     response.status_code,
                 )
-                break
-            except Exception as exc:
-                logger.debug(
-                    "Jev gateway call failed (attempt %s/%s) — failing closed: %s",
-                    attempt + 1,
-                    self.max_attempts,
-                    exc,
-                )
-                break
+        except Exception as exc:
+            logger.debug("Jev TypeSafe API call failed — failing closed: %s", exc)
         fallback_result = await self._fail_closed(context)
         self._record_triage(
             fallback_result,
@@ -1231,7 +1222,7 @@ class JevTriageBackend(SemanticTriageProvider):
             return None
 
     async def aclose(self) -> None:
-        """Close the lazily-created Gateway client — only when this backend
+        """Close the lazily-created API client — only when this backend
         owns it (injected clients belong to the caller)."""
         if self._owns_http and self._http_client is not None:
             await self._http_client.aclose()
@@ -1363,7 +1354,7 @@ def resolve_semantic_backend(raw: Optional[str]) -> str:
     """Map a configured backend name onto a shipped provider name.
 
     Defaults to ``gemini`` — the Jev default flip is TASK-D04, not this seam.
-    Selecting ``jev`` without ``AI_GATEWAY_API_KEY`` degrades to ``gemini``
+    Selecting ``jev`` without ``TYPESAFE_API_KEY`` degrades to ``gemini``
     (fail-closed: never disable triage, never fail open to ALLOW).
     """
     name = normalize_text(raw)
@@ -1374,9 +1365,9 @@ def resolve_semantic_backend(raw: Optional[str]) -> str:
             # Static message: never pass credential-adjacent variables into
             # log calls (CodeQL clear-text logging).
             logger.warning(
-                "Semantic triage backend 'jev' requires AI_GATEWAY_API_KEY "
-                "(paid Vercel AI Gateway credits), which is not set — "
-                "degrading to 'gemini'."
+                "Semantic triage backend 'jev' requires TYPESAFE_API_KEY "
+                "(official TypeSafe AI API, paid per-token billing), which is "
+                "not set — degrading to 'gemini'."
             )
             return DEFAULT_SEMANTIC_BACKEND
         return name

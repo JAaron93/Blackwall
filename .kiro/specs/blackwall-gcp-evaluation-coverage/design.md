@@ -248,7 +248,7 @@ pydantic>=2.0.0
 
 ### Quota & Tier Contract
 
-All judge agents operate under the **paid-tier quota contract** (`GEMINI_TIER=paid`), which provides 300+ RPM throughput required for evaluating 9 domains × 10–20+ scenarios per run without throttling. The pipeline runner MUST validate this configuration at startup:
+All judge agents operate under the **paid-tier quota contract** (`GEMINI_TIER=paid`), which provides 300+ RPM throughput required for evaluating 9 domains × 10–20+ scenarios per run without throttling (for reference, TypeSafe Jev at Tier-1 is 4,800 RPM = 80 req/s, default org limit). The pipeline runner MUST validate this configuration at startup:
 
 ```python
 # Required environment variables for evaluation pipeline

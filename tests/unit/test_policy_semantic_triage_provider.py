@@ -97,15 +97,15 @@ def test_resolve_semantic_backend_defaults_to_gemini(raw, expected: str):
 
 @pytest.mark.parametrize("raw", ["jev", "JeV", " JEV "])
 def test_resolve_semantic_backend_jev_with_key(raw, monkeypatch):
-    """TASK-B01: `jev` resolves case-insensitively once the Gateway key exists."""
-    monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "test-gateway-key")
+    """TASK-B01: `jev` resolves case-insensitively once the TypeSafe API key exists."""
+    monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "test-typesafe-key")
     assert resolve_semantic_backend(raw) == "jev"
 
 
 def test_resolve_semantic_backend_jev_without_key_warns_and_degrades(
     monkeypatch, caplog
 ):
-    """Fail-closed: `jev` without paid-Gateway credentials degrades to gemini
+    """Fail-closed: `jev` without TypeSafe API credentials degrades to gemini
     rather than disabling triage or failing open."""
     monkeypatch.delenv(JEV_API_KEY_ENV_VAR, raising=False)
     with caplog.at_level(logging.WARNING, logger=SEMANTIC_LOGGER):
@@ -134,7 +134,7 @@ def test_build_semantic_provider_returns_gemini(monkeypatch):
 
 
 def test_build_semantic_provider_returns_jev_with_gemini_fallback(monkeypatch):
-    monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "test-gateway-key")
+    monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "test-typesafe-key")
     provider = build_semantic_provider(object(), "jev")
     assert isinstance(provider, JevTriageBackend)
     assert isinstance(provider.fallback, GeminiTriageBackend)

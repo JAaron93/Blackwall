@@ -148,7 +148,7 @@ GCP_PROJECT=your-gcp-project-id
 GCP_LOCATION=us-central1
 GOOGLE_GENAI_USE_VERTEXAI=true
 
-# Mandatory Paid Tier Quota Contract (300+ RPM via Gemini Enterprise Agent Platform)
+# Mandatory Paid Tier Quota Contract (300+ RPM via Gemini Enterprise Agent Platform; for reference, TypeSafe Jev at Tier-1 is 4,800 RPM = 80 req/s, default org limit)
 GEMINI_TIER=paid
 BLACKWALL_TIER=paid
 
@@ -163,18 +163,29 @@ For detailed CI/CD pipeline stage integration and Workload Identity Federation (
 
 ## 7. Tier-1 Jev Triage Evaluation & Analytics Dashboard
 
-The Tier-1 Jev classifier (`typesafe-ai/jev`, governed by `.kiro/specs/tier-1-jev-addition/`) is evaluated separately from the Vertex-judged suites above, then inspected in the Marimo dashboard.
+The Tier-1 Jev classifier (TypeSafe Jev via the official TypeSafe AI API, governed by `.kiro/specs/tier-1-jev-addition/` and ADR 0008) is evaluated separately from the Vertex-judged suites above, then inspected in the Marimo dashboard.
 
 ### Running the triage eval
 
 ```bash
-# Paid Vercel AI Gateway credits recommended (free tier is rate-capped).
-# Every call sets disallowPromptTraining; states are ContextHygiene-sanitized.
-AI_GATEWAY_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py
-# Options: --limit N (subset), --suites security evasion_proof, --pace-ms 2000
+# Live, paid per-token calls to the TypeSafe AI API. Needs Node 18+ for the
+# zero-dependency helper (scripts/jev_evaluate.mjs); there is no npm install step.
+# States are ContextHygiene-sanitized; request bodies carry only model/state/questions.
+TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py
+# Options: --limit N (subset), --suites security evasion_proof, --fresh
+# The model is the jev-latest alias, deliberately unpinned (ADR 0008): it moves
+# when TypeSafe ships a release, so re-run after one WITH --fresh:
+TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py --fresh
+# Resume is keyed on the requested model, which the alias never changes, so a
+# plain re-run replays the old release's cached rows and calls nothing. To score
+# a specific release, set JEV_MODEL=<release> (a different requested model never
+# reuses rows). Calls run back to back; a throttled call is retried once, and
+# rows that still fail are recorded as is_fallback — re-running (without --fresh)
+# fills in just those rows.
+# Helper contract tests (no network): node --test scripts/jev_evaluate.test.mjs
 ```
 
-This writes `tests/eval/results/jev_triage_results.json` — one record per case (`eval_case_id`, `p_threat`, `backend`, `latency_ms`, token usage). Runs checkpoint and resume safely; re-running after fixture changes re-evaluates only changed cases (resume is keyed on content hash).
+This writes `tests/eval/results/jev_triage_results.json` — one record per case (`eval_case_id`, `p_threat`, `backend`, `model`, `latency_ms`, token usage). `model` is the Jev release that actually answered, so results stay attributable under the moving `jev-latest` alias. Runs checkpoint and resume safely; re-running after fixture changes re-evaluates only changed cases (resume is keyed on content hash **and** the requested model, so rows from a different model or from the pre-ADR-0008 Vercel Gateway are never reused). Resume exists for interrupted runs; pass `--fresh` to discard the cache and re-score every case, which is what a new release behind `jev-latest` needs. Raw rows live in `~/.cache/blackwall/jev-eval/jev_raw_systemone.json`; any older `jev_raw.json` there is the Gateway-era copy and is left untouched.
 
 ### Inspecting results
 
@@ -184,6 +195,10 @@ This writes `tests/eval/results/jev_triage_results.json` — one record per case
 
 The **Tier-1 Classifier Analytics** section shows gate stats (accuracy ≥98%, AUROC ≥0.95, ECE ≤0.10, escalation ≤25%), plotly confusion matrix / ROC / reliability / separation views, per-case `P(threat)` with band zones, and an Explainable-AI panel (exact span ablation plus opt-in sampled Shapley, both button-gated live calls). Acceptance is computed at the fixed `0.35/0.75` band; sliders are exploratory only. With no artifact present the section renders an empty state — never placeholder data.
 
+The security suite's states reveal their class (ADR 0008, Open Item 10), so the gate figures are upper bounds; the hand-written evasion-proof suite is the realistic signal.
+
+The **Jev release comparison** cell overlays per-case `P(threat)` from the runs listed in `tests/eval/results/jev_runs/manifest.json`, all over the same 167 states. The default ("headline") runs request each release by name, `jev-1.13.0` and `jev-1.14.0`, twice each on the paid API, so a release difference can be read against the run-to-run noise of one release. "History" runs are opt-in: the Vercel Gateway free-tier run (it overlays the pinned 1.13 runs, which is the evidence that a rate limit does not move P) and the `jev-latest` TASK-D02 runs. To add a run, write it with `JEV_MODEL=<release> .venv/bin/python scripts/jev_triage_eval.py --out tests/eval/results/jev_runs/<file>.json` and list it in the manifest; `tests/unit/test_jev_run_comparison_data.py` checks that it scores the same states with no errors and that the served release matches the request. `tests/eval/results/jev_runs/ablation_class_blind.json` holds the class-blind ablation (the exact states sent and every probability); `tests/unit/test_jev_class_blind_ablation_data.py` pins the figures ADR 0008 cites.
+
 ### Production integration status
 
-Jev is wired into the interception path as the Tier-1 **System-1** classifier (ADR 0006): `JevTriageBackend` evaluates every novel tool call through the `SemanticTriageProvider` seam with the fixed `0.35/0.75` band, bounded 429 backoff failing closed to the Gemini backend, and structured `jev_triage` observability records. Ambiguous calls escalate to **Tier-2** Gemini 3.8 Flash deep reasoning, which returns the final ALLOW/BLOCK verdict (deterministic BLOCKs always win — aggregation supremacy). `BW_SEMANTIC_BACKEND` still defaults to `gemini`; the flip to `jev` is TASK-D04, gated on the TASK-D02 live golden re-run (167 cases) through this shipped backend, which will also record the Tier-2 fire rate. BDD acceptance for the wired pipeline lives in `tests/features/jev_tier1_triage.feature`.
+Jev is wired into the interception path as the Tier-1 **System-1** classifier (ADR 0006): `JevTriageBackend` evaluates every novel tool call through the `SemanticTriageProvider` seam with the fixed `0.35/0.75` band, a single 429/529 retry failing closed to the Gemini backend, and structured `jev_triage` observability records. Ambiguous calls escalate to **Tier-2** Gemini 3.8 Flash deep reasoning, which returns the final ALLOW/BLOCK verdict (deterministic BLOCKs always win — aggregation supremacy). `BW_SEMANTIC_BACKEND` still defaults to `gemini`; the flip to `jev` is TASK-D04, gated on TASK-D03. The TASK-D02 live golden re-run (167 cases) is done and recorded in ADR 0008 together with the Tier-2 fire rate. BDD acceptance for the wired pipeline lives in `tests/features/jev_tier1_triage.feature`.

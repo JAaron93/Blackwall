@@ -272,17 +272,17 @@ F1 Score (Malicious):     100.0%
 | Component | `SyncResolver` (Core Single-Request) | `BatchResolver` (Enterprise High-Throughput) |
 | :--- | :--- | :--- |
 | **Primary Class** | `SyncResolver` | `ADKIntegration` / `BatchResolver` |
-| **API Method** | Tier-1 Jev: `POST /v1/evaluate` (Vercel AI Gateway) or Gemini: `client.models.generate_content()`; Tier-2: Gemini deep reasoning | `client.interactions.create()` |
+| **API Method** | Tier-1 Jev: `POST /v1/systemone` (official TypeSafe AI API) or Gemini: `client.models.generate_content()`; Tier-2: Gemini deep reasoning | `client.interactions.create()` |
 | **Batching** | None (1 req / interception) | Yes (up to 5 reqs / batch) |
 | **Rate Limit** | 300 RPM (token bucket) | 300 RPM (token bucket) |
 | **Context Caching** | None | Server-side (`previous_interaction_id`) |
 | **Threat Intel / CBM Queries** | Awaits CBM, then conditionally awaits Threat Intel (high-risk only) | Batched API evaluation without inline MCP gather |
 | **Signature Generation** | Asynchronous background task (`loop.create_task`) | Asynchronous background task / webhook |
-| **Billing Mode** | GCP Vertex AI (paid) + Tier-1 Jev on Vercel AI Gateway paid credits (ADR 0006) | 100% GCP Vertex AI Mode (Paid Tier) |
+| **Billing Mode** | GCP Vertex AI (paid) + Tier-1 Jev on the official TypeSafe AI API, paid per-token (ADR 0006, ADR 0008) | 100% GCP Vertex AI Mode (Paid Tier) |
 
 ### Three-Tier Interception Model (ADR 0006)
 - **Tier 0: Deterministic & AST Graph** (<5ms): OS audit hooks, Context Hygiene redaction, in-memory YAML structural gating, and Threat Signature Graph matching. Purely deterministic — no LLM calls. Structural/TSG BLOCKs are final and can never be overridden by any downstream signal.
-- **Tier 1: Calibrated Decision Classifier (Jev — System 1)**: every novel (non-TSG-matched) call is evaluated by TypeSafe Jev (`typesafe-ai/jev`, via paid Vercel AI Gateway credits, `disallowPromptTraining` mandatory, sanitization-before-egress). `P(threat)` is a weighted SIGNAL into Score Aggregation with the fixed `0.35/0.75` ambiguity band — never a terminal verdict. The legacy Gemini 3.5 Flash-Lite backend remains shipped and selectable via `BW_SEMANTIC_BACKEND=jev|gemini` (default `gemini` until the Track-D validation gate passes); a Jev outage fails closed to the Gemini backend.
+- **Tier 1: Calibrated Decision Classifier (Jev — System 1)**: every novel (non-TSG-matched) call is evaluated by TypeSafe Jev (the official TypeSafe AI API on paid per-token billing, sanitization-before-egress, allowlisted request body; ADR 0008). `P(threat)` is a weighted SIGNAL into Score Aggregation with the fixed `0.35/0.75` ambiguity band — never a terminal verdict. The legacy Gemini 3.5 Flash-Lite backend remains shipped and selectable via `BW_SEMANTIC_BACKEND=jev|gemini` (default `gemini` until the Track-D validation gate passes); a Jev outage fails closed to the Gemini backend.
 - **Tier 2: Gemini Deep Reasoning (System 2)**: Gemini 3.8 Flash (high thinking) fires only on the ambiguity band or deterministic-vs-semantic disagreement, returning the final ALLOW/BLOCK verdict (structural/TSG/threat-intel-malicious BLOCKs always win). Also owns async forensic `ThreatSignaturePayload` synthesis after novel BLOCKs — zero added latency to the execution path, and never triggered for TSG-matched blocks.
 
 ### Native CLI Tool Suite & Harpoon OSINT Bridge

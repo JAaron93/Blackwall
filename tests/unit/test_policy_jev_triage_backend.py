@@ -1,13 +1,14 @@
 """Unit tests for the Jev Tier-1 triage backend (TASK-B01, FR-02/FR-05/NFR-06).
 
-Governing spec: .kiro/specs/tier-1-jev-addition/
+Governing spec: .kiro/specs/tier-1-jev-addition/ (transport: ADR 0008)
 
-The Gateway is mocked via ``httpx.MockTransport`` — no live calls in unit
-tests (NFR-03); live Jev traffic is eval-harness-only.
+The TypeSafe AI API is mocked via ``httpx.MockTransport`` — no live calls in
+unit tests (NFR-03); live Jev traffic is eval-harness-only.
 """
 
 import json
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock
 
@@ -17,10 +18,14 @@ import pytest
 from blackwall.models import ToolCallContext
 from blackwall.policy.semantic import (
     JEV_API_KEY_ENV_VAR,
+    JEV_BASE_URL_ENV_VAR,
     JEV_CLEAR_HIGH_THRESHOLD,
     JEV_CLEAR_LOW_THRESHOLD,
-    JEV_DEFAULT_GATEWAY_URL,
+    JEV_DEFAULT_BASE_URL,
     JEV_DEFAULT_MODEL,
+    JEV_IS_THREAT_QUESTION,
+    JEV_RETRY_DELAY_S,
+    JEV_SYSTEM_ONE_PATH,
     GeminiTriageBackend,
     JevTriageBackend,
     SemanticTriageProvider,
@@ -41,22 +46,20 @@ def _context(
     )
 
 
-def _gateway_payload(
+SYSTEM_ONE_URL = f"{JEV_DEFAULT_BASE_URL}{JEV_SYSTEM_ONE_PATH}"
+
+
+def _system_one_payload(
     probability: float,
     *,
-    confidence: Any = None,
     input_tokens: int = 120,
     output_tokens: int = 8,
-    cost: str = "0.00001155",
 ) -> Dict[str, Any]:
-    provider_metadata: Dict[str, Any] = {"gateway": {"cost": cost}}
-    if confidence is not None:
-        provider_metadata["typesafe"] = confidence
+    """Success body of ``POST /v1/systemone`` for one ``noul`` question."""
     return {
         "model": JEV_DEFAULT_MODEL,
-        "answers": {"is_threat": {"type": "boolean", "probability": probability}},
-        "usage": {"inputTokens": input_tokens, "outputTokens": output_tokens},
-        "providerMetadata": provider_metadata,
+        "answers": {"is_threat": {"type": "noul", "noul": probability}},
+        "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
     }
 
 
@@ -70,13 +73,12 @@ def _backend(
         return handler(request)
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(_capture))
-    # Pin ctor defaults explicitly so ambient JEV_* env vars (e.g. a
-    # suite-wide JEV_GATEWAY_URL) cannot leak into these tests.
-    kwargs.setdefault("api_key", "test-gateway-key")
-    kwargs.setdefault("gateway_url", JEV_DEFAULT_GATEWAY_URL)
+    # Pin ctor defaults explicitly so ambient JEV_* / TYPESAFE_* env vars (e.g.
+    # a developer .env with TYPESAFE_BASE_URL) cannot leak into these tests.
+    kwargs.setdefault("api_key", "test-typesafe-key")
+    kwargs.setdefault("base_url", JEV_DEFAULT_BASE_URL)
     kwargs.setdefault("model", JEV_DEFAULT_MODEL)
     kwargs.setdefault("timeout", 5.0)
-    kwargs.setdefault("max_attempts", 3)
     return JevTriageBackend(http_client=client, **kwargs)
 
 
@@ -104,7 +106,7 @@ async def test_probability_maps_to_signal_with_fixed_band(
 ):
     requests: List[httpx.Request] = []
     backend = _backend(
-        lambda request: httpx.Response(200, json=_gateway_payload(probability)),
+        lambda request: httpx.Response(200, json=_system_one_payload(probability)),
         requests,
     )
     result = await backend.triage(_context())
@@ -117,52 +119,90 @@ async def test_probability_maps_to_signal_with_fixed_band(
     )
 
 
-async def test_result_confidence_defaults_to_none_when_absent():
+async def test_noul_answer_has_no_confidence():
+    """TypeSafe docs: a noul answer returns no separate confidence — the
+    probability already carries the uncertainty. The backend must not invent
+    one."""
     requests: List[httpx.Request] = []
     backend = _backend(
-        lambda request: httpx.Response(200, json=_gateway_payload(0.02)), requests
+        lambda request: httpx.Response(200, json=_system_one_payload(0.02)), requests
     )
     result = await backend.triage(_context())
     assert result is not None
     assert result.confidence is None
 
 
-@pytest.mark.parametrize("confidence", [0.97, {"confidence": 0.97}])
-async def test_confidence_extracted_from_typesafe_provider_metadata(confidence: Any):
+async def test_legacy_gateway_provider_metadata_is_never_parsed():
+    """The first-party API has no providerMetadata. A stray Vercel-era
+    ``providerMetadata.typesafe`` value must not be promoted to a confidence."""
+    payload = _system_one_payload(0.02)
+    payload["providerMetadata"] = {"typesafe": 0.97, "gateway": {"cost": "1"}}
     requests: List[httpx.Request] = []
-    backend = _backend(
-        lambda request: httpx.Response(
-            200, json=_gateway_payload(0.02, confidence=confidence)
-        ),
-        requests,
-    )
+    backend = _backend(lambda request: httpx.Response(200, json=payload), requests)
     result = await backend.triage(_context())
     assert result is not None
-    assert result.confidence == pytest.approx(0.97)
+    assert result.confidence is None
 
 
 # ----------------------------------------------------------------------
-# Egress contract (FR-05): payload shape, auth, disallowPromptTraining
+# Egress contract (FR-05): endpoint, auth, allowlisted payload fields
 # ----------------------------------------------------------------------
 
 
-async def test_request_hits_v1_evaluate_with_bearer_and_no_training_flag():
+async def test_request_hits_v1_systemone_with_bearer_and_noul_question():
     requests: List[httpx.Request] = []
     backend = _backend(
-        lambda request: httpx.Response(200, json=_gateway_payload(0.02)), requests
+        lambda request: httpx.Response(200, json=_system_one_payload(0.02)), requests
     )
     await backend.triage(_context())
     assert len(requests) == 1
     request = requests[0]
     assert request.method == "POST"
-    assert str(request.url) == JEV_DEFAULT_GATEWAY_URL
-    assert request.headers["Authorization"] == "Bearer test-gateway-key"
+    assert str(request.url) == SYSTEM_ONE_URL
+    assert request.headers["Authorization"] == "Bearer test-typesafe-key"
 
     body = json.loads(request.content.decode())
     assert body["model"] == JEV_DEFAULT_MODEL
     assert set(body["questions"].keys()) == {"is_threat"}
-    assert body["questions"]["is_threat"]["type"] == "boolean"
-    assert body["providerOptions"]["gateway"]["disallowPromptTraining"] is True
+    assert body["questions"]["is_threat"]["type"] == "noul"
+    assert body["questions"]["is_threat"] == JEV_IS_THREAT_QUESTION
+
+
+async def test_request_body_carries_only_allowlisted_fields():
+    """Egress allowlist: only ``model``/``state``/``questions`` leave the host.
+    Vercel-era ``providerOptions`` (``disallowPromptTraining``) does not exist on
+    the first-party API and must not be sent."""
+    requests: List[httpx.Request] = []
+    backend = _backend(
+        lambda request: httpx.Response(200, json=_system_one_payload(0.02)), requests
+    )
+    await backend.triage(_context())
+    body = json.loads(requests[0].content.decode())
+    assert set(body) == {"model", "state", "questions"}
+
+
+@pytest.mark.parametrize(
+    "base_url,expected",
+    [
+        ("https://api.typesafe.ai", "https://api.typesafe.ai/v1/systemone"),
+        ("https://api.typesafe.ai/", "https://api.typesafe.ai/v1/systemone"),
+        (
+            "https://typesafe.internal:8443/proxy/",
+            "https://typesafe.internal:8443/proxy/v1/systemone",
+        ),
+    ],
+)
+async def test_base_url_is_an_api_root_joined_with_systemone_path(
+    base_url: str, expected: str
+):
+    requests: List[httpx.Request] = []
+    backend = _backend(
+        lambda request: httpx.Response(200, json=_system_one_payload(0.02)),
+        requests,
+        base_url=base_url,
+    )
+    await backend.triage(_context())
+    assert str(requests[0].url) == expected
 
 
 async def test_state_is_tool_arguments_metadata_lines_verbatim():
@@ -170,7 +210,7 @@ async def test_state_is_tool_arguments_metadata_lines_verbatim():
     consumes the pre-sanitized context as-is and never re-sanitizes."""
     requests: List[httpx.Request] = []
     backend = _backend(
-        lambda request: httpx.Response(200, json=_gateway_payload(0.02)), requests
+        lambda request: httpx.Response(200, json=_system_one_payload(0.02)), requests
     )
     context = _context(
         tool_name="read_file",
@@ -187,12 +227,12 @@ async def test_state_is_tool_arguments_metadata_lines_verbatim():
 
 
 async def test_sanitized_placeholders_pass_through_verbatim():
-    """FR-05: [[PLACEHOLDER]] redactions must reach the Gateway untouched;
+    """FR-05: [[PLACEHOLDER]] redactions must reach the TypeSafe API untouched;
     no raw secret material is ever introduced by the backend. Exact-equality
     assertion — substring checks on hostnames trip static analysis."""
     requests: List[httpx.Request] = []
     backend = _backend(
-        lambda request: httpx.Response(200, json=_gateway_payload(0.02)), requests
+        lambda request: httpx.Response(200, json=_system_one_payload(0.02)), requests
     )
     context = _context(
         arguments={"token": "[[AWS_SECRET_ACCESS_KEY]]", "host": "wd-bouygues.com"}
@@ -215,7 +255,7 @@ async def test_missing_api_key_abstains(monkeypatch):
     monkeypatch.delenv(JEV_API_KEY_ENV_VAR, raising=False)
     requests: List[httpx.Request] = []
     backend = _backend(
-        lambda request: httpx.Response(200, json=_gateway_payload(0.02)),
+        lambda request: httpx.Response(200, json=_system_one_payload(0.02)),
         requests,
         api_key="",
     )
@@ -228,11 +268,15 @@ async def test_missing_api_key_abstains(monkeypatch):
     [
         {},
         {"answers": {}},
-        {"answers": {"is_threat": {"type": "boolean"}}},
-        {"answers": {"is_threat": {"type": "boolean", "probability": "high"}}},
+        {"answers": {"is_threat": {"type": "noul"}}},
+        {"answers": {"is_threat": {"type": "noul", "noul": "high"}}},
+        # A bool is an int subclass in Python — it is not a probability.
+        {"answers": {"is_threat": {"type": "noul", "noul": True}}},
+        # Vercel-era answer shape must not parse against the first-party API.
+        {"answers": {"is_threat": {"type": "boolean", "probability": 0.02}}},
     ],
 )
-async def test_malformed_gateway_payload_abstains(payload: Dict[str, Any]):
+async def test_malformed_system_one_payload_abstains(payload: Dict[str, Any]):
     requests: List[httpx.Request] = []
     backend = _backend(lambda request: httpx.Response(200, json=payload), requests)
     assert await backend.triage(_context()) is None
@@ -256,7 +300,7 @@ async def test_out_of_range_probability_abstains_never_clamps_into_signal(
     requests: List[httpx.Request] = []
     payload = {
         "model": JEV_DEFAULT_MODEL,
-        "answers": {"is_threat": {"type": "boolean", "probability": probability}},
+        "answers": {"is_threat": {"type": "noul", "noul": probability}},
     }
     fallback = _StubFallback(
         result=SemanticTriageResult(threat_score=0.9, backend="gemini")
@@ -277,24 +321,90 @@ async def test_backend_is_a_provider():
     assert JevTriageBackend(api_key="k").name == "jev"
 
 
+def test_env_var_names_match_the_env_example_contract():
+    """.env.example is the operator-facing contract; the code must read exactly
+    the variable names it documents (ADR 0008)."""
+    assert JEV_API_KEY_ENV_VAR == "TYPESAFE_API_KEY"
+    assert JEV_BASE_URL_ENV_VAR == "TYPESAFE_BASE_URL"
+
+
+def test_defaults_match_the_env_example_contract(monkeypatch):
+    for name in (
+        JEV_API_KEY_ENV_VAR,
+        JEV_BASE_URL_ENV_VAR,
+        "JEV_MODEL",
+        "JEV_TIMEOUT_S",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    backend = JevTriageBackend()
+    assert backend.api_key == ""
+    assert backend.base_url == "https://api.typesafe.ai"
+    assert backend.model == "jev-latest"
+    assert backend.timeout == pytest.approx(5.0)
+
+
+def test_env_example_keeps_jev_latest_unpinned():
+    """ADR 0008 Decision 7: ``jev-latest`` is deliberately unpinned. .env.example
+    is the operator-facing contract, so it must keep that default as an active
+    assignment and must not tell operators to pin (a versioned ID is for a run
+    that has to be reproducible or compared against another release)."""
+    text = (Path(__file__).resolve().parents[2] / ".env.example").read_text(
+        encoding="utf-8"
+    )
+    lines = text.splitlines()
+    assert "JEV_MODEL=jev-latest" in lines
+    comment = "\n".join(
+        line for line in lines[: lines.index("JEV_MODEL=jev-latest")][-8:]
+        if line.startswith("#")
+    )
+    assert "unpinned" in comment
+    assert "Pin a versioned ID" not in text
+
+
 def test_env_knobs_configure_backend(monkeypatch):
     monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "env-key")
-    monkeypatch.setenv("JEV_GATEWAY_URL", "https://gateway.internal/evaluate")
-    monkeypatch.setenv("JEV_MODEL", "typesafe-ai/jev-custom")
-    monkeypatch.setenv("JEV_MAX_ATTEMPTS", "7")
+    monkeypatch.setenv(JEV_BASE_URL_ENV_VAR, "https://typesafe.internal")
+    monkeypatch.setenv("JEV_MODEL", "jev-1.13.0")
     monkeypatch.setenv("JEV_TIMEOUT_S", "2.5")
     backend = JevTriageBackend()
     assert backend.api_key == "env-key"
-    assert backend.gateway_url == "https://gateway.internal/evaluate"
-    assert backend.model == "typesafe-ai/jev-custom"
-    assert backend.max_attempts == 7
+    assert backend.base_url == "https://typesafe.internal"
+    assert backend.model == "jev-1.13.0"
     assert backend.timeout == pytest.approx(2.5)
 
 
-def test_ctor_args_beat_env(monkeypatch):
-    monkeypatch.setenv("JEV_MAX_ATTEMPTS", "7")
-    backend = JevTriageBackend(api_key="k", max_attempts=2)
-    assert backend.max_attempts == 2
+def test_blank_env_values_fall_back_to_defaults(monkeypatch):
+    """.env.example ships these knobs as active assignments; an operator who
+    blanks one (``JEV_MODEL=``) must get the default, not an empty model/URL and
+    not a ``float('')`` crash at backend construction."""
+    monkeypatch.setenv(JEV_BASE_URL_ENV_VAR, "")
+    monkeypatch.setenv("JEV_MODEL", "")
+    monkeypatch.setenv("JEV_TIMEOUT_S", "")
+    backend = JevTriageBackend(api_key="k")
+    assert backend.base_url == JEV_DEFAULT_BASE_URL
+    assert backend.model == JEV_DEFAULT_MODEL
+    assert backend.timeout == pytest.approx(5.0)
+
+
+def test_legacy_vercel_env_vars_are_ignored(monkeypatch):
+    """A Vercel AI Gateway credential must never be presented to a different
+    vendor: no deprecated-alias fallback for the pre-ADR-0008 variables."""
+    monkeypatch.delenv(JEV_API_KEY_ENV_VAR, raising=False)
+    monkeypatch.delenv(JEV_BASE_URL_ENV_VAR, raising=False)
+    monkeypatch.setenv("AI_GATEWAY_API_KEY", "legacy-vercel-credential")
+    monkeypatch.setenv("JEV_GATEWAY_URL", "https://legacy-gateway.invalid/v1/evaluate")
+    backend = JevTriageBackend()
+    assert backend.api_key == ""
+    assert backend.base_url == JEV_DEFAULT_BASE_URL
+    assert isinstance(build_semantic_provider(object(), "jev"), GeminiTriageBackend)
+
+
+@pytest.mark.parametrize("removed", ["max_attempts", "backoff_base_s", "backoff_cap_s"])
+def test_removed_retry_tuning_params_are_not_accepted(removed: str):
+    """The retry budget is a fixed single retry on the paid API (ADR 0008); the
+    old free-tier tuning surface must not quietly grow back."""
+    with pytest.raises(TypeError):
+        JevTriageBackend(api_key="k", **{removed: 1})
 
 
 # ----------------------------------------------------------------------
@@ -303,7 +413,7 @@ def test_ctor_args_beat_env(monkeypatch):
 
 
 def test_build_semantic_provider_jev_with_key(monkeypatch):
-    monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "test-gateway-key")
+    monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "test-typesafe-key")
     client = object()
     provider = build_semantic_provider(client, "jev")
     assert isinstance(provider, JevTriageBackend)
@@ -318,7 +428,7 @@ def test_build_semantic_provider_jev_without_key_degrades(monkeypatch):
 
 
 # ----------------------------------------------------------------------
-# Bounded 429 backoff + fail-closed fallback (TASK-B02, FR-06)
+# Bounded 429/529 backoff + fail-closed fallback (TASK-B02, FR-06)
 # ----------------------------------------------------------------------
 
 
@@ -352,12 +462,17 @@ class _FakeSleep:
 
 
 def _rate_limited(request: httpx.Request) -> httpx.Response:
-    return httpx.Response(
-        429, json={"message": "rate limit exceeded", "error_type": "rate_limit"}
-    )
+    return httpx.Response(429, json={"message": "rate limit exceeded"})
 
 
-async def test_429_storm_exhausts_bounded_attempts_then_falls_back():
+def _overloaded(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(529, json={"message": "temporarily overloaded"})
+
+
+async def test_429_storm_retries_once_then_falls_back():
+    """Paid-API policy (ADR 0008): one retry after a short fixed delay, then
+    fail closed to the fallback. Throttling is rare on a paid plan, and this is a
+    latency-bounded hot path with a ready fallback, so there is no retry loop."""
     requests: List[httpx.Request] = []
     sleep = _FakeSleep()
     fallback = _StubFallback(
@@ -365,45 +480,73 @@ async def test_429_storm_exhausts_bounded_attempts_then_falls_back():
     )
     backend = _backend(_rate_limited, requests, fallback=fallback, sleep=sleep)
     result = await backend.triage(_context())
-    assert len(requests) == backend.max_attempts == 3
-    assert sleep.calls == [0.5, 1.0]  # min(cap, base * 2**attempt)
+    assert len(requests) == 2
+    assert sleep.calls == [JEV_RETRY_DELAY_S]
     assert fallback.calls == 1
     assert result is not None
     assert result.backend == "gemini"  # signal attributed to its producer
     assert result.threat_score == pytest.approx(0.9)
 
 
-async def test_429_then_success_retries_once_with_backoff():
+async def test_429_then_success_retries_once():
     requests: List[httpx.Request] = []
     sleep = _FakeSleep()
     responses = iter(
         [
             httpx.Response(429, json={"message": "slow down"}),
-            httpx.Response(200, json=_gateway_payload(0.02)),
+            httpx.Response(200, json=_system_one_payload(0.02)),
         ]
     )
     backend = _backend(lambda request: next(responses), requests, sleep=sleep)
     result = await backend.triage(_context())
     assert len(requests) == 2
-    assert sleep.calls == [0.5]
+    assert sleep.calls == [JEV_RETRY_DELAY_S]
     assert result is not None
     assert result.backend == "jev"
     assert result.threat_score == pytest.approx(0.02)
 
 
-async def test_backoff_delay_is_capped():
+async def test_529_overloaded_is_retried_once_like_429():
+    """TypeSafe documents 429 *and* 529 (Overloaded) as retry-after-a-delay."""
     requests: List[httpx.Request] = []
     sleep = _FakeSleep()
-    backend = _backend(
-        _rate_limited,
-        requests,
-        max_attempts=4,
-        backoff_base_s=2.0,
-        backoff_cap_s=3.0,
-        sleep=sleep,
+    responses = iter(
+        [
+            httpx.Response(529, json={"message": "temporarily overloaded"}),
+            httpx.Response(200, json=_system_one_payload(0.98)),
+        ]
     )
+    backend = _backend(lambda request: next(responses), requests, sleep=sleep)
+    result = await backend.triage(_context())
+    assert len(requests) == 2
+    assert sleep.calls == [JEV_RETRY_DELAY_S]
+    assert result is not None
+    assert result.backend == "jev"
+    assert result.threat_score == pytest.approx(0.98)
+
+
+async def test_529_storm_retries_once_then_falls_back():
+    requests: List[httpx.Request] = []
+    sleep = _FakeSleep()
+    fallback = _StubFallback(
+        result=SemanticTriageResult(threat_score=0.9, backend="gemini")
+    )
+    backend = _backend(_overloaded, requests, fallback=fallback, sleep=sleep)
+    result = await backend.triage(_context())
+    assert len(requests) == 2
+    assert sleep.calls == [JEV_RETRY_DELAY_S]
+    assert fallback.calls == 1
+    assert result is not None and result.backend == "gemini"
+
+
+async def test_stale_max_attempts_env_cannot_enlarge_the_retry_budget(monkeypatch):
+    """JEV_MAX_ATTEMPTS was removed from .env.example; an old value lingering in
+    someone's .env must not turn the single retry back into a retry loop."""
+    monkeypatch.setenv("JEV_MAX_ATTEMPTS", "9")
+    requests: List[httpx.Request] = []
+    backend = _backend(_rate_limited, requests, sleep=_FakeSleep())
     assert await backend.triage(_context()) is None
-    assert sleep.calls == [2.0, 3.0, 3.0]
+    assert len(requests) == 2
 
 
 async def test_timeout_falls_back_immediately_without_retry():
@@ -411,7 +554,7 @@ async def test_timeout_falls_back_immediately_without_retry():
     sleep = _FakeSleep()
 
     def _hang(request: httpx.Request) -> httpx.Response:
-        raise httpx.TimeoutException("gateway stalled", request=request)
+        raise httpx.TimeoutException("typesafe api stalled", request=request)
 
     fallback = _StubFallback(
         result=SemanticTriageResult(threat_score=0.4, backend="gemini")
@@ -424,22 +567,23 @@ async def test_timeout_falls_back_immediately_without_retry():
     assert result is not None and result.backend == "gemini"
 
 
-async def test_non_429_client_error_falls_back_without_retry():
+@pytest.mark.parametrize("status", [400, 401, 413, 422, 500, 503])
+async def test_non_transient_status_falls_back_without_retry(status: int):
+    """Only the documented transient statuses (429/529) are retried; contract
+    errors (400/401/413/422) and other server errors fail closed at once."""
     requests: List[httpx.Request] = []
     sleep = _FakeSleep()
     fallback = _StubFallback(
         result=SemanticTriageResult(threat_score=0.4, backend="gemini")
     )
     backend = _backend(
-        lambda request: httpx.Response(
-            400, json={"message": "bad request", "error_type": "invalid_request"}
-        ),
+        lambda request: httpx.Response(status, json={"message": "rejected"}),
         requests,
         fallback=fallback,
         sleep=sleep,
     )
     result = await backend.triage(_context())
-    assert len(requests) == 1  # 4xx contract errors must never be retried
+    assert len(requests) == 1  # non-transient statuses must never be retried
     assert sleep.calls == []
     assert fallback.calls == 1
     assert result is not None and result.backend == "gemini"
@@ -456,7 +600,7 @@ async def test_429_storm_without_fallback_abstains():
     requests: List[httpx.Request] = []
     backend = _backend(_rate_limited, requests, sleep=_FakeSleep())
     assert await backend.triage(_context()) is None
-    assert len(requests) == 3
+    assert len(requests) == 2
 
 
 # ----------------------------------------------------------------------
@@ -473,9 +617,7 @@ def _triage_records(caplog: Any) -> List[Any]:
 async def test_success_emits_structured_triage_record(caplog):
     requests: List[httpx.Request] = []
     backend = _backend(
-        lambda request: httpx.Response(
-            200, json=_gateway_payload(0.02, confidence=0.97)
-        ),
+        lambda request: httpx.Response(200, json=_system_one_payload(0.02)),
         requests,
     )
     with caplog.at_level(logging.INFO, logger=SEMANTIC_LOGGER):
@@ -486,17 +628,15 @@ async def test_success_emits_structured_triage_record(caplog):
     record = records[0]
     assert record.backend == "jev"
     assert record.p == pytest.approx(0.02)
-    assert record.confidence == pytest.approx(0.97)
+    assert record.confidence is None  # noul answers carry no confidence
     assert record.latency_ms >= 0.0
     assert record.input_tokens == 120
     assert record.output_tokens == 8
-    assert record.gateway_cost == "0.00001155"
     assert record.is_fallback is False
 
 
-async def test_snake_case_usage_keys_are_tolerated(caplog):
-    payload = _gateway_payload(0.98)
-    payload["usage"] = {"input_tokens": 200, "output_tokens": 12}
+async def test_usage_tokens_are_read_from_snake_case_keys(caplog):
+    payload = _system_one_payload(0.98, input_tokens=200, output_tokens=12)
     requests: List[httpx.Request] = []
     backend = _backend(lambda request: httpx.Response(200, json=payload), requests)
     with caplog.at_level(logging.INFO, logger=SEMANTIC_LOGGER):
@@ -504,6 +644,19 @@ async def test_snake_case_usage_keys_are_tolerated(caplog):
     record = _triage_records(caplog)[0]
     assert record.input_tokens == 200
     assert record.output_tokens == 12
+
+
+async def test_missing_or_malformed_usage_records_none_tokens(caplog):
+    payload = _system_one_payload(0.02)
+    payload["usage"] = {"input_tokens": "many", "output_tokens": None}
+    requests: List[httpx.Request] = []
+    backend = _backend(lambda request: httpx.Response(200, json=payload), requests)
+    with caplog.at_level(logging.INFO, logger=SEMANTIC_LOGGER):
+        result = await backend.triage(_context())
+    assert result is not None  # usage is telemetry only — never gates the signal
+    record = _triage_records(caplog)[0]
+    assert record.input_tokens is None
+    assert record.output_tokens is None
 
 
 async def test_fallback_emits_honest_is_fallback_record(caplog):
@@ -524,7 +677,6 @@ async def test_fallback_emits_honest_is_fallback_record(caplog):
     assert record.latency_ms >= 0.0
     assert record.input_tokens is None
     assert record.output_tokens is None
-    assert record.gateway_cost is None
 
 
 async def test_total_abstention_emits_abstention_record(caplog):
@@ -544,7 +696,6 @@ async def test_total_abstention_emits_abstention_record(caplog):
     assert record.latency_ms >= 0.0
     assert record.input_tokens is None
     assert record.output_tokens is None
-    assert record.gateway_cost is None
     assert record.is_fallback is False
 
 
@@ -588,10 +739,10 @@ async def test_aclose_without_client_is_a_noop():
 
 async def test_resolver_close_closes_owned_jev_provider_client(monkeypatch):
     """Greptile P2: SyncResolver.close() must reach the semantic provider so
-    repeatedly created resolvers cannot leak Gateway connection pools."""
+    repeatedly created resolvers cannot leak API connection pools."""
     from blackwall.sync_resolver import SyncResolver
 
-    monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "test-gateway-key")
+    monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "test-typesafe-key")
     resolver = SyncResolver(client=MagicMock(), semantic_backend="jev")
     provider = resolver.semantic_provider
     assert isinstance(provider, JevTriageBackend)

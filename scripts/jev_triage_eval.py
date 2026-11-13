@@ -5,15 +5,23 @@ Produces tests/eval/results/jev_triage_results.json — per-case Jev P(threat)
 records consumed by notebooks/benchmark_analytics.py and the Track-D
 acceptance gate (.kiro/specs/tier-1-jev-addition/).
 
-Live Vercel AI Gateway calls; requires AI_GATEWAY_API_KEY in the
-environment (paid credits recommended — the free tier is rate-capped to
-~20-call bursts). Every call sets disallowPromptTraining=true and all
-states are ContextHygiene-sanitized before egress. Nothing secret is
-written to disk: only sanitized states, probabilities, and usage.
+Live calls to the official TypeSafe AI API (System One, ADR 0008); requires
+TYPESAFE_API_KEY in the environment (paid per-token billing) and Node 18+ for
+the zero-dependency scripts/jev_evaluate.mjs helper. All states are
+ContextHygiene-sanitized before egress. Nothing secret is written to disk:
+only sanitized states, probabilities, and usage.
+
+Each record carries the Jev release that actually answered (``model``), so
+evidence stays attributable even though JEV_MODEL defaults to the moving
+``jev-latest`` alias (deliberately unpinned, ADR 0008). Calls run back to back;
+a throttled call is retried once, and any row that still fails is recorded as a
+fallback — re-running the script fills in just those rows.
 
 Usage:
-  AI_GATEWAY_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py
-  AI_GATEWAY_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py --limit 10
+  TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py
+  TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py --limit 10
+  # after TypeSafe ships a release behind jev-latest (resume would replay old rows):
+  TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py --fresh
 """
 
 from __future__ import annotations
@@ -132,59 +140,19 @@ def build_cases(suites: list[str]) -> list[dict]:
     return cases
 
 
-def ensure_node_env() -> None:
-    if (INSTALL_DIR / "node_modules" / "ai" / "package.json").exists():
-        return
-    INSTALL_DIR.mkdir(parents=True, exist_ok=True)
-    if not (INSTALL_DIR / "package.json").exists():
-        subprocess.run(
-            ["npm", "init", "-y"], cwd=INSTALL_DIR, check=True, capture_output=True
-        )
-    subprocess.run(
-        ["npm", "install", "ai@latest"], cwd=INSTALL_DIR, check=True, capture_output=True
-    )
+def build_records(raw: list[dict], cases: list[dict]) -> list[dict]:
+    """Map raw helper rows onto the committed per-case artifact shape.
 
-
-def main() -> int:
-    ap = argparse.ArgumentParser(description="Jev triage eval over golden evalsets")
-    ap.add_argument("--out", default="tests/eval/results/jev_triage_results.json")
-    ap.add_argument("--pace-ms", type=int, default=2000)
-    ap.add_argument("--limit", type=int, default=0, help="0 = all cases")
-    ap.add_argument("--suites", nargs="+", default=["security", "evasion_proof"])
-    args = ap.parse_args()
-
-    if not os.environ.get("AI_GATEWAY_API_KEY"):
-        print("AI_GATEWAY_API_KEY is not set", file=sys.stderr)
-        return 2
-
-    ensure_node_env()
-    cases = build_cases(args.suites)
-    if args.limit:
-        cases = cases[: args.limit]
-    print(f"cases={len(cases)}", file=sys.stderr)
-
-    work = INSTALL_DIR / "cases.json"
-    raw_out = INSTALL_DIR / "jev_raw.json"
-    work.write_text(json.dumps(cases, indent=1))
-
-    env = dict(os.environ, JEV_PACE_MS=str(args.pace_ms))
-    proc = subprocess.run(
-        ["node", str(NODE_RUNNER), "batch", str(work), str(raw_out)],
-        cwd=INSTALL_DIR,
-        env=env,
-    )
-    if proc.returncode != 0 and not raw_out.exists():
-        return proc.returncode
-
-    raw = json.loads(raw_out.read_text())
+    Rows that are out of scope for this run (different suite selection,
+    ``--limit``) or stale (state content changed since) are dropped.
+    """
     states = {c["id"]: (c["state"], c["h"]) for c in cases}
     records = []
     for r in raw:
-        # Drop rows that are out of scope for this run (different suite
-        # selection, --limit) or stale (state content changed since).
         current = states.get(r["id"])
         if current is None or r.get("h") != current[1]:
             continue
+        usage = r.get("usage") or {}
         records.append(
             {
                 "eval_case_id": r["id"],
@@ -194,18 +162,70 @@ def main() -> int:
                 "expected_verdict": r["expected"],
                 "tool_name": r.get("tool", "unknown"),
                 "backend": "jev",
-                "model": "typesafe-ai/jev",
+                # The release that answered, not the alias that was requested.
+                "model": r.get("served_model") or r.get("model"),
                 "state": current[0],
                 "p_threat": r["p"],
-                "confidence": r["confidence"],
+                # A noul answer carries no separate confidence (ADR 0008).
+                "confidence": r.get("confidence"),
                 "latency_ms": r["latency_ms"],
-                "input_tokens": (r.get("usage") or {}).get("inputTokens"),
-                "output_tokens": (r.get("usage") or {}).get("outputTokens"),
+                "input_tokens": usage.get("input_tokens"),
+                "output_tokens": usage.get("output_tokens"),
                 "tier2_disposition": None,
                 "is_fallback": bool(r.get("is_fallback", r.get("error") is not None)),
                 "error": r["error"],
             }
         )
+    return records
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Jev triage eval over golden evalsets")
+    ap.add_argument("--out", default="tests/eval/results/jev_triage_results.json")
+    ap.add_argument("--limit", type=int, default=0, help="0 = all cases")
+    ap.add_argument("--suites", nargs="+", default=["security", "evasion_proof"])
+    ap.add_argument(
+        "--fresh",
+        action="store_true",
+        help=(
+            "discard the cached raw rows and call the API for every case. Use it "
+            "after TypeSafe ships a release behind jev-latest: resume is keyed on "
+            "the requested model, and the alias name does not change, so without "
+            "this flag the old release's rows are replayed and nothing is called"
+        ),
+    )
+    args = ap.parse_args()
+
+    # The legacy AI_GATEWAY_API_KEY is deliberately not honored: a Vercel
+    # credential must never be presented to a different vendor (ADR 0008).
+    if not os.environ.get("TYPESAFE_API_KEY"):
+        print("TYPESAFE_API_KEY is not set", file=sys.stderr)
+        return 2
+
+    INSTALL_DIR.mkdir(parents=True, exist_ok=True)
+    cases = build_cases(args.suites)
+    if args.limit:
+        cases = cases[: args.limit]
+    print(f"cases={len(cases)}", file=sys.stderr)
+
+    work = INSTALL_DIR / "cases.json"
+    # New filename for the new transport: any pre-ADR-0008 ``jev_raw.json`` is
+    # the only copy of the raw Vercel-Gateway A/B rows, so it is left untouched
+    # rather than overwritten by a first-party-API run.
+    raw_out = INSTALL_DIR / "jev_raw_systemone.json"
+    work.write_text(json.dumps(cases, indent=1))
+    if args.fresh:
+        raw_out.unlink(missing_ok=True)
+        print("fresh run: cached raw rows discarded", file=sys.stderr)
+
+    proc = subprocess.run(
+        ["node", str(NODE_RUNNER), "batch", str(work), str(raw_out)],
+        cwd=INSTALL_DIR,
+    )
+    if proc.returncode != 0 and not raw_out.exists():
+        return proc.returncode
+
+    records = build_records(json.loads(raw_out.read_text()), cases)
     out_path = REPO_ROOT / args.out
     out_path.write_text(json.dumps(records, indent=1))
     ok = sum(1 for r in records if not r["error"])

@@ -96,7 +96,7 @@ async def test_jev_env_without_key_yields_gemini_provider_and_warns(
 @pytest.mark.asyncio
 async def test_jev_env_with_key_yields_jev_provider(monkeypatch):
     monkeypatch.setenv(BACKEND_ENV, "jev")
-    monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "test-gateway-key")
+    monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "test-typesafe-key")
     resolver = SyncResolver(client=MagicMock())
     assert resolver._semantic_backend_name == "jev"
     assert isinstance(resolver.semantic_provider, JevTriageBackend)
@@ -142,7 +142,9 @@ async def test_adapter_returns_none_when_provider_abstains():
 @pytest.mark.asyncio
 async def test_adapter_swallows_provider_exceptions():
     resolver = SyncResolver(client=MagicMock(), enable_semantic_triage=True)
-    resolver._semantic_provider = _StubProvider(error=RuntimeError("gateway down"))
+    resolver._semantic_provider = _StubProvider(
+        error=RuntimeError("semantic provider down")
+    )
     assert await resolver._evaluate_semantic_intent(_make_context()) is None
 
 
@@ -161,7 +163,7 @@ async def test_compute_threat_score_routes_through_the_adapter():
 async def test_backend_selection_does_not_shift_aggregation(monkeypatch):
     """NFR-02 guard: the knob may not move the weighted score — equal-strength
     signals from either backend must aggregate identically."""
-    monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "test-gateway-key")
+    monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "test-typesafe-key")
     resolver_gemini = SyncResolver(
         client=MagicMock(),
         enable_semantic_triage=True,

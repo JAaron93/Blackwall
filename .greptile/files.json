@@ -73,7 +73,11 @@
   },
   {
     "path": "scripts/jev_evaluate.mjs",
-    "description": "Gateway evaluation helper (AI SDK 7 batch/single modes, bounded 429 backoff, is_fallback contract)."
+    "description": "TypeSafe AI API evaluation helper (zero-dependency Node fetch; batch/single modes, single 429/529 retry, no pacing, model-keyed resume, is_fallback contract)."
+  },
+  {
+    "path": "scripts/jev_evaluate.test.mjs",
+    "description": "Node contract tests for the eval helper (loopback server, no network); run with node --test, never via pytest."
   },
   {
     "path": "notebooks/benchmark_analytics.py",

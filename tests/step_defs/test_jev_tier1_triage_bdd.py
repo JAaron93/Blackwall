@@ -134,23 +134,53 @@ def resolver_with_repo_and_stub_jev(state: BDDState, p: str) -> None:
     state.resolver._semantic_provider = state.tier1
 
 
-@given("a real Jev backend bound to a capturing gateway")
+@given("a real Jev backend bound to a capturing TypeSafe API")
 def resolver_with_capturing_jev_backend(state: BDDState) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         state.captured_requests.append(request)
         return httpx.Response(
             200,
             json={
-                "model": "typesafe-ai/jev",
-                "answers": {"is_threat": {"type": "boolean", "probability": 0.02}},
-                "usage": {"inputTokens": 100, "outputTokens": 5},
-                "providerMetadata": {"gateway": {"cost": "0.00001"}},
+                "model": "jev-latest",
+                "answers": {"is_threat": {"type": "noul", "noul": 0.02}},
+                "usage": {"input_tokens": 100, "output_tokens": 5},
             },
         )
 
     state.jev_backend = JevTriageBackend(
-        api_key="test-gateway-key",
+        api_key="test-typesafe-key",
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    state.gemini_client = MagicMock()
+    state.resolver = SyncResolver(
+        client=state.gemini_client, enable_semantic_triage=True
+    )
+    state.resolver._semantic_provider = state.jev_backend
+
+
+def _resolver_with_always_failing_jev_backend(
+    state: BDDState, status: int, p: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Real Jev backend whose TypeSafe API answers ``status`` on every call,
+    backed by a Gemini fallback returning ``p`` (fail-closed routing)."""
+    caplog.set_level(logging.INFO, logger="blackwall.policy.semantic")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, json={"message": "transient failure"})
+
+    async def fake_sleep(seconds: float) -> None:
+        state.sleeps.append(seconds)
+
+    gemini_client = MagicMock()
+    fallback_response = MagicMock()
+    fallback_response.parsed = MagicMock(threat_score=float(p))
+    gemini_client.models.generate_content = MagicMock(return_value=fallback_response)
+
+    state.jev_backend = JevTriageBackend(
+        api_key="test-typesafe-key",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        fallback=GeminiTriageBackend(gemini_client),
+        sleep=fake_sleep,
     )
     state.gemini_client = MagicMock()
     state.resolver = SyncResolver(
@@ -168,30 +198,19 @@ def resolver_with_capturing_jev_backend(state: BDDState) -> None:
 def resolver_with_rate_limited_jev_backend(
     state: BDDState, p: str, caplog: pytest.LogCaptureFixture
 ) -> None:
-    caplog.set_level(logging.INFO, logger="blackwall.policy.semantic")
+    _resolver_with_always_failing_jev_backend(state, 429, p, caplog)
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(429, json={"message": "rate limit"})
 
-    async def fake_sleep(seconds: float) -> None:
-        state.sleeps.append(seconds)
-
-    gemini_client = MagicMock()
-    fallback_response = MagicMock()
-    fallback_response.parsed = MagicMock(threat_score=float(p))
-    gemini_client.models.generate_content = MagicMock(return_value=fallback_response)
-
-    state.jev_backend = JevTriageBackend(
-        api_key="test-gateway-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        fallback=GeminiTriageBackend(gemini_client),
-        sleep=fake_sleep,
+@given(
+    parsers.parse(
+        "a real Jev backend overloaded on every call with a Gemini fallback "
+        'returning P "{p}"'
     )
-    state.gemini_client = MagicMock()
-    state.resolver = SyncResolver(
-        client=state.gemini_client, enable_semantic_triage=True
-    )
-    state.resolver._semantic_provider = state.jev_backend
+)
+def resolver_with_overloaded_jev_backend(
+    state: BDDState, p: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    _resolver_with_always_failing_jev_backend(state, 529, p, caplog)
 
 
 @given(parsers.parse('Tier-2 returns "{decision}" with threat_score "{score}"'))
@@ -245,8 +264,8 @@ def evaluate_secret(state: BDDState) -> None:
     state.verdict = run_async(state.resolver.evaluate(state.context))
 
 
-@when("a high-risk tool call is triaged through the failing gateway")
-def evaluate_through_failing_gateway(state: BDDState) -> None:
+@when("a high-risk tool call is triaged through the failing TypeSafe API")
+def evaluate_through_failing_api(state: BDDState) -> None:
     state.context = _high_risk_context()
     state.verdict = run_async(state.resolver.evaluate(state.context))
 
@@ -294,7 +313,7 @@ def assert_signature_written(state: BDDState) -> None:
 
 @then(parsers.parse('the outbound state contains "{fragment}"'))
 def assert_state_contains(state: BDDState, fragment: str) -> None:
-    assert state.captured_requests, "no Gateway egress captured"
+    assert state.captured_requests, "no TypeSafe API egress captured"
     body = json.loads(state.captured_requests[0].content.decode())
     assert fragment in body["state"]
 
@@ -305,10 +324,21 @@ def assert_state_excludes(state: BDDState, fragment: str) -> None:
     assert fragment not in body["state"]
 
 
-@then("the outbound request disallows prompt training")
-def assert_no_training(state: BDDState) -> None:
+@then("the outbound request targets the TypeSafe System One endpoint")
+def assert_systemone_endpoint(state: BDDState) -> None:
+    request = state.captured_requests[0]
+    assert request.method == "POST"
+    assert str(request.url) == "https://api.typesafe.ai/v1/systemone"
+    assert request.headers["Authorization"] == "Bearer test-typesafe-key"
+
+
+@then("the outbound request carries only the allowlisted fields")
+def assert_egress_allowlist(state: BDDState) -> None:
+    # Vercel-era ``providerOptions`` (disallowPromptTraining) is gone with the
+    # Gateway (ADR 0008); the egress boundary is the sanitized ``state`` plus
+    # exactly these three fields — nothing else may leave the host.
     body = json.loads(state.captured_requests[0].content.decode())
-    assert body["providerOptions"]["gateway"]["disallowPromptTraining"] is True
+    assert set(body) == {"model", "state", "questions"}
 
 
 @then(parsers.parse('the triage signal backend is "{backend}"'))

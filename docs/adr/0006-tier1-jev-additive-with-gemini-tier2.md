@@ -2,6 +2,7 @@
 
 ## Status
 Approved (implementation: PR #169; spec: `.kiro/specs/tier-1-jev-addition/`)
+Transport amended by [ADR 0008](0008-jev-transport-vercel-gateway-to-typesafe-api.md): Jev is now called through the official TypeSafe AI API instead of the Vercel AI Gateway. The Vercel-specific details below (endpoint, `AI_GATEWAY_API_KEY`, `disallowPromptTraining`, gateway latency) are the 2026-09-19 historical record; the additive Tier-1 / retained Tier-2 decision is unchanged.
 
 ## Context
 Blackwall Core's semantic triage ran exclusively on Gemini 3.5 Flash-Lite

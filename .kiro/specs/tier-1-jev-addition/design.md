@@ -9,14 +9,24 @@ semantic triage exclusively via Gemini 3.5 Flash-Lite
 `threat_score` feeds the weighted aggregation in `_compute_threat_score`
 (`src/blackwall/sync_resolver.py:957`: Threat Intel 40% + CBM 30% + Context 30%).
 
-This spec introduces **TypeSafe Jev** (`typesafe-ai/jev`, accessed via Vercel AI
-Gateway) as an **additive Tier-1 decision classifier** that absorbs the boring
+This spec introduces **TypeSafe Jev**, accessed through the official TypeSafe
+AI API, as an **additive Tier-1 decision classifier** that absorbs the boring
 95%+ of clear-cut tool calls, while Gemini is retained for Tier-2 ambiguity
 escalation and async forensic/signature synthesis. Jev is a probabilistic
-evaluation model (typed boolean `P(threat)` + confidence, no text generation);
-it cannot replace Gemini's generative duties. **Additive, not substitution.**
+evaluation model (a typed `noul` yes/no `P(threat)`, no text generation); it
+cannot replace Gemini's generative duties. **Additive, not substitution.**
+
+> **Amendment (2026-11-12, ADR 0008):** this spec was written for Jev reached
+> through the Vercel AI Gateway (`typesafe-ai/jev`, `POST /v1/evaluate`,
+> `boolean` question, `disallowPromptTraining`). The transport is now the
+> official TypeSafe AI API (`POST /v1/systemone`, `noul` question). Sections 2
+> and 4, the diagram and the constraints below are amended; the Experimental
+> Basis is left as the historical record of the Gateway-era run.
 
 ## Experimental Basis (A/B run, 2026-09-19, branch `exp/jev-ab-eval-plan`)
+
+> *Historical: every figure in this section was measured through the Vercel AI
+> Gateway, before ADR 0008. Gateway-specific wording is preserved as recorded.*
 
 A swap-only A/B compared the Gemini baseline against Jev over the golden sets
 (`tests/eval/evalsets/blackwall_security.evalset.json`: 157 cases —
@@ -53,6 +63,18 @@ burst, then a multi-hour trickle (`429 GatewayRateLimitError`, no
 Decision: **operate Jev on paid credits**; keep free-tier findings as
 cost evidence only.
 
+### Re-validation on the TypeSafe API (TASK-D02, 2026-11-12, `jev-1.14.0`, paid)
+
+The run above is the Gateway-era record. TASK-D02 repeated it through the
+official API with `jev-latest` (served: `jev-1.14.0`): accuracy 99.4% (TP 93,
+FN 1, FP 0, TN 68), AUROC 1.000, ECE 0.059, escalation 3.0% (5/167), p50 92 ms
+and p95 143 ms, about $0.003 per pass; all gates pass. Across two runs, outside
+the C2 class every malicious case scores P ≥ 0.74 and benign P ≤ 0.19. The C2 class is still the
+weak spot and weaker than on 1.13 (mean P 0.70 to 0.63; `wave1_c2_beacon_001`
+still missed at P 0.19). Same-model reruns differ by up to 0.03 per case and
+changed zone in 3 of 167, so a second run of the same pass scored 98.8% (one
+more C2 beacon missed), one case above the 98% gate. See ADR 0008.
+
 ## Architecture Diagram
 
 ```text
@@ -63,7 +85,7 @@ Tier 0: Deterministic & AST Graph (<5ms)  [UNCHANGED]
         └── Novel / Suspicious Payload
                     │
 Tier 1: SemanticTriageProvider  [NEW ABSTRACTION]
-        ├── backend=jev (paid Gateway): P(threat) [+ confidence]
+        ├── backend=jev (TypeSafe API, paid): P(threat)
         │     ├── P < 0.35 → clear-low SIGNAL → Score Aggregation (no Tier-2 call)
         │     ├── P > 0.75 → clear-high SIGNAL → Score Aggregation (no Tier-2 call)
         │     └── 0.35 ≤ P ≤ 0.75 → Tier-2 escalation
@@ -102,13 +124,20 @@ backend: str, escalate: bool }` so `_compute_threat_score` stays untouched.
 
 ### 2. Jev Backend (`JevTriageBackend`)
 
-Single-question boolean evaluation per intercepted call:
-`state` = sanitized `Tool / Arguments / Metadata` (sanitized **first**),
-`questions = { is_threat: boolean }`, `threat_score = P(true)`. Fixed
-thresholds `0.35 / 0.75` (recalibration requires a spec amendment with fresh
-labeled data — no silent tuning). Records `confidence`, `latency_ms`, token
-usage per call for the regression tracker. Sequential issuance with bounded
-`429` backoff; never parallel-burst the Gateway.
+Single-question `noul` evaluation per intercepted call:
+`POST {TYPESAFE_BASE_URL}/v1/systemone` with `state` = sanitized
+`Tool / Arguments / Metadata` (sanitized **first**),
+`questions = { is_threat: { type: "noul", instructions } }`,
+`threat_score = answers.is_threat.noul`. Fixed thresholds `0.35 / 0.75`
+(recalibration requires a spec amendment with fresh labeled data — no silent
+tuning). Records `latency_ms` and token usage per call for the regression
+tracker; `confidence` is `None` because a `noul` answer carries none, and cost
+is derived from the token counts. A throttled call (`429` / `529`) is retried
+once after a fixed 0.5s, then fails closed. Rate limits are per organization
+(requests/s and tokens/s, set in the TypeSafe console; this organization, as of
+2026-11-12: 80 requests/s and 100,000 input tokens/s, both default and shared
+across keys, i.e. 4,800 RPM); there is no client-side pacing. The model is
+`jev-latest`, deliberately unpinned (ADR 0008).
 
 ### 3. Tier-2 Escalation Policy (retained, narrowed)
 
@@ -120,13 +149,21 @@ deep-reasoning) spends only where judgment exists.
 
 ### 4. Privacy & Data Handling
 
-`ContextHygiene.sanitize_*` runs **before** any Gateway payload is built —
-Gateway sees only `[[PLACEHOLDER]]`-redacted synthetic/operational tool
-descriptions, never raw env vars, ADC credentials, or secrets.
-`disallowPromptTraining: true` is mandatory on **every** Jev call (available
-on all tiers). Full `zeroDataRetention` remains Pro/Enterprise-only; until
-available, no-training + sanitization is the documented protection, and
-production rollout should prefer Pro with per-request ZDR enabled.
+`ContextHygiene.sanitize_*` runs **before** any TypeSafe API payload is built —
+the API sees only `[[PLACEHOLDER]]`-redacted synthetic/operational tool
+descriptions, never raw env vars, ADC credentials, or secrets. The request
+body is an allowlist of exactly `model`, `state` and `questions`.
+The Vercel-era `disallowPromptTraining: true` flag does not exist on the
+first-party API (ADR 0008), so no request can assert it. The remaining
+no-training protection is TypeSafe's published data-handling commitment
+("Jev is not trained on customer requests or responses"); that is a vendor
+assurance, not a control Blackwall can verify per request. Zero data retention
+(ZDR) is an enterprise feature and is **not available on this account** (a
+regular customer; maintainer-confirmed 2026-11-12). TypeSafe's DPA (last updated
+2026-04-24) sets no fixed retention period: personal data is retained "for as
+long as necessary taking into account the purpose of the Processing".
+`preserve_iocs=True` leaves IOCs (URLs, IPs, hostnames, paths) in the state by
+design, so those are what TypeSafe receives and may retain. See ADR 0008.
 
 ### 5. Evaluation & Regression Coupling
 
@@ -138,16 +175,17 @@ experimental plan (accuracy ≥98%, AUROC ≥0.95, ECE ≤0.10, escalation ≤25
 
 ## Constraints & Assumptions
 
-* Paid Vercel AI Gateway Credits fund all Jev traffic (free tier is
-  rate-capped to ~20-call bursts; unsuitable for 300 RPM interception).
+* Paid per-token billing on the official TypeSafe AI API funds all Jev traffic.
+  (The Gateway-era free tier was rate-capped to ~20-call bursts and unsuitable
+  for 300 RPM interception; that observation is historical.)
 * No changes to Tier-0, TSG schema/matching, aggregation weights, or the
   Vertex `EvalTask` CI gate (`tool_trajectory_avg_score: 1.0` dual-gate stays).
 * `gemini` backend remains shipped and tested — Jev is additive; GCP-only
   operation must keep passing with `BW_SEMANTIC_BACKEND=gemini`.
-* AI SDK 7+ is the only Gateway path for evaluation models (no
-  OpenAI-compatible endpoint); the backend uses a pure-Python client
-  (Python AI SDK beta or a minimal vendored HTTPS caller) — no new
-  non-Python runtime (Node.js sidecar prohibited).
+* The official TypeSafe AI API is a plain HTTPS JSON endpoint
+  (`POST /v1/systemone`); the backend uses a minimal vendored `httpx` caller —
+  no vendor SDK dependency and no new non-Python runtime (Node.js sidecar
+  prohibited).
 * MCP Gateway implementation stands at Phase 4 (docs/E01); Phase 5
   packaging (F01–F05: LaunchAgent/systemd, menu bar, .dmg/.deb pipeline)
   and Phase 6 demo showcase are NOT yet built. This spec therefore

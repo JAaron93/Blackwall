@@ -37,15 +37,22 @@ Feature: Tier-1 Jev Triage Acceptance
     Then the verdict decision is "BLOCK"
     And a threat signature is written to the graph with the blocked verdict
 
-  Scenario: Sanitization-before-egress redacts secrets before the Gateway sees state
-    Given a real Jev backend bound to a capturing gateway
+  Scenario: Sanitization-before-egress redacts secrets before the TypeSafe API sees state
+    Given a real Jev backend bound to a capturing TypeSafe API
     When a tool call containing the secret "AWS_SECRET_ACCESS_KEY=rawsecretvalue" is triaged
     Then the outbound state contains "[[AWS_SECRET_ACCESS_KEY]]"
     And the outbound state does not contain "rawsecretvalue"
-    And the outbound request disallows prompt training
+    And the outbound request targets the TypeSafe System One endpoint
+    And the outbound request carries only the allowlisted fields
 
   Scenario: Bounded 429 storm fails closed to the gemini backend
     Given a real Jev backend rate-limited on every call with a Gemini fallback returning P "0.95"
-    When a high-risk tool call is triaged through the failing gateway
+    When a high-risk tool call is triaged through the failing TypeSafe API
+    Then the triage signal backend is "gemini"
+    And the jev_triage record marks the signal as fallback
+
+  Scenario: Bounded 529 overload storm fails closed to the gemini backend
+    Given a real Jev backend overloaded on every call with a Gemini fallback returning P "0.95"
+    When a high-risk tool call is triaged through the failing TypeSafe API
     Then the triage signal backend is "gemini"
     And the jev_triage record marks the signal as fallback

@@ -1,8 +1,14 @@
 # Implementation Plan: Tier-1 Jev Addition
 
 Traceability: tasks map to FR/NFR/US IDs in `requirements.md`. TDD-first
-throughout: failing test → minimum code → green suite. No live Gateway calls
-in unit/BDD tests (mocked); live calls only in the eval harness.
+throughout: failing test → minimum code → green suite. No live TypeSafe API
+calls in unit/BDD tests (mocked); live calls only in the eval harness.
+
+> **Amendment (2026-11-12, ADR 0008):** Track B/C/D tasks marked `[x]` below
+> were completed against the Vercel AI Gateway contract and are kept as the
+> historical record. The transport has since moved to the official TypeSafe AI
+> API; each affected task carries an "Amended by ADR 0008" note, and the
+> deferred live-acceptance tasks (D02, D03) now target the new transport.
 
 ## Track A — Provider Seam (foundation; all else depends on this)
 
@@ -32,19 +38,31 @@ in unit/BDD tests (mocked); live calls only in the eval harness.
   Gateway evaluation client (Python AI SDK beta or minimal vendored HTTPS
   caller — Node.js sidecar prohibited per NFR-06),
   `disallowPromptTraining: true` mandatory, fixed
-  `0.35/0.75` mapping to `escalate`. TDD with mocked SDK responses
+  `0.35/0.75` mapping to `escalate`. *(As completed on 2026-09; see the
+  ADR 0008 note below.)* TDD with mocked SDK responses
   (P=0.02 allow, P=0.98 block, P=0.60 escalate).
   Dependencies: TASK-A01. Acceptance: threshold unit tests + SVM-style
   boundary tests at 0.349/0.35/0.75/0.751; `pip install` closure gains no
   non-Python runtime deps.
+  > **Amended by ADR 0008:** now a single `noul` `is_threat` question via
+  > `POST /v1/systemone` on the official TypeSafe AI API (minimal vendored
+  > `httpx` caller, still no SDK or Node sidecar). The mandatory
+  > `disallowPromptTraining` flag is replaced by a `model`/`state`/`questions`
+  > request-body allowlist. The 0.35/0.75 mapping is unchanged.
 * [x] **TASK-B02: Bounded 429 backoff + fail-closed** (FR-06).
   Exponential backoff (bounded attempts), then fail-closed to `gemini`
   backend/Tier-2 — never ALLOW. Mock `429` storms in tests.
   Dependencies: TASK-B01.
+  > **Amended by ADR 0008:** now a single retry (not a backoff loop) on `429`
+  > and `529` (Overloaded), the two statuses TypeSafe documents; storms of both
+  > are tested, and the old tuning knobs (`JEV_MAX_ATTEMPTS`, backoff
+  > parameters) are gone.
   > [!TIP] PARALLEL EXECUTION — TASK-B03 may run alongside TASK-B02.
 * [x] **TASK-B03: Observability fields** (FR-07). Record `backend`, `P`,
   `confidence`, `latency_ms`, token usage per triage into existing telemetry.
   Dependencies: TASK-B01.
+  > **Amended by ADR 0008:** `confidence` is `None` (a `noul` answer carries
+  > none) and the per-call `gateway_cost` field is gone; token counts remain.
 
 ## Track C — Escalation & Forensics (depends on Track A; integrates Track B)
 
@@ -70,9 +88,10 @@ in unit/BDD tests (mocked); live calls only in the eval harness.
 
 ## Track D — Validation & Rollout (depends on Tracks B + C)
 
-> [!NOTE] DEFERRAL (2026-09-25): TASK-D02 and TASK-D03 are deferred until a
-> paid `AI_GATEWAY_API_KEY` exists (the live golden A/B and GCP dual-gate are
-> NFR-05/NFR-01 acceptance, not mockable). TASK-D04 remains gated on D03.
+> [!NOTE] DEFERRAL (2026-09-25, updated 2026-11-12): a paid `TYPESAFE_API_KEY`
+> now exists and TASK-D02 was run live on 2026-11-12 (done, below). TASK-D03
+> stays deferred until the GCP dual-gate (Vertex `EvalTask`) can run on paid
+> Vertex budget. TASK-D04 remains gated on D03.
 > TASK-D01 is complete on `feature/tier1-jev-escalation`.
 
 * [x] **TASK-D01: BDD acceptance suite** (NFR-04). `tests/features/`
@@ -81,12 +100,48 @@ in unit/BDD tests (mocked); live calls only in the eval harness.
   sanitization-before-egress (assert `[[PLACEHOLDER]]` in outbound state,
   no raw secrets), 429 fail-closed. All mocked.
   Dependencies: TASK-B02, TASK-C01.
-* [ ] **TASK-D02: Golden A/B re-run + gate check** (NFR-05, US-01, US-02).
-  Live paid-credit run over 157 + 10 golden cases; must meet A/B gates
-  (accuracy ≥98%, AUROC ≥0.95, ECE ≤0.10, escalation ≤25%) vs the
-  2026-09-19 baseline (100% / 1.0 / 0.028 / 0%). Record results + Tier-2
-  fire rate.
-  Dependencies: TASK-C02, TASK-D01. Requires `AI_GATEWAY_API_KEY` (paid).
+  > **Amended by ADR 0008:** the "disallows prompt training" assertion became
+  > "targets the System One endpoint" and "carries only the allowlisted
+  > fields", and a 529 fail-closed scenario was added.
+* [x] **TASK-D02: Golden A/B re-run on the TypeSafe API + gate check** (NFR-05,
+  US-01, US-02). Live paid run of `scripts/jev_triage_eval.py` over the 157 + 10
+  golden cases against `jev-latest` (deliberately unpinned, ADR 0008); it
+  regenerates `tests/eval/results/jev_triage_results.json`. The Gateway-era
+  artifact it replaced came from the Gateway's rate-limited free tier on the
+  previous Jev release and is not valid evidence for this transport. Must meet
+  the A/B gates (accuracy ≥98%, AUROC ≥0.95, ECE ≤0.10, escalation ≤25%).
+  Record the results, the served release (`model` field) and the Tier-2 fire
+  rate. The 2026-09-19 figures (100% / 1.0 / 0.028 / 0%) are historical context,
+  not the pass criteria. Re-run with `--fresh` after TypeSafe ships a release
+  behind `jev-latest` (the resume cache would otherwise replay the old rows),
+  since the band is fixed and the model is not.
+  Dependencies: TASK-C02, TASK-D01. Requires `TYPESAFE_API_KEY` (paid). Never
+  simulated (testing rules, Live Paid-Credential Acceptance Gates).
+  > **Done 2026-11-12** (commit `426166d`; 167 live calls, 0 errors, every row
+  > served by `jev-1.14.0`): accuracy 99.4% (TP 93, FN 1, FP 0, TN 68), AUROC
+  > 1.000, ECE 0.059, escalation 3.0% (5/167), so all four gates pass. Security
+  > suite: every decided case correct, 30/30 evasion blocked, 0 false alarms
+  > (benign P ≤ 0.17). Evasion-proof suite: 8 blocked, 1 escalated, 1 missed
+  > (`wave1_c2_beacon_001`, P 0.19, below the band). Tier-2 fire rate: 3.0%
+  > overall (2.5% security, 10% evasion-proof). p50 92 ms, p95 143 ms. A second
+  > full run passes too but with one case of margin on accuracy (98.8%: another
+  > C2 beacon fell just under the band), because same-model reruns differ by up
+  > to 0.03 per case and band-edge cases change zone between runs. Details:
+  > ADR 0008, Verification.
+  >
+  > **Caveats added the same day.** The security suite's states carry
+  > class-revealing text (a prefix test alone classifies all 157 correctly).
+  > Re-scoring the same cases with the tells removed gives 84.1% accuracy and
+  > 13% escalation for `jev-1.14.0` (98.8% and 2 to 3% with them), so the figures
+  > above are a ceiling and the blinded ones a floor; the evasion-proof suite
+  > (8 blocked, 1 to 2 missed) is the only tell-free evidence. Pinned reruns of
+  > `jev-1.13.0` and `jev-1.14.0` (two each) show 1.14 is not an improvement on
+  > this suite and escalate 3 of 167 (so read the 3.0% above as 2 to 3%). The
+  > Tier-2 handoff was run live on Vertex, end to end with the real Jev backend:
+  > with the semantic tiers alone, 0 of the 10 evasion-proof attacks and 0 of 56
+  > clear-high malicious calls were blocked (by design: "a high P alone cannot
+  > BLOCK"), and a Tier-2 abstention is an ALLOW at production thresholds. Results
+  > are in ADR 0008, Verification and Open Items 8 to 10.
 * [ ] **TASK-D03: Benchmark + dual-gate CI confirmation** (NFR-01, NFR-02).
   `benchmark_report.json` SLAs green; full suite green under
   `BW_SEMANTIC_BACKEND=gemini` (GCP-only no-regression) and `jev`.
@@ -95,8 +150,9 @@ in unit/BDD tests (mocked); live calls only in the eval harness.
   packaging-compat note for Gateway F04 (re-verify when F04 lands).
   Dependencies: TASK-D02.
 * [ ] **TASK-D04: Default-flip + docs** (US-01, US-03). Flip default to
-  `jev`, document paid-credit ops (budgets, free-tier eval-only note,
-  per-request ZDR when on Pro), update `AGENTS.md` interception sequence
+  `jev`, document paid-usage ops (budgets derived from token counts, the
+  organization's rate limits, and the retention terms of a non-ZDR account),
+  update `AGENTS.md` interception sequence
   (Rate → Hygiene → TSG → Jev Tier-1 → Gemini Tier-2 → forensics).
   Dependencies: TASK-D03.
 
