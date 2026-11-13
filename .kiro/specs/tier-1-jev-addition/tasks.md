@@ -166,15 +166,57 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   the registry, `BW_SEMANTIC_BACKEND` and the fallback removed;
   `JevUnavailableError` on any failure; Tier-1 no longer needs a Gemini client.
   Tests: `tests/unit/test_jev_fail_fast.py`, `tests/features/jev_tier1_triage.feature`.
-* [x] **TASK-E03: Two rate limits** (FR-08). 80 req/s front bucket; 300 RPM
-  Tier-2 bucket; an empty Tier-2 bucket QUARANTINEs an ALLOW.
-  Tests: `tests/unit/test_sync_resolver_rate_limits.py`.
+* [x] **TASK-E03: Two rate limits, and Tier-2 unavailable** (FR-03, FR-08).
+  80 req/s front bucket; 300 RPM Tier-2 bucket; a Tier-2 that fired and
+  returned no verdict (empty bucket, deadline, malformed answer, Vertex error or
+  429, no client) QUARANTINEs an ALLOW and leaves a BLOCK alone.
+  Tests: `tests/unit/test_sync_resolver_rate_limits.py`,
+  `tests/unit/test_tier2_escalation.py`.
 * [x] **TASK-E04: Live Tier-2 harness.** `scripts/jev_tier2_eval.py` (`forced`,
   `e2e`). Unit-tested; the live path has not been run since it was committed.
-* [ ] **TASK-E05: Same-change sync** of `AGENTS.md`, `.agents/rules/` and
-  `.greptile/` (constitution 6.4). Needs maintainer approval of the diffs.
+* [x] **TASK-E05: Same-change sync** of `AGENTS.md`, `.agents/rules/` and
+  `.greptile/` (constitution 6.4). Approved by the maintainer 2026-11-13 and applied.
+## Track F — Open work from ADR 0008 and ADR 0009
+Each item below is open. Every one that changes behavior starts with a failing
+test (repo TDD gate); every one that needs a live key or Vertex budget follows
+testing rule 74 (never simulated, deferred in this file until it can run).
+* [ ] **TASK-F01: Run the Tier-2 harness live** (ADR 0009 OI5; NFR-05). A
+  3-call `forced` smoke, then `forced` over the 93 inputs and `e2e` over the 167
+  cases; record the figures in ADR 0009 and compare them with ADR 0008.
+  Needs `GCP_PROJECT`, Vertex budget and `TYPESAFE_API_KEY`.
+  Dependencies: TASK-E04.
+* [ ] **TASK-F02: Measure, then harden, Tier-2 against steering by tool-call
+  text** (ADR 0009 OI3). The arbiter prompt interpolates tool name, arguments and
+  metadata unseparated, and its ALLOW is final unless aggregation already blocks.
+  Add adversarial cases whose arguments carry instructions aimed at the arbiter;
+  measure how often a BLOCK flips to ALLOW; if any do, delimit the data (nonce
+  XML, as the judge agents already do) test-first and re-measure.
+  Dependencies: TASK-F01.
+* [ ] **TASK-F03: Account for the shared Vertex quota** (ADR 0009 OI2). Signature
+  synthesis, the judges and other Gemini calls share the project quota that
+  Tier-2 depends on and are not counted by the Tier-2 bucket. Decide between one
+  shared budget and a reservation for Tier-2, then implement it with tests.
+  Needs a maintainer decision first (amend FR-08).
+* [ ] **TASK-F04: Make Tier-2 outages visible** (ADR 0009 OI1). Count Tier-2
+  "no verdict" outcomes by reason in `SyncResolverMetrics` (today only
+  `tier2_rate_limit_hits` exists) so an operator can see the QUARANTINEs that
+  Decision 6 causes.
+* [ ] **TASK-F05: Class-blind golden evalset** (ADR 0008 OI10, ADR 0009 OI4).
+  One template for both classes, no `attack_type`/`evasion_type`/`obfuscation`
+  fields in the state, and malicious payloads that contain the attack text; then
+  re-score both Jev releases and update the gate figures. Needs a live Jev key to
+  re-score.
+* [ ] **TASK-F06: Decide whether a clear-high Jev P alone may BLOCK** (ADR 0008
+  OI8). Commit `176ad80` made it a kept invariant (rule 106). A clear-high score
+  that cannot BLOCK is why Tier-2 availability matters so much. This is a
+  maintainer decision; any change is a spec amendment with a same-change sync of
+  `AGENTS.md`, `.agents/rules/` and `.greptile/`.
+* [ ] **TASK-F07: Re-run TASK-D02 after each TypeSafe release** behind
+  `jev-latest` (ADR 0008 OI1). The fixed 0.35/0.75 band does not follow the
+  model. Recurring; needs a live Jev key.
 ## Execution Order
 
-`A01 → (A02 + B01) → (B02 + B03 + C01) → C02 → D01 → D02 → D03 → D04 → E01 → E02 → E03 → E04 → E05`.
+`A01 → (A02 + B01) → (B02 + B03 + C01) → C02 → D01 → D02 → D03 → D04 → E01 → E02 → E03 → E04 → E05`; Track F items are independent except where a
+dependency is stated.
 Tracks B/C overlap after A01; D is strictly sequential. Each task lands with
 tests green; no batch commits without a test run (repo TDD gate).

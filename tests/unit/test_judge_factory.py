@@ -79,7 +79,7 @@ def test_create_judge_agent_model_override(monkeypatch: pytest.MonkeyPatch) -> N
     agent_explicit_model = create_judge_agent(
         domain="threat_interception",
         rubric_schema=DummyRubric,
-        model="gemini-3.8-custom",
+        model="gemini-3.5-flash-lite-custom",
         enforce_tier=False,
     )
-    assert agent_explicit_model.config.model == "gemini-3.8-custom"
+    assert agent_explicit_model.config.model == "gemini-3.5-flash-lite-custom"

@@ -7,9 +7,10 @@ Two buckets, each sized to the service it protects:
 * the Tier-2 bucket guards only the Vertex AI call (300 RPM, 5 tokens/s).
 
 An empty Tier-2 bucket QUARANTINEs the call, exactly as the single 300 RPM
-bucket did before. It is not a Tier-2 abstention: an abstention reaches Score
+bucket did before. Every other way Tier-2 can return no verdict is handled the
+same way (see test_tier2_escalation.py): an abstention reaches Score
 Aggregation, which allows a lone band signal at production thresholds (ADR 0008,
-Open Item 9), so draining the bucket would become a bypass.
+Open Item 9), so each would become a bypass an attacker can induce.
 """
 
 import pytest
@@ -99,7 +100,7 @@ async def test_empty_tier2_bucket_quarantines_and_skips_the_vertex_call():
     assert resolver.tier2_calls == 1  # only calls that reached Vertex count
     assert resolver.tier2_rate_limit_hits == 1
     assert verdict.decision == VerdictDecision.QUARANTINE
-    assert "Tier-2" in verdict.reasoning and "300 RPM" in verdict.reasoning
+    assert "Tier-2" in verdict.reasoning and "rate limit" in verdict.reasoning
 
 
 @pytest.mark.asyncio

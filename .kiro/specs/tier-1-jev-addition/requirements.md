@@ -52,7 +52,11 @@ The system SHALL route to Gemini Tier-2 on (a) `escalate=true`, or
 (b) deterministic-vs-semantic disagreement (high-risk argument novelty with
 `P < 0.2`). Tier-2 SHALL return the final ALLOW/BLOCK verdict. Tier-2 SHALL
 use `gemini-3.5-flash-lite` with thinking pinned to `medium` in code; no
-environment variable changes it (ADR 0009).
+environment variable changes it (ADR 0009). When Tier-2 is triggered and
+returns no verdict for any reason (an empty Tier-2 rate bucket, a deadline miss,
+a malformed answer, a Vertex error or 429, or no Gemini client), an ALLOW from
+Score Aggregation SHALL become QUARANTINE and a BLOCK SHALL stand. A Tier-2
+abstention SHALL NOT fall through to an ALLOW (ADR 0009, Decision 6).
 
 ### FR-04: Async Forensics Preservation (Novel Blocks Only)
 Every novel BLOCK — i.e. a block with NO existing TSG signature match,
@@ -97,6 +101,14 @@ usage for logs, budgets, and `HistoricalRegressionTracker` baselines.
 > **Amended by ADR 0008:** a `noul` answer carries no separate confidence, so
 > `confidence` is recorded as `None` for Jev. The API returns no per-call cost;
 > spend is derived from the recorded token counts.
+> **Amended by ADR 0009:** failures raise instead of being recorded; there is no
+> `is_fallback` field.
+
+### FR-08: Two Rate Limits
+The front bucket SHALL be 80 req/s (Jev's organization limit) and guard every
+evaluation, QUARANTINEing on exhaustion. A separate 300 RPM bucket SHALL guard
+only the Tier-2 Vertex call. When that bucket is empty and Tier-2 is triggered,
+FR-03 applies (QUARANTINE an ALLOW, let a BLOCK stand).
 
 ## Non-Functional Requirements
 

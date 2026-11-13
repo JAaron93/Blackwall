@@ -271,13 +271,16 @@ async def test_inline_signature_generation_after_block():
 
 
 @pytest.mark.asyncio
-async def test_sync_resolver_300_rpm_defaults():
+async def test_sync_resolver_rate_limit_defaults():
     """
-    Verify SyncResolver defaults to 300 RPM capacity and 5.0 refill rate under Vertex AI Mode.
+    Verify the SyncResolver front bucket matches Jev's 80 req/s organization
+    limit and the Tier-2 bucket matches Vertex's 300 RPM (ADR 0009).
     """
     resolver = _make_resolver()
-    assert resolver._rate_limiter.capacity == 300.0
-    assert resolver._rate_limiter.refill_rate == 5.0
+    assert resolver._rate_limiter.capacity == 80.0
+    assert resolver._rate_limiter.refill_rate == 80.0
+    assert resolver._tier2_rate_limiter.capacity == 300.0
+    assert resolver._tier2_rate_limiter.refill_rate == 5.0
 
 
 @pytest.mark.asyncio
@@ -312,7 +315,7 @@ async def test_rate_limit_enforcement():
     assert (
         results[5].decision == VerdictDecision.QUARANTINE
     ), f"Expected 6th request to be QUARANTINE, got {results[5].decision}"
-    assert "Rate limit exhausted (300 RPM)" in results[5].reasoning
+    assert "Rate limit exhausted (80 req/s)" in results[5].reasoning
 
     # Verify rate_limit_hits counter was incremented
     assert resolver._rate_limit_hits == 1

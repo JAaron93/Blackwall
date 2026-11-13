@@ -58,17 +58,24 @@ organization limit, ADR 0008) it throttled the path that Vertex does not bound.
 5. **Two rate limits, each sized to the service it protects** (resolves ADR 0008,
    Open Item 2). The front bucket is 80 req/s (capacity 80, refill 80/s) and
    guards every evaluation. A separate 300 RPM bucket (capacity 300, refill 5/s)
-   is consumed immediately before a Tier-2 Vertex call. When Tier-2 is triggered
-   and that bucket is empty, the call is **QUARANTINEd**: the resolver computes its
-   normal verdict and raises an ALLOW to QUARANTINE; a BLOCK from deterministic
-   aggregation stands. This is deliberately not an abstention. An abstention
-   reaches Score Aggregation, which allows a lone band signal at production
-   thresholds (ADR 0008, Open Item 9), so an attacker who aims calls at the band
-   could drain the bucket and be allowed. Before this change the single 300 RPM
-   bucket QUARANTINEd on exhaustion; this keeps that outcome for the one call it
-   protects. `tier2_calls` counts only calls that reached Vertex; skipped calls
-   are counted in `tier2_rate_limit_hits`.
-6. **The live Tier-2 harness is committed** as `scripts/jev_tier2_eval.py`,
+   is consumed immediately before a Tier-2 Vertex call. An empty Tier-2 bucket is
+   one way Tier-2 can be unavailable; Decision 6 says what happens then.
+   `tier2_calls` counts only calls that reached Vertex; skipped calls are counted
+   in `tier2_rate_limit_hits`.
+6. **A Tier-2 that fired and returned no verdict QUARANTINEs an ALLOW** (resolves
+   ADR 0008, Open Item 9). "No verdict" covers an empty Tier-2 bucket, a deadline
+   miss, a malformed answer, a Vertex error or 429, and a missing Gemini client.
+   The resolver computes its normal verdict and raises an ALLOW to QUARANTINE; a
+   BLOCK from deterministic aggregation stands. Before this change an abstention
+   fell to Score Aggregation, which allows a lone band signal at production
+   thresholds, so every one of these was a bypass the caller could try to induce:
+   aim calls at the band and drain the bucket, send inputs that make the arbiter
+   time out or answer malformed, or generate other Gemini traffic against the
+   same Vertex project quota (each novel BLOCK triggers an asynchronous
+   signature-synthesis call, and the judges use the same quota, none of which the
+   Tier-2 bucket counts) until Tier-2 receives 429s. The message names the cause
+   by a short static label and carries no provider text.
+7. **The live Tier-2 harness is committed** as `scripts/jev_tier2_eval.py`,
    reading only the committed class-blind data. It is dev tooling and CI never
    runs it.
 
@@ -86,19 +93,33 @@ organization limit, ADR 0008) it throttled the path that Vertex does not bound.
 - ADR 0006, ADR 0008 and the archived specs under `.kiro/specs/` keep the model
   names they were written with, as dated records. This ADR supersedes them where
   they conflict.
-- No behavior of Score Aggregation changes. In particular a clear-high Jev
-  probability alone still cannot produce BLOCK (ADR 0008, Open Item 8).
+- Score Aggregation weights and thresholds do not change. A clear-high Jev
+  probability alone still cannot produce BLOCK (ADR 0008, Open Item 8), which is
+  why Tier-2 availability matters.
+- Enabling triage without a Gemini client means Tier-2 cannot run, so every
+  ambiguity-band call is QUARANTINEd.
 
 ## Open Items
 
-1. **Tier-2 unavailable for other reasons.** A Tier-2 abstention (deadline miss,
-   malformed answer, a Vertex error or a Vertex 429) still falls back to Score
-   Aggregation with the Tier-1 signal, which allows a lone band signal (ADR 0008,
-   Open Item 9). ADR 0008 measured 3 of 19 in-band attacks ALLOWED on a deadline
-   miss with the old model; Flash-Lite missed 0 of 93. Whether Tier-2 should also
-   fail fast, or QUARANTINE like the empty bucket, is not decided here.
-2. **Class-specific templates.** `scripts/build_evalset.py` writes different
-   wording for benign and malicious cases (ADR 0008, class-blind ablation).
-   Whether to change the generator is not decided here.
-3. **Live verification of the harness.** `scripts/jev_tier2_eval.py` is covered
+1. **Availability cost of Decision 6.** While Tier-2 is unavailable, benign calls
+   that land in the ambiguity band are QUARANTINEd, and a caller who can send
+   band calls can cause that on purpose. This is the same fail-closed posture as
+   Jev's fail-fast and is accepted here; the lever is
+   `BLACKWALL_ENABLE_SYNC_SEMANTIC_TRIAGE`. The ADR 0008 measurement (0 of 93
+   Flash-Lite deadline misses) suggests it is rare in normal operation.
+2. **Shared Vertex quota.** The Tier-2 bucket counts only Tier-2 calls, so other
+   Gemini consumers can still exhaust the project quota. Decision 6 makes that a
+   QUARANTINE instead of an ALLOW, but a shared budget would avoid the
+   QUARANTINEs.
+3. **The Tier-2 prompt interpolates the tool name, arguments and metadata
+   unseparated.** Whether text inside a tool call can steer the arbiter's
+   verdict has not been measured. Tier-2's ALLOW is final unless aggregation
+   already blocks, so this is the next place to look for a bypass.
+4. **Class-specific templates.** `scripts/build_evalset.py` writes different
+   wording for benign and malicious cases (ADR 0008, Open Item 10). Not changed
+   here.
+5. **Live verification of the harness.** `scripts/jev_tier2_eval.py` is covered
    by unit tests only; its live path has not been run since it was committed.
+
+Items 1 to 5 are tracked as tasks in `.kiro/specs/tier-1-jev-addition/tasks.md`
+(Track F).
