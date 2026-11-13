@@ -77,7 +77,7 @@ Extracts semantic intent from MCP protocol payloads.
 
 ### 3. Engine Router (SyncResolver Pipeline)
 Routes extracted payloads through Blackwall's defenses in a strict, mandatory sequence:
-1.  **Rate Check:** Token bucket rate limiter (300+ RPM via GCP Vertex AI paid tier billing credits).
+1.  **Rate Check:** Token bucket rate limiter (300+ RPM via GCP Vertex AI paid tier billing credits; for reference, TypeSafe Jev at Tier-1 is 4,800 RPM = 80 req/s, default org limit).
 2.  **Context Hygiene Sanitization:** Replace sensitive environment variable patterns with generic placeholders.
 3.  **SQLite Threat Signature Graph (FTS5):** Check for structural similarities with known malicious payloads using word-level intersection match quality scoring.
 4.  **Codebase Memory MCP:** Run AST query to trace dependency blast radius.
