@@ -1,0 +1,57 @@
+{
+  "description": "Per-case Jev P(threat) over the same 167 golden states, one file per run, in the record shape of ../jev_triage_results.json. Plotted by notebooks/benchmark_analytics.py (Jev release comparison). Context: docs/adr/0008-jev-transport-vercel-gateway-to-typesafe-api.md.",
+  "runs": [
+    {
+      "key": "gateway_1_13",
+      "label": "1.13 · Vercel Gateway (2026-09-19)",
+      "short_label": "1.13 · Gateway",
+      "file": "gateway_era_2026-09-19.json",
+      "transport": "vercel-gateway",
+      "plan": "Gateway free tier (rate-limited, paced)",
+      "release": "jev-1.13.0",
+      "release_evidence": "maintainer-reported",
+      "served_model": "typesafe-ai/jev",
+      "date": "2026-09-19",
+      "note": "The Gateway slug never recorded the version. Its per-case P matches the first-party jev-1.13.0 run (mean change -0.0004, largest 0.04, no zone changes), which supports the 1.13 attribution."
+    },
+    {
+      "key": "firstparty_1_13",
+      "label": "1.13 · TypeSafe API (2026-11-12)",
+      "short_label": "1.13 · API",
+      "file": "firstparty_jev-1.13.0_2026-11-12.json",
+      "transport": "typesafe-api",
+      "plan": "Paid (80 req/s organization limit)",
+      "release": "jev-1.13.0",
+      "release_evidence": "served-model-field",
+      "served_model": "jev-1.13.0",
+      "date": "2026-11-12",
+      "note": "Requested with JEV_MODEL=jev-1.13.0. The same transport and plan as the 1.14 runs, so it isolates the release."
+    },
+    {
+      "key": "firstparty_1_14_run1",
+      "label": "1.14 · TypeSafe API, run 1 (committed)",
+      "short_label": "1.14 · API run 1",
+      "file": "../jev_triage_results.json",
+      "transport": "typesafe-api",
+      "plan": "Paid (80 req/s organization limit)",
+      "release": "jev-1.14.0",
+      "release_evidence": "served-model-field",
+      "served_model": "jev-1.14.0",
+      "date": "2026-11-12",
+      "note": "The TASK-D02 artifact. Requested as jev-latest, served by jev-1.14.0."
+    },
+    {
+      "key": "firstparty_1_14_run2",
+      "label": "1.14 · TypeSafe API, run 2 (replication)",
+      "short_label": "1.14 · API run 2",
+      "file": "firstparty_jev-1.14.0_2026-11-12_run2.json",
+      "transport": "typesafe-api",
+      "plan": "Paid (80 req/s organization limit)",
+      "release": "jev-1.14.0",
+      "release_evidence": "served-model-field",
+      "served_model": "jev-1.14.0",
+      "date": "2026-11-12",
+      "note": "Same release and states as run 1. The spread between run 1 and run 2 is the run-to-run noise to read the release difference against."
+    }
+  ]
+}

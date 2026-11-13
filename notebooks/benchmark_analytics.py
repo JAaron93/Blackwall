@@ -851,6 +851,177 @@ def _(jev_backend_filter, jev_records, mo):
 
 
 @app.cell
+def _(mo):
+    mo.md(r"""
+    ### 🔁 Jev release comparison (1.13 vs 1.14)
+    The same 167 golden states scored by different Jev releases, read from
+    `tests/eval/results/jev_runs/manifest.json`. Two things differ between runs
+    and they are kept apart on purpose: the **release** (1.13 vs 1.14) and the
+    **transport** (Vercel Gateway free tier vs the paid TypeSafe API). A rate
+    limit only paces calls, so it cannot move P: the Gateway-era and first-party
+    1.13 lines overlay each other. Read a release difference against the spread
+    between the two 1.14 runs, which is the run-to-run noise. Lines are sorted
+    by the first-party 1.13 run, so every other run shows as a deviation from
+    it. The shaded band is the fixed 0.35–0.75 Tier-2 escalation band.
+    """)
+
+
+@app.cell
+def _(json, repo_root):
+    # Release-comparison runs. Empty state (not fake data) when the manifest is absent.
+    _runs_dir = repo_root / "tests" / "eval" / "results" / "jev_runs"
+    _manifest = _runs_dir / "manifest.json"
+    jev_cmp_runs = []
+    if _manifest.exists():
+        try:
+            for _entry in json.loads(_manifest.read_text(encoding="utf-8")).get("runs", []):
+                _rows = json.loads((_runs_dir / _entry["file"]).read_text(encoding="utf-8"))
+                jev_cmp_runs.append({
+                    **_entry,
+                    "records": {
+                        r["eval_case_id"]: r for r in _rows
+                        if isinstance(r, dict) and r.get("p_threat") is not None
+                        and r.get("error") is None and not r.get("is_fallback")
+                    },
+                })
+        except (OSError, ValueError, KeyError):
+            jev_cmp_runs = []
+    return (jev_cmp_runs,)
+
+
+@app.cell
+def _(jev_cmp_runs, mo):
+    jev_cmp_series = mo.ui.multiselect(
+        options={r["label"]: r["key"] for r in jev_cmp_runs},
+        value=[r["label"] for r in jev_cmp_runs],
+        label="Runs",
+    )
+    jev_cmp_class = mo.ui.dropdown(
+        options=["All cases", "Malicious", "Benign", "C2 class", "Evasion-proof suite"],
+        value="All cases",
+        label="Cases",
+    )
+    jev_cmp_order = mo.ui.dropdown(
+        options=["Baseline P (ascending)", "Case id"],
+        value="Baseline P (ascending)",
+        label="Order",
+    )
+    mo.hstack([jev_cmp_series, jev_cmp_class, jev_cmp_order], justify="start", gap=2) if jev_cmp_runs else mo.md(
+        "> ⚠️ No `tests/eval/results/jev_runs/manifest.json` found."
+    )
+    return jev_cmp_class, jev_cmp_order, jev_cmp_series
+
+
+@app.cell
+def _(go, jev_cmp_class, jev_cmp_order, jev_cmp_runs, jev_cmp_series, mo):
+    _style = {
+        "gateway_1_13": dict(color="#94a3b8", dash="dot", width=2),
+        "firstparty_1_13": dict(color="#38bdf8", dash="solid", width=2.5),
+        "firstparty_1_14_run1": dict(color="#f43f5e", dash="solid", width=2.5),
+        "firstparty_1_14_run2": dict(color="#fb923c", dash="dash", width=2),
+    }
+    _picked = [r for r in jev_cmp_runs if r["key"] in jev_cmp_series.value]
+    _out = mo.md("> Select at least one run.")
+    if _picked:
+        _sel = jev_cmp_class.value
+
+        def _keep(rec):
+            if _sel == "Malicious":
+                return rec["ground_truth"] == "MALICIOUS"
+            if _sel == "Benign":
+                return rec["ground_truth"] == "BENIGN"
+            if _sel == "C2 class":
+                return "c2" in rec["eval_case_id"]
+            if _sel == "Evasion-proof suite":
+                return rec["suite"] == "evasion_proof"
+            return True
+
+        _anchor = next((r for r in _picked if r["key"] == "firstparty_1_13"), _picked[0])
+        _ids = [
+            i for i, rec in _anchor["records"].items()
+            if _keep(rec) and all(i in r["records"] for r in _picked)
+        ]
+        if jev_cmp_order.value == "Case id":
+            _ids.sort()
+        else:
+            _ids.sort(key=lambda i: (_anchor["records"][i]["p_threat"], i))
+
+        _fig = go.Figure()
+        _fig.add_hrect(
+            y0=0.35, y1=0.75, fillcolor="#f59e0b", opacity=0.12, line_width=0,
+            annotation_text="Tier-2 escalation band 0.35–0.75 (fixed)",
+            annotation_position="bottom right",
+        )
+        for _r in _picked:
+            _recs = _r["records"]
+            _fig.add_trace(go.Scatter(
+                x=_ids,
+                y=[float(_recs[i]["p_threat"]) for i in _ids],
+                mode="lines+markers",
+                name=_r.get("short_label", _r["label"]),
+                line=_style.get(_r["key"], dict(width=2)),
+                marker=dict(size=5 if len(_ids) > 40 else 8),
+                customdata=[[_recs[i]["ground_truth"], _recs[i]["tool_name"]] for i in _ids],
+                hovertemplate=(
+                    "%{x}<br>%{customdata[0]} · %{customdata[1]}<br>P=%{y:.2f}"
+                    f"<extra>{_r['label']}</extra>"
+                ),
+            ))
+        _fig.update_layout(
+            title=f"Jev P(threat) per case · {_sel} · {len(_ids)} cases",
+            xaxis=dict(
+                title=(
+                    "case id" if jev_cmp_order.value == "Case id"
+                    else f"cases, sorted by {_anchor['label']}"
+                ),
+                showticklabels=len(_ids) <= 40,
+                tickangle=-60,
+            ),
+            yaxis=dict(title="P(threat)", range=[0, 1.02]),
+            height=520,
+            margin=dict(l=50, r=20, t=120, b=130 if len(_ids) <= 40 else 60),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        )
+        _out = _fig
+    _out
+
+
+@app.cell
+def _(jev_cmp_runs, mo, pd):
+    # Per-run summary at the fixed band; latency is where the transports differ.
+    def _mean(recs, sel):
+        xs = [float(r["p_threat"]) for r in recs if sel(r)]
+        return f"{sum(xs) / len(xs):.3f}" if xs else "—"
+
+    def _zone_counts(recs):
+        ps = [float(r["p_threat"]) for r in recs]
+        return (
+            f"{sum(p < 0.35 for p in ps)} / "
+            f"{sum(0.35 <= p <= 0.75 for p in ps)} / "
+            f"{sum(p > 0.75 for p in ps)}"
+        )
+
+    _rows = []
+    for _r in jev_cmp_runs:
+        _recs = list(_r["records"].values())
+        _lat = sorted(float(x["latency_ms"]) for x in _recs if x.get("latency_ms") is not None)
+        _is_c2 = lambda x: "c2" in x["eval_case_id"]  # noqa: E731
+        _rows.append({
+            "Run": _r["label"],
+            "Served model": _r["served_model"],
+            "Plan": _r["plan"],
+            "Mean P · benign": _mean(_recs, lambda x: x["ground_truth"] == "BENIGN"),
+            "Mean P · malicious, non-C2": _mean(
+                _recs, lambda x: x["ground_truth"] == "MALICIOUS" and not _is_c2(x)
+            ),
+            "Mean P · C2 class": _mean(_recs, _is_c2),
+            "Allow / escalate / block": _zone_counts(_recs),
+            "Latency p50 (ms)": f"{_lat[len(_lat) // 2]:.0f}" if _lat else "—",
+        })
+    mo.ui.table(pd.DataFrame(_rows), pagination=False, selection=None) if _rows else mo.md("")
+
+
+@app.cell
 def _(history_runs, mo):
     # Historical Evaluation Trajectory Cell
     runs_summary = []
