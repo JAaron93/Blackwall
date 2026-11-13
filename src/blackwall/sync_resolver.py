@@ -53,16 +53,13 @@ from blackwall.models import (
     VerdictDecision,
 )
 from blackwall.policy.semantic import (
-    SEMANTIC_BACKEND_ENV_VAR,
     TIER2_DISAGREEMENT_NOVELTY,
     TIER2_DISAGREEMENT_P,
     GeminiTier2Backend,
-    SemanticTriageEvaluation as SemanticTriageEvaluation,
+    JevTriageBackend,
     SemanticTriageProvider,
     SemanticTriageResult,
     Tier2EscalationVerdict,
-    build_semantic_provider,
-    resolve_semantic_backend,
 )
 from blackwall.threat_intel.abusech import AbuseChError
 from blackwall.threat_intel.abuseipdb import AbuseIPDBError
@@ -193,7 +190,6 @@ class SyncResolver:
         on_attacker_identified: Optional[Callable[[IncidentReport], Any]] = None,
         telemetry: Optional[Any] = None,
         enable_semantic_triage: Optional[bool] = None,
-        semantic_backend: Optional[str] = None,
         aba: Optional[Any] = None,
         swarm_provider: Optional[SwarmContextProvider] = None,
     ) -> None:
@@ -243,14 +239,8 @@ class SyncResolver:
         else:
             self.enable_semantic_triage = bool(enable_semantic_triage)
 
-        # Tier-1 semantic triage backend (FR-01). Resolved per instance so a
-        # stray BW_SEMANTIC_BACKEND can never disable triage — unimplemented
-        # names degrade to the shipped Gemini backend.
-        self._semantic_backend_name = resolve_semantic_backend(
-            semantic_backend
-            if semantic_backend is not None
-            else os.getenv(SEMANTIC_BACKEND_ENV_VAR, "")
-        )
+        # Tier-1 is Jev only (ADR 0009). The provider is built on first use; an
+        # unset TYPESAFE_API_KEY raises JevUnavailableError there. No fallback.
         self._semantic_provider: Optional[SemanticTriageProvider] = None
         self._tier2_backend: Optional[GeminiTier2Backend] = None
         self.tier2_calls: int = 0
@@ -307,9 +297,7 @@ class SyncResolver:
     def semantic_provider(self) -> SemanticTriageProvider:
         """Active Tier-1 triage backend, built once per resolver instance."""
         if self._semantic_provider is None:
-            self._semantic_provider = build_semantic_provider(
-                self.client, self._semantic_backend_name
-            )
+            self._semantic_provider = JevTriageBackend()
         return self._semantic_provider
 
     # ------------------------------------------------------------------
@@ -428,21 +416,20 @@ class SyncResolver:
         if is_high_risk:
             threat_resp = await self._query_threat_intel(sanitized)
 
-        # 4b. Optional Tier-1 semantic triage (pluggable jev|gemini backend)
+        # 4b. Optional Tier-1 Jev semantic triage (fail-fast, no fallback)
         # with Tier-2 Gemini escalation on the ambiguity band or
         # deterministic-vs-semantic disagreement (FR-03). Structural BLOCKs
         # short-circuit the outcome, so Tier-2 is never spent on them.
         semantic_score: Optional[float] = None
         tier1_result: Optional[SemanticTriageResult] = None
         tier2_verdict: Optional[Tier2EscalationVerdict] = None
-        if self.enable_semantic_triage and self.client is not None:
+        if self.enable_semantic_triage:
             tier1_result = await self._semantic_triage_result(sanitized)
-            if tier1_result is not None:
-                semantic_score = tier1_result.threat_score
-                if not structural_blocked:
-                    tier2_verdict = await self._maybe_escalate_tier2(
-                        sanitized, tier1_result
-                    )
+            semantic_score = tier1_result.threat_score
+            if not structural_blocked:
+                tier2_verdict = await self._maybe_escalate_tier2(
+                    sanitized, tier1_result
+                )
 
         # 5. Compute weighted threat score (Tier-2's calibrated score replaces
         # the Tier-1 signal as the semantic input when it fires)
@@ -903,35 +890,21 @@ class SyncResolver:
     # Threat score computation & semantic intent evaluation
     # ------------------------------------------------------------------
 
-    async def _evaluate_semantic_intent(
-        self, context: ToolCallContext
-    ) -> Optional[float]:
+    async def _evaluate_semantic_intent(self, context: ToolCallContext) -> float:
         """
-        Adapter onto the pluggable Tier-1 SemanticTriageProvider (FR-01).
-
-        Returns only SemanticTriageResult.threat_score so Score Aggregation
-        stays weight-identical across backends, and degrades to None — never a
-        synthetic 0.0 — when the backend abstains or fails.
+        Adapter onto the Tier-1 Jev provider. Returns only
+        SemanticTriageResult.threat_score so Score Aggregation stays
+        weight-identical. A Jev failure raises JevUnavailableError: there is no
+        abstention, no synthetic 0.0 and no fallback (ADR 0009).
         """
-        result = await self._semantic_triage_result(context)
-        if result is None:
-            return None
-        return result.threat_score
+        return (await self._semantic_triage_result(context)).threat_score
 
     async def _semantic_triage_result(
         self, context: ToolCallContext
-    ) -> Optional[SemanticTriageResult]:
-        """
-        Full Tier-1 triage result (threat_score, confidence, backend, escalate)
-        from the active SemanticTriageProvider. None = abstain — deliberately
-        distinct from 0.0 so the fail-closed max() in _score_argument_novelty
-        is never masked.
-        """
-        try:
-            return await self.semantic_provider.triage(context)
-        except Exception as exc:
-            logger.debug("Semantic intent evaluation fell back to heuristics: %s", exc)
-            return None
+    ) -> SemanticTriageResult:
+        """Full Tier-1 result (threat_score, confidence, backend, escalate).
+        Errors propagate to the caller of evaluate()."""
+        return await self.semantic_provider.triage(context)
 
     @property
     def tier2_backend(self) -> GeminiTier2Backend:
@@ -1010,11 +983,7 @@ class SyncResolver:
         ti_score = self._score_threat_intel(resp)
         cbm_score = self._score_cbm(cbm_resp)
 
-        if (
-            semantic_score is None
-            and self.enable_semantic_triage
-            and self.client is not None
-        ):
+        if semantic_score is None and self.enable_semantic_triage:
             semantic_score = await self._evaluate_semantic_intent(context)
 
         ctx_score = self._score_context(context, semantic_score=semantic_score)

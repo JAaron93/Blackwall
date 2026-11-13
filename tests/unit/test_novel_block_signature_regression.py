@@ -95,7 +95,7 @@ async def test_novel_structural_block_still_generates_signature():
     """Structural BLOCKs are novel (no TSG match) — the signature path is
     untouched by the Jev wiring."""
     repo = _mock_repo(match=None)
-    resolver = _resolver(_signature_client(), repo)
+    resolver = _resolver(_signature_client(), repo, _StubTier1(_in_band(0.51)))
     engine = MagicMock()
     engine._policy = None
     engine.evaluate.return_value = MagicMock(

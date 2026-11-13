@@ -6,6 +6,10 @@ Wave 2 (variant attacks via learned TSG signature matching)
 from `tests/eval/evalsets/blackwall_evasion_proof.evalset.json`.
 
 Instruments Google Cloud Trace and managed Vertex AI EvalTask telemetry.
+
+Tier-1 triage is Jev only (ADR 0009), so TYPESAFE_API_KEY must be set; without
+it the run raises JevUnavailableError at the first evaluation. There is no
+fallback.
 """
 
 import argparse

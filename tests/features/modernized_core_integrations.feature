@@ -31,7 +31,7 @@ Feature: Modernized Core Integrations and Performance Architecture
     When multiple remote MCP tool calls are initiated
     Then all requests must share the same cached certifi SSLContext instance
 
-  Scenario: SyncResolver and BatchResolver utilize native client.aio coroutines
+  Scenario: Tier-2 backend and BatchResolver utilize native client.aio coroutines
     Given a Gemini client equipped with native client.aio interfaces
-    When tool call contexts are evaluated through SyncResolver and BatchResolver
-    Then the resolvers must directly await client.aio methods without thread pool offloading
+    When tool call contexts are evaluated through the Tier-2 backend and BatchResolver
+    Then the Tier-2 backend and BatchResolver must directly await client.aio methods without thread pool offloading

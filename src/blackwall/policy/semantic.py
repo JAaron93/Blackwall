@@ -18,9 +18,7 @@ from pydantic import BaseModel, Field
 from blackwall.config import (
     DEFAULT_GEMINI_MODEL,
     TIER2_THINKING_LEVEL,
-    DEFAULT_RAPID_TRIAGE_MODEL,
     get_gemini_http_timeout,
-    get_gemini_thinking_level,
 )
 from blackwall.models import (
     ToolCallContext,
@@ -780,17 +778,9 @@ class SemanticGatingEngine:
 
 
 # ---------------------------------------------------------------------------
-# Tier-1 semantic triage provider seam
+# Tier-1 semantic triage: Jev only, fail-fast (ADR 0009)
 # (.kiro/specs/tier-1-jev-addition/ — FR-01)
 # ---------------------------------------------------------------------------
-
-SEMANTIC_BACKEND_ENV_VAR = "BW_SEMANTIC_BACKEND"
-DEFAULT_SEMANTIC_BACKEND = "gemini"
-
-# Backends named by FR-01 that remain unimplemented until their owning task.
-# They resolve to DEFAULT_SEMANTIC_BACKEND rather than raising or disabling
-# triage, which would be fail-open relative to the pre-seam behaviour.
-PENDING_SEMANTIC_BACKENDS: frozenset[str] = frozenset()
 
 # --- Tier-1 Jev backend (.kiro/specs/tier-1-jev-addition/ — FR-02/FR-05) ---
 #
@@ -850,14 +840,12 @@ JEV_IS_THREAT_QUESTION: Dict[str, Any] = {
 }
 
 
-class SemanticTriageEvaluation(BaseModel):
-    threat_score: float = Field(
-        ..., ge=0.0, le=1.0, description="Risk assessment score between 0.0 and 1.0"
-    )
-    is_suspicious: bool = Field(
-        ..., description="Whether the tool call exhibits malicious intent"
-    )
-    reasoning: str = Field(..., description="Concise rationale for the verdict")
+class JevUnavailableError(RuntimeError):
+    """Jev could not answer. Tier-1 has no fallback (ADR 0009): this propagates.
+
+    Messages are static or carry only a status code. Never put the API key or a
+    response body in one.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -874,7 +862,7 @@ class SemanticTriageResult:
     Always None for Jev: a ``noul`` answer carries no separate confidence — the
     probability already encodes the uncertainty (ADR 0008)."""
 
-    backend: str = DEFAULT_SEMANTIC_BACKEND
+    backend: str = "jev"
     escalate: bool = False
     """Ambiguity-band flag — consumed by Tier-2 routing (FR-03)."""
 
@@ -887,122 +875,17 @@ class SemanticTriageResult:
 
 
 class SemanticTriageProvider(ABC):
-    """Pluggable Tier-1 semantic triage backend (``jev`` | ``gemini``)."""
+    """Tier-1 semantic triage provider. Jev is the only shipped implementation."""
 
     name: ClassVar[str] = ""
 
     @abstractmethod
-    async def triage(self, context: ToolCallContext) -> Optional[SemanticTriageResult]:
-        """Evaluate a tool call, or return None when no signal is available.
+    async def triage(self, context: ToolCallContext) -> SemanticTriageResult:
+        """Evaluate a tool call and return the Tier-1 signal.
 
-        None means "abstain" and is deliberately distinct from a
-        ``threat_score`` of 0.0: the fail-closed ``max()`` in
-        ``SyncResolver._score_argument_novelty`` must not let a synthetic zero
-        mask a deterministic high-risk signal.
+        Raises ``JevUnavailableError`` when no answer can be produced. There is
+        no abstain value and no fallback (ADR 0009).
         """
-
-
-class GeminiTriageBackend(SemanticTriageProvider):
-    """Gemini 3.5 Flash-Lite rapid triage — behaviour-preserving port of the
-    inline call that previously lived in ``SyncResolver._evaluate_semantic_intent``.
-    """
-
-    name: ClassVar[str] = "gemini"
-
-    def __init__(
-        self,
-        client: Any,
-        *,
-        model: str = DEFAULT_RAPID_TRIAGE_MODEL,
-        timeout: float = 5.0,
-    ) -> None:
-        self.client = client
-        self.model = model
-        self.timeout = timeout
-
-    async def triage(self, context: ToolCallContext) -> Optional[SemanticTriageResult]:
-        if not self.client or not (
-            hasattr(self.client, "models")
-            or (hasattr(self.client, "aio") and hasattr(self.client.aio, "models"))
-        ):
-            return None
-        try:
-            from google.genai import types
-
-            thinking_lvl = get_gemini_thinking_level(
-                task_type="rapid_triage", default="minimal"
-            )
-            config = types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=SemanticTriageEvaluation,
-                thinking_config=(
-                    types.ThinkingConfig(thinking_level=thinking_lvl)
-                    if thinking_lvl
-                    else None
-                ),
-            )
-            prompt = (
-                "Analyze this tool execution for malicious intent, unauthorized actions, "
-                "privilege escalation, or sensitive data exfiltration.\n"
-                f"Tool: {context.tool_name}\n"
-                f"Arguments: {context.arguments}\n"
-                f"Metadata: {context.metadata or {}}\n"
-            )
-            timeout = get_gemini_http_timeout(
-                configured=self.timeout, task_type="rapid_triage"
-            )
-            aio_models = getattr(getattr(self.client, "aio", None), "models", None)
-            aio_gen = getattr(aio_models, "generate_content", None)
-            if aio_gen is not None and inspect.iscoroutinefunction(aio_gen):
-                coro = aio_gen(
-                    model=self.model,
-                    contents=prompt,
-                    config=config,
-                )
-            else:
-                coro = asyncio.to_thread(
-                    self.client.models.generate_content,
-                    model=self.model,
-                    contents=prompt,
-                    config=config,
-                )
-            response = await asyncio.wait_for(coro, timeout=timeout)
-
-            # 1. Parsed Pydantic model
-            if hasattr(response, "parsed") and response.parsed is not None:
-                parsed = response.parsed
-                if isinstance(parsed, SemanticTriageEvaluation):
-                    return SemanticTriageResult(
-                        threat_score=float(parsed.threat_score), backend=self.name
-                    )
-                if isinstance(parsed, dict) and "threat_score" in parsed:
-                    return SemanticTriageResult(
-                        threat_score=float(parsed["threat_score"]), backend=self.name
-                    )
-                if hasattr(parsed, "threat_score"):
-                    try:
-                        return SemanticTriageResult(
-                            threat_score=float(parsed.threat_score), backend=self.name
-                        )
-                    except (TypeError, ValueError):
-                        pass
-
-            # 2. Text JSON parsing
-            text = getattr(response, "text", None)
-            if text:
-                try:
-                    data = json.loads(text)
-                    if isinstance(data, dict) and "threat_score" in data:
-                        return SemanticTriageResult(
-                            threat_score=float(data["threat_score"]), backend=self.name
-                        )
-                except Exception:
-                    pass
-
-            return None
-        except Exception as exc:
-            logger.debug("Semantic intent evaluation fell back to heuristics: %s", exc)
-            return None
 
 
 class JevTriageBackend(SemanticTriageProvider):
@@ -1033,7 +916,6 @@ class JevTriageBackend(SemanticTriageProvider):
         base_url: Optional[str] = None,
         model: Optional[str] = None,
         timeout: Optional[float] = None,
-        fallback: Optional[SemanticTriageProvider] = None,
         http_client: Optional[httpx.AsyncClient] = None,
         sleep: Callable[[float], Any] = asyncio.sleep,
     ) -> None:
@@ -1051,7 +933,11 @@ class JevTriageBackend(SemanticTriageProvider):
             if timeout is not None
             else float(os.getenv(JEV_TIMEOUT_ENV_VAR) or JEV_DEFAULT_TIMEOUT_S)
         )
-        self.fallback = fallback
+        if not (self.api_key or "").strip():
+            # Static message: never pass credential-adjacent variables into it.
+            raise JevUnavailableError(
+                "TYPESAFE_API_KEY is not set: Tier-1 Jev has no fallback"
+            )
         self._http_client = http_client
         self._owns_http = http_client is None
         self._sleep = sleep
@@ -1090,7 +976,7 @@ class JevTriageBackend(SemanticTriageProvider):
     async def _post_with_one_retry(self, payload: Dict[str, Any]) -> httpx.Response:
         """POST once; on a documented throttle status (429/529) wait a short
         fixed delay and POST exactly once more. A second throttle is returned
-        to the caller, which fails closed."""
+        to the caller, which raises."""
         response = await self._post(payload)
         if response.status_code in JEV_RETRYABLE_STATUSES:
             logger.warning(
@@ -1115,7 +1001,7 @@ class JevTriageBackend(SemanticTriageProvider):
         p = float(probability)
         # P1: reject NaN/inf/out-of-range values — clamping them via
         # SemanticTriageResult would mint a legitimate-looking signal that
-        # bypasses the fail-closed fallback. Malformed means abstain.
+        # is a legitimate-looking signal. Malformed means unavailable.
         if not math.isfinite(p) or not 0.0 <= p <= 1.0:
             return None
         # A noul answer has no separate confidence (the probability already
@@ -1141,86 +1027,57 @@ class JevTriageBackend(SemanticTriageProvider):
 
     def _record_triage(
         self,
-        result: Optional[SemanticTriageResult],
+        result: SemanticTriageResult,
         *,
-        is_fallback: bool,
         started: float,
         input_tokens: Optional[int] = None,
         output_tokens: Optional[int] = None,
     ) -> None:
-        """FR-07: one structured record per triage — including abstentions,
-        whose outage/latency/budget signal baselines must not omit degraded
-        calls. Abstain shape: ``p``/``confidence`` None, ``backend`` = jev.
-        Spend is derived downstream from the token counts (the API returns no
-        per-call cost)."""
+        """FR-07: one structured record per successful triage. Failures raise
+        ``JevUnavailableError`` and are logged by the caller. Spend is derived
+        downstream from the token counts (the API returns no per-call cost)."""
         logger.info(
             "jev_triage",
             extra={
-                "backend": result.backend if result is not None else self.name,
-                "p": result.threat_score if result is not None else None,
-                "confidence": result.confidence if result is not None else None,
+                "backend": result.backend,
+                "p": result.threat_score,
+                "confidence": result.confidence,
                 "latency_ms": round((time.monotonic() - started) * 1000.0, 3),
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
-                "is_fallback": is_fallback,
             },
         )
 
-    async def triage(self, context: ToolCallContext) -> Optional[SemanticTriageResult]:
-        if not self.api_key:
-            # Static message: never pass credential-adjacent variables into
-            # log calls (CodeQL clear-text logging).
-            logger.debug(
-                "Jev backend selected but TYPESAFE_API_KEY is unset — abstaining"
-            )
-            return None
+    async def triage(self, context: ToolCallContext) -> SemanticTriageResult:
         started = time.monotonic()
         payload = self._build_payload(context)
         try:
             response = await self._post_with_one_retry(payload)
-            if response.status_code == 200:
-                data = response.json()
-                result = self._parse_response(data)
-                if result is not None:
-                    usage = self._extract_usage(data)
-                    self._record_triage(
-                        result,
-                        is_fallback=False,
-                        started=started,
-                        input_tokens=usage["input"],
-                        output_tokens=usage["output"],
-                    )
-                    return result
-                logger.debug(
-                    "Jev TypeSafe API returned a malformed payload — failing closed"
-                )
-            else:
-                logger.debug(
-                    "Jev TypeSafe API returned HTTP %s — failing closed",
-                    response.status_code,
-                )
         except Exception as exc:
-            logger.debug("Jev TypeSafe API call failed — failing closed: %s", exc)
-        fallback_result = await self._fail_closed(context)
-        self._record_triage(
-            fallback_result,
-            is_fallback=self.fallback is not None,
-            started=started,
-        )
-        return fallback_result
-
-    async def _fail_closed(
-        self, context: ToolCallContext
-    ) -> Optional[SemanticTriageResult]:
-        """FR-06: degraded Jev operation routes to the gemini backend — never
-        fail open to ALLOW; abstain only when no fallback signal exists."""
-        if self.fallback is None:
-            return None
+            raise JevUnavailableError(
+                f"Jev TypeSafe API call failed ({type(exc).__name__})"
+            ) from exc
+        if response.status_code != 200:
+            raise JevUnavailableError(
+                f"Jev TypeSafe API returned HTTP {response.status_code}"
+            )
         try:
-            return await self.fallback.triage(context)
-        except Exception as exc:
-            logger.debug("Jev fallback backend failed — abstaining: %s", exc)
-            return None
+            data = response.json()
+        except ValueError as exc:
+            raise JevUnavailableError(
+                "Jev TypeSafe API returned a non-JSON body"
+            ) from exc
+        result = self._parse_response(data) if isinstance(data, dict) else None
+        if result is None:
+            raise JevUnavailableError("Jev TypeSafe API returned a malformed payload")
+        usage = self._extract_usage(data)
+        self._record_triage(
+            result,
+            started=started,
+            input_tokens=usage["input"],
+            output_tokens=usage["output"],
+        )
+        return result
 
     async def aclose(self) -> None:
         """Close the lazily-created API client — only when this backend
@@ -1228,14 +1085,6 @@ class JevTriageBackend(SemanticTriageProvider):
         if self._owns_http and self._http_client is not None:
             await self._http_client.aclose()
             self._http_client = None
-
-
-SEMANTIC_TRIAGE_BACKENDS: Dict[str, Callable[[Any], SemanticTriageProvider]] = {
-    GeminiTriageBackend.name: lambda client: GeminiTriageBackend(client),
-    JevTriageBackend.name: lambda client: JevTriageBackend(
-        fallback=GeminiTriageBackend(client)
-    ),
-}
 
 
 class Tier2EscalationVerdict(BaseModel):
@@ -1347,49 +1196,3 @@ class GeminiTier2Backend:
         except Exception as exc:
             logger.debug("Tier-2 escalation abstained: %s", exc)
             return None
-
-
-def resolve_semantic_backend(raw: Optional[str]) -> str:
-    """Map a configured backend name onto a shipped provider name.
-
-    Defaults to ``gemini`` — the Jev default flip is TASK-D04, not this seam.
-    Selecting ``jev`` without ``TYPESAFE_API_KEY`` degrades to ``gemini``
-    (fail-closed: never disable triage, never fail open to ALLOW).
-    """
-    name = normalize_text(raw)
-    if not name:
-        return DEFAULT_SEMANTIC_BACKEND
-    if name in SEMANTIC_TRIAGE_BACKENDS:
-        if name == JevTriageBackend.name and not os.getenv(JEV_API_KEY_ENV_VAR):
-            # Static message: never pass credential-adjacent variables into
-            # log calls (CodeQL clear-text logging).
-            logger.warning(
-                "Semantic triage backend 'jev' requires TYPESAFE_API_KEY "
-                "(official TypeSafe AI API, paid per-token billing), which is "
-                "not set — degrading to 'gemini'."
-            )
-            return DEFAULT_SEMANTIC_BACKEND
-        return name
-    if name in PENDING_SEMANTIC_BACKENDS:
-        logger.warning(
-            "Semantic triage backend %r is specified by FR-01 but is not "
-            "implemented yet (.kiro/specs/tier-1-jev-addition/) — "
-            "degrading to %r.",
-            name,
-            DEFAULT_SEMANTIC_BACKEND,
-        )
-    else:
-        logger.warning(
-            "unknown semantic triage backend %r — degrading to %r",
-            name,
-            DEFAULT_SEMANTIC_BACKEND,
-        )
-    return DEFAULT_SEMANTIC_BACKEND
-
-
-def build_semantic_provider(
-    client: Any, backend: Optional[str] = None
-) -> SemanticTriageProvider:
-    """Instantiate the provider for ``backend`` (defaults to the shipped one)."""
-    name = resolve_semantic_backend(backend)
-    return SEMANTIC_TRIAGE_BACKENDS[name](client)

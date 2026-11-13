@@ -18,7 +18,11 @@ from blackwall.models import ToolCallContext, Verdict, VerdictDecision
 from blackwall.policy.watcher import PolicyFileHandler, PolicyWatcher
 from blackwall.resolver import BatchResolver
 from blackwall.security.vault import EncryptedLocalStore
-from blackwall.sync_resolver import SemanticTriageEvaluation, SyncResolver
+from blackwall.policy.semantic import (
+    GeminiTier2Backend,
+    SemanticTriageResult,
+    Tier2EscalationVerdict,
+)
 from tests.step_defs.async_utils import run_async
 
 scenarios("../features/modernized_core_integrations.feature")
@@ -224,7 +228,7 @@ def verify_cached_ssl_identity(state):
 
 
 # ---------------------------------------------------------------------------
-# Scenario 6: SyncResolver and BatchResolver utilize native client.aio
+# Scenario 6: Tier-2 backend and BatchResolver utilize native client.aio
 # ---------------------------------------------------------------------------
 
 @given("a Gemini client equipped with native client.aio interfaces")
@@ -234,10 +238,8 @@ def setup_mock_gemini_client(state):
 
     # Setup mock aio models
     state.mock_aio_models = MagicMock()
-    mock_parsed_eval = SemanticTriageEvaluation(
-        threat_score=0.08,
-        is_suspicious=False,
-        reasoning="Benign test execution",
+    mock_parsed_eval = Tier2EscalationVerdict(
+        decision="ALLOW", threat_score=0.08, reasoning="Benign test execution"
     )
     mock_gen_resp = MagicMock()
     mock_gen_resp.parsed = mock_parsed_eval
@@ -257,18 +259,19 @@ def setup_mock_gemini_client(state):
     state.mock_client.aio = mock_aio
 
 
-@when("tool call contexts are evaluated through SyncResolver and BatchResolver")
+@when("tool call contexts are evaluated through the Tier-2 backend and BatchResolver")
 def evaluate_resolvers_bdd(state):
-    sync_res = SyncResolver(client=state.mock_client)
+    tier2 = GeminiTier2Backend(state.mock_client)
     batch_res = BatchResolver(client=state.mock_client)
 
     ctx = ToolCallContext(tool_name="safe_reader", arguments={"file": "a.txt"})
-    state.sync_result = run_async(sync_res._evaluate_semantic_intent(ctx))
+    tier1 = SemanticTriageResult(threat_score=0.5, backend="jev", escalate=True)
+    state.sync_result = run_async(tier2.escalate(ctx, tier1))
     state.batch_response = run_async(batch_res.submit_to_gemini_sync([ctx]))
 
 
-@then("the resolvers must directly await client.aio methods without thread pool offloading")
+@then("the Tier-2 backend and BatchResolver must directly await client.aio methods without thread pool offloading")
 def verify_client_aio_awaited(state):
-    assert state.sync_result == 0.08
+    assert state.sync_result is not None and state.sync_result.threat_score == 0.08
     state.mock_aio_models.generate_content.assert_awaited_once()
     state.mock_aio_interactions.create.assert_awaited_once()

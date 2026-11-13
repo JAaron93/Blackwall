@@ -4,34 +4,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from blackwall.models import ToolCallContext, Verdict, VerdictDecision
 from blackwall.resolver import BatchResolver
-from blackwall.sync_resolver import SemanticTriageEvaluation, SyncResolver
-
-
-@pytest.mark.asyncio
-async def test_sync_resolver_uses_client_aio_for_semantic_eval():
-    """Verify SyncResolver directly awaits client.aio.models.generate_content when available."""
-    mock_client = MagicMock()
-    mock_aio = MagicMock()
-    mock_aio_models = MagicMock()
-
-    mock_parsed_result = SemanticTriageEvaluation(
-        threat_score=0.05,
-        is_suspicious=False,
-        reasoning="Benign tool test",
-    )
-
-    mock_response = MagicMock()
-    mock_response.parsed = mock_parsed_result
-    mock_aio_models.generate_content = AsyncMock(return_value=mock_response)
-    mock_aio.models = mock_aio_models
-    mock_client.aio = mock_aio
-
-    resolver = SyncResolver(client=mock_client)
-    context = ToolCallContext(tool_name="test_tool", arguments={"arg": "val"})
-
-    result = await resolver._evaluate_semantic_intent(context)
-    assert result == 0.05
-    mock_aio_models.generate_content.assert_awaited_once()
 
 
 @pytest.mark.asyncio
