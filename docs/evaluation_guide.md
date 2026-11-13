@@ -148,7 +148,7 @@ GCP_PROJECT=your-gcp-project-id
 GCP_LOCATION=us-central1
 GOOGLE_GENAI_USE_VERTEXAI=true
 
-# Mandatory Paid Tier Quota Contract (300+ RPM via Gemini Enterprise Agent Platform)
+# Mandatory Paid Tier Quota Contract (300+ RPM via Gemini Enterprise Agent Platform; for reference, TypeSafe Jev at Tier-1 is 4,800 RPM = 80 req/s, default org limit)
 GEMINI_TIER=paid
 BLACKWALL_TIER=paid
 

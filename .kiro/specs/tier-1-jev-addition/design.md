@@ -63,6 +63,18 @@ burst, then a multi-hour trickle (`429 GatewayRateLimitError`, no
 Decision: **operate Jev on paid credits**; keep free-tier findings as
 cost evidence only.
 
+### Re-validation on the TypeSafe API (TASK-D02, 2026-11-12, `jev-1.14.0`, paid)
+
+The run above is the Gateway-era record. TASK-D02 repeated it through the
+official API with `jev-latest` (served: `jev-1.14.0`): accuracy 99.4% (TP 93,
+FN 1, FP 0, TN 68), AUROC 1.000, ECE 0.059, escalation 3.0% (5/167), p50 92 ms
+and p95 143 ms, about $0.003 per pass; all gates pass. Across two runs, outside
+the C2 class every malicious case scores P ≥ 0.74 and benign P ≤ 0.19. The C2 class is still the
+weak spot and weaker than on 1.13 (mean P 0.70 to 0.63; `wave1_c2_beacon_001`
+still missed at P 0.19). Same-model reruns differ by up to 0.03 per case and
+changed zone in 3 of 167, so a second run of the same pass scored 98.8% (one
+more C2 beacon missed), one case above the 98% gate. See ADR 0008.
+
 ## Architecture Diagram
 
 ```text
@@ -122,8 +134,10 @@ tuning). Records `latency_ms` and token usage per call for the regression
 tracker; `confidence` is `None` because a `noul` answer carries none, and cost
 is derived from the token counts. A throttled call (`429` / `529`) is retried
 once after a fixed 0.5s, then fails closed. Rate limits are per organization
-(requests/s and tokens/s, set in the TypeSafe console); there is no client-side
-pacing. The model is `jev-latest`, deliberately unpinned (ADR 0008).
+(requests/s and tokens/s, set in the TypeSafe console; this organization, as of
+2026-11-12: 80 requests/s and 100,000 input tokens/s, both default and shared
+across keys, i.e. 4,800 RPM); there is no client-side pacing. The model is
+`jev-latest`, deliberately unpinned (ADR 0008).
 
 ### 3. Tier-2 Escalation Policy (retained, narrowed)
 

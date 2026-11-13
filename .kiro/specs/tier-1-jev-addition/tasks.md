@@ -89,9 +89,9 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
 ## Track D — Validation & Rollout (depends on Tracks B + C)
 
 > [!NOTE] DEFERRAL (2026-09-25, updated 2026-11-12): a paid `TYPESAFE_API_KEY`
-> now exists, so TASK-D02 is no longer deferred (it is a live run, not
-> mockable). TASK-D03 stays deferred until the GCP dual-gate (Vertex
-> `EvalTask`) can run on paid Vertex budget. TASK-D04 remains gated on D03.
+> now exists and TASK-D02 was run live on 2026-11-12 (done, below). TASK-D03
+> stays deferred until the GCP dual-gate (Vertex `EvalTask`) can run on paid
+> Vertex budget. TASK-D04 remains gated on D03.
 > TASK-D01 is complete on `feature/tier1-jev-escalation`.
 
 * [x] **TASK-D01: BDD acceptance suite** (NFR-04). `tests/features/`
@@ -103,11 +103,11 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   > **Amended by ADR 0008:** the "disallows prompt training" assertion became
   > "targets the System One endpoint" and "carries only the allowlisted
   > fields", and a 529 fail-closed scenario was added.
-* [ ] **TASK-D02: Golden A/B re-run on the TypeSafe API + gate check** (NFR-05,
+* [x] **TASK-D02: Golden A/B re-run on the TypeSafe API + gate check** (NFR-05,
   US-01, US-02). Live paid run of `scripts/jev_triage_eval.py` over the 157 + 10
   golden cases against `jev-latest` (deliberately unpinned, ADR 0008); it
   regenerates `tests/eval/results/jev_triage_results.json`. The Gateway-era
-  artifact it replaces came from the Gateway's rate-limited free tier on the
+  artifact it replaced came from the Gateway's rate-limited free tier on the
   previous Jev release and is not valid evidence for this transport. Must meet
   the A/B gates (accuracy ≥98%, AUROC ≥0.95, ECE ≤0.10, escalation ≤25%).
   Record the results, the served release (`model` field) and the Tier-2 fire
@@ -116,6 +116,17 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   `jev-latest`, since the band is fixed and the model is not.
   Dependencies: TASK-C02, TASK-D01. Requires `TYPESAFE_API_KEY` (paid). Never
   simulated (testing rules, Live Paid-Credential Acceptance Gates).
+  > **Done 2026-11-12** (commit `426166d`; 167 live calls, 0 errors, every row
+  > served by `jev-1.14.0`): accuracy 99.4% (TP 93, FN 1, FP 0, TN 68), AUROC
+  > 1.000, ECE 0.059, escalation 3.0% (5/167), so all four gates pass. Security
+  > suite: every decided case correct, 30/30 evasion blocked, 0 false alarms
+  > (benign P ≤ 0.17). Evasion-proof suite: 8 blocked, 1 escalated, 1 missed
+  > (`wave1_c2_beacon_001`, P 0.19, below the band). Tier-2 fire rate: 3.0%
+  > overall (2.5% security, 10% evasion-proof). p50 92 ms, p95 143 ms. A second
+  > full run passes too but with one case of margin on accuracy (98.8%: another
+  > C2 beacon fell just under the band), because same-model reruns differ by up
+  > to 0.03 per case and band-edge cases change zone between runs. Details:
+  > ADR 0008, Verification.
 * [ ] **TASK-D03: Benchmark + dual-gate CI confirmation** (NFR-01, NFR-02).
   `benchmark_report.json` SLAs green; full suite green under
   `BW_SEMANTIC_BACKEND=gemini` (GCP-only no-regression) and `jev`.

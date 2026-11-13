@@ -91,10 +91,11 @@ usage for logs, budgets, and `HistoricalRegressionTracker` baselines.
 ### NFR-01: Preserved Interception SLAs
 Tier-0 `<5ms` and TSG `<10ms p99` behavior SHALL NOT regress (benchmark suite
 `tests/eval/results/benchmark_report.json` stays green). Network latency
-(~0.9s p50 measured through the Vercel Gateway on 2026-09-19; not yet
-re-measured against the first-party API) is accepted for the semantic path; the
-`<100ms` Tier-1 aspiration is explicitly deferred to a future local/in-VPC
-Jev deployment.
+(p50 92 to 107 ms, p95 143 to 159 ms in two runs against the first-party API on
+2026-11-12 from one client, sequentially and unloaded; ~0.9s p50 through the Vercel Gateway on
+2026-09-19) is accepted for the semantic path; the `<100ms` Tier-1 aspiration
+is explicitly deferred to a future local/in-VPC Jev deployment (the measured
+p95 is above it, and latency under load has not been measured).
 
 ### NFR-02: No Regression on GCP-Only Path
 With `BW_SEMANTIC_BACKEND=gemini`, the full suite (unit, BDD, Vertex
