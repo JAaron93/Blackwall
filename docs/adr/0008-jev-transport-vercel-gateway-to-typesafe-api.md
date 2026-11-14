@@ -386,7 +386,7 @@ Tier-1 Jev calls the official TypeSafe AI API directly. Everything else in ADR
 
   *(Amended 2026-11-13: the "floor" prediction below was tested and did not hold.
   With real attack text, real benign values and no label words the class-blind
-  corpus scores 82.2% to 82.6%, not above 84.1%. See ADR 0009, Verification.)*
+  corpus scores 82.8% to 83.0%, not above 84.1%. See ADR 0009, Verification.)*
   Read the blinded figures as a floor and the original figures as a ceiling. Many
   malicious payloads were only a placeholder in the evalset (`SELECT * FROM users
   WHERE id = [[INJECTED_INPUT]]`), so once the name is neutral no attack text
@@ -527,7 +527,7 @@ Tier-1 Jev calls the official TypeSafe AI API directly. Everything else in ADR
     `obfuscation` fields in the state. The shared template does not merge benign
     and malicious into one class; they stay two, told apart by their payload.
     Result: the earlier "floor" prediction did not hold. Decided accuracy on the
-    class-blind corpus is 82.2% to 82.6%, with the accuracy and ECE gates failing
+    class-blind corpus is 82.8% to 83.0%, with the accuracy and ECE gates failing
     and the AUROC and escalation gates passing (ADR 0009, Verification). The
     committed `jev_triage_results.json` and `jev_runs/` remain the record of the
     earlier corpus, whose figures are upper bounds for the reason above.

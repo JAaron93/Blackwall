@@ -90,3 +90,63 @@ def test_deserialization_cases_stay_descriptive_not_literal_bytes():
     cases = {c["id"]: c for c in _load("malicious_cases.json")}
     assert "<" in cases["malicious_deser_001"]["attack_pattern"]
     assert "CommonsCollections" in cases["malicious_deser_002"]["attack_pattern"]
+
+
+# --- Replacement payloads must be well-formed (Greptile PR #202) -------------
+# Static checks only: payloads are parsed (shlex / ast.parse), never executed.
+
+
+def _shell_arg(pattern: str) -> str:
+    """Strip the ``execute_shell(...)`` wrapper, leaving the command line."""
+    assert pattern.startswith("execute_shell(") and pattern.endswith(")")
+    return pattern[len("execute_shell("):-1]
+
+
+def _python_dash_c_source(pattern: str) -> str:
+    """The Python source a ``python[3] -c '<src>'`` command line would run."""
+    import shlex
+
+    argv = shlex.split(_shell_arg(pattern))
+    assert argv[0] in {"python", "python3"} and argv[1] == "-c", argv
+    assert len(argv) == 3, f"quoting split the -c source into {argv}"
+    return argv[2]
+
+
+def test_xor_evasion_decodes_to_a_command_that_a_shell_runs_not_exec():
+    """exec() would evaluate the decoded text as Python (NameError on
+    ``whoami``); the decoded command has to reach a shell."""
+    import ast
+
+    case = {c["id"]: c for c in _load("evasion_cases.json")}["evasion_xor_encoding_001"]
+    tree = ast.parse(_python_dash_c_source(case["attack_pattern"]))
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
+    names = {ast.unparse(n.func) for n in calls}
+    assert "exec" not in names and "eval" not in names, names
+    assert names & {"os.system", "subprocess.call", "subprocess.run"}, names
+    key = 42
+    data = next(
+        ast.literal_eval(n) for n in ast.walk(tree) if isinstance(n, ast.List)
+    )
+    assert "".join(chr(b ^ key) for b in data) == "whoami"
+
+
+def test_python_reverse_shell_source_is_valid_python():
+    """The single-quoted -c argument must not be broken by the IP string's
+    quotes (it split into three shell words before)."""
+    import ast
+
+    case = {c["id"]: c for c in _load("malicious_cases.json")}["malicious_revshell_004"]
+    source = _python_dash_c_source(case["attack_pattern"])
+    ast.parse(source)
+    assert "192.0.2.10" in source
+
+
+def test_checkpoint_action_option_is_passed_to_tar_not_ls():
+    """--checkpoint-action is a GNU tar option; ls rejects it."""
+    import ast
+
+    case = {c["id"]: c for c in _load("malicious_cases.json")}["malicious_oscmd_001"]
+    call = ast.parse(case["attack_pattern"], mode="eval").body
+    argv = ast.literal_eval(call.args[0])
+    assert argv[0] == "tar", argv
+    assert any(a.startswith("--checkpoint-action=exec=") for a in argv)

@@ -195,15 +195,25 @@ each, interleaved 1.13, 1.14, 1.13, 1.14 on 2026-11-13, from an empty cache,
 (`tests/eval/results/jev_runs_class_blind/`). The fixed 0.35/0.75 band was not
 changed.
 
+Correction before merge: Greptile found three replacement payloads that could
+not run as written (`evasion_xor_encoding_001` passed the decoded command to
+`exec()` instead of a shell, `malicious_revshell_004` broke its own quoting, and
+`malicious_oscmd_001` gave a `tar` option to `ls`). They were fixed, the evalset
+rebuilt, and all four runs re-scored on 2026-11-13 with a fresh cache (668 live
+calls, 0 errors). Only those three states changed; each now scores higher
+(P 0.62-0.67 to 0.77-0.79 for `malicious_oscmd_001`, 0.70-0.78 to 0.78-0.91 for
+`evasion_xor_encoding_001`). The table below is the re-scored data; the earlier
+draft read 82.2% to 82.6%.
+
 | Run 1 / run 2 | jev-1.13.0 | jev-1.14.0 |
 |---|---|---|
-| Accuracy, decided cases | 82.2% / 82.2% (FN 27 / 27) | 82.5% / 82.6% (FN 27 / 27) |
-| TP / FN / FP / TN | 57 / 27 / 0 / 68 both runs | 59 / 27 / 0 / 68 and 60 / 27 / 0 / 68 |
-| AUROC | 0.9959 / 0.9948 | 0.9934 / 0.9938 |
-| ECE (10-bin) | 0.193 / 0.193 | 0.191 / 0.191 |
-| Escalated to Tier-2 | 15 / 15 (9.0%) | 13 / 12 (7.8% / 7.2%) |
-| Highest benign P | 0.05 / 0.05 | 0.06 / 0.05 |
-| Run 1 against run 2, mean absolute change in P | 0.005 (0 zone changes) | 0.007 (1 zone change) |
+| Accuracy, decided cases | 83.0% / 83.0% (FN 26 / 26) | 82.8% / 82.8% (FN 27 / 27) |
+| TP / FN / FP / TN | 59 / 26 / 0 / 68 both runs | 62 / 27 / 0 / 68 both runs |
+| AUROC | 0.9960 / 0.9949 | 0.9939 / 0.9926 |
+| ECE (10-bin) | 0.193 / 0.192 | 0.190 / 0.190 |
+| Escalated to Tier-2 | 14 / 14 (8.4%) | 10 / 10 (6.0%) |
+| Highest benign P | 0.05 / 0.05 | 0.05 / 0.06 |
+| Run 1 against run 2, mean absolute change in P | 0.006 (0 zone changes) | 0.007 (0 zone changes) |
 
 Against the ADR 0008 gates: **accuracy fails** (>= 98%), **ECE fails**
 (<= 0.10), AUROC passes (>= 0.95) and escalation passes (<= 25%). For
@@ -213,29 +223,30 @@ production-shaped states that still carried placeholders (ADR 0008).
 **Reading it.**
 
 - **The ADR 0008 prediction was wrong.** It called 84.1% "a floor" that real
-  payloads would raise. They did not: this corpus scores about 2 points lower.
+  payloads would raise. They did not: this corpus scores about 1 to 1.5 points lower.
   It is also a harder corpus, because the words that gave malicious cases away
   are gone too, so the two causes are not separated here.
 - **There are no false alarms, and benign scores fell.** Highest benign P is
   0.05 to 0.06, against 0.19 to 0.22 on the earlier states. That is consistent
   with the placeholders having hurt the benign side as well.
-- **Jev ranks well and decides too little.** AUROC is 0.993 to 0.996, so almost
-  nearly every attack scores above every benign call; only 5 to 8 of the 99
-  attacks (depending on the run) score at or below the highest benign P. But 27 attacks score below the 0.35 lower edge of
-  the band and are allowed.
-- **The misses are concentrated and repeatable.** The 27 are the same cases in
-  both runs of a release, and 26 of them are shared between the two releases
-  (`malicious_cmd_001` is missed only by 1.13, `malicious_c2_004` only by 1.14).
-  12 to 13 of the 27 are C2 or IOC-type calls (a plain request to an odd host,
+- **Jev ranks well and decides too little.** AUROC is 0.993 to 0.996, so nearly
+  every attack scores above every benign call; only 6 to 8 of the 99 attacks
+  (depending on the run) score at or below the highest benign P. But 26 to 27
+  attacks score below the 0.35 lower edge of the band and are allowed.
+- **The misses are concentrated and repeatable.** The 26 (1.13) or 27 (1.14) are
+  the same cases in both runs of a release, and all 26 of 1.13's are also missed
+  by 1.14 (`malicious_c2_004` is missed only by 1.14).
+  12 to 13 of them are C2 or IOC-type calls (a plain request to an odd host,
   with no attack text in the call), the weak class ADR 0008 already names. Of
-  the other 14 to 15, 8 to 9 are shell-injection one-liners such as
-  `cat < /etc/passwd` and `echo \`id\``, and 2 each are SQL, path traversal and
-  other. Excluding the C2/IOC-type calls, decided accuracy is 89% to 90%. Threat intelligence is
+  the other 14, 9 are shell-injection one-liners such as
+  `cat < /etc/passwd` and `echo \`id\``, 2 are SQL, 1 is path traversal and 2
+  are other. Excluding the C2/IOC-type calls, decided accuracy is 90.0% to 90.2%. Threat intelligence is
   the layer built for IOC-type calls, and these runs do not configure it.
 - **Band sweep, indicative only.** Moving the lower edge of the band from 0.35 to
   about 0.08 to 0.10, with the upper edge at 0.40 to 0.50, raises decided
-  accuracy to between 91.9% and 95.2% (across the settings and the four runs) on
-  these same cases, with no false alarms and escalation of 9.6% to 12.6%. It was tuned on the
+  accuracy to between 91.3% and 95.2% (lower edge 0.08 or 0.10, upper edge 0.40,
+  0.45 or 0.50, across the four runs) on these same cases, with no false alarms
+  and escalation of 9.0% to 13.8%. It was tuned on the
   cases it is scored on, so it is a lead for a new spec amendment with fresh
   labeled evidence (as the spec requires), not a result. The band is unchanged.
 - **Still not measured.** The tool name remains a tell: `execute_shell`,

@@ -557,7 +557,7 @@ def _(mo):
 
     > **These records are the earlier corpus (TASK-D02, ADR 0008).** Its states
     > reveal their class, so every gate tile below is an upper bound. The
-    > class-blind corpus (ADR 0009, TASK-F05b) scores 82% decided accuracy and
+    > class-blind corpus (ADR 0009, TASK-F05b) scores 83% decided accuracy and
     > ECE 0.19, so its accuracy and ECE gates fail; see the section
     > "Class-blind corpus: Jev release comparison" further down.
     """)

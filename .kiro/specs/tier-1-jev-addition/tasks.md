@@ -218,8 +218,8 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   values in all 53 benign placeholders, no label words or routable addresses in
   any payload, and production-shaped scoring states. Both releases re-scored,
   two runs each, interleaved (668 live calls, 0 errors): decided accuracy
-  82.2% to 82.6%, ECE 0.19 (both gates FAIL), AUROC 0.993 to 0.996 and
-  escalation 7% to 9% (both pass); no false alarms. Benign and malicious stay
+  82.8% to 83.0%, ECE 0.19 (both gates FAIL), AUROC 0.993 to 0.996 and
+  escalation 6% to 8% (both pass); no false alarms. Benign and malicious stay
   two classes. Figures and caveats: ADR 0009, Verification. Tests:
   `tests/unit/test_class_blind_evalset.py`,
   `tests/unit/test_jev_class_blind_runs_data.py`.
@@ -232,9 +232,9 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   shared tools) test-first, re-score, and record the effect. Needs a live Jev key.
   Dependencies: TASK-F05b.
 * [ ] **TASK-F10: Decide what to do about the failed accuracy and ECE gates**
-  (ADR 0009 OI4). On the class-blind corpus AUROC is 0.99 but 27 of 99 attacks
+  (ADR 0009 OI4). On the class-blind corpus AUROC is 0.99 but 26 to 27 of 99 attacks
   fall below the 0.35 lower band edge (12 to 13 are C2/IOC-type calls). Options:
-  a lower band edge (an indicative sweep reached 91.9% to 95.2% on the cases it
+  a lower band edge (an indicative sweep reached 91.3% to 95.2% on the cases it
   was tuned on, so it needs fresh labeled evidence), threat intelligence for the
   IOC-type calls, or accepting the misses. Any band change is a spec amendment
   with a same-change sync of `AGENTS.md`, `.agents/rules/` and `.greptile/`.

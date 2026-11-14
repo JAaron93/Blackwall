@@ -23,10 +23,10 @@ LO, HI = 0.35, 0.75
 
 # (TP, FN, FP, TN, escalated) at the fixed 0.35/0.75 band, as cited in ADR 0009.
 EXPECTED = {
-    ("jev-1.13.0", "run1"): (57, 27, 0, 68, 15),
-    ("jev-1.13.0", "run2"): (57, 27, 0, 68, 15),
-    ("jev-1.14.0", "run1"): (59, 27, 0, 68, 13),
-    ("jev-1.14.0", "run2"): (60, 27, 0, 68, 12),
+    ("jev-1.13.0", "run1"): (59, 26, 0, 68, 14),
+    ("jev-1.13.0", "run2"): (59, 26, 0, 68, 14),
+    ("jev-1.14.0", "run1"): (62, 27, 0, 68, 10),
+    ("jev-1.14.0", "run2"): (62, 27, 0, 68, 10),
 }
 
 
@@ -129,9 +129,9 @@ def test_figures_cited_in_the_adr_match_the_stored_probabilities(runs, key):
 def test_gate_figures_cited_in_the_adr(runs):
     for key, rows in runs.items():
         tp, fn, fp, tn, esc = _confusion(rows)
-        assert 0.82 <= (tp + tn) / (tp + tn + fp + fn) < 0.83, key  # accuracy gate (>= 98%) FAILS
+        assert 0.82 <= (tp + tn) / (tp + tn + fp + fn) < 0.84, key  # accuracy gate (>= 98%) FAILS
         assert 0.992 <= _auroc(rows) <= 0.997, key  # AUROC gate (>= 0.95) passes
-        assert 0.19 <= _ece(rows) < 0.20, key  # ECE gate (<= 0.10) FAILS
+        assert 0.18 <= _ece(rows) < 0.20, key  # ECE gate (<= 0.10) FAILS
         assert esc / len(rows) < 0.10, key  # escalation gate (<= 25%) passes
 
 
