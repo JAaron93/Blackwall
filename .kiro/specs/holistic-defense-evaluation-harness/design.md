@@ -329,14 +329,14 @@ resolver did", which is the check that keeps the algebra honest.
 | `src/blackwall/holistic_eval/replay.py` | Band replay, outage drill, held-out split (pure) |
 | `src/blackwall/holistic_eval/stats.py` | Wilson intervals, per-pass spread, AUROC (pure) |
 | `src/blackwall/holistic_eval/jev_bounds.py` | The three fixed Jev P comparison constants (`JEV_P_MAX_ABS_DELTA`, `JEV_P_MEAN_ABS_DELTA`, `JEV_P_MAX_ZONE_FLIPS`) and the pure comparison function that applies them to a live Pass and a stored run (pure; the only place the constants are defined) |
-| `src/blackwall/holistic_eval/store.py` | Run-set create, append, read and validate (pure I/O, atomic writes). `create_run_set` (used by `stages`) refuses an existing directory; `open_for_append` (used by `run`, `run --experiment LX-wave` and `probe-cbm`) admits only a Run_Set that `stages` created, bound to the loaded Corpus_Hash, with no record for any configuration-pass the run would write (the last condition does not apply to `probe-cbm`, which writes no configuration-pass); `append_probe_attempt` (used only by `probe-cbm`) appends one numbered probe attempt and never rewrites an earlier one (see "Run_Set creation and append rule") |
+| `src/blackwall/holistic_eval/store.py` | Run-set create, append, read and validate (pure I/O, atomic writes). `create_run_set` (used by `stages`) refuses an existing directory; `open_for_append` (used by `run`, `run --experiment LX-wave` and `probe-cbm`) admits only a Run_Set that `stages` created, bound to the loaded Corpus_Hash, with no record for any configuration-pass the run would write (the last condition does not apply to `probe-cbm`, which writes no configuration-pass); `bind_cbm_fixture` (used by every fixture-backed `run` and by `probe-cbm`, right after `open_for_append`) is the only operation that creates the Manifest's `cbm_fixture` entry, and on a Run_Set that already has one it verifies the recorded fixture digests and writes nothing; `append_probe_attempt` (used only by `probe-cbm`, after `bind_cbm_fixture`) appends one numbered probe attempt and never rewrites an earlier one (see "Run_Set creation and append rule") |
 | `src/blackwall/holistic_eval/observers.py` | Resolver wrappers (imports `blackwall` lazily) |
 | `src/blackwall/holistic_eval/configs.py` | Exact resolver construction per matrix row |
 | `src/blackwall/holistic_eval/stages.py` | Isolated stage runners (imports `blackwall` lazily). During the offline stage pass it also observes, once, whether `SyncResolver.__init__` rewrites `cbm_client.base_url`, and records that as a stage-pass fact for `findings.py` |
 | `src/blackwall/holistic_eval/tsg_seed.py`, `cbm_fixture.py`, `ioc_corpus.py` | Fixtures and seeding. `cbm_fixture.py` holds the sink table, the snapshot schema, the pure Fixture_Export (standard-library `ast` only), the plan and snapshot loaders and `FixtureCodebaseMemoryClient`. `ioc_corpus.py` holds the IOC corpus schema, loader and the pure builder with the deterministic IOC_Selection, which selects, validates and writes the corpus from already-downloaded export files |
 | `src/blackwall/holistic_eval/band_gate.py` | The band-recommendation gate and its evidence records (pure) |
 | `src/blackwall/holistic_eval/runner.py` | Async orchestration, pacing, invalidation, and `run_lx_wave`, the optional LX-wave experiment (the only code path that leaves the Resolver's background tasks enabled) |
-| `scripts/holistic_eval.py` | CLI (dev tooling; CI never runs the live subcommands). Subcommands `plan`, `stages`, `run`, `validate` and `probe-cbm` (the CBM_Probe_Step, run only on its own and never inside a measurement Pass). `stages` creates the Run_Set and refuses an existing directory; `run`, `run --experiment LX-wave` and `probe-cbm` only append to a Run_Set that `stages` created, under the conditions of "Run_Set creation and append rule", and otherwise exit non-zero naming the failed condition before any client is built, any call is made or any record is written. The LX-wave experiment is requested only through `run --experiment LX-wave`; it is never part of the Default_Plan and is not a `--configs` id. Options include `--configs`, `--passes`, `--concurrency`, `--cooldown-s`, `--seed`, `--experiment` and `--pricing <file>` (the Pricing_File; without it the dollar cost is Not_Measured with the reason "no pricing file"). The CLI prints the structures that `report.py` builds and recomputes none of them |
+| `scripts/holistic_eval.py` | CLI (dev tooling; CI never runs the live subcommands). Subcommands `plan`, `stages`, `run`, `validate` and `probe-cbm` (the CBM_Probe_Step, run only on its own and never inside a measurement Pass). `stages` creates the Run_Set and refuses an existing directory; `run`, `run --experiment LX-wave` and `probe-cbm` only append to a Run_Set that `stages` created, under the conditions of "Run_Set creation and append rule", and otherwise exit non-zero naming the failed condition before any client is built, any call is made or any record is written. A fixture-backed `run` and every `probe-cbm` then call `bind_cbm_fixture`, which creates the Run_Set's `cbm_fixture` entry the first time and verifies it afterwards; the CLI exits non-zero on `cbm_fixture_mismatch`, and on `cbm_fixture_unreadable` for `probe-cbm`, before any connection, client or record (a `run` records its fixture-backed rows as Not_Measured on `cbm_fixture_unreadable`). The LX-wave experiment is requested only through `run --experiment LX-wave`; it is never part of the Default_Plan and is not a `--configs` id. Options include `--configs`, `--passes`, `--concurrency`, `--cooldown-s`, `--seed`, `--experiment` and `--pricing <file>` (the Pricing_File; without it the dollar cost is Not_Measured with the reason "no pricing file"). The CLI prints the structures that `report.py` builds and recomputes none of them |
 | `scripts/build_ioc_corpus.py` | One-time authoring tool for the IOC corpus: a `fetch` step (the IOC_Authoring_Step, started only by the maintainer: the only place `BW_ABUSECH_AUTH_KEY` is read, under a Human_Grant, and it may connect only to `threatfox.abuse.ch` and `tranco-list.eu`) and an offline, deterministic `build` step that applies the IOC_Selection. Not part of any measurement run |
 | `scripts/build_cbm_fixture.py` | Thin CLI over the Fixture_Export in `cbm_fixture.py`: `export` writes the snapshot from the fixture source, `check` re-runs the export and fails on any drift from the committed snapshot, naming each function that differs. It opens no connection and reads no credential variable |
 | `tests/eval/cbm_fixture/v1/fixture_source.py.txt`, `fixture_plan.json`, `snapshot.json` | The hand-authored CBM fixture source (text, never imported or executed), the Fixture_Plan that fixes it, and the snapshot that `export` produces. The plan is committed before any Run_Set with a fixture-backed CBM row (a default-CBM row needs neither plan nor snapshot); a later change goes into a new sibling directory |
@@ -409,17 +409,23 @@ class CorpusHashEntry:
     tool_name: str
     args_hash: str
     state_hash: str
+    parent_case_id: str | None             # None when the case has no parent; encoded as JSON null
 
 def corpus_hash(entries: Iterable[CorpusHashEntry]) -> str: ...
-    # sha256 over the entries sorted by case_id, so order never matters. Both a
-    # CorpusCase and a CaseRecord carry the four fields, so the loader, the Run_Store
-    # and the notebook compute the same hash and only the loader needs `corpus.py`.
+    # sha256 over the entries (case_id, tool_name, args_hash, state_hash,
+    # parent_case_id) sorted by case_id, so order never matters. Both a CorpusCase and
+    # a CaseRecord carry every one of these fields, so the loader, the Run_Store and
+    # the notebook compute the same hash and only the loader needs `corpus.py`.
 ```
 
 `tool_name_group` and `family` are pure; `load_corpus` passes them the Resolver's own
 `_HIGH_RISK_TOOLS`, read at load time and never copied. A single changed character in
 a tool name or in the arguments changes `args_hash` or `tool_name`, and so the
-Corpus_Hash.
+Corpus_Hash. `parent_case_id` is part of the Corpus_Hash_Entry because the parent-grouped
+held-out split (`split_by_group`) and the TSG seeding modes are keyed on it: an edit
+that adds, removes or changes a parent link changes which side of the split a case
+falls on, so it changes the Corpus_Hash and invalidates every Run_Set scored before
+the edit.
 
 `tool_group` uses the resolver's own `_HIGH_RISK_TOOLS` (substring match on the
 lower-cased name). `family` is `c2_ioc` for `attack_type == "C2_IOC"` and for
@@ -558,9 +564,16 @@ Corpus and opens the target with `store.open_for_append`, passing the loaded
 Corpus_Hash and every `(config_id, pass_index)` the selected rows and passes would
 write (for LX-wave, `("LX-wave", 1)`). A refusal (`target_missing`,
 `not_created_by_stages`, `corpus_hash_mismatch` or `records_present`) ends the
-invocation with a non-zero exit naming the condition. Every record and `RunEntry` it
-then writes goes through the appender, so existing records are never touched (see
-"Run_Set creation and append rule").
+invocation with a non-zero exit naming the condition. When the selected rows include
+a fixture-backed configuration (I-CBM-fixture, I-CBM-permuted, W4, W5 or the
+`sinks mapped` row), the runner next calls `appender.bind_cbm_fixture`, still before
+`RUNTIME_HOSTS`, any client, any call or any record: the first such run binds the
+Manifest's `cbm_fixture` entry and a later one verifies it. `cbm_fixture_mismatch`
+ends the invocation with a non-zero exit naming each differing field;
+`cbm_fixture_unreadable` records every fixture-backed row as Not_Measured naming the
+file and lets the other rows run. Every record and `RunEntry` it then writes goes
+through the appender, so existing records are never touched (see "Run_Set creation
+and append rule").
 
 Before it builds any client, the runner derives the run's `RUNTIME_HOSTS` from the
 clients the selected rows will build and installs the egress guard (see "Egress
@@ -651,8 +664,9 @@ store never imports `corpus.py`), completeness (every `(config, case)` exactly o
 per pass), pass validity (including the `tier2_429`, `tier2_rate_limit`, `rate_limit`
 and `release_mismatch` invalidations), the `runtime_hosts` and `egress_refusals`
 entries, and the absence of credential-shaped strings. Writes are atomic (temp file in
-the same directory, then rename). It is also the only writer through which
-`probe-cbm` appends a probe attempt to a Manifest's `cbm_fixture.probe_attempts`.
+the same directory, then rename). It is also the only writer of a Manifest's
+`cbm_fixture` entry: `bind_cbm_fixture` creates the entry once, and `probe-cbm`
+appends probe attempts to its `probe_attempts` through `append_probe_attempt`.
 
 #### Run_Set creation and append rule
 
@@ -675,8 +689,51 @@ writable.
 `probe-cbm` is bound by conditions (a) and (b) only. Condition (c) does not apply to
 it: it writes no per-case record and no `(config_id, pass_index)`, so it calls
 `open_for_append` with an empty `writes` set, and each probe attempt it writes has its
-own index. Every `probe-cbm` invocation that passes (a), (b) and the loopback check
-runs the probe and appends one probe attempt (`CbmProbeAttempt`) to the Manifest's
+own index.
+
+**Binding the CBM fixture.** A Run_Set that `stages` creates has no `cbm_fixture`
+entry (`cbm_fixture is None`), because the offline stage pass runs the default CBM
+client only, and such a Run_Set is valid. The entry is created by exactly one
+operation, `RunSetAppender.bind_cbm_fixture(source)`, which every invocation that
+needs the fixture calls right after `open_for_append` succeeds and before it derives
+`RUNTIME_HOSTS`, builds any client, opens any connection or writes any record:
+
+- a `run` whose selected rows include a fixture-backed configuration (a configuration
+  that uses the Fixture_Adapter: I-CBM-fixture, I-CBM-permuted, W4, W5, or the
+  `sinks mapped` row). The first such `run` on a Run_Set binds the entry, and every
+  later one verifies it;
+- every `probe-cbm`, after its loopback check of the base URL (a refused base URL
+  writes nothing, the entry included). The first one on a Run_Set binds the entry and
+  then appends attempt 1; a later one verifies the entry and appends the next attempt.
+
+`bind_cbm_fixture` recomputes the plan, snapshot, source and sink-table digests from
+the committed files of the fixture directory named by `source`. If the Manifest has no
+`cbm_fixture` entry, it writes one in one atomic write: the fixture directory version,
+the plan and snapshot paths and digests, the source digest, the sink table name and
+digest, the permutation seed, the covered and uncovered tool names, and an empty
+`probe_attempts`. If an entry exists, it checks that the recorded fixture version,
+plan digest, snapshot digest, source digest, sink table name and sink table digest
+equal the recomputed values and writes nothing; the recorded permutation seed is kept
+and is the one every later I-CBM-permuted pass of that Run_Set uses. A recorded value
+that differs raises `CbmFixtureRefused("cbm_fixture_mismatch")`, naming each differing
+field with its recorded and recomputed values, and a plan or snapshot that is missing,
+unreadable or not valid JSON raises `CbmFixtureRefused("cbm_fixture_unreadable")`,
+naming the file. Either refusal comes before any connection, client or record, and
+leaves every file of the Run_Set byte-identical.
+
+What a refusal does depends on the caller. For `probe-cbm`, either refusal ends the
+invocation with a non-zero exit naming the condition, and no probe attempt is
+appended. For a `run`, `cbm_fixture_mismatch` ends the invocation the same way,
+because the Run_Set is bound to a fixture that no longer matches the committed files.
+`cbm_fixture_unreadable` on a `run` is a missing fixture: every fixture-backed row of
+the invocation is recorded as Not_Measured with a reason naming the unreadable file,
+the remaining rows run, and the entry stays absent (Run Protocol step 3,
+requirements 4.8, 21.4 and 22.2). This holds for a Named_Explicitly fixture-backed row
+as well, because requirement 4.8 makes a missing fixture Not_Measured whatever the
+row's selection; the abort applies to credentials and grants only.
+
+Every `probe-cbm` invocation that passes (a), (b), the loopback check and
+`bind_cbm_fixture` runs the probe and appends one probe attempt (`CbmProbeAttempt`) to the Manifest's
 `cbm_fixture.probe_attempts`, whatever the probe's outcome: its attempt index (1-based,
 one more than the highest existing index, or 1 for the first), its timestamp (UTC
 ISO 8601, to the second), the conformance row and the Indexer_Agreement rows of that
@@ -711,20 +768,48 @@ def open_for_append(path: Path, *, corpus_hash: str,
     # `probe-cbm` passes an empty `writes`, so the "records_present" check never refuses it.
     ...
 
+class CbmFixtureRefused(StoreError):
+    condition: Literal["cbm_fixture_mismatch", "cbm_fixture_unreadable"]
+    detail: str                            # each differing field with its recorded and recomputed value, or the unreadable file
+
 class RunSetAppender:
+    def bind_cbm_fixture(self, source: CbmFixtureSource) -> CbmFixtureSource:
+        # Used by every fixture-backed `run` and by every `probe-cbm`, right after
+        # open_for_append (for probe-cbm, after its loopback check of the base URL) and
+        # before RUNTIME_HOSTS, any client, connection or record.
+        # `source` names the fixture directory (e.g. tests/eval/cbm_fixture/v1/) and
+        # carries the invocation's permutation seed and probe_attempts == ().
+        # 1. Recompute fixture_version, plan_sha256, snapshot_sha256, source_sha256,
+        #    sink_table_name and sink_table_sha256 from the committed files. A missing,
+        #    unreadable or non-JSON plan or snapshot raises
+        #    CbmFixtureRefused("cbm_fixture_unreadable") naming the file.
+        # 2. manifest.cbm_fixture is None: write the recomputed entry (with the seed,
+        #    the covered and uncovered tools and probe_attempts == ()) in one atomic
+        #    write, and return it. This is the only code that creates the entry.
+        # 3. An entry exists: compare its recorded fixture_version, digests and sink
+        #    table name with the recomputed ones. Equal: write nothing and return the
+        #    recorded entry (its permutation seed included). Different: raise
+        #    CbmFixtureRefused("cbm_fixture_mismatch") naming each differing field.
+        # A refusal writes nothing and leaves every file of the Run_Set byte-identical.
+        ...
+
     def append_probe_attempt(self, result: CbmProbeResult) -> CbmProbeAttempt:
-        # Used only by `probe-cbm`, after cbm_probe.probe returns. Appends
-        # CbmProbeAttempt(attempt = 1 + the highest index in probe_attempts, or 1 when it
-        # is empty; probed_at, conformance and indexer_agreement copied from `result`)
-        # to manifest.cbm_fixture.probe_attempts in one atomic write. The encoded form of
-        # every existing attempt is byte-identical afterwards; no other Manifest field
-        # and no per-case record changes.
+        # Used only by `probe-cbm`, after bind_cbm_fixture and after cbm_probe.probe
+        # returns. Requires manifest.cbm_fixture to exist (raises StoreError, writing
+        # nothing, when it is None, which means bind_cbm_fixture was not called).
+        # Appends CbmProbeAttempt(attempt = 1 + the highest index in probe_attempts, or
+        # 1 when it is empty; probed_at, conformance and indexer_agreement copied from
+        # `result`) to manifest.cbm_fixture.probe_attempts in one atomic write. The
+        # encoded form of every existing attempt is byte-identical afterwards; no other
+        # Manifest field and no per-case record changes.
         ...
 ```
 
-Every write through a `RunSetAppender` is atomic and appends: new per-case files,
-new `RunEntry` values and new probe attempts are added, and an existing per-case
-record, `RunEntry` or probe attempt is never overwritten or deleted. New `RunEntry` values continue the Run_Set's interleave
+A `RunSetAppender` may add exactly these, and nothing else: new per-case files, new
+`RunEntry` values, the one-time `cbm_fixture` entry (only through `bind_cbm_fixture`,
+and only when the Manifest has none), and new probe attempts. Every such write is
+atomic, and an existing per-case record, `RunEntry`, `cbm_fixture` entry or probe
+attempt is never overwritten or deleted. New `RunEntry` values continue the Run_Set's interleave
 numbering after its highest existing `interleave_position`, so positions stay unique
 within the Run_Set and ordered by execution start across invocations.
 
@@ -993,15 +1078,23 @@ Run_Set with `store.open_for_append` and an empty `writes` set (it must exist, b
 created by `stages` and match the loaded Corpus_Hash, conditions (a) and (b); condition
 (c) does not apply to the probe, because each attempt has its own index; see "Run_Set
 creation and append rule"), and otherwise exits non-zero naming the failed condition
-before any connection. After `probe` returns, it calls
-`RunSetAppender.append_probe_attempt`, which appends one `CbmProbeAttempt` (the next
-free 1-based index, `probed_at`, the conformance row and the Indexer_Agreement rows of
-this attempt) to the `cbm_fixture` entry of that Run_Set's Manifest in one atomic
-write. It appends an attempt whatever the outcome (`conformant`, `transport mismatch`
-or an indexing failure), so a retry after a failed probe is a new `probe-cbm` that
-appends the next attempt. It never overwrites or deletes an earlier attempt, changes no
-other field and no per-case record, and a disagreement in the latest attempt is
-reported as a finding. It does not rebuild the stored findings report; the next
+before any connection. It then checks the base URL with `loopback_targets` (a refusal
+writes nothing, so the entry is never created for a refused base URL), and only then
+calls `RunSetAppender.bind_cbm_fixture`, before it connects: on a Run_Set with no `cbm_fixture` entry (every Phase 1 Run_Set) this
+creates the entry with an empty `probe_attempts`, and on a later invocation it
+verifies the recorded fixture version, digests and sink table against the committed
+files. `cbm_fixture_mismatch` or `cbm_fixture_unreadable` ends the invocation with a
+non-zero exit naming the condition, before any connection, with no attempt appended
+and every file unchanged. After `probe` returns, it calls
+`RunSetAppender.append_probe_attempt`, which requires the entry to exist and appends
+one `CbmProbeAttempt` (the next free 1-based index, `probed_at`, the conformance row
+and the Indexer_Agreement rows of this attempt) to the `cbm_fixture` entry of that
+Run_Set's Manifest in one atomic write. It appends an attempt whatever the outcome
+(`conformant`, `transport mismatch` or an indexing failure), so a retry after a failed
+probe is a new `probe-cbm` that appends the next attempt. Apart from the one-time
+creation of the entry by `bind_cbm_fixture`, it never overwrites or deletes an earlier
+attempt, changes no other field and no per-case record, and a disagreement in the
+latest attempt is reported as a finding. It does not rebuild the stored findings report; the next
 `validate` does (see "Findings report").
 
 ## Data Models
@@ -1160,6 +1253,8 @@ class CaseRecord:
     attack_type: str | None
     args_hash: str                           # copied from the CorpusCase; a Corpus_Hash input
     state_hash: str                          # copied from the CorpusCase; a Corpus_Hash input
+    parent_case_id: str | None               # copied from the CorpusCase (None when the case has no parent); a Corpus_Hash input,
+                                             # and the group key source of split_by_group over the records
     sanitized_args_hash: str
     stages: StageOutputs                     # the dataclasses above, any may be None for a stage that is off
     final_decision: Literal["ALLOW", "QUARANTINE", "BLOCK", "ERROR"]
@@ -1177,6 +1272,13 @@ class CaseRecord:
 
 `decided_by` is derived from the recorded stage outputs and verdict, using the
 same precedence as `evaluate()`.
+
+`parent_case_id` is a case identity field, like `case_id`, `tool_name`, `args_hash`
+and `state_hash`: it is copied from the `CorpusCase` when the record is written and
+never derived from a stage output. It lets the notebook, which reads only the
+Run_Set's own records, rebuild the parent-grouped held-out split with
+`split_by_group(records, salt)` (group key `parent_case_id or case_id`) without the
+Corpus_Loader.
 
 ### Stage-pass facts, findings and report structures
 
@@ -1290,7 +1392,7 @@ class RunSetManifest:
     resolver_construction: Mapping[str, ConfigSpec]
     jev: JevSource                           # stored run keys used, served releases
     tier2: Tier2Source                       # model, pinned thinking level, one ForcedTableSource per Jev release
-    cbm_fixture: CbmFixtureSource | None     # plan and snapshot digests, sink table, permutation seed, probe attempts (each with its conformance row and Indexer_Agreement rows). Required only when the Run_Set holds a fixture-backed CBM row (I-CBM-fixture, I-CBM-permuted, W4, W5, the `sinks mapped` row, an Indexer_Agreement row); None otherwise, including a Run_Set whose only CBM row is the default-CBM row (I-CBM-default, a Phase 1 row), which needs neither the plan nor the snapshot and records no digest for them. A fixture-backed row that did not run has a not_measured entry naming the reason. See "CBM fixture codebase"
+    cbm_fixture: CbmFixtureSource | None     # plan and snapshot digests, sink table, permutation seed, probe attempts (each with its conformance row and Indexer_Agreement rows). Required only when the Run_Set holds a fixture-backed CBM row (I-CBM-fixture, I-CBM-permuted, W4, W5, the `sinks mapped` row, an Indexer_Agreement row); None otherwise, including a Run_Set whose only CBM row is the default-CBM row (I-CBM-default, a Phase 1 row), which needs neither the plan nor the snapshot and records no digest for them. Always None in a Run_Set that `stages` creates; created only by RunSetAppender.bind_cbm_fixture (the first fixture-backed `run` or the first `probe-cbm`) and never rewritten afterwards except by appending probe attempts. A fixture-backed row that did not run has a not_measured entry naming the reason. See "CBM fixture codebase"
     ti_runs: Sequence[TiRunSource]           # one per threat-intelligence run: the row id, the committed corpus that supplied its indicators ("corpus" or "ioc_corpus"), and the statement that every indicator sent to OTX comes from that corpus's committed fixtures
     cooldown_s: int                          # the cool-down between configurations that the Runner used (default 30; Q10)
     runs: Sequence[RunEntry]                 # one per executed Pass, discarded Passes included; see RunEntry
@@ -1465,9 +1567,18 @@ The loader still rejects a case entry that lacks `case_id`, `ground_truth` or
 ### Validation rules
 
 - `corpus_hash` in each file equals `records.corpus_hash` recomputed from the Run_Set's
-  own per-case records (`case_id`, `tool_name`, `args_hash`, `state_hash`), which the
-  Run_Store and the notebook check without importing `corpus.py`; the `validate`
-  subcommand and the recompute tests also check it against the loaded Corpus.
+  own per-case records (`case_id`, `tool_name`, `args_hash`, `state_hash`,
+  `parent_case_id`), which the Run_Store and the notebook check without importing
+  `corpus.py`; the `validate` subcommand and the recompute tests also check it against
+  the loaded Corpus.
+- Each record's case identity fields (`tool_name`, `args_hash`, `state_hash` and
+  `parent_case_id`) equal the loaded Corpus's values for that `case_id`. The Run_Store
+  checks this when the `validate` subcommand passes it the loaded Corpus's
+  `CorpusHashEntry` values (so `store.py` still never imports `corpus.py`), and the
+  recompute tests check it the same way. A record whose `parent_case_id`
+  differs from the Corpus's value (a wrong parent, a parent where the Corpus has none,
+  or none where the Corpus has one) is a validation error naming the case and both
+  values, and no results are presented from that Run_Set.
 - Each `(config_id, pass_index, case_id)` occurs exactly once per valid run; an
   `ERROR` row counts as one occurrence (the check counts rows, not rates).
 - `interleave_position` is an integer of 1 or greater, unique within the Run_Set,
@@ -1504,7 +1615,9 @@ The loader still rejects a case entry that lacks `case_id`, `ground_truth` or
   whose plan and snapshot digests equal the digests of the committed files. A Run_Set
   whose only CBM row is the default-CBM row (I-CBM-default, and any Whole_System_Run
   that uses the default CBM client) needs neither the plan nor the snapshot, records
-  no digest for them, and is not rejected for lacking a `cbm_fixture` entry.
+  no digest for them, and is not rejected for lacking a `cbm_fixture` entry. Every
+  Run_Set that `stages` creates is of this kind until `bind_cbm_fixture` adds the
+  entry, and `bind_cbm_fixture` is the only operation that adds it.
 - The `cbm_fixture.probe_attempts` indices, in stored order, are 1, 2, 3 and so on
   with no gap or repeat, and every `probed_at` is a UTC ISO 8601 timestamp to the
   second; otherwise the Run_Set is rejected, naming the first attempt that breaks the
@@ -2225,6 +2338,8 @@ class CbmProbeAttempt:
 
 @dataclass(frozen=True, slots=True)
 class CbmFixtureSource:
+    """Written once by RunSetAppender.bind_cbm_fixture; afterwards only probe_attempts grows."""
+    fixture_version: str                # the versioned fixture directory name, e.g. "v1" (tests/eval/cbm_fixture/v1/)
     plan_path: str
     plan_sha256: str                    # sha256 of the committed Fixture_Plan
     snapshot_path: str
@@ -2238,10 +2353,16 @@ class CbmFixtureSource:
     probe_attempts: tuple[CbmProbeAttempt, ...]   # every probe attempt in append order; empty until the first probe-cbm
 ```
 
+The entry does not exist in a Run_Set that `stages` creates. `bind_cbm_fixture`
+creates it once, on the first fixture-backed `run` or the first `probe-cbm`, from
+digests it recomputes from the committed files, and verifies it on every later call
+(see "Binding the CBM fixture" under "Run_Set creation and append rule"); no other
+code creates, rewrites or deletes it.
+
 `probe_attempts` holds the conformance and agreement rows; the entry has no other
-probe field. It is the only field that `probe-cbm --run-set` changes, through the
-Run_Store, and only by appending one `CbmProbeAttempt` built from the `CbmProbeResult`
-of one probe run. An attempt is never overwritten or deleted. The Run_Store rejects a
+probe field. Once the entry exists, `probe_attempts` is the only field of it that
+`probe-cbm --run-set` changes, through the Run_Store, and only by appending one
+`CbmProbeAttempt` built from the `CbmProbeResult` of one probe run. An attempt is never overwritten or deleted. The Run_Store rejects a
 Run_Set whose attempt indices, in stored order, are not 1, 2, 3 and so on with no gap
 or repeat, naming the first index out of sequence. The latest attempt is the one with
 the highest index; the Notebook and the findings show it with the number of attempts,
@@ -2282,6 +2403,9 @@ sequenceDiagram
     CLI->>S: create Run_Set (created_by "stages", Corpus_Hash, stage outputs, findings)
     H->>CLI: run on that Run_Set, with grants for named variables only (and --pricing if a cost is wanted)
     CLI->>S: open for append (target created by stages, same Corpus_Hash, no record for a planned configuration-pass, else refuse and exit non-zero)
+    opt a fixture-backed row is selected
+        CLI->>S: bind_cbm_fixture (create the cbm_fixture entry once, else verify its digests; mismatch refuses and exits non-zero)
+    end
     CLI->>R: preflight (Named_Explicitly row without credential: abort; Default_Plan row without credential, fixture or transport: Not_Measured)
     R-->>R: derive RUNTIME_HOSTS, install the egress guard, store the first billing statement
     loop pass 1..P, interleaved across configurations
@@ -2338,6 +2462,11 @@ sequenceDiagram
      `sinks mapped` row and the Indexer_Agreement rows). Preflight does not check for
      it on I-CBM-default or on any Whole_System_Run that uses the default CBM client,
      and a missing plan or snapshot changes no such row (requirements 21.4, 21.31).
+     For a fixture-backed row the check is `bind_cbm_fixture`, called right after the
+     append checks: `cbm_fixture_unreadable` makes each fixture-backed row
+     Not_Measured naming the file, and `cbm_fixture_mismatch` (a plan or snapshot
+     changed since the Run_Set was bound) refuses the whole invocation with a
+     non-zero exit, because it is a binding conflict and not a missing fixture.
    - Every threat-intelligence row, when it runs, records its source corpus, and the
      send guard is armed with the committed fixtures of that corpus before the first
      lookup (requirements 19.1 and 20.21 to 20.23).
@@ -2432,7 +2561,11 @@ sequenceDiagram
     one. A missing target, a target not
     created by `stages`, a Corpus_Hash mismatch and a configuration-pass already
     present each refuse the invocation before any client is built, any call is made or
-    any record is written, with a non-zero exit naming the condition. Writes append
+    any record is written, with a non-zero exit naming the condition. A Run_Set starts
+    with no `cbm_fixture` entry; the first fixture-backed `run` or the first
+    `probe-cbm` creates it through `bind_cbm_fixture`, right after the append checks
+    and before any client or connection, and every later one verifies it, refusing a
+    plan or snapshot changed since binding as `cbm_fixture_mismatch`. Writes append
     atomically, never overwrite an existing record, and record each run's entries with
     interleave positions that continue the Run_Set's numbering (see "Run_Set creation
     and append rule").
@@ -2929,7 +3062,12 @@ Forced_Table.
    recorded, with its identifier shown as Not_Measured.
 3. Tuning and scoring on the same cases is circular. The surface is exploratory.
    The notebook shows tune-half versus held-out-half curves (a split by parent
-   group, so an evasion variant never lands apart from its parent). The study may
+   group, so an evasion variant never lands apart from its parent). The notebook
+   builds that split, for the curves and for the interactive band replay, with
+   `split_by_group` over the selected Run_Set's own records, reading each record's
+   `parent_case_id`; it does not need the Corpus_Loader, and the Corpus_Hash binding
+   (which includes `parent_case_id`) ties the parent links it reads to the scored
+   Corpus. The study may
    publish the exploratory replay and that comparison, and it recommends no band
    edge until Fresh_Evidence exists (Q11, decided 2026-11-13; see "Band
    recommendation gate"). The corpus is small (99 attacks, 10 hand-written), and the
@@ -2956,11 +3094,15 @@ Forced_Table.
 ### Held-out split (pure)
 
 ```python
-def split_by_group(cases, salt: str) -> tuple[set[str], set[str]]:
-    """Deterministic: group key = parent_case_id or case_id; side = sha256(salt + key) parity."""
+def split_by_group(cases: Iterable[CorpusCase | CaseRecord], salt: str) -> tuple[set[str], set[str]]:
+    """Deterministic: group key = parent_case_id or case_id; side = sha256(salt + key) parity.
+    Reads only case_id and parent_case_id, which a CorpusCase and a CaseRecord both
+    carry, so the notebook calls it on a Run_Set's own records and gets the same
+    split as over the loaded Corpus."""
 ```
 
-Property: a variant and its parent are always on the same side.
+Property: a variant and its parent are always on the same side, whether the split is
+built from the Corpus or from a Run_Set's records alone.
 
 ### Band recommendation gate (pure)
 
@@ -3286,8 +3428,11 @@ the first comparison.
 
 # 4a. CBM_Probe_Step (on its own, never inside a Pass; loopback only; no credential).
 #    Appends one numbered probe attempt to a Run_Set created by `stages` whose
-#    Corpus_Hash matches the loaded Corpus. Repeat it to retry; each run appends the
-#    next attempt. Then re-run step 4 (`validate`) so the stored findings show the latest attempt.
+#    Corpus_Hash matches the loaded Corpus. The first probe-cbm (or the first
+#    fixture-backed run) binds the Run_Set's cbm_fixture entry to the committed plan
+#    and snapshot; a later one verifies it and exits non-zero (cbm_fixture_mismatch)
+#    before connecting if the plan or snapshot changed. Repeat it to retry; each run
+#    appends the next attempt. Then re-run step 4 (`validate`) so the stored findings show the latest attempt.
 #    python scripts/holistic_eval.py probe-cbm --run-set cb-2026-xx \
 #        --cbm-base-url http://127.0.0.1:8080/mcp
 
@@ -3380,7 +3525,7 @@ rule 70; it is scheduled in Phasing, not done here).
 | 5 | What can stop a call | Static reduction for the selected layers: with TI and CBM absent the verdict is structural BLOCK, TSG match, Tier-2 verdict, or Tier-2-unavailable QUARANTINE; the aggregate cannot reach 0.50 |
 | 6 | Panel A: isolated versus whole | Per group (class, attack type, tool-name group, C2/IOC versus payload): each stage's own flag rate next to the system catch rate and false-alarm rate, under both readings, with counts, pass spread and Wilson intervals. The whole-system and composed catch and false-alarm rates carry the `ERROR` count and the treat-`ERROR`-as-stopped sensitivity column (Q15); the Stage_Gate and Stage_Flag rows carry the `ERROR` exclusion and count only |
 | 7 | Panel B: catch attribution | Partition (system-only, unique with stage names, redundant, lost-by-system, missed-by-all) as a stacked bar per configuration; the class totals equal the Attack_Cases that are neither `ERROR` nor `UNMEASURED`, and the panel shows the number of excluded `ERROR` cases and the number of excluded `UNMEASURED` cases separately; leave-one-out and add-one-in tables; the case lists behind each bar |
-| 8 | Panel C: band replay surface | Heatmaps over `lo` and `hi`: catch (stopped), catch (blocked), false alarm, Tier-2 share, outage QUARANTINE exposure; the shipped band marked; unmeasured cells as an em dash; the number of excluded `ERROR` rows beside each rate (Tier-2 share included, whose denominator also excludes them) and no sensitivity column, because replay cells carry the `ERROR` exclusion and count only (Q15); one set of heatmaps per stored Jev release (`jev-1.13.0`, `jev-1.14.0`), each computed from that release's own stored P and its own Forced_Table (Q3), shown side by side; each rate's error band drawn from the minimum to the maximum of that rate across the two Tier-2 Passes of the replayed release's table, Not_Measured with the reason and no band when fewer than two Passes exist; the tune-half versus held-out-half curves (catch and false alarm under both Readings, with the split salt) and the `high_risk_name` and `other` strata side by side; a validity-limits box rendered in the same panel; an identity-check line that states whether the run's own recorded Stage outputs replay to the recorded verdicts at the shipped Band, with the number of recorded `ERROR` rows carried through; a separate "Forced_Table replay versus live run" variation table (the cases whose decision differs, each with its cause: Jev P difference, Tier-2 difference or both), labeled expected variation and not a failed identity check; every band result labeled "input to TASK-F10 and TASK-F06, not a decision"; no band edge is recommended here, because a recommendation needs the gate of "Band recommendation gate" |
+| 8 | Panel C: band replay surface | Heatmaps over `lo` and `hi`: catch (stopped), catch (blocked), false alarm, Tier-2 share, outage QUARANTINE exposure; the shipped band marked; unmeasured cells as an em dash; the number of excluded `ERROR` rows beside each rate (Tier-2 share included, whose denominator also excludes them) and no sensitivity column, because replay cells carry the `ERROR` exclusion and count only (Q15); one set of heatmaps per stored Jev release (`jev-1.13.0`, `jev-1.14.0`), each computed from that release's own stored P and its own Forced_Table (Q3), shown side by side; each rate's error band drawn from the minimum to the maximum of that rate across the two Tier-2 Passes of the replayed release's table, Not_Measured with the reason and no band when fewer than two Passes exist; the tune-half versus held-out-half curves (catch and false alarm under both Readings, with the split salt; the split is `replay.split_by_group` over the Run_Set's own records, keyed on each record's `parent_case_id or case_id`) and the `high_risk_name` and `other` strata side by side; a validity-limits box rendered in the same panel; an identity-check line that states whether the run's own recorded Stage outputs replay to the recorded verdicts at the shipped Band, with the number of recorded `ERROR` rows carried through; a separate "Forced_Table replay versus live run" variation table (the cases whose decision differs, each with its cause: Jev P difference, Tier-2 difference or both), labeled expected variation and not a failed identity check; every band result labeled "input to TASK-F10 and TASK-F06, not a decision"; no band edge is recommended here, because a recommendation needs the gate of "Band recommendation gate" |
 | 9 | Panel D: Tier-2 outage drill | The ADR 0009 Decision 6 cost computed offline: benign QUARANTINEs and attack outcomes if Tier-2 were unavailable |
 | 10 | Panel E: stratified views | The "other tool name" stratum as the headline, the shell stratum beside it, and the C2/IOC-type stratum |
 | 11 | Panel F: TSG | One row per Seeding_Mode. Transfer set, false-match set, the match rate over variants of seeded parents (labeled transfer from a seed, not held-out evidence) beside the match rate over the unseeded-parent half (the held-out control), match path, seed pattern length. Rows marked `leakage="seeded_case"` (only parents whose seed was written in that mode) are labeled and excluded from the rates. The `ERROR` exclusion and count only, no sensitivity column (Q15) |
@@ -3478,9 +3623,9 @@ already cited by ADR 0009.
 
 ### Property 11: The held-out split keeps families together
 
-*For any corpus and salt, an evasion variant and its parent are always assigned to the same side, and the split is deterministic.*
+*For any corpus and salt, an evasion variant and its parent are always assigned to the same side, and the split is deterministic. The property holds for a Run_Set's records alone: `split_by_group` over the records (reading each record's `parent_case_id`) returns the same assignment as over the loaded Corpus, without the Corpus_Loader.*
 
-**Validates: Requirements 15.22, 15.23, 15.24, 15.25**
+**Validates: Requirements 15.22, 15.23, 15.24, 15.25, 16.14**
 
 ### Property 12: TSG results are order-independent
 
@@ -3600,6 +3745,8 @@ already cited by ADR 0009.
 | Append target not created by `stages` | The target's Manifest does not record `created_by == "stages"` | `AppendRefused` with condition `not_created_by_stages`; non-zero exit naming it, before any client, call or record; the target stays byte-identical | Create a new Run_Set with `stages` and append to that one |
 | Append Corpus_Hash mismatch | The target Manifest's `corpus_hash` differs from the Corpus_Hash of the loaded Corpus | `AppendRefused` with condition `corpus_hash_mismatch`, showing both hashes; non-zero exit before any client, call or record; the target stays byte-identical | Run `stages` into a new Run_Set for the current Corpus (requirement 11.22) |
 | Append configuration-pass already present | The target already holds a committed per-case record for a `(config_id, pass_index)` that `run` or `run --experiment LX-wave` would write. Never raised for `probe-cbm`, which writes no such pair and appends a numbered probe attempt instead | `AppendRefused` with condition `records_present`, naming each pair; non-zero exit before any client, call or record; no existing record is overwritten | Select other configurations or pass numbers, or write into a new Run_Set created by `stages` |
+| CBM fixture changed since binding (`cbm_fixture_mismatch`) | A fixture-backed `run` or a `probe-cbm` finds a `cbm_fixture` entry whose recorded fixture version, plan digest, snapshot digest, source digest, sink table name or sink table digest differs from the value recomputed from the committed files | `bind_cbm_fixture` raises `CbmFixtureRefused` with condition `cbm_fixture_mismatch`, naming each differing field with its recorded and recomputed values; the CLI exits non-zero before any connection, client or record; no probe attempt is appended and every file of the Run_Set stays byte-identical | Restore the fixture files the Run_Set was bound to, or commit the changed fixture in a new sibling fixture directory and score it in a new Run_Set created by `stages` |
+| CBM fixture unreadable at binding (`cbm_fixture_unreadable`) | The plan or snapshot that `bind_cbm_fixture` reads is missing, unreadable or not valid JSON | `CbmFixtureRefused` with condition `cbm_fixture_unreadable`, naming the file, before any connection, client or record; the entry stays absent and nothing is written. `probe-cbm` exits non-zero naming the condition and appends no attempt. A `run` records every fixture-backed row (Named_Explicitly or Default_Plan) as Not_Measured naming the file, as for any missing fixture (requirement 4.8), and runs the remaining rows | Author or restore the fixture files, run `scripts/build_cbm_fixture.py check`, then repeat the command |
 | Probe attempt sequence broken | The stored `probe_attempts` indices are not 1, 2, 3 and so on in stored order (a gap or a repeat, for example from a hand edit) | The Run_Store rejects the Run_Set on read, naming the first index out of sequence; `validate` fails, and `probe-cbm` exits non-zero naming it before any connection and appends nothing | Restore the Manifest from version control; attempts are never renumbered |
 | Corrupt line or partial file | Truncated JSON | Atomic writes make this a loader error naming the file; nothing partial is committed | Re-run the pass |
 | `demo_mode=True` requested | Anyone passes it to the runner | Refused at config validation | Not applicable: its verdicts do not transfer to production thresholds |
@@ -3781,17 +3928,44 @@ are deferred, never simulated.
   naming the indexing failure for the conformance row and every agreement row; no
   fixture row value changes in any case; a measurement `run` never imports
   `cbm_probe.py`.
+- Binding the CBM fixture (`store.py`, the runner and the CLI, each starts red). Every
+  test starts from the actual Phase 1 Run_Set shape: a Run_Set created by `stages`
+  with default-CBM rows only and `cbm_fixture is None`. That Run_Set passes `validate`
+  without the entry, a plan or a snapshot, and stays valid when no fixture-backed
+  invocation is made. A first `probe-cbm` calls `bind_cbm_fixture`, which writes the
+  entry (fixture version, plan and snapshot digests equal to the committed files'
+  digests, sink table name, permutation seed, empty `probe_attempts`) and then appends
+  attempt 1; a second `probe-cbm` verifies the entry, writes nothing through
+  `bind_cbm_fixture`, and appends attempt 2. A first fixture-backed `run` (I-CBM-fixture
+  with stubbed stages) binds the entry before any client is built; a later
+  fixture-backed `run` verifies it, writes nothing through `bind_cbm_fixture`, and uses
+  the recorded permutation seed. After binding, a changed snapshot and, separately, a
+  changed plan in a temporary copy of the fixture directory make the next `probe-cbm`
+  and the next fixture-backed `run` raise `CbmFixtureRefused("cbm_fixture_mismatch")`
+  naming the differing field with both values, exit non-zero before any socket opens
+  (sockets blocked, zero connection attempts) and before any client is built, and leave
+  every file of the Run_Set byte-identical. A missing or non-JSON plan or snapshot
+  makes `bind_cbm_fixture` raise `cbm_fixture_unreadable` naming the file: `probe-cbm`
+  exits non-zero with no attempt appended, and a `run` records each fixture-backed row,
+  whether Named_Explicitly or in the Default_Plan, as Not_Measured naming the file
+  while its other rows run, with the entry still absent. `append_probe_attempt` on a
+  Run_Set with no entry raises and writes nothing. A source scan finds no code outside
+  `bind_cbm_fixture` that assigns `cbm_fixture`.
 - Probe attempts (`store.py`, `report.probe_view`, `findings.py` and the CLI, each
-  starts red): `probe-cbm --run-set` against a Run_Set with no attempt appends attempt 1
-  whose `probed_at` parses as a UTC ISO 8601 timestamp to the second; a second
+  starts red): `probe-cbm --run-set` against a Phase 1 Run_Set with no `cbm_fixture`
+  entry binds the entry and appends attempt 1 whose `probed_at` parses as a UTC
+  ISO 8601 timestamp to the second; a second
   `probe-cbm` after a failed first one (a stub loopback server with no endpoint, then a
   conforming stub) appends attempt 2 and leaves the encoded attempt 1 byte-identical,
-  with no other Manifest field and no per-case record changed; `report.probe_view`
+  with no other Manifest field (the bound entry's other fields included) and no
+  per-case record changed; `report.probe_view`
   then returns attempt 2 as `latest`, an attempt count equal to its index, and attempt
   1 unchanged in `earlier`; with no attempt it returns `latest is None`, an attempt
   count of zero, an empty drilldown and the reason `probe not requested`; a refused
-  invocation (a non-loopback base URL, or each `AppendRefused` condition) appends no
-  attempt and leaves the Manifest byte-identical; an interrupted append (the atomic
+  invocation (a non-loopback base URL, each `AppendRefused` condition, or each
+  `CbmFixtureRefused` condition) appends no attempt and leaves the Manifest
+  byte-identical, and a non-loopback base URL on a Phase 1 Run_Set leaves
+  `cbm_fixture is None`; an interrupted append (the atomic
   rename stubbed to fail) leaves no partial attempt, and the next invocation takes the
   same index; a Run_Set whose stored indices skip or repeat is rejected on read naming
   the first index out of sequence; `validate` after attempt 2 stores a findings report
@@ -3985,7 +4159,17 @@ are deferred, never simulated.
   a Forced_Table replay never reads the run's own in-system Tier-2 output (a missing
   table entry is unmeasured, not filled from the live run).
 - Replay: band monotonicity; unmeasured handling;
-  held-out split properties. Band validation is pinned: a replay cell with
+  held-out split properties. Held-out split from records alone (each starts red): a
+  test loads a committed Run_Set through `records` only (no `corpus.py` import, checked
+  in `sys.modules`), calls `split_by_group` on its records with a fixed salt, and
+  asserts that every evasion variant is on the same side as its parent and that the
+  assignment equals `split_by_group` over the loaded Corpus with the same salt; a
+  `CaseRecord` round-trips `parent_case_id`, `None` included; a Run_Set in which one
+  record's `parent_case_id` is changed (to another parent, to `None`, or set on a case
+  with no parent) fails `validate`, naming that case and both values, and changes the
+  Corpus_Hash recomputed from the records, so the notebook loader also refuses it;
+  editing a parent link in a temporary copy of the Corpus changes the Corpus_Hash.
+  Band validation is pinned: a replay cell with
   `lo == hi` is produced, not rejected; `lo > hi` is skipped with no cell; an edge
   outside 0.0 to 1.0 or a non-number rejects the whole request with no cell. The
   Tier-2 share denominator excludes `ERROR` rows and `unmeasured` cases.
@@ -4561,6 +4745,16 @@ and `requirements.md` can still cite each decision.
   latest attempt with the number of attempts, the Notebook keeps earlier attempts in
   its probe drilldown, and a Run_Set with no attempt shows the probe rows as
   Not_Measured with the reason `probe not requested`.
+  Amended 2026-11-14 under the same delegation: each `CaseRecord` carries
+  `parent_case_id` as a case identity field copied from the `CorpusCase`, which also
+  enters the Corpus_Hash_Entry and is checked against the loaded Corpus by `validate`,
+  so the notebook rebuilds the parent-grouped held-out split from a Run_Set's own
+  records and a parent-link edit invalidates every earlier Run_Set.
+  Also amended 2026-11-14: `RunSetAppender.bind_cbm_fixture` is the only operation
+  that creates a Manifest's `cbm_fixture` entry, called by the first fixture-backed
+  `run` and by `probe-cbm` before any client or connection, and on later calls it
+  verifies the recorded digests and refuses a changed plan or snapshot as
+  `cbm_fixture_mismatch` (or a missing or unreadable one as `cbm_fixture_unreadable`).
   Shaped the layout, the
   components (sections 1, 3, 4, 7 and 10 to 14), the data models, the Run Protocol, the
   egress, security and billing text, the CBM probe and LX-wave text, the error
