@@ -782,26 +782,36 @@ class AuthoredCase:
     case_id: str
     ground_truth: Literal["BENIGN", "MALICIOUS"]
     label_confirmed: bool             # the maintainer confirmed this case's label
+    authored_at: str                  # UTC ISO 8601 timestamp, to the second: when THIS case was authored
 
 @dataclass(frozen=True, slots=True)
 class AuthoringRecord:
     schema_version: int
     author_kind: Literal["maintainer", "agent_session"]
     session_identity: str             # "maintainer", or the identity of the agent session; non-empty
-    surface_frozen_at: str            # UTC ISO 8601 timestamp, to the second: when the replay surface was frozen
-    authored_at: str                  # UTC ISO 8601 timestamp, to the second: when the cases were authored
+    surface_frozen_at: str            # UTC ISO 8601 timestamp, to the second: when the replay surface was frozen (once per record)
     shown: Sequence[str]              # categories of material the author was shown
     not_shown: Sequence[str]          # categories of material the author was not shown
-    cases: Sequence[AuthoredCase]     # one entry per case: ground truth and maintainer label confirmation
+    cases: Sequence[AuthoredCase]     # one entry per case: ground truth, label confirmation and the case's own authoring time
 ```
 
 **Committed file schema** (JSON, one file per author session, stored beside its cases):
-`schema_version`, `author_kind`, `session_identity`, `surface_frozen_at`, `authored_at`,
-`shown`, `not_shown` and `cases`, with the types above and the same field names. Every
+`schema_version`, `author_kind`, `session_identity`, `surface_frozen_at`, `shown`,
+`not_shown` and `cases`, with the types above and the same field names. Each `cases`
+entry carries `case_id`, `ground_truth`, `label_confirmed` and `authored_at`. Every
 `WITHHELD_MATERIAL` category appears in `shown` or in `not_shown`. The loader rejects a
 file whose `schema_version` is absent or differs from the supported version, and a
 truncated or corrupt file, naming the file and returning no partial data. The file
 carries no credential value, payload response body or exception message body.
+
+**Per-case timestamp.** The authoring time is a property of one case, not of the
+record, because one session can author cases on different days, some before and some
+after the replay surface was frozen. A case whose `authored_at` is missing or is not a
+parseable UTC ISO 8601 timestamp is not a record-level failure and the loader does not
+reject the file for it: the loader keeps the value as read (an empty string when absent),
+and the recommendation gate excludes that one case under the case-level timestamp check.
+The loader still rejects a case entry that lacks `case_id`, `ground_truth` or
+`label_confirmed`, as a truncated or corrupt file.
 
 ### Validation rules
 
@@ -2225,8 +2235,25 @@ def _record_complete(r: AuthoringRecord) -> bool:
     """Every field present and valid, and every withheld category stated as shown or not shown."""
     return (r.schema_version == SCHEMA_VERSION
             and r.author_kind in ("maintainer", "agent_session")
-            and bool(r.session_identity) and bool(r.surface_frozen_at) and bool(r.authored_at)
+            and bool(r.session_identity) and bool(r.surface_frozen_at)
             and all(m in r.shown or m in r.not_shown for m in WITHHELD_MATERIAL))
+    # Record-level fields only. There is no record-level authoring time: a case's own
+    # `authored_at` is checked per case, so a missing one never makes the record incomplete.
+
+def _parse_utc(s: str) -> datetime | None:
+    """Parse a UTC ISO 8601 timestamp (to the second). None when empty, unparseable or not UTC."""
+    try:
+        t = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+    return t if t.tzinfo is not None and t.utcoffset() == timedelta(0) else None
+
+def _authored_after_freeze(c: AuthoredCase, r: AuthoringRecord) -> bool:
+    """Case-level timestamp check: True only when this case's own authored_at is strictly
+    after the record's surface_frozen_at. Equal or earlier is False. A missing or unparseable
+    value, on the case or on the freeze, is False (the case fails the check)."""
+    authored, frozen = _parse_utc(c.authored_at), _parse_utc(r.surface_frozen_at)
+    return authored is not None and frozen is not None and authored > frozen
 
 def find_duplicate_ids(evidence: FreshEvidence) -> tuple[DuplicateId, ...]:
     """Input integrity, before any count. An id is a duplicate if it appears more than once
@@ -2276,8 +2303,8 @@ def evaluate_fresh_evidence(evidence: FreshEvidence,
             failed.append(CaseCheck.AUTHORING_RECORD_COMPLETE)
         elif any(m in r.shown for m in WITHHELD_MATERIAL):                       # record-level
             failed.append(CaseCheck.WITHHELD_MATERIAL_NOT_SHOWN)
-        if r is not None and _record_complete(r) and r.authored_at <= r.surface_frozen_at:   # case-level
-            failed.append(CaseCheck.FROZEN_SURFACE)          # the timestamps are read only from a complete record
+        if r is not None and c is not None and not _authored_after_freeze(c, r):   # case-level
+            failed.append(CaseCheck.FROZEN_SURFACE)          # this case's own authored_at must be after the record's freeze
         if c is not None and not c.label_confirmed:                              # case-level
             failed.append(CaseCheck.LABEL_CONFIRMED)
         if cid in tuning_case_ids:                                               # case-level
@@ -2368,8 +2395,9 @@ the two kinds of check below decide whether a case counts.
   property of the author and the session. A missing Authoring_Record, an incomplete
   one, or one whose `shown` list holds any `WITHHELD_MATERIAL` category excludes every
   case that record lists.
-- **Case-level checks** apply to one case and exclude only that case: the record's
-  authoring timestamp is not after its freeze timestamp, the maintainer has not
+- **Case-level checks** apply to one case and exclude only that case: the case's own
+  authoring timestamp is not after the record's freeze timestamp (equal or earlier
+  fails, and a missing or unparseable case timestamp fails), the maintainer has not
   confirmed the case's label, the case id is present in the tuning Corpus, or a harness
   run scored the case before the recommendation was drafted.
 
@@ -2392,7 +2420,9 @@ dataclass and file schema are in "Data Models" (`AuthoringRecord`).
 **Preconditions:** a case id appears once in the submission and in exactly one record
 (otherwise the gate returns the input-integrity rejection and counts nothing); the
 replay surface was frozen before any fresh case was authored
-(each record carries its own `surface_frozen_at`); `tuning_case_ids` is the identifier
+(each record carries its own `surface_frozen_at`, and each case its own `authored_at`; a
+case that does not satisfy `authored_at > surface_frozen_at` is excluded, not assumed
+away); `tuning_case_ids` is the identifier
 set of the Corpus used for tuning; `scored_before_draft_ids` lists every submitted case
 that a harness run scored before the recommendation was drafted; the identifier set in
 the records was fixed at authoring time and no case was added to or removed from it
@@ -2649,7 +2679,7 @@ already cited by ADR 0009.
 
 ### Property 19: A band recommendation needs the whole gate and changes nothing
 
-*For any proposal and any evidence, `check_recommendation` first checks input integrity, before any count: a case id that appears more than once in the submission, more than once in one Authoring_Record, or in more than one Authoring_Record rejects the whole submission, names each duplicated id and counts nothing, and every total in the exclusion report counts distinct case ids, so a repeated eligible id never pads a count. For sound input it accepts only if the held-out value is within the pass spread of the tune value for the catch rate and the false-alarm rate under both Readings, at least 30 attack cases and at least 30 benign cases are counted as Fresh_Evidence after the exclusions, and TASK-F09 is complete or the held-out check holds in the `other` stratum alone. A case counts only if it fails no check: a record-level failure (a missing or incomplete Authoring_Record, or a `shown` list that holds any withheld material) excludes every case of that record, and a case-level failure (the record's authoring timestamp is not after its freeze timestamp, the maintainer has not confirmed the label, the case is present in the tuning Corpus, or it was scored before the recommendation was drafted) excludes only that case, so the other cases of its record still count. An excluded case is never replaced, and no exclusion depends on a score or a replay result. Every submitted case appears in the exclusion report as counted or excluded, each excluded case with its identifier and every check it failed, with submitted, counted and excluded totals for the attack class and the benign class. Otherwise the call rejects, names each failed check and carries the exclusion report. In every case the shipped band, the thresholds and the aggregation weights are identical before and after the call.*
+*For any proposal and any evidence, `check_recommendation` first checks input integrity, before any count: a case id that appears more than once in the submission, more than once in one Authoring_Record, or in more than one Authoring_Record rejects the whole submission, names each duplicated id and counts nothing, and every total in the exclusion report counts distinct case ids, so a repeated eligible id never pads a count. For sound input it accepts only if the held-out value is within the pass spread of the tune value for the catch rate and the false-alarm rate under both Readings, at least 30 attack cases and at least 30 benign cases are counted as Fresh_Evidence after the exclusions, and TASK-F09 is complete or the held-out check holds in the `other` stratum alone. A case counts only if it fails no check: a record-level failure (a missing or incomplete Authoring_Record, or a `shown` list that holds any withheld material) excludes every case of that record, and a case-level failure (the case's own authoring timestamp is not after the record's freeze timestamp, including an equal timestamp and a missing or unparseable one, the maintainer has not confirmed the label, the case is present in the tuning Corpus, or it was scored before the recommendation was drafted) excludes only that case, so the other cases of its record still count. An excluded case is never replaced, and no exclusion depends on a score or a replay result. Every submitted case appears in the exclusion report as counted or excluded, each excluded case with its identifier and every check it failed, with submitted, counted and excluded totals for the attack class and the benign class. Otherwise the call rejects, names each failed check and carries the exclusion report. In every case the shipped band, the thresholds and the aggregation weights are identical before and after the call.*
 
 **Validates: Requirements 16.21, 16.22, 16.23, 16.24, 16.25**
 
@@ -2694,7 +2724,7 @@ already cited by ADR 0009.
 | Forced_Table not buildable for a release | The Manifest names no Jev run for the release, or the run lacks a Jev P for a case | The release is recorded in `not_measured` with the reason and has no Passes; its replay is Not_Measured; the other release is unaffected | Commit the missing Jev run, then build the table |
 | Fewer than two Forced_Table Passes | A release has one Pass, for example after a discarded Pass that was not re-run | The error band is Not_Measured with the reason and no band is drawn | Re-run the Pass |
 | Band recommendation input integrity | A case id repeated in the submission, repeated in one Authoring_Record, or listed by more than one Authoring_Record | The whole submission is rejected before any count (`INPUT_INTEGRITY`), naming each duplicated id; nothing is counted; the exclusion report is recorded with the rejection, with every total a count of distinct ids | Remove the duplicates so each id is submitted once and belongs to one record, then resubmit |
-| Band recommendation fails the gate | Held-out difference above the Pass spread, fewer than 30 attack or 30 benign counted Fresh_Evidence cases after the exclusions, or F09 open without the `other` stratum holding. Cases are excluded, and not counted, by a record-level failure (a missing or incomplete Authoring_Record, or a record showing the author saw withheld material; every case of that record is excluded) or a case-level failure (an unconfirmed label, authored at or before the surface freeze, present in the tuning Corpus, or scored before the draft; that case only) | `check_recommendation` rejects, names each failed check and records the rejection together with the exclusion report (each excluded case with its identifier and failed checks, and the submitted, counted and excluded totals per class); excluded cases are not replaced and the band, thresholds and weights stay unchanged | Author Fresh_Evidence after the freeze (withholding the replay material from the author), commit its Authoring_Record, have the maintainer confirm the labels, then redraft; a single excluded case does not require redoing the others |
+| Band recommendation fails the gate | Held-out difference above the Pass spread, fewer than 30 attack or 30 benign counted Fresh_Evidence cases after the exclusions, or F09 open without the `other` stratum holding. Cases are excluded, and not counted, by a record-level failure (a missing or incomplete Authoring_Record, or a record showing the author saw withheld material; every case of that record is excluded) or a case-level failure (an unconfirmed label, the case's own authoring timestamp missing, unparseable or at or before the record's surface freeze, present in the tuning Corpus, or scored before the draft; that case only) | `check_recommendation` rejects, names each failed check and records the rejection together with the exclusion report (each excluded case with its identifier and failed checks, and the submitted, counted and excluded totals per class); excluded cases are not replaced and the band, thresholds and weights stay unchanged | Author Fresh_Evidence after the freeze (withholding the replay material from the author), commit its Authoring_Record, have the maintainer confirm the labels, then redraft; a single excluded case does not require redoing the others |
 | IOC build violation | Missing feed metadata, an OTX-sourced entry, an indicator in both classes, a non-domain or non-IP indicator, or a `ContextHygiene` change | The build fails naming the entry or indicator and writes no output | Fix the selection and rebuild |
 | IOC selection input invalid | An invalid seed, or a downloaded source smaller than its target size | The build reports the invalid value, or the class, the available count and the target; it exits non-zero and writes no output | Supply a valid seed, or lower the target and record it |
 | IOC indicator unrecognized by OTX | The feed has since delisted it (ThreatFox expires indicators older than 6 months) | Reported as unrecognized, never as an error; it lowers the headline share | None needed; the delisting statement is shown beside the headline |
@@ -2892,10 +2922,20 @@ are deferred, never simulated.
   outputs, band surface, miss lists) excludes all of its cases, for each withheld
   category in turn and for an author of either kind (`maintainer` or `agent_session`);
   record-level exclusion leaves the cases of other, valid records counted, so enough
-  counted cases from valid records still pass the count check; a case authored at or
-  before the surface freeze, a case whose label the maintainer has not confirmed, a
-  case present in the tuning Corpus and a case scored before the draft are each
-  excluded alone while every other case of the same record is still counted;
+  counted cases from valid records still pass the count check; a case whose own
+  `authored_at` is at or before the record's `surface_frozen_at`, a case whose label the
+  maintainer has not confirmed, a case present in the tuning Corpus and a case scored
+  before the draft are each excluded alone while every other case of the same record is
+  still counted; the per-case timestamp tests each start red: a
+  mixed-date record (some cases authored before the freeze and some after) excludes only
+  the earlier cases, with the failed check `FROZEN_SURFACE` named for each, while the
+  later cases of the same record are still counted; the equal-timestamp boundary (a
+  case whose `authored_at` equals `surface_frozen_at` to the second) is excluded, and
+  one second later is counted; a case whose `authored_at` is missing or unparseable is
+  excluded under `FROZEN_SURFACE` alone, its record is not rejected, is not reported
+  incomplete (`_record_complete` stays true) and every other case of the record is still
+  counted, and the loader reads such a file without error; a record with no
+  record-level authoring time is complete when its record-level fields are present;
   threshold shortfall after exclusion: a submission that reaches 30 of a class before
   exclusion and falls below 30 after it fails the count check, and one that reaches 30
   after exclusion passes it; no replacement: a submission whose excluded cases are
@@ -3046,7 +3086,7 @@ Scenario: A band recommendation without enough counted Fresh_Evidence is rejecte
   Given a proposed band whose held-out result is within the pass spread
   And fewer than 30 attack cases or fewer than 30 benign cases count as Fresh_Evidence after the exclusions
   And a case is excluded when its Authoring_Record is missing or incomplete or shows the author saw withheld material, in which case every case of that record is excluded
-  And a case is excluded alone when its label is not confirmed, it was authored at or before the surface freeze, it is in the tuning Corpus, or it was scored before the recommendation was drafted
+  And a case is excluded alone when its label is not confirmed, its own authoring timestamp is missing, unparseable or not after the record's surface freeze, it is in the tuning Corpus, or it was scored before the recommendation was drafted
   When the recommendation gate runs
   Then the recommendation is rejected and the failed check is named
   And the exclusion report lists every excluded case with its identifier and failed checks, and the submitted, counted and excluded totals for each class
@@ -3060,6 +3100,13 @@ Scenario: One excluded case does not reject a recommendation that still has enou
   Then that case is excluded and reported with its failed check
   And the other cases of its record are still counted
   And the recommendation is accepted as an input to TASK-F10, not as a decision
+
+Scenario: A record whose cases were authored on different sides of the surface freeze excludes only the earlier cases
+  Given a valid Authoring_Record whose surface freeze timestamp is fixed once for the record
+  And some of its cases have their own authoring timestamp at or before that freeze and the others after it
+  When the recommendation gate runs
+  Then each case authored at or before the freeze is excluded and reported with the failed check authored_after_surface_frozen
+  And each case authored after the freeze is still counted
 ```
 
 ### Notebook tests (`tests/unit/test_holistic_notebook.py`)
@@ -3322,8 +3369,9 @@ and `requirements.md` can still cite each decision.
   documentation-range and `.example` hosts only), the maintainer confirms every label,
   and an Authoring_Record is committed with the cases. Record-level failures (a
   missing or incomplete record, or a record showing that the author saw withheld
-  material) exclude every case in that record; case-level failures (an authoring
-  timestamp that is not after the freeze timestamp, an unconfirmed label, an
+  material) exclude every case in that record; case-level failures (the case's own
+  authoring timestamp, which each case carries, is not after the record's freeze
+  timestamp, including an equal, missing or unparseable one; an unconfirmed label; an
   identifier present in the tuning Corpus, or a case scored before the recommendation
   was drafted) exclude only that case. Excluded cases are reported with the failed
   check, with submitted, counted and excluded totals per class; the case-identifier
@@ -3450,7 +3498,7 @@ and `requirements.md` can still cite each decision.
   and sink facts with the committed snapshot.
 - **Authoring_Record:** the record committed with a set of Fresh_Evidence cases that
   states the author (the maintainer, or the identity of an agent session), the
-  replay-surface freeze timestamp, the authoring timestamp, and what the author was and
+  replay-surface freeze timestamp, the authoring timestamp of each case, and what the author was and
   was not shown.
 - **Fresh_Evidence:** labeled attack and benign cases that an independent author wrote
   after the replay surface was frozen, that are absent from the tuning Corpus, that were
