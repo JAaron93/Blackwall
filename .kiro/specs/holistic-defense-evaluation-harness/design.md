@@ -302,12 +302,15 @@ resolver did", which is the check that keeps the algebra honest.
 | `src/blackwall/holistic_eval/observers.py` | Resolver wrappers (imports `blackwall` lazily) |
 | `src/blackwall/holistic_eval/configs.py` | Exact resolver construction per matrix row |
 | `src/blackwall/holistic_eval/stages.py` | Isolated stage runners |
-| `src/blackwall/holistic_eval/tsg_seed.py`, `cbm_fixture.py`, `ioc_corpus.py` | Fixtures and seeding. `ioc_corpus.py` holds the IOC corpus schema, loader and the pure builder that selects, validates and writes the corpus from already-downloaded export files |
+| `src/blackwall/holistic_eval/tsg_seed.py`, `cbm_fixture.py`, `ioc_corpus.py` | Fixtures and seeding. `cbm_fixture.py` holds the sink table, the snapshot schema, the pure Fixture_Export (standard-library `ast` only), the plan and snapshot loaders and `FixtureCodebaseMemoryClient`. `ioc_corpus.py` holds the IOC corpus schema, loader and the pure builder with the deterministic IOC_Selection, which selects, validates and writes the corpus from already-downloaded export files |
 | `src/blackwall/holistic_eval/band_gate.py` | The band-recommendation gate and its evidence records (pure) |
 | `src/blackwall/holistic_eval/runner.py` | Async orchestration, pacing, invalidation |
 | `scripts/holistic_eval.py` | CLI (dev tooling; CI never runs the live subcommands) |
-| `scripts/build_ioc_corpus.py` | One-time authoring tool for the IOC corpus: a `fetch` step (the IOC_Authoring_Step: the only place `BW_ABUSECH_AUTH_KEY` is read, under a Human_Grant, and it may connect only to `threatfox.abuse.ch` and `tranco-list.eu`) and an offline `build` step. Not part of any measurement run |
-| `tests/eval/cbm_fixture/`, `tests/eval/ioc_corpus/` | Fixture sources |
+| `scripts/build_ioc_corpus.py` | One-time authoring tool for the IOC corpus: a `fetch` step (the IOC_Authoring_Step, started only by the maintainer: the only place `BW_ABUSECH_AUTH_KEY` is read, under a Human_Grant, and it may connect only to `threatfox.abuse.ch` and `tranco-list.eu`) and an offline, deterministic `build` step that applies the IOC_Selection. Not part of any measurement run |
+| `scripts/build_cbm_fixture.py` | Thin CLI over the Fixture_Export in `cbm_fixture.py`: `export` writes the snapshot from the fixture source, `check` re-runs the export and fails on any drift from the committed snapshot, naming each function that differs. It opens no connection and reads no credential variable |
+| `tests/eval/cbm_fixture/v1/fixture_source.py.txt`, `fixture_plan.json`, `snapshot.json` | The hand-authored CBM fixture source (text, never imported or executed), the Fixture_Plan that fixes it, and the snapshot that `export` produces. The plan is committed before any Run_Set with a CBM row; a later change goes into a new sibling directory |
+| `tests/eval/ioc_corpus/` | The committed IOC corpus (`corpus.json`) and its manifest (`manifest.json`: seed, selection parameters, target sizes, raw-file digests, total case count) |
+| `tests/eval/ioc_corpus/synthetic/` | The Synthetic_Feed_Sample: invented indicators in the raw feed layout, labeled synthetic, used only by the builder tests |
 | `tests/eval/results/holistic/<run-set>/` | Committed per-case results and `manifest.json` (a new directory; nothing under `jev_runs*/` is touched) |
 | `notebooks/holistic_defense_analytics.py` | The comparison notebook |
 
@@ -573,7 +576,7 @@ class CbmOut:
 
 @dataclass(frozen=True, slots=True)
 class TiOut:
-    source: Literal["otx_real", "stub_plumbing_only"]
+    source: Literal["otx_real", "stub_plumbing_only", "synthetic_feed_sample"]
     queried: bool
     indicator: str | None
     is_malicious: bool | None
@@ -657,6 +660,7 @@ class RunSetManifest:
     resolver_construction: Mapping[str, ConfigSpec]
     jev: JevSource                           # stored run keys used, served releases
     tier2: Tier2Source                       # model, pinned thinking level, one ForcedTableSource per Jev release
+    cbm_fixture: CbmFixtureSource | None     # plan and snapshot digests, sink table, permutation seed, Indexer_Agreement rows; None only when no CBM fixture row ran (a not_measured entry then names the reason). See "CBM fixture codebase"
     cooldown_s: int                          # the cool-down between configurations that the Runner used (default 30; Q10)
     runs: Sequence[RunEntry]                 # one per executed Pass, discarded Passes included; see RunEntry
     discarded_passes: Sequence[DiscardedPass]   # config, pass number, interleave position, reason ("tier2_429", "rate_limit", "release_mismatch", or a TSG seeding or graph-mutation failure) and count (integer, 0 or greater; reason non-empty); no per-case data
@@ -727,7 +731,9 @@ that is neither in `runs` nor in `not_measured` makes the manifest invalid.
   comparison.
 - `final_decision == "ERROR"` implies `error is not None` and `decided_by == "error"`.
 - No record carries `demo_mode=True` (refused at write time).
-- `source == "stub_plumbing_only"` rows are never counted in efficacy tables.
+- `source == "stub_plumbing_only"` rows are never counted in efficacy tables, and an
+  efficacy table that would include a `synthetic_feed_sample` row is rejected, naming
+  the row.
 - A run with any `http_status == 429` on Tier-2, any `rate_limit` row, or a served
   Jev release that differs from the requested one (or is absent), is not `valid`
   and is not committed as data (it goes to `discarded_passes`).
@@ -896,6 +902,94 @@ listed indicators, so there is a second corpus with its own run set (Q5, decided
   is fixed when the corpus is authored and written to the IOC manifest as an integer
   equal to the number of cases written. The loader refuses to run when the number of
   cases it loads differs from that number, and reports both.
+- **Selection (IOC_Selection, deterministic; Q17, decided 2026-11-13):** the offline
+  `build` step selects the entries from the downloaded raw files, driven by one integer
+  seed, recorded selection parameters and recorded target sizes. Given the same raw
+  files, seed and parameters it selects exactly the same entries and writes
+  byte-identical output. Malicious entries are sampled without replacement within strata
+  of indicator kind (`domain`, `ip`) and feed category. Each stratum is allocated in
+  proportion to its share of the snapshot by the largest-remainder method, with ties
+  broken by stratum name in ascending order, so the allocations sum to the malicious
+  target. Control entries are sampled from the Tranco top-1000 list after removing every
+  domain of the selected malicious class. Sampling ranks entries by a SHA-256 key of the
+  seed, the stratum and the indicator, not by file position or a process-local random
+  state, so the result does not depend on row order, the process or the Python version.
+  The seed comes from the command-line option or from the Harness's single default seed
+  constant, and only an integer from 0 to 4294967295 is accepted (the seed rule of
+  requirement 29.29 to 29.32); an invalid seed is reported before any selection, writes
+  no output and exits non-zero. A source smaller than its target size fails the build
+  naming the class, the available count and the target.
+
+```python
+SEED_MAX = 4294967295
+
+def validate_seed(raw: object) -> int:
+    # An int (not a bool) from 0 to SEED_MAX; otherwise raises InvalidSeed(raw)
+    # before any selection, any write and any read of a raw file.
+    ...
+
+def rank_key(seed: int, stratum: str, indicator: str) -> str:
+    return hashlib.sha256(f"{seed}|{stratum}|{indicator}".encode()).hexdigest()
+
+def allocate(sizes: Mapping[str, int], target: int) -> dict[str, int]:
+    total = sum(sizes.values())
+    if total < target:
+        raise SourceTooSmall("malicious", available=total, target=target)
+    quota = {s: target * n // total for s, n in sizes.items()}       # exact integer arithmetic
+    remainder = {s: target * n % total for s, n in sizes.items()}
+    short = target - sum(quota.values())
+    for s in sorted(sizes, key=lambda s: (-remainder[s], s))[:short]:   # largest remainder; ties by stratum name
+        quota[s] += 1                                                   # never exceeds the stratum size, since target <= total
+    return quota
+
+def select_ioc(threatfox_rows, tranco_rows, *, seed: int, malicious_target: int, control_target: int) -> IocSelection:
+    seed = validate_seed(seed)
+    pool = dedupe(parse_threatfox(threatfox_rows))        # domain and IP indicators only; URL-type and other entries dropped
+                                                          # at parse (an address with a port keeps its host part only);
+                                                          # one entry per indicator, with its ascending-first category
+    strata = group_by(pool, lambda e: f"{e.kind}/{e.category}")
+    quota = allocate({s: len(v) for s, v in strata.items()}, malicious_target)
+    malicious: list[ThreatFoxEntry] = []
+    for s in sorted(strata):
+        ranked = sorted(strata[s], key=lambda e: rank_key(seed, s, e.indicator))
+        malicious += ranked[:quota[s]]                    # without replacement by construction
+    taken = {e.indicator for e in malicious}
+    candidates = [d for d in tranco_rows[:1000] if d not in taken]
+    if len(candidates) < control_target:
+        raise SourceTooSmall("control", available=len(candidates), target=control_target)
+    control = sorted(candidates, key=lambda d: rank_key(seed, "control", d))[:control_target]
+    assert taken.isdisjoint(control)                      # the two classes never share an indicator
+    return IocSelection(sort_malicious(malicious), sort_control(control))   # sorted by (kind, category, indicator)
+
+def verify_raw_digests(manifest: IocManifest, raw_dir: Path) -> list[DigestReport]:
+    # One row per recorded RawFileDigest: "match", or "differs" (a missing file differs).
+    # Reports only. It writes nothing and changes no committed IOC_Corpus file.
+    ...
+```
+
+  The selected entries then pass the validation and hygiene checks below. The parse
+  function is the only code that knows the layout of the raw files. The layout of the
+  live ThreatFox export is **UNCONFIRMED** until the maintainer's first `fetch`, so a
+  layout surprise is fixed in that one function.
+- **Re-authoring check:** when `build` runs against an existing IOC manifest, it
+  compares the sha256 digest of each downloaded raw file with the recorded digest
+  (`verify_raw_digests`), reports each file as matching or differing, and leaves every
+  committed IOC_Corpus file unchanged. The raw files are never committed, so this check
+  is how a later re-authoring shows that it used the same input.
+- **Who starts it:** only the maintainer starts the IOC_Authoring_Step, under the
+  `BW_ABUSECH_AUTH_KEY` grant. No test, no notebook and no agent run starts it, and a
+  test scans the test modules to confirm it. The offline `build` step opens zero network
+  connections and reads no credential variable (a test with sockets blocked and an empty
+  environment runs it).
+- **Synthetic_Feed_Sample:** a small committed sample of invented indicators laid out
+  like the raw feed files (`tests/eval/ioc_corpus/synthetic/`), with a manifest that
+  labels it synthetic. It holds only names under `.example` and addresses in the
+  documentation and private ranges (requirement 29.9), and is used only to test the
+  builder logic offline. It is never efficacy data: a fixture whose manifest is marked
+  synthetic is refused as the IOC corpus of a Whole_System_Run or of I-TI-ioc, and the
+  Run_Store rejects an efficacy table that would include a row whose source is
+  `synthetic_feed_sample`, naming the row, exactly as it excludes `stub_plumbing_only`
+  rows.
 - **Builder (`scripts/build_ioc_corpus.py`, `ioc_corpus.py`):** a one-time authoring
   tool, not part of any measurement run. Its `fetch` step is the IOC_Authoring_Step:
   the only place `BW_ABUSECH_AUTH_KEY` is read, and only under a Human_Grant that
@@ -912,7 +1006,8 @@ listed indicators, so there is a second corpus with its own run set (Q5, decided
   selects the entries, validates them, runs the hygiene check below and commits only
   the selected indicators with their feed metadata. The builder performs zero
   threat-intelligence lookups while building, so the feed is chosen before any
-  lookup.
+  lookup. The raw export and the Tranco list are inputs of `build` only and are
+  never committed; the manifest records their digests (see the schema below).
 - **Non-circularity:** the stage under test is OTX. Malicious indicators come from
   abuse.ch, and the harness queries them through the OTX-only orchestrator
   (`primary_provider=AlienVaultOTXProvider()`, `secondary_providers=[]`, cache off),
@@ -959,6 +1054,21 @@ class IocEntry:
     list_id: str | None                      # Tranco list identifier; required for control entries
 
 @dataclass(frozen=True, slots=True)
+class RawFileDigest:
+    feed: str                                # "abuse.ch ThreatFox" or "Tranco"
+    file_name: str
+    sha256: str                              # digest of the downloaded raw file; the file is never committed
+
+@dataclass(frozen=True, slots=True)
+class SelectionParams:
+    strata: tuple[str, ...]                  # ("kind", "category") for the malicious class
+    allocation: Literal["largest_remainder"]
+    tie_break: Literal["stratum_name_ascending"]
+    ranking: Literal["sha256(seed|stratum|indicator)"]
+    control_exclusion: Literal["domains_of_selected_malicious_class"]
+    control_source_rows: int                 # the Tranco top-N rows considered (1000)
+
+@dataclass(frozen=True, slots=True)
 class IocManifest:
     schema_version: int
     malicious_feed: str                      # "abuse.ch ThreatFox", never OTX
@@ -968,6 +1078,12 @@ class IocManifest:
     control_snapshot_date: str
     total_cases: int                         # equals the number of entries written
     template: str                            # the one shared template for both classes
+    seed: int                                # 0 to 4294967295; the selection is a function of the raw files, this seed and the parameters
+    selection: SelectionParams
+    malicious_target: int                    # recorded target sizes; total_cases is the number actually written
+    control_target: int
+    raw_files: Sequence[RawFileDigest]       # one per downloaded raw file; no raw file is committed
+    synthetic: bool                          # True only for the Synthetic_Feed_Sample; refused as an efficacy corpus
     notes: str                               # states that no key and no raw feed dump is stored
 ```
 
@@ -1007,33 +1123,258 @@ with a benign or a hostile payload gets the same CBM score, so at best CBM is a
 per-tool prior, and its cost is a benign false alarm for every call of a
 dangerous-looking tool.
 
-- **Fixture:** a small hand-written Python codebase (of the order of a dozen
-  functions, committed as source text and never imported or executed) in which
-  functions named like the corpus tools have authored call chains and sinks.
-  Source files are indexed by codebase-memory-mcp (the reserved stateful MCP
-  tier), and the call-graph and sink facts are exported to a committed JSON
-  snapshot.
+- **Fixture source:** a small Python codebase, hand-authored once by the implementer,
+  test-first, following the Fixture_Plan below (Q16, decided 2026-11-13). It has
+  between 10 and 14 function definitions, is committed as text
+  (`tests/eval/cbm_fixture/v1/fixture_source.py.txt`; the `.txt` suffix keeps import,
+  test collection and linters away from it) and is never imported or executed. A test
+  asserts that no function it defines is ever called or imported during a Harness
+  run.
+- **Fixture_Plan:** one committed table (`fixture_plan.json`, next to the source) that
+  maps each covered corpus tool name to a fixture function of that name, with the
+  intended call-chain depth, the sink kinds and a one-line rationale drawn from the
+  tool's semantic role. The plan is frozen and committed before any Run_Set that
+  contains a CBM row exists, and the chains and sinks are chosen from the tool's role,
+  never from a case label or a scored result. The Manifest records the sha256 digest
+  of the plan and of the snapshot, so each CBM row binds to the plan and snapshot it
+  used. The plan, source and snapshot are one versioned directory (`v1`). A later
+  change goes into a new sibling directory, so a committed Run_Set keeps validating
+  against the digests it recorded.
+- **Snapshot:** `tests/eval/cbm_fixture/v1/snapshot.json`, produced by the
+  Fixture_Export (`scripts/build_cbm_fixture.py export`), never written by hand. The
+  export parses the source with the standard-library `ast` module only: no import, no
+  execution, no network and no credential. It extracts the call graph between fixture
+  functions and the sink calls of each function, and maps each sink call to the
+  client's critical-sink kinds through one named sink table that the snapshot records
+  by name and digest.
+- **Drift check:** `scripts/build_cbm_fixture.py check` re-runs the export in memory
+  and fails, naming each fixture function whose facts differ, when the result is not
+  byte-identical to the committed snapshot.
+- **Indexer cross-check (Indexer_Agreement):** the real codebase-memory-mcp indexer
+  (the reserved stateful MCP tier) is a cross-check and not the producer. When the live
+  conformance probe runs, it first indexes the fixture source and then records one
+  Indexer_Agreement row per fixture function: `agree`, or `disagree` with the call-chain
+  and sink facts that differ. A disagreement is a finding and changes no fixture row.
+  When the indexer is not available, or the probe is not requested, every row is
+  Not_Measured with the reason. A failed indexing run makes the live-MCP row and every
+  agreement row Not_Measured with a reason naming the failure. Hermetic runs never
+  require the indexer.
 - **Adapter:** `FixtureCodebaseMemoryClient` subclasses `CodebaseMemoryClient`,
   overrides `queryDependencyChain` and `identifyCriticalSinks` to answer from the
   snapshot, and never touches the network. It still goes through the shipped
   `query()` mapping, so the as-shipped sink drop (D4) is reproduced, while `raw_sinks`
-  records what the snapshot said. A test asserts `base_url is None` after resolver
-  construction and that no socket opens.
+  records what the snapshot said. A test asserts that a snapshot sink is converted by
+  that mapping and not returned verbatim, that `base_url is None` after resolver
+  construction, and that no socket opens.
 - **Non-circularity:** the authored assignment of chains to tools could be chosen
   to make CBM look good. The control is I-CBM-permuted: the same set of graphs
-  assigned to tool names by a seeded permutation. If the real assignment beats the
-  permuted one, the gain comes from tool semantics; if not, CBM contributes only
-  noise or the tool-name tell. Both rows are always shown together.
+  assigned to tool names by a permutation drawn from a fixed seed, recorded in the
+  Manifest (the seed rule of requirement 29.29 to 29.32); the same seed yields the
+  same assignment. If the real assignment beats the permuted one, the gain comes from
+  tool semantics; if not, CBM contributes only noise or the tool-name tell. Both rows
+  are always shown together in the same notebook view, each labeled with its name.
 - **Labeled what-if:** "sinks mapped" recomputes `_score_cbm` from `raw_sinks`, as
   if the enum mapping worked. It is a hypothetical row, labeled as such, and the
   defect itself is reported, not fixed, and is tracked as its own task in the owning
   spec when tasks are written (Q4, decided 2026-11-13).
-- **Live MCP:** a conformance probe checks that a running codebase-memory-mcp
-  answers the three calls the client makes (`trace_path`, `query_graph`,
-  `get_architecture`) in the shapes the client parses. If it does not, or if it
-  exposes no HTTP JSON-RPC endpoint (the client's subprocess transport raises
-  `ConnectionError`), the row reads "not measured: transport mismatch". Whether
+- **Live MCP:** a conformance probe sends one request each for `trace_path`,
+  `query_graph` and `get_architecture`, with a timeout of 10 seconds per request, and
+  checks that a running codebase-memory-mcp answers in the shapes the client parses.
+  If it does not, or if it exposes no HTTP JSON-RPC endpoint (the client's subprocess
+  transport raises `ConnectionError`), the row reads "not measured: transport
+  mismatch", and every fixture row keeps the value it has without the probe. Whether
   the real server conforms is **UNCONFIRMED**.
+
+#### What the client can express
+
+The plan may use only what `CodebaseMemoryClient` can carry, so each choice below was
+checked against `query()` and the resolver's scoring:
+
+- **Depth.** `blast_radius = min(depth * 2, 10)`, where `depth` is the length of the
+  call chain that `queryDependencyChain` returns, counting the root. A tool with no
+  entry reads depth 1, so blast radius 2 and CBM score 0.1. The fixture therefore uses
+  depths 1 to 3: depth 1 equals the default answer, depth 2 gives blast radius 4, and
+  depth 3 gives blast radius 6. The flag cut `CBM_FLAG_BLAST_CUT` of 6 is met only by
+  depth 3 or more, so the plan includes depth-3 chains to let the cut fire on blast
+  radius alone, and depths of 4 and above add nothing the plan needs.
+- **Sink kinds.** The client's `CriticalSinkType` has exactly four values:
+  `SQL_QUERY`, `COMMAND_EXEC`, `FILE_WRITE` and `NETWORK_CALL`. The fixture uses those
+  four. Each sink is built with `isUnsafe` true, because `query()` keeps only unsafe
+  sinks. As shipped, every one of them is then dropped by the `SinkType` mapping (D4),
+  so `mapped_sinks` is empty for every fixture tool and only `raw_sinks` carries them.
+- **What is queried.** `query()` asks for the dependency chain and the critical sinks
+  of the tool name, nothing else, so a function's sinks are those on its reachable
+  call graph, as with the mock `ProcessOrder` entry whose sink lies at the end of its
+  chain.
+- **Tool-name tell.** The plan's depths follow tool roles, and the roles that run
+  commands or statements are the tools the resolver already lists as high or medium
+  risk by name (`_HIGH_RISK_TOOLS`, `_MEDIUM_RISK_TOOLS`). The fixture therefore
+  inherits the tool-name tell (D7): CBM would add a per-tool prior that the context
+  stage already holds. I-CBM-permuted is the control for exactly this.
+
+#### Fixture_Plan
+
+As loaded on 2026-11-13, the corpus holds 37 distinct tool names. Each covered tool
+needs a function of its own, and a fixture of 10 to 14 functions cannot hold 37 of them
+plus the helpers its chains use. The plan therefore covers a stated rule-based subset:
+**every tool name that at least 2 corpus cases call (N = 2), counted by tool name alone
+and never by label.** Covered tools read their fixture graph. Every
+other tool name reads the default CBM answer (blast radius 2, no sinks) in every
+fixture row.
+
+| Tool name | Fixture function | Intended depth (chain) | Sink kinds | Rationale |
+|---|---|---|---|---|
+| `execute_shell` | `execute_shell` | 3 (`execute_shell`, `run_process`, `append_audit`) | `COMMAND_EXEC`, `FILE_WRITE` | Runs a command line through the process runner, which records an audit line; the process call ends the chain |
+| `database_query` | `database_query` | 3 (`database_query`, `run_statement`, `append_audit`) | `SQL_QUERY`, `FILE_WRITE` | Runs a statement through the statement runner, which records an audit line; the cursor call is the only database sink |
+| `http_request` | `http_request` | 2 (`http_request`, `open_connection`) | `NETWORK_CALL` | Sends a request over a connection that the connection helper opens |
+| `file_read` | `file_read` | 2 (`file_read`, `normalize_path`) | none | Resolves the path through the path helper and reads the file; a read opens no write sink |
+| `file_write` | `file_write` | 2 (`file_write`, `normalize_path`) | `FILE_WRITE` | Resolves the path through the path helper and writes the file itself |
+| `dns_query` | `dns_query` | 1 (`dns_query`) | `NETWORK_CALL` | A thin wrapper around one name-resolution call, with no helper |
+| `socket_connect` | `socket_connect` | 1 (`socket_connect`) | `NETWORK_CALL` | A thin wrapper around one connect call, with no helper |
+| `parse_xml` | `parse_xml` | 1 (`parse_xml`) | none | Parses an XML string in memory, with no input or output and no helper |
+
+The fixture also holds five helper functions that the chains use and that no corpus
+tool names: `normalize_path` (no sink), `run_process` (`COMMAND_EXEC`), `run_statement`
+(`SQL_QUERY`), `open_connection` (`NETWORK_CALL`) and `append_audit` (`FILE_WRITE`,
+a call to `open` in append mode). That is 13 function definitions in all.
+
+- **Covered tools:** `execute_shell`, `database_query`, `http_request`, `file_read`,
+  `file_write`, `dns_query`, `socket_connect`, `parse_xml`.
+- **Not covered (read the default answer):** `file_list`, `file_append`, `file_exists`,
+  `file_size`, `dns_lookup`, `download_file`, `deserialize_python`, `deserialize_java`,
+  and every `agent_*` tool name, each of which one corpus case calls. On the IOC
+  corpus `http_request`, `dns_query` and `socket_connect` are covered and
+  `download_file` is not.
+- **Plan rules, each with a test:** every tool in the plan has a function of that name
+  in the source; the source holds between 10 and 14 function definitions; the depth and
+  sink kinds that the export produces equal the plan's intended values, so the source
+  follows the plan; no rationale contains, as a whole word compared case-insensitively,
+  any `case_id`, `ground_truth` value, scenario class name or `attack_type` value of
+  the Corpus, or any figure taken from a Run_Set; the plan and snapshot digests in the
+  Manifest equal the digests of the committed files. The permuted control reassigns
+  these eight graphs among the eight covered tool names with the seeded permutation.
+
+#### Snapshot schema
+
+```python
+CriticalKind = Literal["SQL_QUERY", "COMMAND_EXEC", "FILE_WRITE", "NETWORK_CALL"]   # the client's CriticalSinkType values
+
+@dataclass(frozen=True, slots=True)
+class SinkCall:
+    function: str                  # the fixture function that contains the call
+    call: str                      # dotted call name as written in the source, e.g. "subprocess.run"
+    raw_kind: CriticalKind         # from the sink table; before any mapping to SinkType
+    line: int
+
+@dataclass(frozen=True, slots=True)
+class FixtureFunction:
+    name: str
+    calls: tuple[str, ...]         # direct calls to other fixture functions, sorted
+    sink_calls: tuple[SinkCall, ...]            # sink calls made by this function itself, sorted by (line, call)
+    call_chain: tuple[str, ...]    # longest chain from this function through fixture calls; ties broken by the smallest chain in list order
+    depth: int                     # len(call_chain), the value queryDependencyChain reports
+    reachable_sinks: tuple[SinkCall, ...]       # sink calls on every function of the reachable call graph, sorted by (function, line, call)
+
+@dataclass(frozen=True, slots=True)
+class CbmSnapshot:
+    schema_version: int
+    source_sha256: str             # digest of the fixture source text
+    sink_table_name: str           # "SINK_TABLE_V1"
+    sink_table_sha256: str         # digest of the canonical JSON of the table
+    functions: tuple[FixtureFunction, ...]      # sorted by name
+```
+
+The snapshot is serialized as canonical JSON (sorted keys, two-space indent, ASCII
+only, one trailing newline), so two exports of the same source are byte-identical.
+
+#### Sink table
+
+One table, `SINK_TABLE_V1`, holds every recognized sink and is the only place a call is
+mapped to a critical-sink kind. It maps the dotted call name, as written in the source,
+to one of the four kinds. Aliased imports are not resolved, and the fixture source
+writes full dotted names (a test pins this).
+
+| Kind | Calls |
+|---|---|
+| `COMMAND_EXEC` | `subprocess.run`, `subprocess.Popen`, `subprocess.check_output`, `os.system`, `os.popen` |
+| `SQL_QUERY` | `cursor.execute`, `cursor.executemany`, `conn.execute` |
+| `FILE_WRITE` | `open` called with a string-literal mode that contains `w`, `a`, `x` or `+` (key `open[write]`), `shutil.copyfile`, `os.replace` |
+| `NETWORK_CALL` | `socket.create_connection`, `socket.getaddrinfo`, `urllib.request.urlopen`, `http.client.HTTPSConnection` |
+
+A call that is neither a fixture function nor in the table is not a fact and is
+ignored, and `open` in read mode is not a sink.
+
+#### `export` and `check`
+
+```python
+def export_snapshot(source_text: str) -> CbmSnapshot:
+    tree = ast.parse(source_text)                       # parse only: no compile, import, exec or eval
+    defs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}   # top-level defs only
+    facts: dict[str, tuple[set[str], list[SinkCall]]] = {}
+    for name in sorted(defs):
+        callees: set[str] = set()
+        sinks: list[SinkCall] = []
+        for node in ast.walk(defs[name]):
+            if not isinstance(node, ast.Call):
+                continue
+            dotted = dotted_name(node.func)             # "subprocess.run", "open", or None
+            if dotted in defs:
+                callees.add(dotted)
+            kind = SINK_TABLE_V1.get(sink_key(dotted, node))   # "open[write]" only for a write-mode literal
+            if kind is not None:
+                sinks.append(SinkCall(name, dotted, kind, node.lineno))
+        facts[name] = (callees, sorted(sinks, key=lambda s: (s.line, s.call)))
+    reject_cycles(facts)                                # raises, naming the functions on the cycle
+    functions = tuple(build_function(n, facts) for n in sorted(facts))   # chain, depth and reachable sinks
+    return CbmSnapshot(SCHEMA_VERSION, sha256(source_text), "SINK_TABLE_V1",
+                       sha256(canonical_json(SINK_TABLE_V1)), functions)
+
+def serialize(snapshot: CbmSnapshot) -> bytes:
+    return (json.dumps(asdict(snapshot), sort_keys=True, indent=2, ensure_ascii=True) + "\n").encode()
+
+def export(source_path: Path, out_path: Path) -> None:
+    out_path.write_bytes(serialize(export_snapshot(source_path.read_text())))   # atomic write, as the Run_Store does
+
+def check(source_path: Path, snapshot_path: Path) -> int:
+    fresh = export_snapshot(source_path.read_text())
+    if snapshot_path.read_bytes() == serialize(fresh):
+        return 0
+    for name in functions_that_differ(load_snapshot(snapshot_path), fresh):   # a missing or unreadable file differs for every function
+        print(f"snapshot drift: {name}")
+    return 1                                            # also non-zero when only the header or the bytes differ
+```
+
+The export imports nothing from `blackwall` and reads no environment variable. A test
+with sockets blocked and an empty environment runs it.
+
+#### Manifest fields for the fixture
+
+```python
+@dataclass(frozen=True, slots=True)
+class IndexerAgreement:
+    function: str
+    status: Literal["agree", "disagree", "not_measured"]
+    differences: tuple[str, ...]        # the call-chain and sink facts that differ; empty unless "disagree"
+    reason: str | None                  # non-empty when "not_measured": indexer unavailable, probe not requested, or indexing failed
+
+@dataclass(frozen=True, slots=True)
+class CbmFixtureSource:
+    plan_path: str
+    plan_sha256: str                    # sha256 of the committed Fixture_Plan
+    snapshot_path: str
+    snapshot_sha256: str                # sha256 of the committed snapshot
+    source_sha256: str
+    sink_table_name: str
+    sink_table_sha256: str
+    permutation_seed: int               # the seed of the I-CBM-permuted assignment
+    covered_tools: tuple[str, ...]
+    uncovered_tools: tuple[str, ...]    # read the default CBM answer in every fixture row
+    indexer_agreement: Sequence[IndexerAgreement]   # one row per fixture function
+```
+
+The Run_Store recomputes the plan and snapshot digests from the committed files and
+rejects a Run_Set that holds a CBM fixture row and whose recorded digest differs,
+naming the file, or that has no `cbm_fixture` entry.
 
 ## Run Protocol
 
@@ -1578,6 +1919,16 @@ the first comparison.
 # 4. Validate a run set against the corpus and the schema (offline, also a unit test)
 #    python scripts/holistic_eval.py validate --run-set cb-2026-xx
 
+# 5. CBM fixture: export the snapshot from the committed source, then check for drift
+#    (offline; no network, no credential; `check` exits non-zero and names a drifted function)
+#    python scripts/build_cbm_fixture.py export
+#    python scripts/build_cbm_fixture.py check
+
+# 6. IOC corpus, maintainer only: `fetch` is the IOC_Authoring_Step (the BW_ABUSECH_AUTH_KEY grant);
+#    `build` is offline and deterministic for the same raw files, seed and parameters
+#    python scripts/build_ioc_corpus.py fetch --raw-dir <scratch dir outside the repository>
+#    python scripts/build_ioc_corpus.py build --raw-dir <scratch dir> --seed 12345
+
 # Library use (offline):
 rs = store.load_run_set(repo_root / "tests/eval/results/holistic/cb-2026-xx")
 cfg = ComposeConfig(structural=True, tsg=True, threat_intel=False, cbm=False,
@@ -1779,6 +2130,24 @@ already cited by ADR 0009.
 
 **Validates: Requirements 16.21, 16.22, 16.23, 16.24, 16.25**
 
+### Property 20: The fixture export is deterministic and the snapshot never drifts
+
+*For any fixture source, `export_snapshot` returns the same snapshot and `serialize` the same bytes on every run, with no import or execution of the source, no network access and no credential read. For any committed source and snapshot, `check` succeeds if and only if the snapshot is byte-identical to the export of the source; otherwise it fails and names every function whose facts differ. Every sink in the snapshot carries a kind from the sink table, whose name and digest the snapshot records.*
+
+**Validates: Requirements 21.3, 21.34, 21.35, 21.36**
+
+### Property 21: The fixture plan binds to the source, the snapshot and the corpus labels
+
+*For any Fixture_Plan and fixture source, the source holds between 10 and 14 function definitions, every tool in the plan has a function of that name in the source, and the plan is rejected, naming the tool, when it lists a tool with no such function. For any rationale, the plan is rejected, naming the tool and the matched text, when the rationale contains as a whole word, compared case-insensitively, a `case_id`, a `ground_truth` value, a scenario class name or an `attack_type` value of the Corpus, or a figure taken from a Run_Set. The Manifest of a Run_Set with a CBM fixture row holds the sha256 digests of the plan and the snapshot, and a Run_Set whose recorded digest differs from the committed file is rejected.*
+
+**Validates: Requirements 21.1, 21.30, 21.31, 21.32, 21.33**
+
+### Property 22: The IOC selection is deterministic and the classes never overlap
+
+*For any raw feed files, seed and selection parameters that are valid, `select_ioc` returns the same entries and the builder writes the same bytes on every run and for any ordering of the rows of the raw files. The stratum allocations sum to the malicious target and follow the largest-remainder method with ties broken by stratum name in ascending order, no malicious entry is drawn twice, and no indicator appears in both the malicious and the control class. A seed that is not an integer from 0 to 4294967295 is rejected before any selection with no output written, and a source smaller than its target size fails naming the class, the available count and the target.*
+
+**Validates: Requirements 20.8, 20.24, 20.25, 20.26, 20.27, 20.28**
+
 ## Error Handling
 
 | Scenario | Condition | Response | Recovery |
@@ -1797,8 +2166,11 @@ already cited by ADR 0009.
 | Fewer than two Forced_Table Passes | A release has one Pass, for example after a discarded Pass that was not re-run | The error band is Not_Measured with the reason and no band is drawn | Re-run the Pass |
 | Band recommendation fails the gate | Held-out difference above the Pass spread, fewer than 30 attack or 30 benign fresh cases, a case authored before the surface was frozen, present in the tuning Corpus or scored before the draft, or F09 open without the `other` stratum holding | `check_recommendation` rejects, names each failed check and records the rejection; the band, thresholds and weights stay unchanged | Author fresh cases after the freeze, then redraft |
 | IOC build violation | Missing feed metadata, an OTX-sourced entry, an indicator in both classes, a non-domain or non-IP indicator, or a `ContextHygiene` change | The build fails naming the entry or indicator and writes no output | Fix the selection and rebuild |
+| IOC selection input invalid | An invalid seed, or a downloaded source smaller than its target size | The build reports the invalid value, or the class, the available count and the target; it exits non-zero and writes no output | Supply a valid seed, or lower the target and record it |
 | IOC indicator unrecognized by OTX | The feed has since delisted it (ThreatFox expires indicators older than 6 months) | Reported as unrecognized, never as an error; it lowers the headline share | None needed; the delisting statement is shown beside the headline |
-| CBM transport mismatch, or a missing fixture | Live MCP does not answer in the parsed shapes, or the fixture or snapshot is absent; applies to a Named_Explicitly row as well as a Default_Plan row, because the abort covers credentials and grants only | `not_measured: transport mismatch` (or a reason naming the missing fixture); the run continues; the fixture adapter rows are unaffected by a transport mismatch | Author the fixture, or follow up on the client or the server separately |
+| CBM snapshot drift | The committed snapshot is not byte-identical to the export of the committed source | `build_cbm_fixture.py check` exits non-zero and names each function whose facts differ; the Run_Store rejects a Run_Set whose recorded digest no longer matches | Re-run `export` and commit the new snapshot in a new fixture directory if a Run_Set already used the old one |
+| Indexer unavailable, not requested or disagreeing | The probe is not requested, the indexer is absent, indexing fails, or the indexer's facts differ from the snapshot | Each Indexer_Agreement row is Not_Measured with the reason, or `disagree` with the differing facts, which is a finding; no fixture row value changes and no hermetic run fails | Investigate the finding; the snapshot is not edited to match the indexer |
+| CBM transport mismatch, or a missing fixture | Live MCP does not answer in the parsed shapes, or the fixture, its plan or its snapshot is absent; applies to a Named_Explicitly row as well as a Default_Plan row, because the abort covers credentials and grants only | `not_measured: transport mismatch` (or a reason naming the missing fixture); the run continues; the fixture adapter rows are unaffected by a transport mismatch | Author the fixture, or follow up on the client or the server separately |
 | Corpus edited after a run | Hash mismatch | The validate test and the notebook loader fail with the differing case ids | Re-score in a new run-set directory |
 | Corrupt line or partial file | Truncated JSON | Atomic writes make this a loader error naming the file; nothing partial is committed | Re-run the pass |
 | `demo_mode=True` requested | Anyone passes it to the runner | Refused at config validation | Not applicable: its verdicts do not transfer to production thresholds |
@@ -1844,10 +2216,38 @@ are deferred, never simulated.
   signatures, and the seeded-parent-variant match rate is labeled transfer from a
   seed; cold equals `repo=None`; permutation invariance; the repository is never
   built on its default path; the substring-fallback false-match counter works.
-- CBM: the default client yields the pinned 0.1 score for an unknown tool; the
-  fixture adapter opens no socket and `base_url` stays `None` after resolver
-  construction; the sink-mapping drop is pinned as a characterization test of the
-  current behavior (so a later fix is a deliberate, visible change).
+- CBM: the default client yields the pinned 0.1 score for an unknown tool (and the same
+  pair, blast radius 2 and no sinks, for every unknown tool name); the fixture adapter
+  opens no socket and `base_url` stays `None` after resolver construction; the
+  sink-mapping drop is pinned as a characterization test of the current behavior (so a
+  later fix is a deliberate, visible change), and a snapshot sink is converted by the
+  shipped `query()` mapping and not returned verbatim; two queries for one tool with
+  different arguments return the same score; a case in which CBM is the only nonzero
+  contribution yields an aggregate below 0.50 and `ALLOW`; the Permuted_Control gives an
+  identical assignment for the same seed.
+- CBM fixture, plan and export (each starts red): the Fixture_Export returns
+  byte-identical output on two runs and runs with sockets blocked and an empty
+  environment (no network, no credential); no fixture function is ever called or
+  imported during a run; the drift test changes one function in a temporary copy of the
+  source, and `check` fails naming exactly that function (a changed header or sink
+  table also fails, and the committed files are never touched); a sink call in the
+  source reaches the snapshot with the kind the sink table gives, an `open` in read mode
+  does not, and a cycle in the call graph fails the export naming the functions; the
+  source holds between 10 and 14 function definitions; every tool in the plan has a
+  function of that name, and a plan that lists a tool with no function fails naming it;
+  the depth and sink kinds in the snapshot equal the plan's intended values; the
+  rationale scan fails, naming the tool and the matched text, when a rationale holds a
+  `case_id`, a `ground_truth` value, a scenario class name, an `attack_type` value or a
+  Run_Set figure as a whole word (a planted word proves the scan fires, and the
+  committed plan passes); the Manifest records the plan and snapshot digests and the
+  Run_Store rejects a recorded digest that differs from the committed file; a Run_Set
+  with a CBM fixture row and no plan or snapshot digest is invalid.
+- Indexer_Agreement (each starts red): with the indexer unavailable, or the probe not
+  requested, every row is Not_Measured with its reason and the hermetic suite passes
+  without the indexer; a stub indexer that reports a different call chain or sink fact
+  for one function gives a `disagree` row naming the differing facts for that function
+  and `agree` for the others, and no fixture row value changes; a failed indexing run
+  makes the live-MCP row and every agreement row Not_Measured with the failure named.
 - IOC corpus (builder and loader): every indicator survives `ContextHygiene`
   unchanged, and a change fails the build naming every changed indicator with no
   output written; the template, tool names and argument keys are shared across
@@ -1866,6 +2266,27 @@ are deferred, never simulated.
   not in the run-time allowlist and the run-time hosts are not in the authoring
   allowlist; the OTX-only orchestrator is the one used for efficacy, and no efficacy
   table is built from a multi-provider run that includes abuse.ch.
+- IOC_Selection and Synthetic_Feed_Sample (each starts red): the `build` step on the
+  Synthetic_Feed_Sample twice with the same seed and parameters writes byte-identical
+  output, and also does so with the rows of the raw files reordered; a different seed
+  changes the selection for the named pair of seeds the test uses; the allocation sums
+  to the malicious target, follows the largest-remainder method, and breaks a tie by
+  stratum name in ascending order (worked examples with an exact tie); no malicious entry
+  is drawn twice; a Tranco domain that the malicious class selected is excluded from the
+  controls and no indicator appears in both classes; a feed smaller than the malicious
+  target, or a Tranco list smaller than the control target after the exclusion, fails
+  naming the class, the available count and the target and writes no output; a seed that
+  is a string, a float, a bool, negative or 4294967296 is rejected before any selection
+  with no output and a non-zero exit, and an omitted seed uses the single default
+  constant; the IOC manifest records the seed, the selection parameters, both target
+  sizes, the raw-file digests and the exact case count, and no raw file is committed;
+  `verify_raw_digests` reports each recorded file as matching or differing and changes no
+  committed file; the sample carries its synthetic label and holds only `.example` names
+  and addresses in the documentation and private ranges; the loader refuses a manifest
+  marked synthetic as the IOC corpus of a Whole_System_Run or of I-TI-ioc; the Run_Store
+  rejects an efficacy table that includes a `synthetic_feed_sample` row, naming the row,
+  as it does for a `stub_plumbing_only` row; no test module starts the
+  IOC_Authoring_Step, and `build` opens zero connections and reads no credential variable.
 - Forced_Table per release: `jev-1.13.0` and `jev-1.14.0` each get their own table
   from run 1 of their own stored run and two Tier-2 Passes; the Manifest records both
   releases, the run key and each Pass by release name and `pass_index`; a replay of one
@@ -1926,7 +2347,7 @@ are deferred, never simulated.
 
 ### Property-based tests (`tests/property/`, Hypothesis)
 
-P1, P2, P3, P4 (over non-`ERROR` rows, plus the `ERROR` carry-through), P5, P6, P7, P8, P9, P11, P12, P14, P16, P17, P18 and P19 (no case identifier and no `parent_case_id` of the unseeded-parent half among the seeds, and only seeded-mode parents marked) are properties over
+P1, P2, P3, P4 (over non-`ERROR` rows, plus the `ERROR` carry-through), P5, P6, P7, P8, P9, P11, P12, P14, P16, P17, P18, P19, P20, P21 and P22 (P18: no case identifier and no `parent_case_id` of the unseeded-parent half among the seeds, and only seeded-mode parents marked) are properties over
 generated inputs (strategies for stage outputs, bands, readings and record sets
 respect the model's invariants, testing rule 58). The differential test (P5) is the
 most valuable: it makes the composer a tested copy of `evaluate()`'s decision logic
@@ -2097,7 +2518,7 @@ suite is expected to run in seconds because everything is pure or temp-file base
   the manifest states this and the human sees it in `plan`.
 - **Payloads are strings:** attack text appears in committed fixtures and results.
   Nothing evaluates, imports, executes or fetches it. The CBM fixture source is
-  indexed as text and never imported. The harness code contains no `eval`, `exec`
+  parsed as text by the Fixture_Export and never imported. The harness code contains no `eval`, `exec`
   or `subprocess` on corpus content, and a source scan test enforces that.
 - **Untrusted text in the notebook:** Tier-2 reasoning and payloads are rendered
   escaped. Tool output and fetched content are data, not instructions.
@@ -2119,8 +2540,9 @@ suite is expected to run in seconds because everything is pure or temp-file base
 - Services: TypeSafe API (paid), Vertex AI (paid project), AlienVault OTX (key);
   abuse.ch ThreatFox (free Auth-Key) and the Tranco list at corpus-authoring time
   only, never in a measurement run;
-  codebase-memory-mcp for indexing the CBM fixture (the reserved stateful MCP tier).
-  No new MCP server is introduced.
+  codebase-memory-mcp (the reserved stateful MCP tier) as an optional cross-check of the
+  CBM fixture facts (Indexer_Agreement); no hermetic run needs it. The Fixture_Export
+  itself uses only the standard-library `ast` module. No new MCP server is introduced.
 - Documents: ADR 0008, ADR 0009, `tier-1-jev-addition` (TASK-F06, F08, F09, F10),
   `.agents/rules/testing_and_hygiene.md` (rules 56, 58, 64, 70, 71, 72, 74, 77, 78, 79).
 
@@ -2128,10 +2550,10 @@ suite is expected to run in seconds because everything is pure or temp-file base
 
 | Phase | Scope | Needs | Output |
 |---|---|---|---|
-| 0 | Decisions Q1 to Q15 recorded (all decided 2026-11-13; see "Decisions on the Open Questions") | maintainer | decisions recorded in this spec |
+| 0 | Decisions Q1 to Q17 recorded (all decided 2026-11-13; see "Decisions on the Open Questions") | maintainer | decisions recorded in this spec |
 | 1 | Pure library, observers, offline stage pass (structural, context, TSG three modes, CBM default), compose with the differential test, run-set schema, store | nothing live | committed offline stage data; the D3, D6, D7 counts pinned |
 | 2 | **Entry gate:** the proposal artifact for the AGENTS.md section 2 spec list and for a testing rule that defines "caught", prepared with exact diffs at the start of Phase 2 and before the first live Whole_System_Run, awaiting maintainer approval under section 6.3 (Q7). Then: live whole-system passes W0, W1, W2 and one Tier-2 Forced_Table per Jev release (`jev-1.13.0` and `jev-1.14.0`, two Tier-2 Passes each), two or more interleaved passes; notebook v1; recompute tests; mutation guard | Vertex project and `TYPESAFE_API_KEY` grants; the proposal artifact exists | committed run set; first system-versus-stage comparison |
-| 3 | Optional layers: threat intelligence on the corpus hosts and the IOC corpus; the CBM fixture, its snapshot and the permuted control; W3, W4, W5 | `BW_OTX_API_KEY` grant, authored fixtures | separate run sets and notebook panels |
+| 3 | Optional layers: threat intelligence on the corpus hosts and the IOC corpus, with the IOC builder (the maintainer-run `fetch`, the offline deterministic `build`, the IOC_Selection tests and the Synthetic_Feed_Sample); the CBM fixture with its Fixture_Plan (committed first), the Fixture_Export and `check`, the committed snapshot, the Indexer_Agreement rows and the permuted control; W3, W4, W5 | `BW_OTX_API_KEY` grant, the maintainer's `fetch` run and `BW_ABUSECH_AUTH_KEY` grant, the hand-authored fixture source | separate run sets and notebook panels |
 | 4 | Band study with the held-out protocol and the F06 what-if (exploratory replay and the tune-half versus held-out-half comparison may be published; no band edge is recommended without the gate of "Band recommendation gate"); cross-link cell in the existing notebook; ADR for the first measured results | fresh labeled evidence for any recommendation (at least 30 attack and 30 benign cases hand-written after the replay surface was frozen) | input to TASK-F10 and TASK-F06 |
 
 How the open tasks interact:
@@ -2164,11 +2586,11 @@ How the open tasks interact:
 
 ## Decisions on the Open Questions
 
-The questions below are all decided as of 2026-11-13. Q12 to Q15 were decided by the
-maintainer. Q1 to Q11 were decided under a delegation from the maintainer, who may
-review any of them; a changed answer may change the sections that cite it. The
-numbering is kept so the rest of this document and `requirements.md` can still cite
-each decision.
+The questions below (Q1 to Q17) are all decided as of 2026-11-13. Q12 to Q15 were
+decided by the maintainer. Q1 to Q11, Q16 and Q17 were decided under a delegation from
+the maintainer (to the orchestrator), who may review any of them; a changed answer may
+change the sections that cite it. The numbering is kept so the rest of this document
+and `requirements.md` can still cite each decision.
 
 - **Q1. The definition of caught. Decided 2026-11-13.** The Stopped reading (BLOCK
   or QUARANTINE) is the primary reading, and the Blocked reading is reported beside it
@@ -2276,6 +2698,40 @@ each decision.
   exclusion and the `ERROR` count only and carry no sensitivity column. Shaped the
   `ERROR` bullet of the definition of caught, the notebook panel descriptions, the
   Error Handling row for a Jev outage and the sensitivity-scope test.
+- **Q16. CBM fixture authoring and snapshot production. Decided 2026-11-13 (delegated
+  to the orchestrator).** The fixture source is hand-authored once by the
+  implementer, test-first, following a Fixture_Plan fixed in this design before any CBM
+  result is produced. Each corpus tool name the fixture covers maps to a function of
+  that name whose call chain and sinks are chosen from the tool's semantic role, never
+  from the case label or from any scored result, with a one-line rationale per function.
+  The JSON snapshot is not hand-written: the Fixture_Export
+  (`scripts/build_cbm_fixture.py export`) produces it from the fixture source with the
+  Python standard-library `ast` module, with no import, no execution, no network and no
+  credential, and maps sink calls to the client's critical-sink kinds through one named
+  sink table recorded in the snapshot. The real codebase-memory-mcp indexer is a
+  cross-check and not the producer: the live conformance probe indexes the fixture and
+  the Harness compares the indexer's facts with the snapshot for each function
+  (Indexer_Agreement). A disagreement is a finding and changes no fixture row value, and
+  when the indexer is not available the rows are Not_Measured, so hermetic runs never
+  require it. Shaped the CBM fixture section (the plan, the snapshot schema, the sink
+  table, `export` and `check`, the manifest fields), the layout, the fixture tests, the
+  error-handling rows and Phase 3.
+- **Q17. IOC corpus selection reproducibility. Decided 2026-11-13 (delegated to the
+  orchestrator).** The `build` step is deterministic: given the same downloaded raw
+  files, the same recorded integer seed and the same selection parameters, it selects
+  exactly the same entries. Malicious entries are selected by seeded sampling without
+  replacement within strata of indicator kind and feed category, in proportion to the
+  feed's snapshot composition, up to the recorded target size. Control entries are the
+  seeded selection from the Tranco top-1000 list excluding any domain that also occurs
+  in the malicious class. The selection parameters, the seed, the target sizes and the
+  sha256 digest of each downloaded raw file are recorded in the IOC manifest, and the
+  raw files are never committed, so a later re-authoring can verify that it used the
+  same input. The builder logic is tested offline on a small committed
+  Synthetic_Feed_Sample, which is never efficacy data, and the Run_Store rejects any
+  efficacy table that would include a synthetic row. The real corpus is built by the
+  maintainer running the IOC_Authoring_Step under the grant that the IOC section already
+  requires. Shaped the IOC_Selection pseudocode, the IOC manifest, the synthetic sample,
+  the builder tests, the layout and Phase 3.
 
 ## Glossary
 
@@ -2301,6 +2757,22 @@ each decision.
 - **IOC_Authoring_Step:** the one-time `fetch` step of the IOC_Corpus builder, run by
   the maintainer to download the ThreatFox export and the Tranco list before the
   offline `build` step.
+- **IOC_Selection:** the deterministic selection that the offline `build` step applies
+  to the downloaded raw files, driven by a recorded integer seed, recorded selection
+  parameters and recorded target sizes.
+- **Synthetic_Feed_Sample:** a small committed set of invented indicators under
+  documentation-range and `.example` names, laid out like the raw feed files, used only
+  to test the IOC corpus builder and never as efficacy data.
+- **Fixture_Plan:** the committed table, fixed before any CBM result is produced, that
+  maps each covered corpus tool name to a fixture function of that name, with the
+  intended call-chain depth, sink kinds and a one-line rationale drawn from the tool's
+  semantic role.
+- **Fixture_Export:** the deterministic command `scripts/build_cbm_fixture.py export`,
+  which parses the CBM fixture source with the standard-library `ast` module and writes
+  the snapshot; `check` re-runs it and fails on drift.
+- **Indexer_Agreement:** the per-function comparison, made when the live conformance
+  probe indexes the CBM fixture, of the real codebase-memory-mcp indexer's call chains
+  and sink facts with the committed snapshot.
 - **Plumbing-only:** data from a stub provider that exercises code paths and measures
   nothing about efficacy.
 - **Names used by `requirements.md`:** `Corpus_Loader` (corpus loader), `Stage_Recorder`
