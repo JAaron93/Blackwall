@@ -102,11 +102,11 @@ unknowns.
 | D6 | Keyword novelty is a substring match and drives Tier-2 "disagreement" | `_SUSPICIOUS_KEYWORDS` includes `nc`, `c2`, `etc`, `select`, `drop`, `insert`, `delete`. Two hits give 0.4, and with Jev P below 0.2 that triggers Tier-2. Offline-computed: 2 of 68 benign cases reach novelty 0.4 (`benign_db_distinct_001`, `benign_edge_recursive_cte_001`) and every benign Jev P is at most 0.06, so both would trigger. 38 of 99 attack cases reach 0.4 | Each record stores `novelty`, `trigger` and Tier-2 calls, so the disagreement path is quantified per class. Live confirmation is part of the whole-system runs |
 | D7 | The tool name is a tell | 44 of 99 attack cases use a high-risk tool name (`execute_shell`: 40 of 89 in the security suite and 4 of 10 in the `evasion_proof` suite); 0 of 68 benign do (offline-computed). The production-role structural rule in `policy.yaml` blocks four tool names, of which `execute_shell` is the one the corpus uses (ADR 0009: 44 attack blocks by tool name); the context score uses the high-risk names directly | Results are stratified by tool-name group; the headline view is the "other tool name" stratum; TASK-F09 is a parallel track, and it gates the band recommendation (Phasing) |
 | D8 | `ContextHygiene` over-matches (TASK-F08) | Password redaction swallows the next word; the `sk-` pattern fires inside hyphenated words. The TSG and Tier-2 see sanitized arguments | The corpus avoids both by value. Each case records a sanitized-argument hash; a test fails if sanitization alters any case in those ways. Landing F08 changes the sanitized states, which invalidates stored Jev runs by design (their test rebuilds the states), so everything is re-scored then |
-| D9 | The existing e2e harness differs from production in rate-limiter lifetime | It builds a new `SyncResolver` per case, so the 80 req/s front bucket and the 300 RPM Tier-2 bucket never accumulate | Shared resolver per configuration and pass, `demo_mode=False`, a fixed in-flight limit (`--concurrency`, default 2), cool-down between configurations; a rate-limit QUARANTINE or any Tier-2 429 invalidates the pass |
+| D9 | The existing e2e harness differs from production in rate-limiter lifetime | It builds a new `SyncResolver` per case, so the 80 req/s front bucket and the 300 RPM Tier-2 bucket never accumulate | Shared resolver per configuration and pass, `demo_mode=False`, a fixed in-flight limit (`--concurrency`, default 2), cool-down between configurations; a front-limiter QUARANTINE (Quarantine_Cause `rate_limit`), any Tier-2 429, or any Tier-2 row with `unavailable_reason == "rate limit"` (an empty Tier-2 bucket) invalidates the pass |
 | D10 | A band study needs both edges and cannot tune and score on the same cases | Aggregation makes the upper edge decisive (a P above the upper edge never reaches Tier-2 and is ALLOWED, TASK-F06) | Band replay component with a held-out protocol and explicit validity limits |
 | D11 | The existing Tier-2 e2e figures are on the earlier corpus | `scripts/jev_tier2_eval.py` reads `tests/eval/results/jev_runs/ablation_class_blind.json` (`production_state`, scored 2026-11-12), not the current class-blind corpus of `jev_runs_class_blind/` | The new harness loads the current corpus through `scripts/jev_triage_eval.py::build_cases`; the ADR 0009 end-to-end figures are never pooled with new ones, and the notebook says so |
 | D12 | Committed Jev states carry empty metadata | The stored states end in `Metadata: {}`. Without `environment_role`, the structural engine defaults to `production` and the context score adds no role modifier | The harness uses `metadata=None`, as the committed Jev runs did. A production caller that sets `environment_role=production` adds 0.15 to the context score; that sensitivity is stated, and not run |
-| D13 | QUARANTINE has two causes | See "Definition of Caught". A QUARANTINE comes from the aggregate (0.50 to below 0.75), from a Tier-2 outage on an otherwise-ALLOW call (ADR 0009 Decision 6), or from the rate limiter | Every record stores `quarantine_cause`; reports can separate deliberate QUARANTINEs from fail-closed ones |
+| D13 | QUARANTINE has more than one cause | See "Definition of Caught". A QUARANTINE comes from the aggregate (0.50 to below 0.75), from a Tier-2 outage on an otherwise-ALLOW call (ADR 0009 Decision 6; `_maybe_escalate_tier2` raises `_Tier2Unavailable` with reason `no client`, `rate limit` for an empty 300 RPM Tier-2 bucket, or `no verdict`), or from the front rate limiter (80 req/s), which returns QUARANTINE "Rate limit exhausted" from step 1 of `evaluate()` before any stage runs | Every record stores `quarantine_cause`: `aggregate`, `tier2_unavailable` (every Tier-2 outage, an empty Tier-2 bucket included) or `rate_limit` (the front limiter only); reports can separate deliberate QUARANTINEs from fail-closed ones |
 | D14 | Live runs spend money and need credentials | Testing rules 74, 78 and 79 | Hermetic by default, human grants named per variable, billing disclosure and call counts printed and stored, an abort before any client is built when a Named_Explicitly live row lacks its credential or grant, and a Not_Measured record for a Default_Plan row that lacks a credential, fixture or transport |
 
 ### Reported findings (detected and reported; no production fix here)
@@ -118,6 +118,14 @@ written; this document writes no task. The reported findings are the indicator
 over-extraction (D3), the keyword-novelty trigger (D6), the tool-name tell (D7),
 the clear-high ALLOW (TASK-F06), the `ContextHygiene` over-match (TASK-F08), the
 policy-server rewrite of the CBM `base_url` (D4), and the CBM sink-mapping drop.
+
+The findings report is computed by the pure module `findings.py` (see "Findings
+report" under Components) from recorded Stage outputs and the loaded Corpus only. The
+one fact that needs a live object, whether `SyncResolver.__init__` rewrites
+`cbm_client.base_url`, is observed once by `stages.py` during the offline stage pass
+and recorded as a stage-pass fact that `findings.py` reads. `findings.py` also emits
+the finding-filing list (one entry per reported finding, naming the owning spec and
+the unchecked task to file there) as data; it never edits a spec or a tasks file.
 
 The **CBM sink-mapping drop** is a named finding: `CodebaseMemoryClient.query`
 maps `CriticalSinkType` to `SinkType` by value, so every critical sink is dropped
@@ -147,8 +155,8 @@ spec when the tasks are written (Q4, decided 2026-11-13), not fixed by this chan
 
 QUARANTINE therefore does **not** let the call execute unattended, so the
 definition below stands. Two caveats stay attached to it. First, a
-QUARANTINE can be a fail-closed non-detection (Tier-2 unavailable, rate limit),
-which is an availability cost rather than a catch. Second, "pending review" and
+QUARANTINE can be a fail-closed non-detection (a Tier-2 outage, or the front rate
+limiter), which is an availability cost rather than a catch. Second, "pending review" and
 "pending retry" are product intentions: this harness does not model what a human
 or a retry later decides.
 
@@ -166,7 +174,12 @@ or a retry later decides.
   highlights; the paired values stay visible.
 - **Quarantine provenance:** every table can split QUARANTINE into `aggregate`
   (a deliberate score of 0.50 or more), `tier2_unavailable` and `rate_limit`.
-  The default tables count all three under "stopped": a fail-closed QUARANTINE
+  `rate_limit` means the front rate limiter only (80 req/s, the QUARANTINE "Rate
+  limit exhausted" that step 1 of `evaluate()` returns before any stage runs). An
+  empty Tier-2 bucket (300 RPM) is a Tier-2 outage: its record carries
+  `quarantine_cause == "tier2_unavailable"` and a `Tier2Out` with
+  `unavailable_reason == "rate limit"`, and it invalidates the Pass (Run Protocol
+  step 6). The default tables count all three under "stopped": a fail-closed QUARANTINE
   (`tier2_unavailable` or `rate_limit`) is counted as caught under the Stopped
   reading, and its share is always shown separately. A column shows how many of the
   catches or false alarms are fail-closed, and the percentage of caught attack
@@ -270,13 +283,23 @@ graph TD
     COMPOSE --> REPLAY[Band replay + outage drill]
     COMPOSE -. must reproduce .-> WHOLE
     ABL & REPLAY --> LIB[Analysis library<br/>caught, flags, stats]
-    LIB --> NB[notebooks/holistic_defense_analytics.py]
+    STORE --> FIND[findings.py<br/>findings report + filing list<br/>computed by the CLI only]
+    CORPUS --> FIND
+    FIND -->|stored in the Manifest| STORE
+    LIB --> REP[report.py<br/>headers, groupings, paired tables]
+    REP --> NB[notebooks/holistic_defense_analytics.py]
+    REP --> CLIOUT[CLI report output]
+    FIND --> CLIOUT
     STORE --> NB
 ```
 
 Data flows left to right and is append-only: live runs write per-case JSON into a
 new directory; everything downstream is a pure function of committed files. The
-notebook never calls a model, never reads a credential and never writes.
+notebook never calls a model, never reads a credential and never writes. Report
+figures are assembled once, by `report.py`; the CLI prints them and the notebook
+renders them, and neither recomputes them. Every Harness run installs the egress
+guard of `egress.py` before it builds a client, so a connection to any host outside
+that run's derived allowlist is refused (see "Egress guard").
 
 ### Why stage-first
 
@@ -292,22 +315,28 @@ resolver did", which is the check that keeps the algebra honest.
 
 | Path | Role |
 |---|---|
-| `src/blackwall/holistic_eval/` | Importable library. A new light subpackage, so `import` does not run `blackwall.eval.__init__` (measured at about a second of import time). Pure modules import nothing from the rest of `blackwall`. |
+| `src/blackwall/holistic_eval/` | Importable library. A new light subpackage, so `import` does not run `blackwall.eval.__init__` (measured at about a second of import time). Pure modules import nothing from `blackwall` outside `blackwall.holistic_eval` at module import time; they may import each other. The pure modules are `caught`, `records`, `compose`, `ablation`, `replay`, `stats`, `jev_bounds`, `band_gate`, `findings`, `report` and `billing`; `store` is pure I/O; `egress` uses the standard library and imports nothing from `blackwall` outside `blackwall.holistic_eval` at module import time (it imports `records` for `RuntimeHost` and `EgressRefusal`). The remaining modules (`corpus`, `observers`, `configs`, `stages`, `tsg_seed`, `cbm_fixture`, `ioc_corpus`, `cbm_probe`, `runner`) may import `blackwall`, lazily where their rows say so |
 | `src/blackwall/holistic_eval/caught.py` | The definition of caught (the Reading table, `outcome`, `rates`) and the stage-flag table (pure). The only module that holds caught-ness logic; a source scan (see "Single-definition scan") fails on duplicated caught-ness logic anywhere else, and permits verdict construction |
-| `src/blackwall/holistic_eval/records.py` | Dataclasses, JSON codec, schema checks, corpus hash (pure) |
+| `src/blackwall/holistic_eval/records.py` | Dataclasses, JSON codec, schema checks and `corpus_hash` (pure). `corpus_hash` lives here, not in the loader, so the Run_Store can validate a Run_Set without importing `corpus.py` |
+| `src/blackwall/holistic_eval/corpus.py` | The Corpus_Loader: `CorpusCase`, `load_corpus`, and the Tool_Name_Group and Family assignment. Reads committed files only and opens no network connection. Not pure in the import sense: it imports `blackwall` lazily (for `_HIGH_RISK_TOOLS` and `ContextHygiene`) and `scripts/jev_triage_eval.py::build_cases`, and calls `records.corpus_hash` |
+| `src/blackwall/holistic_eval/findings.py` | The findings report of Requirement 26 and the finding-filing list (pure), in two parts. The computation part (`build_findings`, `findings_to_file`) takes the loaded Corpus as an argument, is called only by the `stages` and `validate` subcommands, and computes every figure from recorded Stage outputs, that Corpus and the recorded stage-pass facts; the CLI stores the result in the Manifest. The render part (`format_findings`) needs no Corpus and is the only part the Notebook calls. Names `LoadedCorpus` only under `typing.TYPE_CHECKING`, so importing it never imports `corpus.py`; imports nothing from `blackwall` outside `blackwall.holistic_eval`; never edits a spec |
+| `src/blackwall/holistic_eval/report.py` | Report assembly (pure): header statements, the four groupings, the paired-reading tables with `ERROR` and Not_Measured counts and Wilson intervals, and the per-Pass spread, as plain data structures. Calls `caught.rates` and `caught.outcome` and holds no caught-ness logic, so the single-definition scan covers it |
+| `src/blackwall/holistic_eval/egress.py` | `derive_runtime_hosts` (which produces `RUNTIME_HOSTS` at run start), the socket-level egress guard installed for every Harness run, and `SendGuard`, the per-run OTX send guard. Uses the standard library and imports nothing from `blackwall` outside `blackwall.holistic_eval` at module import time; it imports `records.py` for `RuntimeHost` and `EgressRefusal` |
+| `src/blackwall/holistic_eval/billing.py` | Dollar cost from the logged token counts and a maintainer-supplied Pricing_File (pure). Never fetches a price and holds no price literal |
+| `src/blackwall/holistic_eval/cbm_probe.py` | The CBM_Probe_Step: indexes the fixture through codebase-memory-mcp, sends the conformance requests and returns the conformance row and the Indexer_Agreement rows, which `probe-cbm` appends to the Run_Set as one numbered probe attempt. Run only by the `probe-cbm` subcommand, never inside a measurement Pass; loopback only; imports the shipped `call_mcp_tool_http` transport lazily |
 | `src/blackwall/holistic_eval/compose.py` | `compose_verdict` (pure arithmetic over recorded stage outputs) |
 | `src/blackwall/holistic_eval/ablation.py` | Leave-one-out, add-one-in, catch partition (pure) |
 | `src/blackwall/holistic_eval/replay.py` | Band replay, outage drill, held-out split (pure) |
 | `src/blackwall/holistic_eval/stats.py` | Wilson intervals, per-pass spread, AUROC (pure) |
 | `src/blackwall/holistic_eval/jev_bounds.py` | The three fixed Jev P comparison constants (`JEV_P_MAX_ABS_DELTA`, `JEV_P_MEAN_ABS_DELTA`, `JEV_P_MAX_ZONE_FLIPS`) and the pure comparison function that applies them to a live Pass and a stored run (pure; the only place the constants are defined) |
-| `src/blackwall/holistic_eval/store.py` | Run-set read, write, validate (pure I/O, atomic writes) |
+| `src/blackwall/holistic_eval/store.py` | Run-set create, append, read and validate (pure I/O, atomic writes). `create_run_set` (used by `stages`) refuses an existing directory; `open_for_append` (used by `run`, `run --experiment LX-wave` and `probe-cbm`) admits only a Run_Set that `stages` created, bound to the loaded Corpus_Hash, with no record for any configuration-pass the run would write (the last condition does not apply to `probe-cbm`, which writes no configuration-pass); `append_probe_attempt` (used only by `probe-cbm`) appends one numbered probe attempt and never rewrites an earlier one (see "Run_Set creation and append rule") |
 | `src/blackwall/holistic_eval/observers.py` | Resolver wrappers (imports `blackwall` lazily) |
 | `src/blackwall/holistic_eval/configs.py` | Exact resolver construction per matrix row |
-| `src/blackwall/holistic_eval/stages.py` | Isolated stage runners |
+| `src/blackwall/holistic_eval/stages.py` | Isolated stage runners (imports `blackwall` lazily). During the offline stage pass it also observes, once, whether `SyncResolver.__init__` rewrites `cbm_client.base_url`, and records that as a stage-pass fact for `findings.py` |
 | `src/blackwall/holistic_eval/tsg_seed.py`, `cbm_fixture.py`, `ioc_corpus.py` | Fixtures and seeding. `cbm_fixture.py` holds the sink table, the snapshot schema, the pure Fixture_Export (standard-library `ast` only), the plan and snapshot loaders and `FixtureCodebaseMemoryClient`. `ioc_corpus.py` holds the IOC corpus schema, loader and the pure builder with the deterministic IOC_Selection, which selects, validates and writes the corpus from already-downloaded export files |
 | `src/blackwall/holistic_eval/band_gate.py` | The band-recommendation gate and its evidence records (pure) |
-| `src/blackwall/holistic_eval/runner.py` | Async orchestration, pacing, invalidation |
-| `scripts/holistic_eval.py` | CLI (dev tooling; CI never runs the live subcommands) |
+| `src/blackwall/holistic_eval/runner.py` | Async orchestration, pacing, invalidation, and `run_lx_wave`, the optional LX-wave experiment (the only code path that leaves the Resolver's background tasks enabled) |
+| `scripts/holistic_eval.py` | CLI (dev tooling; CI never runs the live subcommands). Subcommands `plan`, `stages`, `run`, `validate` and `probe-cbm` (the CBM_Probe_Step, run only on its own and never inside a measurement Pass). `stages` creates the Run_Set and refuses an existing directory; `run`, `run --experiment LX-wave` and `probe-cbm` only append to a Run_Set that `stages` created, under the conditions of "Run_Set creation and append rule", and otherwise exit non-zero naming the failed condition before any client is built, any call is made or any record is written. The LX-wave experiment is requested only through `run --experiment LX-wave`; it is never part of the Default_Plan and is not a `--configs` id. Options include `--configs`, `--passes`, `--concurrency`, `--cooldown-s`, `--seed`, `--experiment` and `--pricing <file>` (the Pricing_File; without it the dollar cost is Not_Measured with the reason "no pricing file"). The CLI prints the structures that `report.py` builds and recomputes none of them |
 | `scripts/build_ioc_corpus.py` | One-time authoring tool for the IOC corpus: a `fetch` step (the IOC_Authoring_Step, started only by the maintainer: the only place `BW_ABUSECH_AUTH_KEY` is read, under a Human_Grant, and it may connect only to `threatfox.abuse.ch` and `tranco-list.eu`) and an offline, deterministic `build` step that applies the IOC_Selection. Not part of any measurement run |
 | `scripts/build_cbm_fixture.py` | Thin CLI over the Fixture_Export in `cbm_fixture.py`: `export` writes the snapshot from the fixture source, `check` re-runs the export and fails on any drift from the committed snapshot, naming each function that differs. It opens no connection and reads no credential variable |
 | `tests/eval/cbm_fixture/v1/fixture_source.py.txt`, `fixture_plan.json`, `snapshot.json` | The hand-authored CBM fixture source (text, never imported or executed), the Fixture_Plan that fixes it, and the snapshot that `export` produces. The plan is committed before any Run_Set with a fixture-backed CBM row (a default-CBM row needs neither plan nor snapshot); a later change goes into a new sibling directory |
@@ -322,14 +351,22 @@ the same reason `blackwall.eval` and `blackwall.benchmarks` live under `src/`
 
 ## Components and Interfaces
 
-### 1. Corpus loader (`Corpus_Loader`)
+### 1. Corpus loader (`Corpus_Loader`, `corpus.py`)
 
-Reuses `scripts/jev_triage_eval.py::build_cases(["security", "evasion_proof"])`
-(the same production-shaped states the committed Jev runs scored) and adds the
-case metadata that `build_cases` drops (`scenario_type`, `attack_type`,
-`evasion_type`, `parent_case_id`, `expected_detection_path`).
+The loader lives in `src/blackwall/holistic_eval/corpus.py` (Q18, decided
+2026-11-13). It reuses `scripts/jev_triage_eval.py::build_cases(["security",
+"evasion_proof"])` (the same production-shaped states the committed Jev runs scored)
+and adds the case metadata that `build_cases` drops (`scenario_type`, `attack_type`,
+`evasion_type`, `parent_case_id`, `expected_detection_path`). It reads committed files
+only and opens no network connection. It imports `blackwall` lazily, inside
+`load_corpus`, for `_HIGH_RISK_TOOLS` and `ContextHygiene`, and imports `build_cases`
+from `scripts/jev_triage_eval.py` the same way, so importing `corpus.py` costs nothing
+until a load runs. `corpus_hash` stays in `records.py`, so the Run_Store validates a
+Run_Set without importing the loader; `load_corpus` calls `records.corpus_hash` to
+bind the loaded Corpus.
 
 ```python
+# corpus.py
 @dataclass(frozen=True, slots=True)
 class CorpusCase:
     case_id: str
@@ -345,10 +382,44 @@ class CorpusCase:
     expected_detection_path: str | None
     tool_group: Literal["high_risk_name", "other"]
     family: Literal["c2_ioc", "payload", "benign"]
+    args_hash: str                         # sha256 of the canonical JSON of `arguments` as loaded (a Corpus_Hash input)
+    sanitized_args_hash: str               # hash of the arguments after ContextHygiene (requirement 2.7)
+    hygiene_changes: tuple[str, ...]       # each ContextHygiene pattern whose substitution changed this case's
+                                           # arguments, found by applying the patterns one at a time at load
+                                           # time; empty when sanitization changed nothing (read by findings.py, F08)
 
-def load_corpus(repo_root: Path, suites: Sequence[str]) -> list[CorpusCase]: ...
-def corpus_hash(cases: Sequence[CorpusCase]) -> str: ...
+@dataclass(frozen=True, slots=True)
+class LoadedCorpus:
+    cases: tuple[CorpusCase, ...]          # ordered by case_id
+    corpus_hash: str                       # records.corpus_hash(cases)
+    excluded: tuple[str, ...]              # case_ids whose ground_truth is neither BENIGN nor MALICIOUS (reported, never loaded)
+
+class CorpusLoadError(Exception):
+    """Raised with the failing suite, the duplicated case_id, or the case and the
+    missing field. No partial corpus is ever returned."""
+
+def tool_name_group(tool_name: str, high_risk_tools: Iterable[str]) -> Literal["high_risk_name", "other"]: ...
+def family(case_id: str, suite: str, ground_truth: str, attack_type: str | None) -> Literal["c2_ioc", "payload", "benign"]: ...
+def load_corpus(repo_root: Path, suites: Sequence[str] = ("security", "evasion_proof")) -> LoadedCorpus: ...
+
+# records.py
+@dataclass(frozen=True, slots=True)
+class CorpusHashEntry:
+    case_id: str
+    tool_name: str
+    args_hash: str
+    state_hash: str
+
+def corpus_hash(entries: Iterable[CorpusHashEntry]) -> str: ...
+    # sha256 over the entries sorted by case_id, so order never matters. Both a
+    # CorpusCase and a CaseRecord carry the four fields, so the loader, the Run_Store
+    # and the notebook compute the same hash and only the loader needs `corpus.py`.
 ```
+
+`tool_name_group` and `family` are pure; `load_corpus` passes them the Resolver's own
+`_HIGH_RISK_TOOLS`, read at load time and never copied. A single changed character in
+a tool name or in the arguments changes `args_hash` or `tool_name`, and so the
+Corpus_Hash.
 
 `tool_group` uses the resolver's own `_HIGH_RISK_TOOLS` (substring match on the
 lower-cased name). `family` is `c2_ioc` for `attack_type == "C2_IOC"` and for
@@ -395,7 +466,7 @@ What is wrapped, and where each output comes from:
 | CBM | `resolver.cbm_client.query` | blast radius, mapped sinks; the adapter also exposes raw sinks |
 | threat intel | `resolver._query_threat_intel` | queried flag, indicator, response, error class |
 | Tier-1 | `resolver._semantic_provider` (as `_CaptureTier1`) | P, served model, latency, tokens |
-| Tier-2 | `resolver._maybe_escalate_tier2` and the Tier-2 backend (as `_RecordTier2`) | trigger, decision, score, latency, unavailable reason (the wrapper catches `_Tier2Unavailable`, records `reason`, re-raises) |
+| Tier-2 | `resolver._maybe_escalate_tier2` and the Tier-2 backend (as `_RecordTier2`) | trigger, decision, score, latency, unavailable reason (the wrapper catches `_Tier2Unavailable`, records its `reason`, which is exactly `no client`, `rate limit` or `no verdict`, and re-raises), and `error_class` and `http_status` from the Gemini client wrapper when it saw the cause |
 | background work | `resolver._schedule_task`, `_schedule_attribution` | dropped (the coroutine is closed); no signature writes, no attribution spend |
 
 The trigger reason is derived from recorded values, not guessed:
@@ -404,10 +475,15 @@ The per-case `novelty` comes from calling the resolver's own
 `_score_argument_novelty`, and a test pins that derivation to the resolver's
 `_maybe_escalate_tier2` outcome over generated inputs.
 
-A Tier-2 429 is invisible to the resolver (the backend turns it into an
-abstention). The runner therefore wraps the Gemini client call and records only
-the exception class and status code (never a message), which feeds pass
-invalidation.
+A Tier-2 429 is invisible to the resolver: `GeminiTier2Backend.escalate` returns
+`None` for a Vertex error (HTTP 429 included), the deadline or a malformed answer,
+and the resolver raises `_Tier2Unavailable("no verdict")` for all of them. The
+runner therefore wraps the Gemini client call (the Gemini client wrapper) and
+records only the finer cause: `error_class` (the exception class name, `deadline` or
+`malformed`) and `http_status`, never a message body. A 429 feeds pass invalidation.
+An empty Tier-2 bucket (`_Tier2Unavailable("rate limit")`) makes no client call, so
+it is seen through the recorded `unavailable_reason` alone, and it also invalidates
+the pass (Run Protocol step 6).
 
 If an observer cannot capture something without touching `src/`, the escape hatch
 is a single optional `observer` callback argument on `SyncResolver.evaluate`
@@ -425,7 +501,7 @@ wrapping proves insufficient, and only as its own tested change (Q9, decided
 @dataclass(frozen=True, slots=True)
 class ConfigSpec:
     config_id: str
-    kind: Literal["isolated", "whole", "composed"]
+    kind: Literal["isolated", "whole", "composed", "experiment"]   # "experiment" is LX-wave only, never in the Configuration_Matrix
     structural: bool
     tsg: Literal["off", "cold", "parent_seeded", "held_out_parents"]
     threat_intel: Literal["off", "otx_real", "stub_plumbing_only"]
@@ -476,6 +552,42 @@ the other valid passes of its configuration stays in the manifest, and is exclud
 with a stated reason, from every comparison between passes (the valid-pass count of
 requirement 24.1, the Pass_Spread, and the Jev release comparison).
 
+The runner never creates a Run_Set. As its first step, before it derives
+`RUNTIME_HOSTS`, builds any client, makes any call or writes any record, it loads the
+Corpus and opens the target with `store.open_for_append`, passing the loaded
+Corpus_Hash and every `(config_id, pass_index)` the selected rows and passes would
+write (for LX-wave, `("LX-wave", 1)`). A refusal (`target_missing`,
+`not_created_by_stages`, `corpus_hash_mismatch` or `records_present`) ends the
+invocation with a non-zero exit naming the condition. Every record and `RunEntry` it
+then writes goes through the appender, so existing records are never touched (see
+"Run_Set creation and append rule").
+
+Before it builds any client, the runner derives the run's `RUNTIME_HOSTS` from the
+clients the selected rows will build and installs the egress guard (see "Egress
+guard"). It sets the guard's current-case marker around each `run_case`, so a refused
+connection is attributed to its case, and after the case it marks that case `ERROR`
+with `error == "egress_refused"` whatever the Resolver returned.
+
+**LX-wave (`run_lx_wave`, in `runner.py`; Q18, decided 2026-11-13).** The optional
+learning experiment is the only code path that leaves the Resolver's background tasks
+enabled, so `_inline_generate_signature` runs on each BLOCK and the graph grows. It
+processes cases one at a time (an in-flight limit of 1, never `--concurrency`) in an
+order that is recorded before the first case, writes its results under its own
+`experiment` kind (`ConfigSpec.kind == "experiment"`, config id `LX-wave`), labels
+them `order-dependent`, and is never mixed with the
+Configuration_Matrix, any composed row or any rate of it. It runs only when
+`run --experiment LX-wave` requests it; no Default_Plan includes it.
+
+```python
+async def run_lx_wave(resolver: SyncResolver, cases: Sequence[CorpusCase], *,
+                      order_seed: int, repo_path: Path) -> LxWaveResult:
+    # order_seed comes from the seed rule (requirement 29.29 to 29.32); the order is
+    # written to the Run_Set before the first case. repo_path is an explicit temporary
+    # database path, never the product default. Background tasks are flushed after
+    # each case, in the same coroutine, before the next case starts.
+    ...
+```
+
 ### 4. Isolated stage runners (offline unless noted)
 
 ```python
@@ -491,11 +603,20 @@ async def run_tier2_table(cases, p_by_case, backend, *, release: str, pass_index
     # with no P there is Not_Measured for that release, not a call. concurrency >= 1
     # is the in-flight limit N.
 def load_jev_stored(runs_dir, run_key) -> dict[str, JevOut]: ...                                 # committed runs
+def observe_cbm_base_url_rewrite(policy_path: Path) -> CbmBaseUrlFact: ...                       # offline, once per stage pass
 ```
 
 `run_context` builds a bare `SyncResolver(client=None, enable_semantic_triage=False)`
 and calls its own `_score_tool_name`, `_score_argument_novelty`, `_score_context`
 and `_extract_indicator`, so the context stage is the production code, not a copy.
+
+`observe_cbm_base_url_rewrite` builds a `CodebaseMemoryClient()`, records its
+`base_url`, constructs a `SyncResolver` with a policy server from `policy.yaml` and
+`client=None`, records `base_url` again, and returns both values with the yes or no
+answer to "did `SyncResolver.__init__` overwrite it". It opens no connection (the
+client is constructed, never queried). The fact is written into the stage-pass output
+of the Run_Set (`StagePassFacts`, see "Data Models") and is the only live-object fact
+that `findings.py` reads.
 
 ### 5. `compose_verdict` (pure; the Composer)
 
@@ -525,20 +646,363 @@ differs from the live run. The two are kept apart: only the identity check can f
 ### 7. Results store (`Run_Store`)
 
 `store.py` reads and writes run sets and validates them: schema version, corpus
-hash, completeness (every `(config, case)` exactly once per pass), pass validity
-and the absence of credential-shaped strings. Writes are atomic (temp file in the
-same directory, then rename).
+hash (recomputed with `records.corpus_hash` from the Run_Set's own records, so the
+store never imports `corpus.py`), completeness (every `(config, case)` exactly once
+per pass), pass validity (including the `tier2_429`, `tier2_rate_limit`, `rate_limit`
+and `release_mismatch` invalidations), the `runtime_hosts` and `egress_refusals`
+entries, and the absence of credential-shaped strings. Writes are atomic (temp file in
+the same directory, then rename). It is also the only writer through which
+`probe-cbm` appends a probe attempt to a Manifest's `cbm_fixture.probe_attempts`.
+
+#### Run_Set creation and append rule
+
+A Run_Set always starts with its offline stage pass (Q18, decided 2026-11-13).
+`stages` is the only subcommand that creates a Run_Set, and requirement 11.24 (refuse
+when the target directory already exists) applies to it. A live `run`,
+`run --experiment LX-wave` and `probe-cbm` never create a Run_Set; each writes into an
+existing one only when all of these conditions hold:
+
+- (a) the target exists and its Manifest records `created_by == "stages"`;
+- (b) the Manifest's `corpus_hash` equals the Corpus_Hash of the loaded Corpus;
+- (c) the Run_Set holds no committed per-case record for any `(config_id, pass_index)`
+  that the invocation would write.
+
+Otherwise the invocation refuses before any client is built, any call is made or any
+record is written, exits non-zero and names the failed condition. A discarded Pass
+commits no per-case record (requirement 11.26), so its `(config_id, pass_index)` stays
+writable.
+
+`probe-cbm` is bound by conditions (a) and (b) only. Condition (c) does not apply to
+it: it writes no per-case record and no `(config_id, pass_index)`, so it calls
+`open_for_append` with an empty `writes` set, and each probe attempt it writes has its
+own index. Every `probe-cbm` invocation that passes (a), (b) and the loopback check
+runs the probe and appends one probe attempt (`CbmProbeAttempt`) to the Manifest's
+`cbm_fixture.probe_attempts`, whatever the probe's outcome: its attempt index (1-based,
+one more than the highest existing index, or 1 for the first), its timestamp (UTC
+ISO 8601, to the second), the conformance row and the Indexer_Agreement rows of that
+attempt. An attempt is never overwritten or deleted, so a failed probe stays on record
+and a later `probe-cbm` retries by appending the next attempt. The attempt is written
+in one atomic write after the probe returns, so an interrupted invocation leaves no
+partial attempt and the next one takes the same index. A Run_Set with no attempt
+stores no probe row; its live-MCP row and its Indexer_Agreement rows are shown as
+Not_Measured with the reason `probe not requested`.
+
+```python
+class RunSetExists(StoreError): ...        # `stages` target directory already exists; nothing is written
+
+class AppendRefused(StoreError):
+    condition: Literal["target_missing", "not_created_by_stages",
+                       "corpus_hash_mismatch", "records_present"]
+    detail: str                            # e.g. the recorded and loaded hashes, or the (config_id, pass_index) pairs present
+
+def create_run_set(path: Path, manifest: RunSetManifest) -> None:
+    # Used only by `stages`. Raises RunSetExists when `path` exists and leaves that
+    # directory byte-identical; otherwise creates it atomically with
+    # manifest.created_by == "stages".
+    ...
+
+def open_for_append(path: Path, *, corpus_hash: str,
+                    writes: frozenset[tuple[str, int]]) -> RunSetAppender:
+    # Used by `run`, `run --experiment LX-wave` and `probe-cbm`, before any client is
+    # built. Checks in order: path exists ("target_missing"); created_by == "stages"
+    # ("not_created_by_stages"); manifest.corpus_hash == corpus_hash
+    # ("corpus_hash_mismatch"); no committed per-case record for any pair in `writes`
+    # ("records_present"). The first failed check raises AppendRefused; nothing is written.
+    # `probe-cbm` passes an empty `writes`, so the "records_present" check never refuses it.
+    ...
+
+class RunSetAppender:
+    def append_probe_attempt(self, result: CbmProbeResult) -> CbmProbeAttempt:
+        # Used only by `probe-cbm`, after cbm_probe.probe returns. Appends
+        # CbmProbeAttempt(attempt = 1 + the highest index in probe_attempts, or 1 when it
+        # is empty; probed_at, conformance and indexer_agreement copied from `result`)
+        # to manifest.cbm_fixture.probe_attempts in one atomic write. The encoded form of
+        # every existing attempt is byte-identical afterwards; no other Manifest field
+        # and no per-case record changes.
+        ...
+```
+
+Every write through a `RunSetAppender` is atomic and appends: new per-case files,
+new `RunEntry` values and new probe attempts are added, and an existing per-case
+record, `RunEntry` or probe attempt is never overwritten or deleted. New `RunEntry` values continue the Run_Set's interleave
+numbering after its highest existing `interleave_position`, so positions stay unique
+within the Run_Set and ordered by execution start across invocations.
 
 ### 8. Analysis library and notebook
 
-Pure functions return plain dataclasses and lists of dicts. The notebook maps
-them to pandas and plotly. Both the notebook tests and the unit tests call the
-same functions.
+Pure functions return plain dataclasses and lists of dicts. `report.py` assembles
+them into the report structures; the notebook maps those structures to pandas and
+plotly, and the CLI prints them. Both the notebook tests and the unit tests call the
+same functions. The notebook may import only the pure modules `caught`, `records`,
+`compose`, `ablation`, `replay`, `stats`, `jev_bounds`, `band_gate`, `findings` and
+`report`, and never `runner`, `observers`, `stages`, `egress`, `cbm_probe`,
+`tsg_seed` or the builder paths of `ioc_corpus` (see "Notebook" conventions). From
+`findings` it calls only the render part, `format_findings`, over the findings report
+stored in the Run_Set (see section 10).
 
 ### 9. Fixtures
 
 TSG seeding, the IOC corpus and the CBM fixture codebase are specified in their
 own sections below.
+
+### 10. Findings report (`findings.py`, pure)
+
+`findings.py` computes every figure of Requirement 26, and the CBM probe figure, from
+recorded Stage outputs, the loaded Corpus, the recorded `StagePassFacts` and the
+recorded probe attempts, and from nothing else: no
+Resolver, no client and no network (Q18, decided 2026-11-13). The module has two
+parts, so the Notebook can import it and still never compute a finding. The
+computation part takes the loaded Corpus as an argument, and the Notebook never has
+one. The render part needs no Corpus. `Figure`, `FindingsReport` and `FindingToFile`
+are records (see "Data Models"), decoded with the rest of the Manifest through
+`records`; they live with the other records because `records.py` cannot import
+`findings.py`, which imports `records.py`.
+
+```python
+# Computation part. Called only by the CLI (`stages` and `validate`), which passes the
+# Corpus that load_corpus returned. LoadedCorpus is imported under typing.TYPE_CHECKING
+# only, so importing findings.py never imports corpus.py.
+def build_findings(corpus: LoadedCorpus | None, stage_rows: Mapping[str, StageOutputs],
+                   whole_runs: Mapping[str, Sequence[CaseRecord]],
+                   facts: StagePassFacts | None,
+                   probe_attempts: Sequence[CbmProbeAttempt]) -> FindingsReport: ...
+                   # probe_attempts: manifest.cbm_fixture.probe_attempts, or () without a cbm_fixture entry
+def findings_to_file(report: FindingsReport) -> tuple[FindingToFile, ...]: ...
+
+# Render part. Needs no Corpus; the only findings function the Notebook calls.
+@dataclass(frozen=True, slots=True)
+class FindingsView:
+    not_measured_reason: str | None              # "no stored findings report" when the Run_Set stores none
+    figure_rows: tuple[Mapping[str, object], ...]  # one per stored Figure, every field copied unchanged
+    list_rows: tuple[Mapping[str, object], ...]    # the stored lists (indicator values, disagreement cases,
+                                                   # dropped sinks, base_url fact, F06 per Reading, F08,
+                                                   # the latest probe attempt and the number of attempts)
+    filing_rows: tuple[Mapping[str, str], ...]     # one per stored FindingToFile
+
+def format_findings(stored: FindingsReport | None,
+                    filing: Sequence[FindingToFile]) -> FindingsView: ...
+```
+
+`format_findings` copies every stored value, Not_Measured reason, `ERROR` count and
+list entry unchanged and adds, drops or recomputes none. With `stored` None it returns
+no figure or list rows and sets `not_measured_reason` to "no stored findings report".
+
+| Figure | Computed from |
+|---|---|
+| Indicator extraction counts per class and every unique indicator value with its per-class counts (D3) | `ContextOut.indicator` of each case and the case's ground truth; no value is filtered |
+| Keyword-novelty counts per class and the disagreement triggers with their case ids and matched keywords (D6) | `ContextOut.novelty` and `keyword_hits`, and the stored Jev P of each case (`novelty >= 0.4 and P < 0.2`) |
+| Tool_Name_Group counts per class and the `high_risk_name` share of attack cases (D7) | `CorpusCase.tool_group` and ground truth |
+| CBM characterization: the score for a tool absent from the CBM_Fixture and the dropped critical sinks by name (D4) | `CbmOut` of the default-CBM row and of the fixture rows (`raw_sinks` minus `mapped_sinks`); Not_Measured with the reason when no fixture row exists |
+| The CBM `base_url` before and after Resolver construction and whether it was overwritten (D4) | `StagePassFacts.cbm_base_url` |
+| The F06 clear-high list under each Reading, with its length | the Production_Mode Whole_System_Run records whose Jev P is above 0.75 and whose verdict is not caught, through `caught.outcome` |
+| The F08 over-match list, or the statement that there is none | `CorpusCase.hygiene_changes`: the cases whose arguments the password-redaction pattern or the `sk-` pattern changed (the corpus avoids both patterns by value, D8, so any such change is the over-match) |
+| The CBM probe figure: the latest probe attempt (its index, timestamp, conformance row and Indexer_Agreement rows, each `disagree` row with its differing facts) and the number of attempts | `cbm_fixture.probe_attempts` of the Run_Set; the latest attempt is the one with the highest index. Not_Measured with the reason `probe not requested` when there is no attempt. Each `disagree` row of the latest attempt is a finding; the rows of earlier attempts stay visible in the drilldown and are not reported as findings |
+
+A figure that cannot be computed (no Corpus, no stage row, no Whole_System_Run) is
+Not_Measured with the reason and is never reported as zero; every other figure is
+still reported. `ERROR` rows are excluded from every rate and share and counted
+beside each affected figure. `findings_to_file` turns each reported finding into a
+`FindingToFile` entry (finding name, owning spec, task title, evidence pointer), which
+the CLI prints and the Run_Set stores as data. No function of `findings.py` writes or
+edits a spec or a tasks file; filing the task is a step of the Harness change, done by
+its author.
+
+The CLI is the only caller of the computation part. `stages` builds the report after
+the offline stage pass, and `validate` rebuilds it over the whole Run_Set, so the F06
+list appears once a Production_Mode Whole_System_Run is recorded. `probe-cbm` does not
+rebuild the report: the CBM probe figure shows the latest attempt once `validate` runs
+after the probe, and the figure records the attempt index and the number of attempts
+it was built from, so the Notebook can tell when a later attempt exists (see
+`ProbeView.findings_behind` under "Report assembly"). `stages` and `validate` each pass
+the Corpus that `load_corpus` returned, prints the report and its filing list, and writes
+them through the Run_Store's atomic write into the Manifest's `findings` and
+`findings_to_file` fields. `validate` writes nothing when the Run_Set fails validation.
+The Notebook only renders what is stored: it calls `format_findings` on the selected
+Run_Set's `findings` and `findings_to_file`, never calls `build_findings` or
+`findings_to_file`, and holds no Corpus. A Run_Set with no stored report renders as
+Not_Measured with the reason "no stored findings report".
+
+### 11. Report assembly (`report.py`, pure)
+
+`report.py` builds every report structure once, as plain data (Q18, decided
+2026-11-13). The CLI prints these structures and the Notebook renders them; neither
+recomputes a figure.
+
+```python
+def build_header(manifest: RunSetManifest, config_id: str, traces: Sequence[CaseRecord]) -> ReportHeader: ...
+def group_cases(cases: Sequence[CorpusCase]) -> Mapping[str, Mapping[str, tuple[str, ...]]]: ...
+def paired_table(records: Sequence[CaseRecord], groups: Mapping[str, tuple[str, ...]],
+                 passes: Mapping[int, Sequence[CaseRecord]], *, sensitivity: bool) -> PairedTable: ...
+def pass_spread(values_by_pass: Mapping[int, float | None]) -> float | None: ...   # selects the comparable Passes, then calls stats
+def probe_view(manifest: RunSetManifest) -> ProbeView: ...   # selects the latest probe attempt; copies every attempt unchanged
+```
+
+- **Header statements** (`ReportHeader`): `demo_mode`, the optional Layers on and off
+  (or `none`), the statement that the verdicts exclude the Layers that were off, the
+  `environment_role=production` sensitivity statement (adds 0.15 to the context score;
+  not run), and the count of cases with an incomplete Case_Trace.
+- **Groupings:** scenario class, `attack_type` (with `no_attack_type`),
+  Tool_Name_Group and Family; every case is in exactly one group of each grouping.
+- **Paired-reading tables** (`PairedTable`): for each group, the catch rate and the
+  false-alarm rate under the Stopped_Reading and the Blocked_Reading side by side,
+  each with its numerator, denominator and Wilson interval (`stats.wilson`), the
+  `ERROR` count and the Not_Measured count, the fail-closed share, the small-group
+  marker, and the treat-`ERROR`-as-stopped sensitivity value only where Q15 allows it
+  (`sensitivity=True` is accepted only for Whole_System_Run and Composed_Row tables).
+- **Per-Pass spread:** maximum minus minimum across the valid Passes that used the
+  same concurrency; Not_Measured when no valid Pass exists.
+- **CBM probe view** (`ProbeView`): the latest probe attempt (the one with the highest
+  index) with its index, timestamp, conformance row and Indexer_Agreement rows, the
+  number of attempts, and every earlier attempt, newest first and unchanged, for the
+  probe drilldown. With no attempt, or no `cbm_fixture` entry, the live-MCP row and
+  each Indexer_Agreement row read Not_Measured with the reason `probe not requested`
+  and the drilldown is empty. `findings_behind` is true when the Manifest stores a
+  findings report whose `cbm_probe_attempts` is lower than the number of attempts the
+  Manifest holds, that is, when `validate` has not run since the latest attempt.
+
+`report.py` calls `caught.outcome` and `caught.rates` for every caught-ness decision
+and holds no caught-ness logic of its own; the single-definition scan covers it like
+every other Harness module.
+
+### 12. Egress guard (`egress.py`)
+
+`egress.py` uses the standard library and imports nothing from `blackwall` outside
+`blackwall.holistic_eval` at module import time (Q18, decided 2026-11-13); it imports
+`records.py` for `RuntimeHost` and `EgressRefusal`. It holds three things.
+
+```python
+VERTEX_AUTH_HOST = "oauth2.googleapis.com"      # application default credentials refresh their token here
+
+def vertex_host(location: str) -> str:
+    # "global" -> "aiplatform.googleapis.com"; any other location -> f"{location}-aiplatform.googleapis.com".
+    # The location must match ^[a-z0-9-]+$; anything else raises before a host is derived.
+    ...
+
+def derive_runtime_hosts(*, jev_base_url: str | None, otx_base_url: str | None,
+                         vertex_location: str | None) -> frozenset[str]:
+    # Called at run start with the base URLs of the clients that run will actually build
+    # (None for a client the run does not build). Returns RUNTIME_HOSTS: the Jev
+    # base-URL host, the OTX base-URL host, and, when a Vertex client is built,
+    # vertex_host(vertex_location) plus VERTEX_AUTH_HOST. A run that builds no client
+    # (plan, stages, validate) gets the empty set.
+    ...
+
+class EgressGuard:
+    """Socket-level guard installed for every Harness run before any client is built.
+    Wraps socket.getaddrinfo (refuses a host name outside RUNTIME_HOSTS) and
+    socket.socket.connect / connect_ex (refuses an address that was not resolved from
+    an allowed host, so a literal-IP connection is refused too). An allowlist entry may
+    itself be a literal address, which connect accepts directly; only the
+    CBM_Probe_Step uses that form, for its loopback addresses. A refusal raises
+    EgressRefused, records the refused host and the current case id, and never
+    reaches the network."""
+    def __init__(self, runtime_hosts: frozenset[str]) -> None: ...
+    def install(self) -> None: ...
+    def uninstall(self) -> None: ...
+    def current_case(self, case_id: str | None) -> ContextManager[None]: ...
+    @property
+    def refusals(self) -> tuple[EgressRefusal, ...]: ...
+
+class SendGuard:
+    """Per-run OTX send guard: armed with the indicator set of the one committed corpus
+    selected for the run, it refuses (and fails the run, naming the indicator) any
+    indicator outside that set, and sends nothing for it."""
+    def __init__(self, source_corpus: Literal["corpus", "ioc_corpus"], indicators: frozenset[str],
+                 fixtures_digest: str) -> None: ...
+    def check(self, indicator: str) -> None: ...
+```
+
+The defaults come from the shipped clients, read by the caller when it builds them:
+the Jev base URL defaults to `https://api.typesafe.ai` (`JEV_DEFAULT_BASE_URL` in
+`src/blackwall/policy/semantic.py`), the OTX base URL to
+`https://otx.alienvault.com/api/v1` (`src/blackwall/threat_intel/otx.py`), and the
+Vertex location to `GCP_LOCATION`, default `global` (`src/blackwall/config.py`).
+Because the list is derived from the clients actually built, a base-URL override
+changes `RUNTIME_HOSTS` visibly: `plan` prints the derived list, marks every host that
+differs from the shipped default as `overridden`, and the Manifest records the list in
+`runtime_hosts`. A refused connection marks the affected case `ERROR`
+(`error == "egress_refused"`) and is recorded in the Manifest's `egress_refusals`.
+`AUTHORING_HOSTS` stays in `ioc_corpus.py`, and a test asserts that it is disjoint from
+every derived `RUNTIME_HOSTS`. The two named exceptions to `RUNTIME_HOSTS` are the
+IOC_Authoring_Step (its own `AUTHORING_HOSTS`) and the CBM_Probe_Step (loopback
+only), and neither runs inside a measurement Pass.
+
+### 13. Billing (`billing.py`, pure)
+
+The Harness never fetches a price (Q18, decided 2026-11-13). `billing.py` computes the
+dollar cost from the logged token counts and a Pricing_File that the maintainer
+supplies with `--pricing <file>`. The Pricing_File is data supplied at run time, not
+code and not part of this design, so neither the code nor the design holds a price
+literal, and every Harness run stays inside its egress allowlist.
+
+```python
+def load_pricing(path: Path) -> PricingFile: ...          # rejects a malformed file, naming the field
+def dollar_cost(tokens: Mapping[str, Mapping[str, int | None]], pricing: PricingFile | None) -> CostResult: ...
+    # tokens: model -> {"input": n, "output": n}; None marks a count that was unavailable.
+    # pricing None => CostResult.not_measured("no pricing file"); token counts are still returned.
+    # A model in the token counts with no price in the file, or with an unavailable count,
+    # => Not_Measured for that model, naming it; no estimate is substituted.
+    # cost = Decimal(tokens) / token_unit * Decimal(price), summed per model in Decimal.
+```
+
+Without `--pricing`, the dollar cost is Not_Measured with the reason "no pricing file",
+the token counts are still printed and stored, and the run continues. With it, the
+Manifest records the pricing source URL and the fetch date taken from the file.
+
+### 14. CBM probe (`cbm_probe.py`; the CBM_Probe_Step)
+
+`cbm_probe.py` runs only from the explicit `probe-cbm` subcommand of
+`scripts/holistic_eval.py`, never inside a measurement Pass (Q18, decided 2026-11-13).
+It is the second named connection exception after the IOC_Authoring_Step.
+
+```python
+LOOPBACK_V4 = ipaddress.ip_network("127.0.0.0/8")
+LOOPBACK_V6 = ipaddress.ip_address("::1")
+PROBE_TIMEOUT_S = 10
+
+def loopback_targets(base_url: str) -> tuple[str, ...]:
+    # The host must be a literal address in 127.0.0.0/8 or ::1, or the name "localhost"
+    # whose every resolved address is loopback. Anything else raises NonLoopbackBaseUrl
+    # naming the host, before any connection is opened.
+    ...
+
+async def probe(base_url: str, fixture_dir: Path, snapshot: CbmSnapshot) -> CbmProbeResult:
+    # 0. Record probed_at (UTC ISO 8601, to the second) before step 1.
+    # 1. loopback_targets(base_url); install an EgressGuard whose allowlist is the base-URL
+    #    host ("localhost" or the literal loopback address) and its loopback addresses only.
+    # 2. Copy the fixture source to a temporary directory as fixture_source.py (read by the
+    #    indexer as text; never imported or executed) and call index_repository on it.
+    #    Indexing failure => conformance row and every agreement row Not_Measured, naming it.
+    # 3. Send trace_path, query_graph and get_architecture, PROBE_TIMEOUT_S each, through
+    #    the shipped call_mcp_tool_http (src/blackwall/mcp/transport.py, imported lazily).
+    #    No HTTP JSON-RPC endpoint, a non-conforming shape or a timeout =>
+    #    conformance row Not_Measured "transport mismatch".
+    # 4. Compare the indexer's call chains and sink facts with the snapshot, per fixture
+    #    function: one IndexerAgreement row each (agree, or disagree with the differing facts).
+    # 5. Delete the temporary directory. Return the result; never change a fixture row.
+    ...
+```
+
+The base URL comes from `probe-cbm --cbm-base-url <url>`, or, when the option is
+absent, from the `policy.yaml` value that `SyncResolver.__init__` writes into
+`cbm_client.base_url` (`http://localhost:8080/mcp`, D4). A non-loopback base URL is
+refused before any connection: the command exits non-zero naming the host and appends
+no probe attempt, so every earlier attempt and the latest-attempt view stay as they
+were. The step reads no credential. `probe-cbm --run-set <name>` first opens the
+Run_Set with `store.open_for_append` and an empty `writes` set (it must exist, be
+created by `stages` and match the loaded Corpus_Hash, conditions (a) and (b); condition
+(c) does not apply to the probe, because each attempt has its own index; see "Run_Set
+creation and append rule"), and otherwise exits non-zero naming the failed condition
+before any connection. After `probe` returns, it calls
+`RunSetAppender.append_probe_attempt`, which appends one `CbmProbeAttempt` (the next
+free 1-based index, `probed_at`, the conformance row and the Indexer_Agreement rows of
+this attempt) to the `cbm_fixture` entry of that Run_Set's Manifest in one atomic
+write. It appends an attempt whatever the outcome (`conformant`, `transport mismatch`
+or an indexing failure), so a retry after a failed probe is a new `probe-cbm` that
+appends the next attempt. It never overwrites or deletes an earlier attempt, changes no
+other field and no per-case record, and a disagreement in the latest attempt is
+reported as a finding. It does not rebuild the stored findings report; the next
+`validate` does (see "Findings report").
 
 ## Data Models
 
@@ -618,13 +1082,21 @@ class JevOut:
 
 @dataclass(frozen=True, slots=True)
 class Tier2Out:
-    fired: bool                               # the Tier-2 call was made (always true for a Forced_Table row)
+    fired: bool                               # Tier-2 escalation was attempted for this case (always true for a Forced_Table
+                                              # row); a "no client" or "rate limit" outage is fired with no call sent
     trigger: Literal["ambiguity", "disagreement", "none"]
     decision: Literal["ALLOW", "BLOCK"] | None    # None = the call returned no verdict (a measured outage)
     threat_score: float | None
     unavailable_reason: Literal["no client", "rate limit", "no verdict"] | None
+        # exactly the Resolver's three _Tier2Unavailable reasons:
+        #   "no client"  - no Gemini client can send
+        #   "rate limit" - the Tier-2 rate bucket (300 RPM) was empty; no call was sent
+        #   "no verdict" - GeminiTier2Backend.escalate returned None: a Vertex error
+        #                  (HTTP 429 included), the deadline, or a malformed answer
+    error_class: str | None                   # the finer cause when the Gemini client wrapper saw it: the exception
+                                              # class name, "deadline" or "malformed"; never a message body
     latency_ms: int | None
-    http_status: int | None                   # from the client probe; 429 invalidates the pass
+    http_status: int | None                   # from the Gemini client wrapper; 429 invalidates the pass
     source: Literal["live_in_system", "forced_table"]
     forced_release: str | None                # Jev release whose Forced_Table this row belongs to; None for live_in_system
     forced_pass_index: int | None             # 1 or 2 within that release's table; None for live_in_system
@@ -633,14 +1105,31 @@ class Tier2Out:
     def __post_init__(self) -> None:
         # Invariants, checked at construction and on every read (a violation is a
         # loader error naming the file; nothing partial is returned):
-        #  - fired and decision is None  <=>  unavailable_reason is a non-empty string
-        #    (a measured outage: error, deadline, malformed answer, HTTP 429, no client,
-        #    or an empty Tier-2 rate bucket)
-        #  - decision is not None  =>  fired, unavailable_reason is None, threat_score is not None
-        #  - not fired  =>  decision, threat_score, latency_ms, http_status and
+        #  - fired and decision is None  <=>  unavailable_reason is one of the three
+        #    values above (a measured outage)
+        #  - decision is not None  =>  fired, unavailable_reason is None, error_class is None,
+        #    threat_score is not None
+        #  - error_class is not None  =>  unavailable_reason == "no verdict"
+        #  - unavailable_reason in ("no client", "rate limit")  =>  error_class and
+        #    http_status are None (no call was sent)
+        #  - http_status may be set on a verdict row too: a call that a retry completed
+        #    keeps the 429 it saw, which still invalidates the Pass
+        #  - not fired  =>  decision, threat_score, latency_ms, http_status, error_class and
         #    unavailable_reason are all None, and trigger == "none"
         ...
 ```
+
+`unavailable_reason` keeps the Resolver's own three values and nothing finer, so a
+recorded row matches what `evaluate()` saw. The finer cause of a `no verdict` outage
+is in `error_class` and `http_status`, which the Composer never reads.
+
+Where "rate limit" appears, two different limiters are meant, and the design keeps
+them apart:
+
+| Limiter | Where | Recorded as | Effect on the Pass |
+|---|---|---|---|
+| Front rate limiter (80 req/s) | step 1 of `evaluate()`, before any stage runs; returns QUARANTINE "Rate limit exhausted" | `quarantine_cause == "rate_limit"`, `decided_by == "rate_limit"`, no Stage outputs | invalidates the Pass (reason `rate_limit`) |
+| Tier-2 rate bucket (300 RPM) | `_maybe_escalate_tier2`, raising `_Tier2Unavailable("rate limit")` | a measured outage: `Tier2Out.unavailable_reason == "rate limit"`; an otherwise-ALLOW call becomes QUARANTINE with `quarantine_cause == "tier2_unavailable"` | invalidates the Pass (reason `tier2_rate_limit`), because an empty bucket in a measurement Pass reflects harness pacing, not product behavior |
 
 A `Tier2Out` therefore carries one of three states, tested with `is None` and never
 by truthiness (a dataclass instance is always truthy, so `if tier2:` cannot tell a
@@ -649,7 +1138,7 @@ verdict from an outage):
 | State | Recorded form | Composer reads it as |
 |---|---|---|
 | no Tier-2 output | no `Tier2Out` at all, or one with `fired == False` | nothing was measured for this case |
-| measured outage | `fired`, `decision is None`, `unavailable_reason` non-empty | Tier-2 was called and gave no verdict |
+| measured outage | `fired`, `decision is None`, `unavailable_reason` one of `no client`, `rate limit`, `no verdict` (with `error_class` and `http_status` when the wrapper saw them) | Tier-2 was reached and gave no verdict; the reason and `error_class` are not read |
 | verdict | `fired`, `decision in {"ALLOW", "BLOCK"}`, `threat_score` set | the recorded decision and score |
 
 ```python
@@ -669,6 +1158,8 @@ class CaseRecord:
     tool_group: str
     family: str
     attack_type: str | None
+    args_hash: str                           # copied from the CorpusCase; a Corpus_Hash input
+    state_hash: str                          # copied from the CorpusCase; a Corpus_Hash input
     sanitized_args_hash: str
     stages: StageOutputs                     # the dataclasses above, any may be None for a stage that is off
     final_decision: Literal["ALLOW", "QUARANTINE", "BLOCK", "ERROR"]
@@ -676,15 +1167,111 @@ class CaseRecord:
     decided_by: Literal[
         "tsg", "structural", "threat_intel", "tier2_block", "tier2_allow",
         "aggregate", "tier2_unavailable_quarantine", "rate_limit", "error",
-    ]
+    ]                                        # "rate_limit" is the front limiter only (step 1 of evaluate())
     quarantine_cause: Literal["none", "aggregate", "tier2_unavailable", "rate_limit"]
-    error: str | None
+                                             # "tier2_unavailable" covers every Tier-2 outage, an empty Tier-2 bucket included
+    error: str | None                        # exception class name, or "egress_refused" when the egress guard refused a host for this case
     resolver_mode: ResolverMode              # demo_mode, layers on, thresholds
     latency_ms: int
 ```
 
 `decided_by` is derived from the recorded stage outputs and verdict, using the
 same precedence as `evaluate()`.
+
+### Stage-pass facts, findings and report structures
+
+```python
+@dataclass(frozen=True, slots=True)
+class CbmBaseUrlFact:
+    before: str | None                       # CodebaseMemoryClient().base_url before Resolver construction
+    after: str | None                        # the same client's base_url after SyncResolver(policy_server=...) construction
+    overwritten: bool                        # after != before, the value coming from policy.yaml
+
+@dataclass(frozen=True, slots=True)
+class StagePassFacts:
+    schema_version: int
+    corpus_hash: str
+    cbm_base_url: CbmBaseUrlFact             # observed once by stages.py; read by findings.py
+
+@dataclass(frozen=True, slots=True)
+class Figure:
+    name: str                                # e.g. "indicator_extraction.attack"
+    numerator: int | None
+    denominator: int | None
+    value: float | None                      # None => Not_Measured
+    not_measured_reason: str | None          # non-empty when value is None; a figure is never reported as 0 in its place
+    n_error: int                             # ERROR rows excluded from this figure (0 when none)
+
+@dataclass(frozen=True, slots=True)
+class FindingsReport:
+    corpus_hash: str | None
+    figures: tuple[Figure, ...]
+    indicator_values: tuple[tuple[str, int, int], ...]          # (value, attack cases, benign cases), every returned value
+    disagreement_cases: tuple[tuple[str, tuple[str, ...]], ...] # (case_id, matched keywords)
+    cbm_dropped_sinks: tuple[str, ...]
+    cbm_base_url: CbmBaseUrlFact | None
+    f06_not_caught: Mapping[Reading, tuple[str, ...]]           # case ids, per Reading
+    f08_over_match: tuple[str, ...]                             # case ids; empty means "there is none"
+    cbm_probe_latest: CbmProbeAttempt | None                    # the highest-index probe attempt when the report was built; None => Not_Measured "probe not requested"
+    cbm_probe_attempts: int                                     # the number of probe attempts when the report was built (0 when there is none)
+
+@dataclass(frozen=True, slots=True)
+class FindingToFile:
+    finding: str                             # e.g. "TASK-F06", "cbm-sink-mapping-drop"
+    owning_spec: str                         # e.g. "tier-1-jev-addition"
+    task_title: str                          # the unchecked task to file there
+    evidence: str                            # the FindingsReport figure or list that supports it
+
+@dataclass(frozen=True, slots=True)
+class ReportHeader:
+    demo_mode: bool
+    layers_on: tuple[str, ...]               # optional Layers on, or ("none",)
+    layers_off: tuple[str, ...]              # optional Layers off, or ("none",)
+    exclusion_statement: str                 # "the verdicts exclude the Layers that were off"
+    environment_role_statement: str          # environment_role=production adds 0.15 to the context score; not run
+    incomplete_case_traces: int
+
+@dataclass(frozen=True, slots=True)
+class IntervalRate:
+    numerator: int
+    denominator: int
+    value: float | None                      # None => Not_Measured (denominator 0)
+    wilson: tuple[float, float] | None       # 95% two-sided (z = 1.96); None when value is None
+
+@dataclass(frozen=True, slots=True)
+class PairedRow:
+    grouping: Literal["scenario", "attack_type", "tool_name_group", "family"]
+    group: str
+    n_cases: int                             # non-ERROR, non-Not_Measured cases
+    small: bool                              # n_cases < 30
+    catch: Mapping[Reading, IntervalRate]
+    false_alarm: Mapping[Reading, IntervalRate]
+    fail_closed_share: float | None          # share of caught attack cases that are fail-closed; None => Not_Measured
+    n_error: int
+    n_not_measured: int
+    error_as_stopped: Mapping[Reading, IntervalRate] | None   # only for Whole_System_Run and Composed_Row tables (Q15)
+    pass_spread: Mapping[str, float | None]                   # per figure; None => Not_Measured
+
+@dataclass(frozen=True, slots=True)
+class PairedTable:
+    header: ReportHeader
+    config_id: str
+    rows: tuple[PairedRow, ...]
+
+@dataclass(frozen=True, slots=True)
+class ProbeView:
+    latest: CbmProbeAttempt | None           # the highest-index probe attempt; None when there is none
+    attempts: int                            # the number of probe attempts in the Run_Set (0 when there is none)
+    earlier: tuple[CbmProbeAttempt, ...]     # every other attempt, newest first, copied unchanged (the probe drilldown)
+    not_measured_reason: str | None          # "probe not requested" when there is no attempt; None otherwise
+    findings_behind: bool                    # a stored findings report was built from fewer attempts than the Run_Set holds
+
+@dataclass(frozen=True, slots=True)
+class EgressRefusal:
+    host: str                                # the refused host name or address
+    case_id: str | None                      # the case in flight, or None outside a case
+    run_entry_key: str | None
+```
 
 ### Manifest
 
@@ -695,6 +1282,7 @@ class RunSetManifest:
     run_set: str
     description: str                         # must restate "stage gates are not system rates"
     created: str                             # date
+    created_by: Literal["stages"]            # the subcommand that created the Run_Set; `run`, `run --experiment LX-wave` and `probe-cbm` append only to a Run_Set that records it (see "Run_Set creation and append rule")
     git_commit: str
     corpus: str                              # "class-blind (TASK-F05b)" or "ioc" or "cbm-fixture"
     corpus_hash: str
@@ -702,14 +1290,20 @@ class RunSetManifest:
     resolver_construction: Mapping[str, ConfigSpec]
     jev: JevSource                           # stored run keys used, served releases
     tier2: Tier2Source                       # model, pinned thinking level, one ForcedTableSource per Jev release
-    cbm_fixture: CbmFixtureSource | None     # plan and snapshot digests, sink table, permutation seed, Indexer_Agreement rows. Required only when the Run_Set holds a fixture-backed CBM row (I-CBM-fixture, I-CBM-permuted, W4, W5, the `sinks mapped` row, an Indexer_Agreement row); None otherwise, including a Run_Set whose only CBM row is the default-CBM row (I-CBM-default, a Phase 1 row), which needs neither the plan nor the snapshot and records no digest for them. A fixture-backed row that did not run has a not_measured entry naming the reason. See "CBM fixture codebase"
+    cbm_fixture: CbmFixtureSource | None     # plan and snapshot digests, sink table, permutation seed, probe attempts (each with its conformance row and Indexer_Agreement rows). Required only when the Run_Set holds a fixture-backed CBM row (I-CBM-fixture, I-CBM-permuted, W4, W5, the `sinks mapped` row, an Indexer_Agreement row); None otherwise, including a Run_Set whose only CBM row is the default-CBM row (I-CBM-default, a Phase 1 row), which needs neither the plan nor the snapshot and records no digest for them. A fixture-backed row that did not run has a not_measured entry naming the reason. See "CBM fixture codebase"
     ti_runs: Sequence[TiRunSource]           # one per threat-intelligence run: the row id, the committed corpus that supplied its indicators ("corpus" or "ioc_corpus"), and the statement that every indicator sent to OTX comes from that corpus's committed fixtures
     cooldown_s: int                          # the cool-down between configurations that the Runner used (default 30; Q10)
     runs: Sequence[RunEntry]                 # one per executed Pass, discarded Passes included; see RunEntry
-    discarded_passes: Sequence[DiscardedPass]   # config, pass number, interleave position, reason ("tier2_429", "rate_limit", "release_mismatch", or a TSG seeding or graph-mutation failure) and count (integer, 0 or greater; reason non-empty); no per-case data
+    discarded_passes: Sequence[DiscardedPass]   # config, pass number, interleave position, reason ("tier2_429", "tier2_rate_limit" for an empty Tier-2 bucket, "rate_limit" for the front limiter, "release_mismatch", or a TSG seeding or graph-mutation failure) and count (integer, 0 or greater; reason non-empty); no per-case data
     call_counts: Mapping[str, int]           # Jev, Tier-2, OTX calls, per run
     token_counts: Mapping[str, Mapping[str, int]]
-    billing: BillingStatement                # project or account named, models, call counts, pricing source and fetch date
+    billing: BillingStatement                # project or account named, models, call counts, token counts, dollar cost or its Not_Measured reason ("no pricing file"), and the pricing source URL and fetch date taken from the Pricing_File
+    runtime_hosts: Sequence[RuntimeHost]     # the RUNTIME_HOSTS derived at run start: host, the client it came from, and whether it differs from the shipped default ("overridden")
+    egress_refusals: Sequence[EgressRefusal] # every host the egress guard refused, with its case; empty when none
+    stage_pass_facts: StagePassFacts | None  # the CBM base_url fact observed by stages.py; None => the findings that need it are Not_Measured
+    findings: FindingsReport | None          # the full findings report that findings.build_findings computed with the loaded Corpus, written by `stages` and rebuilt by `validate`; None => the Notebook's findings panel is Not_Measured with the reason "no stored findings report"
+    findings_to_file: Sequence[FindingToFile]   # the finding-filing list that findings.findings_to_file produced from `findings`, written with it; data only
+    experiment_order: Sequence[str] | None   # the recorded LX-wave case order when the Run_Set holds an LX-wave experiment; None otherwise
     credential_grants: Sequence[GrantNote]   # variable NAMES and the grant date; never values
     not_measured: Sequence[NotMeasured]      # stage, non-empty reason: "no grant" (begins `no grant` and names the variable, e.g. `BW_OTX_API_KEY`), "no fixture", "transport mismatch"
     notes: str
@@ -753,13 +1347,68 @@ class RunEntry:
 ```
 
 `interleave_position` and `concurrency` are stored for every Pass executed,
-discarded Passes and re-runs included; a re-run takes the next unused position.
+discarded Passes and re-runs included; a re-run takes the next unused position. A
+later `run` appended to the same Run_Set adds its own `RunEntry` values after the
+existing ones and continues the numbering, and never rewrites an existing entry.
 A Pass whose `concurrency` differs from the other valid Passes of its configuration
 carries a `comparison_exclusion` reason and does not enter valid-Pass counts,
 Pass_Spread calculations or Jev release comparisons.
 
 `not_measured` is what the notebook renders as the "not measured" status. A stage
 that is neither in `runs` nor in `not_measured` makes the manifest invalid.
+
+```python
+@dataclass(frozen=True, slots=True)
+class RuntimeHost:
+    host: str                                # e.g. the Jev base-URL host
+    client: Literal["jev", "otx", "vertex", "vertex_auth"]
+    overridden: bool                         # True when the host differs from the shipped default of that client
+
+@dataclass(frozen=True, slots=True)
+class BillingStatement:
+    stage: Literal["before_first_live_call", "end_of_run"]
+    billing_project: str | None              # None with a reason when unresolved
+    gcloud_default_project: str | None       # None when it cannot be read
+    models: Mapping[str, str]                # "jev" and "tier2" -> model identifier
+    call_counts: Mapping[str, int]           # planned (before) or actual (end)
+    token_counts: Mapping[str, Mapping[str, int | None]]   # None => Not_Measured for that count, never estimated
+    dollar_cost: CostResult | None           # end_of_run only
+    pricing_source_url: str | None           # from the Pricing_File; None without --pricing
+    pricing_fetch_date: str | None           # YYYY-MM-DD from the Pricing_File; None without --pricing
+```
+
+### Pricing_File
+
+The Pricing_File is a JSON file the maintainer supplies with `--pricing <file>` at run
+time. It is not committed with the design and holds no credential. `billing.py` reads
+it; nothing in the Harness fetches it or any price.
+
+```python
+@dataclass(frozen=True, slots=True)
+class ModelPrice:
+    input_price: str                         # decimal string per token unit, parsed with decimal.Decimal
+    output_price: str                        # decimal string per token unit
+    token_unit: int                          # tokens per priced unit (for example one million), integer of 1 or more
+    currency: str                            # ISO 4217 code
+
+@dataclass(frozen=True, slots=True)
+class PricingFile:
+    schema_version: int
+    source_url: str                          # the vendor page the maintainer read the prices from
+    fetch_date: str                          # YYYY-MM-DD (UTC calendar date)
+    models: Mapping[str, ModelPrice]         # model identifier -> its price
+
+@dataclass(frozen=True, slots=True)
+class CostResult:
+    per_model: Mapping[str, str | None]      # model -> decimal cost string, or None (Not_Measured) for a model with no price or no token count
+    total: str | None                        # None when any model is Not_Measured or no Pricing_File was given
+    not_measured_reason: str | None          # "no pricing file", or a reason naming the model without a price
+```
+
+The loader rejects, naming the field, a file whose `schema_version` differs, whose
+`fetch_date` is not a `YYYY-MM-DD` date, whose `source_url` is empty, or whose price is
+not a non-negative decimal string. Prices are decimal strings so a cost is computed
+exactly; they are never rounded before the final rendered figure.
 
 ### Authoring_Record
 
@@ -815,12 +1464,17 @@ The loader still rejects a case entry that lacks `case_id`, `ground_truth` or
 
 ### Validation rules
 
-- `corpus_hash` in each file equals the recomputed hash of the loaded corpus.
+- `corpus_hash` in each file equals `records.corpus_hash` recomputed from the Run_Set's
+  own per-case records (`case_id`, `tool_name`, `args_hash`, `state_hash`), which the
+  Run_Store and the notebook check without importing `corpus.py`; the `validate`
+  subcommand and the recompute tests also check it against the loaded Corpus.
 - Each `(config_id, pass_index, case_id)` occurs exactly once per valid run; an
   `ERROR` row counts as one occurrence (the check counts rows, not rates).
 - `interleave_position` is an integer of 1 or greater, unique within the Run_Set,
   and ordered by execution start; a duplicate, a value below 1, or an order that
   differs from the execution start order makes the manifest invalid.
+- `created_by` is exactly `"stages"`; a Manifest without it makes the Run_Set invalid
+  and closed to every append.
 - `tier2.forced_tables` holds exactly one `ForcedTableSource` per stored Jev
   release. A built table records its Jev run key and two Passes, each by release name
   and `pass_index`, and each Pass covers every case of the Corpus. A release whose
@@ -836,15 +1490,25 @@ The loader still rejects a case entry that lacks `case_id`, `ground_truth` or
 - `source == "stub_plumbing_only"` rows are never counted in efficacy tables, and an
   efficacy table that would include a `synthetic_feed_sample` row is rejected, naming
   the row.
-- A run with any `http_status == 429` on Tier-2, any `rate_limit` row, or a served
-  Jev release that differs from the requested one (or is absent), is not `valid`
-  and is not committed as data (it goes to `discarded_passes`).
+- A run with any `http_status == 429` on Tier-2, any Tier-2 row with
+  `unavailable_reason == "rate limit"` (an empty Tier-2 bucket), any row with
+  `quarantine_cause == "rate_limit"` (the front limiter), or a served Jev release that
+  differs from the requested one (or is absent), is not `valid` and is not committed
+  as data (it goes to `discarded_passes` with the reason `tier2_429`,
+  `tier2_rate_limit`, `rate_limit` or `release_mismatch`).
+- `runtime_hosts` equals the set that `derive_runtime_hosts` returns for the clients
+  the Run_Set's rows built, and every case listed in `egress_refusals` has
+  `final_decision == "ERROR"` and `error == "egress_refused"`.
 - A Run_Set that holds a fixture-backed CBM row (I-CBM-fixture, I-CBM-permuted, W4,
   W5, the `sinks mapped` row or an Indexer_Agreement row) has a `cbm_fixture` entry
   whose plan and snapshot digests equal the digests of the committed files. A Run_Set
   whose only CBM row is the default-CBM row (I-CBM-default, and any Whole_System_Run
   that uses the default CBM client) needs neither the plan nor the snapshot, records
   no digest for them, and is not rejected for lacking a `cbm_fixture` entry.
+- The `cbm_fixture.probe_attempts` indices, in stored order, are 1, 2, 3 and so on
+  with no gap or repeat, and every `probed_at` is a UTC ISO 8601 timestamp to the
+  second; otherwise the Run_Set is rejected, naming the first attempt that breaks the
+  rule.
 - Every threat-intelligence row (`TiOut`) carries a `source_corpus`, and the manifest
   holds one `ti_runs` entry per threat-intelligence run naming the committed corpus
   that supplied its indicators. A `TiOut` whose `source_corpus` differs from its run's
@@ -914,9 +1578,13 @@ also has a whole row is checked against it (D1, G2).
 | I-TI-corpus | about 46 OTX lookups (well inside the 10,000 per hour budget) |
 | I-TI-ioc | about 200 OTX lookups, one per unique indicator (the exact total is the IOC manifest's case count); `plan` prints every indicator first |
 
-Dollar cost is derived at run time from logged token counts and the vendor's
-current list price (the pricing source URL and fetch date go in the manifest); the
-design does not hard-code prices. The stage pass and everything composed is free.
+Dollar cost is computed at run time by `billing.py` from the logged token counts and
+the Pricing_File the maintainer supplies with `--pricing <file>` (see "Billing"). The
+Harness never fetches a price, and neither the code nor the design holds a price
+literal. Without `--pricing` the dollar cost is Not_Measured with the reason "no
+pricing file", while the token counts are still printed and stored. The Manifest
+records the pricing source URL and the fetch date taken from the Pricing_File. The
+stage pass and everything composed is free.
 The Tier-2 count of the whole run is the 668 forced-table calls plus the triggered
 Tier-2 calls inside the whole-system passes (the row above); `plan` prints both
 before any call. Tier-2 tokens, and so Tier-2 cost, scale with that count and are
@@ -986,7 +1654,11 @@ path (a Gemini call per BLOCK) sequentially and lets the graph grow. It is
 order-dependent and spends tokens, so it is named an experiment, reported apart
 from the configuration matrix, and run only on explicit request. It reuses the
 wave 1 / wave 2 shape of `scripts/run_evasion_wave.py` and the transference
-assertions of testing rule 56.
+assertions of testing rule 56. It is implemented as `run_lx_wave` in `runner.py`
+(see "Configuration runner"): the only code path that leaves the Resolver's
+background tasks enabled, one case at a time in a recorded order, results under the
+`experiment` kind, requested only by `run --experiment LX-wave`. It writes to its own
+explicit temporary database, so its growing graph never reaches a measurement Pass.
 
 ### IOC corpus (efficacy of threat intelligence)
 
@@ -1143,7 +1815,8 @@ def verify_raw_digests(manifest: IocManifest, raw_dir: Path) -> list[DigestRepor
   Corpus for I-TI-corpus, the IOC_Corpus for I-TI-ioc (`TiOut.source_corpus` and the
   manifest's `ti_runs` entry).
 
-  The OTX send guard is per run. It wraps the OTX provider's request path and holds the
+  The OTX send guard (`SendGuard` in `egress.py`) is per run. It wraps the OTX
+  provider's request path and holds the
   set of indicators of the one committed corpus selected for that run: for the Corpus,
   the indicators that `_extract_indicator` returns over the committed Corpus cases
   (documentation-range and private-range addresses and filename-shaped values
@@ -1159,17 +1832,22 @@ def verify_raw_digests(manifest: IocManifest, raw_dir: Path) -> list[DigestRepor
   un-redacted standalone hostname (AGENTS.md: as `wd-bouygues.com` does) and checks
   that the output string equals the input string. If any indicator changes, the
   build fails listing every changed indicator and writes no output.
-- **Egress guard:** the run-time allowlist for every Harness run other than the
-  IOC_Authoring_Step is the Jev, Vertex AI and OTX API hosts only. A Harness run
-  refuses and records any other host, and the two authoring hosts are not in the
-  run-time allowlist. A test installs a socket guard and
+- **Egress guard:** the run-time allowlist for every Harness run is the
+  `RUNTIME_HOSTS` that `egress.derive_runtime_hosts` derives at run start from the
+  clients that run builds: the Jev base-URL host, the OTX base-URL host, and the
+  Vertex endpoint host for the configured location plus `oauth2.googleapis.com` (see
+  "Egress guard" under Components). A Harness run refuses and records any other host
+  and marks the affected case `ERROR`, and the two authoring hosts are not in any
+  derived `RUNTIME_HOSTS`. The two named exceptions are the IOC_Authoring_Step and the
+  CBM_Probe_Step (loopback only), and neither runs inside a measurement Pass. A test
+  installs a socket guard and
   fails, naming the indicator, if any code path opens a connection to an IOC
   indicator. Indicators are strings for classification and for OTX's reputation API;
   nothing contacts them, and no verdict (`ALLOW` and `QUARANTINE` included) causes a
   connection. The IOC_Authoring_Step reaches `threatfox.abuse.ch` and
   `tranco-list.eu`, and no other host, once, under its own grant, outside any
-  Harness run. It has its own allowlist, `AUTHORING_HOSTS`, which holds exactly those
-  two hosts and none of the run-time hosts.
+  Harness run. It has its own allowlist, `AUTHORING_HOSTS` (kept in `ioc_corpus.py`),
+  which holds exactly those two hosts and none of the run-time hosts.
 - **Schema (committed under `tests/eval/ioc_corpus/`):**
 
 ```python
@@ -1296,14 +1974,19 @@ dangerous-looking tool.
   and fails, naming each fixture function whose facts differ, when the result is not
   byte-identical to the committed snapshot.
 - **Indexer cross-check (Indexer_Agreement):** the real codebase-memory-mcp indexer
-  (the reserved stateful MCP tier) is a cross-check and not the producer. When the live
-  conformance probe runs, it first indexes the fixture source and then records one
+  (the reserved stateful MCP tier) is a cross-check and not the producer. The
+  CBM_Probe_Step (`cbm_probe.py`, run only by `probe-cbm`; see "CBM probe" under
+  Components) first indexes the fixture source through the `index_repository` tool and
+  then records one
   Indexer_Agreement row per fixture function: `agree`, or `disagree` with the call-chain
   and sink facts that differ. A disagreement is a finding and changes no fixture row.
-  When the indexer is not available, or the probe is not requested, every row is
-  Not_Measured with the reason. A failed indexing run makes the live-MCP row and every
-  agreement row Not_Measured with a reason naming the failure. Hermetic runs never
-  require the indexer.
+  Each `probe-cbm` invocation that runs the probe stores its rows as a new probe
+  attempt and leaves earlier attempts unchanged. When the indexer is not available,
+  every row of that attempt is Not_Measured with the reason; with no probe attempt,
+  every row is shown as Not_Measured with the reason `probe not requested`. A failed
+  indexing run makes the live-MCP row and every agreement row of that attempt
+  Not_Measured with a reason naming the failure. Hermetic runs never require the
+  indexer, and no measurement Pass runs the probe.
 - **Adapter:** `FixtureCodebaseMemoryClient` subclasses `CodebaseMemoryClient`,
   overrides `queryDependencyChain` and `identifyCriticalSinks` to answer from the
   snapshot, and never touches the network. It still goes through the shipped
@@ -1322,13 +2005,21 @@ dangerous-looking tool.
   if the enum mapping worked. It is a hypothetical row, labeled as such, and the
   defect itself is reported, not fixed, and is tracked as its own task in the owning
   spec when tasks are written (Q4, decided 2026-11-13).
-- **Live MCP:** a conformance probe sends one request each for `trace_path`,
-  `query_graph` and `get_architecture`, with a timeout of 10 seconds per request, and
-  checks that a running codebase-memory-mcp answers in the shapes the client parses.
-  If it does not, or if it exposes no HTTP JSON-RPC endpoint (the client's subprocess
-  transport raises `ConnectionError`), the row reads "not measured: transport
-  mismatch", and every fixture row keeps the value it has without the probe. Whether
-  the real server conforms is **UNCONFIRMED**.
+- **Live MCP:** the CBM_Probe_Step sends one request each for `trace_path`,
+  `query_graph` and `get_architecture`, with a timeout of 10 seconds per request,
+  through the shipped HTTP transport `call_mcp_tool_http`
+  (`src/blackwall/mcp/transport.py`), and checks that a running codebase-memory-mcp
+  answers in the shapes the client parses. It connects only to a loopback address
+  (127.0.0.0/8 or ::1) given by the configured codebase-memory-mcp base URL, refuses a
+  non-loopback base URL before connecting, and reads no credential.
+  If the server does not conform, does not answer within the timeout, or exposes no
+  HTTP JSON-RPC endpoint (the client's subprocess transport raises
+  `ConnectionError`), the live-MCP row (the conformance row) of that attempt reads
+  "not measured: transport mismatch", and every fixture row keeps the value it has
+  without the probe.
+  The live-MCP row is the conformance row: the probe writes no per-case `CbmOut`, so
+  no measurement row carries `source == "mcp_live"` in this design. Whether the real
+  server conforms is **UNCONFIRMED**.
 
 #### What the client can express
 
@@ -1500,7 +2191,37 @@ class IndexerAgreement:
     function: str
     status: Literal["agree", "disagree", "not_measured"]
     differences: tuple[str, ...]        # the call-chain and sink facts that differ; empty unless "disagree"
-    reason: str | None                  # non-empty when "not_measured": indexer unavailable, probe not requested, or indexing failed
+    reason: str | None                  # non-empty when "not_measured": indexer unavailable or indexing failed ("probe not requested" is shown for a Run_Set with no attempt and is never stored in an attempt)
+
+@dataclass(frozen=True, slots=True)
+class CbmProbeRequest:
+    tool: Literal["index_repository", "trace_path", "query_graph", "get_architecture"]
+    status: Literal["ok", "shape_mismatch", "timeout", "no_endpoint", "transport_error", "index_failed"]
+    elapsed_ms: int | None
+    error_class: str | None             # exception class name only; never a message body
+
+@dataclass(frozen=True, slots=True)
+class CbmConformanceRow:
+    """The live-MCP row of one probe attempt, written only by the CBM_Probe_Step."""
+    status: Literal["conformant", "not_measured"]
+    reason: str | None                  # "transport mismatch" or a reason naming the indexing failure; None when "conformant"
+    base_url_host: str                  # the loopback host the probe used
+    requests: tuple[CbmProbeRequest, ...]   # index_repository first, then the three conformance requests
+
+@dataclass(frozen=True, slots=True)
+class CbmProbeResult:
+    """What one call of cbm_probe.probe returns."""
+    probed_at: str                      # UTC ISO 8601 timestamp, to the second, taken when the probe started
+    conformance: CbmConformanceRow
+    indexer_agreement: tuple[IndexerAgreement, ...]   # one row per fixture function
+
+@dataclass(frozen=True, slots=True)
+class CbmProbeAttempt:
+    """One probe-cbm invocation that ran the probe; appended, never overwritten or deleted."""
+    attempt: int                        # 1-based; one more than the highest existing index, or 1 for the first
+    probed_at: str                      # UTC ISO 8601 timestamp, to the second, copied from the CbmProbeResult
+    conformance: CbmConformanceRow      # this attempt's live-MCP row
+    indexer_agreement: tuple[IndexerAgreement, ...]   # this attempt's rows, one per fixture function
 
 @dataclass(frozen=True, slots=True)
 class CbmFixtureSource:
@@ -1514,8 +2235,21 @@ class CbmFixtureSource:
     permutation_seed: int               # the seed of the I-CBM-permuted assignment
     covered_tools: tuple[str, ...]
     uncovered_tools: tuple[str, ...]    # read the default CBM answer in every fixture row
-    indexer_agreement: Sequence[IndexerAgreement]   # one row per fixture function
+    probe_attempts: tuple[CbmProbeAttempt, ...]   # every probe attempt in append order; empty until the first probe-cbm
 ```
+
+`probe_attempts` holds the conformance and agreement rows; the entry has no other
+probe field. It is the only field that `probe-cbm --run-set` changes, through the
+Run_Store, and only by appending one `CbmProbeAttempt` built from the `CbmProbeResult`
+of one probe run. An attempt is never overwritten or deleted. The Run_Store rejects a
+Run_Set whose attempt indices, in stored order, are not 1, 2, 3 and so on with no gap
+or repeat, naming the first index out of sequence. The latest attempt is the one with
+the highest index; the Notebook and the findings show it with the number of attempts,
+and the Notebook keeps every earlier attempt visible in the probe drilldown. With no
+attempt, the live-MCP row and every Indexer_Agreement row are shown as Not_Measured
+with the reason `probe not requested`; no probe attempt ever stores that reason. The
+`status == "conformant"` value requires every one of the three conformance requests
+of that attempt to be `ok`.
 
 The Run_Store recomputes the plan and snapshot digests from the committed files and
 rejects a Run_Set that holds a fixture-backed CBM row (I-CBM-fixture, I-CBM-permuted,
@@ -1543,13 +2277,17 @@ sequenceDiagram
     participant S as Results store
 
     H->>CLI: plan (no spend)
-    CLI-->>H: layers, demo_mode, call counts, models, billing project, grants needed
-    H->>CLI: run, with grants for named variables only
+    CLI-->>H: layers, demo_mode, call counts, models, billing project, RUNTIME_HOSTS, pricing file or "no pricing file", grants needed
+    H->>CLI: stages (offline; creates the Run_Set, refuses an existing directory)
+    CLI->>S: create Run_Set (created_by "stages", Corpus_Hash, stage outputs, findings)
+    H->>CLI: run on that Run_Set, with grants for named variables only (and --pricing if a cost is wanted)
+    CLI->>S: open for append (target created by stages, same Corpus_Hash, no record for a planned configuration-pass, else refuse and exit non-zero)
     CLI->>R: preflight (Named_Explicitly row without credential: abort; Default_Plan row without credential, fixture or transport: Not_Measured)
+    R-->>R: derive RUNTIME_HOSTS, install the egress guard, store the first billing statement
     loop pass 1..P, interleaved across configurations
         R->>J: whole-system case calls (at most N in flight, N = --concurrency)
         R->>V: Tier-2 on triggered cases
-        R-->>R: check 429 / rate-limit / error rows
+        R-->>R: check Tier-2 429 / Tier-2 "rate limit" / front rate_limit / release / error rows
         alt pass invalid
             R-->>S: record discarded pass (reason, count), no per-case data
         else pass valid
@@ -1557,13 +2295,15 @@ sequenceDiagram
         end
         R-->>R: cool-down before the next configuration
     end
-    R->>S: manifest (call counts, tokens, billing, grants, not-measured)
+    R->>S: manifest (call counts, tokens, billing, runtime hosts, egress refusals, grants, not-measured)
 ```
 
 1. **Plan first.** `plan` prints, with no network access, the layers on and off, the
-   resolver mode, call counts, models, the Vertex project that would be billed, and
-   which variables need a grant. Billing is named (rule 79: the gcloud default
-   project can differ from `.env`).
+   resolver mode, call counts, models, the Vertex project that would be billed, the
+   `RUNTIME_HOSTS` that `derive_runtime_hosts` would produce for the selected rows
+   (each host marked `overridden` when it differs from its client's shipped default),
+   whether a Pricing_File was given, and which variables need a grant. Billing is
+   named (rule 79: the gcloud default project can differ from `.env`).
 2. **Hermetic by default** (rules 78 and 79). Runs use `env -i` with a scratch
    `HOME`, `PYTHON_DOTENV_DISABLED=1`, and an empty `CLOUDSDK_CONFIG` unless a
    Vertex run is granted. A live key is read only after the human grants that named
@@ -1624,14 +2364,38 @@ sequenceDiagram
    cool-down separates passes of different configurations: 30 seconds by default
    (`--cooldown-s`), recorded in the manifest as `cooldown_s` (Q10, decided
    2026-11-13). At the default of 2 the front 80 req/s bucket
-   cannot run dry, so any `rate_limit` row signals a harness defect; a larger N
-   raises that risk, and a `rate_limit` row still invalidates the pass.
-6. **Invalidate.** Any Tier-2 429 (from the client probe) or any rate-limit
-   QUARANTINE invalidates the whole pass. So does a Jev release that differs from
-   the explicitly requested release name, or is not reported (the served-release
-   rule). It is discarded and re-run, and recorded in `discarded_passes`. A Jev
-   error is data (`ERROR` rows); a pass with Jev errors is valid but its error count
-   is shown in every table.
+   cannot run dry, so any row with Quarantine_Cause `rate_limit` (the front limiter)
+   signals a harness defect; a larger N raises that risk, and such a row still
+   invalidates the pass. The Tier-2 bucket (300 RPM) is a separate limiter: at the
+   default N only triggered cases reach it, and an empty Tier-2 bucket also
+   invalidates the pass (step 6).
+6. **Invalidate.** Each of the following invalidates the whole pass, and the pass is
+   discarded, recorded in `discarded_passes` with its own reason identifier, and
+   re-run at least one cool-down later, taking the next unused interleave position (a
+   re-run at a different `--concurrency` is compared only with passes at that N,
+   step 5):
+   - any Tier-2 HTTP 429 seen by the Gemini client wrapper, including one that a
+     later retry completed (reason `tier2_429`);
+   - any Tier-2 row with `unavailable_reason == "rate limit"`, meaning the 300 RPM
+     Tier-2 bucket was empty (reason `tier2_rate_limit`). In a measurement pass an
+     empty Tier-2 bucket reflects harness pacing, not product behavior, so it is
+     handled exactly like a Tier-2 429. Such a row also carries Quarantine_Cause
+     `tier2_unavailable` when the call was otherwise ALLOW, and it is never confused
+     with the front limiter;
+   - any row with Quarantine_Cause `rate_limit`, which is the front limiter's
+     QUARANTINE "Rate limit exhausted" from step 1 of `evaluate()` (reason
+     `rate_limit`; also listed as a harness defect);
+   - a Jev release that differs from the explicitly requested release name, or is not
+     reported (the served-release rule; reason `release_mismatch`).
+   The re-run cap for a Tier-2 429 is 3 re-runs per pass (requirements 24.10 and
+   24.11), and a `tier2_rate_limit` pass is re-run under the same cap; a pass still
+   invalid after the cap leaves its configuration Not_Measured with a reason stating
+   that the re-run limit was reached. A Tier-2
+   outage with reason `no client` or `no verdict` (and no 429) is data: it composes as
+   a measured outage and the pass stays valid. A Jev error is data (`ERROR` rows); a
+   pass with Jev errors is valid but its error count is shown in every table. An
+   egress refusal marks its case `ERROR` (`egress_refused`) and leaves the pass valid;
+   the refused host is listed in the manifest.
 7. **Never simulate.** An unavailable credential defers the row (testing rule 74).
    A deferral surfaces as an abort for a Named_Explicitly row and as a Not_Measured
    record for a Default_Plan row (step 3). A live row that has no measured result in
@@ -1642,6 +2406,36 @@ sequenceDiagram
    per-case difference, mean difference, zone flips). The comparison is a test over
    committed data. Its observed values go in the test report and never alter a
    bound, and a violation fails the test rather than relaxing the bound.
+9. **Bill from the Pricing_File.** Before the first live call the runner prints and
+   stores the first billing statement (billing project, gcloud default project,
+   models, planned call counts); if it cannot store it, it makes no live call and
+   exits non-zero. At the end of the run, whether it completed, was aborted or failed,
+   it prints and stores the final statement: actual call counts, token counts and the
+   dollar cost that `billing.py` computes from the `--pricing` file, or Not_Measured
+   with the reason "no pricing file" when none was given. No price is ever fetched,
+   so billing opens no connection.
+10. **Egress, probe and experiment stay outside the Passes.** The egress guard is
+    installed with the run's derived `RUNTIME_HOSTS` before any client is built and is
+    removed only after the last record is written. The CBM_Probe_Step (`probe-cbm`)
+    and the LX-wave experiment (`run --experiment LX-wave`) never run inside a
+    measurement Pass: the probe has its own loopback-only allowlist, and LX-wave runs
+    one case at a time with background tasks enabled and results under the
+    `experiment` kind.
+11. **Create with `stages`, append with `run`** (Q18, decided 2026-11-13). `stages`
+    creates the Run_Set (its Manifest records `created_by: "stages"`) and refuses a
+    directory that already exists. A live `run`, `run --experiment LX-wave` and
+    `probe-cbm` write into that Run_Set only when it was created by `stages`, its
+    recorded Corpus_Hash equals that of the loaded Corpus, and it holds no record for
+    any `(config_id, pass_index)` they would write. The last condition does not apply
+    to `probe-cbm`, which writes no such pair: each invocation that runs the probe
+    appends one probe attempt with the next free index and never rewrites an earlier
+    one. A missing target, a target not
+    created by `stages`, a Corpus_Hash mismatch and a configuration-pass already
+    present each refuse the invocation before any client is built, any call is made or
+    any record is written, with a non-zero exit naming the condition. Writes append
+    atomically, never overwrite an existing record, and record each run's entries with
+    interleave positions that continue the Run_Set's numbering (see "Run_Set creation
+    and append rule").
 
 ## Algorithms and Key Functions
 
@@ -1761,7 +2555,7 @@ truthy, so a measured outage would otherwise look like a verdict):
 | Branch | Tier-2 data for the triggered case | Result |
 |---|---|---|
 | (a) no output | no forced entry and no fired in-system output (no verdict and no recorded unavailable reason) | if the prior decision is not `BLOCK`, return `UNMEASURED` immediately (not an `ALLOW`, `QUARANTINE`, `BLOCK` or `ERROR`); if it is `BLOCK`, return `BLOCK` and read nothing |
-| (b) measured outage | a `Tier2Out` with `decision is None` and a non-empty `unavailable_reason` | treated exactly like `tier2 == "unavailable"`: a prior `ALLOW` becomes `QUARANTINE` with cause `tier2_unavailable`; a prior `QUARANTINE` or `BLOCK` is unchanged; the semantic input stays the Jev P |
+| (b) measured outage | a `Tier2Out` with `decision is None` and `unavailable_reason` one of `no client`, `rate limit` or `no verdict` | treated exactly like `tier2 == "unavailable"`, whichever of the three reasons it carries and whatever its `error_class`: a prior `ALLOW` becomes `QUARANTINE` with cause `tier2_unavailable`; a prior `QUARANTINE` or `BLOCK` is unchanged; the semantic input stays the Jev P |
 | (c) verdict | a `Tier2Out` with `decision in {"ALLOW", "BLOCK"}` | use that decision, never downgrading a `BLOCK`, and use its `threat_score` as the semantic input |
 
 The source of a Tier-2 output for a triggered case is, in order: the `forced` argument
@@ -1848,11 +2642,16 @@ def compose_verdict(s, cfg, forced):
 recorded `ERROR` row has no Stage outputs to compose from and is never passed in);
 `s` holds the outputs of every stage the config enables; `cfg` passes its own
 validation; every `Tier2Out` it receives satisfies the invariant of "Data Models"
-(`decision is None` if and only if `unavailable_reason` is a non-empty string, for a
-fired output). For `tier2 == "recorded"`, a triggered case is in exactly one of three
+(`decision is None` if and only if `unavailable_reason` is one of `no client`,
+`rate limit` or `no verdict`, for a fired output). For `tier2 == "recorded"`, a
+triggered case is in exactly one of three
 states: (a) no forced entry and no fired in-system output, (b) an output with
-`decision is None` and an `unavailable_reason` (a measured outage), or (c) an output
-with a verdict. In state (a), when the prior decision is not `BLOCK`, the result is
+`decision is None` and an `unavailable_reason` (a measured outage, composed the same
+way for each of the three reasons; `error_class` and `http_status` are never read), or
+(c) an output with a verdict. A case of a Pass that was invalidated for
+`tier2_rate_limit` never reaches the Composer as committed data, because the Pass is
+discarded (Run Protocol step 6); the Composer still composes that reason like the
+other two when generated inputs carry it. In state (a), when the prior decision is not `BLOCK`, the result is
 `UNMEASURED`, which the caller counts as Not_Measured and excludes from `outcome`,
 `rates` and every other rate.
 **Postconditions:** never returns a decision outside {ALLOW, QUARANTINE, BLOCK}
@@ -2135,7 +2934,15 @@ Forced_Table.
    edge until Fresh_Evidence exists (Q11, decided 2026-11-13; see "Band
    recommendation gate"). The corpus is small (99 attacks, 10 hand-written), and the
    notebook prints the attack count and the count of the Corpus's own hand-written
-   attack cases, both taken from the loaded Corpus (these are not Fresh_Evidence).
+   attack cases (these are not Fresh_Evidence). Both are taken from the selected
+   Run_Set's own per-case records, not from the Corpus_Loader, which the notebook
+   does not import. The attack count is the number of distinct `case_id` values whose
+   `ground_truth` is `MALICIOUS`; the hand-written count is the number of those whose
+   `suite` is `evasion_proof`. The Corpus_Hash binding ties these records to the
+   Corpus that was scored, because each record carries its Corpus_Hash_Entry and the
+   hash is recomputed from the records. If the records lack the `suite` or
+   `ground_truth` field, or the Run_Set's Corpus_Hash check fails, both counts render
+   as Not_Measured with the reason.
 4. The aggregation weights, the 0.35/0.75 constants elsewhere, and the
    disagreement constants stay fixed; only the band edges and the clear-high policy
    move.
@@ -2453,10 +3260,16 @@ the first comparison.
 #    python scripts/holistic_eval.py plan --configs W0,W1,W2,I-T2 --passes 2
 #    (I-T2 expands to one Forced_Table per Jev release, two Tier-2 Passes each)
 
-# 2. Offline stage pass: structural, context, TSG (cold, parent-only, held-out), CBM default
+# 2. Offline stage pass: structural, context, TSG (cold, parent-only, held-out), CBM default.
+#    `stages` creates the Run_Set (created_by "stages") and exits non-zero if the
+#    directory already exists.
 #    python scripts/holistic_eval.py stages --run-set cb-2026-xx
 
-# 3. Live passes, hermetic, grants given for named variables only
+# 3. Live passes, appended to the Run_Set that step 2 created. `run` refuses, before any
+#    client, call or record, a target that does not exist, was not created by `stages`,
+#    has a Corpus_Hash other than the loaded Corpus's, or already holds a record for a
+#    (config_id, pass_index) it would write. Existing records are never touched.
+#    Hermetic, grants given for named variables only
 #    (the human names the variables; the agent reads only those, per rule 78;
 #     --concurrency N is the in-flight limit: an integer of 1 or more, default 2.
 #     The four ids in --configs are Named_Explicitly: if a grant or credential for
@@ -2464,10 +3277,24 @@ the first comparison.
 #     --configs, the Default_Plan runs and a row with a missing prerequisite is
 #     recorded as Not_Measured.)
 #    python scripts/holistic_eval.py run --run-set cb-2026-xx --configs W0,W1,W2,I-T2 \
-#        --passes 2 --concurrency 2 --cooldown-s 30
+#        --passes 2 --concurrency 2 --cooldown-s 30 --pricing <maintainer's pricing file>
+#    (without --pricing the dollar cost is Not_Measured "no pricing file"; token counts
+#     are still printed and stored. No price is fetched.)
 
 # 4. Validate a run set against the corpus and the schema (offline, also a unit test)
 #    python scripts/holistic_eval.py validate --run-set cb-2026-xx
+
+# 4a. CBM_Probe_Step (on its own, never inside a Pass; loopback only; no credential).
+#    Appends one numbered probe attempt to a Run_Set created by `stages` whose
+#    Corpus_Hash matches the loaded Corpus. Repeat it to retry; each run appends the
+#    next attempt. Then re-run step 4 (`validate`) so the stored findings show the latest attempt.
+#    python scripts/holistic_eval.py probe-cbm --run-set cb-2026-xx \
+#        --cbm-base-url http://127.0.0.1:8080/mcp
+
+# 4b. LX-wave experiment, only when the maintainer requests it (Vertex grant; order-dependent).
+#    Its Run_Set starts with its own offline stage pass, then the experiment appends to it.
+#    python scripts/holistic_eval.py stages --run-set lx-2026-xx
+#    python scripts/holistic_eval.py run --run-set lx-2026-xx --experiment LX-wave
 
 # 5. CBM fixture: export the snapshot from the committed source, then check for drift
 #    (offline; no network, no credential; `check` exits non-zero and names a drifted function)
@@ -2514,8 +3341,23 @@ rule 70; it is scheduled in Phasing, not done here).
 
 - Same script header style as the existing notebook (marimo, pandas, plotly; the
   harness library needs nothing else), `app_title`, `width="full"`.
-- The notebook adds `repo_root/src` to `sys.path` and imports only the pure modules
-  of `blackwall.holistic_eval`, so it needs no credential, no network, no SDK.
+- The notebook adds `repo_root/src` to `sys.path` and imports from
+  `blackwall.holistic_eval` only the pure modules `caught`, `records`, `compose`,
+  `ablation`, `replay`, `stats`, `jev_bounds`, `band_gate`, `findings` and `report`, so
+  it needs no credential, no network, no SDK. It never imports `runner`, `observers`,
+  `stages`, `egress`, `cbm_probe`, `tsg_seed` or the builder paths of `ioc_corpus`, and
+  it does not import `corpus`, `configs`, `cbm_fixture` or `store` either; an `ast`
+  import check over the notebook source enforces the allowed list. Run_Set files are
+  read with `json` and decoded and schema-checked through `records`, and the
+  Corpus_Hash is recomputed from the Run_Set's own records with `records.corpus_hash`.
+  From `findings` the notebook calls only `format_findings`, over the findings report
+  and filing list stored in the Run_Set; it calls neither `build_findings` nor
+  `findings_to_file` and holds no Corpus to pass them, and importing `findings` does
+  not import `corpus.py`.
+- Every figure, header statement and table the notebook shows comes from a
+  `report.py` structure or from the findings report and filing list stored in the
+  Run_Set (rendered through `findings.format_findings`); the notebook maps it to pandas
+  and plotly and recomputes nothing.
 - Cells end with a display expression (no bare `return`); cell-local names are
   underscore-prefixed; markdown-only cells end in a bare `mo.md(...)`; a new cell
   adds no `marimo check` warning.
@@ -2532,7 +3374,7 @@ rule 70; it is scheduled in Phasing, not done here).
 |---|---|---|
 | 0 | Imports | `json`, `Path`, `mo`, `pd`, `go`, library modules |
 | 1 | Header and scope | What the notebook is, "a stage gate is not a system rate", the reading definition in one box |
-| 2 | Locate and load | Finds the repo root, loads every run-set manifest, validates schema and corpus hash, shows `not_measured` entries |
+| 2 | Locate and load | Finds the repo root, loads every run-set manifest, validates the schema version and the Corpus_Hash (recomputed with `records.corpus_hash` from the Run_Set's own records), shows `not_measured` entries |
 | 3 | Controls | Run-set selector, reading highlight selector (the paired values stay visible), band controls for `lo` and `hi` (defaults 0.35 and 0.75, each from 0.00 to 1.00 inclusive; an entry with `lo > hi` or a value outside that range keeps the previous valid Band, leaves every panel unchanged and shows which constraint failed; `lo == hi` is accepted), clear-high policy toggle (`block` is labeled "hypothetical, not production behavior"), Tier-2 mode toggle (`recorded`, `unavailable`, `absent`) |
 | 4 | Context header | For the selected configuration: `demo_mode`, layers on and off, Jev release(s), Tier-2 model and level, pass count, discarded passes |
 | 5 | What can stop a call | Static reduction for the selected layers: with TI and CBM absent the verdict is structural BLOCK, TSG match, Tier-2 verdict, or Tier-2-unavailable QUARANTINE; the aggregate cannot reach 0.50 |
@@ -2542,9 +3384,9 @@ rule 70; it is scheduled in Phasing, not done here).
 | 9 | Panel D: Tier-2 outage drill | The ADR 0009 Decision 6 cost computed offline: benign QUARANTINEs and attack outcomes if Tier-2 were unavailable |
 | 10 | Panel E: stratified views | The "other tool name" stratum as the headline, the shell stratum beside it, and the C2/IOC-type stratum |
 | 11 | Panel F: TSG | One row per Seeding_Mode. Transfer set, false-match set, the match rate over variants of seeded parents (labeled transfer from a seed, not held-out evidence) beside the match rate over the unseeded-parent half (the held-out control), match path, seed pattern length. Rows marked `leakage="seeded_case"` (only parents whose seed was written in that mode) are labeled and excluded from the rates. The `ERROR` exclusion and count only, no sensitivity column (Q15) |
-| 12 | Panel G: optional layers | Threat intelligence on the corpus hosts and on the IOC corpus (separate panels; the IOC headline is the share of feed-listed indicators that OTX recognizes, with its numerator and denominator and the statement that an unrecognized indicator can be a delisting), CBM default versus fixture versus permuted; a status tile per layer, "not measured" with the recorded reason when absent (a threat-intelligence row without a grant reads `no grant` and names `BW_OTX_API_KEY`); each threat-intelligence panel states its source corpus (the Corpus or the IOC_Corpus, from `TiOut.source_corpus` and the manifest's `ti_runs`); a banner on any plumbing-only data; threat-intelligence, IOC_Corpus and CBM `sinks mapped` rates carry the `ERROR` exclusion and count only, no sensitivity column (Q15); a Default_Plan row that lacks a credential, fixture or transport shows its recorded Not_Measured reason |
+| 12 | Panel G: optional layers | Threat intelligence on the corpus hosts and on the IOC corpus (separate panels; the IOC headline is the share of feed-listed indicators that OTX recognizes, with its numerator and denominator and the statement that an unrecognized indicator can be a delisting), CBM default versus fixture versus permuted, and the CBM_Probe_Step's latest probe attempt from `report.probe_view` (its attempt index and timestamp, its conformance row and its Indexer_Agreement rows as recorded, status and reason, never re-probed) with the number of attempts, plus a probe drilldown that lists every earlier attempt unchanged, newest first; with no attempt, the live-MCP row and each Indexer_Agreement row read "not measured" with the reason `probe not requested`; when `findings_behind` is true, a note says the stored findings predate the latest attempt and names `validate`; a status tile per layer, "not measured" with the recorded reason when absent (a threat-intelligence row without a grant reads `no grant` and names `BW_OTX_API_KEY`); each threat-intelligence panel states its source corpus (the Corpus or the IOC_Corpus, from `TiOut.source_corpus` and the manifest's `ti_runs`); a banner on any plumbing-only data; threat-intelligence, IOC_Corpus and CBM `sinks mapped` rates carry the `ERROR` exclusion and count only, no sensitivity column (Q15); a Default_Plan row that lacks a credential, fixture or transport shows its recorded Not_Measured reason |
 | 13 | Per-case drilldown | Case filter and selector: stage outputs, novelty and keyword hits, trigger, Tier-2 decision and latency, final decision, decided-by, quarantine cause |
-| 14 | Caveats | Corpus size, the tool-name tell, Tier-2 variance, circularity, the Jev release, what was not measured, links to the ADRs and tasks |
+| 14 | Caveats and findings | Corpus size, the tool-name tell, Tier-2 variance, circularity, the Jev release, what was not measured, links to the ADRs and tasks; the findings report and its finding-filing list as the CLI stored them in the selected Run_Set's Manifest (`findings` and `findings_to_file`, built by `findings.build_findings` over the loaded Corpus), rendered through `findings.format_findings` and never recomputed, each figure with its Not_Measured reason or `ERROR` count where one applies; a Run_Set with no stored findings report shows the findings as Not_Measured with the reason "no stored findings report" |
 | 15 | Cross-link | A pointer to `notebooks/benchmark_analytics.py` and the Tier-1 section it already carries |
 
 The validity-limits box of Panel C states, visibly and without interaction: Tier-2
@@ -2553,8 +3395,13 @@ release's Forced_Table is shown as the error band; the identifier of the Jev run
 backs that table (or Not_Measured with the reason, with every cell then labeled
 "approximate"); that replaying with the P of any other run is approximate; that
 tuning and scoring on the same cases is circular; that the surface is exploratory;
-the number of attack cases in the loaded Corpus and how many of those are the
-Corpus's own hand-written cases (read from the loaded Corpus, not typed in; this is a
+the number of attack cases in the scored Corpus and how many of those are the
+Corpus's own hand-written cases (both read from the selected Run_Set's own per-case
+records, not typed in and not from the Corpus_Loader: the distinct `case_id` values
+whose `ground_truth` is `MALICIOUS`, and of those the ones whose `suite` is
+`evasion_proof`; the Corpus_Hash recomputed from the same records ties them to the
+Corpus that was scored; if the records lack `suite` or `ground_truth`, or the
+Corpus_Hash check fails, both counts render as Not_Measured with the reason; this is a
 statement about the tuning Corpus and not a count of Fresh_Evidence); that a replay is tied to the Jev releases in the
 stored runs, with the release of each stored run or "unrecorded"; and that the Jev
 band does not follow the model (ADR 0008). A band whose catch rate beats the shipped
@@ -2701,20 +3548,36 @@ already cited by ADR 0009.
 
 **Validates: Requirements 20.8, 20.24, 20.25, 20.26, 20.27, 20.28**
 
+### Property 23: Run-time egress is limited to the derived hosts
+
+*For any Jev base URL, OTX base URL and valid Vertex location, `derive_runtime_hosts` returns exactly the hosts of the clients the run builds (the Jev base-URL host, the OTX base-URL host, and for a Vertex client the endpoint host of that location plus `oauth2.googleapis.com`), and the empty set for a run that builds no client. With the egress guard installed for that set, every connection to any other host, and to any address not resolved from an allowed host, is refused before it opens, its host is recorded, and the affected case is marked `ERROR`. No derived set shares a host with `AUTHORING_HOSTS`.*
+
+**Validates: Requirements 20.16, 20.17, 20.34**
+
 ## Error Handling
 
 | Scenario | Condition | Response | Recovery |
 |---|---|---|---|
 | Jev outage | `JevUnavailableError` propagates from `evaluate()` (ADR 0009, no fallback) | Recorded as an `ERROR` row with the exception class; counted in every table; the sensitivity column of a whole-system or composed catch table treats it as stopped (replay cells, TSG, threat-intelligence, IOC and CBM what-if figures show the exclusion and the count only) | The pass stays valid; if errors are many, the human re-runs the configuration |
-| Tier-2 no verdict | Empty bucket, deadline, malformed answer, Vertex error, no client | Recorded as a `Tier2Out` with `decision is None` and a non-empty `unavailable_reason` (a measured outage); the Composer treats it like `tier2 == "unavailable"`: an ALLOW becomes QUARANTINE with cause `tier2_unavailable`, a QUARANTINE or BLOCK is unchanged. It is never `UNMEASURED` | None needed; this is the behavior under study |
+| Tier-2 outage, `no client` or `no verdict` | `_Tier2Unavailable("no client")` (no Gemini client can send), or `_Tier2Unavailable("no verdict")` (`GeminiTier2Backend.escalate` returned `None`: a Vertex error, the deadline or a malformed answer) | Recorded as a `Tier2Out` with `decision is None` and `unavailable_reason` set to that reason (a measured outage), with `error_class` (exception class name, `deadline` or `malformed`) and `http_status` when the Gemini client wrapper saw them; the Composer treats it like `tier2 == "unavailable"`: an ALLOW becomes QUARANTINE with cause `tier2_unavailable`, a QUARANTINE or BLOCK is unchanged. It is never `UNMEASURED`. The pass stays valid unless the cause was an HTTP 429 (next rows) | None needed; this is the behavior under study |
+| Tier-2 bucket empty | `_Tier2Unavailable("rate limit")`: the 300 RPM Tier-2 bucket was empty, so no call was sent | Recorded as a measured outage with `unavailable_reason == "rate limit"` (Quarantine_Cause `tier2_unavailable` on an otherwise-ALLOW call). In a measurement pass this reflects harness pacing, not product behavior, so the whole pass is invalid: discarded, recorded in `discarded_passes` with reason `tier2_rate_limit`, never scored | Cool-down, re-run the pass under the same re-run cap as a Tier-2 429 |
 | Tier-2 not measured for a triggered case | Under `tier2 == "recorded"`, no forced entry and no fired in-system output, and the prior decision is not BLOCK | The Composer returns `UNMEASURED`; the case is counted as Not_Measured, excluded from every rate and never imputed; it is not an `ERROR` and not an outage | Complete the release's Forced_Table |
-| Tier2Out invariant violated | A stored `Tier2Out` has `decision is None` without a non-empty `unavailable_reason`, or a verdict without a `threat_score`, or an unfired output with a decision | Loader error naming the file; nothing partial is returned | Re-run the pass |
+| Tier2Out invariant violated | A stored `Tier2Out` has `decision is None` without one of the three `unavailable_reason` values, a verdict without a `threat_score`, an `error_class` on anything but a `no verdict` outage, an `error_class` or `http_status` on a `no client` or `rate limit` outage, or an unfired output with a decision | Loader error naming the file; nothing partial is returned | Re-run the pass |
 | Non-finite float | A record or the manifest holds `NaN` or an infinity | The write is rejected naming the field and the record; nothing is written for that record | Fix the code that produced the value |
 | Identity check mismatch | `replay_identity` finds a non-`ERROR` case whose replay of the run's own outputs at the shipped Band differs from the recorded verdict | The check fails and lists each case with its recorded and replayed verdicts. Recorded `ERROR` rows are carried through and never listed | Fix the Composer or the recording; a Forced_Table variation is never the cause |
 | Forced_Table replay differs from the live run | A case's Forced_Table decision at the shipped Band differs from the live decision | Listed in the variation report with its cause (Jev P difference, Tier-2 difference or both); not a failure | None needed; shown beside the replay surface as expected variation |
 | OTX send guard refusal | An indicator selected for OTX is not in the committed fixtures of the corpus chosen for that run (the Corpus for I-TI-corpus, the IOC_Corpus for I-TI-ioc) | The run fails naming the indicator; nothing is sent for it | Add the indicator to the committed fixtures through the normal authoring path, or drop it from the run |
-| Tier-2 429 | The client probe sees status 429 | The whole pass is invalid: discarded, recorded in `discarded_passes`, never scored | Cool-down, re-run the pass |
-| Front rate limit | Any `rate_limit` row | Pass invalid (harness defect at the default concurrency of 2) | Lower `--concurrency`, re-run; the re-run is compared only with passes that used the same N |
+| Tier-2 429 | The Gemini client wrapper sees status 429, including on an attempt that a later retry completed | The whole pass is invalid: discarded, recorded in `discarded_passes` with reason `tier2_429`, never scored | Cool-down, re-run the pass (at most 3 re-runs) |
+| Front rate limit | Any row with Quarantine_Cause `rate_limit`: the front limiter (80 req/s) returned QUARANTINE "Rate limit exhausted" from step 1 of `evaluate()` | Pass invalid, reason `rate_limit` (harness defect at the default concurrency of 2). Distinct from an empty Tier-2 bucket, which is the `tier2_rate_limit` row above | Lower `--concurrency`, re-run; the re-run is compared only with passes that used the same N |
+| Egress refusal | A Harness run is about to connect to a host outside its derived `RUNTIME_HOSTS` (or the CBM_Probe_Step to a non-loopback address) | The egress guard refuses the connection before it opens, records the refused host in `egress_refusals`, and the runner marks the affected case `ERROR` with `error == "egress_refused"`; the pass stays valid | Fix the code path or the base-URL override that produced the host; an override shows in `plan` as `overridden` |
+| Unknown Vertex location | `GCP_LOCATION` does not match `^[a-z0-9-]+$` | `derive_runtime_hosts` raises before any client is built; the CLI exits non-zero naming `GCP_LOCATION` | Set a valid location, or leave it unset for `global` |
+| No Pricing_File | `--pricing` was not given | The dollar cost is Not_Measured with the reason "no pricing file"; token counts are printed and stored; the run continues | Supply `--pricing <file>` on a later run; the cost can be recomputed offline from the stored token counts |
+| Invalid Pricing_File | The file is not valid JSON, its `schema_version` differs, `source_url` is empty, `fetch_date` is not `YYYY-MM-DD`, or a price is not a non-negative decimal string | Rejected before the first live call, naming the field; no live call is made and the CLI exits non-zero | Fix the file |
+| Model without a price | The token counts name a model that the Pricing_File does not list | That model's cost and the total are Not_Measured with a reason naming the model; nothing is estimated | Add the model to the file |
+| Corpus load failure | `build_cases` raises or yields zero cases for a suite, a `case_id` repeats, or a case lacks `case_id`, `suite`, `ground_truth`, `tool_name` or `state_hash` | `CorpusLoadError` naming the suite, the duplicated id, or the case and the field; no Corpus, not even a partial one, is returned; every figure that needs the Corpus is Not_Measured | Fix the corpus file |
+| Findings figure not computable | No Corpus, no stage row, no `StagePassFacts`, no Whole_System_Run, or no fixture row for the figure | `findings.py` records that figure as Not_Measured with the reason, never as 0, and reports every other figure | Produce the missing input, then rebuild the findings with `validate` |
+| No stored findings report | The selected Run_Set's Manifest has `findings` set to None | The Notebook's caveats panel shows the findings as Not_Measured with the reason "no stored findings report" and computes nothing; every other panel renders | Run `validate` on the Run_Set |
+| CBM probe base URL not loopback | The base URL host is not in 127.0.0.0/8, not `::1`, and not a `localhost` whose every address is loopback | `probe-cbm` exits non-zero naming the host before any connection; it appends no probe attempt, so every earlier attempt and the latest-attempt view stay unchanged (with no attempt, the rows still read Not_Measured `probe not requested`) | Point `--cbm-base-url` at a local server and run `probe-cbm` again |
 | Concurrency differs between passes | Valid passes of one configuration used different `--concurrency` values | Every pass is recorded; a pass whose N differs from the others carries a `comparison_exclusion` reason and is left out of the valid-pass count, the Pass_Spread and release comparisons | Re-run at the common N so two valid passes remain |
 | Invalid `--concurrency` | Not an integer, or below 1 | CLI exits non-zero naming `--concurrency` and the minimum of 1, before any case runs | Pass an integer of 1 or more |
 | OTX typed error | `OTXLookupError` and the other typed errors re-raise out of `evaluate()` | `ERROR` row with the class name; threat-intel rows keep their error count | Pass stays valid; the table shows the count |
@@ -2729,9 +3592,15 @@ already cited by ADR 0009.
 | IOC selection input invalid | An invalid seed, or a downloaded source smaller than its target size | The build reports the invalid value, or the class, the available count and the target; it exits non-zero and writes no output | Supply a valid seed, or lower the target and record it |
 | IOC indicator unrecognized by OTX | The feed has since delisted it (ThreatFox expires indicators older than 6 months) | Reported as unrecognized, never as an error; it lowers the headline share | None needed; the delisting statement is shown beside the headline |
 | CBM snapshot drift | The committed snapshot is not byte-identical to the export of the committed source | `build_cbm_fixture.py check` exits non-zero and names each function whose facts differ; the Run_Store rejects a Run_Set whose recorded digest no longer matches | Re-run `export` and commit the new snapshot in a new fixture directory if a Run_Set already used the old one |
-| Indexer unavailable, not requested or disagreeing | The probe is not requested, the indexer is absent, indexing fails, or the indexer's facts differ from the snapshot | Each Indexer_Agreement row is Not_Measured with the reason, or `disagree` with the differing facts, which is a finding; no fixture row value changes and no hermetic run fails | Investigate the finding; the snapshot is not edited to match the indexer |
-| CBM transport mismatch, or a missing fixture | Live MCP does not answer in the parsed shapes, or the fixture, its plan or its snapshot is absent, or the snapshot is not valid JSON or lacks facts for a queried tool; applies to a Named_Explicitly row as well as a Default_Plan row, because the abort covers credentials and grants only. The fixture is a prerequisite of the fixture-backed CBM rows only (I-CBM-fixture, I-CBM-permuted, W4, W5, `sinks mapped`, Indexer_Agreement) | `not_measured: transport mismatch` (or a reason naming the missing or unreadable fixture item) on each affected fixture-backed row; the run continues; every other row is unchanged, including I-CBM-default and every Whole_System_Run that uses the default CBM client, and the fixture adapter rows are unaffected by a transport mismatch | Author the fixture, or follow up on the client or the server separately |
-| Corpus edited after a run | Hash mismatch | The validate test and the notebook loader fail with the differing case ids | Re-score in a new run-set directory |
+| Indexer unavailable, not requested or disagreeing | The probe is not requested (no probe attempt), or, within an attempt, the indexer is absent, indexing fails, or the indexer's facts differ from the snapshot | With no attempt, each Indexer_Agreement row is shown as Not_Measured `probe not requested`; within an attempt, each row is Not_Measured with the reason, or `disagree` with the differing facts, which is a finding when that attempt is the latest; the attempt is kept as recorded; no fixture row value changes and no hermetic run fails | Investigate the finding, or run `probe-cbm` again, which appends the next attempt and leaves this one unchanged; the snapshot is not edited to match the indexer |
+| CBM transport mismatch, or a missing fixture | The CBM_Probe_Step finds no HTTP JSON-RPC endpoint, a response that is not in the parsed shapes, or no answer within 10 seconds (the conformance row reads "transport mismatch"), or the fixture, its plan or its snapshot is absent, or the snapshot is not valid JSON or lacks facts for a queried tool; applies to a Named_Explicitly row as well as a Default_Plan row, because the abort covers credentials and grants only. The fixture is a prerequisite of the fixture-backed CBM rows only (I-CBM-fixture, I-CBM-permuted, W4, W5, `sinks mapped`, Indexer_Agreement) | `not_measured: transport mismatch` (or a reason naming the missing or unreadable fixture item) on each affected fixture-backed row; the run continues; every other row is unchanged, including I-CBM-default and every Whole_System_Run that uses the default CBM client, and the fixture adapter rows are unaffected by a transport mismatch; a transport mismatch is recorded in its own probe attempt, which stays on record | Author the fixture, or follow up on the client or the server separately; to retry the probe, run `probe-cbm` again, which appends the next attempt and leaves the failed one unchanged |
+| Corpus edited after a run | Hash mismatch | The `validate` subcommand and the recompute tests fail with the differing case ids (they compare against the loaded Corpus); the notebook loader, which recomputes the hash from the Run_Set's own records, renders no panel for a Run_Set whose recorded and recomputed hashes differ and shows both | Re-score in a new run-set directory |
+| `stages` target exists | The `--run-set` directory already exists when `stages` starts (requirement 11.24) | `create_run_set` raises `RunSetExists`; the CLI exits non-zero saying the Run_Set already exists; the existing directory stays byte-identical | Choose a new Run_Set name, or append live rows to the existing Run_Set with `run` |
+| Append target missing | `run`, `run --experiment LX-wave` or `probe-cbm` names a Run_Set directory that does not exist | `open_for_append` raises `AppendRefused` with condition `target_missing`; the CLI exits non-zero naming it, before any client is built, any call is made or any record is written; no directory is created | Run `stages` for that Run_Set first, then repeat the command |
+| Append target not created by `stages` | The target's Manifest does not record `created_by == "stages"` | `AppendRefused` with condition `not_created_by_stages`; non-zero exit naming it, before any client, call or record; the target stays byte-identical | Create a new Run_Set with `stages` and append to that one |
+| Append Corpus_Hash mismatch | The target Manifest's `corpus_hash` differs from the Corpus_Hash of the loaded Corpus | `AppendRefused` with condition `corpus_hash_mismatch`, showing both hashes; non-zero exit before any client, call or record; the target stays byte-identical | Run `stages` into a new Run_Set for the current Corpus (requirement 11.22) |
+| Append configuration-pass already present | The target already holds a committed per-case record for a `(config_id, pass_index)` that `run` or `run --experiment LX-wave` would write. Never raised for `probe-cbm`, which writes no such pair and appends a numbered probe attempt instead | `AppendRefused` with condition `records_present`, naming each pair; non-zero exit before any client, call or record; no existing record is overwritten | Select other configurations or pass numbers, or write into a new Run_Set created by `stages` |
+| Probe attempt sequence broken | The stored `probe_attempts` indices are not 1, 2, 3 and so on in stored order (a gap or a repeat, for example from a hand edit) | The Run_Store rejects the Run_Set on read, naming the first index out of sequence; `validate` fails, and `probe-cbm` exits non-zero naming it before any connection and appends nothing | Restore the Manifest from version control; attempts are never renumbered |
 | Corrupt line or partial file | Truncated JSON | Atomic writes make this a loader error naming the file; nothing partial is committed | Re-run the pass |
 | `demo_mode=True` requested | Anyone passes it to the runner | Refused at config validation | Not applicable: its verdicts do not transfer to production thresholds |
 | Sanitization altered a case | A hygiene over-match changed a value (D8) | The corpus-integrity test fails | Fix the corpus value, or land TASK-F08 and re-score |
@@ -2770,8 +3639,34 @@ are deferred, never simulated.
   case record is stored, loaded and recomposed, and the recomposed score equals the
   stored `final_score` within 1e-9. A store that rounded to 4 places would write 0.0650
   and fail this case. A `Tier2Out` that breaks its invariant (`decision is None` without
-  an `unavailable_reason`, a verdict without a `threat_score`, an unfired output with a
-  decision) is rejected on read.
+  one of `no client`, `rate limit` or `no verdict`, an `unavailable_reason` outside those
+  three, a verdict without a `threat_score`, an `error_class` on a verdict or on a
+  `no client` or `rate limit` outage, an `http_status` on a `no client` or `rate limit`
+  outage, an unfired output with a decision) is rejected on read, and a `no verdict`
+  outage with `error_class` `deadline`, `malformed` or an exception class name, with or
+  without `http_status`, is accepted. `corpus_hash` is computed from
+  `CorpusHashEntry` values: the same hash comes from a `LoadedCorpus` and from the
+  `CaseRecord`s of a Run_Set over it, the order of the entries does not matter, and one
+  changed character of a tool name or of the arguments changes it.
+- Run_Set creation and append (`store.py` and the CLI, each starts red): `stages`
+  against an existing directory raises `RunSetExists`, exits non-zero and leaves the
+  directory byte-identical; a Run_Set that `stages` creates records
+  `created_by == "stages"`. `run` refuses, with `AppendRefused` naming the condition
+  and a non-zero exit, a missing target (`target_missing`, and no directory is
+  created), a target whose Manifest lacks `created_by == "stages"`
+  (`not_created_by_stages`), a target whose `corpus_hash` differs from the loaded
+  Corpus (`corpus_hash_mismatch`, both hashes shown), and a target that already holds
+  a per-case record for a `(config_id, pass_index)` the run would write
+  (`records_present`, each pair named); in each refusal a stub client factory records
+  zero builds, the egress guard sees zero connection attempts, and every file of the
+  target is byte-identical afterwards. `run --experiment LX-wave` applies the same
+  checks. `probe-cbm` is refused for `target_missing`, `not_created_by_stages` and
+  `corpus_hash_mismatch` the same way, and never for `records_present`: against a
+  Run_Set that already holds per-case records and an earlier probe attempt, it appends
+  the next attempt. A `run` that passes the checks appends: every
+  pre-existing per-case file and `RunEntry` is byte-identical afterwards, the new
+  entries continue the interleave numbering after the highest existing position, and a
+  discarded Pass's `(config_id, pass_index)` stays writable.
 - `compose`: the decision table at the thresholds (0.4999, 0.50, 0.7499, 0.75 and
   the 0.349, 0.35, 0.75, 0.751 band boundaries, plus a zero-width Band with
   `lo == hi`, which must compose and not be rejected), Tier-2 override, never
@@ -2782,7 +3677,9 @@ are deferred, never simulated.
   `fired == False`, or none) returns `UNMEASURED` when the prior decision is not `BLOCK`
   and returns `BLOCK` without reading any Tier-2 data when it is; (b) a `Tier2Out` with
   `decision=None` and an `unavailable_reason` composes exactly like `tier2="unavailable"`
-  for the same case (a prior `ALLOW` becomes `QUARANTINE` with cause `tier2_unavailable`,
+  for the same case, for each of `no client`, `rate limit` and `no verdict` and for any
+  `error_class` (a parametrized case per reason; changing `error_class` or `http_status`
+  never changes the result) (a prior `ALLOW` becomes `QUARANTINE` with cause `tier2_unavailable`,
   a prior `QUARANTINE` stays `QUARANTINE` with cause `aggregate`, a prior `BLOCK` stays
   `BLOCK`), never returns `UNMEASURED`, never assigns `None` as a decision, and uses the
   Jev P (not a Tier-2 score) as the semantic input, which a test checks by giving the
@@ -2799,9 +3696,124 @@ are deferred, never simulated.
   the resolver.
 - Observers: each wrapper records exactly what its stage returned and changes no
   return value; a per-case trace stays separate under concurrent cases on a shared
-  resolver; the trigger derivation equals the resolver's own outcome.
+  resolver; the trigger derivation equals the resolver's own outcome. The Tier-2
+  wrapper records each of the Resolver's three `_Tier2Unavailable` reasons verbatim
+  (`no client`, `rate limit`, `no verdict`) and re-raises; a stubbed Gemini client that
+  raises a 429, times out or returns a malformed answer yields a `no verdict` outage
+  whose `error_class` is the exception class name, `deadline` or `malformed` and whose
+  `http_status` is 429 for the first, and no message body is stored.
 - Context stage: `run_context` equals the resolver's own methods; the offline-computed
   driver counts (D3, D6, D7) are pinned, so a corpus edit that changes them fails.
+- Corpus loader (`corpus.py`, each starts red): a stubbed `build_cases` that raises, or
+  returns zero cases, for `security` or `evasion_proof` makes `load_corpus` raise
+  `CorpusLoadError` naming the suite and return nothing; a duplicated `case_id` names
+  the id; a case without `case_id`, `suite`, `ground_truth`, `tool_name` or
+  `state_hash` names the case and the field; a `ground_truth` other than `BENIGN` or
+  `MALICIOUS` (including `malicious` and `MALICIOUS `) is excluded and listed;
+  `tool_name_group` reads the Resolver's `_HIGH_RISK_TOOLS` (a test patches that tuple
+  and sees the group change, so no copy exists) and gives `other` for an empty name;
+  `family` follows its three rules in order; `hygiene_changes` names the
+  password-redaction pattern and the `sk-` pattern on planted over-match inputs and is
+  empty for the committed Corpus; importing `corpus.py` loads neither a `blackwall`
+  submodule outside `blackwall.holistic_eval` nor `scripts/jev_triage_eval.py` until
+  `load_corpus` runs; a load with sockets blocked
+  opens no connection.
+- Findings (`findings.py`): over the committed Corpus and stage rows, the indicator
+  extraction counts and value list, the keyword-novelty counts and the disagreement
+  cases, and the Tool_Name_Group counts and share equal the pinned values of D3, D6 and
+  D7, and a corpus edit that changes one fails naming the figure, its pinned value and
+  its observed value; the CBM characterization (0.1 for an unknown tool, the dropped
+  sinks by name) and the `base_url` fact are read from recorded rows and
+  `StagePassFacts` only; the F06 list under each Reading counts a `QUARANTINE` as caught
+  under the Stopped_Reading and not under the Blocked_Reading; the F08 list is empty for
+  the committed Corpus and names planted over-match cases; a missing input gives
+  Not_Measured for that figure, never 0, while the others are still reported; `ERROR`
+  rows are excluded and counted beside each figure; `findings_to_file` returns one entry
+  per reported finding, and a test asserts that building it opens no file for writing
+  under `.kiro/`; an import scan finds no `blackwall` import outside
+  `blackwall.holistic_eval` in `findings.py`; importing `findings.py` in a fresh
+  interpreter leaves `blackwall.holistic_eval.corpus` out of `sys.modules`; the
+  `findings` stored in a committed Run_Set equal `build_findings` rebuilt over the
+  loaded Corpus and that Run_Set; `format_findings` returns every stored figure, list
+  entry and filing entry unchanged, and for `stored` None returns no figure or list row
+  and the reason "no stored findings report".
+- Report (`report.py`): the header carries `demo_mode`, the Layers on and off (or
+  `none`), the exclusion statement, the environment-role statement and the incomplete
+  Case_Trace count; every case is in exactly one group of each of the four groupings
+  (`no_attack_type` for a case with none); each paired row shows both Readings with
+  numerator, denominator, Wilson interval, `ERROR` and Not_Measured counts, and the
+  small-group marker below 30 cases; `sensitivity=True` is refused for a replay, TSG,
+  threat-intelligence, IOC_Corpus or `sinks mapped` table; the per-Pass spread is max
+  minus min over valid Passes at one concurrency and Not_Measured with none;
+  `report.py` passes the single-definition scan, so it holds no caught-ness logic.
+- Egress (`egress.py`, each starts red): `derive_runtime_hosts` returns the Jev and OTX
+  base-URL hosts and, for a Vertex client, `aiplatform.googleapis.com` for `global`,
+  `us-central1-aiplatform.googleapis.com` for `us-central1`, plus
+  `oauth2.googleapis.com`; a run that builds no client gets the empty set; a Jev
+  base-URL override changes the derived set and `plan` marks that host `overridden`;
+  a location outside `^[a-z0-9-]+$` raises; with the guard installed, a connection to a
+  host outside the set (and to a literal IP not resolved from an allowed host) is
+  refused before any packet is sent, the refused host and the current case are
+  recorded, and the runner marks that case `ERROR` with `error == "egress_refused"`
+  while the pass stays valid; `AUTHORING_HOSTS` is disjoint from every derived set (a
+  property over generated base URLs and locations); `SendGuard` refuses an indicator
+  outside its corpus's committed fixtures and accepts every one inside; importing
+  `egress.py` in a fresh interpreter loads no `blackwall` submodule outside
+  `blackwall.holistic_eval` (it may load `blackwall.holistic_eval.records`).
+- Billing (`billing.py`): `load_pricing` accepts a well-formed Pricing_File and rejects,
+  naming the field, a wrong `schema_version`, an empty `source_url`, a `fetch_date`
+  that is not `YYYY-MM-DD`, and a negative or non-decimal price; without `--pricing`,
+  `dollar_cost` returns Not_Measured with the reason "no pricing file" and the token
+  counts are still printed and stored; a model missing from the file makes that
+  model's cost and the total Not_Measured, naming the model; the Manifest records the
+  file's `source_url` and `fetch_date`; a run with a Pricing_File opens no connection
+  for billing (the egress guard sees none); a source scan of the Harness code finds no
+  numeric price literal.
+- CBM probe (`cbm_probe.py`, each starts red): `loopback_targets` accepts
+  `http://127.0.0.1:8080/mcp`, `http://[::1]:8080/mcp` and a `localhost` that resolves
+  to loopback only, and rejects a non-loopback address, a public host name and a
+  `localhost` stubbed to resolve to a non-loopback address, naming the host, before any
+  socket opens; the probe reads no environment variable that names a credential; with a
+  stub loopback server, `index_repository` runs before the three conformance requests,
+  each request has a 10-second timeout, and the row is `conformant` only when all three
+  parse; an endpoint-less server, a non-conforming shape and a slow server each give
+  Not_Measured "transport mismatch"; a failed `index_repository` gives Not_Measured
+  naming the indexing failure for the conformance row and every agreement row; no
+  fixture row value changes in any case; a measurement `run` never imports
+  `cbm_probe.py`.
+- Probe attempts (`store.py`, `report.probe_view`, `findings.py` and the CLI, each
+  starts red): `probe-cbm --run-set` against a Run_Set with no attempt appends attempt 1
+  whose `probed_at` parses as a UTC ISO 8601 timestamp to the second; a second
+  `probe-cbm` after a failed first one (a stub loopback server with no endpoint, then a
+  conforming stub) appends attempt 2 and leaves the encoded attempt 1 byte-identical,
+  with no other Manifest field and no per-case record changed; `report.probe_view`
+  then returns attempt 2 as `latest`, an attempt count equal to its index, and attempt
+  1 unchanged in `earlier`; with no attempt it returns `latest is None`, an attempt
+  count of zero, an empty drilldown and the reason `probe not requested`; a refused
+  invocation (a non-loopback base URL, or each `AppendRefused` condition) appends no
+  attempt and leaves the Manifest byte-identical; an interrupted append (the atomic
+  rename stubbed to fail) leaves no partial attempt, and the next invocation takes the
+  same index; a Run_Set whose stored indices skip or repeat is rejected on read naming
+  the first index out of sequence; `validate` after attempt 2 stores a findings report
+  whose `cbm_probe_latest` is attempt 2 and whose `cbm_probe_attempts` equals the
+  number of attempts; between the second probe and that `validate`,
+  `findings_behind` is true and the Notebook's Panel G shows the note naming
+  `validate`.
+- Tier-2 rate-limit invalidation: in a whole-system pass with a stubbed Resolver whose
+  Tier-2 bucket is empty for one triggered case, the case composes as a measured outage
+  (`unavailable_reason == "rate limit"`, Quarantine_Cause `tier2_unavailable`), the
+  whole pass is discarded with reason `tier2_rate_limit` (distinct from `tier2_429` and
+  from the front limiter's `rate_limit`), no per-case record is committed, the pass is
+  re-run under the 3-re-run cap with the next interleave position, and a pass still
+  invalid after the cap leaves the configuration Not_Measured; a `no client` or
+  `no verdict` outage without a 429 leaves the pass valid.
+- LX-wave (`run_lx_wave`): it does not run unless `run --experiment LX-wave` requests
+  it and is never in the Default_Plan; it is the only code path whose Resolver keeps its
+  background tasks (a source scan finds no other call site that leaves them enabled);
+  cases run one at a time in the order recorded before the first case; results carry
+  the `experiment` kind and the `order-dependent` label and never enter a
+  Configuration_Matrix table, a composed row or a rate; it uses an explicit temporary
+  database path.
 - TSG seeding: seeds contain only parent arguments; no seed string contains a label
   word, an attack type or a variant's argument value; only parents whose seed was
   written in the current Seeding_Mode are marked `seeded_case` (all parents in
@@ -2843,9 +3855,11 @@ are deferred, never simulated.
   records no digest for them; with the plan or snapshot missing or the snapshot
   unreadable, every fixture-backed CBM row is Not_Measured naming the offending item
   while every default-CBM row and every non-CBM row keeps its value.
-- Indexer_Agreement (each starts red): with the indexer unavailable, or the probe not
-  requested, every row is Not_Measured with its reason and the hermetic suite passes
-  without the indexer; a stub indexer that reports a different call chain or sink fact
+- Indexer_Agreement (each starts red): with no probe attempt, every row is shown as
+  Not_Measured with the reason `probe not requested`; with the indexer unavailable
+  within an attempt, every row of that attempt is Not_Measured with its reason; the
+  hermetic suite passes without the indexer; through `cbm_probe.probe` against a stub loopback server, a stub
+  indexer that reports a different call chain or sink fact
   for one function gives a `disagree` row naming the differing facts for that function
   and `agree` for the others, and no fixture row value changes; a failed indexing run
   makes the live-MCP row and every agreement row Not_Measured with the failure named.
@@ -2996,7 +4010,12 @@ are deferred, never simulated.
   (no `--configs`, or an id not in it) without a credential, fixture or transport is
   recorded as Not_Measured with its reason and the run continues; a missing fixture
   or transport is Not_Measured even for a Named_Explicitly row. `--concurrency 0` and
-  a non-integer are rejected, and an omitted `--concurrency` is 2.
+  a non-integer are rejected, and an omitted `--concurrency` is 2. `plan` prints the
+  derived `RUNTIME_HOSTS` with `overridden` marks and whether a Pricing_File was given;
+  `--pricing` with a missing or invalid file exits non-zero before the first live call;
+  `probe-cbm` is the only subcommand that imports `cbm_probe.py`; the CLI output of a
+  report equals the `report.py` structure it prints (a test renders both and compares
+  the figures), so the CLI recomputes nothing.
 - Concurrency: with N workers over a stubbed observed resolver, the number of cases
   in flight never exceeds N and equals N whenever at least N cases remain unstarted
   (N of 1, 2 and a value above the case count); the manifest records N for every
@@ -3010,7 +4029,7 @@ are deferred, never simulated.
 
 ### Property-based tests (`tests/property/`, Hypothesis)
 
-P1, P2, P3, P4 (the identity check over a run's own recorded outputs for non-`ERROR` rows, plus the `ERROR` carry-through; never the Forced_Table replay), P5 (its generator draws all three Tier-2 data states, including `decision=None` outages), P6, P7, P8, P9, P10 (the three Tier-2 states), P11, P12, P14, P16, P17, P18, P19, P20, P21 and P22 (P18: no case identifier and no `parent_case_id` of the unseeded-parent half among the seeds, and only seeded-mode parents marked) are properties over
+P1, P2, P3, P4 (the identity check over a run's own recorded outputs for non-`ERROR` rows, plus the `ERROR` carry-through; never the Forced_Table replay), P5 (its generator draws all three Tier-2 data states, including `decision=None` outages with each of the three `unavailable_reason` values), P6, P7, P8, P9, P10 (the three Tier-2 states), P11, P12, P14, P16, P17, P18, P19, P20, P21, P22 and P23 (P18: no case identifier and no `parent_case_id` of the unseeded-parent half among the seeds, and only seeded-mode parents marked; P23: generated base URLs and Vertex locations) are properties over
 generated inputs (strategies for stage outputs, bands, readings and record sets
 respect the model's invariants, testing rule 58). The differential test (P5) is the
 most valuable: it makes the composer a tested copy of `evaluate()`'s decision logic
@@ -3054,6 +4073,13 @@ Scenario: A Tier-2 429 invalidates the pass
   Given a whole-system pass in which one Tier-2 call returns status 429
   When the pass is validated
   Then the pass is discarded and recorded with its reason
+  And none of its per-case data is committed
+
+Scenario: An empty Tier-2 bucket invalidates the pass like a 429
+  Given a whole-system pass in which one triggered case finds the Tier-2 rate bucket empty
+  When the pass is validated
+  Then the case is a measured outage with the unavailable reason "rate limit" and the cause tier2_unavailable
+  And the pass is discarded with the reason tier2_rate_limit, not rate_limit
   And none of its per-case data is committed
 
 Scenario: Replay of the run's own recorded outputs at the shipped band reproduces the recorded run
@@ -3114,12 +4140,23 @@ Scenario: A record whose cases were authored on different sides of the surface f
 Following `tests/unit/test_jev_class_blind_runs_data.py`: parse the notebook with
 `ast`, execute each `@app.cell` function with `mo`, `pd`, `go`, `json` and
 `repo_root` supplied, and feed returned names forward. Assert that the empty state
-renders when no run set exists, that every panel's figures equal the library's
-recomputed values on the committed run set, that unmeasured cells render as an em
-dash, that no panel reads a credential or opens a socket, and that a plumbing-only
-banner appears when stub data is present. A helper for this lives in a new test
+renders when no run set exists, that every panel's figures other than the stored
+findings equal the values that the test recomputes by calling `report.py` directly on
+the committed run set (so the report tables are recomputed by the notebook tests, and
+the notebook adds no figure of its own), that unmeasured cells render as an em
+dash, that no panel reads a credential or opens a socket, that a plumbing-only
+banner appears when stub data is present, and that an `ast` import check over the
+notebook finds no `blackwall.holistic_eval` module outside the allowed list (a planted
+`import blackwall.holistic_eval.runner` in a temporary copy fails it). A helper for this lives in a new test
 module so the existing tests are not touched. `marimo export html --no-sandbox`
 with zero failed cells is part of the verification commands, not of the unit suite.
+
+- Findings in the caveats panel (cell 14): an `ast` scan of the notebook source finds
+  no call to `build_findings` or `findings_to_file` (a planted call in a temporary copy
+  fails it); the rendered figures, lists and filing entries equal the `findings` and
+  `findings_to_file` stored in the committed Run_Set's Manifest, value for value; and
+  for a temporary Run_Set copy whose `findings` is None the panel renders Not_Measured
+  with the reason "no stored findings report" and no figure.
 
 ### Recompute tests (rule 79: cited evidence is committed and recomputed)
 
@@ -3205,12 +4242,25 @@ suite is expected to run in seconds because everything is pure or temp-file base
   reaches a child process only through a human grant for a named variable, only
   through the child's environment, and never appears in an artifact (P15, the
   manifest stores names and dates only). No agent creates or edits a real credential
-  file; `.env.example` is the only template an agent may edit.
-- **Egress:** Jev (`api.typesafe.ai`), Vertex AI for Tier-2, and OTX (grant-gated)
-  are the only network destinations of a measurement run. The one exception is the
+  file; `.env.example` is the only template an agent may edit. The CBM_Probe_Step reads
+  no credential, and the Pricing_File is run-time data, not a credential.
+- **Egress:** every Harness run installs the egress guard of `egress.py` with the
+  `RUNTIME_HOSTS` derived at run start from the clients it builds: the Jev base-URL
+  host (default `api.typesafe.ai`), the OTX base-URL host (default
+  `otx.alienvault.com`) and, for a Vertex client, `aiplatform.googleapis.com` for the
+  `global` location or `<location>-aiplatform.googleapis.com` otherwise, plus
+  `oauth2.googleapis.com` for the token refresh that application default credentials
+  need. These are the only network destinations of a measurement run; any other host
+  is refused, recorded and its case marked `ERROR`. Deriving the list from the built
+  clients means a base-URL override cannot widen it unnoticed: `plan` prints it with
+  `overridden` marks and the Manifest records it. Billing fetches nothing, so it adds no
+  host. There are two named exceptions, neither inside a measurement Pass: the
   IOC_Authoring_Step, which may connect only to `threatfox.abuse.ch` and
-  `tranco-list.eu`, refuses any other host and records its name; the two lists are
-  disjoint. A socket guard in tests proves that no
+  `tranco-list.eu` (`AUTHORING_HOSTS`), refuses any other host and records its name;
+  and the CBM_Probe_Step, which may connect only to a loopback address (127.0.0.0/8 or
+  ::1) given by the configured codebase-memory-mcp base URL and refuses a non-loopback
+  base URL before connecting. `AUTHORING_HOSTS` and every derived `RUNTIME_HOSTS` are
+  disjoint, which a test asserts. A socket guard in tests proves that no
   indicator in any corpus is contacted. The request body to Jev stays the
   `model`/`state`/`questions` allowlist; the harness does not alter the backend.
 - **Data sent out:** only sanitized states (`ContextHygiene`, IOCs preserved), the
@@ -3236,10 +4286,20 @@ suite is expected to run in seconds because everything is pure or temp-file base
 
 ## Dependencies
 
-- Runtime of the library: the standard library only for the pure modules. The
-  observers, runner and stage modules import `blackwall` internals lazily.
+- Runtime of the library: the standard library only for the pure modules and
+  `egress` (`billing` uses `decimal`; `egress` uses `socket`, `ipaddress` and
+  `contextvars`). At module import time they import nothing from `blackwall` outside
+  `blackwall.holistic_eval`, and may import each other (`egress` imports `records`).
+  The corpus
+  loader, observers, runner, stage and probe modules import `blackwall` internals
+  lazily.
 - Live runs: the existing Jev backend (`httpx`), `google-genai` for Tier-2, the OTX
   provider, `aiosqlite` through `SQLiteThreatRepository`. No new runtime dependency.
+- CBM probe: the shipped HTTP transport `call_mcp_tool_http`
+  (`src/blackwall/mcp/transport.py`), imported lazily by `cbm_probe.py`. No new MCP
+  client dependency and no MCP server definition is added.
+- Prices: none. The Pricing_File is supplied by the maintainer at run time; no pricing
+  service or page is a dependency of any Harness run.
 - Notebook and tests: marimo, pandas, plotly (already in the `dev` extra, rule 64),
   Hypothesis, pytest-bdd. No new dependency; no version is quoted here.
 - Services: TypeSafe API (paid), Vertex AI (paid project), AlienVault OTX (key);
@@ -3255,10 +4315,10 @@ suite is expected to run in seconds because everything is pure or temp-file base
 
 | Phase | Scope | Needs | Output |
 |---|---|---|---|
-| 0 | Decisions Q1 to Q17 recorded (all decided 2026-11-13; see "Decisions on the Open Questions") | maintainer | decisions recorded in this spec |
-| 1 | Pure library, observers, offline stage pass (structural, context, TSG three modes, CBM default: the default-CBM row I-CBM-default needs neither the Fixture_Plan nor the snapshot, so it is recorded here and its manifest entry carries no fixture digest), compose with the differential test (all three Tier-2 data states), the replay identity check, run-set schema (unrounded floats), store | nothing live | committed offline stage data; the D3, D6, D7 counts pinned |
-| 2 | **Entry gate:** the proposal artifact for the AGENTS.md section 2 spec list and for a testing rule that defines "caught", prepared with exact diffs at the start of Phase 2 and before the first live Whole_System_Run, awaiting maintainer approval under section 6.3 (Q7). Then: live whole-system passes W0, W1, W2 and one Tier-2 Forced_Table per Jev release (`jev-1.13.0` and `jev-1.14.0`, two Tier-2 Passes each), two or more interleaved passes; notebook v1; recompute tests; mutation guard | Vertex project and `TYPESAFE_API_KEY` grants; the proposal artifact exists | committed run set; first system-versus-stage comparison |
-| 3 | Optional layers: threat intelligence on the corpus hosts and the IOC corpus, with the IOC builder (the maintainer-run `fetch`, the offline deterministic `build`, the IOC_Selection tests and the Synthetic_Feed_Sample); the CBM fixture with its Fixture_Plan (committed first), the Fixture_Export and `check`, the committed snapshot, and the fixture-backed CBM rows that need them (I-CBM-fixture, I-CBM-permuted, W4, W5, the `sinks mapped` row, the Indexer_Agreement rows and the permuted control); W3, W4, W5; each threat-intelligence row records its source corpus | `BW_OTX_API_KEY` grant, the maintainer's `fetch` run and `BW_ABUSECH_AUTH_KEY` grant, the hand-authored fixture source | separate run sets and notebook panels |
+| 0 | Decisions Q1 to Q18 recorded (all decided 2026-11-13; see "Decisions on the Open Questions") | maintainer | decisions recorded in this spec |
+| 1 | Pure library (including `findings.py`, `report.py` and `billing.py`), the corpus loader (`corpus.py`), the egress guard (`egress.py`, installed from the first `stages` run, with an empty `RUNTIME_HOSTS` for offline subcommands), observers, offline stage pass (structural, context, TSG three modes, CBM default: the default-CBM row I-CBM-default needs neither the Fixture_Plan nor the snapshot, so it is recorded here and its manifest entry carries no fixture digest; plus the `StagePassFacts` CBM `base_url` observation), compose with the differential test (all three Tier-2 data states, each `unavailable_reason`), the replay identity check, run-set schema (unrounded floats), store; the offline findings figures (D3, D6, D7, the CBM default characterization, the `base_url` fact, F08) | nothing live | committed offline stage data; the D3, D6, D7 counts pinned |
+| 2 | **Entry gate:** the proposal artifact for the AGENTS.md section 2 spec list and for a testing rule that defines "caught", prepared with exact diffs at the start of Phase 2 and before the first live Whole_System_Run, awaiting maintainer approval under section 6.3 (Q7). Then: live whole-system passes W0, W1, W2 and one Tier-2 Forced_Table per Jev release (`jev-1.13.0` and `jev-1.14.0`, two Tier-2 Passes each), two or more interleaved passes, under the derived `RUNTIME_HOSTS`, with Tier-2 429 and empty-Tier-2-bucket invalidation and billing statements (cost from `--pricing`, or Not_Measured "no pricing file"); the F06 finding from the Whole_System_Runs; notebook v1; recompute tests; mutation guard | Vertex project and `TYPESAFE_API_KEY` grants; the proposal artifact exists; a Pricing_File only if a dollar cost is wanted | committed run set; first system-versus-stage comparison |
+| 3 | Optional layers: threat intelligence on the corpus hosts and the IOC corpus, with the IOC builder (the maintainer-run `fetch`, the offline deterministic `build`, the IOC_Selection tests and the Synthetic_Feed_Sample); the CBM fixture with its Fixture_Plan (committed first), the Fixture_Export and `check`, the committed snapshot, and the fixture-backed CBM rows that need them (I-CBM-fixture, I-CBM-permuted, W4, W5, the `sinks mapped` row, the Indexer_Agreement rows and the permuted control); the CBM_Probe_Step (`cbm_probe.py`, `probe-cbm`), run on its own and only against a local server; W3, W4, W5; each threat-intelligence row records its source corpus; the LX-wave support (`run_lx_wave`), with the experiment itself run only on explicit request | `BW_OTX_API_KEY` grant, the maintainer's `fetch` run and `BW_ABUSECH_AUTH_KEY` grant, the hand-authored fixture source; a local codebase-memory-mcp only for the probe; a Vertex grant only for a requested LX-wave run | separate run sets and notebook panels |
 | 4 | Band study with the held-out protocol and the F06 what-if (exploratory replay and the tune-half versus held-out-half comparison may be published; no band edge is recommended without the gate of "Band recommendation gate"); cross-link cell in the existing notebook; ADR for the first measured results | Fresh_Evidence for any recommendation (at least 30 attack and 30 benign cases authored after the replay surface was frozen by an author who was not shown the withheld material, with an Authoring_Record and maintainer-confirmed labels) | input to TASK-F10 and TASK-F06 |
 
 How the open tasks interact:
@@ -3271,8 +4331,9 @@ How the open tasks interact:
   band recommendation, however, must not rest on a corpus with a known class tell,
   so Phase 4 requires either F09 landed or a recommendation that holds in the
   "other tool name" stratum on its own. If F09 lands first, the corpus hash changes
-  and a new run-set directory is created; the schema supports several corpus
-  versions side by side.
+  and a new run-set directory is created by `stages` (a `run` against an older Run_Set
+  is refused for its Corpus_Hash); the schema supports several corpus versions side
+  by side.
 - **TASK-F08 (hygiene over-match): parallel.** The corpus avoids it by value, and
   the harness pins that. Its fix changes sanitized states, so the stored Jev runs
   and every run set are re-scored in the same change.
@@ -3291,9 +4352,9 @@ How the open tasks interact:
 
 ## Decisions on the Open Questions
 
-The questions below (Q1 to Q17) are all decided as of 2026-11-13. Q12 to Q15 were
-decided by the maintainer. Q1 to Q11, Q16 and Q17 were decided under a delegation from
-the maintainer (to the orchestrator), who may review any of them; a changed answer may
+The questions below (Q1 to Q18) are all decided as of 2026-11-13. Q12 to Q15 were
+decided by the maintainer. Q1 to Q11, Q16, Q17 and Q18 were decided under a delegation
+from the maintainer (to the orchestrator), who may review any of them; a changed answer may
 change the sections that cite it. The numbering is kept so the rest of this document
 and `requirements.md` can still cite each decision.
 
@@ -3455,6 +4516,56 @@ and `requirements.md` can still cite each decision.
   maintainer running the IOC_Authoring_Step under the grant that the IOC section already
   requires. Shaped the IOC_Selection pseudocode, the IOC manifest, the synthetic sample,
   the builder tests, the layout and Phase 3.
+- **Q18. Design gaps resolved. Decided 2026-11-13 (delegated to the orchestrator).**
+  Every piece of work now has a module. The Corpus_Loader is `corpus.py` (lazy
+  `blackwall` imports, committed files only, no network), and `corpus_hash` stays in
+  `records.py` over per-case entries that a Run_Set's own records also carry. The pure
+  `findings.py` computes the Requirement 26 figures from recorded Stage outputs and the
+  loaded Corpus, reads the one live-object fact (the CBM `base_url` rewrite) that
+  `stages.py` records during the offline stage pass, and emits the finding-filing list
+  as data without editing any spec. Only the CLI (`stages` and `validate`, passing the
+  loaded Corpus to `build_findings`) computes the findings report, which it stores in
+  the Manifest's `findings` field beside `findings_to_file`, and the Notebook renders
+  that stored report through the Corpus-free `format_findings`, never calls a findings
+  computation, and shows Not_Measured with the reason when a Run_Set stores no report.
+  The pure `report.py` builds the header statements,
+  groupings, paired-reading tables and per-Pass spread once; the CLI prints them and
+  the Notebook renders them. `egress.py` derives `RUNTIME_HOSTS` at run start from the
+  clients a run builds (the Jev and OTX base-URL hosts, the Vertex endpoint of the
+  configured location and `oauth2.googleapis.com`), installs the socket-level guard for
+  every Harness run and holds `SendGuard`; `AUTHORING_HOSTS` stays in `ioc_corpus.py`
+  and is disjoint from it. The Harness never fetches a price: the pure `billing.py`
+  prices logged tokens from a maintainer-supplied `--pricing` file, and without one the
+  cost is Not_Measured "no pricing file". `cbm_probe.py`, run only by `probe-cbm`, is the
+  CBM_Probe_Step: loopback only, no credential, never inside a Pass, and it never changes
+  a fixture row. LX-wave stays in `runner.py` as `run_lx_wave`, the only path with the
+  Resolver's background tasks enabled. `Tier2Out.unavailable_reason` keeps the Resolver's
+  three values, a new `error_class` carries the finer cause, Quarantine_Cause
+  `rate_limit` names the front limiter only, and an empty Tier-2 bucket invalidates the
+  Pass with reason `tier2_rate_limit`, like a Tier-2 429. Because the notebook may not
+  import `corpus.py`, it takes the attack count and the hand-written attack count of the
+  band-replay validity-limits box from the selected Run_Set's own per-case records
+  (distinct `case_id` values with `ground_truth` `MALICIOUS`, and of those the ones
+  whose `suite` is `evasion_proof`), which the Corpus_Hash binding ties to the scored
+  Corpus, and renders both as Not_Measured with the reason when the records lack those
+  fields or the Corpus_Hash check fails. `stages` alone creates a Run_Set (recording
+  `created_by: "stages"`) and refuses an existing directory, while a live `run`,
+  `run --experiment LX-wave` and `probe-cbm` append atomically, never overwriting a
+  record, only to a Run_Set that `stages` created, whose Corpus_Hash equals the loaded
+  Corpus's and that holds no record for a `(config_id, pass_index)` they would write,
+  and otherwise refuse before any client, call or record, naming the failed condition.
+  `probe-cbm` is bound by the first two of those conditions only, and every invocation
+  that runs the probe appends one probe attempt (the next free 1-based index, a UTC
+  ISO 8601 timestamp, and that attempt's conformance row and Indexer_Agreement rows)
+  that is never overwritten or deleted, so the Notebook and the findings show the
+  latest attempt with the number of attempts, the Notebook keeps earlier attempts in
+  its probe drilldown, and a Run_Set with no attempt shows the probe rows as
+  Not_Measured with the reason `probe not requested`.
+  Shaped the layout, the
+  components (sections 1, 3, 4, 7 and 10 to 14), the data models, the Run Protocol, the
+  egress, security and billing text, the CBM probe and LX-wave text, the error
+  handling, the testing strategy, Property 23, the notebook import rule and the
+  phasing.
 
 ## Glossary
 
@@ -3533,3 +4644,34 @@ and `requirements.md` can still cite each decision.
   selects. A row is Named_Explicitly or in the Default_Plan, never both.
 - **Not_Measured:** the recorded status of a stage or configuration that lacks a
   prerequisite, rendered as an em dash with the reason.
+- **CBM_Probe_Step:** the `probe-cbm` subcommand of `scripts/holistic_eval.py`
+  (`cbm_probe.py`), the second named connection exception after the
+  IOC_Authoring_Step. It indexes the CBM fixture through codebase-memory-mcp, sends the
+  conformance requests and appends the conformance row and the Indexer_Agreement rows
+  to the Run_Set as one probe attempt. It connects only to a loopback address given by the configured codebase-memory-mcp
+  base URL, reads no credential, never runs inside a measurement Pass and never changes
+  a fixture row.
+- **Probe attempt:** one `probe-cbm` invocation that ran the probe, stored as a
+  `CbmProbeAttempt` in the Manifest's `cbm_fixture.probe_attempts`: a 1-based attempt
+  index (the next free one), a UTC ISO 8601 timestamp, the conformance row and the
+  Indexer_Agreement rows of that attempt. Attempts are appended and never overwritten
+  or deleted; the latest attempt is the one with the highest index.
+- **Send_Guard:** `SendGuard` in `egress.py`, the per-run guard on the OTX provider's
+  request path that refuses, and fails the run naming it, any indicator that is not in
+  the committed fixtures of the corpus selected for that run.
+- **Egress guard:** the socket-level guard of `egress.py`, installed for every Harness
+  run before any client is built, that refuses a connection to any host outside that
+  run's `RUNTIME_HOSTS`, records the refused host and marks the affected case `ERROR`.
+- **RUNTIME_HOSTS:** the run-time host allowlist that `derive_runtime_hosts` computes at
+  run start from the clients the run builds; empty for a run that builds no client.
+- **Pricing_File:** the JSON file the maintainer supplies with `--pricing <file>`,
+  holding the pricing source URL, the fetch date (`YYYY-MM-DD`) and per-model input and
+  output prices per token unit. It is run-time data, not code and not part of the
+  design; without it the dollar cost is Not_Measured with the reason "no pricing file".
+- **Stage-pass fact:** a fact observed once by `stages.py` during the offline stage pass
+  and recorded in `StagePassFacts` (the CBM `base_url` rewrite), the only live-object
+  input of `findings.py`.
+- **Front rate limiter:** the Resolver's 80 req/s bucket, checked in step 1 of
+  `evaluate()`; its QUARANTINE carries Quarantine_Cause `rate_limit`. It is distinct
+  from the 300 RPM Tier-2 bucket, whose emptiness is a Tier-2 outage with
+  `unavailable_reason == "rate limit"` and Quarantine_Cause `tier2_unavailable`.
