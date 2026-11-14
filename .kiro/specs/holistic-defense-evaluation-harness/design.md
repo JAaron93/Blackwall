@@ -100,12 +100,12 @@ unknowns.
 | D6 | Keyword novelty is a substring match and drives Tier-2 "disagreement" | `_SUSPICIOUS_KEYWORDS` includes `nc`, `c2`, `etc`, `select`, `drop`, `insert`, `delete`. Two hits give 0.4, and with Jev P below 0.2 that triggers Tier-2. Offline-computed: 2 of 68 benign cases reach novelty 0.4 (`benign_db_distinct_001`, `benign_edge_recursive_cte_001`) and every benign Jev P is at most 0.06, so both would trigger. 38 of 99 attack cases reach 0.4 | Each record stores `novelty`, `trigger` and Tier-2 calls, so the disagreement path is quantified per class. Live confirmation is part of the whole-system runs |
 | D7 | The tool name is a tell | 44 of 99 attack cases use a high-risk tool name (`execute_shell`: 40 of 89 in the security suite and 4 of 10 in the `evasion_proof` suite); 0 of 68 benign do (offline-computed). The production-role structural rule in `policy.yaml` blocks four tool names, of which `execute_shell` is the one the corpus uses (ADR 0009: 44 attack blocks by tool name); the context score uses the high-risk names directly | Results are stratified by tool-name group; the headline view is the "other tool name" stratum; TASK-F09 is a parallel track, and it gates the band recommendation (Phasing) |
 | D8 | `ContextHygiene` over-matches (TASK-F08) | Password redaction swallows the next word; the `sk-` pattern fires inside hyphenated words. The TSG and Tier-2 see sanitized arguments | The corpus avoids both by value. Each case records a sanitized-argument hash; a test fails if sanitization alters any case in those ways. Landing F08 changes the sanitized states, which invalidates stored Jev runs by design (their test rebuilds the states), so everything is re-scored then |
-| D9 | The existing e2e harness differs from production in rate-limiter lifetime | It builds a new `SyncResolver` per case, so the 80 req/s front bucket and the 300 RPM Tier-2 bucket never accumulate | Shared resolver per configuration and pass, `demo_mode=False`, concurrency 2, cool-down between configurations; a rate-limit QUARANTINE or any Tier-2 429 invalidates the pass |
+| D9 | The existing e2e harness differs from production in rate-limiter lifetime | It builds a new `SyncResolver` per case, so the 80 req/s front bucket and the 300 RPM Tier-2 bucket never accumulate | Shared resolver per configuration and pass, `demo_mode=False`, a fixed in-flight limit (`--concurrency`, default 2), cool-down between configurations; a rate-limit QUARANTINE or any Tier-2 429 invalidates the pass |
 | D10 | A band study needs both edges and cannot tune and score on the same cases | Aggregation makes the upper edge decisive (a P above the upper edge never reaches Tier-2 and is ALLOWED, TASK-F06) | Band replay component with a held-out protocol and explicit validity limits |
 | D11 | The existing Tier-2 e2e figures are on the earlier corpus | `scripts/jev_tier2_eval.py` reads `tests/eval/results/jev_runs/ablation_class_blind.json` (`production_state`, scored 2026-11-12), not the current class-blind corpus of `jev_runs_class_blind/` | The new harness loads the current corpus through `scripts/jev_triage_eval.py::build_cases`; the ADR 0009 end-to-end figures are never pooled with new ones, and the notebook says so |
 | D12 | Committed Jev states carry empty metadata | The stored states end in `Metadata: {}`. Without `environment_role`, the structural engine defaults to `production` and the context score adds no role modifier | The harness uses `metadata=None`, as the committed Jev runs did. A production caller that sets `environment_role=production` adds 0.15 to the context score; that sensitivity is stated, and not run |
 | D13 | QUARANTINE has two causes | See "Definition of Caught". A QUARANTINE comes from the aggregate (0.50 to below 0.75), from a Tier-2 outage on an otherwise-ALLOW call (ADR 0009 Decision 6), or from the rate limiter | Every record stores `quarantine_cause`; reports can separate deliberate QUARANTINEs from fail-closed ones |
-| D14 | Live runs spend money and need credentials | Testing rules 74, 78 and 79 | Hermetic by default, human grants named per variable, billing disclosure and call counts printed and stored, and a refusal to start when a prerequisite is missing |
+| D14 | Live runs spend money and need credentials | Testing rules 74, 78 and 79 | Hermetic by default, human grants named per variable, billing disclosure and call counts printed and stored, an abort before any client is built when a Named_Explicitly live row lacks its credential or grant, and a Not_Measured record for a Default_Plan row that lacks a credential, fixture or transport |
 
 ## Definition of Caught (proposal for the maintainer's review)
 
@@ -149,10 +149,13 @@ or a retry later decides.
   of the catches or false alarms are fail-closed.
 - **ERROR rows** (an `ERROR row` is a record whose decision is `ERROR`) are
   excluded from both numerator and denominator, are counted in every table, and a
-  sensitivity column treats them as stopped (the gateway's fail-closed behavior).
-  Provisional (Q2): the sensitivity column is required in every catch table; whether
-  it also applies to replay cells, TSG, threat-intelligence and IOC rates and the
-  CBM what-if row is open (Q15). An `UNMEASURED` composed verdict (a triggered case
+  sensitivity value treats them as stopped (the gateway's fail-closed behavior).
+  The sensitivity value (Q15, decided 2026-11-13) appears only in the catch tables
+  that state a catch rate or a false-alarm rate for Whole_System_Run and
+  Composed_Row verdicts (requirements 6, 7 and 13). Replay cells, TSG rates,
+  threat-intelligence rates, IOC_Corpus rates and the CBM `sinks mapped` what-if row
+  state the `ERROR` exclusion and the `ERROR` count only and carry no sensitivity
+  column. An `UNMEASURED` composed verdict (a triggered case
   with no Tier-2 output) is a different thing: it is not a decision value, is not an
   `ERROR`, is counted as Not_Measured and is never imputed.
 - **Isolated stage flags** are each stage's own positive output (below). They are
@@ -184,7 +187,7 @@ of attack cases caught under reading `R`:
   falls in exactly one category (a partition). An `ERROR` row and an `UNMEASURED`
   verdict are excluded from the partition, from every leave-one-out and add-one-in
   set and from every rate, are never imputed, and their two counts are reported
-  separately beside each affected figure (Q2 provisional). The class totals equal
+  separately beside each affected figure (Q2). The class totals equal
   the Attack_Cases that are neither `ERROR` nor `UNMEASURED`.
   - `system_only`: caught, and no enabled stage's flag is on (emergent from
     aggregation);
@@ -199,7 +202,9 @@ of attack cases caught under reading `R`:
   `attack_type` (a case with none goes in `no_attack_type`), Tool_Name_Group
   (`high_risk_name` or `other`), and Family (`c2_ioc`, `payload`, `benign`).
 - Counts always carry the Pass_Spread (maximum minus minimum of the figure across
-  the valid Passes; 0 over a single valid Pass) and a Wilson interval whose sample
+  the valid Passes of one configuration that used the same `--concurrency` value;
+  0 over a single valid Pass; a Pass with a different concurrency is recorded and
+  excluded from the spread with a reason) and a Wilson interval whose sample
   size is the non-`ERROR` cases of the group. A group of fewer than 30 such cases
   is marked small and shows its case count. Where `n` is small (the `evasion_proof`
   suite is 10 cases) the table says so.
@@ -405,6 +410,40 @@ def describe_layers(spec: ConfigSpec) -> StageContext: ...   # printed in every 
 `demo_mode` and which of TSG, structural policy, threat intelligence and CBM were
 configured, and to say the verdicts exclude the missing ones.
 
+The in-flight limit is the configured `--concurrency` N (Q13, decided 2026-11-13):
+an integer of 1 or more, default 2. A pass runs N workers that pull cases from one
+queue on one shared resolver. At most N cases are in flight at any instant, and
+exactly N are in flight while at least N cases of the pass remain unstarted.
+
+```python
+def validate_concurrency(raw: object) -> int:
+    # Raises (CLI exits non-zero, naming --concurrency and the minimum of 1) for a
+    # non-integer or a value below 1, before any case runs. Absent => 2.
+    ...
+
+async def run_pass(observed: ObservedResolver, cases: Sequence[CorpusCase], n: int) -> list[CaseRecord]:
+    queue: asyncio.Queue[CorpusCase] = asyncio.Queue()
+    for c in cases:
+        queue.put_nowait(c)
+    out: list[CaseRecord] = []
+
+    async def worker() -> None:
+        while True:
+            try:
+                case = queue.get_nowait()          # a worker never idles while cases remain
+            except asyncio.QueueEmpty:
+                return
+            out.append(await observed.run_case(case))   # evaluate() raising => ERROR row, loop continues
+
+    await asyncio.gather(*(worker() for _ in range(n)))
+    return sorted(out, key=lambda r: r.case_id)    # order of completion never reaches a figure
+```
+
+Every pass records its `n` in its `RunEntry`. A pass that used a different `n` from
+the other valid passes of its configuration stays in the manifest, and is excluded,
+with a stated reason, from every comparison between passes (the valid-pass count of
+requirement 24.1, the Pass_Spread, and the Jev release comparison).
+
 ### 4. Isolated stage runners (offline unless noted)
 
 ```python
@@ -413,7 +452,7 @@ def run_context(cases, scorer) -> list[ContextOut]: ...            # tool score,
 async def run_tsg(cases, repo, seeding: TsgSeeding) -> list[TsgOut]: ...
 async def run_cbm(cases, client) -> list[CbmOut]: ...
 async def run_threat_intel(cases, orchestrator, *, grant: CredentialGrant) -> list[TiOut]: ...   # live
-async def run_tier2_table(cases, p_by_case, backend, *, concurrency=2) -> list[Tier2Out]: ...     # live
+async def run_tier2_table(cases, p_by_case, backend, *, concurrency: int = 2) -> list[Tier2Out]: ...  # live; concurrency >= 1 is the in-flight limit N
 def load_jev_stored(runs_dir, run_key) -> dict[str, JevOut]: ...                                 # committed runs
 ```
 
@@ -489,7 +528,7 @@ class TsgOut:
     path: Literal["fts", "substring", "none"]
     signature_id: str | None
     seeded_from: str | None                  # parent case id of the matched seed
-    leakage: Literal["none", "seeded_case"]  # "seeded_case": this row is a seed's own parent
+    leakage: Literal["none", "seeded_case"]  # "seeded_case" only on a Parent_Case whose seed was written in the current Seeding_Mode (every parent in parent_only, the seeded half in held_out_parents, none in cold)
 
 @dataclass(frozen=True, slots=True)
 class CbmOut:
@@ -599,11 +638,16 @@ class RunEntry:
     config_id: str
     pass_index: int
     interleave_position: int                 # 1-based (1 or greater), unique within the Run_Set, ordered by execution start
+    concurrency: int                         # the --concurrency value N this Pass used (integer, 1 or greater)
     valid: Literal["valid", "discarded"]
+    comparison_exclusion: str | None         # non-empty reason when N differs from the configuration's other valid Passes; None otherwise
 ```
 
-`interleave_position` is stored for every Pass executed, discarded Passes and
-re-runs included; a re-run takes the next unused position.
+`interleave_position` and `concurrency` are stored for every Pass executed,
+discarded Passes and re-runs included; a re-run takes the next unused position.
+A Pass whose `concurrency` differs from the other valid Passes of its configuration
+carries a `comparison_exclusion` reason and does not enter valid-Pass counts,
+Pass_Spread calculations or Jev release comparisons.
 
 `not_measured` is what the notebook renders as the "not measured" status. A stage
 that is neither in `runs` nor in `not_measured` makes the manifest invalid.
@@ -616,6 +660,10 @@ that is neither in `runs` nor in `not_measured` makes the manifest invalid.
 - `interleave_position` is an integer of 1 or greater, unique within the Run_Set,
   and ordered by execution start; a duplicate, a value below 1, or an order that
   differs from the execution start order makes the manifest invalid.
+- Every `RunEntry.concurrency` is an integer of 1 or greater. Passes of one
+  configuration that are compared with each other have equal `concurrency`; a Pass
+  that differs carries a non-empty `comparison_exclusion` and is left out of the
+  comparison.
 - `final_decision == "ERROR"` implies `error is not None` and `decided_by == "error"`.
 - No record carries `demo_mode=True` (refused at write time).
 - `source == "stub_plumbing_only"` rows are never counted in efficacy tables.
@@ -684,7 +732,7 @@ also has a whole row is checked against it (D1, G2).
 Dollar cost is derived at run time from logged token counts and the vendor's
 current list price (the pricing source URL and fetch date go in the manifest); the
 design does not hard-code prices. The stage pass and everything composed is free.
-Time: the Tier-2 forced table at concurrency 2 and a p50 of about 2.3 s (ADR 0009)
+Time: the Tier-2 forced table at the default concurrency of 2 and a p50 of about 2.3 s (ADR 0009)
 is a few minutes per pass; a whole-system pass is one to two minutes.
 
 ## Fixtures
@@ -713,7 +761,7 @@ def build_seed(parent: CorpusCase) -> dict[str, Any]:
 |---|---|---|---|
 | cold | none | all 167 | Nothing matches; sanity |
 | parent-only | one per distinct parent of the 30 evasion cases (29) | the 30 evasion variants (transfer set); the 68 benign and the 30 non-parent attacks (false-match set); the 10 `evasion_proof` cases | Does a signature of the parent catch its variants (the wave 2 design), and what does it falsely match? |
-| held-out parents | half of the 29 parents, split by a fixed hash of the parent id | variants of seeded parents (transfer) and of unseeded parents (control) | Does a match depend on having seen the family? Matches on the control are cross-family generalization or false matches |
+| held-out parents | half of the 29 parents, split by a fixed hash of the parent id | variants of seeded parents (reported as transfer from a seed, not held-out evidence) and the unseeded-parent half, meaning the unseeded parents and their variants (the held-out control and the scored set of the leakage property) | Does a match depend on having seen the family? Matches on the control are cross-family generalization or false matches |
 
 Leakage controls (each has a test):
 
@@ -721,12 +769,17 @@ Leakage controls (each has a test):
 2. The seed intent is the neutral default string. No label word, `attack_type`,
    `evasion_type` or parent id is written into a signature field the matcher reads
    (`metadata.seeded_from` is not read by the matcher; a test pins that).
-3. The parent rows themselves are marked `leakage="seeded_case"` and are excluded
-   from every TSG efficacy denominator, as are `ERROR` rows. Provisional (Q14):
-   in `held_out_parents` mode, requirement 18.3 marks every Parent_Case
-   `seeded_case`, while 17.19 scores the variants of seeded parents and 30.15 asks
-   that no `parent_case_id` of a scored case appear among the seeds. How these
-   fit together, and whether only seeded parents are marked, is open.
+3. Only the Parent_Cases whose seed was written in the current Seeding_Mode are
+   marked `leakage="seeded_case"` (Q14, decided 2026-11-13): every parent in
+   `parent_only`, the seeded half of the parents in `held_out_parents`, none in
+   `cold`. Marked rows are excluded from every TSG efficacy denominator, as are
+   `ERROR` rows; an unseeded parent is scored and not marked. In `held_out_parents`
+   mode the scored set for the leakage property is the unseeded-parent half (the
+   unseeded parents and their variants), and no `case_id` and no `parent_case_id`
+   of a case in that set appears among the seed signatures. The match rate over
+   variants of seeded parents is still reported, labeled as transfer from a seed and
+   not as held-out evidence; the match rate over variants of unseeded parents is
+   the held-out result, reported separately.
 4. The graph is static during measurement: background tasks are dropped, so no
    signature is written during scoring and results are order-independent. A
    permutation test asserts it. (`find_matching_signature` increments
@@ -832,9 +885,9 @@ sequenceDiagram
     H->>CLI: plan (no spend)
     CLI-->>H: layers, demo_mode, call counts, models, billing project, grants needed
     H->>CLI: run, with grants for named variables only
-    CLI->>R: preflight (missing prerequisite: refuse or record Not_Measured, open Q12)
-    loop pass 1..N, interleaved across configurations
-        R->>J: whole-system case calls (concurrency 2)
+    CLI->>R: preflight (Named_Explicitly row without credential: abort; Default_Plan row without credential, fixture or transport: Not_Measured)
+    loop pass 1..P, interleaved across configurations
+        R->>J: whole-system case calls (at most N in flight, N = --concurrency)
         R->>V: Tier-2 on triggered cases
         R-->>R: check 429 / rate-limit / error rows
         alt pass invalid
@@ -859,20 +912,32 @@ sequenceDiagram
    environment only, and never printed, logged, echoed, written or committed. The
    harness itself never opens a credential file. A grant does not carry into a new
    conversation. The manifest records variable names and the grant date, not values.
-3. **Refuse early, or record Not_Measured.** Provisional (Q12). Requirements 23.15
-   to 23.17 have the CLI exit non-zero, before it builds any client, makes a call or
-   writes a record, when `GCP_PROJECT` and `GOOGLE_CLOUD_PROJECT` are both unset for
-   a Vertex row, when `TYPESAFE_API_KEY` is unset for a live Jev row, or when
-   `BW_OTX_API_KEY` is unset for a threat-intel row. It likewise rejects
-   `--concurrency` below 1 before any case runs. Requirements 4.8, 19.17, 22.1,
-   31.11, 31.12 and 31.14 instead record a row with a missing prerequisite (grant,
-   fixture or transport) as Not_Measured with a reason naming it, and continue with
-   the remaining configurations. This applies to W0, W1 and W2 as well as to the
-   optional rows. Both are in the requirements; which one governs an explicitly
-   requested live row without its credential is open (Q12), and this design does not
-   choose. In either case a row with a missing prerequisite is never run in a
-   degraded form, never stubbed, and carries no verdict, Outcome or rate. A
-   threat-intelligence row without a grant has a Not_Measured reason that begins
+3. **Abort for a named row, record Not_Measured for a default row** (Q12, decided
+   2026-11-13). `--configs` selects the rows of a `run`. A live row whose
+   configuration id appears in `--configs` is Named_Explicitly. A row that a
+   subcommand (`plan`, `stages`, `run` or `validate`) plans or executes without its
+   id being in `--configs`, including every row the Runner includes on its own
+   account, is part of the Default_Plan; when `--configs` is omitted the run is the
+   Default_Plan. A row is one or the other, never both. The two cases differ only
+   for a missing credential or grant:
+   - A Named_Explicitly row whose credential or grant is missing aborts the run
+     (requirements 23.15 to 23.17 and 23.20). The CLI exits non-zero with an error
+     naming the missing variable, before it builds any client, makes any network
+     call or writes any record: both `GCP_PROJECT` and `GOOGLE_CLOUD_PROJECT` unset
+     or empty for a Vertex row, `TYPESAFE_API_KEY` unset or empty for a live Jev row,
+     `BW_OTX_API_KEY` unset or empty for a threat-intelligence row.
+   - A Default_Plan row whose credential, grant, fixture or transport is missing is
+     recorded in the manifest as Not_Measured with a reason naming the missing item,
+     and the run continues with the remaining configurations (requirements 4.8,
+     19.17, 22.1 to 22.3, 31.11, 31.12 and 31.14). This applies to W0, W1 and W2 as
+     well as to the optional rows.
+   - A missing fixture or transport is Not_Measured even for a Named_Explicitly row,
+     because the abort covers credentials and grants only (requirement 4.8).
+   - `--concurrency` that is not an integer or is below 1 is rejected before any
+     case runs, naming `--concurrency` and the minimum of 1 (requirement 23.18).
+   In every case a row with a missing prerequisite is never run in a degraded form,
+   never stubbed, and carries no verdict, Outcome or rate. A threat-intelligence row
+   of the Default_Plan without a grant has a Not_Measured reason that begins
    `no grant` and names `BW_OTX_API_KEY`.
 4. **Interleave.** Passes are interleaved across configurations in one fixed
    configuration order (pass 1 of W0, W1, W2, then the I-T2 table, then pass 2 of the
@@ -881,21 +946,29 @@ sequenceDiagram
    in the manifest: a 1-based integer (1 or greater), unique within the Run_Set and
    ordered by execution start. A re-run after an invalidation takes the next unused
    position.
-5. **Pace.** Concurrency 2 and a cool-down between configurations (recorded in the
-   manifest). Provisional (Q13): requirement 24.5 keeps exactly 2 cases in flight
-   while 2 or more remain unstarted, whereas `--concurrency` accepts any integer of
-   1 or more (23.18); whether the flag sets the concurrency with 2 as the default or
-   is restricted to 2 is open. The 30 s starting value is a proposal; the front
-   80 req/s bucket cannot run dry at concurrency 2, so any `rate_limit` row signals
-   a harness defect.
+5. **Pace.** The in-flight limit is the configured `--concurrency` N, an integer of
+   1 or more with 2 as the default (Q13, decided 2026-11-13): at most N cases in
+   flight, and exactly N while at least N cases of the pass remain unstarted
+   (requirement 24.5). The manifest records N for every pass, and passes that are
+   compared with each other (the valid passes of a configuration, Pass_Spread
+   calculations, Jev release comparisons) must have used the same N; a pass with a
+   different N is recorded and excluded from the comparison with a reason. A
+   cool-down of at least a configured number of seconds separates passes of
+   different configurations, and is recorded in the manifest. The 30 s starting
+   value is a proposal (Q10, open). At the default of 2 the front 80 req/s bucket
+   cannot run dry, so any `rate_limit` row signals a harness defect; a larger N
+   raises that risk, and a `rate_limit` row still invalidates the pass.
 6. **Invalidate.** Any Tier-2 429 (from the client probe) or any rate-limit
    QUARANTINE invalidates the whole pass. So does a Jev release that differs from
    the explicitly requested release name, or is not reported (the served-release
    rule). It is discarded and re-run, and recorded in `discarded_passes`. A Jev
    error is data (`ERROR` rows); a pass with Jev errors is valid but its error count
    is shown in every table.
-7. **Never simulate.** An unavailable credential defers the row (testing rule 74);
-   how a deferral surfaces in a `run` (abort or Not_Measured) is Q12.
+7. **Never simulate.** An unavailable credential defers the row (testing rule 74).
+   A deferral surfaces as an abort for a Named_Explicitly row and as a Not_Measured
+   record for a Default_Plan row (step 3). A live row that has no measured result in
+   any run set carries a deferral note naming its credential variable, and its
+   acceptance checkbox stays unchecked (requirements 22.10 and 22.11).
 8. **Compare Jev P at fixed bounds.** The Jev P of each valid live Pass is compared
    with the stored Jev run at the constants of "Jev P comparison bounds" (maximum
    per-case difference, mean difference, zone flips). The comparison is a test over
@@ -1186,7 +1259,7 @@ Property: a variant and its parent are always on the same side.
 ## Example Usage
 
 ```python
-# 1. Plan (no spend, no network)
+# 1. Plan (no spend, no network). Without --configs the plan is the Default_Plan.
 #    python scripts/holistic_eval.py plan --configs W0,W1,W2,I-T2 --passes 2
 
 # 2. Offline stage pass: structural, context, TSG (cold, parent-only, held-out), CBM default
@@ -1194,7 +1267,11 @@ Property: a variant and its parent are always on the same side.
 
 # 3. Live passes, hermetic, grants given for named variables only
 #    (the human names the variables; the agent reads only those, per rule 78;
-#     --concurrency 2 is provisional, see Q13)
+#     --concurrency N is the in-flight limit: an integer of 1 or more, default 2.
+#     The four ids in --configs are Named_Explicitly: if a grant or credential for
+#     one is missing, the run exits non-zero before any client or record. Without
+#     --configs, the Default_Plan runs and a row with a missing prerequisite is
+#     recorded as Not_Measured.)
 #    python scripts/holistic_eval.py run --run-set cb-2026-xx --configs W0,W1,W2,I-T2 \
 #        --passes 2 --concurrency 2 --cooldown-s 30
 
@@ -1254,13 +1331,13 @@ rule 70; it is scheduled in Phasing, not done here).
 | 3 | Controls | Run-set selector, reading highlight selector (the paired values stay visible), band controls for `lo` and `hi` (defaults 0.35 and 0.75, each from 0.00 to 1.00 inclusive; an entry with `lo > hi` or a value outside that range keeps the previous valid Band, leaves every panel unchanged and shows which constraint failed; `lo == hi` is accepted), clear-high policy toggle (`block` is labeled "hypothetical, not production behavior"), Tier-2 mode toggle (`recorded`, `unavailable`, `absent`) |
 | 4 | Context header | For the selected configuration: `demo_mode`, layers on and off, Jev release(s), Tier-2 model and level, pass count, discarded passes |
 | 5 | What can stop a call | Static reduction for the selected layers: with TI and CBM absent the verdict is structural BLOCK, TSG match, Tier-2 verdict, or Tier-2-unavailable QUARANTINE; the aggregate cannot reach 0.50 |
-| 6 | Panel A: isolated versus whole | Per group (class, attack type, tool-name group, C2/IOC versus payload): each stage's own flag rate next to the system catch rate and false-alarm rate, under both readings, with counts, pass spread and Wilson intervals |
+| 6 | Panel A: isolated versus whole | Per group (class, attack type, tool-name group, C2/IOC versus payload): each stage's own flag rate next to the system catch rate and false-alarm rate, under both readings, with counts, pass spread and Wilson intervals. The whole-system and composed catch and false-alarm rates carry the `ERROR` count and the treat-`ERROR`-as-stopped sensitivity column (Q15); the Stage_Gate and Stage_Flag rows carry the `ERROR` exclusion and count only |
 | 7 | Panel B: catch attribution | Partition (system-only, unique with stage names, redundant, lost-by-system, missed-by-all) as a stacked bar per configuration; the class totals equal the Attack_Cases that are neither `ERROR` nor `UNMEASURED`, and the panel shows the number of excluded `ERROR` cases and the number of excluded `UNMEASURED` cases separately; leave-one-out and add-one-in tables; the case lists behind each bar |
-| 8 | Panel C: band replay surface | Heatmaps over `lo` and `hi`: catch (stopped), catch (blocked), false alarm, Tier-2 share, outage QUARANTINE exposure; the shipped band marked; unmeasured cells as an em dash; the number of excluded `ERROR` rows beside each rate (Tier-2 share included, whose denominator also excludes them); the pass-spread band; the tune-half versus held-out-half comparison; a validity-limits box |
+| 8 | Panel C: band replay surface | Heatmaps over `lo` and `hi`: catch (stopped), catch (blocked), false alarm, Tier-2 share, outage QUARANTINE exposure; the shipped band marked; unmeasured cells as an em dash; the number of excluded `ERROR` rows beside each rate (Tier-2 share included, whose denominator also excludes them) and no sensitivity column, because replay cells carry the `ERROR` exclusion and count only (Q15); the pass-spread band; the tune-half versus held-out-half comparison; a validity-limits box |
 | 9 | Panel D: Tier-2 outage drill | The ADR 0009 Decision 6 cost computed offline: benign QUARANTINEs and attack outcomes if Tier-2 were unavailable |
 | 10 | Panel E: stratified views | The "other tool name" stratum as the headline, the shell stratum beside it, and the C2/IOC-type stratum |
-| 11 | Panel F: TSG | Transfer set, false-match set, unseen-family control, match path, seed pattern length |
-| 12 | Panel G: optional layers | Threat intelligence on the corpus hosts and on the IOC corpus (separate panels), CBM default versus fixture versus permuted; a status tile per layer, "not measured" with the recorded reason when absent (a threat-intelligence row without a grant reads `no grant` and names `BW_OTX_API_KEY`); a banner on any plumbing-only data |
+| 11 | Panel F: TSG | One row per Seeding_Mode. Transfer set, false-match set, the match rate over variants of seeded parents (labeled transfer from a seed, not held-out evidence) beside the match rate over the unseeded-parent half (the held-out control), match path, seed pattern length. Rows marked `leakage="seeded_case"` (only parents whose seed was written in that mode) are labeled and excluded from the rates. The `ERROR` exclusion and count only, no sensitivity column (Q15) |
+| 12 | Panel G: optional layers | Threat intelligence on the corpus hosts and on the IOC corpus (separate panels), CBM default versus fixture versus permuted; a status tile per layer, "not measured" with the recorded reason when absent (a threat-intelligence row without a grant reads `no grant` and names `BW_OTX_API_KEY`); a banner on any plumbing-only data; threat-intelligence, IOC_Corpus and CBM `sinks mapped` rates carry the `ERROR` exclusion and count only, no sensitivity column (Q15); a Default_Plan row that lacks a credential, fixture or transport shows its recorded Not_Measured reason |
 | 13 | Per-case drilldown | Case filter and selector: stage outputs, novelty and keyword hits, trigger, Tier-2 decision and latency, final decision, decided-by, quarantine cause |
 | 14 | Caveats | Corpus size, the tool-name tell, Tier-2 variance, circularity, the Jev release, what was not measured, links to the ADRs and tasks |
 | 15 | Cross-link | A pointer to `notebooks/benchmark_analytics.py` and the Tier-1 section it already carries |
@@ -1374,18 +1451,27 @@ already cited by ADR 0009.
 
 **Validates: Requirements 7.5, 7.6**
 
+### Property 18: Held-out seeding never leaks into the scored set
+
+*For any corpus and any held-out split in `held_out_parents` mode, no `case_id` and no `parent_case_id` of a case in the scored set (the unseeded parents and their variants) appears among the seed signatures. Only the Parent_Cases whose seed was written in the current Seeding_Mode are marked `leakage="seeded_case"` (every parent in `parent_only`, the seeded half in `held_out_parents`, none in `cold`); an unseeded parent is scored and not marked, and the marked rows alone are excluded from the TSG efficacy rates. The match rate over variants of seeded parents is reported separately and labeled transfer from a seed, not held-out evidence.*
+
+**Validates: Requirements 30.15, 17.19, 18.3, 18.4**
+
 ## Error Handling
 
 | Scenario | Condition | Response | Recovery |
 |---|---|---|---|
-| Jev outage | `JevUnavailableError` propagates from `evaluate()` (ADR 0009, no fallback) | Recorded as an `ERROR` row with the exception class; counted in every table; the sensitivity column treats it as stopped | The pass stays valid; if errors are many, the human re-runs the configuration |
+| Jev outage | `JevUnavailableError` propagates from `evaluate()` (ADR 0009, no fallback) | Recorded as an `ERROR` row with the exception class; counted in every table; the sensitivity column of a whole-system or composed catch table treats it as stopped (replay cells, TSG, threat-intelligence, IOC and CBM what-if figures show the exclusion and the count only) | The pass stays valid; if errors are many, the human re-runs the configuration |
 | Tier-2 no verdict | Empty bucket, deadline, malformed answer, Vertex error, no client | Recorded with `unavailable_reason`; an ALLOW becomes QUARANTINE with cause `tier2_unavailable` | None needed; this is the behavior under study |
 | Tier-2 429 | The client probe sees status 429 | The whole pass is invalid: discarded, recorded in `discarded_passes`, never scored | Cool-down, re-run the pass |
-| Front rate limit | Any `rate_limit` row | Pass invalid (harness defect at concurrency 2) | Lower concurrency, re-run |
+| Front rate limit | Any `rate_limit` row | Pass invalid (harness defect at the default concurrency of 2) | Lower `--concurrency`, re-run; the re-run is compared only with passes that used the same N |
+| Concurrency differs between passes | Valid passes of one configuration used different `--concurrency` values | Every pass is recorded; a pass whose N differs from the others carries a `comparison_exclusion` reason and is left out of the valid-pass count, the Pass_Spread and release comparisons | Re-run at the common N so two valid passes remain |
+| Invalid `--concurrency` | Not an integer, or below 1 | CLI exits non-zero naming `--concurrency` and the minimum of 1, before any case runs | Pass an integer of 1 or more |
 | OTX typed error | `OTXLookupError` and the other typed errors re-raise out of `evaluate()` | `ERROR` row with the class name; threat-intel rows keep their error count | Pass stays valid; the table shows the count |
-| No credential grant | Variable absent or not granted | Provisional (Q12): the row is recorded in `not_measured` with a reason that begins `no grant` and names the variable (for threat intelligence, `BW_OTX_API_KEY`), or an explicitly requested live row aborts the run before any write; no degraded run, no stub in its place | A human grants in the current conversation and the row is run |
+| No credential grant, Named_Explicitly row | Variable absent, empty or not granted, and the row's id is in `--configs` | Abort: non-zero exit with an error naming the variable (both `GCP_PROJECT` and `GOOGLE_CLOUD_PROJECT` for a Vertex row), before any client is built, any network call or any record is written; no stub in its place | A human grants in the current conversation and the run is repeated |
+| No credential grant, Default_Plan row | Variable absent, empty or not granted, and the row is not in `--configs` | The row is recorded in `not_measured` with a reason that begins `no grant` and names the variable (for threat intelligence, `BW_OTX_API_KEY`); no live call, no degraded run, no stub in its place; the run continues | A human grants in the current conversation and the row is run |
 | Missing Tier-2 entry in replay | Triggered case without a forced-table row | Cell status `unmeasured` for that case; em dash | Complete the forced table |
-| CBM transport mismatch | Live MCP does not answer in the parsed shapes | `not_measured: transport mismatch`; the fixture adapter rows are unaffected | Follow up on the client or the server separately |
+| CBM transport mismatch, or a missing fixture | Live MCP does not answer in the parsed shapes, or the fixture or snapshot is absent; applies to a Named_Explicitly row as well as a Default_Plan row, because the abort covers credentials and grants only | `not_measured: transport mismatch` (or a reason naming the missing fixture); the run continues; the fixture adapter rows are unaffected by a transport mismatch | Author the fixture, or follow up on the client or the server separately |
 | Corpus edited after a run | Hash mismatch | The validate test and the notebook loader fail with the differing case ids | Re-score in a new run-set directory |
 | Corrupt line or partial file | Truncated JSON | Atomic writes make this a loader error naming the file; nothing partial is committed | Re-run the pass |
 | `demo_mode=True` requested | Anyone passes it to the runner | Refused at config validation | Not applicable: its verdicts do not transfer to production thresholds |
@@ -1423,8 +1509,13 @@ are deferred, never simulated.
 - Context stage: `run_context` equals the resolver's own methods; the offline-computed
   driver counts (D3, D6, D7) are pinned, so a corpus edit that changes them fails.
 - TSG seeding: seeds contain only parent arguments; no seed string contains a label
-  word, an attack type or a variant's argument value; parents are marked and
-  excluded; cold equals `repo=None`; permutation invariance; the repository is never
+  word, an attack type or a variant's argument value; only parents whose seed was
+  written in the current Seeding_Mode are marked `seeded_case` (all parents in
+  `parent_only`, the seeded half in `held_out_parents`, none in `cold`) and only
+  marked rows are excluded; in `held_out_parents` mode no `case_id` and no
+  `parent_case_id` of a case in the unseeded-parent half appears among the seed
+  signatures, and the seeded-parent-variant match rate is labeled transfer from a
+  seed; cold equals `repo=None`; permutation invariance; the repository is never
   built on its default path; the substring-fallback false-match counter works.
 - CBM: the default client yields the pinned 0.1 score for an unknown tool; the
   fixture adapter opens no socket and `base_url` stays `None` after resolver
@@ -1455,12 +1546,27 @@ are deferred, never simulated.
   the mean is not; a failure reports the metric, the observed value, the bound and
   the violating case identifiers; the constants are never derived from the inputs
   (a source scan finds no assignment to them outside `jev_bounds.py`).
-- CLI: `plan` makes no network call; each live subcommand refuses without its
-  prerequisite before any client is built; `--concurrency 0` is rejected.
+- CLI: `plan` makes no network call. A Named_Explicitly live row (id in `--configs`)
+  without its credential or grant exits non-zero, naming the variable, before any
+  client is built, any network call or any record is written. A Default_Plan row
+  (no `--configs`, or an id not in it) without a credential, fixture or transport is
+  recorded as Not_Measured with its reason and the run continues; a missing fixture
+  or transport is Not_Measured even for a Named_Explicitly row. `--concurrency 0` and
+  a non-integer are rejected, and an omitted `--concurrency` is 2.
+- Concurrency: with N workers over a stubbed observed resolver, the number of cases
+  in flight never exceeds N and equals N whenever at least N cases remain unstarted
+  (N of 1, 2 and a value above the case count); the manifest records N for every
+  Pass; a Pass whose N differs from the other valid Passes of its configuration is
+  recorded with a `comparison_exclusion` reason and does not enter the valid-Pass
+  count, the Pass_Spread or a release comparison.
+- Sensitivity scope: the treat-`ERROR`-as-stopped column appears in the catch tables
+  for Whole_System_Run and Composed_Row verdicts and in no replay cell, TSG,
+  threat-intelligence, IOC_Corpus or CBM `sinks mapped` table, which show the
+  exclusion and the count only.
 
 ### Property-based tests (`tests/property/`, Hypothesis)
 
-P1, P2, P3, P4 (over non-`ERROR` rows, plus the `ERROR` carry-through), P5, P6, P7, P8, P9, P11, P12, P14, P16 and P17 are properties over
+P1, P2, P3, P4 (over non-`ERROR` rows, plus the `ERROR` carry-through), P5, P6, P7, P8, P9, P11, P12, P14, P16, P17 and P18 (no case identifier and no `parent_case_id` of the unseeded-parent half among the seeds, and only seeded-mode parents marked) are properties over
 generated inputs (strategies for stage outputs, bands, readings and record sets
 respect the model's invariants, testing rule 58). The differential test (P5) is the
 most valuable: it makes the composer a tested copy of `evaluate()`'s decision logic
@@ -1487,9 +1593,18 @@ Scenario: Both readings are reported for a QUARANTINE
 
 Scenario: An unconfigured layer is not measured, not faked
   Given no OTX credential grant
-  When the holistic run plans a threat-intelligence row
+  And a threat-intelligence row that is part of the default plan
+  When the holistic run plans the row
   Then the row is recorded as not measured with a reason that begins "no grant" and names BW_OTX_API_KEY
   And no stub provider is used in its place
+  And the run continues with the remaining configurations
+
+Scenario: A named live row without its credential aborts the run
+  Given no OTX credential grant
+  And a threat-intelligence row named explicitly in the configs list
+  When the holistic run starts
+  Then the run exits with a non-zero status and an error naming BW_OTX_API_KEY
+  And no client is built, no network call is made and no record is written
 
 Scenario: A Tier-2 429 invalidates the pass
   Given a whole-system pass in which one Tier-2 call returns status 429
@@ -1581,7 +1696,10 @@ suite is expected to run in seconds because everything is pure or temp-file base
 - A run set is a few thousand small records (167 cases times about six
   configurations times two passes). Loading is well under a second; the notebook
   loads once and caches parsed manifests.
-- Live passes are paced at concurrency 2 (D9; provisional, Q13). Estimated wall time per pass is in
+- Live passes are paced at the configured `--concurrency` N (an integer of 1 or
+  more, default 2; D9, Q13). Wall time per pass scales roughly with the case count
+  over N, and the pacing comparison rules require equal N across compared passes.
+  Estimated wall time per pass is in
   "Call counts and cost"; the figures come from ADR 0009's latencies and are
   replaced by measured values in each manifest.
 - The harness adds no latency to production: it is not on the interception path.
@@ -1671,7 +1789,8 @@ How the open tasks interact:
   also how a Tier-2 outage and a rate limit fail closed. Should fail-closed
   QUARANTINEs count as catches (the proposal) or only be shown separately?
 - **Q2. ERROR rows.** Excluded from the rates and shown as a sensitivity column that
-  treats them as stopped (the gateway fails closed). Acceptable?
+  treats them as stopped (the gateway fails closed), in the Whole_System_Run and
+  Composed_Row catch tables only (scope decided in Q15). Acceptable?
 - **Q3. The Jev run behind the Tier-2 table.** Default is run 1 of the release
   behind `jev-latest` when the run happens. Should the table be built for both
   releases, and how many passes (the proposal is two)?
@@ -1692,37 +1811,51 @@ How the open tasks interact:
 - **Q9. A `src/` observer seam.** None is planned. If wrapping proves insufficient,
   is a single optional `observer` argument on `SyncResolver.evaluate` acceptable as
   its own tested change?
-- **Q10. Pacing and cool-down.** Concurrency 2 is assumed (see Q13); is a 30 s
-  cool-down between configurations right?
+- **Q10. Pacing and cool-down.** The default concurrency is 2 (decided in Q13); is a
+  30 s cool-down between configurations right?
 - **Q11. Held-out evidence.** A parent-grouped split of this corpus is exploratory.
   Should the band study wait for fresh hand-written wave cases (like the 10
   `evasion_proof` cases) before it may recommend an edge?
-- **Q12. Missing grant behavior (open; dependent text is provisional).** An
-  explicitly requested live row without its credential: (a) aborts before writing,
-  while rows in a default plan record Not_Measured; or (b) always records
-  Not_Measured and continues, keeping the abort only for a `run` that has nothing it
-  can execute. Requirements 23.15 to 23.17 read as (a); 4.8, 19.17, 22.1, 31.11,
-  31.12 and 31.14 read as (b). Affects Run Protocol step 3 and step 7, the
-  Error Handling row "No credential grant", the BDD scenario for an unconfigured
-  layer, and the CLI tests.
-- **Q13. Concurrency (open; dependent text is provisional).** Requirement 24.5
-  requires exactly 2 cases in flight while 2 or more remain unstarted, and
-  `--concurrency` (23.18) accepts any integer of 1 or more: (a) `--concurrency` sets
-  the concurrency, with 2 as the default; or (b) `--concurrency` is restricted to 2.
-  Affects Run Protocol step 5, the run command in Example Usage, and Performance
-  Considerations.
-- **Q14. Held-out property (open; dependent text is provisional).** Requirement
-  30.15 (no `parent_case_id` of a scored case among the seeds) versus 17.19
-  (variants of seeded parents are scored) and 18.3 (every Parent_Case marked
-  `seeded_case`): (a) define "scored" as the unseeded-parent half; or (b) check
-  case identifiers only, and mark only seeded parents as `seeded_case` versus accept
-  the extra exclusion. Affects the `held_out_parents` seeding mode and leakage
-  control 3.
-- **Q15. ERROR sensitivity scope (open; dependent text is provisional).**
-  Requirement 7.14 asks for the treat-ERROR-as-stopped sensitivity column in every
-  table. Does it also apply to replay cells, TSG, threat-intelligence and IOC rates
-  and the CBM what-if row, or only to the catch tables? Affects the ERROR bullet of
-  the definition of caught and every non-catch table.
+- **Q12. Missing-grant behavior. Decided 2026-11-13.** A live row that a `run`
+  invocation names explicitly (its configuration id is in `--configs`;
+  Named_Explicitly) and whose credential or grant is missing aborts: the CLI exits
+  non-zero with an error naming the missing variable, before it builds any client,
+  makes any network call or writes any record. A row in the Default_Plan (planned or
+  executed by `plan`, `stages`, `run` or `validate` without its id being in
+  `--configs`, which is also what an omitted `--configs` selects) whose credential,
+  fixture or transport is missing is recorded as Not_Measured with the reason, and
+  the run continues. A missing fixture or transport is Not_Measured even for a
+  Named_Explicitly row, because the abort covers credentials and grants only.
+  Shaped Run Protocol steps 3 and 7, the Error Handling rows for a missing grant,
+  fixture or transport, the BDD scenarios for an unconfigured layer, the CLI tests
+  and the Example Usage commands.
+- **Q13. Concurrency. Decided 2026-11-13.** The in-flight limit is the configured
+  `--concurrency` N, an integer of 1 or more with 2 as the default: at most N cases
+  in flight, and exactly N while at least N cases of the pass remain unstarted. The
+  manifest records N for every pass (`RunEntry.concurrency`). Passes that are
+  compared with each other (the valid passes of a configuration, Pass_Spread
+  calculations, Jev release comparisons) must have used the same N; a pass with a
+  different N is recorded and excluded from the comparison with a reason. Shaped the
+  `RunEntry` model, the runner pseudocode, Run Protocol step 5, the Error Handling
+  rows, Performance Considerations and the concurrency tests. The cool-down keeps
+  its own tag (Q10).
+- **Q14. Held-out property. Decided 2026-11-13.** In `held_out_parents` mode the
+  scored set for the leakage property is the unseeded-parent half (the unseeded
+  parents and their variants): no `case_id` and no `parent_case_id` of a case in that
+  set appears among the seed signatures. The match rate over variants of seeded
+  parents is still reported, labeled as transfer from a seed and not held-out
+  evidence. Only the Parent_Cases whose seed was written in the current Seeding_Mode
+  are marked `leakage="seeded_case"` (every parent in `parent_only`, the seeded half
+  in `held_out_parents`, none in `cold`), and only marked rows are excluded. Shaped
+  leakage control 3, the `held_out_parents` seeding mode, Property 18 and its test.
+- **Q15. ERROR sensitivity scope. Decided 2026-11-13.** The
+  treat-`ERROR`-as-stopped sensitivity value applies only to the catch tables that
+  state a catch rate or a false-alarm rate for Whole_System_Run and Composed_Row
+  verdicts (requirements 6, 7 and 13). Replay cells, TSG rates, threat-intelligence
+  rates, IOC_Corpus rates and the CBM `sinks mapped` what-if row state the `ERROR`
+  exclusion and the `ERROR` count only and carry no sensitivity column. Shaped the
+  `ERROR` bullet of the definition of caught, the notebook panel descriptions, the
+  Error Handling row for a Jev outage and the sensitivity-scope test.
 
 ## Glossary
 
@@ -1757,5 +1890,12 @@ How the open tasks interact:
   class is `malicious`, `evasion` or `evasion_proof`.
 - **Pass_Spread:** the maximum minus the minimum of a figure across the valid Passes
   (0 over a single valid Pass; discarded Passes do not enter it).
+- **Named_Explicitly:** the status of a live row (one that needs a credential, grant,
+  fixture or transport) whose configuration id appears in the `--configs` list of a
+  `scripts/holistic_eval.py run` invocation.
+- **Default_Plan:** the set of rows that a subcommand (`plan`, `stages`, `run` or
+  `validate`) plans or executes without the row's id being in `--configs`, including
+  every row the Runner includes on its own account; what an omitted `--configs`
+  selects. A row is Named_Explicitly or in the Default_Plan, never both.
 - **Not_Measured:** the recorded status of a stage or configuration that lacks a
   prerequisite, rendered as an em dash with the reason.
