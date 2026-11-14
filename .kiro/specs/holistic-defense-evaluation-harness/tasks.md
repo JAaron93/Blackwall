@@ -12,7 +12,7 @@ Task ids are the numbers below (for example 6.1). The repository convention of a
 - Every commit goes to a feature branch only. No task pushes, merges, or commits to `main` or `master`. Before staging, check that no `.env` file, key, credential or `.sqlite` WAL file is in the payload.
 - No task edits, creates, prints or reads a real `.env` file. A live credential is read only after the human names that variable in the current conversation (Human_Grant), from the environment of the child process, never logged or written.
 - No task executes, imports or fetches a payload. Payloads are inert strings.
-- No task changes `src/` outside `src/blackwall/holistic_eval/`, except the conditional task 5.3. This change edits neither `AGENTS.md`, `.agents/rules/` nor `.greptile/`.
+- No task changes `src/` outside `src/blackwall/holistic_eval/`, except the conditional task 5.3. No task edits `AGENTS.md`, `.agents/rules/` or `.greptile/`. The spec-list entry in `AGENTS.md` landed with the spec itself, and the two rule proposals are documents prepared in the Caught_Module task (1.2) and applied only after maintainer approval.
 - Property tests use Hypothesis with at least 100 examples, strategies that generate valid values only, and no more than 50% discards. Async BDD steps use `run_async`, and background tasks are flushed in the same coroutine as the scheduling call (rules 2, 13, 16, 75).
 - Every property test, every BDD scenario and the `LX-wave` support are required sub-tasks. The only experiment that is optional is running `LX-wave` itself, which happens only when the maintainer explicitly requests it (Requirement 17.25).
 - Live and grant-gated tasks say so, name the variable, and stay unchecked with a deferral note until a measured Run_Set exists (rule 74, Requirements 22.10, 22.11). They are never simulated, stubbed or mocked to claim acceptance.
@@ -42,7 +42,8 @@ Phase 1 tasks open no network connection and read no credential variable (Requir
     - The failing-first test for the scan carries its own fixtures in a temporary module. Failing fixtures (each must fail the scan and name path and line): a planted `{"BLOCK", "QUARANTINE"}`, a planted `x in ("QUARANTINE", "BLOCK")`, a planted `decision in STOPPING` with `STOPPING` bound to such a literal in the same module, and a planted `return Outcome.CAUGHT`. Passing fixtures (each must pass the scan): `decision != "BLOCK"`, `decision == "ALLOW"`, a `cause = "tier2_unavailable"` assignment for a QUARANTINE, and a `cause == "tier2_unavailable"` or `decided_by == "tsg"` check. A final check runs the scan over the real harness modules, including `compose.py` and `replay.py` once they exist, and expects no finding.
     - Implement `Reading`, `STOPPING_DECISIONS` (the one table), `Outcome`, `outcome`, `rates` (catch rate, false-alarm rate, error count, case count, sensitivity values) and the single stage-flag table with the named `CBM_FLAG_BLAST_CUT` constant labeled a proposal.
     - `UNMEASURED` records are excluded from `outcome` and `rates` and counted as Not_Measured.
-    - _Requirements: 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 3.10, 3.11, 3.12, 3.13, 3.22, 3.23, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.10, 6.11, 6.12, 6.13, 6.14, 6.15, 6.16, 6.17, 6.18, 6.19, 6.20, 6.21, 6.22, 6.23, 6.24, 6.25, 6.26, 6.27, 7.15_
+    - Final step: prepare, as documents only, two proposals with exact diffs awaiting maintainer approval under `AGENTS.md` section 6.3 (Q7): a testing rule in `.agents/rules/testing_and_hygiene.md` that defines "caught" for harness reports, and a `.greptile/rules.md` rule that the harness is observe-only and edits nothing under `src/` outside `blackwall/holistic_eval/` except the optional `observer` argument of task 5.3. Nothing is staged against those paths until the maintainer approves; when approved, they are applied with the same-change synchronization of `AGENTS.md` section 6.4.
+    - _Requirements: 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 3.10, 3.11, 3.12, 3.13, 3.22, 3.23, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.10, 6.11, 6.12, 6.13, 6.14, 6.15, 6.16, 6.17, 6.18, 6.19, 6.20, 6.21, 6.22, 6.23, 6.24, 6.25, 6.26, 6.27, 7.15, 31.28_
 
   - [ ] 1.3 Implement `stats.py`: Wilson interval, Pass_Spread and AUROC
     - Dependencies: 1.1
@@ -358,10 +359,10 @@ Phase 1 tasks open no network connection and read no credential variable (Requir
 ### Phase 2: Run protocol, live whole-system runs, Forced_Tables, notebook, recompute tests, mutation guard
 
 - [ ] 11. Phase 2 entry gate
-  - [ ] 11.1 Prepare the constitution proposal artifact (exact diffs), awaiting maintainer approval
+  - [ ] 11.1 Confirm the constitution entries before the first live run
     - Dependencies: 9.2, 9.3
-    - Prepare a proposal artifact with exact diffs for the `AGENTS.md` section 2 spec list and for a testing rule that defines "caught", awaiting maintainer approval under `AGENTS.md` section 6.3 (Q7). It must exist before the first live Whole_System_Run (task 18.1).
-    - This spec's change edits neither `AGENTS.md`, `.agents/rules/` nor `.greptile/`. The proposal is a document only, and nothing is staged against those paths.
+    - Before task 18.1, check that `holistic-defense-evaluation-harness` is in the `AGENTS.md` section 2 spec list, and that the two rule proposals prepared in task 1.2 (the testing rule that defines "caught" and the Greptile observe-only rule) were approved and applied, or explicitly declined by the maintainer, and record which (Q7).
+    - This task edits no file under `AGENTS.md`, `.agents/rules/` or `.greptile/`. The spec-list entry in `AGENTS.md` landed with the spec itself, and the two rule proposals are documents prepared in task 1.2 and applied only after maintainer approval.
     - _Requirements: 31.27, 31.28_
 
 - [ ] 12. Run protocol, CLI live infrastructure, billing (all tested hermetically with stubs)
@@ -677,7 +678,7 @@ Phase 1 tasks open no network connection and read no credential variable (Requir
     - _Requirements: 16.33, 16.34, 16.35, 16.36, 16.38_
 
 - [ ] 26. Final checkpoint - Ensure all tests pass
-  - Ensure all tests pass, including the band-gate property test (Property 19) and the band-gate BDD scenario, ask the user if questions arise. Confirm no task edited `AGENTS.md`, `.agents/rules/`, `.greptile/`, any `.env` file or any existing results directory.
+  - Ensure all tests pass, including the band-gate property test (Property 19) and the band-gate BDD scenario, ask the user if questions arise. Confirm no task edited `AGENTS.md`, `.agents/rules/`, `.greptile/`, any `.env` file or any existing results directory. The spec-list entry in `AGENTS.md` landed with the spec itself, and the two rule proposals are documents prepared in the Caught_Module task (1.2) and applied only after maintainer approval.
 
 ## Out of scope
 
@@ -686,7 +687,7 @@ Phase 1 tasks open no network connection and read no credential variable (Requir
 - No fix for any defect the harness reports (the findings are reported and filed as tasks in their owning specs).
 - No Enterprise Mesh evaluation, no new MCP server, no live infrastructure, no payload execution.
 - No edit to `tests/eval/results/jev_runs/`, `tests/eval/results/jev_runs_class_blind/` or any dated ADR evidence.
-- No edit to `AGENTS.md`, `.agents/rules/` or `.greptile/` in this change. Task 11.1 only prepares a proposal for maintainer approval.
+- No task edits `AGENTS.md`, `.agents/rules/` or `.greptile/`. The spec-list entry in `AGENTS.md` landed with the spec itself, and the two rule proposals are documents prepared in the Caught_Module task (1.2) and applied only after maintainer approval.
 
 ## Notes
 

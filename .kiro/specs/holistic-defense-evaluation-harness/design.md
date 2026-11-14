@@ -4500,8 +4500,8 @@ suite is expected to run in seconds because everything is pure or temp-file base
 | Phase | Scope | Needs | Output |
 |---|---|---|---|
 | 0 | Decisions Q1 to Q18 recorded (all decided 2026-11-13; see "Decisions on the Open Questions") | maintainer | decisions recorded in this spec |
-| 1 | Pure library (including `findings.py`, `report.py` and `billing.py`), the corpus loader (`corpus.py`), the egress guard (`egress.py`, installed from the first `stages` run, with an empty `RUNTIME_HOSTS` for offline subcommands), observers, offline stage pass (structural, context, TSG three modes, CBM default: the default-CBM row I-CBM-default needs neither the Fixture_Plan nor the snapshot, so it is recorded here and its manifest entry carries no fixture digest; plus the `StagePassFacts` CBM `base_url` observation), compose with the differential test (all three Tier-2 data states, each `unavailable_reason`), the replay identity check, run-set schema (unrounded floats), store; the offline findings figures (D3, D6, D7, the CBM default characterization, the `base_url` fact, F08) | nothing live | committed offline stage data; the D3, D6, D7 counts pinned |
-| 2 | **Entry gate:** the proposal artifact for the AGENTS.md section 2 spec list and for a testing rule that defines "caught", prepared with exact diffs at the start of Phase 2 and before the first live Whole_System_Run, awaiting maintainer approval under section 6.3 (Q7). Then: live whole-system passes W0, W1, W2 and one Tier-2 Forced_Table per Jev release (`jev-1.13.0` and `jev-1.14.0`, two Tier-2 Passes each), two or more interleaved passes, under the derived `RUNTIME_HOSTS`, with Tier-2 429 and empty-Tier-2-bucket invalidation and billing statements (cost from `--pricing`, or Not_Measured "no pricing file"); the F06 finding from the Whole_System_Runs; notebook v1; recompute tests; mutation guard | Vertex project and `TYPESAFE_API_KEY` grants; the proposal artifact exists; a Pricing_File only if a dollar cost is wanted | committed run set; first system-versus-stage comparison |
+| 1 | Pure library (including `findings.py`, `report.py` and `billing.py`), the corpus loader (`corpus.py`), the egress guard (`egress.py`, installed from the first `stages` run, with an empty `RUNTIME_HOSTS` for offline subcommands), observers, offline stage pass (structural, context, TSG three modes, CBM default: the default-CBM row I-CBM-default needs neither the Fixture_Plan nor the snapshot, so it is recorded here and its manifest entry carries no fixture digest; plus the `StagePassFacts` CBM `base_url` observation), compose with the differential test (all three Tier-2 data states, each `unavailable_reason`), the replay identity check, run-set schema (unrounded floats), store; the offline findings figures (D3, D6, D7, the CBM default characterization, the `base_url` fact, F08); the testing rule proposal for caught and the Greptile observe-only rule proposal, prepared with exact diffs in the change that adds `caught.py`, awaiting maintainer approval (Q7, amended 2026-11-14) | nothing live | committed offline stage data; the D3, D6, D7 counts pinned |
+| 2 | **Entry gate:** the spec-list entry in `AGENTS.md` and the two Phase 1 rule proposals were approved and applied, or explicitly declined, before the first live Whole_System_Run. Then: live whole-system passes W0, W1, W2 and one Tier-2 Forced_Table per Jev release (`jev-1.13.0` and `jev-1.14.0`, two Tier-2 Passes each), two or more interleaved passes, under the derived `RUNTIME_HOSTS`, with Tier-2 429 and empty-Tier-2-bucket invalidation and billing statements (cost from `--pricing`, or Not_Measured "no pricing file"); the F06 finding from the Whole_System_Runs; notebook v1; recompute tests; mutation guard | Vertex project and `TYPESAFE_API_KEY` grants; the spec-list entry is in `AGENTS.md` section 2 and the two Phase 1 rule proposals were approved and applied, or explicitly declined; a Pricing_File only if a dollar cost is wanted | committed run set; first system-versus-stage comparison |
 | 3 | Optional layers: threat intelligence on the corpus hosts and the IOC corpus, with the IOC builder (the maintainer-run `fetch`, the offline deterministic `build`, the IOC_Selection tests and the Synthetic_Feed_Sample); the CBM fixture with its Fixture_Plan (committed first), the Fixture_Export and `check`, the committed snapshot, and the fixture-backed CBM rows that need them (I-CBM-fixture, I-CBM-permuted, W4, W5, the `sinks mapped` row, the Indexer_Agreement rows and the permuted control); the CBM_Probe_Step (`cbm_probe.py`, `probe-cbm`), run on its own and only against a local server; W3, W4, W5; each threat-intelligence row records its source corpus; the LX-wave support (`run_lx_wave`), with the experiment itself run only on explicit request | `BW_OTX_API_KEY` grant, the maintainer's `fetch` run and `BW_ABUSECH_AUTH_KEY` grant, the hand-authored fixture source; a local codebase-memory-mcp only for the probe; a Vertex grant only for a requested LX-wave run | separate run sets and notebook panels |
 | 4 | Band study with the held-out protocol and the F06 what-if (exploratory replay and the tune-half versus held-out-half comparison may be published; no band edge is recommended without the gate of "Band recommendation gate"); cross-link cell in the existing notebook; ADR for the first measured results | Fresh_Evidence for any recommendation (at least 30 attack and 30 benign cases authored after the replay surface was frozen by an author who was not shown the withheld material, with an Authoring_Record and maintainer-confirmed labels) | input to TASK-F10 and TASK-F06 |
 
@@ -4527,12 +4527,13 @@ How the open tasks interact:
 - **TASK-F10 (band decision): consumer.** The replay surface and its held-out
   comparison are the evidence F10 asked for; F10 still needs Fresh_Evidence cases
   before a band changes.
-- A change to the constitution (adding this spec to the list in AGENTS.md section
-  2, or adding a testing rule for the definition of caught) follows the proposal
-  workflow in section 6.3 and the same-change synchronization in 6.4. The proposal
-  artifact is prepared at the start of Phase 2, before the first live
-  Whole_System_Run, and awaits maintainer approval (Q7, decided 2026-11-13). This
-  spec's change edits neither `AGENTS.md` nor `.agents/rules/`.
+- The change that adds this spec also adds it to the `AGENTS.md` section 2 spec
+  list, approved by the maintainer under section 6.3. The testing rule for the
+  definition of caught and the Greptile observe-only rule are proposed with exact
+  diffs in the first Phase 1 implementation change, the one that adds the
+  Caught_Module, and follow the same-change synchronization of section 6.4 when
+  applied (Q7, amended 2026-11-14). The spec makes no other edit to `AGENTS.md`,
+  `.agents/rules/` or `.greptile/`.
 
 ## Decisions on the Open Questions
 
@@ -4584,12 +4585,17 @@ and `requirements.md` can still cite each decision.
 - **Q6. Library location. Decided 2026-11-13.** The library lives in
   `src/blackwall/holistic_eval/`, importable by the scripts and the notebook. Shaped
   the layout.
-- **Q7. Constitution and rules. Decided 2026-11-13.** The proposal artifact for the
-  `AGENTS.md` section 2 spec list and for a testing rule that defines "caught" is
-  prepared at the start of Phase 2, before the first live whole-system run, as a
-  proposal with exact diffs awaiting maintainer approval under `AGENTS.md` section
-  6.3. This spec's change makes no edit to `AGENTS.md` or `.agents/rules/`. Shaped the
-  Phase 2 entry gate.
+- **Q7. Constitution and rules. Decided 2026-11-13, amended 2026-11-14.** The change
+  that adds this spec also adds `holistic-defense-evaluation-harness` to the
+  `AGENTS.md` section 2 spec list, approved by the maintainer under section 6.3, so
+  the list is not stale when the spec merges. That is the spec's only edit to
+  `AGENTS.md`. The testing rule that defines "caught", and a Greptile rule that the
+  harness is observe-only and edits nothing under `src/` outside
+  `blackwall/holistic_eval/` except the optional `observer` argument, are prepared as
+  proposals with exact diffs in the first Phase 1 implementation change, the one that
+  adds the Caught_Module. They await maintainer approval under section 6.3. The
+  amendment moves those two proposals from Phase 2 to Phase 1, because they describe
+  code that does not exist until then. Shaped the Phase 1 entry.
 - **Q8. TASK-F09 as a prerequisite. Decided 2026-11-13.** TASK-F09 gates the band
   recommendation and does not gate the first comparison. Shaped the TASK-F09 phasing
   note and the recommendation gate.
