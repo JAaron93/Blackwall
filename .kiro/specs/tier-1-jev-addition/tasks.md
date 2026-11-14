@@ -22,13 +22,14 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   Dependencies: none. Acceptance: existing
   `tests/unit/test_sync_resolver_semantic_triage.py` passes unmodified
   against the `gemini` backend.
-* [x] **TASK-A02: `BW_SEMANTIC_BACKEND` selection + `_compute_threat_score` wiring**
-  (FR-01). Env-gated backend choice (`jev|gemini`), default `gemini` until
-  Track D signs off; `_compute_threat_score` consumes only
+* [x] **TASK-A02: Tier-1 provider wiring + `_compute_threat_score`**
+  (FR-01). *Amended by ADR 0009: the env-gated `jev|gemini` selection was
+  removed; Jev is the only backend.* `_compute_threat_score` consumes only
   `result.threat_score` (weights untouched).
   Dependencies: TASK-A01. Acceptance: suite green under both settings.
   > [!NOTE] Track A lands unit-layer coverage only (`tests/unit/test_policy_semantic_triage_provider.py`,
-  > `tests/unit/test_sync_resolver_semantic_backend_selection.py`). The Gherkin
+  > `tests/unit/test_sync_resolver_semantic_adapter.py`, renamed from
+  > `..._backend_selection.py` by ADR 0009). The Gherkin
   > acceptance scenarios for this seam are owned by TASK-D01 (NFR-04).
 
 ## Track B — Jev Backend (depends on Track A)
@@ -133,7 +134,8 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   > class-revealing text (a prefix test alone classifies all 157 correctly).
   > Re-scoring the same cases with the tells removed gives 84.1% accuracy and
   > 13% escalation for `jev-1.14.0` (98.8% and 2 to 3% with them), so the figures
-  > above are a ceiling and the blinded ones a floor; the evasion-proof suite
+  > above are a ceiling and the blinded ones a floor (*amended 2026-11-13: the
+  > floor prediction did not hold, see TASK-F05b*); the evasion-proof suite
   > (8 blocked, 1 to 2 missed) is the only tell-free evidence. Pinned reruns of
   > `jev-1.13.0` and `jev-1.14.0` (two each) show 1.14 is not an improvement on
   > this suite and escalate 3 of 167 (so read the 3.0% above as 2 to 3%). The
@@ -144,20 +146,127 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   > are in ADR 0008, Verification and Open Items 8 to 10.
 * [ ] **TASK-D03: Benchmark + dual-gate CI confirmation** (NFR-01, NFR-02).
   `benchmark_report.json` SLAs green; full suite green under
-  `BW_SEMANTIC_BACKEND=gemini` (GCP-only no-regression) and `jev`.
+  triage disabled (GCP-only no-regression) and enabled with Jev.
   Vertex `EvalTask` dual-gate still enforced. Additionally verify the
   `jev` install closure adds no system/non-Python deps and log a
   packaging-compat note for Gateway F04 (re-verify when F04 lands).
   Dependencies: TASK-D02.
-* [ ] **TASK-D04: Default-flip + docs** (US-01, US-03). Flip default to
-  `jev`, document paid-usage ops (budgets derived from token counts, the
+* [x] **TASK-D04: Default-flip + docs** (US-01, US-03). *Superseded by ADR
+  0009: there is no `gemini` backend to flip away from.* Document paid-usage ops (budgets derived from token counts, the
   organization's rate limits, and the retention terms of a non-ZDR account),
   update `AGENTS.md` interception sequence
   (Rate → Hygiene → TSG → Jev Tier-1 → Gemini Tier-2 → forensics).
   Dependencies: TASK-D03.
 
+## Track E — Jev-only, fail-fast and Flash-Lite Tier-2 (ADR 0009)
+* [x] **TASK-E01: Model standardization** (FR-03). `gemini-3.8-flash` removed
+  everywhere; Tier-2 on `gemini-3.5-flash-lite` with thinking pinned to `medium`
+  (`TIER2_THINKING_LEVEL`), unaffected by `GEMINI_THINKING_LEVEL`.
+  Tests: `tests/unit/test_tier2_escalation.py`, `test_gemini_model_optimization.py`.
+* [x] **TASK-E02: Jev only, fail fast** (FR-01, FR-06). `GeminiTriageBackend`,
+  the registry, `BW_SEMANTIC_BACKEND` and the fallback removed;
+  `JevUnavailableError` on any failure; Tier-1 no longer needs a Gemini client.
+  Tests: `tests/unit/test_jev_fail_fast.py`, `tests/features/jev_tier1_triage.feature`.
+* [x] **TASK-E03: Two rate limits, and Tier-2 unavailable** (FR-03, FR-08).
+  80 req/s front bucket; 300 RPM Tier-2 bucket; a Tier-2 that fired and
+  returned no verdict (empty bucket, deadline, malformed answer, Vertex error or
+  429, no client) QUARANTINEs an ALLOW and leaves a BLOCK alone.
+  Tests: `tests/unit/test_sync_resolver_rate_limits.py`,
+  `tests/unit/test_tier2_escalation.py`.
+* [x] **TASK-E04: Live Tier-2 harness.** `scripts/jev_tier2_eval.py` (`forced`,
+  `e2e`). Unit-tested, and both subcommands were run live on 2026-11-13
+  (ADR 0009, Verification).
+* [x] **TASK-E05: Same-change sync** of `AGENTS.md`, `.agents/rules/` and
+  `.greptile/` (constitution 6.4). Approved by the maintainer 2026-11-13 and applied.
+## Track F — Open work from ADR 0008 and ADR 0009
+Each item below is open. Every one that changes behavior starts with a failing
+test (repo TDD gate); every one that needs a live key or Vertex budget follows
+testing rule 74 (never simulated, deferred in this file until it can run).
+* [x] **TASK-F01: Run the Tier-2 harness live** (ADR 0009 OI5; NFR-05). Done
+  2026-11-13: `forced` over the 93 inputs and `e2e` over the 167 cases, with and
+  without `policy.yaml`; figures and the comparison with ADR 0008 are in ADR 0009
+  Verification. Rerun after any Gemini or Jev model change.
+  Dependencies: TASK-E04.
+* [ ] **TASK-F02: Measure, then harden, Tier-2 against steering by tool-call
+  text** (ADR 0009 OI3). The arbiter prompt interpolates tool name, arguments and
+  metadata unseparated, and its ALLOW is final unless aggregation already blocks.
+  Add adversarial cases whose arguments carry instructions aimed at the arbiter;
+  measure how often a BLOCK flips to ALLOW; if any do, delimit the data (nonce
+  XML, as the judge agents already do) test-first and re-measure.
+  Dependencies: TASK-F01.
+* [ ] **TASK-F03: Account for the shared Vertex quota** (ADR 0009 OI2). Signature
+  synthesis, the judges and other Gemini calls share the project quota that
+  Tier-2 depends on and are not counted by the Tier-2 bucket. Decide between one
+  shared budget and a reservation for Tier-2, then implement it with tests.
+  Needs a maintainer decision first (amend FR-08).
+* [ ] **TASK-F04: Make Tier-2 outages visible** (ADR 0009 OI1). Count Tier-2
+  "no verdict" outcomes by reason in `SyncResolverMetrics` (today only
+  `tier2_rate_limit_hits` exists) so an operator can see the QUARANTINEs that
+  Decision 6 causes.
+* [x] **TASK-F05a: Real attack text, no placeholders** (ADR 0008 OI10, ADR 0009
+  OI4). Done 2026-11-13: every `[[BRACKET_PLACEHOLDER]]` in
+  `malicious_cases.json` / `evasion_cases.json` replaced with concrete,
+  CWE/OWASP-documented attack syntax (no live infrastructure; the two
+  `DESERIALIZATION` cases keep a non-literal technique description). Benign and
+  malicious remain two classes, told apart by payload — this does not merge or
+  rename them, and does not touch the wrapper template. Figures in ADR 0009,
+  Verification. Tests: `tests/unit/test_golden_evalset_no_placeholders.py`.
+* [x] **TASK-F05b: One shared wrapper template, and the re-score** (ADR 0008
+  OI10, ADR 0009). Done 2026-11-13. One prompt template for every case, the same
+  argument keys per tool in both classes, `attack_type`/`evasion_type`/
+  `obfuscation` and the parent id moved out of the text into `metadata`, real
+  values in all 53 benign placeholders, no label words or routable addresses in
+  any payload, and production-shaped scoring states. Both releases re-scored,
+  two runs each, interleaved (668 live calls, 0 errors): decided accuracy
+  82.8% to 83.0%, ECE 0.19 (both gates FAIL), AUROC 0.993 to 0.996 and
+  escalation 6% to 8% (both pass); no false alarms. Benign and malicious stay
+  two classes. Figures and caveats: ADR 0009, Verification. Tests:
+  `tests/unit/test_class_blind_evalset.py`,
+  `tests/unit/test_jev_class_blind_runs_data.py`.
+  Dependencies: TASK-F05a.
+* [ ] **TASK-F09: Balance the tool names across classes** (ADR 0009, Verification).
+  `execute_shell`, `parse_xml`, `socket_connect`, `dns_query`, `download_file`
+  and the two `deserialize_*` tools appear only in malicious cases, and 26
+  `agent_*`/`file_*` tools only in benign ones, so the tool name is still a tell.
+  Add benign cases for the malicious-only tools (and malicious ones for the
+  shared tools) test-first, re-score, and record the effect. Needs a live Jev key.
+  Dependencies: TASK-F05b.
+* [ ] **TASK-F10: Decide what to do about the failed accuracy and ECE gates**
+  (ADR 0009 OI4). On the class-blind corpus AUROC is 0.99 but 26 to 27 of 99 attacks
+  fall below the 0.35 lower band edge (12 to 13 are C2/IOC-type calls). Options:
+  a lower band edge (an indicative sweep reached 91.3% to 95.2% on the cases it
+  was tuned on, so it needs fresh labeled evidence), threat intelligence for the
+  IOC-type calls, or accepting the misses. Any band change is a spec amendment
+  with a same-change sync of `AGENTS.md`, `.agents/rules/` and `.greptile/`.
+  Needs a maintainer decision first.
+  Dependencies: TASK-F09.
+* [ ] **TASK-F06: Decide whether a clear-high Jev P alone may BLOCK** (ADR 0008
+  OI8). Commit `176ad80` made it a kept invariant (rule 106). A clear-high score
+  that cannot BLOCK is why Tier-2 availability matters so much. This is a
+  maintainer decision; any change is a spec amendment with a same-change sync of
+  `AGENTS.md`, `.agents/rules/` and `.greptile/`.
+* [ ] **TASK-F07: Re-run TASK-D02 after each TypeSafe release** behind
+  `jev-latest` (ADR 0008 OI1). The fixed 0.35/0.75 band does not follow the
+  model. Recurring; needs a live Jev key.
+* [ ] **TASK-F08: Fix `ContextHygiene`'s password-redaction over-match**
+  (found during TASK-F05a). `(?i)(password|passwd|pwd)[\s:=]+['"]?([^\s'"]+)`
+  matches a bare SQL column named `password`/`passwd`/`pwd` followed by any
+  next token and redacts that token too — `"... password FROM table"` becomes
+  `"... [[PASSWORD]] table"`, losing `FROM`. This is not Tier-1/Tier-2 specific:
+  it would corrupt a real benign query selecting such a column the same way.
+  Needs a regex that requires something credential-shaped after the keyword
+  (a quoted string, or a value with no SQL/shell keyword characters), with a
+  regression test using a column literally named `password`.
+  A second over-match was found during TASK-F05b: the `sk-` API-key pattern
+  matches inside ordinary hyphenated words once 10 or more characters follow, so
+  `disk-usage-report-12345` becomes `di[[OPENAI_API_KEY]]` and
+  `computation_task-5531_result` became `computation_ta[[OPENAI_API_KEY]]` (the
+  corpus avoids it with a different value, and a test fails if a state is
+  corrupted that way). The same fix should anchor `sk-` to a
+  word boundary and add a regression test for it.
 ## Execution Order
 
-`A01 → (A02 + B01) → (B02 + B03 + C01) → C02 → D01 → D02 → D03 → D04`.
+`A01 → (A02 + B01) → (B02 + B03 + C01) → C02 → D01 → D02 → D03 → D04 → E01 → E02 → E03 → E04 → E05`; Track F items are independent except where a
+dependency is stated.
 Tracks B/C overlap after A01; D is strictly sequential. Each task lands with
 tests green; no batch commits without a test run (repo TDD gate).

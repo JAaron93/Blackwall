@@ -22,15 +22,21 @@ TypeSafe AI API funds Jev traffic.
 * **A/B gates**: accuracy ≥98%, recall ≥0.98, AUROC ≥0.95, ECE ≤0.10,
   escalation ≤25%, FRR <5%, evasion <10%.
 
+> **Amendment (2026-11-13, ADR 0009):** Tier-1 is Jev only and fails fast;
+> Tier-2 is `gemini-3.5-flash-lite` at a pinned medium thinking level; the
+> single 300 RPM bucket is split into an 80 req/s front bucket and a Tier-2
+> bucket. FR-01, FR-03, FR-06, FR-07, FR-08, NFR-02 and NFR-04 are amended
+> accordingly. TASK-D04 (default flip to `jev`) is moot.
 ## Functional Requirements
 
-### FR-01: Pluggable Triage Interface
+### FR-01: Triage Interface (Jev Only)
 The system SHALL expose `SemanticTriageProvider` in
-`src/blackwall/policy/semantic.py` with `jev` and `gemini` backends,
-selectable via `BW_SEMANTIC_BACKEND` (`jev` default post-validation, `gemini`
-preserved). `_compute_threat_score` SHALL consume only
-`SemanticTriageResult.threat_score`, with no weight changes.
-
+`src/blackwall/policy/semantic.py`, implemented only by the `jev` backend.
+There is no backend selection, no `BW_SEMANTIC_BACKEND`, and no `gemini`
+Tier-1 backend. `SemanticTriageProvider.triage` SHALL return a
+`SemanticTriageResult` or raise `JevUnavailableError`; it has no abstain value.
+`_compute_threat_score` SHALL consume only `SemanticTriageResult.threat_score`,
+with no weight changes.
 ### FR-02: Jev Tier-1 Evaluation (Signals, Not Verdicts)
 The `jev` backend SHALL issue one `noul` `is_threat` evaluation per novel
 tool call with fixed thresholds: `P < 0.35` → clear-low signal,
@@ -44,7 +50,13 @@ Threshold changes SHALL require a spec amendment with fresh labeled evidence.
 ### FR-03: Tier-2 Escalation Routing
 The system SHALL route to Gemini Tier-2 on (a) `escalate=true`, or
 (b) deterministic-vs-semantic disagreement (high-risk argument novelty with
-`P < 0.2`). Tier-2 SHALL return the final ALLOW/BLOCK verdict.
+`P < 0.2`). Tier-2 SHALL return the final ALLOW/BLOCK verdict. Tier-2 SHALL
+use `gemini-3.5-flash-lite` with thinking pinned to `medium` in code; no
+environment variable changes it (ADR 0009). When Tier-2 is triggered and
+returns no verdict for any reason (an empty Tier-2 rate bucket, a deadline miss,
+a malformed answer, a Vertex error or 429, or no Gemini client), an ALLOW from
+Score Aggregation SHALL become QUARANTINE and a BLOCK SHALL stand. A Tier-2
+abstention SHALL NOT fall through to an ALLOW (ADR 0009, Decision 6).
 
 ### FR-04: Async Forensics Preservation (Novel Blocks Only)
 Every novel BLOCK — i.e. a block with NO existing TSG signature match,
@@ -68,15 +80,19 @@ SHALL NEVER leave the host. Every Jev request body SHALL contain exactly
 > is a vendor assurance and not something a request can assert or a test can
 > verify (see ADR 0008, Open Items).
 
-### FR-06: Paid Operation with a Single Bounded Retry
+### FR-06: Paid Operation, a Single Bounded Retry, and Fail-Fast
 Jev traffic SHALL run on paid per-token billing on the official TypeSafe AI
 API. The backend SHALL retry a throttled response (`429`, or `529` Overloaded,
 the two statuses TypeSafe documents as "retry after a short delay") exactly
-once after a short fixed delay, then fail closed to the `gemini` backend or
-Tier-2 — never fail-open to ALLOW. Every other non-200 outcome SHALL fail
-closed without retry. There is no client-side pacing and no retry-tuning
+once after a short fixed delay. When Jev cannot answer for any reason (no key,
+any other non-200 status, a throttle that outlasts the retry, a transport
+error, a non-JSON body, or a malformed or out-of-range probability) the backend
+SHALL raise `JevUnavailableError`. There is no fallback backend and no
+substitute score; the error propagates out of `SyncResolver.evaluate()` and the
+tool call SHALL NOT be forwarded. The error message SHALL NOT contain the API
+key or a response body. There is no client-side pacing and no retry-tuning
 environment variable; the organization's rate limit is set by TypeSafe (see
-ADR 0008).
+ADR 0008, ADR 0009).
 
 ### FR-07: Observability
 Each triage SHALL record `backend`, `P`, `confidence`, `latency_ms`, and token
@@ -85,6 +101,14 @@ usage for logs, budgets, and `HistoricalRegressionTracker` baselines.
 > **Amended by ADR 0008:** a `noul` answer carries no separate confidence, so
 > `confidence` is recorded as `None` for Jev. The API returns no per-call cost;
 > spend is derived from the recorded token counts.
+> **Amended by ADR 0009:** failures raise instead of being recorded; there is no
+> `is_fallback` field.
+
+### FR-08: Two Rate Limits
+The front bucket SHALL be 80 req/s (Jev's organization limit) and guard every
+evaluation, QUARANTINEing on exhaustion. A separate 300 RPM bucket SHALL guard
+only the Tier-2 Vertex call. When that bucket is empty and Tier-2 is triggered,
+FR-03 applies (QUARANTINE an ALLOW, let a BLOCK stand).
 
 ## Non-Functional Requirements
 
@@ -98,8 +122,9 @@ is explicitly deferred to a future local/in-VPC Jev deployment (the measured
 p95 is above it, and latency under load has not been measured).
 
 ### NFR-02: No Regression on GCP-Only Path
-With `BW_SEMANTIC_BACKEND=gemini`, the full suite (unit, BDD, Vertex
-`EvalTask` dual-gate `tool_trajectory_avg_score: 1.0`) SHALL pass unchanged.
+With triage disabled (`BLACKWALL_ENABLE_SYNC_SEMANTIC_TRIAGE=false`, the
+default), the full suite (unit, BDD, Vertex `EvalTask` dual-gate
+`tool_trajectory_avg_score: 1.0`) SHALL pass unchanged.
 
 ### NFR-03: Test-Driven Development (TDD)
 Every FR SHALL ship with a failing-first unit test (mocked TypeSafe API; no live
@@ -109,7 +134,7 @@ with explicit credentials.
 ### NFR-04: Behavior-Driven Development (BDD)
 Acceptance SHALL include Gherkin scenarios in `tests/features/` covering:
 clear ALLOW, clear BLOCK, ambiguity escalation, disagreement escalation, async
-signature write, sanitization-before-egress, and 429 fail-closed behavior.
+signature write, sanitization-before-egress, and 429/529 fail-fast behavior.
 
 ### NFR-05: Calibration Stability
 Post-merge, the golden A/B (157 + 10) SHALL be re-run against any backend or

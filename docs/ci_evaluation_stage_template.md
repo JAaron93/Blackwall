@@ -30,7 +30,7 @@ pytest -v -m gcp_eval tests/evaluation/ tests/integration/test_eval_pipeline_e2e
 ### Option B: Dedicated Pipeline Runner (Recommended for Full CI Gates)
 ```bash
 # Run the automated Agent-as-a-Judge pipeline with a configurable quality threshold (--eval-threshold or --threshold)
-python3 scripts/run_gcp_eval.py --eval-threshold 3.5 --model gemini-3.8-flash
+python3 scripts/run_gcp_eval.py --eval-threshold 3.5 --model gemini-3.5-flash-lite
 ```
 
 ---

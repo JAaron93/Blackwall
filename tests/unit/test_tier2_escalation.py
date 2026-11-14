@@ -123,10 +123,24 @@ async def test_backend_parses_schema_and_targets_deep_reasoning_model():
     assert verdict.decision == "BLOCK"
     assert verdict.threat_score == pytest.approx(0.9)
     call = client.models.generate_content.call_args
-    assert call.kwargs["model"] == "gemini-3.8-flash"
+    assert call.kwargs["model"] == "gemini-3.5-flash-lite"
     thinking = call.kwargs["config"].thinking_config.thinking_level
     thinking = getattr(thinking, "value", thinking)
-    assert str(thinking).lower() == "high"  # analytical floor: immutable
+    assert str(thinking).lower() == "medium"  # ADR 0009: pinned, not configurable
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("level", ["minimal", "low", "high"])
+async def test_backend_thinking_level_ignores_environment(monkeypatch, level):
+    monkeypatch.setenv("GEMINI_THINKING_LEVEL", level)
+    monkeypatch.setenv("GEMINI_ALLOW_ANALYTICAL_DOWNGRADE", "true")
+    client = _tier2_client()
+    await GeminiTier2Backend(client).escalate(_beacon_context(), _in_band(0.51))
+    thinking = client.models.generate_content.call_args.kwargs[
+        "config"
+    ].thinking_config.thinking_level
+    thinking = getattr(thinking, "value", thinking)
+    assert str(thinking).lower() == "medium"
 
 
 @pytest.mark.asyncio
@@ -277,23 +291,97 @@ async def test_tier2_allow_resolves_ambiguity():
     assert verdict.decision == VerdictDecision.ALLOW
 
 
+class _AbstainingTier2:
+    async def escalate(
+        self, context: ToolCallContext, tier1: SemanticTriageResult
+    ) -> None:
+        return None
+
+
 @pytest.mark.asyncio
-async def test_tier2_abstain_fails_closed_to_aggregation(caplog):
-    """FR-03/FR-06: Tier-2 outage must never fail open — the Tier-1 signal
-    flows through the normal aggregation + thresholds path."""
-
-    class _AbstainingTier2:
-        async def escalate(
-            self, context: ToolCallContext, tier1: SemanticTriageResult
-        ) -> None:
-            return None
-
+async def test_tier2_abstain_quarantines_instead_of_allowing(caplog):
+    """ADR 0009 (resolves ADR 0008 Open Item 9): Tier-2 fired but returned no
+    verdict. Aggregation alone would ALLOW a lone P=0.51 signal, so an attacker
+    who induces timeouts, malformed output or quota errors would be allowed."""
     resolver = _resolver(None, _StubTier1(_in_band(0.51)))
     resolver._tier2_backend = _AbstainingTier2()
     with caplog.at_level("WARNING", logger="blackwall.sync_resolver"):
         verdict = await resolver.evaluate(_beacon_context())
-    assert verdict.decision == VerdictDecision.ALLOW  # P=0.51 benign ctx
-    assert "Tier-2" not in verdict.reasoning
+    assert verdict.decision == VerdictDecision.QUARANTINE
+    assert "Tier-2" in verdict.reasoning and "unavailable" in verdict.reasoning
+
+
+@pytest.mark.asyncio
+async def test_tier2_abstain_on_the_disagreement_trigger_also_quarantines():
+    clear_low = _tier1_result(0.05)
+    resolver = _resolver(None, _StubTier1(clear_low))
+    resolver._tier2_backend = _AbstainingTier2()
+    verdict = await resolver.evaluate(_high_risk_context())
+    assert verdict.decision != VerdictDecision.ALLOW
+
+
+@pytest.mark.asyncio
+async def test_tier2_abstain_never_downgrades_a_block():
+    """Aggregation supremacy: a BLOCK stands when Tier-2 is unavailable."""
+    resolver = _resolver(None, _StubTier1(_in_band(0.51)))
+    resolver._tier2_backend = _AbstainingTier2()
+    engine = MagicMock()
+    engine._policy = None
+    engine.evaluate.return_value = MagicMock(
+        decision=StructuralAction.BLOCK, ruleId="exfil_rule"
+    )
+    server = MagicMock()
+    server.structural_engine = engine
+    resolver.policy_server = server
+    verdict = await resolver.evaluate(_beacon_context())
+    assert verdict.decision == VerdictDecision.BLOCK
+
+
+@pytest.mark.asyncio
+async def test_clear_signals_are_untouched_when_tier2_is_down():
+    resolver = _resolver(None, _StubTier1(_tier1_result(0.02)))
+    resolver._tier2_backend = _AbstainingTier2()
+    verdict = await resolver.evaluate(_benign_context())
+    assert verdict.decision == VerdictDecision.ALLOW
+    assert resolver.tier2_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_tier2_without_a_vertex_client_quarantines_band_calls():
+    """Triage enabled but no Gemini client: Tier-2 cannot run, so a band call is
+    not allowed on a lone Tier-1 signal."""
+    resolver = SyncResolver(client=None, enable_semantic_triage=True)
+    resolver._semantic_provider = _StubTier1(_in_band(0.51))
+    verdict = await resolver.evaluate(_beacon_context())
+    assert verdict.decision == VerdictDecision.QUARANTINE
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure",
+    [
+        RuntimeError("vertex 429 RESOURCE_EXHAUSTED"),
+        TimeoutError("deadline"),
+    ],
+)
+async def test_vertex_errors_quarantine_a_band_call(failure):
+    client = MagicMock()
+    client.models.generate_content = MagicMock(side_effect=failure)
+    resolver = _resolver(client, _StubTier1(_in_band(0.51)))
+    verdict = await resolver.evaluate(_beacon_context())
+    assert verdict.decision == VerdictDecision.QUARANTINE
+
+
+@pytest.mark.asyncio
+async def test_malformed_tier2_output_quarantines_a_band_call():
+    client = MagicMock()
+    response = MagicMock()
+    response.parsed = None
+    response.text = "not json"
+    client.models.generate_content = MagicMock(return_value=response)
+    resolver = _resolver(client, _StubTier1(_in_band(0.51)))
+    verdict = await resolver.evaluate(_beacon_context())
+    assert verdict.decision == VerdictDecision.QUARANTINE
 
 
 @pytest.mark.asyncio

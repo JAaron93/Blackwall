@@ -20,13 +20,13 @@ def test_eval_trace_export_judge_attributes():
     exporter = GCPCloudTraceExporter(project_id="eval-test-proj")
     span = exporter.start_span(
         name="vertex_eval.judge.threat_interception",
-        model="gemini-3.8-flash",
+        model="gemini-3.5-flash-lite",
         domain="threat_interception",
-        judge_model="gemini-3.8-flash",
+        judge_model="gemini-3.5-flash-lite",
     )
 
     assert span.attributes["gen_ai.evaluation.domain"] == "threat_interception"
-    assert span.attributes["gen_ai.evaluation.judge_model"] == "gemini-3.8-flash"
+    assert span.attributes["gen_ai.evaluation.judge_model"] == "gemini-3.5-flash-lite"
 
     rubric_scores = {
         "detection_accuracy_score": 5,
@@ -40,7 +40,7 @@ def test_eval_trace_export_judge_attributes():
         score=4.5,
         verdict="BLOCK",
         domain="threat_interception",
-        judge_model="gemini-3.8-flash",
+        judge_model="gemini-3.5-flash-lite",
         rubric_scores=rubric_scores,
         is_fallback=False,
         mean_score=4.5,
@@ -49,7 +49,7 @@ def test_eval_trace_export_judge_attributes():
     )
 
     assert span.attributes["gen_ai.evaluation.domain"] == "threat_interception"
-    assert span.attributes["gen_ai.evaluation.judge_model"] == "gemini-3.8-flash"
+    assert span.attributes["gen_ai.evaluation.judge_model"] == "gemini-3.5-flash-lite"
     assert span.attributes["gen_ai.evaluation.rubric_scores"] == json.dumps(rubric_scores)
     assert span.attributes["gen_ai.evaluation.is_fallback"] is False
     assert span.attributes["gen_ai.evaluation.mean_score"] == 4.5

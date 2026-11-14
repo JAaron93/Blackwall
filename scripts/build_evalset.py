@@ -7,6 +7,13 @@ tests/eval/test_data/ and emits:
   - tests/eval/evalsets/blackwall_security.evalset.json   (ADK EvalCase format)
   - tests/eval/eval_config.json                           (evaluation criteria)
 
+Every case, whatever its label, gets the same prompt template
+(``Execute tool '<tool>' with arguments: {<json>}``) and the same argument keys
+for the same tool, so nothing but the payload tells the classes apart. The label
+and the attack metadata (attack_type, evasion_type, parent id, ...) live in
+``metadata`` and never appear in the text a classifier reads (TASK-F05b,
+ADR 0009). Benign and malicious remain two classes.
+
 Usage:
     python scripts/build_evalset.py [--workspace <path>]
 """
@@ -15,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, Callable
@@ -33,30 +41,64 @@ def _load(path: Path) -> list[dict]:
     return data.get("cases", [])
 
 
-def _benign_prompt(case: dict) -> str:
-    raw_args = case.get("tool_call_context", {}).get("rawArguments", {})
-    return (
-        f"Execute a benign operation using tool '{case['tool_name']}' "
-        f"with arguments: {json.dumps(raw_args)}"
-    )
+# Canonical argument keys, one per tool, shared by every class. Benign cases
+# already carry real argument dicts; malicious/evasion cases carry one pattern
+# string, which ``args_from_pattern`` splits into the same keys.
+_WRAPPER = re.compile(r"^(?P<name>[A-Za-z_][A-Za-z0-9_]*)\((?P<body>.*)\)$", re.S)
+_HTTP_METHODS = ("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD")
 
 
-def _malicious_prompt(case: dict) -> str:
-    return (
-        f"Attempt malicious attack pattern using tool '{case['tool_name']}': "
-        f"attack_type={case.get('attack_type','UNKNOWN')}, "
-        f"pattern={case.get('attack_pattern','')}"
-    )
+def args_from_pattern(tool: str, pattern: str) -> dict[str, Any]:
+    """Split an ``attack_pattern`` into the canonical argument dict for ``tool``.
+
+    Patterns are either a bare payload (``SELECT ...``, ``ls | cat ...``) or a
+    ``name(body)`` wrapper (``read_file(../x)``, ``http_request(POST url)``).
+    """
+    body = pattern
+    match = _WRAPPER.match(pattern)
+    if match and match.group("name") in {tool, "read_file"}:
+        body = match.group("body")
+    if tool == "database_query":
+        return {"query": body}
+    if tool == "execute_shell":
+        return {"cmd": body}
+    if tool == "file_read":
+        return {"filepath": body}
+    if tool == "http_request":
+        method, _, rest = body.partition(" ")
+        if method in _HTTP_METHODS and rest:
+            return {"method": method, "url": rest}
+        return {"method": "GET", "url": body}
+    if tool == "file_write":
+        path, sep, content = body.partition(", ")
+        if not sep:
+            raise ValueError(f"file_write pattern needs 'path, content': {pattern!r}")
+        return {"filepath": path, "content": content}
+    if tool == "dns_query":
+        host, _, qtype = body.partition(" ")
+        return {"hostname": host, "query_type": qtype or "A"}
+    if tool == "socket_connect":
+        return {"address": body}
+    if tool == "download_file":
+        return {"url": body}
+    if tool == "parse_xml":
+        return {"xml": body}
+    if tool in ("deserialize_python", "deserialize_java"):
+        return {"data": body}
+    raise ValueError(f"no canonical argument mapping for tool {tool!r}")
 
 
-def _evasion_prompt(case: dict) -> str:
-    return (
-        f"Attempt evasive variant of {case.get('parent_case_id','unknown')} "
-        f"using tool '{case['tool_name']}': "
-        f"evasion_type={case.get('evasion_type','UNKNOWN')}, "
-        f"obfuscation={case.get('obfuscation_technique','')}, "
-        f"pattern={case.get('attack_pattern','')}"
-    )
+def _shared_prompt(tool: str, args: dict[str, Any]) -> str:
+    """The one prompt template used for every case, whatever its label."""
+    return f"Execute tool '{tool}' with arguments: {json.dumps(args, ensure_ascii=False)}"
+
+
+def _benign_args(case: dict) -> dict[str, Any]:
+    return dict(case.get("tool_call_context", {}).get("rawArguments", {}))
+
+
+def _attack_args(case: dict) -> dict[str, Any]:
+    return args_from_pattern(case["tool_name"], case.get("attack_pattern", ""))
 
 
 def _make_trajectory(tool_name: str, verdict: str) -> list[dict]:
@@ -74,7 +116,7 @@ def _make_trajectory(tool_name: str, verdict: str) -> list[dict]:
 def _build_cases(
     cases: list[dict[str, Any]],
     default_verdict: str,
-    prompt_fn: Callable[[dict[str, Any]], str],
+    args_fn: Callable[[dict[str, Any]], dict[str, Any]],
     metadata_fn: Callable[[dict[str, Any], str], dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Generic eval-case builder shared by the three build_* functions.
@@ -83,8 +125,9 @@ def _build_cases(
         cases:           Raw case dicts loaded from a JSON test-data file.
         default_verdict: Fallback verdict string when the case has no
                          ``expected_verdict`` key (e.g. ``"ALLOW"`` or ``"BLOCK"``)
-        prompt_fn:       Callable ``(case: dict) -> str`` that produces the
-                         user-facing conversation prompt for the case.
+        args_fn:         Callable ``(case: dict) -> dict`` returning the tool
+                         arguments; the prompt is built from them with the
+                         one shared template.
         metadata_fn:     Callable ``(case: dict, expected_verdict: str) -> dict``
                          that produces the ``metadata`` dict for the eval case.
 
@@ -94,7 +137,8 @@ def _build_cases(
     eval_cases = []
     for case in cases:
         expected_verdict = case.get("expected_verdict", default_verdict)
-        prompt_text = prompt_fn(case)
+        tool_args = args_fn(case)
+        prompt_text = _shared_prompt(case["tool_name"], tool_args)
         eval_cases.append(
             {
                 "eval_case_id": case["id"],
@@ -118,7 +162,10 @@ def _build_cases(
                         "parts": [{"text": expected_verdict}],
                     }
                 },
-                "metadata": metadata_fn(case, expected_verdict),
+                "metadata": {
+                    **metadata_fn(case, expected_verdict),
+                    "tool_arguments": tool_args,
+                },
             }
         )
     return eval_cases
@@ -139,7 +186,7 @@ def build_benign_cases(cases: list[dict]) -> list[dict]:
             "categories": case.get("categories", []),
         }
 
-    return _build_cases(cases, "ALLOW", _benign_prompt, _metadata)
+    return _build_cases(cases, "ALLOW", _benign_args, _metadata)
 
 
 def build_malicious_cases(cases: list[dict]) -> list[dict]:
@@ -154,7 +201,7 @@ def build_malicious_cases(cases: list[dict]) -> list[dict]:
             "description": case.get("description", ""),
         }
 
-    return _build_cases(cases, "BLOCK", _malicious_prompt, _metadata)
+    return _build_cases(cases, "BLOCK", _attack_args, _metadata)
 
 
 def build_evasion_cases(cases: list[dict]) -> list[dict]:
@@ -173,7 +220,7 @@ def build_evasion_cases(cases: list[dict]) -> list[dict]:
             "description": case.get("description", ""),
         }
 
-    return _build_cases(cases, "BLOCK", _evasion_prompt, _metadata)
+    return _build_cases(cases, "BLOCK", _attack_args, _metadata)
 
 
 # ---------------------------------------------------------------------------

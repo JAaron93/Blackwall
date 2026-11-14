@@ -8,8 +8,8 @@ from blackwall.models import (
     Verdict,
     VerdictDecision,
 )
+from blackwall.policy.semantic import SemanticTriageProvider, SemanticTriageResult
 from blackwall.sync_resolver import (
-    SemanticTriageEvaluation,
     SyncResolver,
     ThreatSignaturePayload,
 )
@@ -46,52 +46,19 @@ async def test_semantic_triage_flag_resolution(monkeypatch):
     assert r4.enable_semantic_triage is True
 
 
-@pytest.mark.asyncio
-async def test_evaluate_semantic_intent_with_parsed_object():
-    """Test _evaluate_semantic_intent extracts threat_score from parsed response."""
-    mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.parsed = SemanticTriageEvaluation(
-        threat_score=0.85,
-        is_suspicious=True,
-        reasoning="Suspicious reverse shell invocation",
-    )
-    mock_client.models.generate_content = MagicMock(return_value=mock_response)
+class _FixedJev(SemanticTriageProvider):
+    name = "jev"
 
-    resolver = SyncResolver(client=mock_client, enable_semantic_triage=True)
-    context = _make_context()
-
-    score = await resolver._evaluate_semantic_intent(context)
-    assert score == 0.85
+    async def triage(self, context: ToolCallContext) -> SemanticTriageResult:
+        return SemanticTriageResult(threat_score=0.85, backend="jev")
 
 
 @pytest.mark.asyncio
-async def test_evaluate_semantic_intent_with_json_text():
-    """Test _evaluate_semantic_intent falls back to JSON parsing from text."""
-    mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.parsed = None
-    mock_response.text = '{"threat_score": 0.72, "is_suspicious": true, "reasoning": "Data exfiltration"}'
-    mock_client.models.generate_content = MagicMock(return_value=mock_response)
-
-    resolver = SyncResolver(client=mock_client, enable_semantic_triage=True)
-    context = _make_context()
-
-    score = await resolver._evaluate_semantic_intent(context)
-    assert score == 0.72
-
-
-@pytest.mark.asyncio
-async def test_evaluate_semantic_intent_graceful_fallback_on_error():
-    """Test _evaluate_semantic_intent returns None on client failure."""
-    mock_client = MagicMock()
-    mock_client.models.generate_content = MagicMock(side_effect=RuntimeError("API quota error"))
-
-    resolver = SyncResolver(client=mock_client, enable_semantic_triage=True)
-    context = _make_context()
-
-    score = await resolver._evaluate_semantic_intent(context)
-    assert score is None
+async def test_evaluate_semantic_intent_reads_threat_score_from_jev():
+    """The adapter hands Score Aggregation only the provider's threat_score."""
+    resolver = SyncResolver(client=None, enable_semantic_triage=True)
+    resolver._semantic_provider = _FixedJev()
+    assert await resolver._evaluate_semantic_intent(_make_context()) == 0.85
 
 
 @pytest.mark.asyncio

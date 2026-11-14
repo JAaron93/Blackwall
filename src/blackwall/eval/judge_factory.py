@@ -46,7 +46,7 @@ except ImportError:
             vertex: bool = True,
             project: str | None = None,
             location: str = "us-central1",
-            model: str = "gemini-3.8-flash",
+            model: str = "gemini-3.5-flash-lite",
             response_schema: type[BaseModel] | None = None,
             capabilities: CapabilitiesConfig | None = None,
             thinking_level: str | None = None,
@@ -128,7 +128,7 @@ except ImportError:
             if self.config.max_output_tokens:
                 gen_config.max_output_tokens = self.config.max_output_tokens
 
-            target_model = self.config.model or "gemini-3.8-flash"
+            target_model = self.config.model or "gemini-3.5-flash-lite"
             try:
                 response = await client.aio.models.generate_content(
                     model=target_model,
@@ -214,7 +214,7 @@ def create_judge_agent(
     Args:
         domain: Target evaluation domain identifier.
         rubric_schema: Pydantic rubric model class for structured response output.
-        model: Model name override (defaults to BLACKWALL_JUDGE_MODEL or 'gemini-3.8-flash').
+        model: Model name override (defaults to BLACKWALL_JUDGE_MODEL or 'gemini-3.5-flash-lite').
         enforce_tier: If True, asserts GEMINI_TIER=paid, BLACKWALL_TIER=paid, and GCP_PROJECT.
         thinking_level: Optional thinking level override (defaults to get_gemini_thinking_level, enforcing HIGH floor).
         max_output_tokens: Optional token ceiling override (defaults to get_gemini_max_output_tokens, 64K floor).
@@ -241,7 +241,7 @@ def create_judge_agent(
         project = project.strip()
 
     location = os.getenv("GCP_LOCATION") or os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1"
-    effective_model = model or os.getenv("BLACKWALL_JUDGE_MODEL") or "gemini-3.8-flash"
+    effective_model = model or os.getenv("BLACKWALL_JUDGE_MODEL") or "gemini-3.5-flash-lite"
     effective_thinking_level = thinking_level or get_gemini_thinking_level(
         model=effective_model, task_type="judge"
     )

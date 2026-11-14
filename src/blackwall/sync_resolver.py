@@ -1,12 +1,13 @@
 """
-sync_resolver.py — Synchronous single-request resolver (100% GCP Vertex AI 300 RPM Mode).
+sync_resolver.py — Synchronous single-request resolver (Jev Tier-1, Vertex AI Tier-2).
 
 Uses client.models.generate_content() (NOT interactions.create()).
 Single-request synchronous evaluation resolver for inline tool-call gating.
-Rate limited to 300 RPM via a token bucket (capacity=300, refill=5.0/s) under 100% GCP Vertex AI Mode.
+Rate limited by two token buckets: 80 req/s on every evaluation (Jev org limit) and
+300 RPM (5.0/s) on the Tier-2 Vertex AI call only (ADR 0009).
 Performs ContextHygiene sanitization, Threat Signature Graph lookup,
-CBM AST query, external threat intelligence check, optional Gemini 3.5 Flash-Lite
-semantic triage, threat score aggregation, and threshold-based verdict dispatch.
+CBM AST query, external threat intelligence check, optional Jev Tier-1 triage with
+Gemini 3.5 Flash-Lite Tier-2 escalation, threat score aggregation, and threshold-based verdict dispatch.
 
 Verdict thresholds (DEMO MODE - tuned for standalone testing):
   >= 0.20  → BLOCK
@@ -53,16 +54,13 @@ from blackwall.models import (
     VerdictDecision,
 )
 from blackwall.policy.semantic import (
-    SEMANTIC_BACKEND_ENV_VAR,
     TIER2_DISAGREEMENT_NOVELTY,
     TIER2_DISAGREEMENT_P,
     GeminiTier2Backend,
-    SemanticTriageEvaluation as SemanticTriageEvaluation,
+    JevTriageBackend,
     SemanticTriageProvider,
     SemanticTriageResult,
     Tier2EscalationVerdict,
-    build_semantic_provider,
-    resolve_semantic_backend,
 )
 from blackwall.threat_intel.abusech import AbuseChError
 from blackwall.threat_intel.abuseipdb import AbuseIPDBError
@@ -82,6 +80,26 @@ from blackwall.resolver import ContextHygiene, TokenBucketRateLimiter
 from blackwall.validators import clamp_score, normalize_text, utc_now
 
 logger = logging.getLogger(__name__)
+
+# Front bucket: every evaluation. Sized to Jev's organization limit of 80 req/s
+# (4,800 RPM; ADR 0008). Tier-1 is Jev only, so Vertex does not bound this path.
+FRONT_RATE_LIMIT_CAPACITY: float = 80.0
+FRONT_RATE_LIMIT_REFILL_PER_S: float = 80.0
+# Tier-2 bucket: only the Vertex AI call. 300 RPM paid tier = 5 tokens/s (ADR 0009).
+TIER2_RATE_LIMIT_CAPACITY: float = 300.0
+TIER2_RATE_LIMIT_REFILL_PER_S: float = 5.0
+
+
+class _Tier2Unavailable(Exception):
+    """Tier-2 was triggered but produced no verdict (internal signal).
+
+    ``reason`` is a short static label ("rate limit", "no verdict"); it never
+    carries a provider message, a prompt or a credential.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 # Upper bound for swarm lineage lookups. Provider queries carry a 15ms SLA
 # (NFR-4); this deadline only fires when a provider stalls, so background
@@ -174,7 +192,7 @@ class ThreatSignaturePayload(BaseModel):
 
 class SyncResolver:
     """
-    Synchronous single-request resolver for Blackwall Core (300 RPM Vertex AI Mode).
+    Synchronous single-request resolver for Blackwall Core (Jev Tier-1, Vertex AI Tier-2).
 
     Performs interception, evaluation, self-learning threat signature creation,
     and non-blocking attacker attribution (<5ms SLA, NFR-1 & NFR-2).
@@ -193,7 +211,6 @@ class SyncResolver:
         on_attacker_identified: Optional[Callable[[IncidentReport], Any]] = None,
         telemetry: Optional[Any] = None,
         enable_semantic_triage: Optional[bool] = None,
-        semantic_backend: Optional[str] = None,
         aba: Optional[Any] = None,
         swarm_provider: Optional[SwarmContextProvider] = None,
     ) -> None:
@@ -243,14 +260,8 @@ class SyncResolver:
         else:
             self.enable_semantic_triage = bool(enable_semantic_triage)
 
-        # Tier-1 semantic triage backend (FR-01). Resolved per instance so a
-        # stray BW_SEMANTIC_BACKEND can never disable triage — unimplemented
-        # names degrade to the shipped Gemini backend.
-        self._semantic_backend_name = resolve_semantic_backend(
-            semantic_backend
-            if semantic_backend is not None
-            else os.getenv(SEMANTIC_BACKEND_ENV_VAR, "")
-        )
+        # Tier-1 is Jev only (ADR 0009). The provider is built on first use; an
+        # unset TYPESAFE_API_KEY raises JevUnavailableError there. No fallback.
         self._semantic_provider: Optional[SemanticTriageProvider] = None
         self._tier2_backend: Optional[GeminiTier2Backend] = None
         self.tier2_calls: int = 0
@@ -283,8 +294,17 @@ class SyncResolver:
             max_workers=2, thread_name_prefix="bw_callback"
         )
 
-        # Rate limiter: 100% GCP Vertex AI Mode (Paid Tier Exclusively: 300 RPM capacity, 5.0 t/s refill)
-        self._rate_limiter = TokenBucketRateLimiter(capacity=300.0, refill_rate=5.0)
+        # Front limiter sized to Jev's 80 req/s org limit; a separate Tier-2
+        # limiter guards only the Vertex AI call (300 RPM). ADR 0009.
+        self._rate_limiter = TokenBucketRateLimiter(
+            capacity=FRONT_RATE_LIMIT_CAPACITY,
+            refill_rate=FRONT_RATE_LIMIT_REFILL_PER_S,
+        )
+        self._tier2_rate_limiter = TokenBucketRateLimiter(
+            capacity=TIER2_RATE_LIMIT_CAPACITY,
+            refill_rate=TIER2_RATE_LIMIT_REFILL_PER_S,
+        )
+        self.tier2_rate_limit_hits: int = 0
 
         # Context hygiene sanitizer with security IOC preservation mode enabled
         self._hygiene = ContextHygiene(preserve_iocs=True)
@@ -307,9 +327,7 @@ class SyncResolver:
     def semantic_provider(self) -> SemanticTriageProvider:
         """Active Tier-1 triage backend, built once per resolver instance."""
         if self._semantic_provider is None:
-            self._semantic_provider = build_semantic_provider(
-                self.client, self._semantic_backend_name
-            )
+            self._semantic_provider = JevTriageBackend()
         return self._semantic_provider
 
     # ------------------------------------------------------------------
@@ -339,7 +357,7 @@ class SyncResolver:
             return Verdict(
                 decision=VerdictDecision.QUARANTINE,
                 reasoning=(
-                    "Rate limit exhausted (300 RPM). "
+                    "Rate limit exhausted (80 req/s). "
                     "Fail-closed: QUARANTINE pending retry."
                 ),
                 confidence_score=1.0,
@@ -428,21 +446,24 @@ class SyncResolver:
         if is_high_risk:
             threat_resp = await self._query_threat_intel(sanitized)
 
-        # 4b. Optional Tier-1 semantic triage (pluggable jev|gemini backend)
+        # 4b. Optional Tier-1 Jev semantic triage (fail-fast, no fallback)
         # with Tier-2 Gemini escalation on the ambiguity band or
         # deterministic-vs-semantic disagreement (FR-03). Structural BLOCKs
         # short-circuit the outcome, so Tier-2 is never spent on them.
         semantic_score: Optional[float] = None
         tier1_result: Optional[SemanticTriageResult] = None
         tier2_verdict: Optional[Tier2EscalationVerdict] = None
-        if self.enable_semantic_triage and self.client is not None:
+        tier2_unavailable_reason: Optional[str] = None
+        if self.enable_semantic_triage:
             tier1_result = await self._semantic_triage_result(sanitized)
-            if tier1_result is not None:
-                semantic_score = tier1_result.threat_score
-                if not structural_blocked:
+            semantic_score = tier1_result.threat_score
+            if not structural_blocked:
+                try:
                     tier2_verdict = await self._maybe_escalate_tier2(
                         sanitized, tier1_result
                     )
+                except _Tier2Unavailable as exc:
+                    tier2_unavailable_reason = exc.reason
 
         # 5. Compute weighted threat score (Tier-2's calibrated score replaces
         # the Tier-1 signal as the semantic input when it fires)
@@ -512,9 +533,25 @@ class SyncResolver:
                     else VerdictDecision.ALLOW
                 )
 
+        # 5d. Tier-2 was required but returned no verdict (deadline, malformed
+        # answer, Vertex error or 429, no client, or an empty rate bucket).
+        # Aggregation alone allows a lone band signal at production thresholds
+        # (ADR 0008, Open Item 9), so each of those would become a bypass an
+        # attacker can induce. Raise an ALLOW to QUARANTINE (ADR 0009); a BLOCK
+        # from deterministic aggregation stands.
+        tier2_quarantine = (
+            tier2_unavailable_reason is not None and decision == VerdictDecision.ALLOW
+        )
+        if tier2_quarantine:
+            decision = VerdictDecision.QUARANTINE
         base_reasoning = self._build_reasoning(
             score, threat_resp, cbm_resp, semantic_score=semantic_score
         )
+        if tier2_quarantine:
+            base_reasoning = (
+                f"Tier-2 escalation required but unavailable ({tier2_unavailable_reason}). "
+                f"Fail-closed: QUARANTINE pending retry. | {base_reasoning}"
+            )
         if structural_blocked:
             reasoning = f"Blocked via structural policy rule: {structural_rule_id} | {base_reasoning}"
         elif tier2_verdict is not None and tier1_result is not None:
@@ -903,35 +940,21 @@ class SyncResolver:
     # Threat score computation & semantic intent evaluation
     # ------------------------------------------------------------------
 
-    async def _evaluate_semantic_intent(
-        self, context: ToolCallContext
-    ) -> Optional[float]:
+    async def _evaluate_semantic_intent(self, context: ToolCallContext) -> float:
         """
-        Adapter onto the pluggable Tier-1 SemanticTriageProvider (FR-01).
-
-        Returns only SemanticTriageResult.threat_score so Score Aggregation
-        stays weight-identical across backends, and degrades to None — never a
-        synthetic 0.0 — when the backend abstains or fails.
+        Adapter onto the Tier-1 Jev provider. Returns only
+        SemanticTriageResult.threat_score so Score Aggregation stays
+        weight-identical. A Jev failure raises JevUnavailableError: there is no
+        abstention, no synthetic 0.0 and no fallback (ADR 0009).
         """
-        result = await self._semantic_triage_result(context)
-        if result is None:
-            return None
-        return result.threat_score
+        return (await self._semantic_triage_result(context)).threat_score
 
     async def _semantic_triage_result(
         self, context: ToolCallContext
-    ) -> Optional[SemanticTriageResult]:
-        """
-        Full Tier-1 triage result (threat_score, confidence, backend, escalate)
-        from the active SemanticTriageProvider. None = abstain — deliberately
-        distinct from 0.0 so the fail-closed max() in _score_argument_novelty
-        is never masked.
-        """
-        try:
-            return await self.semantic_provider.triage(context)
-        except Exception as exc:
-            logger.debug("Semantic intent evaluation fell back to heuristics: %s", exc)
-            return None
+    ) -> SemanticTriageResult:
+        """Full Tier-1 result (threat_score, confidence, backend, escalate).
+        Errors propagate to the caller of evaluate()."""
+        return await self.semantic_provider.triage(context)
 
     @property
     def tier2_backend(self) -> GeminiTier2Backend:
@@ -947,8 +970,9 @@ class SyncResolver:
         FR-03 routing: fire Tier-2 Gemini deep reasoning on (a) the Tier-1
         ambiguity band (escalate=True) or (b) deterministic-vs-semantic
         disagreement (high-risk argument novelty with a clear-low P). Returns
-        None when no trigger fires or Tier-2 abstains — the caller then fails
-        closed to the normal aggregation + thresholds path (never fail-open).
+        None only when no trigger fires. Raises _Tier2Unavailable when Tier-2
+        fired but gave no verdict (empty Vertex bucket, error, timeout, malformed
+        answer, no client); evaluate() then QUARANTINEs an ALLOW (ADR 0009).
         """
         trigger: Optional[str] = None
         if tier1.escalate:
@@ -961,16 +985,34 @@ class SyncResolver:
             trigger = "disagreement"
         if trigger is None:
             return None
+        if not getattr(self.tier2_backend, "available", True):
+            # No request can be sent, so no token is spent and no call is
+            # counted; evaluate() still QUARANTINEs an ALLOW (ADR 0009).
+            logger.warning(
+                "Tier-2 escalation triggered (%s) but no Gemini client can send "
+                "a request — QUARANTINE unless the aggregate blocks",
+                trigger,
+            )
+            raise _Tier2Unavailable("no client")
+        if not await self._tier2_rate_limiter.consume(1.0):
+            # Not an abstention: see 5d in evaluate().
+            self.tier2_rate_limit_hits += 1
+            logger.warning(
+                "Tier-2 escalation triggered (%s) but the Vertex rate limit "
+                "(300 RPM) is exhausted — QUARANTINE unless the aggregate blocks",
+                trigger,
+            )
+            raise _Tier2Unavailable("rate limit")
         self.tier2_calls += 1
         started = time.monotonic()
         verdict = await self.tier2_backend.escalate(context, tier1)
         if verdict is None:
             logger.warning(
-                "Tier-2 escalation triggered (%s) but Gemini abstained — "
-                "failing closed to Score Aggregation with the Tier-1 signal",
+                "Tier-2 escalation triggered (%s) but Gemini returned no "
+                "verdict — QUARANTINE unless the aggregate blocks",
                 trigger,
             )
-            return None
+            raise _Tier2Unavailable("no verdict")
         logger.info(
             "tier2_escalation",
             extra={
@@ -1010,11 +1052,7 @@ class SyncResolver:
         ti_score = self._score_threat_intel(resp)
         cbm_score = self._score_cbm(cbm_resp)
 
-        if (
-            semantic_score is None
-            and self.enable_semantic_triage
-            and self.client is not None
-        ):
+        if semantic_score is None and self.enable_semantic_triage:
             semantic_score = await self._evaluate_semantic_intent(context)
 
         ctx_score = self._score_context(context, semantic_score=semantic_score)

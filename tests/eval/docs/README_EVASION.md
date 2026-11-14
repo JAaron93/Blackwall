@@ -64,7 +64,7 @@ Each evasion case is a JSON object with the following fields:
 | `cwe_id` | string | CWE reference ID inherited from parent |
 | `cwe_url` | string | Link to CWE definition on MITRE website |
 | `description` | string | Human-readable explanation of the evasion attempt |
-| `attack_pattern` | string | Pseudocode showing the evasion structure (uses `[[PLACEHOLDER]]` syntax) |
+| `attack_pattern` | string | Concrete obfuscated attack syntax (ADR 0009, TASK-F05 — see `README_MALICIOUS.md`) |
 | `obfuscation_technique` | string | Precise description of the transformation applied to the parent pattern |
 | `original_attack_pattern` | string | The `attack_pattern` from the parent case in `malicious_cases.json` |
 | `tool_name` | string | ADK tool being attacked — same as parent |
@@ -174,11 +174,12 @@ The obfuscation transformations in this dataset are deliberately designed to pre
 
 ## Reference to JUDGE_EVALUATION.md
 
-This evasion dataset is the Wave 2 component described in `JUDGE_EVALUATION.md` under "Self-Learning Proof Interpretation". The reference-based approach (using `[[PLACEHOLDER]]` syntax for specific values) follows the same methodology documented in `tests/eval/docs/README_MALICIOUS.md`.
+This evasion dataset is the Wave 2 component described in `JUDGE_EVALUATION.md` under "Self-Learning Proof Interpretation". `attack_pattern` carries the same kind of concrete, published attack syntax as `malicious_cases.json` (ADR 0009, TASK-F05), obfuscated by the technique named in `evasion_type` — see `tests/eval/docs/README_MALICIOUS.md` for why bracket placeholders were replaced and what line is still drawn.
 
-Key principles from that documentation that apply here:
+Key principles that apply here:
 
-- **No functional exploit code** — all patterns use pseudocode notation with `[[PLACEHOLDER]]` values
+- **No live infrastructure** — IP addresses are RFC 5737 documentation-range or the dataset's established fictional domains; nothing is contacted
+- **`original_attack_pattern` mirrors the corrected parent** — each evasion case's un-obfuscated form matches what `malicious_cases.json` now contains for that `parent_case_id`, so the pair still demonstrates one concrete attack and its evasion variant
 - **CWE/CVE IDs** inherited from parent cases enable independent verification of attack categories
 - **External references** provided for each evasion technique
 
@@ -191,8 +192,11 @@ The combination of `malicious_cases.json` (Wave 1 seed attacks) and `evasion_cas
 
 ## Safe Handling Practices
 
-1. **Do NOT generate functional payloads** from this dataset
-2. **Do NOT use attack_pattern pseudocode as actual exploit syntax**
+1. **Do NOT point this syntax at a real, reachable system** — it is a text
+   fixture for a classifier, not a tool
+2. **Keep `attack_pattern` and `original_attack_pattern` in sync** when
+   editing either, so the evasion case still shows a real obfuscation of a
+   real parent attack
 3. **Use external references (CWE, OWASP, PortSwigger) for technical details** if needed
 4. **Store with standard data security controls** (encryption at rest, access controls)
 

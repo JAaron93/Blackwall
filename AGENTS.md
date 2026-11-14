@@ -33,7 +33,7 @@ All code submitted via pull requests or feature branches must be reviewed agains
 Greptile reviews must enforce the existing base branch architectural patterns:
 
 1. **Interception Resolver (`SyncResolver`) Sequence**:
-   - Execution flow MUST follow: `Rate Check` -> `ContextHygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Threat Intelligence Validation (AlienVault OTX / Multi-Provider Orchestrator)` -> `Semantic Triage via pluggable jev|gemini backend (Tier-1 Jev P(threat) with 0.35/0.75 band, Gemini Tier-2 escalation; governed by .kiro/specs/tier-1-jev-addition/)` -> `Score Aggregation` -> `Threshold Verdict` -> `Optional Inline Signature Generation`.
+   - Execution flow MUST follow: `Rate Check` -> `ContextHygiene Sanitization` -> `Threat Signature Graph (TSG) Check` -> `Codebase Memory MCP AST Query` -> `Threat Intelligence Validation (AlienVault OTX / Multi-Provider Orchestrator)` -> `Semantic Triage via Tier-1 Jev (fail-fast, no fallback; P(threat) with 0.35/0.75 band, Gemini 3.5 Flash-Lite Tier-2 escalation at pinned medium thinking; governed by .kiro/specs/tier-1-jev-addition/ and ADR 0009)` -> `Score Aggregation` -> `Threshold Verdict` -> `Optional Inline Signature Generation`.
 2. **FTS5 Similarity Scoring & Match Quality**:
    - SQLite Threat Signature Graph queries MUST use word-level intersection match quality calculation (`match_quality = len(intersection) / min_len`) scaled by FTS fallback score and capped by dynamic threshold limits to prevent false positives.
 3. **Context Hygiene & Sanitization**:

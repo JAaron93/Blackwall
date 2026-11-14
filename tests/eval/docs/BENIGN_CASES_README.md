@@ -1,14 +1,26 @@
 # Benign Test Cases Dataset
 
+> **Superseded 2026-11-13 (ADR 0009, TASK-F05b).** The `[[MARKER]]` design
+> described in this document is retired. After the malicious cases got real
+> attack text, 53 of the 68 benign cases still carried `[[PLACEHOLDER]]` tokens
+> that no real tool call contains, which made "has a bracket token" a way to
+> read the class. `benign_cases.json` now holds real values (e.g.
+> `user_id = 4821`, `region = 'eu-west'`); secrets in real traffic are redacted
+> by `ContextHygiene` before a classifier sees them, in both classes alike.
+> The dataset has 68 cases (this document says 69). `benign_cases.json` is the
+> source of truth: `create_benign.py` and `create_benign_comprehensive.py` are
+> retired and refuse to run, because they would write the placeholders back.
+> The body below is kept as the historical record of the original design.
+
 This document describes the comprehensive benign test cases generated for the Blackwall Security Evaluation dataset.
 
 ## Overview
 
 - **Total Cases**: 69 benign operations
-- **Generator**: `create_benign_comprehensive.py`
+- **Generator**: `create_benign_comprehensive.py` (retired; `benign_cases.json` is the source of truth)
 - **Output File**: `benign_cases.json`
 - **Ground Truth**: All cases marked as `"BENIGN"`
-- **Format**: Reference-based with semantic markers (`[[MARKER_NAME]]`)
+- **Format**: Real argument values (the `[[MARKER_NAME]]` design below was retired in TASK-F05b)
 
 ## Schema
 

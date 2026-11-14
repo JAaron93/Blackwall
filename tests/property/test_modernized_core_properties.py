@@ -11,8 +11,8 @@ Properties verified using Hypothesis:
    Successive calls to get_certifi_ssl_context() return the identical cached instance.
 5. PolicyFileHandler Debounce Coalescing Invariant:
    Any rapid event burst within the debounce interval executes at most one immediate callback.
-6. SyncResolver Client AIO Dispatch Invariant:
-   When client.aio is present, semantic evaluations invoke client.aio directly without thread-pool dispatch.
+6. Tier-2 Client AIO Dispatch Invariant:
+   When client.aio is present, Tier-2 escalation invokes client.aio directly without thread-pool dispatch.
 """
 
 from __future__ import annotations
@@ -35,7 +35,11 @@ from blackwall.mcp.transport import get_certifi_ssl_context
 from blackwall.models import ToolCallContext
 from blackwall.policy.watcher import PolicyFileHandler
 from blackwall.security.vault import EncryptedLocalStore
-from blackwall.sync_resolver import SemanticTriageEvaluation, SyncResolver
+from blackwall.policy.semantic import (
+    GeminiTier2Backend,
+    SemanticTriageResult,
+    Tier2EscalationVerdict,
+)
 
 # ---------------------------------------------------------------------------
 # Strategies
@@ -175,22 +179,20 @@ def test_policy_file_handler_debounce_coalescing_property(burst_count: int) -> N
 
 
 # ---------------------------------------------------------------------------
-# Property 6: SyncResolver Client Aio Dispatch Invariant
+# Property 6: Tier-2 Client Aio Dispatch Invariant
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
 @settings(max_examples=15, deadline=None)
 @given(tool_name=safe_key_st, arg_val=st.text(min_size=1, max_size=30))
 async def test_sync_resolver_client_aio_dispatch_property(tool_name: str, arg_val: str) -> None:
-    """Property: When client.aio is present, SyncResolver directly calls client.aio without to_thread."""
+    """Property: When client.aio is present, the Tier-2 backend directly awaits client.aio without to_thread."""
     mock_client = MagicMock()
     mock_aio = MagicMock()
     mock_aio_models = MagicMock()
 
-    mock_parsed = SemanticTriageEvaluation(
-        threat_score=0.1,
-        is_suspicious=False,
-        reasoning="Property test verdict",
+    mock_parsed = Tier2EscalationVerdict(
+        decision="ALLOW", threat_score=0.1, reasoning="Property test verdict"
     )
     mock_response = MagicMock()
     mock_response.parsed = mock_parsed
@@ -198,10 +200,10 @@ async def test_sync_resolver_client_aio_dispatch_property(tool_name: str, arg_va
     mock_aio.models = mock_aio_models
     mock_client.aio = mock_aio
 
-    resolver = SyncResolver(client=mock_client)
+    backend = GeminiTier2Backend(mock_client)
     context = ToolCallContext(tool_name=tool_name, arguments={"arg": arg_val})
-
-    result = await resolver._evaluate_semantic_intent(context)
-    assert result == 0.1
+    tier1 = SemanticTriageResult(threat_score=0.5, backend="jev", escalate=True)
+    result = await backend.escalate(context, tier1)
+    assert result is not None and result.threat_score == 0.1
     mock_aio_models.generate_content.assert_awaited_once()
     mock_client.models.generate_content.assert_not_called()

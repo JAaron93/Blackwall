@@ -1,4 +1,13 @@
 ================================================================================
+NOTE (2026-11-13, ADR 0009 / TASK-F05): SUPERSEDED. The "reference-based"
+design below (bracket placeholders such as [[INJECTED_INPUT]] standing in for
+the attack content) was replaced by concrete, published attack syntax after
+measurement showed placeholder payloads carry no attack signal once the
+generator's class-revealing wrapper is stripped (ADR 0008 Open Item 10:
+decided accuracy 98.8% -> 84.1%). Current design: see README_MALICIOUS.md.
+This file is kept as the historical record of the original reasoning.
+================================================================================
+================================================================================
 BLACKWALL REFERENCE-BASED DATASET: THREAT EVALUATION SUMMARY (Task 20.1)
 ================================================================================
 

@@ -1032,7 +1032,7 @@ async def run_evaluation_pipeline(
             else (os.getenv("GCP_LOCATION") or os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1")
         ),
         main_model=model or "gemini-3.5-flash-lite",
-        reasoner_model=model or "gemini-3.8-flash",
+        reasoner_model=model or "gemini-3.5-flash-lite",
         allow_fallback=allow_fallback,
     )
     eval_harness = GCPVertexAIEvaluationHarness(
@@ -1062,9 +1062,9 @@ async def run_evaluation_pipeline(
 
         span = trace_exporter.start_span(
             name=f"vertex_eval.judge.{domain}",
-            model=model or "gemini-3.8-flash",
+            model=model or "gemini-3.5-flash-lite",
             domain=domain,
-            judge_model=model or "gemini-3.8-flash",
+            judge_model=model or "gemini-3.5-flash-lite",
             attributes={"scenario.id": scenario_id},
         )
 
@@ -1143,7 +1143,7 @@ async def run_evaluation_pipeline(
             score=round(mean_rubric_score, 4),
             verdict=str(candidate_result.get("verdict", "BLOCK")),
             domain=domain,
-            judge_model=model or "gemini-3.8-flash",
+            judge_model=model or "gemini-3.5-flash-lite",
             rubric_scores=score_data,
             is_fallback=is_fallback,
             mean_score=round(mean_rubric_score, 4),
@@ -1170,7 +1170,7 @@ async def run_evaluation_pipeline(
         eval_task_result = eval_harness.run_eval_task(
             dataset=managed_dataset,
             metrics=[eval_autorater],
-            model=model or "gemini-3.8-flash",
+            model=model or "gemini-3.5-flash-lite",
         )
         eval_status = eval_task_result.get("status")
         if eval_status != "COMPLETED":
@@ -1227,7 +1227,7 @@ async def run_evaluation_pipeline(
             "fallback_rate": summary.overall_fallback_rate,
             "failed_scenarios": summary.failed_scenarios,
             "is_selective_run": not is_full_coverage,
-            "model": model or "gemini-3.8-flash",
+            "model": model or "gemini-3.5-flash-lite",
         },
     )
     regression_tracker = HistoricalRegressionTracker(history_path=history_path)

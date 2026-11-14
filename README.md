@@ -97,7 +97,7 @@ python3 demo_live.py --plain
 
 **Terminal Layout:**
 - **Left Column (🔴 Rogue Attacker):** Real-time adversarial actions (reverse shells, credential exfiltration, SQL injection, token theft).
-- **Right Column (🛡️ Blackwall Guardian):** Multi-signal interception stages (OS Audit Hook $\to$ Context Hygiene $\to$ Structural YAML Gating $\to$ Local TSG Lookup $\to$ Tier-1 Jev/Gemini Triage $\to$ Score Aggregation $\to$ Tier-2 Gemini Escalation on ambiguity).
+- **Right Column (🛡️ Blackwall Guardian):** Multi-signal interception stages (OS Audit Hook $\to$ Context Hygiene $\to$ Structural YAML Gating $\to$ Local TSG Lookup $\to$ Tier-1 Jev Triage $\to$ Score Aggregation $\to$ Tier-2 Gemini Escalation on ambiguity).
 - **Footer Scoreboard:** Real-time metrics tracking verdicts (BLOCK, QUARANTINE, ALLOW), Evasion Rate (<10% target), latency, and Zero Ambient Authority verification.
 
 ### 4. Local MCP Security Gateway
@@ -184,7 +184,7 @@ Operating on the principle that **no agent process should ever possess ambient a
 ### 4. **Sub-10% False Positive & Negative Rates**
 - **FRR (False Refusal Rate):** <10% benign actions incorrectly blocked (measured at **0.0%**)—maintains developer productivity.
 - **Evasion Rate:** <10% malicious actions that bypass detection (measured at **0.0%**)—maintains rock-solid defense.
-- **Reference-Based Dataset:** 157-case evaluation suite (68 benign + 59 malicious + 30 evasion variants) derived from public security literature (OWASP Top 10 for LLMs, MITRE ATT&CK, CWE/CVE).
+- **Reference Dataset:** 157-case evaluation suite (68 benign + 59 malicious + 30 evasion variants, class-blind: one shared prompt template, real attack text, no label words; ADR 0009) derived from public security literature (OWASP Top 10 for LLMs, MITRE ATT&CK, CWE/CVE).
 
 ---
 
@@ -272,9 +272,9 @@ F1 Score (Malicious):     100.0%
 | Component | `SyncResolver` (Core Single-Request) | `BatchResolver` (Enterprise High-Throughput) |
 | :--- | :--- | :--- |
 | **Primary Class** | `SyncResolver` | `ADKIntegration` / `BatchResolver` |
-| **API Method** | Tier-1 Jev: `POST /v1/systemone` (official TypeSafe AI API) or Gemini: `client.models.generate_content()`; Tier-2: Gemini deep reasoning | `client.interactions.create()` |
+| **API Method** | Tier-1 Jev: `POST /v1/systemone` (official TypeSafe AI API); Tier-2: Gemini 3.5 Flash-Lite via `client.models.generate_content()` | `client.interactions.create()` |
 | **Batching** | None (1 req / interception) | Yes (up to 5 reqs / batch) |
-| **Rate Limit** | 300 RPM (token bucket) | 300 RPM (token bucket) |
+| **Rate Limit** | 80 req/s front bucket (Jev org limit) plus a 300 RPM bucket on the Tier-2 Vertex call | 300 RPM (token bucket) |
 | **Context Caching** | None | Server-side (`previous_interaction_id`) |
 | **Threat Intel / CBM Queries** | Awaits CBM, then conditionally awaits Threat Intel (high-risk only) | Batched API evaluation without inline MCP gather |
 | **Signature Generation** | Asynchronous background task (`loop.create_task`) | Asynchronous background task / webhook |
@@ -282,8 +282,8 @@ F1 Score (Malicious):     100.0%
 
 ### Three-Tier Interception Model (ADR 0006)
 - **Tier 0: Deterministic & AST Graph** (<5ms): OS audit hooks, Context Hygiene redaction, in-memory YAML structural gating, and Threat Signature Graph matching. Purely deterministic — no LLM calls. Structural/TSG BLOCKs are final and can never be overridden by any downstream signal.
-- **Tier 1: Calibrated Decision Classifier (Jev — System 1)**: every novel (non-TSG-matched) call is evaluated by TypeSafe Jev (the official TypeSafe AI API on paid per-token billing, sanitization-before-egress, allowlisted request body; ADR 0008). `P(threat)` is a weighted SIGNAL into Score Aggregation with the fixed `0.35/0.75` ambiguity band — never a terminal verdict. The legacy Gemini 3.5 Flash-Lite backend remains shipped and selectable via `BW_SEMANTIC_BACKEND=jev|gemini` (default `gemini` until the Track-D validation gate passes); a Jev outage fails closed to the Gemini backend.
-- **Tier 2: Gemini Deep Reasoning (System 2)**: Gemini 3.8 Flash (high thinking) fires only on the ambiguity band or deterministic-vs-semantic disagreement, returning the final ALLOW/BLOCK verdict (structural/TSG/threat-intel-malicious BLOCKs always win). Also owns async forensic `ThreatSignaturePayload` synthesis after novel BLOCKs — zero added latency to the execution path, and never triggered for TSG-matched blocks.
+- **Tier 1: Calibrated Decision Classifier (Jev — System 1)**: every novel (non-TSG-matched) call is evaluated by TypeSafe Jev (the official TypeSafe AI API on paid per-token billing, sanitization-before-egress, allowlisted request body; ADR 0008). `P(threat)` is a weighted SIGNAL into Score Aggregation with the fixed `0.35/0.75` ambiguity band — never a terminal verdict. Jev is the only Tier-1 backend and there is no fallback (ADR 0009): when Jev cannot answer (no key, HTTP error, a throttle that outlasts the single retry, a malformed answer) the evaluation raises `JevUnavailableError` and the gateway answers with an error instead of forwarding the tool call.
+- **Tier 2: Gemini Deep Reasoning (System 2)**: Gemini 3.5 Flash-Lite (pinned medium thinking, ADR 0009) fires only on the ambiguity band or deterministic-vs-semantic disagreement, returning the final ALLOW/BLOCK verdict (structural/TSG/threat-intel-malicious BLOCKs always win). Also owns async forensic `ThreatSignaturePayload` synthesis after novel BLOCKs — zero added latency to the execution path, and never triggered for TSG-matched blocks.
 
 ### Native CLI Tool Suite & Harpoon OSINT Bridge
 

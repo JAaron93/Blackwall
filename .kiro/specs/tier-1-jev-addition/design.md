@@ -74,6 +74,10 @@ weak spot and weaker than on 1.13 (mean P 0.70 to 0.63; `wave1_c2_beacon_001`
 still missed at P 0.19). Same-model reruns differ by up to 0.03 per case and
 changed zone in 3 of 167, so a second run of the same pass scored 98.8% (one
 more C2 beacon missed), one case above the 98% gate. See ADR 0008.
+*(2026-11-13: these figures are for the earlier corpus, whose states reveal their
+class. On the class-blind corpus decided accuracy is 82.8% to 83.0% and ECE is
+0.19, so those two gates fail while AUROC and escalation pass; see ADR 0009,
+Verification.)*
 
 ## Architecture Diagram
 
@@ -84,12 +88,12 @@ Tier 0: Deterministic & AST Graph (<5ms)  [UNCHANGED]
         ├── Definite Match / Known Sig → Fast ALLOW or BLOCK
         └── Novel / Suspicious Payload
                     │
-Tier 1: SemanticTriageProvider  [NEW ABSTRACTION]
+Tier 1: SemanticTriageProvider  [Jev only; fails fast, ADR 0009]
         ├── backend=jev (TypeSafe API, paid): P(threat)
         │     ├── P < 0.35 → clear-low SIGNAL → Score Aggregation (no Tier-2 call)
         │     ├── P > 0.75 → clear-high SIGNAL → Score Aggregation (no Tier-2 call)
         │     └── 0.35 ≤ P ≤ 0.75 → Tier-2 escalation
-        └── backend=gemini (legacy): threat_score float [PRESERVED, default-off]
+        └── Jev unavailable (any reason) → JevUnavailableError; no fallback
                     │
           AGGREGATION SUPREMACY: triage outputs are weighted SIGNALS only.
           Terminal ALLOW/BLOCK/QUARANTINE are decided exclusively at Score
@@ -99,7 +103,7 @@ Tier 1: SemanticTriageProvider  [NEW ABSTRACTION]
           skipping the Tier-2 Gemini call — never skipping aggregation
           (local, microseconds).
                     │
-Tier 2 Escalation: Gemini (3.8 Flash, high thinking)  [RETAINED]
+Tier 2 Escalation: Gemini (3.5 Flash-Lite, medium thinking, pinned)  [ADR 0009]
         ├── Ambiguity band referrals from Tier-1
         ├── Deterministic-vs-semantic disagreement
         │     (high-risk keywords present but P < 0.2)
@@ -113,14 +117,13 @@ Async Background (on novel BLOCK): Gemini signature & forensics gen  [RETAINED, 
 
 ## Components
 
-### 1. `SemanticTriageProvider` Interface (new, `src/blackwall/policy/semantic.py`)
-
-Pluggable seam over the current inline Gemini call. Backends: `jev`
-(primary) and `gemini` (legacy fallback). Env-gated selection
-(`BW_SEMANTIC_BACKEND=jev|gemini`, default `jev` once validated; `gemini`
-preserved for regression and air-gapped/GCP-only operation). Returns a
+### 1. `SemanticTriageProvider` Interface (`src/blackwall/policy/semantic.py`)
+Implemented only by `JevTriageBackend` (ADR 0009). There is no backend
+selection and no `BW_SEMANTIC_BACKEND`. `triage` returns a
 `SemanticTriageResult { threat_score: float, confidence: float|None,
-backend: str, escalate: bool }` so `_compute_threat_score` stays untouched.
+backend: str, escalate: bool }` so `_compute_threat_score` stays untouched, or
+raises `JevUnavailableError`; there is no abstain value. The resolver builds the
+backend on first use, so an unset `TYPESAFE_API_KEY` raises there.
 
 ### 2. Jev Backend (`JevTriageBackend`)
 
@@ -141,11 +144,13 @@ across keys, i.e. 4,800 RPM); there is no client-side pacing. The model is
 
 ### 3. Tier-2 Escalation Policy (retained, narrowed)
 
-Gemini fires only on: (a) ambiguity band, (b) deterministic-vs-semantic
+Gemini (3.5 Flash-Lite, medium) fires only on: (a) ambiguity band, (b) deterministic-vs-semantic
 disagreement (high-risk argument novelty vs `P < 0.2`), (c) async forensics.
 Expected Tier-2 rate: ~0% on routine suites, ~30% on hard evasion probes
-(measured). This is the cost control: Gemini (especially 3.8 Flash
-deep-reasoning) spends only where judgment exists.
+(measured). This is the cost control: Gemini deep reasoning spends only where
+judgment exists. A 300 RPM bucket guards only the Tier-2 call; Tier-2 returning no verdict
+for any reason (including an empty bucket) QUARANTINEs an ALLOW (FR-03). The
+front bucket is 80 req/s.
 
 ### 4. Privacy & Data Handling
 
@@ -180,8 +185,8 @@ experimental plan (accuracy ≥98%, AUROC ≥0.95, ECE ≤0.10, escalation ≤25
   for 300 RPM interception; that observation is historical.)
 * No changes to Tier-0, TSG schema/matching, aggregation weights, or the
   Vertex `EvalTask` CI gate (`tool_trajectory_avg_score: 1.0` dual-gate stays).
-* `gemini` backend remains shipped and tested — Jev is additive; GCP-only
-  operation must keep passing with `BW_SEMANTIC_BACKEND=gemini`.
+* Triage is off by default; with it off, GCP-only operation must keep passing
+  unchanged (NFR-02). With it on, Jev is required and has no fallback.
 * The official TypeSafe AI API is a plain HTTPS JSON endpoint
   (`POST /v1/systemone`); the backend uses a minimal vendored `httpx` caller —
   no vendor SDK dependency and no new non-Python runtime (Node.js sidecar
@@ -199,6 +204,6 @@ experimental plan (accuracy ≥98%, AUROC ≥0.95, ECE ≤0.10, escalation ≤25
 
 * **Tier-1**: Calibrated fast classifier path (Jev `P(threat)`), clear-case signals feeding aggregation.
 * **Tier-2**: Gemini deep-reasoning escalation for ambiguity/disagreement + forensics.
-* **Escalation band**: `0.35 ≤ P ≤ 0.75` — Jev abstains, Gemini decides.
+* **Escalation band**: `0.35 ≤ P ≤ 0.75` — Gemini decides.
 * **Disagreement trigger**: deterministic high-risk novelty with `P < 0.2`.
-* **SemanticTriageProvider**: New pluggable `jev|gemini` interface in `policy/semantic.py`.
+* **SemanticTriageProvider**: Tier-1 interface in `policy/semantic.py`; Jev is the only implementation.

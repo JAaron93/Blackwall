@@ -1,0 +1,62 @@
+{
+  "description": "Per-case Jev P(threat) over the 167 golden cases of the class-blind corpus (TASK-F05b, ADR 0009): one shared prompt template, real attack text in every malicious payload, real values in every benign payload, no label words in any payload, and states built exactly as production builds them (ContextHygiene, then JevTriageBackend.build_state). Each release was requested by name, twice, interleaved 1.13, 1.14, 1.13, 1.14. These runs are NOT comparable case-for-case with ../jev_runs/ (different states); that directory is the historical record behind ADR 0008. A test recomputes the states from the evalset, so editing the corpus without re-scoring fails.",
+  "corpus": "class-blind (TASK-F05b)",
+  "runs": [
+    {
+      "key": "cb_1_13_run1",
+      "label": "jev-1.13.0 · run1 (requested by name, class-blind corpus)",
+      "short_label": "1.13 · run1",
+      "file": "jev-1.13.0_2026-11-13_run1.json",
+      "release": "jev-1.13.0",
+      "requested_model": "jev-1.13.0",
+      "served_model": "jev-1.13.0",
+      "release_evidence": "served-model-field",
+      "transport": "typesafe-api",
+      "plan": "Paid (80 req/s organization limit)",
+      "date": "2026-11-13",
+      "note": "JEV_MODEL=jev-1.13.0. Fresh cache, 167 live calls, 0 errors, production-shaped states."
+    },
+    {
+      "key": "cb_1_13_run2",
+      "label": "jev-1.13.0 · run2 (requested by name, class-blind corpus)",
+      "short_label": "1.13 · run2",
+      "file": "jev-1.13.0_2026-11-13_run2.json",
+      "release": "jev-1.13.0",
+      "requested_model": "jev-1.13.0",
+      "served_model": "jev-1.13.0",
+      "release_evidence": "served-model-field",
+      "transport": "typesafe-api",
+      "plan": "Paid (80 req/s organization limit)",
+      "date": "2026-11-13",
+      "note": "JEV_MODEL=jev-1.13.0. Fresh cache, 167 live calls, 0 errors, production-shaped states."
+    },
+    {
+      "key": "cb_1_14_run1",
+      "label": "jev-1.14.0 · run1 (requested by name, class-blind corpus)",
+      "short_label": "1.14 · run1",
+      "file": "jev-1.14.0_2026-11-13_run1.json",
+      "release": "jev-1.14.0",
+      "requested_model": "jev-1.14.0",
+      "served_model": "jev-1.14.0",
+      "release_evidence": "served-model-field",
+      "transport": "typesafe-api",
+      "plan": "Paid (80 req/s organization limit)",
+      "date": "2026-11-13",
+      "note": "JEV_MODEL=jev-1.14.0. Fresh cache, 167 live calls, 0 errors, production-shaped states."
+    },
+    {
+      "key": "cb_1_14_run2",
+      "label": "jev-1.14.0 · run2 (requested by name, class-blind corpus)",
+      "short_label": "1.14 · run2",
+      "file": "jev-1.14.0_2026-11-13_run2.json",
+      "release": "jev-1.14.0",
+      "requested_model": "jev-1.14.0",
+      "served_model": "jev-1.14.0",
+      "release_evidence": "served-model-field",
+      "transport": "typesafe-api",
+      "plan": "Paid (80 req/s organization limit)",
+      "date": "2026-11-13",
+      "note": "JEV_MODEL=jev-1.14.0. Fresh cache, 167 live calls, 0 errors, production-shaped states."
+    }
+  ]
+}

@@ -1,25 +1,18 @@
-"""Unit tests for the Tier-1 semantic triage provider seam (TASK-A01/A02, FR-01).
+"""Unit tests for the Tier-1 semantic triage result and provider contract (FR-01).
 
 Governing spec: .kiro/specs/tier-1-jev-addition/
 """
 
 import dataclasses
 import inspect
-import logging
 
 import pytest
 
 from blackwall.policy.semantic import (
-    JEV_API_KEY_ENV_VAR,
-    GeminiTriageBackend,
     JevTriageBackend,
     SemanticTriageProvider,
     SemanticTriageResult,
-    build_semantic_provider,
-    resolve_semantic_backend,
 )
-
-SEMANTIC_LOGGER = "blackwall.policy.semantic"
 
 
 # ----------------------------------------------------------------------
@@ -27,12 +20,12 @@ SEMANTIC_LOGGER = "blackwall.policy.semantic"
 # ----------------------------------------------------------------------
 
 
-def test_result_track_a_defaults():
-    """Gemini-era results carry no confidence/escalation until Tracks B/C."""
+def test_result_defaults():
+    """A bare result carries no confidence and no escalation flag."""
     result = SemanticTriageResult(threat_score=0.42)
     assert result.threat_score == 0.42
     assert result.confidence is None
-    assert result.backend == "gemini"
+    assert result.backend == "jev"
     assert result.escalate is False
 
 
@@ -57,7 +50,7 @@ def test_result_rejects_blank_backend(blank: str):
 
 
 # ----------------------------------------------------------------------
-# SemanticTriageProvider ABC
+# SemanticTriageProvider ABC (Jev is the only implementation)
 # ----------------------------------------------------------------------
 
 
@@ -70,71 +63,6 @@ def test_triage_is_an_async_abstract_method():
     assert inspect.iscoroutinefunction(SemanticTriageProvider.triage)
 
 
-def test_gemini_backend_is_a_provider():
-    assert issubclass(GeminiTriageBackend, SemanticTriageProvider)
-    assert GeminiTriageBackend(client=object()).name == "gemini"
-
-
-# ----------------------------------------------------------------------
-# BW_SEMANTIC_BACKEND resolution
-# ----------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "raw,expected",
-    [
-        (None, "gemini"),
-        ("", "gemini"),
-        ("   ", "gemini"),
-        ("gemini", "gemini"),
-        ("GEMINI ", "gemini"),
-        ("bogus", "gemini"),
-    ],
-)
-def test_resolve_semantic_backend_defaults_to_gemini(raw, expected: str):
-    assert resolve_semantic_backend(raw) == expected
-
-
-@pytest.mark.parametrize("raw", ["jev", "JeV", " JEV "])
-def test_resolve_semantic_backend_jev_with_key(raw, monkeypatch):
-    """TASK-B01: `jev` resolves case-insensitively once the TypeSafe API key exists."""
-    monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "test-typesafe-key")
-    assert resolve_semantic_backend(raw) == "jev"
-
-
-def test_resolve_semantic_backend_jev_without_key_warns_and_degrades(
-    monkeypatch, caplog
-):
-    """Fail-closed: `jev` without TypeSafe API credentials degrades to gemini
-    rather than disabling triage or failing open."""
-    monkeypatch.delenv(JEV_API_KEY_ENV_VAR, raising=False)
-    with caplog.at_level(logging.WARNING, logger=SEMANTIC_LOGGER):
-        assert resolve_semantic_backend("jev") == "gemini"
-    assert JEV_API_KEY_ENV_VAR in caplog.text
-
-
-def test_resolve_semantic_backend_unknown_warns(caplog):
-    with caplog.at_level(logging.WARNING, logger=SEMANTIC_LOGGER):
-        assert resolve_semantic_backend("definitely-not-a-backend") == "gemini"
-    assert "unknown semantic triage backend" in caplog.text
-
-
-def test_resolve_semantic_backend_gemini_is_silent(caplog):
-    with caplog.at_level(logging.WARNING, logger=SEMANTIC_LOGGER):
-        assert resolve_semantic_backend("gemini") == "gemini"
-    assert caplog.text == ""
-
-
-def test_build_semantic_provider_returns_gemini(monkeypatch):
-    monkeypatch.delenv(JEV_API_KEY_ENV_VAR, raising=False)
-    client = object()
-    provider = build_semantic_provider(client, "jev")
-    assert isinstance(provider, GeminiTriageBackend)
-    assert provider.client is client
-
-
-def test_build_semantic_provider_returns_jev_with_gemini_fallback(monkeypatch):
-    monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "test-typesafe-key")
-    provider = build_semantic_provider(object(), "jev")
-    assert isinstance(provider, JevTriageBackend)
-    assert isinstance(provider.fallback, GeminiTriageBackend)
+def test_jev_backend_is_a_provider():
+    assert issubclass(JevTriageBackend, SemanticTriageProvider)
+    assert JevTriageBackend(api_key="test-typesafe-key").name == "jev"

@@ -5,7 +5,6 @@ All scenarios are mocked — no live Gateway or Gemini calls (NFR-03).
 """
 
 import json
-import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -14,9 +13,8 @@ from pytest_bdd import given, parsers, scenarios, then, when
 
 from blackwall.models import ToolCallContext, VerdictDecision
 from blackwall.policy.semantic import (
-    GeminiTriageBackend,
     JevTriageBackend,
-    SemanticTriageProvider,
+    JevUnavailableError,
     SemanticTriageResult,
 )
 from blackwall.sync_resolver import SyncResolver
@@ -46,6 +44,7 @@ class BDDState:
         self.verdict = None
         self.triage_result = None
         self.sleeps: list[float] = []
+        self.error: BaseException | None = None
         self.context: ToolCallContext | None = None
 
 
@@ -158,28 +157,20 @@ def resolver_with_capturing_jev_backend(state: BDDState) -> None:
     state.resolver._semantic_provider = state.jev_backend
 
 
-def _resolver_with_always_failing_jev_backend(
-    state: BDDState, status: int, p: str, caplog: pytest.LogCaptureFixture
-) -> None:
-    """Real Jev backend whose TypeSafe API answers ``status`` on every call,
-    backed by a Gemini fallback returning ``p`` (fail-closed routing)."""
-    caplog.set_level(logging.INFO, logger="blackwall.policy.semantic")
+def _resolver_with_always_failing_jev_backend(state: BDDState, status: int) -> None:
+    """Real Jev backend whose TypeSafe API answers ``status`` on every call.
+    There is no fallback (ADR 0009)."""
 
     def handler(request: httpx.Request) -> httpx.Response:
+        state.captured_requests.append(request)
         return httpx.Response(status, json={"message": "transient failure"})
 
     async def fake_sleep(seconds: float) -> None:
         state.sleeps.append(seconds)
 
-    gemini_client = MagicMock()
-    fallback_response = MagicMock()
-    fallback_response.parsed = MagicMock(threat_score=float(p))
-    gemini_client.models.generate_content = MagicMock(return_value=fallback_response)
-
     state.jev_backend = JevTriageBackend(
         api_key="test-typesafe-key",
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        fallback=GeminiTriageBackend(gemini_client),
         sleep=fake_sleep,
     )
     state.gemini_client = MagicMock()
@@ -189,28 +180,14 @@ def _resolver_with_always_failing_jev_backend(
     state.resolver._semantic_provider = state.jev_backend
 
 
-@given(
-    parsers.parse(
-        "a real Jev backend rate-limited on every call with a Gemini fallback "
-        'returning P "{p}"'
-    )
-)
-def resolver_with_rate_limited_jev_backend(
-    state: BDDState, p: str, caplog: pytest.LogCaptureFixture
-) -> None:
-    _resolver_with_always_failing_jev_backend(state, 429, p, caplog)
+@given("a real Jev backend rate-limited on every call")
+def resolver_with_rate_limited_jev_backend(state: BDDState) -> None:
+    _resolver_with_always_failing_jev_backend(state, 429)
 
 
-@given(
-    parsers.parse(
-        "a real Jev backend overloaded on every call with a Gemini fallback "
-        'returning P "{p}"'
-    )
-)
-def resolver_with_overloaded_jev_backend(
-    state: BDDState, p: str, caplog: pytest.LogCaptureFixture
-) -> None:
-    _resolver_with_always_failing_jev_backend(state, 529, p, caplog)
+@given("a real Jev backend overloaded on every call")
+def resolver_with_overloaded_jev_backend(state: BDDState) -> None:
+    _resolver_with_always_failing_jev_backend(state, 529)
 
 
 @given(parsers.parse('Tier-2 returns "{decision}" with threat_score "{score}"'))
@@ -264,10 +241,13 @@ def evaluate_secret(state: BDDState) -> None:
     state.verdict = run_async(state.resolver.evaluate(state.context))
 
 
-@when("a high-risk tool call is triaged through the failing TypeSafe API")
+@when("a high-risk tool call is evaluated through the failing TypeSafe API")
 def evaluate_through_failing_api(state: BDDState) -> None:
     state.context = _high_risk_context()
-    state.verdict = run_async(state.resolver.evaluate(state.context))
+    try:
+        state.verdict = run_async(state.resolver.evaluate(state.context))
+    except JevUnavailableError as exc:
+        state.error = exc
 
 
 # ----------------------------------------------------------------------
@@ -341,25 +321,16 @@ def assert_egress_allowlist(state: BDDState) -> None:
     assert set(body) == {"model", "state", "questions"}
 
 
-@then(parsers.parse('the triage signal backend is "{backend}"'))
-def assert_signal_backend(
-    state: BDDState, backend: str, caplog: pytest.LogCaptureFixture
-) -> None:
-    if state.triage_result is not None:
-        assert state.triage_result.backend == backend
-        return
-    records = [r for r in caplog.records if r.message == "jev_triage"]
-    assert records, "expected a jev_triage record"
-    assert records[-1].backend == backend
+@then("evaluation fails fast with JevUnavailableError")
+def assert_fails_fast(state: BDDState) -> None:
+    assert isinstance(state.error, JevUnavailableError)
 
 
-@then("the jev_triage record marks the signal as fallback")
-def assert_fallback_record(state: BDDState, caplog: pytest.LogCaptureFixture) -> None:
-    records = [
-        r
-        for r in caplog.records
-        if r.message == "jev_triage" and getattr(r, "is_fallback", False)
-    ]
-    assert records, "expected an is_fallback jev_triage record"
-    assert records[0].backend == "gemini"
-    assert records[0].p == pytest.approx(0.95)
+@then("no verdict is produced")
+def assert_no_verdict(state: BDDState) -> None:
+    assert state.verdict is None
+
+
+@then(parsers.parse('the TypeSafe API was called exactly "{n}" times'))
+def assert_api_calls(state: BDDState, n: str) -> None:
+    assert len(state.captured_requests) == int(n)

@@ -45,14 +45,16 @@ Feature: Tier-1 Jev Triage Acceptance
     And the outbound request targets the TypeSafe System One endpoint
     And the outbound request carries only the allowlisted fields
 
-  Scenario: Bounded 429 storm fails closed to the gemini backend
-    Given a real Jev backend rate-limited on every call with a Gemini fallback returning P "0.95"
-    When a high-risk tool call is triaged through the failing TypeSafe API
-    Then the triage signal backend is "gemini"
-    And the jev_triage record marks the signal as fallback
+  Scenario: Bounded 429 storm fails fast with no fallback
+    Given a real Jev backend rate-limited on every call
+    When a high-risk tool call is evaluated through the failing TypeSafe API
+    Then evaluation fails fast with JevUnavailableError
+    And no verdict is produced
+    And the TypeSafe API was called exactly "2" times
 
-  Scenario: Bounded 529 overload storm fails closed to the gemini backend
-    Given a real Jev backend overloaded on every call with a Gemini fallback returning P "0.95"
-    When a high-risk tool call is triaged through the failing TypeSafe API
-    Then the triage signal backend is "gemini"
-    And the jev_triage record marks the signal as fallback
+  Scenario: Bounded 529 overload storm fails fast with no fallback
+    Given a real Jev backend overloaded on every call
+    When a high-risk tool call is evaluated through the failing TypeSafe API
+    Then evaluation fails fast with JevUnavailableError
+    And no verdict is produced
+    And the TypeSafe API was called exactly "2" times

@@ -1,5 +1,5 @@
 """
-Tests for Gemini 3.8 Flash Capability Maximization & Model Optimization.
+Tests for Gemini 3.5 Flash-Lite model standardization (ADR 0009).
 
 Verifies:
 1. Single source of truth constants in blackwall.config.
@@ -40,7 +40,7 @@ class MockRubric(BaseModel):
 
 
 def test_runtime_constants() -> None:
-    assert DEFAULT_GEMINI_MODEL == "gemini-3.8-flash"
+    assert DEFAULT_GEMINI_MODEL == "gemini-3.5-flash-lite"
     assert DEFAULT_RAPID_TRIAGE_MODEL == "gemini-3.5-flash-lite"
     assert DEFAULT_THINKING_LEVEL == "high"
     assert DEFAULT_MAX_OUTPUT_TOKENS == 65536
@@ -81,8 +81,9 @@ def test_thinking_level_router_bypass(monkeypatch: pytest.MonkeyPatch) -> None:
     assert get_gemini_thinking_level(task_type="micro_task") == "low"
 
 
-def test_thinking_level_default_for_gemini_38() -> None:
-    assert get_gemini_thinking_level(model="gemini-3.8-flash") == "high"
+def test_thinking_level_has_no_model_based_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GEMINI_THINKING_LEVEL", raising=False)
+    assert get_gemini_thinking_level(model="gemini-3.5-flash-lite") is None
 
 
 def test_max_output_tokens_ceiling_and_floor(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -152,7 +153,7 @@ def test_judge_agent_factory_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         enforce_tier=True,
     )
 
-    assert agent.config.model == "gemini-3.8-flash"
+    assert agent.config.model == "gemini-3.5-flash-lite"
     assert agent.config.thinking_level == "high"
     assert agent.config.max_output_tokens == 65536
     assert agent.config.timeout == 120.0
@@ -160,7 +161,7 @@ def test_judge_agent_factory_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_gcp_trace_exporter_thought_tokens_and_cost() -> None:
     exporter = GCPCloudTraceExporter(project_id="test-proj", export_to_cloud=False)
-    span = exporter.start_span(name="test.span", model="gemini-3.8-flash")
+    span = exporter.start_span(name="test.span", model="gemini-3.5-flash-lite")
 
     exporter.record_evaluation_result(
         span=span,
@@ -180,7 +181,7 @@ def test_gcp_trace_exporter_thought_tokens_and_cost() -> None:
 
 def test_gcp_vertex_eval_config_optimization_defaults() -> None:
     cfg = GCPVertexEvalConfig()
-    assert cfg.reasoner_model == "gemini-3.8-flash"
+    assert cfg.reasoner_model == "gemini-3.5-flash-lite"
     assert cfg.thinking_level == "high"
     assert cfg.max_output_tokens == 65536
     assert cfg.http_timeout == 120.0

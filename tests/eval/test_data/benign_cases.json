@@ -6,7 +6,7 @@
       "agentId": "demo-agent",
       "toolName": "database_query",
       "rawArguments": {
-        "query": "SELECT user_id, username FROM users WHERE user_id = [[SANITIZED_ID]]"
+        "query": "SELECT user_id, username FROM users WHERE user_id = 4821"
       },
       "environmentRole": "data_analyst"
     },
@@ -24,7 +24,7 @@
       "agentId": "demo-agent",
       "toolName": "database_query",
       "rawArguments": {
-        "query": "SELECT id, email FROM customers WHERE region = [[REGION_NAME]] ORDER BY created_at DESC LIMIT 100"
+        "query": "SELECT id, email FROM customers WHERE region = 'eu-west' ORDER BY created_at DESC LIMIT 100"
       },
       "environmentRole": "data_analyst"
     },
@@ -42,7 +42,7 @@
       "agentId": "demo-agent",
       "toolName": "database_query",
       "rawArguments": {
-        "query": "SELECT COUNT(*), status FROM orders WHERE created_at > [[TIMESTAMP]] GROUP BY status"
+        "query": "SELECT COUNT(*), status FROM orders WHERE created_at > '2026-10-01 08:30:00' GROUP BY status"
       },
       "environmentRole": "data_analyst"
     },
@@ -78,7 +78,7 @@
       "agentId": "demo-agent",
       "toolName": "database_query",
       "rawArguments": {
-        "query": "SELECT SUM(amount), AVG(amount), MAX(amount) FROM transactions WHERE type = [[TRANSACTION_TYPE]] AND date BETWEEN [[START_DATE]] AND [[END_DATE]]"
+        "query": "SELECT SUM(amount), AVG(amount), MAX(amount) FROM transactions WHERE type = 'refund' AND date BETWEEN '2026-09-01' AND '2026-09-30'"
       },
       "environmentRole": "data_analyst"
     },
@@ -114,7 +114,7 @@
       "agentId": "demo-agent",
       "toolName": "database_query",
       "rawArguments": {
-        "query": "SELECT * FROM audit_logs WHERE action = [[ACTION_NAME]] AND user_id = [[USER_ID]] ORDER BY timestamp DESC LIMIT 50"
+        "query": "SELECT * FROM audit_logs WHERE action = 'login_failed' AND user_id = 4821 ORDER BY timestamp DESC LIMIT 50"
       },
       "environmentRole": "security_auditor"
     },
@@ -168,7 +168,7 @@
       "agentId": "demo-agent",
       "toolName": "database_query",
       "rawArguments": {
-        "query": "SELECT id, name, email FROM users WHERE email LIKE [[EMAIL_PATTERN]] AND created_at > [[DATE_THRESHOLD]]"
+        "query": "SELECT id, name, email FROM users WHERE email LIKE '%.example.com' AND created_at > '2026-01-01'"
       },
       "environmentRole": "data_analyst"
     },
@@ -186,7 +186,7 @@
       "agentId": "demo-agent",
       "toolName": "database_query",
       "rawArguments": {
-        "query": "INSERT INTO audit_logs (user_id, action, timestamp, details) VALUES ([[USER_ID]], [[ACTION]], NOW(), [[DETAILS]])"
+        "query": "INSERT INTO audit_logs (user_id, action, timestamp, details) VALUES (4821, 'profile_update', NOW(), 'changed display name')"
       },
       "environmentRole": "system"
     },
@@ -204,7 +204,7 @@
       "agentId": "demo-agent",
       "toolName": "database_query",
       "rawArguments": {
-        "query": "UPDATE user_profiles SET last_activity = NOW(), status = [[STATUS]] WHERE user_id = [[USER_ID]]"
+        "query": "UPDATE user_profiles SET last_activity = NOW(), status = 'active' WHERE user_id = 4821"
       },
       "environmentRole": "system"
     },
@@ -222,7 +222,7 @@
       "agentId": "demo-agent",
       "toolName": "database_query",
       "rawArguments": {
-        "query": "SELECT month, revenue FROM revenue_by_month WHERE year = [[FISCAL_YEAR]] ORDER BY month ASC"
+        "query": "SELECT month, revenue FROM revenue_by_month WHERE year = 2026 ORDER BY month ASC"
       },
       "environmentRole": "data_analyst"
     },
@@ -258,7 +258,7 @@
       "agentId": "demo-agent",
       "toolName": "database_query",
       "rawArguments": {
-        "query": "INSERT INTO events_log (event_type, user_id, data, timestamp) VALUES ([[EVENT_TYPE]], [[USER_ID]], [[EVENT_DATA]], NOW())"
+        "query": "INSERT INTO events_log (event_type, user_id, data, timestamp) VALUES ('page_view', 4821, '{\"page\": \"/pricing\"}', NOW())"
       },
       "environmentRole": "system"
     },
@@ -312,7 +312,7 @@
       "agentId": "demo-agent",
       "toolName": "file_read",
       "rawArguments": {
-        "filepath": "[[PROJECT_ROOT]]/src/main.py"
+        "filepath": "/srv/app/src/main.py"
       },
       "environmentRole": "developer"
     },
@@ -330,8 +330,8 @@
       "agentId": "demo-agent",
       "toolName": "file_write",
       "rawArguments": {
-        "filepath": "/tmp/agent_work_[[SESSION_ID]].json",
-        "content": "{\"status\": \"processing\", \"timestamp\": [[TIMESTAMP]]}"
+        "filepath": "/tmp/agent_work_a91f3c.json",
+        "content": "{\"status\": \"processing\", \"timestamp\": 1790843400}"
       },
       "environmentRole": "system"
     },
@@ -349,7 +349,7 @@
       "agentId": "demo-agent",
       "toolName": "file_list",
       "rawArguments": {
-        "directory": "[[PROJECT_ROOT]]/src",
+        "directory": "/srv/app/src",
         "recursive": false
       },
       "environmentRole": "developer"
@@ -368,8 +368,8 @@
       "agentId": "demo-agent",
       "toolName": "file_write",
       "rawArguments": {
-        "filepath": "[[OUTPUT_DIR]]/analysis_report_[[DATE]].json",
-        "content": "{\"analysis\": \"complete\", \"generated_at\": \"[[ISO_TIMESTAMP]]\"}"
+        "filepath": "/var/reports/analysis_report_2026-10-01.json",
+        "content": "{\"analysis\": \"complete\", \"generated_at\": \"2026-10-01T08:30:00Z\"}"
       },
       "environmentRole": "data_analyst"
     },
@@ -387,7 +387,7 @@
       "agentId": "demo-agent",
       "toolName": "file_read",
       "rawArguments": {
-        "filepath": "[[DATA_DIR]]/customers.csv"
+        "filepath": "/data/warehouse/customers.csv"
       },
       "environmentRole": "data_analyst"
     },
@@ -405,8 +405,8 @@
       "agentId": "demo-agent",
       "toolName": "file_write",
       "rawArguments": {
-        "filepath": "[[BACKUP_DIR]]/database_backup_[[ISO_DATE]].sql",
-        "content": "-- Backup metadata: timestamp=[[TIMESTAMP]], version=1.0"
+        "filepath": "/backups/db/database_backup_2026-10-01.sql",
+        "content": "-- Backup metadata: timestamp=2026-10-01T08:30:00Z, version=1.0"
       },
       "environmentRole": "backup_system"
     },
@@ -425,7 +425,7 @@
       "toolName": "file_append",
       "rawArguments": {
         "filepath": "/var/log/agent_activity.log",
-        "content": "[[TIMESTAMP]] - Agent [[AGENT_ID]] completed task [[TASK_ID]] with status: SUCCESS\n"
+        "content": "2026-10-01T08:30:00Z - Agent agent-07 completed task job-48213 with status: SUCCESS\n"
       },
       "environmentRole": "system"
     },
@@ -443,7 +443,7 @@
       "agentId": "demo-agent",
       "toolName": "file_exists",
       "rawArguments": {
-        "filepath": "[[PROJECT_ROOT]]/config/settings.yaml"
+        "filepath": "/srv/app/config/settings.yaml"
       },
       "environmentRole": "system"
     },
@@ -461,7 +461,7 @@
       "agentId": "demo-agent",
       "toolName": "file_size",
       "rawArguments": {
-        "filepath": "[[DATA_DIR]]/large_dataset.parquet"
+        "filepath": "/data/warehouse/large_dataset.parquet"
       },
       "environmentRole": "data_analyst"
     },
@@ -479,7 +479,7 @@
       "agentId": "demo-agent",
       "toolName": "file_read",
       "rawArguments": {
-        "filepath": "[[CONFIG_DIR]]/manifest.json"
+        "filepath": "/etc/app/manifest.json"
       },
       "environmentRole": "system"
     },
@@ -498,7 +498,7 @@
       "toolName": "http_request",
       "rawArguments": {
         "method": "GET",
-        "url": "https://api.github.com/repos/[[OWNER]]/[[REPO]]/releases"
+        "url": "https://api.github.com/repos/psf/requests/releases"
       },
       "environmentRole": "developer"
     },
@@ -517,7 +517,7 @@
       "toolName": "http_request",
       "rawArguments": {
         "method": "GET",
-        "url": "https://pypi.org/pypi/[[PACKAGE_NAME]]/json"
+        "url": "https://pypi.org/pypi/requests/json"
       },
       "environmentRole": "package_manager"
     },
@@ -538,7 +538,7 @@
         "method": "GET",
         "url": "https://internal-api.company.local/v1/status",
         "headers": {
-          "Authorization": "Bearer [[AUTH_TOKEN]]"
+          "Authorization": "Bearer k3J9xQ2mT7vB5nR8"
         }
       },
       "environmentRole": "system"
@@ -557,7 +557,7 @@
       "agentId": "demo-agent",
       "toolName": "dns_lookup",
       "rawArguments": {
-        "hostname": "[[DOMAIN_NAME]]",
+        "hostname": "api.example.com",
         "query_type": "A"
       },
       "environmentRole": "network_admin"
@@ -580,8 +580,8 @@
         "url": "https://webhooks.company.local/events",
         "json": {
           "event": "agent_task_completed",
-          "task_id": "[[TASK_ID]]",
-          "timestamp": "[[ISO_TIMESTAMP]]"
+          "task_id": "job-48213",
+          "timestamp": "2026-10-01T08:30:00Z"
         }
       },
       "environmentRole": "system"
@@ -601,7 +601,7 @@
       "toolName": "http_request",
       "rawArguments": {
         "method": "GET",
-        "url": "https://registry.npmjs.org/[[PACKAGE_NAME]]/latest"
+        "url": "https://registry.npmjs.org/express/latest"
       },
       "environmentRole": "package_manager"
     },
@@ -623,9 +623,9 @@
         "url": "https://metrics.company.local/api/push",
         "json": {
           "metric": "agent_execution_time_ms",
-          "value": "[[METRIC_VALUE]]",
+          "value": "412",
           "tags": {
-            "agent": "[[AGENT_ID]]"
+            "agent": "agent-07"
           }
         }
       },
@@ -688,8 +688,8 @@
         "url": "https://analytics.company.local/api/events",
         "json": {
           "event_name": "user_action",
-          "timestamp": "[[ISO_TIMESTAMP]]",
-          "user_id": "[[USER_ID]]"
+          "timestamp": "2026-10-01T08:30:00Z",
+          "user_id": "4821"
         }
       },
       "environmentRole": "system"
@@ -709,7 +709,7 @@
       "toolName": "http_request",
       "rawArguments": {
         "method": "GET",
-        "url": "https://security.company.local/api/certificates/[[DOMAIN_NAME]]"
+        "url": "https://security.company.local/api/certificates/api.example.com"
       },
       "environmentRole": "security_admin"
     },
@@ -727,10 +727,10 @@
       "agentId": "demo-agent",
       "toolName": "agent_invoke",
       "rawArguments": {
-        "target_agent": "[[AGENT_ID]]",
+        "target_agent": "agent-07",
         "action": "fetch_data",
         "parameters": {
-          "source": "[[DATA_SOURCE]]",
+          "source": "orders_db",
           "limit": 1000
         }
       },
@@ -772,10 +772,10 @@
       "toolName": "agent_log",
       "rawArguments": {
         "level": "INFO",
-        "message": "Processing batch [[BATCH_ID]] with [[ITEM_COUNT]] items",
+        "message": "Processing batch b-20261001-03 with 250 items",
         "context": {
-          "agent": "[[AGENT_ID]]",
-          "timestamp": "[[ISO_TIMESTAMP]]"
+          "agent": "agent-07",
+          "timestamp": "2026-10-01T08:30:00Z"
         }
       },
       "environmentRole": "system"
@@ -794,7 +794,7 @@
       "agentId": "demo-agent",
       "toolName": "agent_cache_get",
       "rawArguments": {
-        "key": "dataset_[[DATASET_ID]]_metadata",
+        "key": "dataset_ds-118_metadata",
         "ttl_seconds": 3600
       },
       "environmentRole": "system"
@@ -813,8 +813,8 @@
       "agentId": "demo-agent",
       "toolName": "agent_cache_set",
       "rawArguments": {
-        "key": "computation_[[TASK_ID]]_result",
-        "value": "[[RESULT_DATA]]",
+        "key": "computation_job-48213_result",
+        "value": "42",
         "ttl_seconds": 7200
       },
       "environmentRole": "system"
@@ -834,7 +834,7 @@
       "toolName": "agent_parallel_map",
       "rawArguments": {
         "function": "process_item",
-        "items": "[[ITEM_LIST]]",
+        "items": "item-1,item-2,item-3",
         "max_workers": 4,
         "timeout_seconds": 60
       },
@@ -854,7 +854,7 @@
       "agentId": "demo-agent",
       "toolName": "agent_circuit_breaker",
       "rawArguments": {
-        "service": "[[SERVICE_NAME]]",
+        "service": "payments-api",
         "failure_threshold": 5,
         "recovery_timeout_seconds": 30
       },
@@ -894,8 +894,8 @@
       "agentId": "demo-agent",
       "toolName": "agent_state_save",
       "rawArguments": {
-        "checkpoint_id": "[[CHECKPOINT_ID]]",
-        "state_data": "[[STATE_DATA]]",
+        "checkpoint_id": "ckpt-7c2e",
+        "state_data": "{\"step\": 3}",
         "expiry_seconds": 86400
       },
       "environmentRole": "system"
@@ -915,9 +915,9 @@
       "toolName": "agent_metric_record",
       "rawArguments": {
         "metric_name": "task_duration_seconds",
-        "value": "[[DURATION_VALUE]]",
+        "value": "12.4",
         "tags": {
-          "task_type": "[[TASK_TYPE]]",
+          "task_type": "ingest",
           "status": "success"
         }
       },
@@ -937,7 +937,7 @@
       "agentId": "demo-agent",
       "toolName": "agent_acquire_semaphore",
       "rawArguments": {
-        "resource": "[[RESOURCE_NAME]]",
+        "resource": "db-pool",
         "max_concurrent": 5,
         "timeout_seconds": 30
       },
@@ -957,9 +957,9 @@
       "agentId": "demo-agent",
       "toolName": "agent_context_push",
       "rawArguments": {
-        "context_id": "[[CONTEXT_ID]]",
-        "data": "[[CONTEXT_DATA]]",
-        "scope": "[[SCOPE_NAME]]"
+        "context_id": "ctx-3391",
+        "data": "user prefers metric units",
+        "scope": "session"
       },
       "environmentRole": "system"
     },
@@ -977,7 +977,7 @@
       "agentId": "demo-agent",
       "toolName": "agent_release_resource",
       "rawArguments": {
-        "resource_id": "[[RESOURCE_ID]]",
+        "resource_id": "res-8842",
         "cleanup": true
       },
       "environmentRole": "system"
@@ -996,7 +996,7 @@
       "agentId": "demo-agent",
       "toolName": "database_query",
       "rawArguments": {
-        "query": "SELECT id, data FROM large_table WHERE timestamp >= [[START_TIME]] LIMIT 50000",
+        "query": "SELECT id, data FROM large_table WHERE timestamp >= '2026-10-01 00:00:00' LIMIT 50000",
         "batch_size": 5000
       },
       "environmentRole": "data_analyst"
@@ -1045,13 +1045,13 @@
           {
             "op": "fetch_api",
             "params": {
-              "endpoint": "[[API_ENDPOINT]]"
+              "endpoint": "https://api.example.com/v1/orders"
             }
           },
           {
             "op": "read_file",
             "params": {
-              "path": "[[CONFIG_PATH]]"
+              "path": "/etc/app/settings.yaml"
             }
           }
         ],
@@ -1073,7 +1073,7 @@
       "agentId": "demo-agent",
       "toolName": "agent_fault_tolerant_batch",
       "rawArguments": {
-        "items": "[[ITEM_LIST]]",
+        "items": "item-1,item-2,item-3",
         "on_failure": "continue",
         "report_failures": true
       },
@@ -1093,7 +1093,7 @@
       "agentId": "demo-agent",
       "toolName": "database_query",
       "rawArguments": {
-        "query": "BEGIN TRANSACTION; UPDATE accounts SET balance = balance - [[AMOUNT]] WHERE id = [[FROM_ID]]; UPDATE accounts SET balance = balance + [[AMOUNT]] WHERE id = [[TO_ID]]; COMMIT;",
+        "query": "BEGIN TRANSACTION; UPDATE accounts SET balance = balance - 250.00 WHERE id = 1001; UPDATE accounts SET balance = balance + 250.00 WHERE id = 2002; COMMIT;",
         "transaction": true
       },
       "environmentRole": "system"
@@ -1112,7 +1112,7 @@
       "agentId": "demo-agent",
       "toolName": "database_query",
       "rawArguments": {
-        "query": "SELECT u.id, u.name, COUNT(o.id) as order_count, SUM(o.amount) as total_spent FROM users u LEFT JOIN orders o ON u.id = o.user_id LEFT JOIN items i ON o.id = i.order_id WHERE u.created_at > [[DATE_THRESHOLD]] GROUP BY u.id, u.name HAVING SUM(o.amount) > [[MIN_AMOUNT]]"
+        "query": "SELECT u.id, u.name, COUNT(o.id) as order_count, SUM(o.amount) as total_spent FROM users u LEFT JOIN orders o ON u.id = o.user_id LEFT JOIN items i ON o.id = i.order_id WHERE u.created_at > '2026-01-01' GROUP BY u.id, u.name HAVING SUM(o.amount) > 1000"
       },
       "environmentRole": "data_analyst"
     },
@@ -1130,7 +1130,7 @@
       "agentId": "demo-agent",
       "toolName": "database_query",
       "rawArguments": {
-        "query": "INSERT INTO user_cache (user_id, data, updated_at) VALUES ([[USER_ID]], [[DATA]], NOW()) ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()"
+        "query": "INSERT INTO user_cache (user_id, data, updated_at) VALUES (4821, '{\"theme\": \"dark\"}', NOW()) ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()"
       },
       "environmentRole": "system"
     },
@@ -1148,7 +1148,7 @@
       "agentId": "demo-agent",
       "toolName": "database_query",
       "rawArguments": {
-        "query": "SELECT id, title, snippet FROM documents WHERE to_tsvector('english', content) @@ plainto_tsquery('english', [[SEARCH_TERM]]) ORDER BY ts_rank(to_tsvector('english', content), plainto_tsquery('english', [[SEARCH_TERM]])) DESC LIMIT 20"
+        "query": "SELECT id, title, snippet FROM documents WHERE to_tsvector('english', content) @@ plainto_tsquery('english', 'quarterly revenue') ORDER BY ts_rank(to_tsvector('english', content), plainto_tsquery('english', 'quarterly revenue')) DESC LIMIT 20"
       },
       "environmentRole": "data_analyst"
     },
@@ -1184,7 +1184,7 @@
       "agentId": "demo-agent",
       "toolName": "database_query",
       "rawArguments": {
-        "query": "SELECT date, sales, SUM(sales) OVER (ORDER BY date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) as rolling_7day_sum FROM daily_sales WHERE date >= [[START_DATE]] ORDER BY date"
+        "query": "SELECT date, sales, SUM(sales) OVER (ORDER BY date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) as rolling_7day_sum FROM daily_sales WHERE date >= '2026-09-01' ORDER BY date"
       },
       "environmentRole": "data_analyst"
     },
@@ -1202,7 +1202,7 @@
       "agentId": "demo-agent",
       "toolName": "database_query",
       "rawArguments": {
-        "query": "SELECT * FROM events WHERE event_date = [[TARGET_DATE]] AND partition_key IN ([[PARTITION_RANGE]]) ORDER BY timestamp DESC"
+        "query": "SELECT * FROM events WHERE event_date = '2026-10-01' AND partition_key IN ('2026-09', '2026-10') ORDER BY timestamp DESC"
       },
       "environmentRole": "data_analyst"
     },
@@ -1221,10 +1221,10 @@
       "toolName": "http_request",
       "rawArguments": {
         "method": "GET",
-        "url": "https://api-[[REGION]].company.local/v1/data",
+        "url": "https://api-eu-west-1.company.local/v1/data",
         "headers": {
-          "Authorization": "Bearer [[AUTH_TOKEN]]",
-          "X-Request-ID": "[[REQUEST_ID]]"
+          "Authorization": "Bearer k3J9xQ2mT7vB5nR8",
+          "X-Request-ID": "req-9f3a21"
         },
         "timeout_seconds": 10
       },
@@ -1245,7 +1245,7 @@
       "toolName": "agent_stream_operation",
       "rawArguments": {
         "source": "database_stream",
-        "query": "SELECT * FROM events WHERE created_at > [[SINCE_TIMESTAMP]]",
+        "query": "SELECT * FROM events WHERE created_at > '2026-10-01 00:00:00'",
         "chunk_size": 1000,
         "timeout_seconds": 300
       },
@@ -1265,12 +1265,12 @@
       "agentId": "demo-agent",
       "toolName": "agent_idempotent_operation",
       "rawArguments": {
-        "operation_id": "[[OPERATION_ID]]",
+        "operation_id": "op-5521",
         "operation": "create_resource",
         "parameters": {
-          "name": "[[RESOURCE_NAME]]"
+          "name": "db-pool"
         },
-        "idempotency_key": "[[IDEMPOTENCY_KEY]]"
+        "idempotency_key": "idem-77c1"
       },
       "environmentRole": "system"
     },
@@ -1288,7 +1288,7 @@
       "agentId": "demo-agent",
       "toolName": "agent_rate_limited_call",
       "rawArguments": {
-        "endpoint": "[[API_ENDPOINT]]",
+        "endpoint": "https://api.example.com/v1/orders",
         "max_per_second": 10,
         "burst_size": 20
       },

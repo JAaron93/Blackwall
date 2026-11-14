@@ -26,11 +26,9 @@ from blackwall.policy.semantic import (
     JEV_IS_THREAT_QUESTION,
     JEV_RETRY_DELAY_S,
     JEV_SYSTEM_ONE_PATH,
-    GeminiTriageBackend,
     JevTriageBackend,
+    JevUnavailableError,
     SemanticTriageProvider,
-    SemanticTriageResult,
-    build_semantic_provider,
 )
 
 
@@ -247,20 +245,10 @@ async def test_sanitized_placeholders_pass_through_verbatim():
 
 
 # ----------------------------------------------------------------------
-# Abstention contract: never fail open, never synthesize a score
+# Fail-fast contract: never fail open, never synthesize a score (ADR 0009)
 # ----------------------------------------------------------------------
 
 
-async def test_missing_api_key_abstains(monkeypatch):
-    monkeypatch.delenv(JEV_API_KEY_ENV_VAR, raising=False)
-    requests: List[httpx.Request] = []
-    backend = _backend(
-        lambda request: httpx.Response(200, json=_system_one_payload(0.02)),
-        requests,
-        api_key="",
-    )
-    assert await backend.triage(_context()) is None
-    assert requests == []  # no egress without credentials
 
 
 @pytest.mark.parametrize(
@@ -276,10 +264,11 @@ async def test_missing_api_key_abstains(monkeypatch):
         {"answers": {"is_threat": {"type": "boolean", "probability": 0.02}}},
     ],
 )
-async def test_malformed_system_one_payload_abstains(payload: Dict[str, Any]):
+async def test_malformed_system_one_payload_raises(payload: Dict[str, Any]):
     requests: List[httpx.Request] = []
     backend = _backend(lambda request: httpx.Response(200, json=payload), requests)
-    assert await backend.triage(_context()) is None
+    with pytest.raises(JevUnavailableError):
+        await backend.triage(_context())
 
 
 @pytest.mark.parametrize(
@@ -292,28 +281,22 @@ async def test_malformed_system_one_payload_abstains(payload: Dict[str, Any]):
         float("-inf"),
     ],
 )
-async def test_out_of_range_probability_abstains_never_clamps_into_signal(
+async def test_out_of_range_probability_raises_never_clamps_into_signal(
     probability: float,
 ):
-    """P1: invalid probabilities must abstain (fail-closed to fallback), never
-    clamp into a legitimate-looking 0.0/1.0 signal that bypasses fallback."""
+    """Invalid probabilities raise; clamping them would mint a legitimate-looking
+    0.0/1.0 signal."""
     requests: List[httpx.Request] = []
     payload = {
         "model": JEV_DEFAULT_MODEL,
         "answers": {"is_threat": {"type": "noul", "noul": probability}},
     }
-    fallback = _StubFallback(
-        result=SemanticTriageResult(threat_score=0.9, backend="gemini")
-    )
     backend = _backend(
         lambda request: httpx.Response(200, content=json.dumps(payload)),
         requests,
-        fallback=fallback,
     )
-    result = await backend.triage(_context())
-    assert result is not None
-    assert result.backend == "gemini"  # routed through the fail-closed fallback
-    assert fallback.calls == 1
+    with pytest.raises(JevUnavailableError):
+        await backend.triage(_context())
 
 
 async def test_backend_is_a_provider():
@@ -336,8 +319,9 @@ def test_defaults_match_the_env_example_contract(monkeypatch):
         "JEV_TIMEOUT_S",
     ):
         monkeypatch.delenv(name, raising=False)
-    backend = JevTriageBackend()
-    assert backend.api_key == ""
+    with pytest.raises(JevUnavailableError):
+        JevTriageBackend()  # no key: fail fast, nothing to default
+    backend = JevTriageBackend(api_key="test-typesafe-key")
     assert backend.base_url == "https://api.typesafe.ai"
     assert backend.model == "jev-latest"
     assert backend.timeout == pytest.approx(5.0)
@@ -393,10 +377,10 @@ def test_legacy_vercel_env_vars_are_ignored(monkeypatch):
     monkeypatch.delenv(JEV_BASE_URL_ENV_VAR, raising=False)
     monkeypatch.setenv("AI_GATEWAY_API_KEY", "legacy-vercel-credential")
     monkeypatch.setenv("JEV_GATEWAY_URL", "https://legacy-gateway.invalid/v1/evaluate")
-    backend = JevTriageBackend()
-    assert backend.api_key == ""
+    with pytest.raises(JevUnavailableError):
+        JevTriageBackend()  # the legacy credential is not a Jev credential
+    backend = JevTriageBackend(api_key="test-typesafe-key")
     assert backend.base_url == JEV_DEFAULT_BASE_URL
-    assert isinstance(build_semantic_provider(object(), "jev"), GeminiTriageBackend)
 
 
 @pytest.mark.parametrize("removed", ["max_attempts", "backoff_base_s", "backoff_cap_s"])
@@ -408,23 +392,12 @@ def test_removed_retry_tuning_params_are_not_accepted(removed: str):
 
 
 # ----------------------------------------------------------------------
-# Registry integration (FR-01)
+# Provider contract (FR-01)
 # ----------------------------------------------------------------------
 
 
-def test_build_semantic_provider_jev_with_key(monkeypatch):
-    monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "test-typesafe-key")
-    client = object()
-    provider = build_semantic_provider(client, "jev")
-    assert isinstance(provider, JevTriageBackend)
-    assert isinstance(provider.fallback, GeminiTriageBackend)
-    assert provider.fallback.client is client
 
 
-def test_build_semantic_provider_jev_without_key_degrades(monkeypatch):
-    monkeypatch.delenv(JEV_API_KEY_ENV_VAR, raising=False)
-    provider = build_semantic_provider(object(), "jev")
-    assert isinstance(provider, GeminiTriageBackend)
 
 
 # ----------------------------------------------------------------------
@@ -432,25 +405,6 @@ def test_build_semantic_provider_jev_without_key_degrades(monkeypatch):
 # ----------------------------------------------------------------------
 
 
-class _StubFallback(SemanticTriageProvider):
-    """Gemini-side fallback double for fail-closed routing assertions."""
-
-    name = "gemini"
-
-    def __init__(
-        self,
-        result: Optional[SemanticTriageResult] = None,
-        error: Optional[BaseException] = None,
-    ) -> None:
-        self.result = result
-        self.error = error
-        self.calls = 0
-
-    async def triage(self, context: ToolCallContext) -> Optional[SemanticTriageResult]:
-        self.calls += 1
-        if self.error is not None:
-            raise self.error
-        return self.result
 
 
 class _FakeSleep:
@@ -469,23 +423,16 @@ def _overloaded(request: httpx.Request) -> httpx.Response:
     return httpx.Response(529, json={"message": "temporarily overloaded"})
 
 
-async def test_429_storm_retries_once_then_falls_back():
+async def test_429_storm_retries_once_then_raises():
     """Paid-API policy (ADR 0008): one retry after a short fixed delay, then
-    fail closed to the fallback. Throttling is rare on a paid plan, and this is a
-    latency-bounded hot path with a ready fallback, so there is no retry loop."""
+    JevUnavailableError. There is no retry loop and no fallback (ADR 0009)."""
     requests: List[httpx.Request] = []
     sleep = _FakeSleep()
-    fallback = _StubFallback(
-        result=SemanticTriageResult(threat_score=0.9, backend="gemini")
-    )
-    backend = _backend(_rate_limited, requests, fallback=fallback, sleep=sleep)
-    result = await backend.triage(_context())
+    backend = _backend(_rate_limited, requests, sleep=sleep)
+    with pytest.raises(JevUnavailableError):
+        await backend.triage(_context())
     assert len(requests) == 2
     assert sleep.calls == [JEV_RETRY_DELAY_S]
-    assert fallback.calls == 1
-    assert result is not None
-    assert result.backend == "gemini"  # signal attributed to its producer
-    assert result.threat_score == pytest.approx(0.9)
 
 
 async def test_429_then_success_retries_once():
@@ -525,18 +472,14 @@ async def test_529_overloaded_is_retried_once_like_429():
     assert result.threat_score == pytest.approx(0.98)
 
 
-async def test_529_storm_retries_once_then_falls_back():
+async def test_529_storm_retries_once_then_raises():
     requests: List[httpx.Request] = []
     sleep = _FakeSleep()
-    fallback = _StubFallback(
-        result=SemanticTriageResult(threat_score=0.9, backend="gemini")
-    )
-    backend = _backend(_overloaded, requests, fallback=fallback, sleep=sleep)
-    result = await backend.triage(_context())
+    backend = _backend(_overloaded, requests, sleep=sleep)
+    with pytest.raises(JevUnavailableError):
+        await backend.triage(_context())
     assert len(requests) == 2
     assert sleep.calls == [JEV_RETRY_DELAY_S]
-    assert fallback.calls == 1
-    assert result is not None and result.backend == "gemini"
 
 
 async def test_stale_max_attempts_env_cannot_enlarge_the_retry_budget(monkeypatch):
@@ -545,62 +488,44 @@ async def test_stale_max_attempts_env_cannot_enlarge_the_retry_budget(monkeypatc
     monkeypatch.setenv("JEV_MAX_ATTEMPTS", "9")
     requests: List[httpx.Request] = []
     backend = _backend(_rate_limited, requests, sleep=_FakeSleep())
-    assert await backend.triage(_context()) is None
+    with pytest.raises(JevUnavailableError):
+        await backend.triage(_context())
     assert len(requests) == 2
 
 
-async def test_timeout_falls_back_immediately_without_retry():
+async def test_timeout_raises_immediately_without_retry():
     requests: List[httpx.Request] = []
     sleep = _FakeSleep()
 
     def _hang(request: httpx.Request) -> httpx.Response:
         raise httpx.TimeoutException("typesafe api stalled", request=request)
 
-    fallback = _StubFallback(
-        result=SemanticTriageResult(threat_score=0.4, backend="gemini")
-    )
-    backend = _backend(_hang, requests, fallback=fallback, sleep=sleep)
-    result = await backend.triage(_context())
+    backend = _backend(_hang, requests, sleep=sleep)
+    with pytest.raises(JevUnavailableError):
+        await backend.triage(_context())
     assert len(requests) == 1  # transient network errors are not retried
     assert sleep.calls == []
-    assert fallback.calls == 1
-    assert result is not None and result.backend == "gemini"
 
 
 @pytest.mark.parametrize("status", [400, 401, 413, 422, 500, 503])
-async def test_non_transient_status_falls_back_without_retry(status: int):
+async def test_non_transient_status_raises_without_retry(status: int):
     """Only the documented transient statuses (429/529) are retried; contract
-    errors (400/401/413/422) and other server errors fail closed at once."""
+    errors (400/401/413/422) and other server errors raise at once."""
     requests: List[httpx.Request] = []
     sleep = _FakeSleep()
-    fallback = _StubFallback(
-        result=SemanticTriageResult(threat_score=0.4, backend="gemini")
-    )
     backend = _backend(
         lambda request: httpx.Response(status, json={"message": "rejected"}),
         requests,
-        fallback=fallback,
         sleep=sleep,
     )
-    result = await backend.triage(_context())
+    with pytest.raises(JevUnavailableError):
+        await backend.triage(_context())
     assert len(requests) == 1  # non-transient statuses must never be retried
     assert sleep.calls == []
-    assert fallback.calls == 1
-    assert result is not None and result.backend == "gemini"
 
 
-async def test_fallback_failure_abstains_never_allows():
-    requests: List[httpx.Request] = []
-    fallback = _StubFallback(error=RuntimeError("gemini down"))
-    backend = _backend(_rate_limited, requests, fallback=fallback, sleep=_FakeSleep())
-    assert await backend.triage(_context()) is None
 
 
-async def test_429_storm_without_fallback_abstains():
-    requests: List[httpx.Request] = []
-    backend = _backend(_rate_limited, requests, sleep=_FakeSleep())
-    assert await backend.triage(_context()) is None
-    assert len(requests) == 2
 
 
 # ----------------------------------------------------------------------
@@ -632,7 +557,6 @@ async def test_success_emits_structured_triage_record(caplog):
     assert record.latency_ms >= 0.0
     assert record.input_tokens == 120
     assert record.output_tokens == 8
-    assert record.is_fallback is False
 
 
 async def test_usage_tokens_are_read_from_snake_case_keys(caplog):
@@ -659,55 +583,10 @@ async def test_missing_or_malformed_usage_records_none_tokens(caplog):
     assert record.output_tokens is None
 
 
-async def test_fallback_emits_honest_is_fallback_record(caplog):
-    requests: List[httpx.Request] = []
-    fallback = _StubFallback(
-        result=SemanticTriageResult(threat_score=0.9, backend="gemini")
-    )
-    backend = _backend(_rate_limited, requests, fallback=fallback, sleep=_FakeSleep())
-    with caplog.at_level(logging.INFO, logger=SEMANTIC_LOGGER):
-        result = await backend.triage(_context())
-    assert result is not None
-    records = _triage_records(caplog)
-    assert len(records) == 1
-    record = records[0]
-    assert record.is_fallback is True
-    assert record.backend == "gemini"
-    assert record.p == pytest.approx(0.9)
-    assert record.latency_ms >= 0.0
-    assert record.input_tokens is None
-    assert record.output_tokens is None
 
 
-async def test_total_abstention_emits_abstention_record(caplog):
-    """FR-07: degraded triages must still record — outage, latency, and budget
-    baselines omit nothing. Abstain shape: p/confidence None, backend 'jev',
-    is_fallback False when no fallback is configured."""
-    requests: List[httpx.Request] = []
-    backend = _backend(_rate_limited, requests, sleep=_FakeSleep())
-    with caplog.at_level(logging.INFO, logger=SEMANTIC_LOGGER):
-        assert await backend.triage(_context()) is None
-    records = _triage_records(caplog)
-    assert len(records) == 1
-    record = records[0]
-    assert record.backend == "jev"
-    assert record.p is None
-    assert record.confidence is None
-    assert record.latency_ms >= 0.0
-    assert record.input_tokens is None
-    assert record.output_tokens is None
-    assert record.is_fallback is False
 
 
-async def test_failed_fallback_abstention_records_is_fallback_true(caplog):
-    requests: List[httpx.Request] = []
-    fallback = _StubFallback(error=RuntimeError("gemini down"))
-    backend = _backend(_rate_limited, requests, fallback=fallback, sleep=_FakeSleep())
-    with caplog.at_level(logging.INFO, logger=SEMANTIC_LOGGER):
-        assert await backend.triage(_context()) is None
-    record = _triage_records(caplog)[0]
-    assert record.is_fallback is True
-    assert record.p is None
 
 
 # ----------------------------------------------------------------------
@@ -743,7 +622,7 @@ async def test_resolver_close_closes_owned_jev_provider_client(monkeypatch):
     from blackwall.sync_resolver import SyncResolver
 
     monkeypatch.setenv(JEV_API_KEY_ENV_VAR, "test-typesafe-key")
-    resolver = SyncResolver(client=MagicMock(), semantic_backend="jev")
+    resolver = SyncResolver(client=MagicMock())
     provider = resolver.semantic_provider
     assert isinstance(provider, JevTriageBackend)
     mock_client = AsyncMock()
