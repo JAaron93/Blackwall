@@ -224,22 +224,6 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   `tests/unit/test_class_blind_evalset.py`,
   `tests/unit/test_jev_class_blind_runs_data.py`.
   Dependencies: TASK-F05a.
-* [ ] **TASK-F09: Balance the tool names across classes** (ADR 0009, Verification).
-  `execute_shell`, `parse_xml`, `socket_connect`, `dns_query`, `download_file`
-  and the two `deserialize_*` tools appear only in malicious cases, and 26
-  `agent_*`/`file_*` tools only in benign ones, so the tool name is still a tell.
-  Add benign cases for the malicious-only tools (and malicious ones for the
-  shared tools) test-first, re-score, and record the effect. Needs a live Jev key.
-  Dependencies: TASK-F05b.
-* [ ] **TASK-F10: Decide what to do about the failed accuracy and ECE gates**
-  (ADR 0009 OI4). On the class-blind corpus AUROC is 0.99 but 26 to 27 of 99 attacks
-  fall below the 0.35 lower band edge (12 to 13 are C2/IOC-type calls). Options:
-  a lower band edge (an indicative sweep reached 91.3% to 95.2% on the cases it
-  was tuned on, so it needs fresh labeled evidence), threat intelligence for the
-  IOC-type calls, or accepting the misses. Any band change is a spec amendment
-  with a same-change sync of `AGENTS.md`, `.agents/rules/` and `.greptile/`.
-  Needs a maintainer decision first.
-  Dependencies: TASK-F09.
 * [ ] **TASK-F06: Decide whether a clear-high Jev P alone may BLOCK** (ADR 0008
   OI8). Commit `176ad80` made it a kept invariant (rule 106). A clear-high score
   that cannot BLOCK is why Tier-2 availability matters so much. This is a
@@ -264,6 +248,22 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   corpus avoids it with a different value, and a test fails if a state is
   corrupted that way). The same fix should anchor `sk-` to a
   word boundary and add a regression test for it.
+* [ ] **TASK-F09: Balance the tool names across classes** (ADR 0009, Verification).
+  `execute_shell`, `parse_xml`, `socket_connect`, `dns_query`, `download_file`
+  and the two `deserialize_*` tools appear only in malicious cases, and 26
+  `agent_*`/`file_*` tools only in benign ones, so the tool name is still a tell.
+  Add benign cases for the malicious-only tools (and malicious ones for the
+  shared tools) test-first, re-score, and record the effect. Needs a live Jev key.
+  Dependencies: TASK-F05b.
+* [ ] **TASK-F10: Decide what to do about the failed accuracy and ECE gates**
+  (ADR 0009 OI4). On the class-blind corpus AUROC is 0.99 but 26 to 27 of 99 attacks
+  fall below the 0.35 lower band edge (12 to 13 are C2/IOC-type calls). Options:
+  a lower band edge (an indicative sweep reached 91.3% to 95.2% on the cases it
+  was tuned on, so it needs fresh labeled evidence), threat intelligence for the
+  IOC-type calls, or accepting the misses. Any band change is a spec amendment
+  with a same-change sync of `AGENTS.md`, `.agents/rules/` and `.greptile/`.
+  Needs a maintainer decision first.
+  Dependencies: TASK-F09.
 ## Execution Order
 
 `A01 → (A02 + B01) → (B02 + B03 + C01) → C02 → D01 → D02 → D03 → D04 → E01 → E02 → E03 → E04 → E05`; Track F items are independent except where a
