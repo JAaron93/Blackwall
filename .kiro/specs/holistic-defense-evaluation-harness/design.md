@@ -336,7 +336,7 @@ resolver did", which is the check that keeps the algebra honest.
 | `src/blackwall/holistic_eval/tsg_seed.py`, `cbm_fixture.py`, `ioc_corpus.py` | Fixtures and seeding. `cbm_fixture.py` holds the sink table, the snapshot schema, the pure Fixture_Export (standard-library `ast` only), the plan and snapshot loaders and `FixtureCodebaseMemoryClient`. `ioc_corpus.py` holds the IOC corpus schema, loader and the pure builder with the deterministic IOC_Selection, which selects, validates and writes the corpus from already-downloaded export files |
 | `src/blackwall/holistic_eval/band_gate.py` | The band-recommendation gate and its evidence records (pure) |
 | `src/blackwall/holistic_eval/runner.py` | Async orchestration, pacing, invalidation, and `run_lx_wave`, the optional LX-wave experiment (the only code path that leaves the Resolver's background tasks enabled) |
-| `scripts/holistic_eval.py` | CLI (dev tooling; CI never runs the live subcommands). Subcommands `plan`, `stages`, `run`, `validate` and `probe-cbm` (the CBM_Probe_Step, run only on its own and never inside a measurement Pass). `stages` creates the Run_Set and refuses an existing directory; `run`, `run --experiment LX-wave` and `probe-cbm` only append to a Run_Set that `stages` created, under the conditions of "Run_Set creation and append rule", and otherwise exit non-zero naming the failed condition before any client is built, any call is made or any record is written. A fixture-backed `run` and every `probe-cbm` then call `bind_cbm_fixture`, which creates the Run_Set's `cbm_fixture` entry the first time and verifies it afterwards; the CLI exits non-zero on `cbm_fixture_mismatch`, and on `cbm_fixture_unreadable` for `probe-cbm`, before any connection, client or record (a `run` records its fixture-backed rows as Not_Measured on `cbm_fixture_unreadable`). The LX-wave experiment is requested only through `run --experiment LX-wave`; it is never part of the Default_Plan and is not a `--configs` id. Options include `--configs`, `--passes`, `--concurrency`, `--cooldown-s`, `--seed`, `--experiment` and `--pricing <file>` (the Pricing_File; without it the dollar cost is Not_Measured with the reason "no pricing file"). The CLI prints the structures that `report.py` builds and recomputes none of them |
+| `scripts/holistic_eval.py` | CLI (dev tooling; CI never runs the live subcommands). Subcommands `plan`, `stages`, `run`, `validate` and `probe-cbm` (the CBM_Probe_Step, run only on its own and never inside a measurement Pass). `stages` creates the Run_Set and refuses an existing directory; `run`, `run --experiment LX-wave` and `probe-cbm` only append to a Run_Set that `stages` created, under the conditions of "Run_Set creation and append rule", and otherwise exit non-zero naming the failed condition before any client is built, any call is made or any record is written. A fixture-backed `run` and every `probe-cbm` then call `bind_cbm_fixture`, which creates the Run_Set's `cbm_fixture` entry the first time and verifies it afterwards; the CLI exits non-zero on `cbm_fixture_mismatch`, and on `cbm_fixture_unreadable` for `probe-cbm`, before any connection, client or record (a `run` records its fixture-backed rows as Not_Measured on `cbm_fixture_unreadable`, and the Manifest stays exactly as it was). The LX-wave experiment is requested only through `run --experiment LX-wave`; it is never part of the Default_Plan and is not a `--configs` id. Options include `--configs`, `--passes`, `--concurrency`, `--cooldown-s`, `--seed`, `--experiment` and `--pricing <file>` (the Pricing_File; without it the dollar cost is Not_Measured with the reason "no pricing file"). The CLI prints the structures that `report.py` builds and recomputes none of them |
 | `scripts/build_ioc_corpus.py` | One-time authoring tool for the IOC corpus: a `fetch` step (the IOC_Authoring_Step, started only by the maintainer: the only place `BW_ABUSECH_AUTH_KEY` is read, under a Human_Grant, and it may connect only to `threatfox.abuse.ch` and `tranco-list.eu`) and an offline, deterministic `build` step that applies the IOC_Selection. Not part of any measurement run |
 | `scripts/build_cbm_fixture.py` | Thin CLI over the Fixture_Export in `cbm_fixture.py`: `export` writes the snapshot from the fixture source, `check` re-runs the export and fails on any drift from the committed snapshot, naming each function that differs. It opens no connection and reads no credential variable |
 | `tests/eval/cbm_fixture/v1/fixture_source.py.txt`, `fixture_plan.json`, `snapshot.json` | The hand-authored CBM fixture source (text, never imported or executed), the Fixture_Plan that fixes it, and the snapshot that `export` produces. The plan is committed before any Run_Set with a fixture-backed CBM row (a default-CBM row needs neither plan nor snapshot); a later change goes into a new sibling directory |
@@ -571,7 +571,8 @@ a fixture-backed configuration (I-CBM-fixture, I-CBM-permuted, W4, W5 or the
 Manifest's `cbm_fixture` entry and a later one verifies it. `cbm_fixture_mismatch`
 ends the invocation with a non-zero exit naming each differing field;
 `cbm_fixture_unreadable` records every fixture-backed row as Not_Measured naming the
-file and lets the other rows run. Every record and `RunEntry` it then writes goes
+file and lets the other rows run, and leaves the Manifest exactly as it was (an
+existing `cbm_fixture` entry and its permutation seed are untouched). Every record and `RunEntry` it then writes goes
 through the appender, so existing records are never touched (see "Run_Set creation
 and append rule").
 
@@ -714,12 +715,18 @@ digest, the permutation seed, the covered and uncovered tool names, and an empty
 `probe_attempts`. If an entry exists, it checks that the recorded fixture version,
 plan digest, snapshot digest, source digest, sink table name and sink table digest
 equal the recomputed values and writes nothing; the recorded permutation seed is kept
-and is the one every later I-CBM-permuted pass of that Run_Set uses. A recorded value
-that differs raises `CbmFixtureRefused("cbm_fixture_mismatch")`, naming each differing
-field with its recorded and recomputed values, and a plan or snapshot that is missing,
-unreadable or not valid JSON raises `CbmFixtureRefused("cbm_fixture_unreadable")`,
-naming the file. Either refusal comes before any connection, client or record, and
-leaves every file of the Run_Set byte-identical.
+and is the one every later I-CBM-permuted pass of that Run_Set uses. The read of the
+committed files comes first, on every call and whether or not an entry exists. A plan
+or snapshot that is missing, unreadable or not valid JSON raises
+`CbmFixtureRefused("cbm_fixture_unreadable")`, naming the file, and this takes
+precedence over `cbm_fixture_mismatch`: a file that cannot be read cannot be compared.
+Only when both files are read and an entry exists does a recorded value that differs
+raise `CbmFixtureRefused("cbm_fixture_mismatch")`, naming each differing field with its
+recorded and recomputed values. Either refusal comes before any connection, client or
+record, and leaves the Manifest exactly as it was and every file of the Run_Set
+byte-identical: an entry that was absent stays absent, and an existing entry (all its
+digests, its permutation seed and every probe attempt) stays byte-identical, because
+the append rule forbids deleting or rewriting it.
 
 What a refusal does depends on the caller. For `probe-cbm`, either refusal ends the
 invocation with a non-zero exit naming the condition, and no probe attempt is
@@ -727,8 +734,11 @@ appended. For a `run`, `cbm_fixture_mismatch` ends the invocation the same way,
 because the Run_Set is bound to a fixture that no longer matches the committed files.
 `cbm_fixture_unreadable` on a `run` is a missing fixture: every fixture-backed row of
 the invocation is recorded as Not_Measured with a reason naming the unreadable file,
-the remaining rows run, and the entry stays absent (Run Protocol step 3,
-requirements 4.8, 21.4 and 22.2). This holds for a Named_Explicitly fixture-backed row
+the remaining rows run, and the Manifest stays exactly as it was: the entry stays
+absent if it was absent, and an existing entry and its permutation seed are untouched
+(Run Protocol step 3, requirements 4.8, 21.4 and 22.2). For `probe-cbm` the refusal
+exits non-zero naming the condition, with no connection, no attempt appended and the
+existing attempts unchanged. This holds for a Named_Explicitly fixture-backed row
 as well, because requirement 4.8 makes a missing fixture Not_Measured whatever the
 row's selection; the abort applies to credentials and grants only.
 
@@ -780,9 +790,14 @@ class RunSetAppender:
         # `source` names the fixture directory (e.g. tests/eval/cbm_fixture/v1/) and
         # carries the invocation's permutation seed and probe_attempts == ().
         # 1. Recompute fixture_version, plan_sha256, snapshot_sha256, source_sha256,
-        #    sink_table_name and sink_table_sha256 from the committed files. A missing,
+        #    sink_table_name and sink_table_sha256 from the committed files. This read
+        #    happens first, on every call, whether or not an entry exists. A missing,
         #    unreadable or non-JSON plan or snapshot raises
-        #    CbmFixtureRefused("cbm_fixture_unreadable") naming the file.
+        #    CbmFixtureRefused("cbm_fixture_unreadable") naming the file, and writes
+        #    nothing: an absent entry stays absent, and an existing entry (digests,
+        #    permutation seed, probe attempts) stays byte-identical. This refusal
+        #    takes precedence over cbm_fixture_mismatch, since a file that cannot be
+        #    read cannot be compared.
         # 2. manifest.cbm_fixture is None: write the recomputed entry (with the seed,
         #    the covered and uncovered tools and probe_attempts == ()) in one atomic
         #    write, and return it. This is the only code that creates the entry.
@@ -790,7 +805,8 @@ class RunSetAppender:
         #    table name with the recomputed ones. Equal: write nothing and return the
         #    recorded entry (its permutation seed included). Different: raise
         #    CbmFixtureRefused("cbm_fixture_mismatch") naming each differing field.
-        # A refusal writes nothing and leaves every file of the Run_Set byte-identical.
+        # A refusal of either kind writes nothing and leaves the Manifest exactly as
+        # it was and every file of the Run_Set byte-identical.
         ...
 
     def append_probe_attempt(self, result: CbmProbeResult) -> CbmProbeAttempt:
@@ -1085,7 +1101,10 @@ creates the entry with an empty `probe_attempts`, and on a later invocation it
 verifies the recorded fixture version, digests and sink table against the committed
 files. `cbm_fixture_mismatch` or `cbm_fixture_unreadable` ends the invocation with a
 non-zero exit naming the condition, before any connection, with no attempt appended
-and every file unchanged. After `probe` returns, it calls
+and every file unchanged: when the entry was absent it stays absent, and when it
+exists its digests, permutation seed and earlier attempts stay byte-identical. The
+files are read first, so an unreadable file is refused as `cbm_fixture_unreadable`
+even when an entry exists, ahead of `cbm_fixture_mismatch`. After `probe` returns, it calls
 `RunSetAppender.append_probe_attempt`, which requires the entry to exist and appends
 one `CbmProbeAttempt` (the next free 1-based index, `probed_at`, the conformance row
 and the Indexer_Agreement rows of this attempt) to the `cbm_fixture` entry of that
@@ -2463,8 +2482,10 @@ sequenceDiagram
      it on I-CBM-default or on any Whole_System_Run that uses the default CBM client,
      and a missing plan or snapshot changes no such row (requirements 21.4, 21.31).
      For a fixture-backed row the check is `bind_cbm_fixture`, called right after the
-     append checks: `cbm_fixture_unreadable` makes each fixture-backed row
-     Not_Measured naming the file, and `cbm_fixture_mismatch` (a plan or snapshot
+     append checks: `cbm_fixture_unreadable` (checked first, even when an entry
+     exists) makes each fixture-backed row Not_Measured naming the file and leaves the
+     Manifest exactly as it was, an existing entry and its seed included, and
+     `cbm_fixture_mismatch` (a plan or snapshot
      changed since the Run_Set was bound) refuses the whole invocation with a
      non-zero exit, because it is a binding conflict and not a missing fixture.
    - Every threat-intelligence row, when it runs, records its source corpus, and the
@@ -3746,7 +3767,7 @@ already cited by ADR 0009.
 | Append Corpus_Hash mismatch | The target Manifest's `corpus_hash` differs from the Corpus_Hash of the loaded Corpus | `AppendRefused` with condition `corpus_hash_mismatch`, showing both hashes; non-zero exit before any client, call or record; the target stays byte-identical | Run `stages` into a new Run_Set for the current Corpus (requirement 11.22) |
 | Append configuration-pass already present | The target already holds a committed per-case record for a `(config_id, pass_index)` that `run` or `run --experiment LX-wave` would write. Never raised for `probe-cbm`, which writes no such pair and appends a numbered probe attempt instead | `AppendRefused` with condition `records_present`, naming each pair; non-zero exit before any client, call or record; no existing record is overwritten | Select other configurations or pass numbers, or write into a new Run_Set created by `stages` |
 | CBM fixture changed since binding (`cbm_fixture_mismatch`) | A fixture-backed `run` or a `probe-cbm` finds a `cbm_fixture` entry whose recorded fixture version, plan digest, snapshot digest, source digest, sink table name or sink table digest differs from the value recomputed from the committed files | `bind_cbm_fixture` raises `CbmFixtureRefused` with condition `cbm_fixture_mismatch`, naming each differing field with its recorded and recomputed values; the CLI exits non-zero before any connection, client or record; no probe attempt is appended and every file of the Run_Set stays byte-identical | Restore the fixture files the Run_Set was bound to, or commit the changed fixture in a new sibling fixture directory and score it in a new Run_Set created by `stages` |
-| CBM fixture unreadable at binding (`cbm_fixture_unreadable`) | The plan or snapshot that `bind_cbm_fixture` reads is missing, unreadable or not valid JSON | `CbmFixtureRefused` with condition `cbm_fixture_unreadable`, naming the file, before any connection, client or record; the entry stays absent and nothing is written. `probe-cbm` exits non-zero naming the condition and appends no attempt. A `run` records every fixture-backed row (Named_Explicitly or Default_Plan) as Not_Measured naming the file, as for any missing fixture (requirement 4.8), and runs the remaining rows | Author or restore the fixture files, run `scripts/build_cbm_fixture.py check`, then repeat the command |
+| CBM fixture unreadable at binding (`cbm_fixture_unreadable`) | The plan or snapshot that `bind_cbm_fixture` reads is missing, unreadable or not valid JSON | `CbmFixtureRefused` with condition `cbm_fixture_unreadable`, naming the file, before any connection, client or record; nothing is written and the Manifest stays exactly as it was: the entry stays absent if it was absent, and an existing entry (digests, permutation seed, every probe attempt) stays byte-identical. The read comes first, so this applies on every call, takes precedence over `cbm_fixture_mismatch`, and is raised even when an entry exists. `probe-cbm` exits non-zero naming the condition, makes no connection and appends no attempt, leaving the existing attempts unchanged. A `run` records every fixture-backed row (Named_Explicitly or Default_Plan) as Not_Measured naming the file, as for any missing fixture (requirement 4.8), and runs the remaining rows | Author or restore the fixture files, run `scripts/build_cbm_fixture.py check`, then repeat the command |
 | Probe attempt sequence broken | The stored `probe_attempts` indices are not 1, 2, 3 and so on in stored order (a gap or a repeat, for example from a hand edit) | The Run_Store rejects the Run_Set on read, naming the first index out of sequence; `validate` fails, and `probe-cbm` exits non-zero naming it before any connection and appends nothing | Restore the Manifest from version control; attempts are never renumbered |
 | Corrupt line or partial file | Truncated JSON | Atomic writes make this a loader error naming the file; nothing partial is committed | Re-run the pass |
 | `demo_mode=True` requested | Anyone passes it to the runner | Refused at config validation | Not applicable: its verdicts do not transfer to production thresholds |
@@ -3944,11 +3965,23 @@ are deferred, never simulated.
   and the next fixture-backed `run` raise `CbmFixtureRefused("cbm_fixture_mismatch")`
   naming the differing field with both values, exit non-zero before any socket opens
   (sockets blocked, zero connection attempts) and before any client is built, and leave
-  every file of the Run_Set byte-identical. A missing or non-JSON plan or snapshot
-  makes `bind_cbm_fixture` raise `cbm_fixture_unreadable` naming the file: `probe-cbm`
-  exits non-zero with no attempt appended, and a `run` records each fixture-backed row,
-  whether Named_Explicitly or in the Default_Plan, as Not_Measured naming the file
-  while its other rows run, with the entry still absent. `append_probe_attempt` on a
+  every file of the Run_Set byte-identical. Unreadable fixture, before the first
+  binding: a missing or non-JSON plan or snapshot makes `bind_cbm_fixture` raise
+  `cbm_fixture_unreadable` naming the file: `probe-cbm` exits non-zero with no attempt
+  appended, and a `run` records each fixture-backed row, whether Named_Explicitly or in
+  the Default_Plan, as Not_Measured naming the file while its other rows run, and the
+  entry stays absent. Unreadable fixture, after binding: bind the fixture
+  successfully, then remove or corrupt the snapshot and, separately, the plan, and call
+  `bind_cbm_fixture` again from both a `run` path and a `probe-cbm` path. Each call is
+  refused as `cbm_fixture_unreadable` naming the file, with zero connection attempts
+  (sockets blocked), no per-case record and no probe attempt written, and the Manifest
+  byte-identical, its digests, permutation seed and earlier probe attempts included;
+  the `run` records its fixture-backed rows as Not_Measured and runs the others, and
+  the `probe-cbm` exits non-zero naming the condition. Readable but changed: with an
+  entry present and a readable snapshot (or plan) that differs from the recorded
+  digest, the refusal is `cbm_fixture_mismatch`, not `cbm_fixture_unreadable`.
+  Recovery: after the file is restored, the next call verifies the entry and succeeds,
+  and a `probe-cbm` then appends the next attempt. `append_probe_attempt` on a
   Run_Set with no entry raises and writes nothing. A source scan finds no code outside
   `bind_cbm_fixture` that assigns `cbm_fixture`.
 - Probe attempts (`store.py`, `report.probe_view`, `findings.py` and the CLI, each
@@ -4761,6 +4794,10 @@ and `requirements.md` can still cite each decision.
   `run` and by `probe-cbm` before any client or connection, and on later calls it
   verifies the recorded digests and refuses a changed plan or snapshot as
   `cbm_fixture_mismatch` (or a missing or unreadable one as `cbm_fixture_unreadable`).
+  Clarified 2026-11-14: `bind_cbm_fixture` reads the committed files first on every
+  call, so `cbm_fixture_unreadable` takes precedence over `cbm_fixture_mismatch` and
+  leaves the Manifest exactly as it was (an absent entry stays absent, an existing
+  entry with its digests, seed and probe attempts stays byte-identical).
   Shaped the layout, the
   components (sections 1, 3, 4, 7 and 10 to 14), the data models, the Run Protocol, the
   egress, security and billing text, the CBM probe and LX-wave text, the error
