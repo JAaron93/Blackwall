@@ -130,7 +130,9 @@ spec when the tasks are written (Q4, decided 2026-11-13), not fixed by this chan
 
 > **Decided.** The definition below is the one the requirements record. It is one
 > pure function in one module, so any later change is a one-line edit plus the
-> tests that pin it.
+> tests that pin it. A source scan keeps it single: it fails on duplicated
+> caught-ness logic outside the Caught_Module and permits building a verdict
+> (see "Single-definition scan").
 
 ### What QUARANTINE does (verified)
 
@@ -291,7 +293,7 @@ resolver did", which is the check that keeps the algebra honest.
 | Path | Role |
 |---|---|
 | `src/blackwall/holistic_eval/` | Importable library. A new light subpackage, so `import` does not run `blackwall.eval.__init__` (measured at about a second of import time). Pure modules import nothing from the rest of `blackwall`. |
-| `src/blackwall/holistic_eval/caught.py` | The definition of caught and stage flags (pure) |
+| `src/blackwall/holistic_eval/caught.py` | The definition of caught (the Reading table, `outcome`, `rates`) and the stage-flag table (pure). The only module that holds caught-ness logic; a source scan (see "Single-definition scan") fails on duplicated caught-ness logic anywhere else, and permits verdict construction |
 | `src/blackwall/holistic_eval/records.py` | Dataclasses, JSON codec, schema checks, corpus hash (pure) |
 | `src/blackwall/holistic_eval/compose.py` | `compose_verdict` (pure arithmetic over recorded stage outputs) |
 | `src/blackwall/holistic_eval/ablation.py` | Leave-one-out, add-one-in, catch partition (pure) |
@@ -308,7 +310,7 @@ resolver did", which is the check that keeps the algebra honest.
 | `scripts/holistic_eval.py` | CLI (dev tooling; CI never runs the live subcommands) |
 | `scripts/build_ioc_corpus.py` | One-time authoring tool for the IOC corpus: a `fetch` step (the IOC_Authoring_Step, started only by the maintainer: the only place `BW_ABUSECH_AUTH_KEY` is read, under a Human_Grant, and it may connect only to `threatfox.abuse.ch` and `tranco-list.eu`) and an offline, deterministic `build` step that applies the IOC_Selection. Not part of any measurement run |
 | `scripts/build_cbm_fixture.py` | Thin CLI over the Fixture_Export in `cbm_fixture.py`: `export` writes the snapshot from the fixture source, `check` re-runs the export and fails on any drift from the committed snapshot, naming each function that differs. It opens no connection and reads no credential variable |
-| `tests/eval/cbm_fixture/v1/fixture_source.py.txt`, `fixture_plan.json`, `snapshot.json` | The hand-authored CBM fixture source (text, never imported or executed), the Fixture_Plan that fixes it, and the snapshot that `export` produces. The plan is committed before any Run_Set with a CBM row; a later change goes into a new sibling directory |
+| `tests/eval/cbm_fixture/v1/fixture_source.py.txt`, `fixture_plan.json`, `snapshot.json` | The hand-authored CBM fixture source (text, never imported or executed), the Fixture_Plan that fixes it, and the snapshot that `export` produces. The plan is committed before any Run_Set with a fixture-backed CBM row (a default-CBM row needs neither plan nor snapshot); a later change goes into a new sibling directory |
 | `tests/eval/ioc_corpus/` | The committed IOC corpus (`corpus.json`) and its manifest (`manifest.json`: seed, selection parameters, target sizes, raw-file digests, total case count) |
 | `tests/eval/ioc_corpus/synthetic/` | The Synthetic_Feed_Sample: invented indicators in the raw feed layout, labeled synthetic, used only by the builder tests |
 | `tests/eval/results/holistic/<run-set>/` | Committed per-case results and `manifest.json` (a new directory; nothing under `jev_runs*/` is touched) |
@@ -515,7 +517,10 @@ own Forced_Table, recorded in two Tier-2 Passes). Their validity limits are part
 output type (`ReplayCell.status`), not a footnote. The replayer rejects the whole
 request, producing no cell, if any supplied edge is not a number from 0.0 to 1.0
 inclusive; it skips a `(lo, hi)` combination with `lo > hi`; a zero-width Band with
-`lo == hi` is valid and is replayed.
+`lo == hi` is valid and is replayed. The component also holds `replay_identity`, the
+check that a run's own recorded Jev P and Tier-2 output replay to its recorded verdicts
+at the shipped Band, and `variation_report`, which lists where a Forced_Table replay
+differs from the live run. The two are kept apart: only the identity check can fail.
 
 ### 7. Results store (`Run_Store`)
 
@@ -538,7 +543,20 @@ own sections below.
 ## Data Models
 
 All records are frozen dataclasses with a JSON codec. `SCHEMA_VERSION` is stored in
-every file and checked on read. Floats are rounded to 4 places on write.
+every file and checked on read. Floats are stored unrounded, as the shortest
+decimal string that decodes to exactly the same binary float (Python's `repr`), so a
+decoded float equals the written float exactly. A non-finite float (`NaN` or an
+infinity) is rejected on write with an error that names the field and the record, and
+nothing is written for that record (requirement 10.5). Rounding is applied only at
+three points: when a figure is rendered, when a recomputed rate is compared with a
+cited figure (to the decimal places the cited figure shows), and when a per-case Jev P
+difference is rounded to 2 decimal places for the bound test. It is never applied to a
+stored calculation input or score. The reason is a recompute: a Tier-2 `threat_score`
+of 0.3333 and a `tool_score` of 0.1 with no other signal aggregate to 0.064995 (the
+context score is `0.1*0.5 + 0.3333*0.5 = 0.21665`, and the aggregate is `0.21665*0.30`).
+A store that rounds to 4 places turns 0.064995 into 0.0650, and a recompute from stored
+values then differs from the live value by more than the 1e-9 tolerance of the
+composer identity check.
 
 ```python
 SCHEMA_VERSION = 1
@@ -577,6 +595,7 @@ class CbmOut:
 @dataclass(frozen=True, slots=True)
 class TiOut:
     source: Literal["otx_real", "stub_plumbing_only", "synthetic_feed_sample"]
+    source_corpus: Literal["corpus", "ioc_corpus"]   # which committed corpus supplied the indicator: "corpus" for I-TI-corpus (and any Corpus Whole_System_Run), "ioc_corpus" for I-TI-ioc (and W5 over the IOC_Corpus); never absent
     queried: bool
     indicator: str | None
     is_malicious: bool | None
@@ -599,9 +618,9 @@ class JevOut:
 
 @dataclass(frozen=True, slots=True)
 class Tier2Out:
-    fired: bool
+    fired: bool                               # the Tier-2 call was made (always true for a Forced_Table row)
     trigger: Literal["ambiguity", "disagreement", "none"]
-    decision: Literal["ALLOW", "BLOCK"] | None
+    decision: Literal["ALLOW", "BLOCK"] | None    # None = the call returned no verdict (a measured outage)
     threat_score: float | None
     unavailable_reason: Literal["no client", "rate limit", "no verdict"] | None
     latency_ms: int | None
@@ -611,6 +630,29 @@ class Tier2Out:
     forced_pass_index: int | None             # 1 or 2 within that release's table; None for live_in_system
     p_given: float | None                     # the Jev P shown to Tier-2 in its prompt
 
+    def __post_init__(self) -> None:
+        # Invariants, checked at construction and on every read (a violation is a
+        # loader error naming the file; nothing partial is returned):
+        #  - fired and decision is None  <=>  unavailable_reason is a non-empty string
+        #    (a measured outage: error, deadline, malformed answer, HTTP 429, no client,
+        #    or an empty Tier-2 rate bucket)
+        #  - decision is not None  =>  fired, unavailable_reason is None, threat_score is not None
+        #  - not fired  =>  decision, threat_score, latency_ms, http_status and
+        #    unavailable_reason are all None, and trigger == "none"
+        ...
+```
+
+A `Tier2Out` therefore carries one of three states, tested with `is None` and never
+by truthiness (a dataclass instance is always truthy, so `if tier2:` cannot tell a
+verdict from an outage):
+
+| State | Recorded form | Composer reads it as |
+|---|---|---|
+| no Tier-2 output | no `Tier2Out` at all, or one with `fired == False` | nothing was measured for this case |
+| measured outage | `fired`, `decision is None`, `unavailable_reason` non-empty | Tier-2 was called and gave no verdict |
+| verdict | `fired`, `decision in {"ALLOW", "BLOCK"}`, `threat_score` set | the recorded decision and score |
+
+```python
 @dataclass(frozen=True, slots=True)
 class CaseRecord:
     schema_version: int
@@ -660,7 +702,8 @@ class RunSetManifest:
     resolver_construction: Mapping[str, ConfigSpec]
     jev: JevSource                           # stored run keys used, served releases
     tier2: Tier2Source                       # model, pinned thinking level, one ForcedTableSource per Jev release
-    cbm_fixture: CbmFixtureSource | None     # plan and snapshot digests, sink table, permutation seed, Indexer_Agreement rows; None only when no CBM fixture row ran (a not_measured entry then names the reason). See "CBM fixture codebase"
+    cbm_fixture: CbmFixtureSource | None     # plan and snapshot digests, sink table, permutation seed, Indexer_Agreement rows. Required only when the Run_Set holds a fixture-backed CBM row (I-CBM-fixture, I-CBM-permuted, W4, W5, the `sinks mapped` row, an Indexer_Agreement row); None otherwise, including a Run_Set whose only CBM row is the default-CBM row (I-CBM-default, a Phase 1 row), which needs neither the plan nor the snapshot and records no digest for them. A fixture-backed row that did not run has a not_measured entry naming the reason. See "CBM fixture codebase"
+    ti_runs: Sequence[TiRunSource]           # one per threat-intelligence run: the row id, the committed corpus that supplied its indicators ("corpus" or "ioc_corpus"), and the statement that every indicator sent to OTX comes from that corpus's committed fixtures
     cooldown_s: int                          # the cool-down between configurations that the Runner used (default 30; Q10)
     runs: Sequence[RunEntry]                 # one per executed Pass, discarded Passes included; see RunEntry
     discarded_passes: Sequence[DiscardedPass]   # config, pass number, interleave position, reason ("tier2_429", "rate_limit", "release_mismatch", or a TSG seeding or graph-mutation failure) and count (integer, 0 or greater; reason non-empty); no per-case data
@@ -670,6 +713,13 @@ class RunSetManifest:
     credential_grants: Sequence[GrantNote]   # variable NAMES and the grant date; never values
     not_measured: Sequence[NotMeasured]      # stage, non-empty reason: "no grant" (begins `no grant` and names the variable, e.g. `BW_OTX_API_KEY`), "no fixture", "transport mismatch"
     notes: str
+
+@dataclass(frozen=True, slots=True)
+class TiRunSource:
+    config_id: str                           # "I-TI-corpus", "I-TI-ioc", or a Whole_System_Run row that queries OTX (W3, W5)
+    source_corpus: Literal["corpus", "ioc_corpus"]   # the committed corpus whose fixtures supplied every indicator of this run
+    fixtures_digest: str                     # digest of that corpus's committed fixture file(s) the send guard checked against
+    statement: str                           # non-empty: "every indicator sent to OTX in this run comes from the committed fixtures of the <source_corpus> corpus"
 
 @dataclass(frozen=True, slots=True)
 class Tier2Source:
@@ -779,8 +829,22 @@ carries no credential value, payload response body or exception message body.
 - A run with any `http_status == 429` on Tier-2, any `rate_limit` row, or a served
   Jev release that differs from the requested one (or is absent), is not `valid`
   and is not committed as data (it goes to `discarded_passes`).
+- A Run_Set that holds a fixture-backed CBM row (I-CBM-fixture, I-CBM-permuted, W4,
+  W5, the `sinks mapped` row or an Indexer_Agreement row) has a `cbm_fixture` entry
+  whose plan and snapshot digests equal the digests of the committed files. A Run_Set
+  whose only CBM row is the default-CBM row (I-CBM-default, and any Whole_System_Run
+  that uses the default CBM client) needs neither the plan nor the snapshot, records
+  no digest for them, and is not rejected for lacking a `cbm_fixture` entry.
+- Every threat-intelligence row (`TiOut`) carries a `source_corpus`, and the manifest
+  holds one `ti_runs` entry per threat-intelligence run naming the committed corpus
+  that supplied its indicators. A `TiOut` whose `source_corpus` differs from its run's
+  `ti_runs` entry, or a run with no entry, makes the manifest invalid. A row of
+  `I-TI-corpus` has `source_corpus == "corpus"` and a row of `I-TI-ioc` has
+  `source_corpus == "ioc_corpus"`.
 - No string anywhere in the run set matches a credential pattern (the
   `ContextHygiene` secret patterns are reused for the scan).
+- Every float in a record or the manifest is finite, and decodes to exactly the float
+  that was encoded (see "Data Models"). A stored value is never rounded.
 
 
 ## Configuration Matrix
@@ -801,8 +865,8 @@ J Jev, 2 Tier-2. A shared resolver is built once per configuration and pass.
 | I-TSG-cold | Empty graph; a sanity row (all cases must be non-matches) | G | nothing | 0 |
 | I-TSG-parent | Graph seeded from the 29 evasion parents only | G | nothing | 0 |
 | I-TSG-heldout | Graph seeded from half of the parents (deterministic split); the other half is the unseen-family control | G | nothing | 0 |
-| I-TI-corpus | `ThreatIntelOrchestrator(primary_provider=AlienVaultOTXProvider(), secondary_providers=[])`, cache off, on every extracted indicator (46 unique) | T | `BW_OTX_API_KEY`, human grant | about 46 |
-| I-TI-ioc | The same OTX-only orchestrator on the IOC corpus (cache off) | T | `BW_OTX_API_KEY` grant, IOC corpus | one per unique IOC indicator, about 100 malicious plus about 100 control |
+| I-TI-corpus | `ThreatIntelOrchestrator(primary_provider=AlienVaultOTXProvider(), secondary_providers=[])`, cache off, on every extracted indicator (46 unique), including the documentation-range and private-range addresses and the filename-shaped values, unfiltered. Source corpus: the Corpus (`source_corpus="corpus"`) | T | `BW_OTX_API_KEY`, human grant | about 46 |
+| I-TI-ioc | The same OTX-only orchestrator on the IOC corpus (cache off). Source corpus: the IOC_Corpus (`source_corpus="ioc_corpus"`) | T | `BW_OTX_API_KEY` grant, IOC corpus | one per unique IOC indicator, about 100 malicious plus about 100 control |
 | I-CBM-default | `CodebaseMemoryClient()` as shipped, `base_url` re-asserted `None` after resolver construction (D4) | C | nothing | 0 |
 | I-CBM-fixture | Fixture adapter over the fixture codebase | C | fixture | 0 |
 | I-CBM-permuted | The same graphs assigned to tool names by a seeded permutation (control) | C | fixture | 0 |
@@ -1063,9 +1127,24 @@ def verify_raw_digests(manifest: IocManifest, raw_dir: Path) -> list[DigestRepor
 - **OTX lookups of public indicators:** sending these public indicators to OTX as
   lookups is acceptable under a `BW_OTX_API_KEY` grant. `plan` prints every API host
   and every indicator that would be sent, one per line, with zero network
-  connections, before any lookup, and the run refuses to send an indicator that is
-  not in the IOC fixtures. The run-set manifest states that every indicator sent to
-  OTX comes from the IOC fixtures.
+  connections, before any lookup, with the source corpus of each indicator on its
+  line (`corpus` or `ioc_corpus`). Every threat-intelligence row and each
+  threat-intelligence run records which committed corpus supplied its indicators: the
+  Corpus for I-TI-corpus, the IOC_Corpus for I-TI-ioc (`TiOut.source_corpus` and the
+  manifest's `ti_runs` entry).
+
+  The OTX send guard is per run. It wraps the OTX provider's request path and holds the
+  set of indicators of the one committed corpus selected for that run: for the Corpus,
+  the indicators that `_extract_indicator` returns over the committed Corpus cases
+  (documentation-range and private-range addresses and filename-shaped values
+  included, unfiltered); for the IOC_Corpus, the `IocEntry.indicator` values. It refuses,
+  and fails the run naming the indicator, only an indicator that is not in the
+  committed fixtures of the corpus selected for that run, and it sends nothing for
+  that indicator. It does not refuse an indicator on the ground that it is absent from
+  the IOC fixtures when the run's source corpus is the Corpus, because I-TI-corpus
+  legitimately queries Corpus indicators (requirements 19.1 and 20.21 to 20.23). The
+  manifest states, per run, that every indicator sent to OTX comes from the committed
+  fixtures of that run's corpus.
 - **Hygiene:** the builder passes every indicator through `ContextHygiene` as an
   un-redacted standalone hostname (AGENTS.md: as `wd-bouygues.com` does) and checks
   that the output string equals the input string. If any indicator changes, the
@@ -1145,6 +1224,15 @@ class IocManifest:
   `threatfox.abuse.ch` and `tranco-list.eu`; given any other host it refuses the
   connection and records the host name; the two authoring hosts are not in the
   run-time allowlist and the run-time hosts are not in `AUTHORING_HOSTS`.
+- **Send-guard tests (each starts red):** in an I-TI-corpus run the guard accepts every
+  indicator that `_extract_indicator` returns over the committed Corpus, including a
+  documentation-range address and a filename-shaped value, and records
+  `source_corpus="corpus"` on each row; in an I-TI-ioc run it accepts an IOC_Corpus
+  indicator and records `source_corpus="ioc_corpus"`; in each run it refuses an
+  indicator that is in neither fixture set, fails the run naming it and sends nothing;
+  an indicator that belongs to the IOC_Corpus only is refused in an I-TI-corpus run, and
+  one that belongs to the Corpus only is refused in an I-TI-ioc run; `plan` prints each
+  indicator with its source corpus and opens zero connections.
 - **Use:** I-TI-ioc, plus W3/W5 on this corpus to see whether a threat-intel hit
   rescues the C2/IOC-type calls that Jev scores low. It is never pooled with the
   167-case corpus in any table, chart or aggregate figure. Both the headline and
@@ -1176,10 +1264,15 @@ dangerous-looking tool.
   maps each covered corpus tool name to a fixture function of that name, with the
   intended call-chain depth, the sink kinds and a one-line rationale drawn from the
   tool's semantic role. The plan is frozen and committed before any Run_Set that
-  contains a CBM row exists, and the chains and sinks are chosen from the tool's role,
-  never from a case label or a scored result. The Manifest records the sha256 digest
-  of the plan and of the snapshot, so each CBM row binds to the plan and snapshot it
-  used. The plan, source and snapshot are one versioned directory (`v1`). A later
+  contains a fixture-backed CBM row exists, and the chains and sinks are chosen from the
+  tool's role, never from a case label or a scored result. The fixture-backed CBM rows
+  are I-CBM-fixture, I-CBM-permuted, W4, W5, the `sinks mapped` what-if row and the
+  Indexer_Agreement rows. The default-CBM rows (I-CBM-default, and every
+  Whole_System_Run that uses the default `CodebaseMemoryClient`) need neither the plan
+  nor the snapshot: they are recorded in Phase 1, before the fixture exists, and the
+  Manifest records no plan or snapshot digest for them. For a fixture-backed row the
+  Manifest records the sha256 digest of the plan and of the snapshot, so the row binds
+  to the plan and snapshot it used. The plan, source and snapshot are one versioned directory (`v1`). A later
   change goes into a new sibling directory, so a committed Run_Set keeps validating
   against the digests it recorded.
 - **Snapshot:** `tests/eval/cbm_fixture/v1/snapshot.json`, produced by the
@@ -1415,8 +1508,18 @@ class CbmFixtureSource:
 ```
 
 The Run_Store recomputes the plan and snapshot digests from the committed files and
-rejects a Run_Set that holds a CBM fixture row and whose recorded digest differs,
-naming the file, or that has no `cbm_fixture` entry.
+rejects a Run_Set that holds a fixture-backed CBM row (I-CBM-fixture, I-CBM-permuted,
+W4, W5, the `sinks mapped` row or an Indexer_Agreement row) and whose recorded digest
+differs, naming the file, or that has no `cbm_fixture` entry. It does not require a
+`cbm_fixture` entry, a plan or a snapshot for a Run_Set whose CBM rows are all
+default-CBM rows (I-CBM-default and Whole_System_Runs that use the default client),
+and a Run_Set of that kind records no such digest.
+
+If the snapshot or the plan is missing, or the snapshot is not valid JSON or lacks
+facts for a queried tool, every fixture-backed CBM row is Not_Measured with a reason
+that names the offending item (requirement 21.4). Every other row is unchanged,
+including every non-CBM row and every default-CBM row. The default-CBM rows never
+read the plan or the snapshot, so an unreadable fixture cannot change them.
 
 ## Run Protocol
 
@@ -1479,7 +1582,15 @@ sequenceDiagram
      19.17, 22.1 to 22.3, 31.11, 31.12 and 31.14). This applies to W0, W1 and W2 as
      well as to the optional rows.
    - A missing fixture or transport is Not_Measured even for a Named_Explicitly row,
-     because the abort covers credentials and grants only (requirement 4.8).
+     because the abort covers credentials and grants only (requirement 4.8). The CBM
+     fixture (the Fixture_Plan and the snapshot) is a prerequisite of the
+     fixture-backed CBM rows only (I-CBM-fixture, I-CBM-permuted, W4, W5, the
+     `sinks mapped` row and the Indexer_Agreement rows). Preflight does not check for
+     it on I-CBM-default or on any Whole_System_Run that uses the default CBM client,
+     and a missing plan or snapshot changes no such row (requirements 21.4, 21.31).
+   - Every threat-intelligence row, when it runs, records its source corpus, and the
+     send guard is armed with the committed fixtures of that corpus before the first
+     lookup (requirements 19.1 and 20.21 to 20.23).
    - `--concurrency` that is not an integer or is below 1 is rejected before any
      case runs, naming `--concurrency` and the minimum of 1 (requirement 23.18).
    In every case a row with a missing prerequisite is never run in a degraded form,
@@ -1554,6 +1665,41 @@ def rates(records: Iterable[CaseRecord], reading: Reading) -> Rates: ...   # cat
 `ERROR` always yields `Outcome.ERROR`; `outcome(.., BLOCKED)` is `CAUGHT` or
 `FALSE_ALARM` only if `outcome(.., STOPPED)` is the same.
 
+#### Single-definition scan (requirement 6.15 and 6.16)
+
+The test that keeps the definition single targets **duplicated caught-ness logic**, not
+every mention of a decision string. It parses every Harness source file with `ast`
+(parse only, nothing is imported or run), skips `caught.py`, and reports the module path
+and line number of each offending node. It flags exactly two things outside the
+Caught_Module:
+
+1. **A stopping-set literal or membership test.** An `ast.Set`, `ast.Tuple`, `ast.List`
+   or a call to `frozenset`, `set`, `tuple` or `list` whose elements include both the
+   string constants `"BLOCK"` and `"QUARANTINE"` (or the same two members written as
+   `Decision.BLOCK` and `Decision.QUARANTINE`); and an `ast.Compare` with an `In` or
+   `NotIn` operator whose right-hand side is such a literal or is a name bound, in the
+   same module, to such a literal. This catches `{"BLOCK", "QUARANTINE"}`,
+   `("BLOCK", "QUARANTINE")` and `decision in STOPPING`.
+2. **An Outcome assignment or return.** An `ast.Assign`, `ast.AnnAssign` or `ast.Return`
+   whose value is a reference to `Outcome.CAUGHT`, `Outcome.MISSED`,
+   `Outcome.FALSE_ALARM` or `Outcome.CORRECT_ALLOW`, or to a call `Outcome(...)`, or to one
+   of the strings `"caught"`, `"missed"`, `"false_alarm"` or `"correct_allow"` when the
+   target name or the enclosing function's return annotation is `Outcome`.
+
+It does **not** flag, and the test proves it does not (each is a passing fixture):
+verdict construction. The Composer, the Band_Replayer and any code that mirrors the
+Resolver may compare a decision with a **single** literal (`decision != "BLOCK"`,
+`decision == "ALLOW"`) in order to build a verdict, to prevent a `BLOCK` downgrade, or to
+assign a Quarantine_Cause; and a check of why a verdict was returned (for example
+`cause == "tier2_unavailable"` or `decided_by == "tsg"`) is also permitted. Neither the
+Composer's `decision != "BLOCK"` nor the Band_Replayer's `v.decision != rec.final_decision`
+contains a literal that holds both `"BLOCK"` and `"QUARANTINE"`, so neither is flagged.
+
+The scan has its own red tests: a planted `{"BLOCK", "QUARANTINE"}` in a temporary
+module, a planted `x in ("QUARANTINE", "BLOCK")`, and a planted `return Outcome.CAUGHT`
+each fail it and name the path and line; planted single-literal comparisons, a
+`QUARANTINE` cause assignment and a `cause == "tier2_unavailable"` check each pass it.
+
 ### `compose_verdict` (pure)
 
 ```python
@@ -1596,14 +1742,36 @@ class ComposeConfig:
 def compose_verdict(s: StageOutputs, cfg: ComposeConfig, forced: Tier2Out | None) -> Composed | Unmeasured: ...
 ```
 
-The Composer is called only for records that are not a recorded `ERROR` row. It
-returns the value `UNMEASURED` (not an `ALLOW`, `QUARANTINE`, `BLOCK` or `ERROR`) for
-a triggered case under `tier2 == "recorded"` that has no Tier-2 output and whose
-prior decision is not `BLOCK`.
+The Composer is called only for records that are not a recorded `ERROR` row. For a
+triggered case under `tier2 == "recorded"` it tells three Tier-2 data states apart.
+The three branches are mutually exclusive, and each is selected by an explicit
+`is None` test, never by truthiness (a `Tier2Out` is a dataclass instance and is always
+truthy, so a measured outage would otherwise look like a verdict):
+
+| Branch | Tier-2 data for the triggered case | Result |
+|---|---|---|
+| (a) no output | no forced entry and no fired in-system output (no verdict and no recorded unavailable reason) | if the prior decision is not `BLOCK`, return `UNMEASURED` immediately (not an `ALLOW`, `QUARANTINE`, `BLOCK` or `ERROR`); if it is `BLOCK`, return `BLOCK` and read nothing |
+| (b) measured outage | a `Tier2Out` with `decision is None` and a non-empty `unavailable_reason` | treated exactly like `tier2 == "unavailable"`: a prior `ALLOW` becomes `QUARANTINE` with cause `tier2_unavailable`; a prior `QUARANTINE` or `BLOCK` is unchanged; the semantic input stays the Jev P |
+| (c) verdict | a `Tier2Out` with `decision in {"ALLOW", "BLOCK"}` | use that decision, never downgrading a `BLOCK`, and use its `threat_score` as the semantic input |
+
+The source of a Tier-2 output for a triggered case is, in order: the `forced` argument
+when it is not `None` (a Forced_Table entry), otherwise the row's own in-system output
+when that output has `fired == True`, otherwise nothing (branch (a)). A Forced_Table
+replay clears the row's own Tier-2 output before composing (`with_jev_p` does it), so a
+replay that finds no Forced_Table entry is branch (a) and is never filled from the live
+run.
 
 ```python
+def recorded_tier2(s, forced):
+    # Returns a Tier2Out, or None when nothing was measured. Never truthiness.
+    if forced is not None:
+        return forced
+    if s.tier2 is not None and s.tier2.fired:
+        return s.tier2
+    return None
+
 def compose_verdict(s, cfg, forced):
-    if cfg.tsg and s.tsg and s.tsg.matched:
+    if cfg.tsg and s.tsg is not None and s.tsg.matched:
         return Composed("BLOCK", 1.0, decided_by="tsg", cause="none")
 
     structural_blocked = cfg.structural and s.structural.blocked
@@ -1613,18 +1781,30 @@ def compose_verdict(s, cfg, forced):
     ti = s.ti if (cfg.threat_intel and is_high_risk) else None
 
     p = s.jev.p_threat if cfg.jev else None
-    tier2, unavailable = None, None
+    verdict_out = None        # branch (c): the Tier2Out whose verdict and threat_score are used
+    outage = False            # branch (b), or cfg.tier2 == "unavailable"
+    no_output = False         # branch (a): triggered, nothing measured
+    consulted = None          # the Tier2Out that branch (b) or (c) read; reported as Composed.tier2_used
     if cfg.jev and not structural_blocked:
         trigger = ("ambiguity" if cfg.band.lo <= p <= cfg.band.hi
                    else "disagreement" if (s.context.novelty >= 0.4 and p < 0.2)
                    else None)
-        if trigger and cfg.tier2 == "recorded":
-            tier2 = forced_or_recorded(s, forced)         # None => UNMEASURED, never imputed
-        elif trigger and cfg.tier2 == "unavailable":
-            unavailable = "no verdict"
+        if trigger is not None and cfg.tier2 == "recorded":
+            t2 = recorded_tier2(s, forced)
+            if t2 is None:                                # (a) never imputed
+                no_output = True
+            elif t2.decision is None:                     # (b) measured outage; `is None`, not falsiness
+                assert t2.unavailable_reason is not None  # the Tier2Out invariant
+                outage, consulted = True, t2
+            else:                                         # (c) a verdict: "ALLOW" or "BLOCK"
+                verdict_out, consulted = t2, t2
+        elif trigger is not None and cfg.tier2 == "unavailable":
+            outage = True
         # cfg.tier2 == "absent": the trigger fires nothing (hypothetical)
 
-    semantic = tier2.threat_score if tier2 else p
+    # The semantic input follows the branch. Only branch (c) has a Tier-2 threat_score.
+    # In (a), (b), "unavailable" and "absent" the semantic input is the Jev P.
+    semantic = verdict_out.threat_score if verdict_out is not None else p
     ctx = clamp(s.context.tool_score * 0.5
                 + max(s.context.novelty, clamp(semantic) if semantic is not None else 0.0) * 0.5
                 + s.context.role_modifier)
@@ -1641,26 +1821,42 @@ def compose_verdict(s, cfg, forced):
     if cfg.clear_high_policy == "block" and cfg.jev and p > cfg.band.hi and not structural_blocked:
         decision = "BLOCK"                               # F06 what-if, labeled hypothetical
 
-    if tier2 and not structural_blocked and decision != "BLOCK":
-        decision = tier2.decision                        # final ALLOW or BLOCK, never downgrading a BLOCK
+    if no_output and decision != "BLOCK":                # (a): the prior decision is not BLOCK
+        return UNMEASURED                                # counted as Not_Measured, excluded from every rate
+
+    if verdict_out is not None and not structural_blocked and decision != "BLOCK":
+        decision = verdict_out.decision                  # (c): final ALLOW or BLOCK, never downgrading a BLOCK
     quarantine_cause = "aggregate" if decision == "QUARANTINE" else "none"
-    if unavailable and decision == "ALLOW":
+    if outage and decision == "ALLOW":                   # (b) and "unavailable": fail closed
         decision, quarantine_cause = "QUARANTINE", "tier2_unavailable"
-    return Composed(decision, score, decided_by=derive(...), cause=quarantine_cause)
+    # a prior QUARANTINE (cause "aggregate") or BLOCK is unchanged by an outage
+    return Composed(decision, score, decided_by=derive(...), cause=quarantine_cause,
+                    tier2_used=consulted)                # None when Tier-2 was not consulted
 ```
 
 **Preconditions:** `s` belongs to a case whose recorded decision is not `ERROR` (a
 recorded `ERROR` row has no Stage outputs to compose from and is never passed in);
 `s` holds the outputs of every stage the config enables; `cfg` passes its own
-validation; for `tier2 == "recorded"` a triggered case has a recorded in-system
-Tier-2 output or a forced-table entry. Otherwise, and when the prior decision is not
-`BLOCK`, the result is `UNMEASURED`, which the caller counts as Not_Measured and
-excludes from `outcome`, `rates` and every other rate.
+validation; every `Tier2Out` it receives satisfies the invariant of "Data Models"
+(`decision is None` if and only if `unavailable_reason` is a non-empty string, for a
+fired output). For `tier2 == "recorded"`, a triggered case is in exactly one of three
+states: (a) no forced entry and no fired in-system output, (b) an output with
+`decision is None` and an `unavailable_reason` (a measured outage), or (c) an output
+with a verdict. In state (a), when the prior decision is not `BLOCK`, the result is
+`UNMEASURED`, which the caller counts as Not_Measured and excludes from `outcome`,
+`rates` and every other rate.
 **Postconditions:** never returns a decision outside {ALLOW, QUARANTINE, BLOCK}
-(or `UNMEASURED`, which is not a decision); a BLOCK from structural, TSG or
-aggregation is never downgraded, in every Tier-2 mode and for every recorded
-Tier-2 decision; a structural BLOCK neither triggers Tier-2 nor reads its recorded
-output; stage flags are not an input (they are not in the signature; a caller
+(or `UNMEASURED`, which is not a decision, is not an `ERROR` and is never imputed);
+`UNMEASURED` is returned if and only if the case is triggered, `tier2 == "recorded"`,
+the case is in state (a) and the prior decision is not `BLOCK`; in state (b) the result
+equals the result under `tier2 == "unavailable"` for the same case (a prior `ALLOW`
+becomes `QUARANTINE` with cause `tier2_unavailable`, a prior `QUARANTINE` or `BLOCK` is
+unchanged) and the semantic input is the Jev P, because a measured outage has no
+Tier-2 `threat_score`; in state (c) the recorded decision is used, a `BLOCK` is never
+downgraded, and the Tier-2 `threat_score` is the semantic input; a BLOCK from
+structural, TSG or aggregation is never downgraded, in every Tier-2 mode and for every
+recorded Tier-2 decision, including state (b); a structural BLOCK neither triggers
+Tier-2 nor reads its recorded output; stage flags are not an input (they are not in the signature; a caller
 supplying one is rejected with an error naming it); same inputs give an equal
 output; when `cfg` equals the recorded configuration and `band` equals the shipped
 band, then for each non-`ERROR` case the decision equals the recorded
@@ -1776,6 +1972,10 @@ def replay_band(cases, stage_rows, release, base, los, his, clear_high_policy="a
                         continue
                     if c.case_id not in release.p_by_case:         # no stored Jev P: unmeasured, never substituted
                         unmeasured += 1; continue
+                    # Forced_Table replay: the release run's stored P and the independently
+                    # measured table. with_jev_p swaps in that P and clears the row's OWN
+                    # Tier-2 output, so a missing table entry is branch (a), never filled
+                    # from the live run. This is not the identity check (see replay_identity).
                     row = with_jev_p(stage_rows[c.case_id], release.p_by_case[c.case_id])
                     v = compose_verdict(row, cfg, forced=table.get(c.case_id))
                     if v is UNMEASURED: unmeasured += 1; continue  # triggered, no Tier-2 entry
@@ -1793,12 +1993,112 @@ its recorded `error` class; it is counted in `n_error` beside each affected figu
 `merge_passes` takes each rate's point value from Tier-2 Pass 1 and its error band
 from the minimum and maximum of that rate across the two Passes.
 
-**Postconditions:** at the shipped band with the shipped policy and the recorded
-configuration, the replayed verdict of every non-`ERROR` case equals its recorded
-verdict, and every recorded `ERROR` row is returned unchanged as `ERROR` with its
-recorded `error` class (identity check, Testing Strategy). A carried-through
-`ERROR` row is not a difference, so it is never listed as a failing case. The same
-carry-through holds at any other Band. `tier2_share` is non-decreasing under
+#### Identity check and Forced_Table variation are two different things
+
+A replay can be compared with the live run in two ways, and only the first is a check
+that can fail (requirements 15.5, 15.6, 9.6, 9.18 and 9.19).
+
+1. **Identity check (`replay_identity`).** It replays the Run_Set's OWN recorded Stage
+   outputs: its own recorded Jev P and its own recorded Tier-2 output for each case
+   (the in-system output, or a recorded measured outage), at the shipped Band (0.35
+   and 0.75), the shipped `clear_high_policy` and the recorded configuration. It
+   requires that the replayed verdict of every non-`ERROR` case equals the recorded
+   verdict exactly (decision and quarantine cause; the score within 1e-9). A recorded
+   `ERROR` row has no Stage outputs to compose from: it is carried through unchanged
+   as `ERROR` with its recorded `error` class, never passed to the Composer, excluded
+   from every rate and counted in `n_error_carried`, and it is never a difference. A
+   mismatch fails the check and lists each case with its recorded and replayed
+   verdicts. At any Band other than the shipped one, every recorded `ERROR` row is
+   carried through in the same way. This is the check that anchors every composed
+   figure to the live run, and it needs no Forced_Table.
+2. **Forced_Table replay (`replay_band`) and its variation report.** It replays the
+   stored Jev P of the release run and the independently measured Forced_Table. Its
+   Tier-2 outputs were not produced by the live run, so a different decision on a case
+   is expected and is not a failure. `variation_report` compares the Forced_Table
+   replay at the shipped Band with the live run in a separate report. It lists each
+   case whose decision differs, with the cause, and it is never read as a failed
+   identity check.
+
+```python
+@dataclass(frozen=True, slots=True)
+class IdentityMismatch:
+    case_id: str
+    recorded_decision: str
+    recorded_cause: str                       # recorded quarantine_cause
+    replayed_decision: str                    # "UNMEASURED" if a recorded triggered case has no recorded Tier-2 output
+    replayed_cause: str | None
+
+@dataclass(frozen=True, slots=True)
+class IdentityResult:
+    config_id: str
+    passed: bool                              # True iff mismatches is empty
+    n_compared: int                           # non-ERROR cases compared
+    n_error_carried: int                      # recorded ERROR rows carried through; never a mismatch
+    mismatches: tuple[IdentityMismatch, ...]  # ordered by case_id
+
+def replay_identity(cases, run_rows: Mapping[str, CaseRecord], recorded_cfg: ComposeConfig) -> IdentityResult:
+    cfg = replace(recorded_cfg, band=Band(0.35, 0.75), clear_high_policy="aggregate", tier2="recorded")
+    mismatches, n, carried = [], 0, 0
+    for c in cases:
+        rec = run_rows[c.case_id]
+        if rec.final_decision == "ERROR":
+            carried += 1; continue                   # carried through unchanged; never composed
+        n += 1
+        v = compose_verdict(rec.stages, cfg, forced=None)   # the row's OWN Jev P and OWN Tier-2 output
+        if (v is UNMEASURED or v.decision != rec.final_decision
+                or v.cause != rec.quarantine_cause or abs(v.score - rec.final_score) > 1e-9):
+            mismatches.append(IdentityMismatch(c.case_id, rec.final_decision, rec.quarantine_cause,
+                                               "UNMEASURED" if v is UNMEASURED else v.decision,
+                                               None if v is UNMEASURED else v.cause))
+    return IdentityResult(rec_config_id(run_rows), not mismatches, n, carried, tuple(mismatches))
+
+@dataclass(frozen=True, slots=True)
+class VariationRow:
+    case_id: str
+    recorded_decision: str                    # the live run's decision
+    replayed_decision: str                    # the Forced_Table replay's decision at the shipped Band
+    cause: Literal["jev_p", "tier2", "both"]  # why the two differ
+    recorded_p: float | None
+    replayed_p: float | None                  # the release run's stored P
+    recorded_tier2: str | None                # "ALLOW", "BLOCK", "outage", or None when Tier-2 was not consulted
+    replayed_tier2: str | None
+
+@dataclass(frozen=True, slots=True)
+class VariationReport:
+    config_id: str
+    release: str
+    jev_run_key: str | None                   # the run whose P the replay used
+    n_compared: int                           # non-ERROR, non-unmeasured cases compared
+    n_error_carried: int                      # recorded ERROR rows, never compared
+    n_unmeasured: int                         # no stored P, or triggered with no Forced_Table entry; never imputed
+    rows: tuple[VariationRow, ...]            # exactly the cases whose decision differs, ordered by case_id
+
+def variation_report(cases, run_rows, release: ReleaseInputs, recorded_cfg, pass_index: int = 1) -> VariationReport:
+    # For each non-ERROR case: compose the live run's own outputs (as in replay_identity) and
+    # the Forced_Table replay (stored P of the release run, Forced_Table entry of pass_index).
+    # If the decisions differ, record one row. p_differs = recorded P != replayed P;
+    # t2_differs = the Tier-2 output each composition consulted (Composed.tier2_used) differs
+    # in decision, threat_score or outage state; cause = "both" if both, else the one that holds.
+    # Determinism means a differing decision has at least one cause; neither holding is a
+    # harness defect and raises (it is not reported as a variation).
+    ...
+```
+
+`variation_report` never feeds an identity check, a rate, a Catch_Partition or a
+recommendation. The notebook shows it in its own table beside the replay surface,
+labeled "Forced_Table replay versus live run: expected variation, not a failed
+identity check".
+
+**Postconditions of `replay_band`:** a recorded `ERROR` row is carried through as
+`ERROR` with its recorded `error` class at every Band, is excluded from every rate and
+is counted in `n_error`; it is never a difference. `replay_band` itself makes no claim
+of equality with the recorded verdicts: that claim belongs to `replay_identity`, and
+the comparison of a Forced_Table replay with the live run belongs to `variation_report`.
+**Postconditions of `replay_identity`:** for a Run_Set's own recorded Stage outputs at
+the shipped Band, `passed` is true if and only if every non-`ERROR` case replays to its
+recorded decision and quarantine cause with a score within 1e-9; `ERROR` rows are
+counted in `n_error_carried` and are never in `mismatches`.
+**Further postconditions of `replay_band`:** `tier2_share` is non-decreasing under
 interval inclusion (if `[lo2, hi2]` contains `[lo1, hi1]`, the set of cases that
 fire Tier-2 is a superset); a triggered case without a Tier-2 entry is `unmeasured`
 for that case, is shown with an em dash and is counted in `n_unmeasured`, never
@@ -1867,7 +2167,9 @@ class FreshEvidence:
                                                  # (a fact about whether a case was scored, never a score or replay result)
 
 class GateCheck(str, Enum):
-    """Checks on the recommendation as a whole."""
+    """Checks on the recommendation as a whole. INPUT_INTEGRITY is evaluated first, before
+    any case is checked or counted; when it fails nothing else is evaluated."""
+    INPUT_INTEGRITY = "no_duplicate_case_ids"                      # input-integrity, not a per-case exclusion
     HELD_OUT_WITHIN_SPREAD = "held_out_within_pass_spread"
     FRESH_EVIDENCE_COUNT = "at_least_30_attack_and_30_benign_counted"
     F09_OR_OTHER_STRATUM = "f09_complete_or_other_stratum_holds"
@@ -1890,8 +2192,11 @@ class CaseVerdict:
     case_id: str
     ground_truth: Literal["BENIGN", "MALICIOUS"] | None   # None when no Authoring_Record lists the case
     counted: bool
-    failed_checks: tuple[CaseCheck, ...]                  # every check this case failed; empty if and only if counted
-    exclusion_level: Literal["none", "record", "case"]    # "record" when any record-level check failed
+    failed_checks: tuple[CaseCheck, ...]                  # every check this case failed; empty if and only if counted.
+                                                          # Empty and not counted for a case of a submission rejected on input integrity
+    exclusion_level: Literal["none", "record", "case", "submission"]
+                                                          # "record" when any record-level check failed;
+                                                          # "submission" when the whole submission was rejected on input integrity
 
 @dataclass(frozen=True, slots=True)
 class ClassTotals:
@@ -1900,11 +2205,21 @@ class ClassTotals:
     excluded: int                                         # submitted == counted + excluded
 
 @dataclass(frozen=True, slots=True)
+class DuplicateId:
+    case_id: str
+    kind: Literal["repeated_in_submission", "repeated_in_record", "in_multiple_records"]
+    occurrences: int                                      # how many times the id appears (2 or more)
+    session_identities: tuple[str, ...]                   # the records that list it, ordered; empty for "repeated_in_submission" with no record
+
+@dataclass(frozen=True, slots=True)
 class ExclusionReport:
-    verdicts: tuple[CaseVerdict, ...]                     # one per submitted case, ordered by case_id
+    duplicates: tuple[DuplicateId, ...]                   # empty when the input is sound; each duplicated id is named here
+    integrity_ok: bool                                    # False iff duplicates is non-empty
+    verdicts: tuple[CaseVerdict, ...]                     # one per DISTINCT submitted case id, ordered by case_id
     attack: ClassTotals                                   # cases whose ground truth is MALICIOUS
     benign: ClassTotals                                   # cases whose ground truth is BENIGN
-    unclassified: ClassTotals                             # cases no record lists: ground truth unknown, never counted
+    unclassified: ClassTotals                             # cases no record lists, or whose records disagree on the class: ground truth unknown, never counted
+                                                          # Every total in this report counts DISTINCT case ids, never repeated entries
 
 def _record_complete(r: AuthoringRecord) -> bool:
     """Every field present and valid, and every withheld category stated as shown or not shown."""
@@ -1913,14 +2228,46 @@ def _record_complete(r: AuthoringRecord) -> bool:
             and bool(r.session_identity) and bool(r.surface_frozen_at) and bool(r.authored_at)
             and all(m in r.shown or m in r.not_shown for m in WITHHELD_MATERIAL))
 
+def find_duplicate_ids(evidence: FreshEvidence) -> tuple[DuplicateId, ...]:
+    """Input integrity, before any count. An id is a duplicate if it appears more than once
+    in the submitted ids, more than once in one record's cases, or in more than one record."""
+    submitted = Counter(evidence.submitted_case_ids)
+    listed: dict[str, list[tuple[int, str]]] = {}           # case_id -> (record position, session identity) per listing
+    for pos, r in enumerate(evidence.records):
+        for c in r.cases:
+            listed.setdefault(c.case_id, []).append((pos, r.session_identity))
+    found = []
+    for cid in sorted(set(submitted) | set(listed)):
+        listings = listed.get(cid, [])
+        sessions = tuple(s for _, s in listings)
+        if submitted[cid] > 1:
+            found.append(DuplicateId(cid, "repeated_in_submission", submitted[cid], sessions))
+        elif len({pos for pos, _ in listings}) > 1:         # listed by more than one Authoring_Record
+            found.append(DuplicateId(cid, "in_multiple_records", len(listings), sessions))
+        elif len(listings) > 1:                             # listed twice by one record
+            found.append(DuplicateId(cid, "repeated_in_record", len(listings), sessions))
+    return tuple(found)
+
 def evaluate_fresh_evidence(evidence: FreshEvidence,
                             tuning_case_ids: frozenset[str]) -> ExclusionReport:
     """Decide, case by case, whether each submitted case counts. Reads only record fields,
     the tuning ids and the scored-before-draft ids: no score, replay result or Stage output."""
-    index = {c.case_id: (r, c) for r in evidence.records for c in r.cases}
     # The id set is fixed at authoring time by the records. The report covers the union of the
     # records' ids and the submitted ids, so leaving a case out of the submission cannot hide it.
-    ids = sorted(set(evidence.submitted_case_ids) | set(index))
+    ids = sorted(set(evidence.submitted_case_ids) | {c.case_id for r in evidence.records for c in r.cases})
+    duplicates = find_duplicate_ids(evidence)
+    if duplicates:
+        # Whole-submission rejection BEFORE any count. No case is checked or counted: every
+        # DISTINCT id is reported as not counted at level "submission", the duplicated ids are
+        # named, and each total is a count of distinct ids.
+        gt = {cid: _agreed_ground_truth(evidence, cid) for cid in ids}     # None if no record or the records disagree
+        verdicts = [CaseVerdict(cid, gt[cid], False, (), "submission") for cid in ids]
+        def rejected_totals(g):
+            n = sum(1 for v in verdicts if v.ground_truth == g)
+            return ClassTotals(n, 0, n)
+        return ExclusionReport(duplicates, False, tuple(verdicts), rejected_totals("MALICIOUS"),
+                               rejected_totals("BENIGN"), rejected_totals(None))
+    index = {c.case_id: (r, c) for r in evidence.records for c in r.cases}   # no id is listed twice here
     verdicts = []
     for cid in ids:
         r, c = index.get(cid, (None, None))
@@ -1947,7 +2294,7 @@ def evaluate_fresh_evidence(evidence: FreshEvidence,
         rows = [v for v in verdicts if v.ground_truth == gt]
         n = sum(v.counted for v in rows)
         return ClassTotals(len(rows), n, len(rows) - n)
-    return ExclusionReport(tuple(verdicts), totals("MALICIOUS"), totals("BENIGN"), totals(None))
+    return ExclusionReport((), True, tuple(verdicts), totals("MALICIOUS"), totals("BENIGN"), totals(None))
 
 @dataclass(frozen=True, slots=True)
 class GateResult:
@@ -1970,6 +2317,15 @@ def check_recommendation(
     failed = []
     keys = [(m, r) for m in ("catch", "false_alarm") for r in Reading]    # both metrics, both Readings
 
+    # Input integrity, before any count (requirement 16.22): a case id that is repeated in the
+    # submission, or listed in more than one Authoring_Record (or twice in one), rejects the
+    # whole submission. This is not a per-case exclusion. Nothing else is evaluated, the
+    # rejection names each duplicated id, and the exclusion report is recorded with it
+    # (requirement 16.24). A repeated eligible id therefore can never pad a count.
+    report = evaluate_fresh_evidence(evidence, tuning_case_ids)
+    if not report.integrity_ok:
+        return GateResult(False, (GateCheck.INPUT_INTEGRITY,), report, ())
+
     # Held-out comparison: tune vs held-out within the Pass spread, for every metric and Reading.
     if not all(_within(tune[k], held[k], pass_spread[k]) for k in keys):  # a None anywhere fails
         failed.append(GateCheck.HELD_OUT_WITHIN_SPREAD)
@@ -1978,7 +2334,6 @@ def check_recommendation(
     # replaced, and no exclusion is decided from a score. The check passes on the counted
     # totals alone: a record-level failure has already excluded every case of that record, so
     # no counted case comes from a record that failed a record-level check.
-    report = evaluate_fresh_evidence(evidence, tuning_case_ids)
     if report.attack.counted < GATE_MIN_ATTACK or report.benign.counted < GATE_MIN_BENIGN:
         failed.append(GateCheck.FRESH_EVIDENCE_COUNT)
 
@@ -1993,7 +2348,21 @@ def check_recommendation(
 
 The gate tests authoring independence, not who typed the cases. The author is the
 maintainer or an agent session; an agent session whose record shows that it was shown
-any withheld material is disqualified. Two kinds of check decide whether a case counts.
+any withheld material is disqualified.
+
+**Input integrity comes first and is not a per-case exclusion.** Before any case is
+checked or counted, `find_duplicate_ids` looks for a case id that appears more than once
+in `submitted_case_ids`, more than once in one record's `cases`, or in more than one
+Authoring_Record. Any such id rejects the whole submission (`GateCheck.INPUT_INTEGRITY`),
+names each duplicated id and its kind, and counts nothing, so a repeated eligible id can
+never pad the attack or benign count and an id listed by two records cannot be counted
+under either. The rejection still carries the `ExclusionReport` (requirement 16.24):
+its `duplicates` field names each duplicated id, each distinct submitted id is listed as
+not counted at level `submission`, and every submitted, counted and excluded total is a
+count of distinct case ids. A helper `_agreed_ground_truth` gives a distinct id its
+ground truth when every record that lists it agrees, and `None` (the `unclassified`
+total) when no record lists it or the records disagree. Only when the input is sound do
+the two kinds of check below decide whether a case counts.
 
 - **Record-level checks** apply to a whole Authoring_Record, because independence is a
   property of the author and the session. A missing Authoring_Record, an incomplete
@@ -2020,17 +2389,22 @@ not by `check_recommendation`.
 The Authoring_Record is a committed JSON file stored beside the cases it covers; its
 dataclass and file schema are in "Data Models" (`AuthoringRecord`).
 
-**Preconditions:** the replay surface was frozen before any fresh case was authored
+**Preconditions:** a case id appears once in the submission and in exactly one record
+(otherwise the gate returns the input-integrity rejection and counts nothing); the
+replay surface was frozen before any fresh case was authored
 (each record carries its own `surface_frozen_at`); `tuning_case_ids` is the identifier
 set of the Corpus used for tuning; `scored_before_draft_ids` lists every submitted case
 that a harness run scored before the recommendation was drafted; the identifier set in
 the records was fixed at authoring time and no case was added to or removed from it
 after any scoring.
-**Postconditions:** `accepted` is true only if the held-out check holds, at least 30
-attack cases and at least 30 benign cases are counted after the exclusions (no counted
-case comes from a record that failed a record-level check), and TASK-F09 is complete or
-the `other` stratum holds on its own. Every submitted case has exactly one verdict;
-`counted` is true if and only if its `failed_checks` is empty; every case of a record
+**Postconditions:** `accepted` is true only if the input has no duplicated case id, the
+held-out check holds, at least 30 attack cases and at least 30 benign cases are counted
+after the exclusions (no counted case comes from a record that failed a record-level
+check), and TASK-F09 is complete or the `other` stratum holds on its own. A duplicated
+case id yields a rejection whose only failed check is `INPUT_INTEGRITY`, with zero
+counted cases and the duplicated ids named in the report. Every distinct submitted case
+has exactly one verdict, and every total counts distinct ids;
+when the input is sound, `counted` is true if and only if its `failed_checks` is empty; every case of a record
 that fails a record-level check is excluded; a case that fails only case-level checks
 excludes no other case; for each class, submitted equals counted plus excluded; the
 verdicts depend only on the record fields, `tuning_case_ids` and
@@ -2086,6 +2460,8 @@ verdicts = {c.case_id: compose_verdict(with_jev_p(rs.stages[c.case_id], rel.p_by
 caught = rates(verdicts_as_records(verdicts), Reading.STOPPED)
 cells = replay_band(rs.cases, rs.stages, rel, cfg,
                     los=[0.0, 0.05, 0.10, 0.35], his=[0.50, 0.75, 0.90, 1.0])
+identity = replay_identity(rs.cases, rs.run_rows["W2"], cfg)    # the run's own outputs: must pass
+variation = variation_report(rs.cases, rs.run_rows["W2"], rel, cfg)   # Forced_Table vs live: expected variation
 ```
 
 
@@ -2132,11 +2508,11 @@ rule 70; it is scheduled in Phasing, not done here).
 | 5 | What can stop a call | Static reduction for the selected layers: with TI and CBM absent the verdict is structural BLOCK, TSG match, Tier-2 verdict, or Tier-2-unavailable QUARANTINE; the aggregate cannot reach 0.50 |
 | 6 | Panel A: isolated versus whole | Per group (class, attack type, tool-name group, C2/IOC versus payload): each stage's own flag rate next to the system catch rate and false-alarm rate, under both readings, with counts, pass spread and Wilson intervals. The whole-system and composed catch and false-alarm rates carry the `ERROR` count and the treat-`ERROR`-as-stopped sensitivity column (Q15); the Stage_Gate and Stage_Flag rows carry the `ERROR` exclusion and count only |
 | 7 | Panel B: catch attribution | Partition (system-only, unique with stage names, redundant, lost-by-system, missed-by-all) as a stacked bar per configuration; the class totals equal the Attack_Cases that are neither `ERROR` nor `UNMEASURED`, and the panel shows the number of excluded `ERROR` cases and the number of excluded `UNMEASURED` cases separately; leave-one-out and add-one-in tables; the case lists behind each bar |
-| 8 | Panel C: band replay surface | Heatmaps over `lo` and `hi`: catch (stopped), catch (blocked), false alarm, Tier-2 share, outage QUARANTINE exposure; the shipped band marked; unmeasured cells as an em dash; the number of excluded `ERROR` rows beside each rate (Tier-2 share included, whose denominator also excludes them) and no sensitivity column, because replay cells carry the `ERROR` exclusion and count only (Q15); one set of heatmaps per stored Jev release (`jev-1.13.0`, `jev-1.14.0`), each computed from that release's own stored P and its own Forced_Table (Q3), shown side by side; each rate's error band drawn from the minimum to the maximum of that rate across the two Tier-2 Passes of the replayed release's table, Not_Measured with the reason and no band when fewer than two Passes exist; the tune-half versus held-out-half curves (catch and false alarm under both Readings, with the split salt) and the `high_risk_name` and `other` strata side by side; a validity-limits box rendered in the same panel; every band result labeled "input to TASK-F10 and TASK-F06, not a decision"; no band edge is recommended here, because a recommendation needs the gate of "Band recommendation gate" |
+| 8 | Panel C: band replay surface | Heatmaps over `lo` and `hi`: catch (stopped), catch (blocked), false alarm, Tier-2 share, outage QUARANTINE exposure; the shipped band marked; unmeasured cells as an em dash; the number of excluded `ERROR` rows beside each rate (Tier-2 share included, whose denominator also excludes them) and no sensitivity column, because replay cells carry the `ERROR` exclusion and count only (Q15); one set of heatmaps per stored Jev release (`jev-1.13.0`, `jev-1.14.0`), each computed from that release's own stored P and its own Forced_Table (Q3), shown side by side; each rate's error band drawn from the minimum to the maximum of that rate across the two Tier-2 Passes of the replayed release's table, Not_Measured with the reason and no band when fewer than two Passes exist; the tune-half versus held-out-half curves (catch and false alarm under both Readings, with the split salt) and the `high_risk_name` and `other` strata side by side; a validity-limits box rendered in the same panel; an identity-check line that states whether the run's own recorded Stage outputs replay to the recorded verdicts at the shipped Band, with the number of recorded `ERROR` rows carried through; a separate "Forced_Table replay versus live run" variation table (the cases whose decision differs, each with its cause: Jev P difference, Tier-2 difference or both), labeled expected variation and not a failed identity check; every band result labeled "input to TASK-F10 and TASK-F06, not a decision"; no band edge is recommended here, because a recommendation needs the gate of "Band recommendation gate" |
 | 9 | Panel D: Tier-2 outage drill | The ADR 0009 Decision 6 cost computed offline: benign QUARANTINEs and attack outcomes if Tier-2 were unavailable |
 | 10 | Panel E: stratified views | The "other tool name" stratum as the headline, the shell stratum beside it, and the C2/IOC-type stratum |
 | 11 | Panel F: TSG | One row per Seeding_Mode. Transfer set, false-match set, the match rate over variants of seeded parents (labeled transfer from a seed, not held-out evidence) beside the match rate over the unseeded-parent half (the held-out control), match path, seed pattern length. Rows marked `leakage="seeded_case"` (only parents whose seed was written in that mode) are labeled and excluded from the rates. The `ERROR` exclusion and count only, no sensitivity column (Q15) |
-| 12 | Panel G: optional layers | Threat intelligence on the corpus hosts and on the IOC corpus (separate panels; the IOC headline is the share of feed-listed indicators that OTX recognizes, with its numerator and denominator and the statement that an unrecognized indicator can be a delisting), CBM default versus fixture versus permuted; a status tile per layer, "not measured" with the recorded reason when absent (a threat-intelligence row without a grant reads `no grant` and names `BW_OTX_API_KEY`); a banner on any plumbing-only data; threat-intelligence, IOC_Corpus and CBM `sinks mapped` rates carry the `ERROR` exclusion and count only, no sensitivity column (Q15); a Default_Plan row that lacks a credential, fixture or transport shows its recorded Not_Measured reason |
+| 12 | Panel G: optional layers | Threat intelligence on the corpus hosts and on the IOC corpus (separate panels; the IOC headline is the share of feed-listed indicators that OTX recognizes, with its numerator and denominator and the statement that an unrecognized indicator can be a delisting), CBM default versus fixture versus permuted; a status tile per layer, "not measured" with the recorded reason when absent (a threat-intelligence row without a grant reads `no grant` and names `BW_OTX_API_KEY`); each threat-intelligence panel states its source corpus (the Corpus or the IOC_Corpus, from `TiOut.source_corpus` and the manifest's `ti_runs`); a banner on any plumbing-only data; threat-intelligence, IOC_Corpus and CBM `sinks mapped` rates carry the `ERROR` exclusion and count only, no sensitivity column (Q15); a Default_Plan row that lacks a credential, fixture or transport shows its recorded Not_Measured reason |
 | 13 | Per-case drilldown | Case filter and selector: stage outputs, novelty and keyword hits, trigger, Tier-2 decision and latency, final decision, decided-by, quarantine cause |
 | 14 | Caveats | Corpus size, the tool-name tell, Tier-2 variance, circularity, the Jev release, what was not measured, links to the ADRs and tasks |
 | 15 | Cross-link | A pointer to `notebooks/benchmark_analytics.py` and the Tier-1 section it already carries |
@@ -2165,9 +2541,9 @@ already cited by ADR 0009.
 
 ### Property 1: Caught is deterministic and label-symmetric
 
-*For any ground truth, decision and reading, `outcome` returns one value that depends on those three alone; for `ERROR` it returns `ERROR`; swapping the benign and attack labels of a record swaps `CAUGHT` with `FALSE_ALARM` and `MISSED` with `CORRECT_ALLOW`.*
+*For any ground truth, decision and reading, `outcome` returns one value that depends on those three alone; for `ERROR` it returns `ERROR`; swapping the benign and attack labels of a record swaps `CAUGHT` with `FALSE_ALARM` and `MISSED` with `CORRECT_ALLOW`. No Harness module other than the Caught_Module holds a set, tuple, list or frozenset literal, or a membership test, whose members include both `BLOCK` and `QUARANTINE`, or assigns or returns an Outcome value; building a verdict (comparing a decision with a single literal, preventing a `BLOCK` downgrade, assigning a Quarantine_Cause) and checking why a verdict was returned are not flagged.*
 
-**Validates: Requirements 6.1, 6.2, 6.5, 6.6, 6.7, 6.8, 6.9**
+**Validates: Requirements 6.1, 6.2, 6.5, 6.6, 6.7, 6.8, 6.9, 6.15, 6.16**
 
 ### Property 2: The strict reading is contained in the primary reading
 
@@ -2183,9 +2559,9 @@ already cited by ADR 0009.
 
 ### Property 4: Replay reproduces the shipped system
 
-*For any recorded whole-system run, and for every case whose recorded decision is not `ERROR`, `compose_verdict` at the recorded configuration, the shipped band and the recorded Tier-2 outputs returns the case's recorded `final_decision` and a score within 1e-9 (absolute) of the recorded `final_score`. For every recorded `ERROR` row, the band replay returns the row unchanged as `ERROR` with its recorded `error` class, never passes it to the Composer, excludes it from every rate and counts it; a carried-through `ERROR` row is not reported as a difference. The same carry-through holds at any other band.*
+*For any recorded whole-system run, the identity check replays the run's OWN recorded Stage outputs: its own recorded Jev P and its own recorded Tier-2 output (a verdict or a recorded measured outage) for each case, at the recorded configuration and the shipped band. For every case whose recorded decision is not `ERROR`, `compose_verdict` then returns the case's recorded `final_decision` and quarantine cause, exactly, and a score within 1e-9 (absolute) of the recorded `final_score`. For every recorded `ERROR` row, the replay returns the row unchanged as `ERROR` with its recorded `error` class, never passes it to the Composer, excludes it from every rate and counts it; a carried-through `ERROR` row is not reported as a difference. The same carry-through holds at any other band. A Forced_Table replay (the stored Jev P of the release run and the independently measured Forced_Table) is a different thing and is not part of this property: it is compared with the live run in a separate variation report that lists the cases whose decision differs with the cause (Jev P difference, Tier-2 difference or both), and a difference there is never a failed identity check.*
 
-**Validates: Requirements 9.1, 9.6, 9.18, 15.5, 15.6**
+**Validates: Requirements 9.1, 9.6, 9.18, 9.19, 15.5, 15.6**
 
 ### Property 5: The composer matches the resolver
 
@@ -2219,9 +2595,9 @@ already cited by ADR 0009.
 
 ### Property 10: Unmeasured is never imputed
 
-*For any triggered case without a Tier-2 entry, the Composer returns `UNMEASURED` (not a decision and not `ERROR`), and the replay cell reports it as unmeasured and excludes it from every numerator and denominator; no value is substituted. A replay of a Jev release reads only that release's own stored P and Forced_Table, never another release's.*
+*For any triggered case under `tier2 == "recorded"` that has no recorded or forced Tier-2 output at all (no verdict and no recorded unavailable reason) and whose prior decision is not `BLOCK`, the Composer returns `UNMEASURED` (not a decision and not `ERROR`), and the replay cell reports it as unmeasured and excludes it from every numerator and denominator; no value is substituted. A triggered case whose recorded Tier-2 output holds no verdict but does hold an `unavailable_reason` is a measured outage, not a missing measurement: the Composer treats it exactly like `tier2 == "unavailable"` (a prior `ALLOW` becomes `QUARANTINE` with cause `tier2_unavailable`; a prior `QUARANTINE` or `BLOCK` is unchanged) and never returns `UNMEASURED` for it, and a recorded verdict is used as recorded and never downgrades a `BLOCK`. A replay of a Jev release reads only that release's own stored P and Forced_Table, never another release's.*
 
-**Validates: Requirements 9.14, 15.1, 15.17, 15.18, 15.19, 15.20**
+**Validates: Requirements 9.12, 9.13, 9.14, 15.1, 15.17, 15.18, 15.19, 15.20**
 
 ### Property 11: The held-out split keeps families together
 
@@ -2243,9 +2619,9 @@ already cited by ADR 0009.
 
 ### Property 14: Serialization round-trips
 
-*For any record or manifest, decode(encode(x)) equals x, and a file with a different `schema_version` is rejected.*
+*For any record or manifest with finite floats, decode(encode(x)) equals x exactly: every float is stored unrounded, as the shortest decimal string that decodes to the same binary float, so no stored score or calculation input changes on a round trip. A non-finite float is rejected on write, naming the field and the record, and nothing is written for that record. A file with a different `schema_version` is rejected. A composed verdict recomputed from stored values equals the live verdict within 1e-9.*
 
-**Validates: Requirements 10.3, 10.4, 10.8**
+**Validates: Requirements 10.3, 10.4, 10.5, 10.8**
 
 ### Property 15: No credential-shaped string is committed
 
@@ -2273,7 +2649,7 @@ already cited by ADR 0009.
 
 ### Property 19: A band recommendation needs the whole gate and changes nothing
 
-*For any proposal and any evidence, `check_recommendation` accepts only if the held-out value is within the pass spread of the tune value for the catch rate and the false-alarm rate under both Readings, at least 30 attack cases and at least 30 benign cases are counted as Fresh_Evidence after the exclusions, and TASK-F09 is complete or the held-out check holds in the `other` stratum alone. A case counts only if it fails no check: a record-level failure (a missing or incomplete Authoring_Record, or a `shown` list that holds any withheld material) excludes every case of that record, and a case-level failure (the record's authoring timestamp is not after its freeze timestamp, the maintainer has not confirmed the label, the case is present in the tuning Corpus, or it was scored before the recommendation was drafted) excludes only that case, so the other cases of its record still count. An excluded case is never replaced, and no exclusion depends on a score or a replay result. Every submitted case appears in the exclusion report as counted or excluded, each excluded case with its identifier and every check it failed, with submitted, counted and excluded totals for the attack class and the benign class. Otherwise the call rejects, names each failed check and carries the exclusion report. In every case the shipped band, the thresholds and the aggregation weights are identical before and after the call.*
+*For any proposal and any evidence, `check_recommendation` first checks input integrity, before any count: a case id that appears more than once in the submission, more than once in one Authoring_Record, or in more than one Authoring_Record rejects the whole submission, names each duplicated id and counts nothing, and every total in the exclusion report counts distinct case ids, so a repeated eligible id never pads a count. For sound input it accepts only if the held-out value is within the pass spread of the tune value for the catch rate and the false-alarm rate under both Readings, at least 30 attack cases and at least 30 benign cases are counted as Fresh_Evidence after the exclusions, and TASK-F09 is complete or the held-out check holds in the `other` stratum alone. A case counts only if it fails no check: a record-level failure (a missing or incomplete Authoring_Record, or a `shown` list that holds any withheld material) excludes every case of that record, and a case-level failure (the record's authoring timestamp is not after its freeze timestamp, the maintainer has not confirmed the label, the case is present in the tuning Corpus, or it was scored before the recommendation was drafted) excludes only that case, so the other cases of its record still count. An excluded case is never replaced, and no exclusion depends on a score or a replay result. Every submitted case appears in the exclusion report as counted or excluded, each excluded case with its identifier and every check it failed, with submitted, counted and excluded totals for the attack class and the benign class. Otherwise the call rejects, names each failed check and carries the exclusion report. In every case the shipped band, the thresholds and the aggregation weights are identical before and after the call.*
 
 **Validates: Requirements 16.21, 16.22, 16.23, 16.24, 16.25**
 
@@ -2285,7 +2661,7 @@ already cited by ADR 0009.
 
 ### Property 21: The fixture plan binds to the source, the snapshot and the corpus labels
 
-*For any Fixture_Plan and fixture source, the source holds between 10 and 14 function definitions, every tool in the plan has a function of that name in the source, and the plan is rejected, naming the tool, when it lists a tool with no such function. For any rationale, the plan is rejected, naming the tool and the matched text, when the rationale contains as a whole word, compared case-insensitively, a `case_id`, a `ground_truth` value, a scenario class name or an `attack_type` value of the Corpus, or a figure taken from a Run_Set. The Manifest of a Run_Set with a CBM fixture row holds the sha256 digests of the plan and the snapshot, and a Run_Set whose recorded digest differs from the committed file is rejected.*
+*For any Fixture_Plan and fixture source, the source holds between 10 and 14 function definitions, every tool in the plan has a function of that name in the source, and the plan is rejected, naming the tool, when it lists a tool with no such function. For any rationale, the plan is rejected, naming the tool and the matched text, when the rationale contains as a whole word, compared case-insensitively, a `case_id`, a `ground_truth` value, a scenario class name or an `attack_type` value of the Corpus, or a figure taken from a Run_Set. The Manifest of a Run_Set with a fixture-backed CBM row (I-CBM-fixture, I-CBM-permuted, W4, W5, the `sinks mapped` row or an Indexer_Agreement row) holds the sha256 digests of the plan and the snapshot, and a Run_Set whose recorded digest differs from the committed file is rejected. A Run_Set whose CBM rows are all default-CBM rows needs neither the plan nor the snapshot and records no digest for them.*
 
 **Validates: Requirements 21.1, 21.30, 21.31, 21.32, 21.33**
 
@@ -2300,7 +2676,13 @@ already cited by ADR 0009.
 | Scenario | Condition | Response | Recovery |
 |---|---|---|---|
 | Jev outage | `JevUnavailableError` propagates from `evaluate()` (ADR 0009, no fallback) | Recorded as an `ERROR` row with the exception class; counted in every table; the sensitivity column of a whole-system or composed catch table treats it as stopped (replay cells, TSG, threat-intelligence, IOC and CBM what-if figures show the exclusion and the count only) | The pass stays valid; if errors are many, the human re-runs the configuration |
-| Tier-2 no verdict | Empty bucket, deadline, malformed answer, Vertex error, no client | Recorded with `unavailable_reason`; an ALLOW becomes QUARANTINE with cause `tier2_unavailable` | None needed; this is the behavior under study |
+| Tier-2 no verdict | Empty bucket, deadline, malformed answer, Vertex error, no client | Recorded as a `Tier2Out` with `decision is None` and a non-empty `unavailable_reason` (a measured outage); the Composer treats it like `tier2 == "unavailable"`: an ALLOW becomes QUARANTINE with cause `tier2_unavailable`, a QUARANTINE or BLOCK is unchanged. It is never `UNMEASURED` | None needed; this is the behavior under study |
+| Tier-2 not measured for a triggered case | Under `tier2 == "recorded"`, no forced entry and no fired in-system output, and the prior decision is not BLOCK | The Composer returns `UNMEASURED`; the case is counted as Not_Measured, excluded from every rate and never imputed; it is not an `ERROR` and not an outage | Complete the release's Forced_Table |
+| Tier2Out invariant violated | A stored `Tier2Out` has `decision is None` without a non-empty `unavailable_reason`, or a verdict without a `threat_score`, or an unfired output with a decision | Loader error naming the file; nothing partial is returned | Re-run the pass |
+| Non-finite float | A record or the manifest holds `NaN` or an infinity | The write is rejected naming the field and the record; nothing is written for that record | Fix the code that produced the value |
+| Identity check mismatch | `replay_identity` finds a non-`ERROR` case whose replay of the run's own outputs at the shipped Band differs from the recorded verdict | The check fails and lists each case with its recorded and replayed verdicts. Recorded `ERROR` rows are carried through and never listed | Fix the Composer or the recording; a Forced_Table variation is never the cause |
+| Forced_Table replay differs from the live run | A case's Forced_Table decision at the shipped Band differs from the live decision | Listed in the variation report with its cause (Jev P difference, Tier-2 difference or both); not a failure | None needed; shown beside the replay surface as expected variation |
+| OTX send guard refusal | An indicator selected for OTX is not in the committed fixtures of the corpus chosen for that run (the Corpus for I-TI-corpus, the IOC_Corpus for I-TI-ioc) | The run fails naming the indicator; nothing is sent for it | Add the indicator to the committed fixtures through the normal authoring path, or drop it from the run |
 | Tier-2 429 | The client probe sees status 429 | The whole pass is invalid: discarded, recorded in `discarded_passes`, never scored | Cool-down, re-run the pass |
 | Front rate limit | Any `rate_limit` row | Pass invalid (harness defect at the default concurrency of 2) | Lower `--concurrency`, re-run; the re-run is compared only with passes that used the same N |
 | Concurrency differs between passes | Valid passes of one configuration used different `--concurrency` values | Every pass is recorded; a pass whose N differs from the others carries a `comparison_exclusion` reason and is left out of the valid-pass count, the Pass_Spread and release comparisons | Re-run at the common N so two valid passes remain |
@@ -2311,13 +2693,14 @@ already cited by ADR 0009.
 | Missing Tier-2 entry in replay | Triggered case without a row in the replayed release's own forced table | Cell status `unmeasured` for that case; em dash; never filled from another release's table | Complete that release's forced table |
 | Forced_Table not buildable for a release | The Manifest names no Jev run for the release, or the run lacks a Jev P for a case | The release is recorded in `not_measured` with the reason and has no Passes; its replay is Not_Measured; the other release is unaffected | Commit the missing Jev run, then build the table |
 | Fewer than two Forced_Table Passes | A release has one Pass, for example after a discarded Pass that was not re-run | The error band is Not_Measured with the reason and no band is drawn | Re-run the Pass |
+| Band recommendation input integrity | A case id repeated in the submission, repeated in one Authoring_Record, or listed by more than one Authoring_Record | The whole submission is rejected before any count (`INPUT_INTEGRITY`), naming each duplicated id; nothing is counted; the exclusion report is recorded with the rejection, with every total a count of distinct ids | Remove the duplicates so each id is submitted once and belongs to one record, then resubmit |
 | Band recommendation fails the gate | Held-out difference above the Pass spread, fewer than 30 attack or 30 benign counted Fresh_Evidence cases after the exclusions, or F09 open without the `other` stratum holding. Cases are excluded, and not counted, by a record-level failure (a missing or incomplete Authoring_Record, or a record showing the author saw withheld material; every case of that record is excluded) or a case-level failure (an unconfirmed label, authored at or before the surface freeze, present in the tuning Corpus, or scored before the draft; that case only) | `check_recommendation` rejects, names each failed check and records the rejection together with the exclusion report (each excluded case with its identifier and failed checks, and the submitted, counted and excluded totals per class); excluded cases are not replaced and the band, thresholds and weights stay unchanged | Author Fresh_Evidence after the freeze (withholding the replay material from the author), commit its Authoring_Record, have the maintainer confirm the labels, then redraft; a single excluded case does not require redoing the others |
 | IOC build violation | Missing feed metadata, an OTX-sourced entry, an indicator in both classes, a non-domain or non-IP indicator, or a `ContextHygiene` change | The build fails naming the entry or indicator and writes no output | Fix the selection and rebuild |
 | IOC selection input invalid | An invalid seed, or a downloaded source smaller than its target size | The build reports the invalid value, or the class, the available count and the target; it exits non-zero and writes no output | Supply a valid seed, or lower the target and record it |
 | IOC indicator unrecognized by OTX | The feed has since delisted it (ThreatFox expires indicators older than 6 months) | Reported as unrecognized, never as an error; it lowers the headline share | None needed; the delisting statement is shown beside the headline |
 | CBM snapshot drift | The committed snapshot is not byte-identical to the export of the committed source | `build_cbm_fixture.py check` exits non-zero and names each function whose facts differ; the Run_Store rejects a Run_Set whose recorded digest no longer matches | Re-run `export` and commit the new snapshot in a new fixture directory if a Run_Set already used the old one |
 | Indexer unavailable, not requested or disagreeing | The probe is not requested, the indexer is absent, indexing fails, or the indexer's facts differ from the snapshot | Each Indexer_Agreement row is Not_Measured with the reason, or `disagree` with the differing facts, which is a finding; no fixture row value changes and no hermetic run fails | Investigate the finding; the snapshot is not edited to match the indexer |
-| CBM transport mismatch, or a missing fixture | Live MCP does not answer in the parsed shapes, or the fixture, its plan or its snapshot is absent; applies to a Named_Explicitly row as well as a Default_Plan row, because the abort covers credentials and grants only | `not_measured: transport mismatch` (or a reason naming the missing fixture); the run continues; the fixture adapter rows are unaffected by a transport mismatch | Author the fixture, or follow up on the client or the server separately |
+| CBM transport mismatch, or a missing fixture | Live MCP does not answer in the parsed shapes, or the fixture, its plan or its snapshot is absent, or the snapshot is not valid JSON or lacks facts for a queried tool; applies to a Named_Explicitly row as well as a Default_Plan row, because the abort covers credentials and grants only. The fixture is a prerequisite of the fixture-backed CBM rows only (I-CBM-fixture, I-CBM-permuted, W4, W5, `sinks mapped`, Indexer_Agreement) | `not_measured: transport mismatch` (or a reason naming the missing or unreadable fixture item) on each affected fixture-backed row; the run continues; every other row is unchanged, including I-CBM-default and every Whole_System_Run that uses the default CBM client, and the fixture adapter rows are unaffected by a transport mismatch | Author the fixture, or follow up on the client or the server separately |
 | Corpus edited after a run | Hash mismatch | The validate test and the notebook loader fail with the differing case ids | Re-score in a new run-set directory |
 | Corrupt line or partial file | Truncated JSON | Atomic writes make this a loader error naming the file; nothing partial is committed | Re-run the pass |
 | `demo_mode=True` requested | Anyone passes it to the runner | Refused at config validation | Not applicable: its verdicts do not transfer to production thresholds |
@@ -2333,17 +2716,52 @@ are deferred, never simulated.
 ### Unit tests (`tests/unit/test_holistic_*.py`)
 
 - `caught`: the full decision table for both readings and `ERROR`; the stage-flag
-  table; the single-definition test that fails if another module compares a
-  decision against `"BLOCK"` or `"QUARANTINE"` to decide caught-ness (a source scan,
-  so the definition cannot fork).
+  table; the single-definition scan (see "Single-definition scan"), an `ast` source
+  scan that fails, naming the module path and line, when any Harness module other than
+  the Caught_Module holds a set, tuple, list or frozenset literal, or a membership test,
+  whose members include both `BLOCK` and `QUARANTINE`, or assigns or returns an Outcome
+  value (`CAUGHT`, `MISSED`, `FALSE_ALARM`, `CORRECT_ALLOW`), so duplicated caught-ness
+  logic cannot fork the definition. It does not fail on verdict construction (the
+  Composer, the Band_Replayer or Resolver-mirroring code comparing a decision with a
+  single literal, preventing a `BLOCK` downgrade or assigning a Quarantine_Cause), nor on
+  a check of why a verdict was returned; each is a passing fixture. `rates` and `outcome`
+  both read the Reading table, and a test edits one table entry in a temporary copy and
+  sees both results change.
 - `records` and `store`: round trip, schema-version rejection, exactly-once
   completeness, corpus-hash binding (a corpus edit must fail), `demo_mode=True`
-  refusal, pass-invalid handling, credential-string scan.
+  refusal, pass-invalid handling, credential-string scan. Float storage: a float is
+  written unrounded and decodes to the exact same float (property over finite floats
+  with at least 100 examples, including values with more than 4 decimal places); a
+  `NaN` and an infinity are each rejected on write, naming the field and the record,
+  with nothing written; rendering and the cited-figure comparison round, and the stored
+  value does not. The worked counterexample is a unit-test case: a Tier-2 `threat_score`
+  of 0.3333, a `tool_score` of 0.1, a `novelty` of 0.0, no role modifier and no other
+  signal compose to an aggregate of 0.064995 (`(0.1*0.5 + 0.3333*0.5) * 0.30`); the
+  case record is stored, loaded and recomposed, and the recomposed score equals the
+  stored `final_score` within 1e-9. A store that rounded to 4 places would write 0.0650
+  and fail this case. A `Tier2Out` that breaks its invariant (`decision is None` without
+  an `unavailable_reason`, a verdict without a `threat_score`, an unfired output with a
+  decision) is rejected on read.
 - `compose`: the decision table at the thresholds (0.4999, 0.50, 0.7499, 0.75 and
   the 0.349, 0.35, 0.75, 0.751 band boundaries, plus a zero-width Band with
   `lo == hi`, which must compose and not be rejected), Tier-2 override, never
-  downgrading a BLOCK, structural short-circuit, TSG short-circuit, the three
-  Tier-2 modes, and `UNMEASURED` for a triggered case with no Tier-2 output.
+  downgrading a BLOCK, structural short-circuit, TSG short-circuit, and the three
+  Tier-2 modes (`recorded`, `absent`, `unavailable`). The three Tier-2 data states of
+  a triggered case under `recorded` each have a case, and the three are mutually
+  exclusive: (a) no forced entry and no fired in-system output (a `Tier2Out` with
+  `fired == False`, or none) returns `UNMEASURED` when the prior decision is not `BLOCK`
+  and returns `BLOCK` without reading any Tier-2 data when it is; (b) a `Tier2Out` with
+  `decision=None` and an `unavailable_reason` composes exactly like `tier2="unavailable"`
+  for the same case (a prior `ALLOW` becomes `QUARANTINE` with cause `tier2_unavailable`,
+  a prior `QUARANTINE` stays `QUARANTINE` with cause `aggregate`, a prior `BLOCK` stays
+  `BLOCK`), never returns `UNMEASURED`, never assigns `None` as a decision, and uses the
+  Jev P (not a Tier-2 score) as the semantic input, which a test checks by giving the
+  outage output a `threat_score` that would change the aggregate if it were read; (c) a
+  `Tier2Out` with a verdict uses its decision and `threat_score`, a recorded `ALLOW`
+  never downgrades a prior `BLOCK`, and a recorded `BLOCK` raises an `ALLOW` to
+  `BLOCK`. A `Tier2Out` whose decision is `None` must be tested with `is None` and not
+  by truthiness: a test builds an outage output (a truthy dataclass instance) and fails
+  a composer that treats it as a verdict. A structural `BLOCK` reads none of the three.
 - `compose` versus the resolver (differential): build a real `SyncResolver` with
   stubbed Tier-1, Tier-2, threat-intel, CBM, structural and TSG components that return
   generated values, and compare `evaluate()` to `compose_verdict` for decision and
@@ -2388,7 +2806,13 @@ are deferred, never simulated.
   Run_Set figure as a whole word (a planted word proves the scan fires, and the
   committed plan passes); the Manifest records the plan and snapshot digests and the
   Run_Store rejects a recorded digest that differs from the committed file; a Run_Set
-  with a CBM fixture row and no plan or snapshot digest is invalid.
+  with a fixture-backed CBM row (I-CBM-fixture, I-CBM-permuted, W4, W5, `sinks mapped`
+  or an Indexer_Agreement row) and no plan or snapshot digest is invalid; a Run_Set
+  whose only CBM rows are default-CBM rows (I-CBM-default, a Whole_System_Run with the
+  default client) is valid with no `cbm_fixture` entry, no plan and no snapshot, and
+  records no digest for them; with the plan or snapshot missing or the snapshot
+  unreadable, every fixture-backed CBM row is Not_Measured naming the offending item
+  while every default-CBM row and every non-CBM row keeps its value.
 - Indexer_Agreement (each starts red): with the indexer unavailable, or the probe not
   requested, every row is Not_Measured with its reason and the hermetic suite passes
   without the indexer; a stub indexer that reports a different call chain or sink fact
@@ -2406,8 +2830,16 @@ are deferred, never simulated.
   building (a guard on the orchestrator and the OTX provider fails on any call), reads
   `BW_ABUSECH_AUTH_KEY` only when a grant names it, and commits no key and no raw
   dump; control entries carry the Tranco list identifier; `plan` prints every
-  indicator with zero connections and a run refuses an indicator absent from the IOC
-  fixtures; the egress guard fails on any connection to an indicator; the
+  indicator with its source corpus and zero connections; the OTX send guard is per run
+  and refuses only an indicator absent from the committed fixtures of the corpus
+  selected for that run: in an I-TI-corpus run it accepts the documentation-range and
+  private-range addresses and the filename-shaped values that `_extract_indicator`
+  returns over the Corpus (each row records `source_corpus="corpus"`), in an I-TI-ioc
+  run it accepts an IOC_Corpus indicator (`source_corpus="ioc_corpus"`), and in either
+  run it refuses an indicator that is in neither fixture set, fails the run naming it
+  and sends nothing; the manifest holds a `ti_runs` entry for each threat-intelligence
+  run and a row whose `source_corpus` disagrees with it, or a run without an entry, is
+  invalid; the egress guard fails on any connection to an indicator; the
   IOC_Authoring_Step refuses any host other than `threatfox.abuse.ch` and
   `tranco-list.eu` and records the refused host name; the two authoring hosts are
   not in the run-time allowlist and the run-time hosts are not in the authoring
@@ -2441,7 +2873,16 @@ are deferred, never simulated.
   table in and the result must not change); a release with no named run or a missing
   P is Not_Measured and the other release is unaffected; the error band is the minimum
   and maximum across the two Passes and is Not_Measured with fewer than two.
-- Band recommendation gate (`band_gate`): a proposal with a held-out difference above
+- Band recommendation gate (`band_gate`): input integrity comes before any count: a
+  submission that repeats one eligible attack case id (for example the same id 30 times)
+  does not pass the count check and is rejected on `INPUT_INTEGRITY`, naming the id, and
+  so does one that repeats one eligible benign id; an id listed in two Authoring_Records
+  rejects the submission naming the id and both record identities, and so does an id
+  listed twice in one record; in each case nothing is counted, every total in the
+  recorded exclusion report counts distinct ids, the report names each duplicate with
+  its kind, and the rejection's only failed check is `INPUT_INTEGRITY`; a submission
+  with no duplicate is unaffected by the pre-check and gives the same result as before;
+  a proposal with a held-out difference above
   the Pass spread for any metric and Reading is rejected; 29 counted attack cases or 29
   counted benign cases is rejected and 30 of each passes the count check; a case with
   no Authoring_Record, or whose record is incomplete (a missing field, or a withheld
@@ -2470,10 +2911,26 @@ are deferred, never simulated.
   exclusion report and names each failed gate-level check; the evidence identifiers are
   recorded on acceptance; the band, thresholds and weights are byte-identical before
   and after any call.
-- Replay: shipped-band identity over non-`ERROR` rows, with every recorded `ERROR`
-  row returned unchanged as `ERROR` with its recorded error class at the shipped
-  band and at another band (never passed to the Composer, excluded from every rate,
-  counted, not reported as a difference); band monotonicity; unmeasured handling;
+- Replay identity (`replay_identity`): replaying a run's OWN recorded Jev P and OWN
+  recorded Tier-2 output at the shipped band reproduces every non-`ERROR` recorded
+  verdict exactly (decision and quarantine cause; score within 1e-9), including a
+  recorded measured outage, a recorded verdict, a case that did not trigger, a TSG
+  match and a structural block; every recorded `ERROR` row is carried through
+  unchanged as `ERROR` with its recorded error class at the shipped band and at another
+  band (never passed to the Composer, excluded from every rate, counted in
+  `n_error_carried`, not reported as a mismatch); a planted change to one recorded
+  decision makes the check fail and list exactly that case with its recorded and
+  replayed verdicts.
+- Forced_Table replay and variation (`replay_band`, `variation_report`): a Forced_Table
+  replay at the shipped band whose table holds a different Tier-2 decision, or whose
+  release run holds a different stored Jev P, is not a failed identity check; the
+  variation report lists exactly the cases whose decision differs, with the cause
+  `jev_p`, `tier2` or `both` (a fixture for each), lists no `ERROR` row, counts
+  `n_unmeasured` for a case with no stored P or no table entry without imputing one,
+  and a row of the report never enters an identity result, a rate or a recommendation;
+  a Forced_Table replay never reads the run's own in-system Tier-2 output (a missing
+  table entry is unmeasured, not filled from the live run).
+- Replay: band monotonicity; unmeasured handling;
   held-out split properties. Band validation is pinned: a replay cell with
   `lo == hi` is produced, not rejected; `lo > hi` is skipped with no cell; an edge
   outside 0.0 to 1.0 or a non-number rejects the whole request with no cell. The
@@ -2513,7 +2970,7 @@ are deferred, never simulated.
 
 ### Property-based tests (`tests/property/`, Hypothesis)
 
-P1, P2, P3, P4 (over non-`ERROR` rows, plus the `ERROR` carry-through), P5, P6, P7, P8, P9, P11, P12, P14, P16, P17, P18, P19, P20, P21 and P22 (P18: no case identifier and no `parent_case_id` of the unseeded-parent half among the seeds, and only seeded-mode parents marked) are properties over
+P1, P2, P3, P4 (the identity check over a run's own recorded outputs for non-`ERROR` rows, plus the `ERROR` carry-through; never the Forced_Table replay), P5 (its generator draws all three Tier-2 data states, including `decision=None` outages), P6, P7, P8, P9, P10 (the three Tier-2 states), P11, P12, P14, P16, P17, P18, P19, P20, P21 and P22 (P18: no case identifier and no `parent_case_id` of the unseeded-parent half among the seeds, and only seeded-mode parents marked) are properties over
 generated inputs (strategies for stage outputs, bands, readings and record sets
 respect the model's invariants, testing rule 58). The differential test (P5) is the
 most valuable: it makes the composer a tested copy of `evaluate()`'s decision logic
@@ -2559,11 +3016,29 @@ Scenario: A Tier-2 429 invalidates the pass
   Then the pass is discarded and recorded with its reason
   And none of its per-case data is committed
 
-Scenario: Replay at the shipped band reproduces the recorded run
+Scenario: Replay of the run's own recorded outputs at the shipped band reproduces the recorded run
   Given a recorded whole-system run
-  When the band replay runs at the shipped band
+  When the run's own recorded Jev P and Tier-2 outputs are replayed at the shipped band
   Then every replayed verdict equals the recorded verdict
   And every recorded ERROR row is carried through unchanged as ERROR and is not reported as a difference
+
+Scenario: A Forced_Table replay that differs from the live run is a variation, not a failed identity check
+  Given a recorded whole-system run and a Forced_Table whose Tier-2 decision for one case differs from the live decision
+  When the Forced_Table replay is compared with the live run at the shipped band
+  Then the variation report lists that case with the cause Tier-2 difference
+  And the identity check of the run's own recorded outputs still passes
+
+Scenario: A recorded Tier-2 outage is a measured outage, not a missing measurement
+  Given a triggered case whose recorded Tier-2 output has no verdict and an unavailable reason
+  And the prior decision is ALLOW
+  When the verdict is composed with the recorded Tier-2 mode
+  Then the verdict is QUARANTINE with the cause tier2_unavailable
+  And the case is not counted as not measured
+
+Scenario: A triggered case with no Tier-2 output at all is not measured
+  Given a triggered case with no recorded or forced Tier-2 output and a prior decision that is not BLOCK
+  When the verdict is composed with the recorded Tier-2 mode
+  Then the case is reported as not measured and no decision is imputed
 ```
 
 ```gherkin
@@ -2646,8 +3121,9 @@ Rules for the table:
 `tests/unit/test_holistic_mutation_guard.py` applies a fixed list of source-level
 mutations to a temporary copy of `compose.py` and `caught.py` (a threshold `0.75`
 to `0.76`, `>=` to `>`, dropping the Tier-2 override, dropping the BLOCK-never-downgraded
-guard, making `QUARANTINE` not count as stopped) and asserts the differential and
-decision-table tests fail for each. A mutation that survives is a test gap.
+guard, making `QUARANTINE` not count as stopped, and treating a `decision=None` Tier-2
+outage as a verdict, by replacing its `is None` test with a truthiness test) and asserts
+the differential and decision-table tests fail for each. A mutation that survives is a test gap.
 
 ### Verification commands (hermetic)
 
@@ -2692,8 +3168,12 @@ suite is expected to run in seconds because everything is pure or temp-file base
   `model`/`state`/`questions` allowlist; the harness does not alter the backend.
 - **Data sent out:** only sanitized states (`ContextHygiene`, IOCs preserved), the
   same data the product sends. The threat-intel runs send indicators from the
-  fixtures (documentation addresses, popular public hosts, feed-listed indicators);
-  the manifest states this and the human sees it in `plan`.
+  fixtures of the corpus selected for that run (the Corpus for I-TI-corpus:
+  documentation addresses, private addresses, filename-shaped values and popular public
+  hosts; the IOC_Corpus for I-TI-ioc: feed-listed and Tranco indicators). A per-run send
+  guard refuses any indicator that is not in those fixtures. The manifest states, per
+  run, which corpus supplied the indicators, and the human sees each indicator with its
+  source corpus in `plan`.
 - **Payloads are strings:** attack text appears in committed fixtures and results.
   Nothing evaluates, imports, executes or fetches it. The CBM fixture source is
   parsed as text by the Fixture_Export and never imported. The harness code contains no `eval`, `exec`
@@ -2729,9 +3209,9 @@ suite is expected to run in seconds because everything is pure or temp-file base
 | Phase | Scope | Needs | Output |
 |---|---|---|---|
 | 0 | Decisions Q1 to Q17 recorded (all decided 2026-11-13; see "Decisions on the Open Questions") | maintainer | decisions recorded in this spec |
-| 1 | Pure library, observers, offline stage pass (structural, context, TSG three modes, CBM default), compose with the differential test, run-set schema, store | nothing live | committed offline stage data; the D3, D6, D7 counts pinned |
+| 1 | Pure library, observers, offline stage pass (structural, context, TSG three modes, CBM default: the default-CBM row I-CBM-default needs neither the Fixture_Plan nor the snapshot, so it is recorded here and its manifest entry carries no fixture digest), compose with the differential test (all three Tier-2 data states), the replay identity check, run-set schema (unrounded floats), store | nothing live | committed offline stage data; the D3, D6, D7 counts pinned |
 | 2 | **Entry gate:** the proposal artifact for the AGENTS.md section 2 spec list and for a testing rule that defines "caught", prepared with exact diffs at the start of Phase 2 and before the first live Whole_System_Run, awaiting maintainer approval under section 6.3 (Q7). Then: live whole-system passes W0, W1, W2 and one Tier-2 Forced_Table per Jev release (`jev-1.13.0` and `jev-1.14.0`, two Tier-2 Passes each), two or more interleaved passes; notebook v1; recompute tests; mutation guard | Vertex project and `TYPESAFE_API_KEY` grants; the proposal artifact exists | committed run set; first system-versus-stage comparison |
-| 3 | Optional layers: threat intelligence on the corpus hosts and the IOC corpus, with the IOC builder (the maintainer-run `fetch`, the offline deterministic `build`, the IOC_Selection tests and the Synthetic_Feed_Sample); the CBM fixture with its Fixture_Plan (committed first), the Fixture_Export and `check`, the committed snapshot, the Indexer_Agreement rows and the permuted control; W3, W4, W5 | `BW_OTX_API_KEY` grant, the maintainer's `fetch` run and `BW_ABUSECH_AUTH_KEY` grant, the hand-authored fixture source | separate run sets and notebook panels |
+| 3 | Optional layers: threat intelligence on the corpus hosts and the IOC corpus, with the IOC builder (the maintainer-run `fetch`, the offline deterministic `build`, the IOC_Selection tests and the Synthetic_Feed_Sample); the CBM fixture with its Fixture_Plan (committed first), the Fixture_Export and `check`, the committed snapshot, and the fixture-backed CBM rows that need them (I-CBM-fixture, I-CBM-permuted, W4, W5, the `sinks mapped` row, the Indexer_Agreement rows and the permuted control); W3, W4, W5; each threat-intelligence row records its source corpus | `BW_OTX_API_KEY` grant, the maintainer's `fetch` run and `BW_ABUSECH_AUTH_KEY` grant, the hand-authored fixture source | separate run sets and notebook panels |
 | 4 | Band study with the held-out protocol and the F06 what-if (exploratory replay and the tune-half versus held-out-half comparison may be published; no band edge is recommended without the gate of "Band recommendation gate"); cross-link cell in the existing notebook; ADR for the first measured results | Fresh_Evidence for any recommendation (at least 30 attack and 30 benign cases authored after the replay surface was frozen by an author who was not shown the withheld material, with an Authoring_Record and maintainer-confirmed labels) | input to TASK-F10 and TASK-F06 |
 
 How the open tasks interact:
@@ -2775,7 +3255,7 @@ and `requirements.md` can still cite each decision.
   everywhere. A fail-closed QUARANTINE (cause `tier2_unavailable` or `rate_limit`)
   counts as caught under the Stopped reading, and its share is always shown
   separately. The definition stays one configurable function in the Caught_Module.
-  Shaped the definition of caught, the single-definition test and the paired-reading
+  Shaped the definition of caught, the single-definition scan and the paired-reading
   tables and charts.
 - **Q2. ERROR rows. Decided 2026-11-13.** ERROR rows are excluded from the
   numerator and the denominator of every rate and counted beside every figure. The
@@ -2985,9 +3465,12 @@ and `requirements.md` can still cite each decision.
 - **ERROR row:** a `CaseRecord` whose decision is `ERROR`. It has no usable Stage
   outputs for composition, is excluded from every rate, is carried through a replay
   unchanged and is counted beside each affected figure (Q2).
-- **UNMEASURED:** the value the Composer returns for a triggered case with no Tier-2
-  output. It is not a decision value and not an `ERROR`, is counted as Not_Measured
-  and is never imputed. The lowercase `unmeasured` marks the same condition in a
+- **UNMEASURED:** the value the Composer returns for a triggered case under the
+  recorded Tier-2 mode that has no recorded or forced Tier-2 output at all (no verdict
+  and no recorded unavailable reason) when its prior decision is not `BLOCK`. A
+  recorded outage (no verdict, with an unavailable reason) is a measurement and is not
+  `UNMEASURED`. It is not a decision value and not an `ERROR`, is counted as
+  Not_Measured and is never imputed. The lowercase `unmeasured` marks the same condition in a
   replay cell.
 - **Attack_Case:** a case whose ground truth is `MALICIOUS`, that is, whose scenario
   class is `malicious`, `evasion` or `evasion_proof`.
