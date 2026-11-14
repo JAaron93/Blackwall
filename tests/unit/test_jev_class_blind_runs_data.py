@@ -154,3 +154,120 @@ def test_the_historical_runs_directory_is_untouched():
     """ADR 0008's figures stay reproducible: the old corpus's runs are not edited."""
     hist = json.loads((RUNS_DIR.parent / "jev_runs" / "manifest.json").read_text(encoding="utf-8"))
     assert {r["key"] for r in hist["runs"]} >= {"pinned_1_13_run1", "pinned_1_14_run2"}
+
+
+# ------------------------------------------------------------------ the notebook cells
+NOTEBOOK = REPO_ROOT / "notebooks" / "benchmark_analytics.py"
+
+
+def _notebook_cells() -> tuple[str, list[Any]]:
+    import ast
+
+    source = NOTEBOOK.read_text(encoding="utf-8")
+    cells = [
+        node
+        for node in ast.parse(source).body
+        if isinstance(node, ast.FunctionDef)
+        and any(isinstance(d, ast.Attribute) and d.attr == "cell" for d in node.decorator_list)
+    ]
+    return source, cells
+
+
+def _run_cell(source: str, cell: Any, namespace: dict[str, Any]) -> Any:
+    """Execute one marimo cell body and return what it displays or returns."""
+    import ast
+
+    stmts = list(cell.body)
+    if isinstance(stmts[-1], ast.Expr):  # a marimo cell displays its last expression
+        stmts[-1] = ast.Return(value=stmts[-1].value)
+    fn = ast.FunctionDef(
+        name="_cell", args=cell.args, body=stmts, decorator_list=[], returns=None, type_params=[]
+    )
+    module = ast.Module(body=[fn], type_ignores=[])
+    ast.fix_missing_locations(module)
+    local: dict[str, Any] = {}
+    exec(compile(module, "<cell>", "exec"), local)
+    return local["_cell"](*[namespace[a.arg] for a in cell.args.args])
+
+
+def _find_cell(source: str, cells: list[Any], marker: str) -> Any:
+    import ast
+
+    return next(c for c in cells if marker in (ast.get_source_segment(source, c) or ""))
+
+
+@pytest.fixture(scope="module")
+def notebook_namespace() -> dict[str, Any]:
+    import marimo as mo
+    import pandas as pd
+    import plotly.graph_objects as go
+
+    source, cells = _notebook_cells()
+    ns: dict[str, Any] = {"json": json, "mo": mo, "pd": pd, "go": go, "repo_root": REPO_ROOT}
+    for marker, name in (
+        ("# Release-comparison runs. Empty state", "jev_cmp_runs"),
+        ("# Class-blind runs. Empty state", "jev_cb_runs"),
+    ):
+        out = _run_cell(source, _find_cell(source, cells, marker), ns)
+        ns[name] = out[0] if isinstance(out, tuple) else out
+    ns["_source"], ns["_cells"] = source, cells
+    return ns
+
+
+def test_notebook_reads_the_class_blind_manifest_and_shades_the_fixed_band():
+    source = NOTEBOOK.read_text(encoding="utf-8")
+    assert "jev_runs_class_blind" in source and "Class-blind corpus: Jev release comparison" in source
+    assert source.count("y0=0.35, y1=0.75") >= 2  # the old comparison and the new one
+    # The old gate tiles read the earlier corpus; the notebook must say so.
+    assert "These records are the earlier corpus" in source
+
+
+def test_notebook_loads_all_four_class_blind_runs_and_the_earlier_headline_runs(notebook_namespace):
+    cb, cmp_runs = notebook_namespace["jev_cb_runs"], notebook_namespace["jev_cmp_runs"]
+    assert [r["key"] for r in cb] == ["cb_1_13_run1", "cb_1_13_run2", "cb_1_14_run1", "cb_1_14_run2"]
+    assert all(len(r["records"]) == 167 for r in cb)
+    assert len([r for r in cmp_runs if r.get("group") == "headline"]) == 4
+
+
+def test_notebook_gate_table_matches_the_recomputed_figures(notebook_namespace, runs):
+    ns = notebook_namespace
+    cell = _find_cell(ns["_source"], ns["_cells"], "# Gate figures per run at the fixed band")
+    out = _run_cell(ns["_source"], cell, ns)
+    rows = out[0] if isinstance(out, tuple) else out
+    blind = [r for r in rows if r["Corpus"] == "class-blind"]
+    earlier = [r for r in rows if r["Corpus"].startswith("earlier")]
+    assert len(blind) == 4 and len(earlier) == 4
+    expected = {
+        (rel, run): runs[(rel, run)] for rel in ("jev-1.13.0", "jev-1.14.0") for run in ("run1", "run2")
+    }
+    for row, key in zip(blind, [("jev-1.13.0", "run1"), ("jev-1.13.0", "run2"), ("jev-1.14.0", "run1"), ("jev-1.14.0", "run2")]):
+        tp, fn, fp, tn, _esc = _confusion(expected[key])
+        assert row["TP / FN / FP / TN"] == f"{tp} / {fn} / {fp} / {tn}"
+        assert row["Accuracy, decided (gate ≥98%)"] == f"{(tp + tn) / (tp + tn + fp + fn):.1%} ❌"
+        assert row["ECE (gate ≤0.10)"] == f"{_ece(expected[key]):.3f} ❌"
+        assert row["AUROC (gate ≥0.95)"].endswith("✅")
+        assert row["Escalation (gate ≤25%)"].endswith("✅")
+    # the earlier corpus passes every gate, which is exactly why it is only an upper bound
+    assert all("❌" not in v for r in earlier for k, v in r.items() if "gate" in k)
+
+
+def test_notebook_plot_cell_returns_a_figure_with_and_without_the_overlay(notebook_namespace):
+    ns = notebook_namespace
+    cell = _find_cell(ns["_source"], ns["_cells"], "Jev P(threat) per case, class-blind corpus")
+
+    class _V:
+        def __init__(self, value: Any) -> None:
+            self.value = value
+
+    base = {
+        **ns,
+        "jev_cb_series": _V([r["key"] for r in ns["jev_cb_runs"]]),
+        "jev_cb_order": _V("Baseline P (ascending)"),
+    }
+    plain = _run_cell(ns["_source"], cell, {**base, "jev_cb_class": _V("All cases"), "jev_cb_overlay": _V(False)})
+    over = _run_cell(ns["_source"], cell, {**base, "jev_cb_class": _V("All cases"), "jev_cb_overlay": _V(True)})
+    assert len(plain.data) == 4 and len(over.data) == 8
+    benign = _run_cell(ns["_source"], cell, {**base, "jev_cb_class": _V("Benign"), "jev_cb_overlay": _V(False)})
+    assert len(benign.data[-1].x) == 68
+    c2 = _run_cell(ns["_source"], cell, {**base, "jev_cb_class": _V("C2/IOC-type calls"), "jev_cb_overlay": _V(False)})
+    assert len(c2.data[-1].x) == 14
