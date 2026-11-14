@@ -37,9 +37,11 @@ the same cases. Four ideas carry the design:
    are recorded with the same observers. `compose_verdict` must reproduce each
    recorded verdict from its recorded stage outputs, so the offline algebra is
    anchored to real behavior, and any disagreement is reported as a finding.
-3. **Band replay as a first-class component.** One Tier-2 verdict per case, plus
-   the stored Jev P per case, lets any band (both edges) be replayed without
-   further live calls, with explicit validity limits.
+3. **Band replay as a first-class component.** For each stored Jev release, one
+   Forced_Table (a Tier-2 verdict for every case, recorded in two Tier-2 Passes)
+   plus that release's stored Jev P per case lets any band (both edges) be replayed
+   without further live calls, with explicit validity limits. A replay for a
+   release uses that release's own table.
 4. **Honest status for what cannot be measured.** Threat intelligence and CBM need
    fixtures the corpus does not provide. Their rows render as "not measured"
    until a fixture and, for threat intelligence, a human credential grant exist.
@@ -72,7 +74,7 @@ Comparisons live in a second marimo notebook,
   outside `src/blackwall/holistic_eval/`. The single permitted exception is one
   optional `observer` argument on `SyncResolver.evaluate` (default `None`),
   delivered on its own with a test that fails before the change; none is planned
-  (see Observers and Q9).
+  and it is a contingency only (see Observers and Q9, decided 2026-11-13).
 - No new Jev band, threshold or aggregation weight. The harness produces
   evidence; a band change remains a spec amendment under `tier-1-jev-addition`.
 - No fix for the defects it finds (see D4, D8). They are reported and left to
@@ -95,7 +97,7 @@ unknowns.
 | D1 | Only single-stage measurements exist | `jev_triage_eval.py` scores Jev only; `jev_tier2_eval.py` builds the resolver with `repo=None`, `threat_intel=None`, `cbm_client=None` | Stage-first recording plus whole-system runs; every figure carries a `StageContext` header (stage, `demo_mode`, layers on and off) |
 | D2 | With threat intelligence and CBM absent, a semantic signal cannot reach a verdict by aggregation | `evaluate()`: aggregate is `0.40*ti + 0.30*cbm + 0.30*ctx`; with both absent it is at most 0.30; quarantine is 0.50 | `compose_verdict` implements the full function; a "what can stop a call" panel shows the reduction; the band study covers the upper edge and a `clear_high_policy` what-if (D10) |
 | D3 | Threat intelligence is blind on the corpus hosts and over-extracts indicators | Corpus hosts are RFC 5737, private or `.example` by design. `_extract_indicator` returned an indicator for 27 of 68 benign and 48 of 99 attack cases (offline-computed), 46 unique values, including `main.py`, `config.yaml`, `u.username`, `-10-01.json` and `service-discovery`. The OTX provider marks an indicator malicious when its risk is at least 0.25, and one pulse gives 0.25. The orchestrator re-raises typed errors out of `evaluate()` | Two threat-intel runs: corpus-host lookup (measures benign false flags on real public hosts such as `api.github.com`, `pypi.org`, `registry.npmjs.org`) and a separate IOC corpus (efficacy). A stub provider is allowed only for plumbing tests and is labeled so. Live runs gated on a human credential grant. OTX behavior on documentation and private addresses is **UNCONFIRMED** and is measured, not assumed |
-| D4 | CBM is argument-blind, its default is not "absent", and its sink half is dead | `CodebaseMemoryClient.query` looks up only `tool_name`. With no `base_url` and no `command`, the mock path runs (no `NotImplementedError`): an unknown tool yields depth 1, so `blast_radius=2` and `_score_cbm=0.1` for every call (verified by running the client). `query` maps `CriticalSinkType` (`SQL_QUERY`, `COMMAND_EXEC`, `FILE_WRITE`, `NETWORK_CALL`) to `SinkType` (`FILE_SYSTEM`, `NETWORK`, `DATABASE`, `PROCESS`) by value, so every sink raises `ValueError` and is dropped (verified: the mock `ProcessOrder` sink does not reach `CBMResponse`). `SyncResolver.__init__` overwrites `cbm_client.base_url` from `policy.yaml` (`http://localhost:8080/mcp`) when a policy server is given | CBM rows use a fixture codebase and an adapter client, plus a permuted-assignment control. Raw and mapped sinks are both recorded; the dropped-sink defect is reported as a finding, and a labeled what-if shows its effect. As shipped, CBM alone cannot move a verdict: `0.30*0.5 + 0.30*1.0 = 0.45 < 0.50`. Real codebase-memory-mcp conformance with the client's HTTP JSON-RPC shapes is **UNCONFIRMED**; a live-MCP row exists only if a conformance probe passes |
+| D4 | CBM is argument-blind, its default is not "absent", and its sink half is dead | `CodebaseMemoryClient.query` looks up only `tool_name`. With no `base_url` and no `command`, the mock path runs (no `NotImplementedError`): an unknown tool yields depth 1, so `blast_radius=2` and `_score_cbm=0.1` for every call (verified by running the client). `query` maps `CriticalSinkType` (`SQL_QUERY`, `COMMAND_EXEC`, `FILE_WRITE`, `NETWORK_CALL`) to `SinkType` (`FILE_SYSTEM`, `NETWORK`, `DATABASE`, `PROCESS`) by value, so every sink raises `ValueError` and is dropped (verified: the mock `ProcessOrder` sink does not reach `CBMResponse`). `SyncResolver.__init__` overwrites `cbm_client.base_url` from `policy.yaml` (`http://localhost:8080/mcp`) when a policy server is given | CBM rows use a fixture codebase and an adapter client, plus a permuted-assignment control. Raw and mapped sinks are both recorded; the dropped-sink defect is reported as a named finding (see "Reported findings"), and a labeled what-if shows its effect. As shipped, CBM alone cannot move a verdict: `0.30*0.5 + 0.30*1.0 = 0.45 < 0.50`. Real codebase-memory-mcp conformance with the client's HTTP JSON-RPC shapes is **UNCONFIRMED**; a live-MCP row exists only if a conformance probe passes |
 | D5 | The TSG can be made to look perfect by seeding it from the cases it is scored on, and inline learning makes results order-dependent | `find_matching_signature` uses FTS5 word-level match quality plus a substring fallback `pattern in args_str`. A BLOCK schedules `_inline_generate_signature` (a Gemini call that writes signatures). The 30 evasion cases carry `parent_case_id` (29 distinct parents, all in the corpus) and `expected_detection_path = SIGNATURE_MATCH` | Three seeding modes (cold, parent-only, held-out parents) with leakage controls; measurement runs drop background tasks (as the existing harness does) so the graph is static and results are order-independent; a separate, named learning experiment is optional |
 | D6 | Keyword novelty is a substring match and drives Tier-2 "disagreement" | `_SUSPICIOUS_KEYWORDS` includes `nc`, `c2`, `etc`, `select`, `drop`, `insert`, `delete`. Two hits give 0.4, and with Jev P below 0.2 that triggers Tier-2. Offline-computed: 2 of 68 benign cases reach novelty 0.4 (`benign_db_distinct_001`, `benign_edge_recursive_cte_001`) and every benign Jev P is at most 0.06, so both would trigger. 38 of 99 attack cases reach 0.4 | Each record stores `novelty`, `trigger` and Tier-2 calls, so the disagreement path is quantified per class. Live confirmation is part of the whole-system runs |
 | D7 | The tool name is a tell | 44 of 99 attack cases use a high-risk tool name (`execute_shell`: 40 of 89 in the security suite and 4 of 10 in the `evasion_proof` suite); 0 of 68 benign do (offline-computed). The production-role structural rule in `policy.yaml` blocks four tool names, of which `execute_shell` is the one the corpus uses (ADR 0009: 44 attack blocks by tool name); the context score uses the high-risk names directly | Results are stratified by tool-name group; the headline view is the "other tool name" stratum; TASK-F09 is a parallel track, and it gates the band recommendation (Phasing) |
@@ -107,11 +109,28 @@ unknowns.
 | D13 | QUARANTINE has two causes | See "Definition of Caught". A QUARANTINE comes from the aggregate (0.50 to below 0.75), from a Tier-2 outage on an otherwise-ALLOW call (ADR 0009 Decision 6), or from the rate limiter | Every record stores `quarantine_cause`; reports can separate deliberate QUARANTINEs from fail-closed ones |
 | D14 | Live runs spend money and need credentials | Testing rules 74, 78 and 79 | Hermetic by default, human grants named per variable, billing disclosure and call counts printed and stored, an abort before any client is built when a Named_Explicitly live row lacks its credential or grant, and a Not_Measured record for a Default_Plan row that lacks a credential, fixture or transport |
 
-## Definition of Caught (proposal for the maintainer's review)
+### Reported findings (detected and reported; no production fix here)
 
-> **This is a proposal.** The maintainer asked to review it. It is one pure
-> function in one module, so any change is a one-line edit plus the tests that
-> pin it (Open Questions Q1 and Q2).
+The harness reports each measurable defect with its evidence in the findings
+report of a run set, and fixes none of them (requirement 26). A finding that is
+reported is filed as its own unchecked task in the owning spec when tasks are
+written; this document writes no task. The reported findings are the indicator
+over-extraction (D3), the keyword-novelty trigger (D6), the tool-name tell (D7),
+the clear-high ALLOW (TASK-F06), the `ContextHygiene` over-match (TASK-F08), the
+policy-server rewrite of the CBM `base_url` (D4), and the CBM sink-mapping drop.
+
+The **CBM sink-mapping drop** is a named finding: `CodebaseMemoryClient.query`
+maps `CriticalSinkType` to `SinkType` by value, so every critical sink is dropped
+before it reaches `CBMResponse` (D4). It is reported with the `mapped_sinks` and
+`raw_sinks` of each CBM row, pinned by a characterization test, and shown through
+the labeled `sinks mapped` what-if. It is tracked as its own task in the owning
+spec when the tasks are written (Q4, decided 2026-11-13), not fixed by this change.
+
+## Definition of Caught (decided 2026-11-13, Q1 and Q2)
+
+> **Decided.** The definition below is the one the requirements record. It is one
+> pure function in one module, so any later change is a one-line edit plus the
+> tests that pin it.
 
 ### What QUARANTINE does (verified)
 
@@ -125,7 +144,7 @@ unknowns.
   and the real tool does not run.
 
 QUARANTINE therefore does **not** let the call execute unattended, so the
-proposal below stands unrevised. Two caveats stay attached to it. First, a
+definition below stands. Two caveats stay attached to it. First, a
 QUARANTINE can be a fail-closed non-detection (Tier-2 unavailable, rate limit),
 which is an availability cost rather than a catch. Second, "pending review" and
 "pending retry" are product intentions: this harness does not model what a human
@@ -145,12 +164,16 @@ or a retry later decides.
   highlights; the paired values stay visible.
 - **Quarantine provenance:** every table can split QUARANTINE into `aggregate`
   (a deliberate score of 0.50 or more), `tier2_unavailable` and `rate_limit`.
-  The default tables count all three under "stopped", and a column shows how many
-  of the catches or false alarms are fail-closed.
+  The default tables count all three under "stopped": a fail-closed QUARANTINE
+  (`tier2_unavailable` or `rate_limit`) is counted as caught under the Stopped
+  reading, and its share is always shown separately. A column shows how many of the
+  catches or false alarms are fail-closed, and the percentage of caught attack
+  cases that are fail-closed is shown beside the catch rate (Not_Measured with a
+  reason when no attack case is caught, never `0.0%`).
 - **ERROR rows** (an `ERROR row` is a record whose decision is `ERROR`) are
-  excluded from both numerator and denominator, are counted in every table, and a
-  sensitivity value treats them as stopped (the gateway's fail-closed behavior).
-  The sensitivity value (Q15, decided 2026-11-13) appears only in the catch tables
+  excluded from both numerator and denominator, are counted in every table (Q2,
+  decided 2026-11-13), and a sensitivity value treats them as stopped (the
+  gateway's fail-closed behavior). The sensitivity value (Q15, decided 2026-11-13) appears only in the catch tables
   that state a catch rate or a false-alarm rate for Whole_System_Run and
   Composed_Row verdicts (requirements 6, 7 and 13). Replay cells, TSG rates,
   threat-intelligence rates, IOC_Corpus rates and the CBM `sinks mapped` what-if row
@@ -171,8 +194,8 @@ or a retry later decides.
 | threat_intel | the orchestrator's `is_malicious` is true | the stage's own output; risk score kept for drilldown |
 | jev_low | `P >= lo` ("outside clear-low") | `lo` is a parameter, shipped value 0.35 |
 | jev_high | `P > hi` ("clear-high") | `hi` is a parameter, shipped value 0.75 |
-| tier2 | decision is BLOCK in the forced table | "Tier-2 on every case" view, distinct from Tier-2 as triggered |
-| cbm | `blast_radius >= CBM_FLAG_BLAST_CUT` or any raw critical sink | cut is a labeled proposal (Q4); CBM is also reported as a continuous score |
+| tier2 | decision is BLOCK in the Forced_Table of the Jev release in use | "Tier-2 on every case" view, distinct from Tier-2 as triggered |
+| cbm | `blast_radius >= CBM_FLAG_BLAST_CUT` or any raw critical sink | the cut of 6 is kept in one named constant and labeled a proposal in every figure that depends on it (Q4, decided 2026-11-13); CBM is also reported as a continuous score |
 
 ### Comparison metrics
 
@@ -279,16 +302,18 @@ resolver did", which is the check that keeps the algebra honest.
 | `src/blackwall/holistic_eval/observers.py` | Resolver wrappers (imports `blackwall` lazily) |
 | `src/blackwall/holistic_eval/configs.py` | Exact resolver construction per matrix row |
 | `src/blackwall/holistic_eval/stages.py` | Isolated stage runners |
-| `src/blackwall/holistic_eval/tsg_seed.py`, `cbm_fixture.py`, `ioc_corpus.py` | Fixtures and seeding |
+| `src/blackwall/holistic_eval/tsg_seed.py`, `cbm_fixture.py`, `ioc_corpus.py` | Fixtures and seeding. `ioc_corpus.py` holds the IOC corpus schema, loader and the pure builder that selects, validates and writes the corpus from already-downloaded export files |
+| `src/blackwall/holistic_eval/band_gate.py` | The band-recommendation gate and its evidence records (pure) |
 | `src/blackwall/holistic_eval/runner.py` | Async orchestration, pacing, invalidation |
 | `scripts/holistic_eval.py` | CLI (dev tooling; CI never runs the live subcommands) |
+| `scripts/build_ioc_corpus.py` | One-time authoring tool for the IOC corpus: a `fetch` step (the IOC_Authoring_Step: the only place `BW_ABUSECH_AUTH_KEY` is read, under a Human_Grant, and it may connect only to `threatfox.abuse.ch` and `tranco-list.eu`) and an offline `build` step. Not part of any measurement run |
 | `tests/eval/cbm_fixture/`, `tests/eval/ioc_corpus/` | Fixture sources |
 | `tests/eval/results/holistic/<run-set>/` | Committed per-case results and `manifest.json` (a new directory; nothing under `jev_runs*/` is touched) |
 | `notebooks/holistic_defense_analytics.py` | The comparison notebook |
 
-The library lives under `src/` for the same reason `blackwall.eval` and
-`blackwall.benchmarks` do (importable by tests, the CLI and the notebook).
-Open Question Q6 asks whether the maintainer prefers a `tests/`-side location.
+The library lives at `src/blackwall/holistic_eval/` (Q6, decided 2026-11-13), for
+the same reason `blackwall.eval` and `blackwall.benchmarks` live under `src/`
+(importable by tests, the CLI and the notebook).
 
 ## Components and Interfaces
 
@@ -385,7 +410,9 @@ defaulting to `None`. It is the only change permitted under `src/` outside
 `src/blackwall/holistic_eval/`. It is not needed by this design and would be its
 own change, with a test that fails before the change and a test that `evaluate()`
 called with the default `observer=None` returns the same decision and confidence
-score as before (Open Question Q9).
+score as before. No seam is planned: the argument is a contingency, taken only if
+wrapping proves insufficient, and only as its own tested change (Q9, decided
+2026-11-13).
 
 ### 3. Configuration runner
 
@@ -452,7 +479,12 @@ def run_context(cases, scorer) -> list[ContextOut]: ...            # tool score,
 async def run_tsg(cases, repo, seeding: TsgSeeding) -> list[TsgOut]: ...
 async def run_cbm(cases, client) -> list[CbmOut]: ...
 async def run_threat_intel(cases, orchestrator, *, grant: CredentialGrant) -> list[TiOut]: ...   # live
-async def run_tier2_table(cases, p_by_case, backend, *, concurrency: int = 2) -> list[Tier2Out]: ...  # live; concurrency >= 1 is the in-flight limit N
+async def run_tier2_table(cases, p_by_case, backend, *, release: str, pass_index: int,
+                          concurrency: int = 2) -> list[Tier2Out]: ...
+    # live; one Tier-2 call per case for one Pass of one release's Forced_Table.
+    # p_by_case is the Jev P of run 1 of that release's stored class-blind run; a case
+    # with no P there is Not_Measured for that release, not a call. concurrency >= 1
+    # is the in-flight limit N.
 def load_jev_stored(runs_dir, run_key) -> dict[str, JevOut]: ...                                 # committed runs
 ```
 
@@ -475,7 +507,8 @@ real resolver. Full signature and algorithm are under "Key Functions".
 ### 6. Band replay (`Band_Replayer`)
 
 `replay_band` and `outage_drill` (see Algorithms) are pure functions over a
-`RunSet` plus the Tier-2 forced table. Their validity limits are part of the
+`RunSet` plus the inputs of one Jev release (that release's stored Jev P and its
+own Forced_Table, recorded in two Tier-2 Passes). Their validity limits are part of the
 output type (`ReplayCell.status`), not a footnote. The replayer rejects the whole
 request, producing no cell, if any supplied edge is not a number from 0.0 to 1.0
 inclusive; it skips a `(lo, hi)` combination with `lo > hi`; a zero-width Band with
@@ -571,6 +604,8 @@ class Tier2Out:
     latency_ms: int | None
     http_status: int | None                   # from the client probe; 429 invalidates the pass
     source: Literal["live_in_system", "forced_table"]
+    forced_release: str | None                # Jev release whose Forced_Table this row belongs to; None for live_in_system
+    forced_pass_index: int | None             # 1 or 2 within that release's table; None for live_in_system
     p_given: float | None                     # the Jev P shown to Tier-2 in its prompt
 
 @dataclass(frozen=True, slots=True)
@@ -621,7 +656,8 @@ class RunSetManifest:
     state_hashes_digest: str                 # digest of build_cases()["h"] values, ties to the Jev runs
     resolver_construction: Mapping[str, ConfigSpec]
     jev: JevSource                           # stored run keys used, served releases
-    tier2: Tier2Source                       # model, pinned thinking level, forced-table passes
+    tier2: Tier2Source                       # model, pinned thinking level, one ForcedTableSource per Jev release
+    cooldown_s: int                          # the cool-down between configurations that the Runner used (default 30; Q10)
     runs: Sequence[RunEntry]                 # one per executed Pass, discarded Passes included; see RunEntry
     discarded_passes: Sequence[DiscardedPass]   # config, pass number, interleave position, reason ("tier2_429", "rate_limit", "release_mismatch", or a TSG seeding or graph-mutation failure) and count (integer, 0 or greater; reason non-empty); no per-case data
     call_counts: Mapping[str, int]           # Jev, Tier-2, OTX calls, per run
@@ -632,10 +668,29 @@ class RunSetManifest:
     notes: str
 
 @dataclass(frozen=True, slots=True)
+class Tier2Source:
+    model: str
+    thinking_level: str                      # the pinned level
+    forced_tables: Sequence[ForcedTableSource]   # exactly one per Jev release: jev-1.13.0 and jev-1.14.0 as recorded in the stored class-blind runs on 2026-11-13
+
+@dataclass(frozen=True, slots=True)
+class ForcedTableSource:
+    release: str                             # explicit release name (never a moving alias)
+    jev_run_key: str | None                  # run 1 of this release's stored class-blind Jev run; None only with a Not_Measured entry
+    passes: Sequence[ForcedTablePass]        # the two Tier-2 Passes of this table
+    not_measured_reason: str | None          # non-empty when the table is not built (no named Jev run, or a case lacks a Jev P)
+
+@dataclass(frozen=True, slots=True)
+class ForcedTablePass:
+    release: str
+    pass_index: int                          # 1 or 2
+    run_entry_key: str                       # the RunEntry of this Tier-2 Pass
+
+@dataclass(frozen=True, slots=True)
 class RunEntry:
     key: str
     file: str
-    config_id: str
+    config_id: str                           # a Forced_Table Pass uses one config id per release, "I-T2/jev-1.13.0" or "I-T2/jev-1.14.0", so (config_id, pass_index, case_id) stays unique
     pass_index: int
     interleave_position: int                 # 1-based (1 or greater), unique within the Run_Set, ordered by execution start
     concurrency: int                         # the --concurrency value N this Pass used (integer, 1 or greater)
@@ -660,6 +715,12 @@ that is neither in `runs` nor in `not_measured` makes the manifest invalid.
 - `interleave_position` is an integer of 1 or greater, unique within the Run_Set,
   and ordered by execution start; a duplicate, a value below 1, or an order that
   differs from the execution start order makes the manifest invalid.
+- `tier2.forced_tables` holds exactly one `ForcedTableSource` per stored Jev
+  release. A built table records its Jev run key and two Passes, each by release name
+  and `pass_index`, and each Pass covers every case of the Corpus. A release whose
+  named Jev run is absent, or lacks a Jev P for any case, carries a non-empty
+  `not_measured_reason` and no Passes (it is not built, and a replay of that release
+  is Not_Measured).
 - Every `RunEntry.concurrency` is an integer of 1 or greater. Passes of one
   configuration that are compared with each other have equal `concurrency`; a Pass
   that differs carries a non-empty `comparison_exclusion` and is left out of the
@@ -686,14 +747,14 @@ J Jev, 2 Tier-2. A shared resolver is built once per configuration and pass.
 | Id | Stage and construction | Layers | Needs | Live calls per pass |
 |---|---|---|---|---|
 | I-JEV | The four committed class-blind Jev runs (two per release, interleaved); band replayed offline | J | nothing | 0 |
-| I-T2 | `GeminiTier2Backend.escalate` on every case, handed the stored Jev P of one named run (default: the `jev-1.14.0` run 1) | 2 | Vertex project, human grant | 167 |
+| I-T2 | `GeminiTier2Backend.escalate` on every case, handed the stored Jev P of run 1 of one release's class-blind Jev run. One Forced_Table per release (`jev-1.13.0` and `jev-1.14.0`, as recorded in the stored runs on 2026-11-13), each recorded in two Tier-2 Passes. Config ids `I-T2/jev-1.13.0` and `I-T2/jev-1.14.0`; `--configs I-T2` names both | 2 | Vertex project, human grant | 167 per Tier-2 Pass, 334 per release table |
 | I-STRUCT | `StructuralGatingEngine` with `policy.yaml`, role defaulting to `production` | S | nothing | 0 |
 | I-CTX | The resolver's context heuristics (tool score, novelty, indicator) | none | nothing | 0 |
 | I-TSG-cold | Empty graph; a sanity row (all cases must be non-matches) | G | nothing | 0 |
 | I-TSG-parent | Graph seeded from the 29 evasion parents only | G | nothing | 0 |
 | I-TSG-heldout | Graph seeded from half of the parents (deterministic split); the other half is the unseen-family control | G | nothing | 0 |
 | I-TI-corpus | `ThreatIntelOrchestrator(primary_provider=AlienVaultOTXProvider(), secondary_providers=[])`, cache off, on every extracted indicator (46 unique) | T | `BW_OTX_API_KEY`, human grant | about 46 |
-| I-TI-ioc | The same orchestrator on the IOC corpus | T | grant, IOC corpus | one per IOC case |
+| I-TI-ioc | The same OTX-only orchestrator on the IOC corpus (cache off) | T | `BW_OTX_API_KEY` grant, IOC corpus | one per unique IOC indicator, about 100 malicious plus about 100 control |
 | I-CBM-default | `CodebaseMemoryClient()` as shipped, `base_url` re-asserted `None` after resolver construction (D4) | C | nothing | 0 |
 | I-CBM-fixture | Fixture adapter over the fixture codebase | C | fixture | 0 |
 | I-CBM-permuted | The same graphs assigned to tool names by a seeded permutation (control) | C | fixture | 0 |
@@ -724,16 +785,23 @@ also has a whole row is checked against it (D1, G2).
 
 | Item | Calls |
 |---|---|
-| I-T2 table | 167 Tier-2 calls, so 334 over two passes |
+| I-T2 Forced_Table, per release | one Tier-2 call per case per Tier-2 Pass: 167 per Pass, so 167 x 2 = 334 per release table |
+| I-T2 Forced_Tables, both releases | 334 x 2 releases = 668 Tier-2 calls |
 | W0, W1, W2 | 167 Jev calls each (W2 skips Jev on a TSG match), so about 1,000 Jev calls over two passes of all three |
 | Tier-2 inside W rows | only triggered cases; of the order of 10 to 25 per pass (ADR 0009 measured 9.6% to 12.0% on the earlier corpus; the new count is measured and recorded) |
 | I-TI-corpus | about 46 OTX lookups (well inside the 10,000 per hour budget) |
+| I-TI-ioc | about 200 OTX lookups, one per unique indicator (the exact total is the IOC manifest's case count); `plan` prints every indicator first |
 
 Dollar cost is derived at run time from logged token counts and the vendor's
 current list price (the pricing source URL and fetch date go in the manifest); the
 design does not hard-code prices. The stage pass and everything composed is free.
+The Tier-2 count of the whole run is the 668 forced-table calls plus the triggered
+Tier-2 calls inside the whole-system passes (the row above); `plan` prints both
+before any call. Tier-2 tokens, and so Tier-2 cost, scale with that count and are
+priced at run time as described above.
 Time: the Tier-2 forced table at the default concurrency of 2 and a p50 of about 2.3 s (ADR 0009)
-is a few minutes per pass; a whole-system pass is one to two minutes.
+is a few minutes per Tier-2 Pass, and there are four such Passes (two per release);
+a whole-system pass is one to two minutes.
 
 ## Fixtures
 
@@ -802,38 +870,133 @@ assertions of testing rule 56.
 
 Corpus hosts are documentation, private or `.example` names, so threat
 intelligence has nothing to find on them (D3). Efficacy needs real, publicly
-listed indicators, so there is a second corpus with its own run set.
+listed indicators, so there is a second corpus with its own run set (Q5, decided
+2026-11-13).
 
 - **Content:** tool calls built from one shared template for both classes. The
-  same tool names and argument keys appear in malicious and control cases
+  same tool names and the same argument keys appear in malicious and control cases
   (`http_request` GET and POST, `dns_query`, `socket_connect`, `download_file`),
-  so the tool name is not a tell here (the F09 lesson). Malicious cases use domains
-  and IP addresses listed by a public feed on a recorded snapshot date; control
-  cases use well-known legitimate domains. Domains and addresses only: no payload
-  URLs, no paths that identify a victim, no victim data.
-- **Non-circularity:** the stage under test is OTX. Indicators are taken from a
-  public feed export that is not OTX (an abuse.ch export is the natural choice;
-  the harness's OTX-only orchestrator does not query abuse.ch), and chosen before
-  any lookup. Selecting "indicators OTX lists" would guarantee hits. Each entry
-  records feed name, snapshot date and category. Because infrastructure is
-  delisted over time, the headline is "fraction of feed-listed indicators OTX
-  recognizes", not a catch rate, and a miss may be a delisting.
-- **Hygiene:** every entry is checked to survive `ContextHygiene` unchanged
-  (AGENTS.md: use un-redacted standalone hostnames, as `wd-bouygues.com` does),
-  and the builder fails if any indicator is redacted.
-- **Egress guard:** the harness may reach only the named API hosts. A test installs
-  a socket guard and fails if any code path opens a connection to a corpus
-  indicator. Indicators are strings for classification and for OTX's reputation
-  API; nothing contacts them.
-- **Scale:** of the order of 40 malicious and 40 control entries; the exact count
-  is fixed when the corpus is authored and recorded in its manifest.
+  so the tool name is not a tell here (the F09 lesson). Indicators are domain names
+  and IP addresses only: no payload URL, no victim-identifying path, no victim data.
+  An indicator with a URL scheme, a port, a path, a query string, a fragment or
+  embedded credentials, or that is neither a valid domain name nor a valid IP
+  address, fails the build.
+- **Malicious indicators:** the abuse.ch ThreatFox export, domain and IP indicators
+  only with no URL-type entry, taken as one dated snapshot. The builder records the
+  feed name in the IOC manifest and, for each malicious entry, the feed name, the
+  snapshot date (`YYYY-MM-DD`) and the category. An entry that lacks any of the
+  three, or whose feed is OTX, fails the build. ThreatFox expires indicators older
+  than 6 months, so the snapshot date matters: an indicator that the feed has since
+  delisted is reported as unrecognized by OTX and never as an error.
+- **Control indicators:** the Tranco top-1000 list. Each control entry records the
+  Tranco list identifier, the source name and the snapshot date (`YYYY-MM-DD`), so
+  "well-known legitimate domain" has an objective test. An indicator that appears in
+  both classes fails the build.
+- **Scale:** about 100 malicious and about 100 control entries. The exact total
+  is fixed when the corpus is authored and written to the IOC manifest as an integer
+  equal to the number of cases written. The loader refuses to run when the number of
+  cases it loads differs from that number, and reports both.
+- **Builder (`scripts/build_ioc_corpus.py`, `ioc_corpus.py`):** a one-time authoring
+  tool, not part of any measurement run. Its `fetch` step is the IOC_Authoring_Step:
+  the only place `BW_ABUSECH_AUTH_KEY` is read, and only under a Human_Grant that
+  names that variable (abuse.ch requires a free Auth-Key). The builder holds the two
+  hosts the IOC_Authoring_Step may contact as constants of its own module
+  (`AUTHORING_HOSTS`): the abuse.ch ThreatFox export host `threatfox.abuse.ch` and the
+  Tranco list host `tranco-list.eu`. These are the only hosts the IOC_Authoring_Step
+  may connect to. Before it opens any connection the step checks the host against
+  `AUTHORING_HOSTS`, refuses any other host and records the refused host name. The
+  `build` step opens no connection. The key goes into the request header
+  only, is never printed, logged or written, and no key and no raw feed dump is
+  committed: the raw export is written to a scratch directory outside the
+  repository. The `build` step is offline and pure over the downloaded files: it
+  selects the entries, validates them, runs the hygiene check below and commits only
+  the selected indicators with their feed metadata. The builder performs zero
+  threat-intelligence lookups while building, so the feed is chosen before any
+  lookup.
+- **Non-circularity:** the stage under test is OTX. Malicious indicators come from
+  abuse.ch, and the harness queries them through the OTX-only orchestrator
+  (`primary_provider=AlienVaultOTXProvider()`, `secondary_providers=[]`, cache off),
+  which never consults abuse.ch. Selecting "indicators OTX lists" would guarantee
+  hits. A multi-provider run that includes abuse.ch is circular for these
+  indicators and must not be reported as efficacy. Because infrastructure is delisted
+  over time, the headline is "fraction of feed-listed indicators OTX recognizes",
+  not a catch rate, with its numerator and denominator, and a miss may be a
+  delisting. The statement that an unrecognized indicator can be a delisting is
+  printed beside the headline.
+- **OTX lookups of public indicators:** sending these public indicators to OTX as
+  lookups is acceptable under a `BW_OTX_API_KEY` grant. `plan` prints every API host
+  and every indicator that would be sent, one per line, with zero network
+  connections, before any lookup, and the run refuses to send an indicator that is
+  not in the IOC fixtures. The run-set manifest states that every indicator sent to
+  OTX comes from the IOC fixtures.
+- **Hygiene:** the builder passes every indicator through `ContextHygiene` as an
+  un-redacted standalone hostname (AGENTS.md: as `wd-bouygues.com` does) and checks
+  that the output string equals the input string. If any indicator changes, the
+  build fails listing every changed indicator and writes no output.
+- **Egress guard:** the run-time allowlist for every Harness run other than the
+  IOC_Authoring_Step is the Jev, Vertex AI and OTX API hosts only. A Harness run
+  refuses and records any other host, and the two authoring hosts are not in the
+  run-time allowlist. A test installs a socket guard and
+  fails, naming the indicator, if any code path opens a connection to an IOC
+  indicator. Indicators are strings for classification and for OTX's reputation API;
+  nothing contacts them, and no verdict (`ALLOW` and `QUARANTINE` included) causes a
+  connection. The IOC_Authoring_Step reaches `threatfox.abuse.ch` and
+  `tranco-list.eu`, and no other host, once, under its own grant, outside any
+  Harness run. It has its own allowlist, `AUTHORING_HOSTS`, which holds exactly those
+  two hosts and none of the run-time hosts.
+- **Schema (committed under `tests/eval/ioc_corpus/`):**
+
+```python
+@dataclass(frozen=True, slots=True)
+class IocEntry:
+    case_id: str
+    cls: Literal["malicious", "control"]
+    indicator: str                           # a domain name or an IP address only
+    kind: Literal["domain", "ip"]
+    source: str                              # "abuse.ch ThreatFox" or "Tranco"
+    snapshot_date: str                       # YYYY-MM-DD
+    category: str | None                     # required for malicious entries (feed category)
+    list_id: str | None                      # Tranco list identifier; required for control entries
+
+@dataclass(frozen=True, slots=True)
+class IocManifest:
+    schema_version: int
+    malicious_feed: str                      # "abuse.ch ThreatFox", never OTX
+    malicious_snapshot_date: str
+    control_list: str                        # "Tranco top-1000"
+    control_list_id: str
+    control_snapshot_date: str
+    total_cases: int                         # equals the number of entries written
+    template: str                            # the one shared template for both classes
+    notes: str                               # states that no key and no raw feed dump is stored
+```
+
+- **Builder and loader tests (each starts red):** a malicious entry without feed
+  name, snapshot date or category fails the build; an OTX-sourced entry fails; an
+  indicator in both classes fails; a URL, port, path, query, fragment, embedded
+  credential or non-domain, non-IP string fails; `ContextHygiene` changing an
+  indicator fails and names every changed indicator, with no output written; the
+  malicious and control cases use an identical set of tool names and argument keys;
+  `total_cases` equals the number written and a mismatch at load refuses to run and
+  reports both numbers; the builder makes zero threat-intelligence calls while
+  building (a guard on the orchestrator and the OTX provider fails the test on any
+  call); the builder reads only the named variable, and only when a grant is passed,
+  and no committed file contains a key or a raw export; the egress guard fails on a
+  connection to an indicator.
+- **Authoring-host tests (each starts red):** the IOC_Authoring_Step connects only to
+  `threatfox.abuse.ch` and `tranco-list.eu`; given any other host it refuses the
+  connection and records the host name; the two authoring hosts are not in the
+  run-time allowlist and the run-time hosts are not in `AUTHORING_HOSTS`.
 - **Use:** I-TI-ioc, plus W3/W5 on this corpus to see whether a threat-intel hit
   rescues the C2/IOC-type calls that Jev scores low. It is never pooled with the
-  167-case corpus in any table.
+  167-case corpus in any table, chart or aggregate figure. Both the headline and
+  every other IOC rate exclude `ERROR` rows from numerator and denominator, and
+  show the excluded count (and `0` when none).
 - **Labeled plumbing variant:** `stub_plumbing_only` seeds a stub provider with
   corpus hosts. It tests `is_high_risk` gating, error propagation and composition,
   and nothing else. Its config ids end in `-stub`, and the notebook draws a banner
-  on any panel that includes one and excludes it from efficacy views.
+  on any panel that includes one and excludes it from efficacy views. A missing
+  `BW_OTX_API_KEY` grant never substitutes a stub.
 
 ### CBM fixture codebase (what the stage can honestly answer)
 
@@ -863,7 +1026,8 @@ dangerous-looking tool.
   noise or the tool-name tell. Both rows are always shown together.
 - **Labeled what-if:** "sinks mapped" recomputes `_score_cbm` from `raw_sinks`, as
   if the enum mapping worked. It is a hypothetical row, labeled as such, and the
-  defect itself is reported, not fixed (Q4).
+  defect itself is reported, not fixed, and is tracked as its own task in the owning
+  spec when tasks are written (Q4, decided 2026-11-13).
 - **Live MCP:** a conformance probe checks that a running codebase-memory-mcp
   answers the three calls the client makes (`trace_path`, `query_graph`,
   `get_architecture`) in the shapes the client parses. If it does not, or if it
@@ -940,8 +1104,8 @@ sequenceDiagram
    of the Default_Plan without a grant has a Not_Measured reason that begins
    `no grant` and names `BW_OTX_API_KEY`.
 4. **Interleave.** Passes are interleaved across configurations in one fixed
-   configuration order (pass 1 of W0, W1, W2, then the I-T2 table, then pass 2 of the
-   same) so slow drift in the model cannot line up with one configuration. Every
+   configuration order (pass 1 of W0, W1, W2, then `I-T2/jev-1.13.0` and
+   `I-T2/jev-1.14.0` as Tier-2 Pass 1 of each release table, then pass 2 of the same) so slow drift in the model cannot line up with one configuration. Every
    executed Pass, discarded Passes and re-runs included, gets an interleave position
    in the manifest: a 1-based integer (1 or greater), unique within the Run_Set and
    ordered by execution start. A re-run after an invalidation takes the next unused
@@ -953,9 +1117,9 @@ sequenceDiagram
    compared with each other (the valid passes of a configuration, Pass_Spread
    calculations, Jev release comparisons) must have used the same N; a pass with a
    different N is recorded and excluded from the comparison with a reason. A
-   cool-down of at least a configured number of seconds separates passes of
-   different configurations, and is recorded in the manifest. The 30 s starting
-   value is a proposal (Q10, open). At the default of 2 the front 80 req/s bucket
+   cool-down separates passes of different configurations: 30 seconds by default
+   (`--cooldown-s`), recorded in the manifest as `cooldown_s` (Q10, decided
+   2026-11-13). At the default of 2 the front 80 req/s bucket
    cannot run dry, so any `rate_limit` row signals a harness defect; a larger N
    raises that risk, and a `rate_limit` row still invalidates the pass.
 6. **Invalidate.** Any Tier-2 429 (from the client probe) or any rate-limit
@@ -984,7 +1148,7 @@ class Reading(str, Enum):
     STOPPED = "stopped"      # BLOCK or QUARANTINE
     BLOCKED = "blocked"      # BLOCK only
 
-# The ONE place the definition lives. Changing the proposal is an edit here.
+# The ONE place the definition lives. Changing the definition is an edit here.
 STOPPING_DECISIONS: Mapping[Reading, frozenset[str]] = {
     Reading.STOPPED: frozenset({"BLOCK", "QUARANTINE"}),
     Reading.BLOCKED: frozenset({"BLOCK"}),
@@ -1155,15 +1319,36 @@ is counted exactly once; the result is identical for any permutation of the reco
 
 ### Band replay and outage drill (pure)
 
+A replay is computed for one stored Jev release at a time (Q3, decided 2026-11-13).
+The release supplies its own stored Jev P per case (run 1 of its class-blind run) and
+its own Forced_Table, recorded in two Tier-2 Passes. A replay never mixes one
+release's P with another release's table.
+
 ```python
 @dataclass(frozen=True, slots=True)
+class ReleaseInputs:
+    release: str                              # "jev-1.13.0" or "jev-1.14.0", as recorded in the stored runs on 2026-11-13
+    jev_run_key: str | None                   # run 1 of this release's stored class-blind run; None => Not_Measured
+    p_by_case: Mapping[str, float]            # that run's stored Jev P; a case with no entry is `unmeasured`
+    tier2_passes: Mapping[int, Mapping[str, Tier2Out]]   # pass_index (1 and 2) -> that Pass's Forced_Table
+
+@dataclass(frozen=True, slots=True)
+class Rate:
+    numerator: int
+    denominator: int
+    value: float | None                       # None (Not_Measured, with a reason) when the denominator is 0
+    band: tuple[float, float] | None          # min and max of this rate across the two Tier-2 Passes; None => Not_Measured
+
+@dataclass(frozen=True, slots=True)
 class ReplayCell:
+    release: str
     lo: float
     hi: float
     status: Literal["measured", "unmeasured"]
+    approximate: bool                # True when the replayed P is not the P of the run that backs the table
     n_unmeasured: int                # cases with no Tier-2 entry or no stored Jev P (never imputed)
     n_error: int                     # recorded ERROR rows carried through; excluded from every rate below
-    catch: Mapping[Reading, Rate]
+    catch: Mapping[Reading, Rate]    # value is the Tier-2 Pass 1 value; band spans both Passes
     false_alarm: Mapping[Reading, Rate]
     tier2_share: float | None        # tier2_calls / cases that are neither unmeasured nor ERROR (cost, latency, quota); None if that denominator is 0
     tier2_calls: int
@@ -1174,37 +1359,47 @@ class ReplayCell:
 
 def replay_band(
     cases: Sequence[CorpusCase], stage_rows: Mapping[str, StageOutputs],
-    tier2_table: Mapping[str, Tier2Out], base: ComposeConfig,
+    release: ReleaseInputs, base: ComposeConfig,
     los: Sequence[float], his: Sequence[float], clear_high_policy: str = "aggregate",
     recorded_errors: Mapping[str, str] | None = None,
 ) -> list[ReplayCell]: ...
 ```
 
 ```python
-def replay_band(cases, stage_rows, tier2_table, base, los, his, clear_high_policy="aggregate",
+def replay_band(cases, stage_rows, release, base, los, his, clear_high_policy="aggregate",
                 recorded_errors=None):
     recorded_errors = recorded_errors or {}          # case_id -> recorded `error` class of an ERROR row
     for edge in (*los, *his):                        # reject the whole request, produce no cell
         if not (isinstance(edge, (int, float)) and 0.0 <= edge <= 1.0):
             raise ValueError(f"band edge outside 0.0..1.0: {edge!r}")
+    if release.jev_run_key is None or len(release.tier2_passes) < 2:
+        # No named Jev run, or fewer than two Forced_Table Passes: the error band is Not_Measured
+        # and no band is drawn; a missing run key also labels every cell approximate.
+        ...
     cells = []
     for lo in los:
         for hi in his:
             if lo > hi: continue                     # skipped, no cell; lo == hi is a valid zero-width Band
             cfg = replace(base, band=Band(lo, hi), clear_high_policy=clear_high_policy, tier2="recorded")
-            verdicts, outage, unmeasured, errors = {}, {}, 0, {}
-            for c in cases:
-                if c.case_id in recorded_errors:
-                    # A recorded ERROR row has no Stage outputs to compose from. Carry it
-                    # through unchanged (ERROR + its recorded error class), at every Band.
-                    # Never pass it to compose_verdict; exclude it from every rate; count it.
-                    errors[c.case_id] = recorded_errors[c.case_id]
-                    continue
-                v = compose_verdict(stage_rows[c.case_id], cfg, forced=tier2_table.get(c.case_id))
-                if v is UNMEASURED: unmeasured += 1; continue     # also: no stored Jev P => unmeasured
-                verdicts[c.case_id] = v
-                outage[c.case_id] = compose_verdict(stage_rows[c.case_id], replace(cfg, tier2="unavailable"), None)
-            cells.append(summarize(cases, verdicts, outage, lo, hi, unmeasured, errors))
+            per_pass = {}
+            for k, table in release.tier2_passes.items():   # each Pass of this release's own table
+                verdicts, outage, unmeasured, errors = {}, {}, 0, {}
+                for c in cases:
+                    if c.case_id in recorded_errors:
+                        # A recorded ERROR row has no Stage outputs to compose from. Carry it
+                        # through unchanged (ERROR + its recorded error class), at every Band.
+                        # Never pass it to compose_verdict; exclude it from every rate; count it.
+                        errors[c.case_id] = recorded_errors[c.case_id]
+                        continue
+                    if c.case_id not in release.p_by_case:         # no stored Jev P: unmeasured, never substituted
+                        unmeasured += 1; continue
+                    row = with_jev_p(stage_rows[c.case_id], release.p_by_case[c.case_id])
+                    v = compose_verdict(row, cfg, forced=table.get(c.case_id))
+                    if v is UNMEASURED: unmeasured += 1; continue  # triggered, no Tier-2 entry
+                    verdicts[c.case_id] = v
+                    outage[c.case_id] = compose_verdict(row, replace(cfg, tier2="unavailable"), None)
+                per_pass[k] = summarize(cases, verdicts, outage, lo, hi, unmeasured, errors)
+            cells.append(merge_passes(release.release, per_pass))   # Pass 1 point value, min..max band
     return cells
 ```
 
@@ -1212,6 +1407,8 @@ def replay_band(cases, stage_rows, tier2_table, base, los, his, clear_high_polic
 and `tier2_share` as `tier2_calls` over that same count (a zero denominator is
 Not_Measured, never 0.0). A recorded `ERROR` row is carried through as `ERROR` with
 its recorded `error` class; it is counted in `n_error` beside each affected figure.
+`merge_passes` takes each rate's point value from Tier-2 Pass 1 and its error band
+from the minimum and maximum of that rate across the two Passes.
 
 **Postconditions:** at the shipped band with the shipped policy and the recorded
 configuration, the replayed verdict of every non-`ERROR` case equals its recorded
@@ -1222,30 +1419,39 @@ carry-through holds at any other Band. `tier2_share` is non-decreasing under
 interval inclusion (if `[lo2, hi2]` contains `[lo1, hi1]`, the set of cases that
 fire Tier-2 is a superset); a triggered case without a Tier-2 entry is `unmeasured`
 for that case, is shown with an em dash and is counted in `n_unmeasured`, never
-imputed.
+imputed. The replay of one release reads only that release's `p_by_case` and
+Forced_Table.
 
 **Validity limits (rendered beside every replay surface):**
 
-1. Tier-2 ran once per case per pass. Same-model reruns differ (ADR 0008 measured
-   it for Jev), so the surface carries the spread between the two forced-table
-   passes as an error band, and a recommendation must clear it.
-2. The Tier-2 prompt includes the Jev P to two decimals. The table was recorded at
-   the P of one named run. Replaying with another run's P is approximate, and the
-   notebook says which run backs the table.
+1. Tier-2 ran once per case per Pass, in two Passes per release table. Same-model
+   reruns differ (ADR 0008 measured it for Jev), so each replayed rate carries an
+   error band from the minimum to the maximum of that rate across the two Passes of
+   the replayed release's Forced_Table, and a recommendation must clear it. With
+   fewer than two Passes for the release, the band is Not_Measured with the reason
+   and no band is drawn.
+2. The Tier-2 prompt includes the Jev P to two decimals. Each table was recorded at
+   the P of run 1 of its own release's stored run, and the notebook states that run's
+   identifier. Replaying with the P of another run is approximate and every cell is
+   labeled "approximate"; so is every cell of a release whose backing run is not
+   recorded, with its identifier shown as Not_Measured.
 3. Tuning and scoring on the same cases is circular. The surface is exploratory.
    The notebook shows tune-half versus held-out-half curves (a split by parent
-   group, so an evasion variant never lands apart from its parent). A band is
-   recommended only if it holds on the held-out half within the pass spread, and a
-   spec amendment still needs fresh labeled evidence, as `tier-1-jev-addition`
-   requires. The corpus is small (99 attacks, 10 hand-written), and the notebook
-   prints that.
+   group, so an evasion variant never lands apart from its parent). The study may
+   publish the exploratory replay and that comparison, and it recommends no band
+   edge until fresh labeled evidence exists (Q11, decided 2026-11-13; see "Band
+   recommendation gate"). The corpus is small (99 attacks, 10 hand-written), and the
+   notebook prints the attack count and the hand-written count taken from the loaded
+   Corpus.
 4. The aggregation weights, the 0.35/0.75 constants elsewhere, and the
    disagreement constants stay fixed; only the band edges and the clear-high policy
    move.
 5. The tool-name tell (D7) can carry a band result: the "other tool name" stratum
    is always shown, and a band that helps only the shell stratum is flagged.
 6. Jev's fixed band does not follow the model (ADR 0008); a replay is tied to the
-   Jev release(s) in the stored runs.
+   Jev releases in the stored runs, and the notebook lists the release recorded in
+   each stored run (or "unrecorded").
+7. Every band result is labeled "input to TASK-F10 and TASK-F06, not a decision".
 
 ### Held-out split (pure)
 
@@ -1256,11 +1462,105 @@ def split_by_group(cases, salt: str) -> tuple[set[str], set[str]]:
 
 Property: a variant and its parent are always on the same side.
 
+### Band recommendation gate (pure)
+
+No band edge is recommended on the strength of the exploratory replay alone (Q8 and
+Q11, decided 2026-11-13). `check_recommendation` is the only code that can accept a
+proposal, and it only decides: it writes no band, threshold or weight to any file,
+and a rejection leaves the shipped band (0.35 and 0.75), the thresholds and the
+aggregation weights unchanged.
+
+```python
+GATE_MIN_ATTACK = 30       # fresh hand-written attack cases required
+GATE_MIN_BENIGN = 30       # fresh hand-written benign cases required (matches the small-group threshold of 30)
+
+@dataclass(frozen=True, slots=True)
+class FreshCase:
+    case_id: str
+    ground_truth: Literal["BENIGN", "MALICIOUS"]
+    origin: Literal["hand_written", "generated", "imported"]
+    authored_at: str                  # UTC ISO 8601 timestamp, to the second
+    scored_before_draft: bool         # True if any harness run scored it before the recommendation was drafted
+
+@dataclass(frozen=True, slots=True)
+class FreshEvidence:
+    surface_frozen_at: str            # UTC timestamp at which the replay surface was frozen
+    cases: Sequence[FreshCase]
+
+class GateCheck(str, Enum):
+    HELD_OUT_WITHIN_SPREAD = "held_out_within_pass_spread"
+    FRESH_EVIDENCE_COUNT = "at_least_30_attack_and_30_benign"
+    FROZEN_SURFACE = "authored_after_surface_frozen"
+    ABSENT_FROM_TUNING = "absent_from_tuning_corpus"
+    NOT_SCORED_BEFORE_DRAFT = "not_scored_before_draft"
+    F09_OR_OTHER_STRATUM = "f09_complete_or_other_stratum_holds"
+
+@dataclass(frozen=True, slots=True)
+class GateResult:
+    accepted: bool
+    failed: tuple[GateCheck, ...]     # every failed check, by name
+    evidence_case_ids: tuple[str, ...]  # recorded with the recommendation (empty when rejected)
+
+def check_recommendation(
+    proposal: BandProposal,
+    tune: Mapping[tuple[str, Reading], float | None],       # (metric, reading) -> tune-half value, None => Not_Measured
+    held: Mapping[tuple[str, Reading], float | None],       # same keys, held-out-half value
+    pass_spread: Mapping[tuple[str, Reading], float | None],
+    other_stratum_gap: Mapping[tuple[str, Reading], float | None],   # |tune - held| in the `other` stratum
+    other_stratum_spread: Mapping[tuple[str, Reading], float | None],
+    evidence: FreshEvidence,
+    tuning_case_ids: frozenset[str],
+    f09_complete: bool,
+) -> GateResult:
+    failed = []
+    keys = [(m, r) for m in ("catch", "false_alarm") for r in Reading]    # both metrics, both Readings
+
+    # Held-out comparison: tune vs held-out within the Pass spread, for every metric and Reading.
+    if not all(_within(tune[k], held[k], pass_spread[k]) for k in keys):  # a None anywhere fails
+        failed.append(GateCheck.HELD_OUT_WITHIN_SPREAD)
+
+    # Fresh labeled evidence, counted only from cases that pass every per-case test.
+    ok = lambda c: c.origin == "hand_written"
+    after_freeze = lambda c: c.authored_at > evidence.surface_frozen_at
+    new = lambda c: c.case_id not in tuning_case_ids
+    unscored = lambda c: not c.scored_before_draft
+    if any(c.origin == "hand_written" and not after_freeze(c) for c in evidence.cases):
+        failed.append(GateCheck.FROZEN_SURFACE)            # a hand-written case authored at or before the freeze
+    if any(not new(c) for c in evidence.cases):
+        failed.append(GateCheck.ABSENT_FROM_TUNING)
+    if any(c.scored_before_draft for c in evidence.cases):
+        failed.append(GateCheck.NOT_SCORED_BEFORE_DRAFT)
+    good = [c for c in evidence.cases if ok(c) and after_freeze(c) and new(c) and unscored(c)]
+    if (sum(c.ground_truth == "MALICIOUS" for c in good) < GATE_MIN_ATTACK
+            or sum(c.ground_truth == "BENIGN" for c in good) < GATE_MIN_BENIGN):
+        failed.append(GateCheck.FRESH_EVIDENCE_COUNT)
+
+    # TASK-F09 landed, or the held-out check holds in the `other` stratum on its own.
+    if not f09_complete and not all(
+            _within(other_stratum_gap[k], 0.0, other_stratum_spread[k]) for k in keys):
+        failed.append(GateCheck.F09_OR_OTHER_STRATUM)
+
+    return GateResult(not failed, tuple(failed),
+                      tuple(sorted(c.case_id for c in good)) if not failed else ())
+```
+
+**Preconditions:** the replay surface was frozen before any fresh case was authored
+(`surface_frozen_at` is recorded in the evidence file when the surface is frozen);
+`tuning_case_ids` is the identifier set of the Corpus used for tuning.
+**Postconditions:** `accepted` is true only if every check passes; a rejection names
+every failed check and changes no band, threshold or weight; an accepted
+recommendation records the identifiers of the fresh evidence; the function is pure
+and returns the same result for the same inputs. Even an accepted result is an input
+to a spec amendment under `tier-1-jev-addition`, which the maintainer decides, and
+`F09_OR_OTHER_STRATUM` makes TASK-F09 (Q8) a gate for the recommendation and not for
+the first comparison.
+
 ## Example Usage
 
 ```python
 # 1. Plan (no spend, no network). Without --configs the plan is the Default_Plan.
 #    python scripts/holistic_eval.py plan --configs W0,W1,W2,I-T2 --passes 2
+#    (I-T2 expands to one Forced_Table per Jev release, two Tier-2 Passes each)
 
 # 2. Offline stage pass: structural, context, TSG (cold, parent-only, held-out), CBM default
 #    python scripts/holistic_eval.py stages --run-set cb-2026-xx
@@ -1282,10 +1582,12 @@ Property: a variant and its parent are always on the same side.
 rs = store.load_run_set(repo_root / "tests/eval/results/holistic/cb-2026-xx")
 cfg = ComposeConfig(structural=True, tsg=True, threat_intel=False, cbm=False,
                     jev=True, tier2="recorded", band=Band(0.35, 0.75))
-verdicts = {c.case_id: compose_verdict(rs.stages[c.case_id], cfg, rs.tier2_table.get(c.case_id))
+rel = rs.release_inputs["jev-1.14.0"]          # that release's stored P and its own two-Pass Forced_Table
+verdicts = {c.case_id: compose_verdict(with_jev_p(rs.stages[c.case_id], rel.p_by_case[c.case_id]), cfg,
+                                       rel.tier2_passes[1].get(c.case_id))
             for c in rs.cases}
 caught = rates(verdicts_as_records(verdicts), Reading.STOPPED)
-cells = replay_band(rs.cases, rs.stages, rs.tier2_table, cfg,
+cells = replay_band(rs.cases, rs.stages, rel, cfg,
                     los=[0.0, 0.05, 0.10, 0.35], his=[0.50, 0.75, 0.90, 1.0])
 ```
 
@@ -1333,14 +1635,28 @@ rule 70; it is scheduled in Phasing, not done here).
 | 5 | What can stop a call | Static reduction for the selected layers: with TI and CBM absent the verdict is structural BLOCK, TSG match, Tier-2 verdict, or Tier-2-unavailable QUARANTINE; the aggregate cannot reach 0.50 |
 | 6 | Panel A: isolated versus whole | Per group (class, attack type, tool-name group, C2/IOC versus payload): each stage's own flag rate next to the system catch rate and false-alarm rate, under both readings, with counts, pass spread and Wilson intervals. The whole-system and composed catch and false-alarm rates carry the `ERROR` count and the treat-`ERROR`-as-stopped sensitivity column (Q15); the Stage_Gate and Stage_Flag rows carry the `ERROR` exclusion and count only |
 | 7 | Panel B: catch attribution | Partition (system-only, unique with stage names, redundant, lost-by-system, missed-by-all) as a stacked bar per configuration; the class totals equal the Attack_Cases that are neither `ERROR` nor `UNMEASURED`, and the panel shows the number of excluded `ERROR` cases and the number of excluded `UNMEASURED` cases separately; leave-one-out and add-one-in tables; the case lists behind each bar |
-| 8 | Panel C: band replay surface | Heatmaps over `lo` and `hi`: catch (stopped), catch (blocked), false alarm, Tier-2 share, outage QUARANTINE exposure; the shipped band marked; unmeasured cells as an em dash; the number of excluded `ERROR` rows beside each rate (Tier-2 share included, whose denominator also excludes them) and no sensitivity column, because replay cells carry the `ERROR` exclusion and count only (Q15); the pass-spread band; the tune-half versus held-out-half comparison; a validity-limits box |
+| 8 | Panel C: band replay surface | Heatmaps over `lo` and `hi`: catch (stopped), catch (blocked), false alarm, Tier-2 share, outage QUARANTINE exposure; the shipped band marked; unmeasured cells as an em dash; the number of excluded `ERROR` rows beside each rate (Tier-2 share included, whose denominator also excludes them) and no sensitivity column, because replay cells carry the `ERROR` exclusion and count only (Q15); one set of heatmaps per stored Jev release (`jev-1.13.0`, `jev-1.14.0`), each computed from that release's own stored P and its own Forced_Table (Q3), shown side by side; each rate's error band drawn from the minimum to the maximum of that rate across the two Tier-2 Passes of the replayed release's table, Not_Measured with the reason and no band when fewer than two Passes exist; the tune-half versus held-out-half curves (catch and false alarm under both Readings, with the split salt) and the `high_risk_name` and `other` strata side by side; a validity-limits box rendered in the same panel; every band result labeled "input to TASK-F10 and TASK-F06, not a decision"; no band edge is recommended here, because a recommendation needs the gate of "Band recommendation gate" |
 | 9 | Panel D: Tier-2 outage drill | The ADR 0009 Decision 6 cost computed offline: benign QUARANTINEs and attack outcomes if Tier-2 were unavailable |
 | 10 | Panel E: stratified views | The "other tool name" stratum as the headline, the shell stratum beside it, and the C2/IOC-type stratum |
 | 11 | Panel F: TSG | One row per Seeding_Mode. Transfer set, false-match set, the match rate over variants of seeded parents (labeled transfer from a seed, not held-out evidence) beside the match rate over the unseeded-parent half (the held-out control), match path, seed pattern length. Rows marked `leakage="seeded_case"` (only parents whose seed was written in that mode) are labeled and excluded from the rates. The `ERROR` exclusion and count only, no sensitivity column (Q15) |
-| 12 | Panel G: optional layers | Threat intelligence on the corpus hosts and on the IOC corpus (separate panels), CBM default versus fixture versus permuted; a status tile per layer, "not measured" with the recorded reason when absent (a threat-intelligence row without a grant reads `no grant` and names `BW_OTX_API_KEY`); a banner on any plumbing-only data; threat-intelligence, IOC_Corpus and CBM `sinks mapped` rates carry the `ERROR` exclusion and count only, no sensitivity column (Q15); a Default_Plan row that lacks a credential, fixture or transport shows its recorded Not_Measured reason |
+| 12 | Panel G: optional layers | Threat intelligence on the corpus hosts and on the IOC corpus (separate panels; the IOC headline is the share of feed-listed indicators that OTX recognizes, with its numerator and denominator and the statement that an unrecognized indicator can be a delisting), CBM default versus fixture versus permuted; a status tile per layer, "not measured" with the recorded reason when absent (a threat-intelligence row without a grant reads `no grant` and names `BW_OTX_API_KEY`); a banner on any plumbing-only data; threat-intelligence, IOC_Corpus and CBM `sinks mapped` rates carry the `ERROR` exclusion and count only, no sensitivity column (Q15); a Default_Plan row that lacks a credential, fixture or transport shows its recorded Not_Measured reason |
 | 13 | Per-case drilldown | Case filter and selector: stage outputs, novelty and keyword hits, trigger, Tier-2 decision and latency, final decision, decided-by, quarantine cause |
 | 14 | Caveats | Corpus size, the tool-name tell, Tier-2 variance, circularity, the Jev release, what was not measured, links to the ADRs and tasks |
 | 15 | Cross-link | A pointer to `notebooks/benchmark_analytics.py` and the Tier-1 section it already carries |
+
+The validity-limits box of Panel C states, visibly and without interaction: Tier-2
+ran once per case per Pass; the spread between the two Passes of the replayed
+release's Forced_Table is shown as the error band; the identifier of the Jev run that
+backs that table (or Not_Measured with the reason, with every cell then labeled
+"approximate"); that replaying with the P of any other run is approximate; that
+tuning and scoring on the same cases is circular; that the surface is exploratory;
+the number of attack cases in the loaded Corpus and how many are hand-written (read
+from the Corpus, not typed in); that a replay is tied to the Jev releases in the
+stored runs, with the release of each stored run or "unrecorded"; and that the Jev
+band does not follow the model (ADR 0008). A band whose catch rate beats the shipped
+band's by more than the Pass spread in the `high_risk_name` stratum but not in the
+`other` stratum is flagged "helps only high_risk_name"; with no attack case in the
+`other` stratum the stratum is Not_Measured and no band is marked free of that flag.
 
 The Tier-1 isolated view in Panel A is loaded from
 `tests/eval/results/jev_runs_class_blind/` (not re-run), so it matches the figures
@@ -1405,9 +1721,9 @@ already cited by ADR 0009.
 
 ### Property 10: Unmeasured is never imputed
 
-*For any triggered case without a Tier-2 entry, the Composer returns `UNMEASURED` (not a decision and not `ERROR`), and the replay cell reports it as unmeasured and excludes it from every numerator and denominator; no value is substituted.*
+*For any triggered case without a Tier-2 entry, the Composer returns `UNMEASURED` (not a decision and not `ERROR`), and the replay cell reports it as unmeasured and excludes it from every numerator and denominator; no value is substituted. A replay of a Jev release reads only that release's own stored P and Forced_Table, never another release's.*
 
-**Validates: Requirements 9.14, 15.17, 15.18, 15.19, 15.20**
+**Validates: Requirements 9.14, 15.1, 15.17, 15.18, 15.19, 15.20**
 
 ### Property 11: The held-out split keeps families together
 
@@ -1457,6 +1773,12 @@ already cited by ADR 0009.
 
 **Validates: Requirements 30.15, 17.19, 18.3, 18.4**
 
+### Property 19: A band recommendation needs the whole gate and changes nothing
+
+*For any proposal and any evidence, `check_recommendation` accepts only if the held-out value is within the pass spread of the tune value for the catch rate and the false-alarm rate under both Readings, the evidence holds at least 30 attack cases and at least 30 benign cases that are hand-written, were authored after the replay surface was frozen, are absent from the tuning Corpus and were not scored before the recommendation was drafted, and TASK-F09 is complete or the held-out check holds in the `other` stratum alone. Otherwise it rejects and names each failed check. In every case the shipped band, the thresholds and the aggregation weights are identical before and after the call.*
+
+**Validates: Requirements 16.21, 16.22, 16.23, 16.24, 16.25**
+
 ## Error Handling
 
 | Scenario | Condition | Response | Recovery |
@@ -1470,7 +1792,12 @@ already cited by ADR 0009.
 | OTX typed error | `OTXLookupError` and the other typed errors re-raise out of `evaluate()` | `ERROR` row with the class name; threat-intel rows keep their error count | Pass stays valid; the table shows the count |
 | No credential grant, Named_Explicitly row | Variable absent, empty or not granted, and the row's id is in `--configs` | Abort: non-zero exit with an error naming the variable (both `GCP_PROJECT` and `GOOGLE_CLOUD_PROJECT` for a Vertex row), before any client is built, any network call or any record is written; no stub in its place | A human grants in the current conversation and the run is repeated |
 | No credential grant, Default_Plan row | Variable absent, empty or not granted, and the row is not in `--configs` | The row is recorded in `not_measured` with a reason that begins `no grant` and names the variable (for threat intelligence, `BW_OTX_API_KEY`); no live call, no degraded run, no stub in its place; the run continues | A human grants in the current conversation and the row is run |
-| Missing Tier-2 entry in replay | Triggered case without a forced-table row | Cell status `unmeasured` for that case; em dash | Complete the forced table |
+| Missing Tier-2 entry in replay | Triggered case without a row in the replayed release's own forced table | Cell status `unmeasured` for that case; em dash; never filled from another release's table | Complete that release's forced table |
+| Forced_Table not buildable for a release | The Manifest names no Jev run for the release, or the run lacks a Jev P for a case | The release is recorded in `not_measured` with the reason and has no Passes; its replay is Not_Measured; the other release is unaffected | Commit the missing Jev run, then build the table |
+| Fewer than two Forced_Table Passes | A release has one Pass, for example after a discarded Pass that was not re-run | The error band is Not_Measured with the reason and no band is drawn | Re-run the Pass |
+| Band recommendation fails the gate | Held-out difference above the Pass spread, fewer than 30 attack or 30 benign fresh cases, a case authored before the surface was frozen, present in the tuning Corpus or scored before the draft, or F09 open without the `other` stratum holding | `check_recommendation` rejects, names each failed check and records the rejection; the band, thresholds and weights stay unchanged | Author fresh cases after the freeze, then redraft |
+| IOC build violation | Missing feed metadata, an OTX-sourced entry, an indicator in both classes, a non-domain or non-IP indicator, or a `ContextHygiene` change | The build fails naming the entry or indicator and writes no output | Fix the selection and rebuild |
+| IOC indicator unrecognized by OTX | The feed has since delisted it (ThreatFox expires indicators older than 6 months) | Reported as unrecognized, never as an error; it lowers the headline share | None needed; the delisting statement is shown beside the headline |
 | CBM transport mismatch, or a missing fixture | Live MCP does not answer in the parsed shapes, or the fixture or snapshot is absent; applies to a Named_Explicitly row as well as a Default_Plan row, because the abort covers credentials and grants only | `not_measured: transport mismatch` (or a reason naming the missing fixture); the run continues; the fixture adapter rows are unaffected by a transport mismatch | Author the fixture, or follow up on the client or the server separately |
 | Corpus edited after a run | Hash mismatch | The validate test and the notebook loader fail with the differing case ids | Re-score in a new run-set directory |
 | Corrupt line or partial file | Truncated JSON | Atomic writes make this a loader error naming the file; nothing partial is committed | Re-run the pass |
@@ -1521,8 +1848,41 @@ are deferred, never simulated.
   fixture adapter opens no socket and `base_url` stays `None` after resolver
   construction; the sink-mapping drop is pinned as a characterization test of the
   current behavior (so a later fix is a deliberate, visible change).
-- IOC corpus: every indicator survives `ContextHygiene` unchanged; the template is
-  shared across classes; the egress guard fails on any connection to a corpus host.
+- IOC corpus (builder and loader): every indicator survives `ContextHygiene`
+  unchanged, and a change fails the build naming every changed indicator with no
+  output written; the template, tool names and argument keys are shared across
+  classes; a malicious entry without feed name, snapshot date or category, an
+  OTX-sourced entry, an indicator in both classes, and an indicator with a scheme,
+  port, path, query, fragment, credential or a non-domain, non-IP form each fail the
+  build; `total_cases` equals the number written and a load that differs refuses to
+  run and reports both numbers; the builder makes zero threat-intelligence calls while
+  building (a guard on the orchestrator and the OTX provider fails on any call), reads
+  `BW_ABUSECH_AUTH_KEY` only when a grant names it, and commits no key and no raw
+  dump; control entries carry the Tranco list identifier; `plan` prints every
+  indicator with zero connections and a run refuses an indicator absent from the IOC
+  fixtures; the egress guard fails on any connection to an indicator; the
+  IOC_Authoring_Step refuses any host other than `threatfox.abuse.ch` and
+  `tranco-list.eu` and records the refused host name; the two authoring hosts are
+  not in the run-time allowlist and the run-time hosts are not in the authoring
+  allowlist; the OTX-only orchestrator is the one used for efficacy, and no efficacy
+  table is built from a multi-provider run that includes abuse.ch.
+- Forced_Table per release: `jev-1.13.0` and `jev-1.14.0` each get their own table
+  from run 1 of their own stored run and two Tier-2 Passes; the Manifest records both
+  releases, the run key and each Pass by release name and `pass_index`; a replay of one
+  release reads only that release's P and table (a test swaps the other release's
+  table in and the result must not change); a release with no named run or a missing
+  P is Not_Measured and the other release is unaffected; the error band is the minimum
+  and maximum across the two Passes and is Not_Measured with fewer than two.
+- Band recommendation gate (`band_gate`): a proposal with a held-out difference above
+  the Pass spread for any metric and Reading is rejected; 29 fresh attack cases or 29
+  fresh benign cases is rejected and 30 of each passes the count check; a hand-written
+  case authored at or before the surface freeze is rejected; a case present in the
+  tuning Corpus is rejected; a case scored before the draft is rejected; a
+  non-hand-written case does not count; F09 open with the `other` stratum outside the
+  spread is rejected and F09 complete passes that check; a Not_Measured input fails
+  closed; every rejection names each failed check; the evidence identifiers are
+  recorded on acceptance; the band, thresholds and weights are byte-identical before
+  and after any call.
 - Replay: shipped-band identity over non-`ERROR` rows, with every recorded `ERROR`
   row returned unchanged as `ERROR` with its recorded error class at the shipped
   band and at another band (never passed to the Composer, excluded from every rate,
@@ -1566,7 +1926,7 @@ are deferred, never simulated.
 
 ### Property-based tests (`tests/property/`, Hypothesis)
 
-P1, P2, P3, P4 (over non-`ERROR` rows, plus the `ERROR` carry-through), P5, P6, P7, P8, P9, P11, P12, P14, P16, P17 and P18 (no case identifier and no `parent_case_id` of the unseeded-parent half among the seeds, and only seeded-mode parents marked) are properties over
+P1, P2, P3, P4 (over non-`ERROR` rows, plus the `ERROR` carry-through), P5, P6, P7, P8, P9, P11, P12, P14, P16, P17, P18 and P19 (no case identifier and no `parent_case_id` of the unseeded-parent half among the seeds, and only seeded-mode parents marked) are properties over
 generated inputs (strategies for stage outputs, bands, readings and record sets
 respect the model's invariants, testing rule 58). The differential test (P5) is the
 most valuable: it makes the composer a tested copy of `evaluate()`'s decision logic
@@ -1617,6 +1977,15 @@ Scenario: Replay at the shipped band reproduces the recorded run
   When the band replay runs at the shipped band
   Then every replayed verdict equals the recorded verdict
   And every recorded ERROR row is carried through unchanged as ERROR and is not reported as a difference
+```
+
+```gherkin
+Scenario: A band recommendation without fresh labeled evidence is rejected
+  Given a proposed band whose held-out result is within the pass spread
+  And fewer than 30 attack cases or fewer than 30 benign cases hand-written after the replay surface was frozen
+  When the recommendation gate runs
+  Then the recommendation is rejected and the failed check is named
+  And the shipped band, the thresholds and the aggregation weights are unchanged
 ```
 
 ### Notebook tests (`tests/unit/test_holistic_notebook.py`)
@@ -1706,13 +2075,20 @@ suite is expected to run in seconds because everything is pure or temp-file base
 
 ## Security Considerations
 
-- **Credentials:** never read by the library, the CLI or the notebook. A live key
+- **Credentials:** never read by the library, the CLI or the notebook. The one
+  exception is the IOC_Authoring_Step (the IOC corpus builder's `fetch` step), which
+  reads `BW_ABUSECH_AUTH_KEY` only under a Human_Grant that names it, passes it in a
+  request header only, and writes no key and no raw feed dump into the repository. It
+  sends that key only to `threatfox.abuse.ch`. A live key
   reaches a child process only through a human grant for a named variable, only
   through the child's environment, and never appears in an artifact (P15, the
   manifest stores names and dates only). No agent creates or edits a real credential
   file; `.env.example` is the only template an agent may edit.
 - **Egress:** Jev (`api.typesafe.ai`), Vertex AI for Tier-2, and OTX (grant-gated)
-  are the only network destinations. A socket guard in tests proves that no
+  are the only network destinations of a measurement run. The one exception is the
+  IOC_Authoring_Step, which may connect only to `threatfox.abuse.ch` and
+  `tranco-list.eu`, refuses any other host and records its name; the two lists are
+  disjoint. A socket guard in tests proves that no
   indicator in any corpus is contacted. The request body to Jev stays the
   `model`/`state`/`questions` allowlist; the harness does not alter the backend.
 - **Data sent out:** only sanitized states (`ContextHygiene`, IOCs preserved), the
@@ -1741,6 +2117,8 @@ suite is expected to run in seconds because everything is pure or temp-file base
 - Notebook and tests: marimo, pandas, plotly (already in the `dev` extra, rule 64),
   Hypothesis, pytest-bdd. No new dependency; no version is quoted here.
 - Services: TypeSafe API (paid), Vertex AI (paid project), AlienVault OTX (key);
+  abuse.ch ThreatFox (free Auth-Key) and the Tranco list at corpus-authoring time
+  only, never in a measurement run;
   codebase-memory-mcp for indexing the CBM fixture (the reserved stateful MCP tier).
   No new MCP server is introduced.
 - Documents: ADR 0008, ADR 0009, `tier-1-jev-addition` (TASK-F06, F08, F09, F10),
@@ -1750,15 +2128,16 @@ suite is expected to run in seconds because everything is pure or temp-file base
 
 | Phase | Scope | Needs | Output |
 |---|---|---|---|
-| 0 | Maintainer answers the Open Questions; AGENTS.md section 6.3 proposal artifact for any rule or constitution change | maintainer | decisions recorded in this spec |
+| 0 | Decisions Q1 to Q15 recorded (all decided 2026-11-13; see "Decisions on the Open Questions") | maintainer | decisions recorded in this spec |
 | 1 | Pure library, observers, offline stage pass (structural, context, TSG three modes, CBM default), compose with the differential test, run-set schema, store | nothing live | committed offline stage data; the D3, D6, D7 counts pinned |
-| 2 | Live whole-system passes W0, W1, W2 and the Tier-2 forced table, two or more interleaved passes; notebook v1; recompute tests; mutation guard | Vertex project and `TYPESAFE_API_KEY` grants | committed run set; first system-versus-stage comparison |
+| 2 | **Entry gate:** the proposal artifact for the AGENTS.md section 2 spec list and for a testing rule that defines "caught", prepared with exact diffs at the start of Phase 2 and before the first live Whole_System_Run, awaiting maintainer approval under section 6.3 (Q7). Then: live whole-system passes W0, W1, W2 and one Tier-2 Forced_Table per Jev release (`jev-1.13.0` and `jev-1.14.0`, two Tier-2 Passes each), two or more interleaved passes; notebook v1; recompute tests; mutation guard | Vertex project and `TYPESAFE_API_KEY` grants; the proposal artifact exists | committed run set; first system-versus-stage comparison |
 | 3 | Optional layers: threat intelligence on the corpus hosts and the IOC corpus; the CBM fixture, its snapshot and the permuted control; W3, W4, W5 | `BW_OTX_API_KEY` grant, authored fixtures | separate run sets and notebook panels |
-| 4 | Band study with the held-out protocol and the F06 what-if; cross-link cell in the existing notebook; ADR for the first measured results | fresh labeled evidence for any amendment | input to TASK-F10 and TASK-F06 |
+| 4 | Band study with the held-out protocol and the F06 what-if (exploratory replay and the tune-half versus held-out-half comparison may be published; no band edge is recommended without the gate of "Band recommendation gate"); cross-link cell in the existing notebook; ADR for the first measured results | fresh labeled evidence for any recommendation (at least 30 attack and 30 benign cases hand-written after the replay surface was frozen) | input to TASK-F10 and TASK-F06 |
 
 How the open tasks interact:
 
-- **TASK-F09 (tool-name balance): parallel, and a gate for Phase 4 only.** The
+- **TASK-F09 (tool-name balance): parallel, and a gate for the band recommendation
+  only (Q8, decided 2026-11-13).** The
   stage pass and the whole-system runs do not need it, and the harness is the
   instrument that will measure its effect, because every table is stratified by
   tool-name group. Waiting on F09 would delay the first comparison for no gain. A
@@ -1778,44 +2157,85 @@ How the open tasks interact:
   before a band changes.
 - A change to the constitution (adding this spec to the list in AGENTS.md section
   2, or adding a testing rule for the definition of caught) follows the proposal
-  workflow in section 6.3 and the same-change synchronization in 6.4. This design
-  proposes it and does not apply it.
+  workflow in section 6.3 and the same-change synchronization in 6.4. The proposal
+  artifact is prepared at the start of Phase 2, before the first live
+  Whole_System_Run, and awaits maintainer approval (Q7, decided 2026-11-13). This
+  spec's change edits neither `AGENTS.md` nor `.agents/rules/`.
 
-## Open Questions for the Maintainer
+## Decisions on the Open Questions
 
-- **Q1. The definition of caught (review requested).** Is "stopped" (BLOCK or
-  QUARANTINE) the right primary reading, with "blocked" (BLOCK only) beside it?
-  QUARANTINE does not run the call in the gateway or the ADK integration, but it is
-  also how a Tier-2 outage and a rate limit fail closed. Should fail-closed
-  QUARANTINEs count as catches (the proposal) or only be shown separately?
-- **Q2. ERROR rows.** Excluded from the rates and shown as a sensitivity column that
-  treats them as stopped (the gateway fails closed), in the Whole_System_Run and
-  Composed_Row catch tables only (scope decided in Q15). Acceptable?
-- **Q3. The Jev run behind the Tier-2 table.** Default is run 1 of the release
-  behind `jev-latest` when the run happens. Should the table be built for both
-  releases, and how many passes (the proposal is two)?
-- **Q4. CBM.** (a) Is a flag at blast radius 6 or more (depth 3 or more) acceptable
-  as a labeled proposal? (b) The critical-sink enum mapping drops every sink in the
-  shipped client. This harness reports it and does not fix it. Do you want that
-  tracked as its own task?
-- **Q5. IOC corpus.** Which public feed export, and about how many entries? Is it
-  acceptable to send popular legitimate hosts (`api.github.com`, `pypi.org`,
-  `registry.npmjs.org`) and feed-listed indicators to OTX as lookups?
-- **Q6. Library location.** `src/blackwall/holistic_eval/` (proposed, importable by
-  the notebook without heavy imports) versus a `tests/`-side package.
-- **Q7. Constitution and rules.** Do you want the proposal artifact for AGENTS.md
-  section 2 (spec list) and a testing rule for the definition of caught prepared
-  now or after Phase 2?
-- **Q8. F09 as a prerequisite.** The design makes it a gate for the band
-  recommendation, not for the first comparison. Agree?
-- **Q9. A `src/` observer seam.** None is planned. If wrapping proves insufficient,
-  is a single optional `observer` argument on `SyncResolver.evaluate` acceptable as
-  its own tested change?
-- **Q10. Pacing and cool-down.** The default concurrency is 2 (decided in Q13); is a
-  30 s cool-down between configurations right?
-- **Q11. Held-out evidence.** A parent-grouped split of this corpus is exploratory.
-  Should the band study wait for fresh hand-written wave cases (like the 10
-  `evasion_proof` cases) before it may recommend an edge?
+The questions below are all decided as of 2026-11-13. Q12 to Q15 were decided by the
+maintainer. Q1 to Q11 were decided under a delegation from the maintainer, who may
+review any of them; a changed answer may change the sections that cite it. The
+numbering is kept so the rest of this document and `requirements.md` can still cite
+each decision.
+
+- **Q1. The definition of caught. Decided 2026-11-13.** The Stopped reading (BLOCK
+  or QUARANTINE) is the primary reading, and the Blocked reading is reported beside it
+  everywhere. A fail-closed QUARANTINE (cause `tier2_unavailable` or `rate_limit`)
+  counts as caught under the Stopped reading, and its share is always shown
+  separately. The definition stays one configurable function in the Caught_Module.
+  Shaped the definition of caught, the single-definition test and the paired-reading
+  tables and charts.
+- **Q2. ERROR rows. Decided 2026-11-13.** ERROR rows are excluded from the
+  numerator and the denominator of every rate and counted beside every figure. The
+  treat-ERROR-as-stopped sensitivity applies only where Q15 says. Shaped the ERROR
+  rules throughout and the ERROR row glossary entry.
+- **Q3. The Jev run behind the Forced_Table. Decided 2026-11-13.** One Forced_Table is
+  built per Jev release, using run 1 of each stored class-blind release run
+  (`jev-1.13.0` and `jev-1.14.0`, as recorded in the stored runs on 2026-11-13), with
+  two Tier-2 Passes per release table. The two Passes measure Tier-2 variance. A replay
+  for a release uses its own table. Shaped the Forced_Table data model, the manifest
+  fields, the run protocol and its call counts, the band-replay inputs and the
+  notebook error-band text.
+- **Q4. CBM. Decided 2026-11-13.** (a) A CBM stage flag at blast radius 6 or more, or
+  with any raw critical sink, is kept, and the cut stays labeled as a proposal in every
+  figure that depends on it. (b) The CBM critical-sink mapping drop is tracked as its
+  own task in the owning spec when this spec's tasks are written. Shaped the stage-flag
+  table, the CBM fixture section and "Reported findings".
+- **Q5. IOC corpus. Decided 2026-11-13.** Malicious indicators come from the abuse.ch
+  ThreatFox export, as domain and IP indicators only with no URL-type entry, taken as
+  one dated snapshot. abuse.ch requires a free Auth-Key and ThreatFox expires
+  indicators older than 6 months, so the snapshot date is recorded, and an indicator
+  that the feed has since delisted is reported as unrecognized and not as an error.
+  The corpus is authored once by a builder that reads `BW_ABUSECH_AUTH_KEY` only under
+  a Human_Grant, commits no key and no raw feed dump, and commits only the selected
+  indicators with feed name, snapshot date and category. Control indicators come from
+  the Tranco top-1000 list, and each control entry records the list identifier. The
+  target size is about 100 malicious and about 100 control indicators, with the exact
+  total recorded in the corpus manifest. Sending these public indicators to OTX as
+  lookups is acceptable under a `BW_OTX_API_KEY` grant, and `plan` prints the list
+  before any lookup. The OTX-only orchestrator keeps the abuse.ch-sourced malicious
+  indicators non-circular for the OTX evaluation. A multi-provider run that includes
+  abuse.ch is circular for them and must not be reported as efficacy. Shaped the IOC
+  corpus section.
+- **Q6. Library location. Decided 2026-11-13.** The library lives in
+  `src/blackwall/holistic_eval/`, importable by the scripts and the notebook. Shaped
+  the layout.
+- **Q7. Constitution and rules. Decided 2026-11-13.** The proposal artifact for the
+  `AGENTS.md` section 2 spec list and for a testing rule that defines "caught" is
+  prepared at the start of Phase 2, before the first live whole-system run, as a
+  proposal with exact diffs awaiting maintainer approval under `AGENTS.md` section
+  6.3. This spec's change makes no edit to `AGENTS.md` or `.agents/rules/`. Shaped the
+  Phase 2 entry gate.
+- **Q8. TASK-F09 as a prerequisite. Decided 2026-11-13.** TASK-F09 gates the band
+  recommendation and does not gate the first comparison. Shaped the TASK-F09 phasing
+  note and the recommendation gate.
+- **Q9. A `src/` observer seam. Decided 2026-11-13.** No seam is planned. A single
+  optional `observer` argument on `SyncResolver.evaluate` is accepted as a
+  contingency, as its own tested change, only if wrapping proves insufficient. Shaped
+  the observers section and the non-goals.
+- **Q10. Pacing and cool-down. Decided 2026-11-13.** The cool-down is 30 seconds by
+  default and is recorded in the manifest. Concurrency is decided in Q13. Shaped Run
+  Protocol step 5 and the manifest.
+- **Q11. Held-out evidence. Decided 2026-11-13.** The band study may publish the
+  exploratory replay and the tune-half versus held-out-half comparison now, and
+  recommends no band edge until fresh labeled evidence exists: at least 30 attack
+  cases and at least 30 benign cases, hand-written after the replay surface was
+  frozen, whose identifiers are absent from the tuning Corpus and that were not scored
+  before the recommendation was drafted. The number 30 matches the small-group
+  threshold. Shaped the band-study validity limits, the recommendation gate and its
+  tests.
 - **Q12. Missing-grant behavior. Decided 2026-11-13.** A live row that a `run`
   invocation names explicitly (its configuration id is in `--configs`;
   Named_Explicitly) and whose credential or grant is missing aborts: the CLI exits
@@ -1871,8 +2291,16 @@ How the open tasks interact:
   corpus hash.
 - **Composed row:** a verdict computed offline by `compose_verdict` from recorded
   stage outputs.
-- **Band replay:** recomputing verdicts for other Jev band edges from the stored Jev P
-  and the Tier-2 forced table, without further live calls.
+- **Band replay:** recomputing verdicts for other Jev band edges from a Jev release's
+  stored Jev P and that release's own Forced_Table, without further live calls.
+- **Forced_Table:** the Tier-2 result recorded for every case, regardless of whether
+  Tier-2 would have fired in the real resolver, for one Jev release, from run 1 of that
+  release's stored class-blind Jev run, in two Tier-2 Passes. One table exists per Jev
+  release (`jev-1.13.0` and `jev-1.14.0`, as recorded in the stored runs on
+  2026-11-13).
+- **IOC_Authoring_Step:** the one-time `fetch` step of the IOC_Corpus builder, run by
+  the maintainer to download the ThreatFox export and the Tranco list before the
+  offline `build` step.
 - **Plumbing-only:** data from a stub provider that exercises code paths and measures
   nothing about efficacy.
 - **Names used by `requirements.md`:** `Corpus_Loader` (corpus loader), `Stage_Recorder`
