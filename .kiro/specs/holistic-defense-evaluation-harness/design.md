@@ -711,6 +711,48 @@ Pass_Spread calculations or Jev release comparisons.
 `not_measured` is what the notebook renders as the "not measured" status. A stage
 that is neither in `runs` nor in `not_measured` makes the manifest invalid.
 
+### Authoring_Record
+
+The Authoring_Record is committed with a set of Fresh_Evidence cases and is read only
+by the band recommendation gate (see "Band recommendation gate"). It is not part of a
+Run_Set and holds no case payload.
+
+```python
+# The material an author must not have been shown. A record whose `shown` list holds any
+# of these categories disqualifies every case that the record covers.
+WITHHELD_MATERIAL = (
+    "replay_results",                  # replayed rates and cells of the band surface
+    "per_case_jev_or_tier2_outputs",   # per-case Jev P, Tier-2 decisions or reasoning
+    "band_surface",                    # the band replay surface itself
+    "miss_lists",                      # lists of missed or not-caught cases
+)
+
+@dataclass(frozen=True, slots=True)
+class AuthoredCase:
+    case_id: str
+    ground_truth: Literal["BENIGN", "MALICIOUS"]
+    label_confirmed: bool             # the maintainer confirmed this case's label
+
+@dataclass(frozen=True, slots=True)
+class AuthoringRecord:
+    schema_version: int
+    author_kind: Literal["maintainer", "agent_session"]
+    session_identity: str             # "maintainer", or the identity of the agent session; non-empty
+    surface_frozen_at: str            # UTC ISO 8601 timestamp, to the second: when the replay surface was frozen
+    authored_at: str                  # UTC ISO 8601 timestamp, to the second: when the cases were authored
+    shown: Sequence[str]              # categories of material the author was shown
+    not_shown: Sequence[str]          # categories of material the author was not shown
+    cases: Sequence[AuthoredCase]     # one entry per case: ground truth and maintainer label confirmation
+```
+
+**Committed file schema** (JSON, one file per author session, stored beside its cases):
+`schema_version`, `author_kind`, `session_identity`, `surface_frozen_at`, `authored_at`,
+`shown`, `not_shown` and `cases`, with the types above and the same field names. Every
+`WITHHELD_MATERIAL` category appears in `shown` or in `not_shown`. The loader rejects a
+file whose `schema_version` is absent or differs from the supported version, and a
+truncated or corrupt file, naming the file and returning no partial data. The file
+carries no credential value, payload response body or exception message body.
+
 ### Validation rules
 
 - `corpus_hash` in each file equals the recomputed hash of the loaded corpus.
@@ -1780,10 +1822,10 @@ Forced_Table.
    The notebook shows tune-half versus held-out-half curves (a split by parent
    group, so an evasion variant never lands apart from its parent). The study may
    publish the exploratory replay and that comparison, and it recommends no band
-   edge until fresh labeled evidence exists (Q11, decided 2026-11-13; see "Band
+   edge until Fresh_Evidence exists (Q11, decided 2026-11-13; see "Band
    recommendation gate"). The corpus is small (99 attacks, 10 hand-written), and the
-   notebook prints the attack count and the hand-written count taken from the loaded
-   Corpus.
+   notebook prints the attack count and the count of the Corpus's own hand-written
+   attack cases, both taken from the loaded Corpus (these are not Fresh_Evidence).
 4. The aggregation weights, the 0.35/0.75 constants elsewhere, and the
    disagreement constants stay fixed; only the band edges and the clear-high policy
    move.
@@ -1812,29 +1854,34 @@ and a rejection leaves the shipped band (0.35 and 0.75), the thresholds and the
 aggregation weights unchanged.
 
 ```python
-GATE_MIN_ATTACK = 30       # fresh hand-written attack cases required
-GATE_MIN_BENIGN = 30       # fresh hand-written benign cases required (matches the small-group threshold of 30)
+GATE_MIN_ATTACK = 30       # Fresh_Evidence attack cases required (Requirement 16 criterion 22)
+GATE_MIN_BENIGN = 30       # Fresh_Evidence benign cases required (matches the small-group threshold of 30)
 
-@dataclass(frozen=True, slots=True)
-class FreshCase:
-    case_id: str
-    ground_truth: Literal["BENIGN", "MALICIOUS"]
-    origin: Literal["hand_written", "generated", "imported"]
-    authored_at: str                  # UTC ISO 8601 timestamp, to the second
-    scored_before_draft: bool         # True if any harness run scored it before the recommendation was drafted
+# AuthoredCase, AuthoringRecord and WITHHELD_MATERIAL are defined in "Data Models".
 
 @dataclass(frozen=True, slots=True)
 class FreshEvidence:
-    surface_frozen_at: str            # UTC timestamp at which the replay surface was frozen
-    cases: Sequence[FreshCase]
+    submitted_case_ids: Sequence[str]            # every case offered as Fresh_Evidence
+    records: Sequence[AuthoringRecord]           # the committed Authoring_Records
+    scored_before_draft_ids: frozenset[str]      # ids that any harness run scored before the recommendation was drafted
 
 class GateCheck(str, Enum):
     HELD_OUT_WITHIN_SPREAD = "held_out_within_pass_spread"
     FRESH_EVIDENCE_COUNT = "at_least_30_attack_and_30_benign"
+    AUTHORING_RECORD_COMPLETE = "authoring_record_present_and_complete"
+    WITHHELD_MATERIAL_NOT_SHOWN = "author_not_shown_withheld_material"
+    LABELS_CONFIRMED = "labels_confirmed_by_maintainer"
     FROZEN_SURFACE = "authored_after_surface_frozen"
     ABSENT_FROM_TUNING = "absent_from_tuning_corpus"
     NOT_SCORED_BEFORE_DRAFT = "not_scored_before_draft"
     F09_OR_OTHER_STRATUM = "f09_complete_or_other_stratum_holds"
+
+def _record_complete(r: AuthoringRecord) -> bool:
+    """Every field present and valid, and every withheld category stated as shown or not shown."""
+    return (r.schema_version == SCHEMA_VERSION
+            and r.author_kind in ("maintainer", "agent_session")
+            and bool(r.session_identity) and bool(r.surface_frozen_at) and bool(r.authored_at)
+            and all(m in r.shown or m in r.not_shown for m in WITHHELD_MATERIAL))
 
 @dataclass(frozen=True, slots=True)
 class GateResult:
@@ -1860,20 +1907,31 @@ def check_recommendation(
     if not all(_within(tune[k], held[k], pass_spread[k]) for k in keys):  # a None anywhere fails
         failed.append(GateCheck.HELD_OUT_WITHIN_SPREAD)
 
-    # Fresh labeled evidence, counted only from cases that pass every per-case test.
-    ok = lambda c: c.origin == "hand_written"
-    after_freeze = lambda c: c.authored_at > evidence.surface_frozen_at
-    new = lambda c: c.case_id not in tuning_case_ids
-    unscored = lambda c: not c.scored_before_draft
-    if any(c.origin == "hand_written" and not after_freeze(c) for c in evidence.cases):
-        failed.append(GateCheck.FROZEN_SURFACE)            # a hand-written case authored at or before the freeze
-    if any(not new(c) for c in evidence.cases):
+    # Fresh_Evidence, counted only from cases that pass every per-case test. Each submitted
+    # id is joined to the Authoring_Record that lists it (None when no record lists it).
+    index = {c.case_id: (r, c) for r in evidence.records for c in r.cases}
+    rows = [(cid, *index.get(cid, (None, None))) for cid in evidence.submitted_case_ids]  # (id, record, case)
+    complete = lambda r: r is not None and _record_complete(r)
+    saw_withheld = lambda r: any(m in r.shown for m in WITHHELD_MATERIAL)
+    after_freeze = lambda r: r.authored_at > r.surface_frozen_at
+    counts = lambda cid, r, c: (complete(r) and not saw_withheld(r) and after_freeze(r)
+                                and c.label_confirmed and cid not in tuning_case_ids
+                                and cid not in evidence.scored_before_draft_ids)
+    if any(not complete(r) for _, r, _ in rows):
+        failed.append(GateCheck.AUTHORING_RECORD_COMPLETE)   # no record lists the case, or the record is incomplete
+    if any(r is not None and saw_withheld(r) for _, r, _ in rows):
+        failed.append(GateCheck.WITHHELD_MATERIAL_NOT_SHOWN) # the record shows the author saw withheld material
+    if any(r is not None and not after_freeze(r) for _, r, _ in rows):
+        failed.append(GateCheck.FROZEN_SURFACE)              # authored at or before the freeze
+    if any(c is not None and not c.label_confirmed for _, _, c in rows):
+        failed.append(GateCheck.LABELS_CONFIRMED)            # the maintainer has not confirmed the label
+    if any(cid in tuning_case_ids for cid, _, _ in rows):
         failed.append(GateCheck.ABSENT_FROM_TUNING)
-    if any(c.scored_before_draft for c in evidence.cases):
+    if any(cid in evidence.scored_before_draft_ids for cid, _, _ in rows):
         failed.append(GateCheck.NOT_SCORED_BEFORE_DRAFT)
-    good = [c for c in evidence.cases if ok(c) and after_freeze(c) and new(c) and unscored(c)]
-    if (sum(c.ground_truth == "MALICIOUS" for c in good) < GATE_MIN_ATTACK
-            or sum(c.ground_truth == "BENIGN" for c in good) < GATE_MIN_BENIGN):
+    good = [(cid, c) for cid, r, c in rows if counts(cid, r, c)]
+    if (sum(c.ground_truth == "MALICIOUS" for _, c in good) < GATE_MIN_ATTACK
+            or sum(c.ground_truth == "BENIGN" for _, c in good) < GATE_MIN_BENIGN):
         failed.append(GateCheck.FRESH_EVIDENCE_COUNT)
 
     # TASK-F09 landed, or the held-out check holds in the `other` stratum on its own.
@@ -1882,15 +1940,34 @@ def check_recommendation(
         failed.append(GateCheck.F09_OR_OTHER_STRATUM)
 
     return GateResult(not failed, tuple(failed),
-                      tuple(sorted(c.case_id for c in good)) if not failed else ())
+                      tuple(sorted(cid for cid, _ in good)) if not failed else ())
 ```
 
+The gate tests authoring independence, not who typed the cases. The author is the
+maintainer or an agent session; an agent session whose record shows that it was shown
+any withheld material is disqualified. A case counts only when all of these hold: an
+Authoring_Record lists it and is complete; that record's `shown` list holds none of
+`WITHHELD_MATERIAL`; the record's authoring timestamp is after its freeze timestamp;
+the maintainer confirmed the case's label; the case id is absent from the tuning
+Corpus; and no harness run scored it before the recommendation was drafted. A case
+that does not count is left out of the count, and the check that it failed is named in
+the rejection (a missing or incomplete record, withheld material shown, or an
+unconfirmed label each name their own check). Following the class-blind construction
+rules (one shared template, the same tool names and argument keys in both classes,
+real payload syntax, no label words, documentation-range and `.example` hosts only) is
+checked by the same static scans that cover attack fixtures (Requirement 29), not by
+`check_recommendation`.
+
+The Authoring_Record is a committed JSON file stored beside the cases it covers; its
+dataclass and file schema are in "Data Models" (`AuthoringRecord`).
+
 **Preconditions:** the replay surface was frozen before any fresh case was authored
-(`surface_frozen_at` is recorded in the evidence file when the surface is frozen);
-`tuning_case_ids` is the identifier set of the Corpus used for tuning.
+(each record carries its own `surface_frozen_at`); `tuning_case_ids` is the identifier
+set of the Corpus used for tuning; `scored_before_draft_ids` lists every submitted case
+that a harness run scored before the recommendation was drafted.
 **Postconditions:** `accepted` is true only if every check passes; a rejection names
 every failed check and changes no band, threshold or weight; an accepted
-recommendation records the identifiers of the fresh evidence; the function is pure
+recommendation records the identifiers of the Fresh_Evidence; the function is pure
 and returns the same result for the same inputs. Even an accepted result is an input
 to a spec amendment under `tier-1-jev-addition`, which the maintainer decides, and
 `F09_OR_OTHER_STRATUM` makes TASK-F09 (Q8) a gate for the recommendation and not for
@@ -2001,8 +2078,9 @@ release's Forced_Table is shown as the error band; the identifier of the Jev run
 backs that table (or Not_Measured with the reason, with every cell then labeled
 "approximate"); that replaying with the P of any other run is approximate; that
 tuning and scoring on the same cases is circular; that the surface is exploratory;
-the number of attack cases in the loaded Corpus and how many are hand-written (read
-from the Corpus, not typed in); that a replay is tied to the Jev releases in the
+the number of attack cases in the loaded Corpus and how many of those are the
+Corpus's own hand-written cases (read from the loaded Corpus, not typed in; this is a
+statement about the tuning Corpus and not a count of Fresh_Evidence); that a replay is tied to the Jev releases in the
 stored runs, with the release of each stored run or "unrecorded"; and that the Jev
 band does not follow the model (ADR 0008). A band whose catch rate beats the shipped
 band's by more than the Pass spread in the `high_risk_name` stratum but not in the
@@ -2126,7 +2204,7 @@ already cited by ADR 0009.
 
 ### Property 19: A band recommendation needs the whole gate and changes nothing
 
-*For any proposal and any evidence, `check_recommendation` accepts only if the held-out value is within the pass spread of the tune value for the catch rate and the false-alarm rate under both Readings, the evidence holds at least 30 attack cases and at least 30 benign cases that are hand-written, were authored after the replay surface was frozen, are absent from the tuning Corpus and were not scored before the recommendation was drafted, and TASK-F09 is complete or the held-out check holds in the `other` stratum alone. Otherwise it rejects and names each failed check. In every case the shipped band, the thresholds and the aggregation weights are identical before and after the call.*
+*For any proposal and any evidence, `check_recommendation` accepts only if the held-out value is within the pass spread of the tune value for the catch rate and the false-alarm rate under both Readings, the evidence holds at least 30 attack cases and at least 30 benign cases that each count as Fresh_Evidence (a complete Authoring_Record lists the case, the record's authoring timestamp is after its freeze timestamp, its `shown` list holds none of the withheld material, the maintainer confirmed the label, the case is absent from the tuning Corpus and it was not scored before the recommendation was drafted), and TASK-F09 is complete or the held-out check holds in the `other` stratum alone. Otherwise it rejects and names each failed check. In every case the shipped band, the thresholds and the aggregation weights are identical before and after the call.*
 
 **Validates: Requirements 16.21, 16.22, 16.23, 16.24, 16.25**
 
@@ -2164,7 +2242,7 @@ already cited by ADR 0009.
 | Missing Tier-2 entry in replay | Triggered case without a row in the replayed release's own forced table | Cell status `unmeasured` for that case; em dash; never filled from another release's table | Complete that release's forced table |
 | Forced_Table not buildable for a release | The Manifest names no Jev run for the release, or the run lacks a Jev P for a case | The release is recorded in `not_measured` with the reason and has no Passes; its replay is Not_Measured; the other release is unaffected | Commit the missing Jev run, then build the table |
 | Fewer than two Forced_Table Passes | A release has one Pass, for example after a discarded Pass that was not re-run | The error band is Not_Measured with the reason and no band is drawn | Re-run the Pass |
-| Band recommendation fails the gate | Held-out difference above the Pass spread, fewer than 30 attack or 30 benign fresh cases, a case authored before the surface was frozen, present in the tuning Corpus or scored before the draft, or F09 open without the `other` stratum holding | `check_recommendation` rejects, names each failed check and records the rejection; the band, thresholds and weights stay unchanged | Author fresh cases after the freeze, then redraft |
+| Band recommendation fails the gate | Held-out difference above the Pass spread, fewer than 30 attack or 30 benign counted Fresh_Evidence cases, a case with a missing or incomplete Authoring_Record, a record showing the author saw withheld material, an unconfirmed label, a case authored at or before the surface freeze, present in the tuning Corpus or scored before the draft, or F09 open without the `other` stratum holding | `check_recommendation` rejects, names each failed check and records the rejection; the band, thresholds and weights stay unchanged | Author Fresh_Evidence after the freeze (withholding the replay material from the author), commit its Authoring_Record, have the maintainer confirm the labels, then redraft |
 | IOC build violation | Missing feed metadata, an OTX-sourced entry, an indicator in both classes, a non-domain or non-IP indicator, or a `ContextHygiene` change | The build fails naming the entry or indicator and writes no output | Fix the selection and rebuild |
 | IOC selection input invalid | An invalid seed, or a downloaded source smaller than its target size | The build reports the invalid value, or the class, the available count and the target; it exits non-zero and writes no output | Supply a valid seed, or lower the target and record it |
 | IOC indicator unrecognized by OTX | The feed has since delisted it (ThreatFox expires indicators older than 6 months) | Reported as unrecognized, never as an error; it lowers the headline share | None needed; the delisting statement is shown beside the headline |
@@ -2295,11 +2373,17 @@ are deferred, never simulated.
   P is Not_Measured and the other release is unaffected; the error band is the minimum
   and maximum across the two Passes and is Not_Measured with fewer than two.
 - Band recommendation gate (`band_gate`): a proposal with a held-out difference above
-  the Pass spread for any metric and Reading is rejected; 29 fresh attack cases or 29
-  fresh benign cases is rejected and 30 of each passes the count check; a hand-written
-  case authored at or before the surface freeze is rejected; a case present in the
-  tuning Corpus is rejected; a case scored before the draft is rejected; a
-  non-hand-written case does not count; F09 open with the `other` stratum outside the
+  the Pass spread for any metric and Reading is rejected; 29 counted attack cases or 29
+  counted benign cases is rejected and 30 of each passes the count check; a case
+  authored at or before the surface freeze is rejected; a case present in the
+  tuning Corpus is rejected; a case scored before the draft is rejected; a case with
+  no Authoring_Record, or with an incomplete one (a missing field, or a withheld
+  category stated neither as shown nor as not shown), is rejected and does not count;
+  a record whose `shown` list holds any withheld material category (replay results,
+  per-case Jev or Tier-2 outputs, band surface, miss lists) is rejected for each
+  withheld category in turn and its cases do not count, for an author of either kind
+  (`maintainer` or `agent_session`); a case whose label the maintainer has not
+  confirmed is rejected and does not count; F09 open with the `other` stratum outside the
   spread is rejected and F09 complete passes that check; a Not_Measured input fails
   closed; every rejection names each failed check; the evidence identifiers are
   recorded on acceptance; the band, thresholds and weights are byte-identical before
@@ -2401,9 +2485,9 @@ Scenario: Replay at the shipped band reproduces the recorded run
 ```
 
 ```gherkin
-Scenario: A band recommendation without fresh labeled evidence is rejected
+Scenario: A band recommendation without Fresh_Evidence is rejected
   Given a proposed band whose held-out result is within the pass spread
-  And fewer than 30 attack cases or fewer than 30 benign cases hand-written after the replay surface was frozen
+  And fewer than 30 attack cases or fewer than 30 benign cases count as Fresh_Evidence, that is, authored after the replay surface was frozen by an author who was not shown the replay results, with a complete Authoring_Record and every label confirmed by the maintainer
   When the recommendation gate runs
   Then the recommendation is rejected and the failed check is named
   And the shipped band, the thresholds and the aggregation weights are unchanged
@@ -2554,7 +2638,7 @@ suite is expected to run in seconds because everything is pure or temp-file base
 | 1 | Pure library, observers, offline stage pass (structural, context, TSG three modes, CBM default), compose with the differential test, run-set schema, store | nothing live | committed offline stage data; the D3, D6, D7 counts pinned |
 | 2 | **Entry gate:** the proposal artifact for the AGENTS.md section 2 spec list and for a testing rule that defines "caught", prepared with exact diffs at the start of Phase 2 and before the first live Whole_System_Run, awaiting maintainer approval under section 6.3 (Q7). Then: live whole-system passes W0, W1, W2 and one Tier-2 Forced_Table per Jev release (`jev-1.13.0` and `jev-1.14.0`, two Tier-2 Passes each), two or more interleaved passes; notebook v1; recompute tests; mutation guard | Vertex project and `TYPESAFE_API_KEY` grants; the proposal artifact exists | committed run set; first system-versus-stage comparison |
 | 3 | Optional layers: threat intelligence on the corpus hosts and the IOC corpus, with the IOC builder (the maintainer-run `fetch`, the offline deterministic `build`, the IOC_Selection tests and the Synthetic_Feed_Sample); the CBM fixture with its Fixture_Plan (committed first), the Fixture_Export and `check`, the committed snapshot, the Indexer_Agreement rows and the permuted control; W3, W4, W5 | `BW_OTX_API_KEY` grant, the maintainer's `fetch` run and `BW_ABUSECH_AUTH_KEY` grant, the hand-authored fixture source | separate run sets and notebook panels |
-| 4 | Band study with the held-out protocol and the F06 what-if (exploratory replay and the tune-half versus held-out-half comparison may be published; no band edge is recommended without the gate of "Band recommendation gate"); cross-link cell in the existing notebook; ADR for the first measured results | fresh labeled evidence for any recommendation (at least 30 attack and 30 benign cases hand-written after the replay surface was frozen) | input to TASK-F10 and TASK-F06 |
+| 4 | Band study with the held-out protocol and the F06 what-if (exploratory replay and the tune-half versus held-out-half comparison may be published; no band edge is recommended without the gate of "Band recommendation gate"); cross-link cell in the existing notebook; ADR for the first measured results | Fresh_Evidence for any recommendation (at least 30 attack and 30 benign cases authored after the replay surface was frozen by an author who was not shown the withheld material, with an Authoring_Record and maintainer-confirmed labels) | input to TASK-F10 and TASK-F06 |
 
 How the open tasks interact:
 
@@ -2575,7 +2659,7 @@ How the open tasks interact:
   `clear_high_policy="block"` in the composer and the replay surface, labeled
   hypothetical. The decision, and any change to `src/`, is the maintainer's.
 - **TASK-F10 (band decision): consumer.** The replay surface and its held-out
-  comparison are the evidence F10 asked for; F10 still needs fresh labeled cases
+  comparison are the evidence F10 asked for; F10 still needs Fresh_Evidence cases
   before a band changes.
 - A change to the constitution (adding this spec to the list in AGENTS.md section
   2, or adding a testing rule for the definition of caught) follows the proposal
@@ -2652,12 +2736,22 @@ and `requirements.md` can still cite each decision.
   Protocol step 5 and the manifest.
 - **Q11. Held-out evidence. Decided 2026-11-13.** The band study may publish the
   exploratory replay and the tune-half versus held-out-half comparison now, and
-  recommends no band edge until fresh labeled evidence exists: at least 30 attack
-  cases and at least 30 benign cases, hand-written after the replay surface was
-  frozen, whose identifiers are absent from the tuning Corpus and that were not scored
-  before the recommendation was drafted. The number 30 matches the small-group
-  threshold. Shaped the band-study validity limits, the recommendation gate and its
-  tests.
+  recommends no band edge until Fresh_Evidence exists: at least 30 attack cases and at
+  least 30 benign cases, authored after the replay surface was frozen, whose
+  identifiers are absent from the tuning Corpus and that were not scored before the
+  recommendation was drafted. The condition is authoring independence and not a human
+  typist: the author is the maintainer, or an agent session that was not shown the
+  replay results, the per-case Jev or Tier-2 outputs, the band surface or the miss
+  lists, and an agent session that was shown any of them is disqualified. The author
+  follows the class-blind construction rules (one shared template, the same tool names
+  and argument keys in both classes, real payload syntax, no label words,
+  documentation-range and `.example` hosts only), the maintainer confirms every label,
+  and an Authoring_Record is committed with the cases; a case with a missing or
+  incomplete record, a record showing that the author saw withheld material, or an
+  unconfirmed label does not count. The number 30 matches the small-group threshold.
+  The clarification from "hand-written" to authoring independence was made on
+  2026-11-13 at the maintainer's question. Shaped the band-study validity limits, the
+  recommendation gate (`AuthoringRecord` and its checks) and its tests.
 - **Q12. Missing-grant behavior. Decided 2026-11-13.** A live row that a `run`
   invocation names explicitly (its configuration id is in `--configs`;
   Named_Explicitly) and whose credential or grant is missing aborts: the CLI exits
@@ -2773,6 +2867,14 @@ and `requirements.md` can still cite each decision.
 - **Indexer_Agreement:** the per-function comparison, made when the live conformance
   probe indexes the CBM fixture, of the real codebase-memory-mcp indexer's call chains
   and sink facts with the committed snapshot.
+- **Authoring_Record:** the record committed with a set of Fresh_Evidence cases that
+  states the author (the maintainer, or the identity of an agent session), the
+  replay-surface freeze timestamp, the authoring timestamp, and what the author was and
+  was not shown.
+- **Fresh_Evidence:** labeled attack and benign cases that an independent author wrote
+  after the replay surface was frozen, that are absent from the tuning Corpus, that were
+  not scored before the recommendation was drafted, and whose labels the maintainer has
+  confirmed, as Requirement 16 criterion 22 defines.
 - **Plumbing-only:** data from a stub provider that exercises code paths and measures
   nothing about efficacy.
 - **Names used by `requirements.md`:** `Corpus_Loader` (corpus loader), `Stage_Recorder`
