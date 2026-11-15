@@ -572,7 +572,7 @@ class SyncResolver:
                 f"Tier-2 escalation required but unavailable ({tier2_unavailable_reason}). "
                 f"Fail-closed: QUARANTINE pending retry. | {base_reasoning}"
             )
-        if clear_high_floor:
+        if clear_high_floor and tier1_result is not None:
             base_reasoning = (
                 f"Clear-high Tier-1 signal (P={tier1_result.threat_score:.2f} > "
                 f"{JEV_CLEAR_HIGH_THRESHOLD:.2f}) without a corroborating deterministic "
