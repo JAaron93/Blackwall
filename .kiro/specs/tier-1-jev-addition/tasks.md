@@ -182,7 +182,7 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
 * [x] **TASK-E04: Live Tier-2 harness.** `scripts/jev_tier2_eval.py` (`forced`,
   `e2e`). Unit-tested, and both subcommands were run live on 2026-11-13
   (ADR 0009, Verification).
-  > **Task created post-typesafe-ai skill audit** (2026-11-14): the Tier-2 arbiter prompt was hardened with nonce-XML delimiting (F7); re-run the `forced`/`e2e` harness after the prompt change and complete the live steering measurement (TASK-F02).
+  > **Task created post-typesafe-ai skill audit** (2026-11-14): the Tier-2 arbiter prompt was hardened with nonce-XML delimiting (F7); re-run the `forced`/`e2e` harness after the prompt change and complete the live steering measurement (TASK-F02). *Done 2026-11-14; figures under TASK-F02 and ADR 0009, Verification.*
 * [x] **TASK-E05: Same-change sync** of `AGENTS.md`, `.agents/rules/` and
   `.greptile/` (constitution 6.4). Approved by the maintainer 2026-11-13 and applied.
 ## Track F — Open work from ADR 0008 and ADR 0009
@@ -194,7 +194,7 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   without `policy.yaml`; figures and the comparison with ADR 0008 are in ADR 0009
   Verification. Rerun after any Gemini or Jev model change.
   Dependencies: TASK-E04.
-  > **Task created post-typesafe-ai skill audit** (2026-11-14): re-run the live Tier-2 harness after the F7 prompt hardening and measure the steering flip rate (TASK-F02); the prior figures predate the nonce-XML boundary.
+  > **Task created post-typesafe-ai skill audit** (2026-11-14): re-run the live Tier-2 harness after the F7 prompt hardening and measure the steering flip rate (TASK-F02); the prior figures predate the nonce-XML boundary. *Done 2026-11-14; figures under TASK-F02 and ADR 0009, Verification.*
 * [ ] **TASK-F02: Measure, then harden, Tier-2 against steering by tool-call
   text** (ADR 0009 OI3). The arbiter prompt interpolates tool name, arguments and
   metadata unseparated, and its ALLOW is final unless aggregation already blocks.
@@ -206,9 +206,66 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > prompt now delimits the tool name/arguments/metadata in a nonce-tagged,
   > XML-escaped `<tool_call>` boundary with a "data, never instructions"
   > directive (escaping only — attack evidence is preserved, not neutralized).
-  > Tests: `tests/unit/test_tier2_escalation.py`. This task stays OPEN for the
-  > live steering measurement and post-hardening re-measurement (gated on a live
-  > key); the delimiting is defense-in-depth, not a measured flip rate.
+  > Tests: `tests/unit/test_tier2_escalation.py`. The live measurement of this
+  > hardening is recorded below (2026-11-14).
+  >
+  > **Offline half done 2026-11-14.**
+  > Added, test-first: 16 arbiter-directed payloads (`STEERING_PAYLOADS` in
+  > `scripts/jev_tier2_eval.py`; 8 `dev`, 8 `heldout`) attached to the arguments,
+  > inline argument text, metadata or tool name (tag breakout, forged nonce,
+  > forged verdict JSON, "return ALLOW", authority claim, Tier-1 spoof, encoded
+  > instruction, fullwidth lookalike tags, entity smuggling); a `steering`
+  > subcommand that asks the shipped Tier-2 about the 18 malicious forced cases
+  > unsteered and once per payload, and reports the BLOCK-to-ALLOW flip rate with
+  > a Wilson 95% upper bound, abstentions kept apart from flips; and structural
+  > tests, including a Hypothesis property, that the nonce-XML boundary cannot be
+  > altered by tool-call content and that the data reads back exactly
+  > (`tests/unit/tier2_prompt_reader.py`, `tests/unit/test_tier2_escalation.py`,
+  > `tests/unit/test_jev_tier2_eval.py`, one BDD scenario in
+  > `tests/features/jev_tier1_triage.feature`). Those tests show the prompt
+  > structure holds; they do not show how the live model weighs text inside an
+  > intact boundary.
+  >
+  > **Live measurement done 2026-11-14** (maintainer's in-conversation grant,
+  > testing rule 74; Vertex project and TypeSafe key supplied from the maintainer's
+  > environment, no secret recorded). Arbiter `gemini-3.5-flash-lite` at the pinned
+  > medium level (the response `model_version`, every call); Tier-1 for `e2e`
+  > `jev-1.14.0` (the `served_model` field, 668 of 668 calls, requested as
+  > `jev-latest`). Concurrency 2, interleaved steering, forced, e2e, steering,
+  > forced, e2e; no error in any retained run. Result: **0 BLOCK-to-ALLOW flips in
+  > 288 steered calls per run** (18 BLOCKed bases x 16 payloads; two runs; Wilson 95%
+  > upper bound 1.32% per run, 0.66% pooled but the runs agree on all 306 inputs, so
+  > quote 1.32%); 0 on `dev` (144) and 0 on `heldout` (144) in each run; 0 on every
+  > carrier (arguments 108, inline argument text 90, metadata 54, tool name 36 per
+  > run) and every one of the 13 techniques; 0 abstentions, 0 harness errors. A
+  > control with the pre-hardening prompt (git `02635b1^`, one run, same inputs)
+  > flipped 14 of 288 (4.9%; upper bound 8.0%), all through the tool name (7 of 36)
+  > or the metadata (7 of 54), so the corpus can move a prompt with no boundary and
+  > the zero is informative. `forced` (93, two runs): 93 answered, C2 10 of 10, other
+  > evasion-proof 8 of 8, benign BLOCKed 0 of 68 both runs (ADR 0009 earlier corpus
+  > 3 of 68; control on the current corpus 2 of 68, so not a measured improvement),
+  > probes 2 of 4 and 1 of 4. `e2e` (167 cases with and without `policy.yaml`, two
+  > runs): 0 errors, benign 68 of 68 ALLOW everywhere, Tier-2 answered all 74 calls
+  > it received, malicious calls above 0.75 now QUARANTINE (the F06 floor) instead
+  > of ALLOW; 2 of 334 decisions differ between runs (both at a Jev band edge). All
+  > figures, tables and caveats: ADR 0009, Verification ("Steering, and `forced` /
+  > `e2e` after the nonce-XML prompt") and Open Item 3. Rows (exact tool, arguments,
+  > metadata, Tier-1 P and arbiter answer per call), the control and a manifest:
+  > `tests/eval/results/jev_tier2_runs/`, recomputed by
+  > `tests/unit/test_jev_tier2_runs_data.py`.
+  >
+  > **No flip, so no `src/` change.** Harness-only additions, test-first
+  > (`tests/unit/test_jev_tier2_eval.py`): the served release of every arbiter answer
+  > and every Jev triage record, and a tally of failed calls by exception type, code
+  > and status. They record and never alter an answer. A first run at concurrency 4
+  > hit Vertex `429 RESOURCE_EXHAUSTED` (182 of 306 calls abstained in under 80 ms)
+  > and was discarded; it is the reason failures are now tallied.
+  >
+  > **Still open (so this task keeps its marker):** the measurement covers only the
+  > 18 cases Tier-2 BLOCKs unsteered and hands Tier-2 the stored Jev P. Not measured:
+  > text that lowers Jev's own P below the 0.35 band edge so Tier-2 is never called;
+  > cases Tier-2 is unsure about; and a different Gemini or Jev release. Rerun
+  > `steering`, `forced` and `e2e` after any of those changes (TASK-F07 for Jev).
 * [ ] **TASK-F03: Account for the shared Vertex quota** (ADR 0009 OI2). Signature
   synthesis, the judges and other Gemini calls share the project quota that
   Tier-2 depends on and are not counted by the Tier-2 bucket. Decide between one

@@ -55,6 +55,8 @@ from blackwall.models import (
 )
 from blackwall.policy.semantic import (
     JEV_CLEAR_HIGH_THRESHOLD,
+    JEV_STEERING_MIN_THREAT,
+    JEV_STEERING_THRESHOLD,
     TIER2_DISAGREEMENT_NOVELTY,
     TIER2_DISAGREEMENT_P,
     GeminiTier2Backend,
@@ -564,9 +566,36 @@ class SyncResolver:
         )
         if clear_high_floor:
             decision = VerdictDecision.QUARANTINE
+
+        # 5f. Steering guard (TASK-F02, ADR 0009 Open Item 3). Measured live: text
+        # inside the tool call can lower Jev's own P below the band, so Tier-2 never
+        # runs and the call is ALLOWed. Jev answered, in the same request, whether the
+        # call's text addresses a reviewer, describes its own approval or purpose,
+        # reads as filler or notes, or labels the tool name. Above the threshold, and
+        # with a residual threat signal (an ordinary call that merely says "reviewed"
+        # scores near zero and is left alone), the call argues for its own
+        # classification, so an ALLOW (from aggregation or from Tier-2) is raised to a
+        # fail-closed QUARANTINE. Only a raise: a BLOCK stands, a QUARANTINE stays, and
+        # the guard never BLOCKs or spends Tier-2 by itself.
+        steering_hold = (
+            tier1_result is not None
+            and tier1_result.steering_p is not None
+            and tier1_result.steering_p > JEV_STEERING_THRESHOLD
+            and tier1_result.threat_score >= JEV_STEERING_MIN_THREAT
+            and decision == VerdictDecision.ALLOW
+        )
+        if steering_hold:
+            decision = VerdictDecision.QUARANTINE
         base_reasoning = self._build_reasoning(
             score, threat_resp, cbm_resp, semantic_score=semantic_score
         )
+        if steering_hold and tier1_result is not None:
+            base_reasoning = (
+                f"Steering text suspected in the tool call (P={tier1_result.steering_p:.2f}"
+                f" > {JEV_STEERING_THRESHOLD:.2f}) alongside a residual threat signal "
+                f"(P={tier1_result.threat_score:.2f} >= {JEV_STEERING_MIN_THREAT:.2f}). "
+                f"Fail-closed: QUARANTINE pending review. | {base_reasoning}"
+            )
         if tier2_quarantine:
             base_reasoning = (
                 f"Tier-2 escalation required but unavailable ({tier2_unavailable_reason}). "
