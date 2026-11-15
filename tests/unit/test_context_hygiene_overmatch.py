@@ -74,3 +74,53 @@ async def test_middleware_password_column_is_not_corrupted() -> None:
     )
     sanitized = await hygiene.sanitize(ctx)
     assert sanitized.arguments["sql"] == "SELECT password FROM users"
+
+
+@pytest.mark.parametrize("preserve_iocs", [False, True])
+def test_password_flag_space_separated_is_redacted(preserve_iocs: bool) -> None:
+    """Review regression: narrowing to assignment/quoted values dropped the
+    space-separated CLI flag form (``--password Hunter2``), exposing the secret
+    to Jev's outbound state. A flag-specific pattern must redact it while the
+    SQL-column fix stays intact."""
+    hygiene = ContextHygiene(preserve_iocs=preserve_iocs)
+    for raw, secret in [
+        ("redis-cli --password Hunter2 PING", "Hunter2"),
+        ("mysql -pwd Secret123 --host db", "Secret123"),
+        ("tool --passwd SuperSecret1", "SuperSecret1"),
+    ]:
+        out = hygiene.sanitize_string(raw)
+        assert secret not in out, raw
+        assert "[[PASSWORD]]" in out, raw
+
+
+@pytest.mark.parametrize("preserve_iocs", [False, True])
+def test_password_flag_quoted_and_assignment_redacted(preserve_iocs: bool) -> None:
+    hygiene = ContextHygiene(preserve_iocs=preserve_iocs)
+    for raw, secret in [
+        ('redis-cli --password "Hunter2" PING', "Hunter2"),
+        ("redis-cli --password=Hunter2 PING", "Hunter2"),
+    ]:
+        out = hygiene.sanitize_string(raw)
+        assert secret not in out, raw
+        assert "[[PASSWORD]]" in out, raw
+
+
+@pytest.mark.parametrize("preserve_iocs", [False, True])
+def test_password_flag_fix_keeps_sql_column_intact(preserve_iocs: bool) -> None:
+    hygiene = ContextHygiene(preserve_iocs=preserve_iocs)
+    assert (
+        hygiene.sanitize_string("SELECT password FROM users")
+        == "SELECT password FROM users"
+    )
+
+
+@pytest.mark.asyncio
+async def test_middleware_password_flag_is_redacted() -> None:
+    hygiene = MiddlewareHygiene()
+    ctx = ToolCallContext(
+        tool_name="run_command",
+        arguments={"cmd": "redis-cli --password Hunter2 PING"},
+    )
+    sanitized = await hygiene.sanitize(ctx)
+    assert "Hunter2" not in sanitized.arguments["cmd"]
+    assert "[[PASSWORD]]" in sanitized.arguments["cmd"]

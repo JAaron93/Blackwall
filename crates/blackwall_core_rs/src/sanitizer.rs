@@ -118,6 +118,11 @@ impl ContextSanitizer {
                         "[[PASSWORD]]",
                     ),
                     (
+                        "PASSWORD",
+                        r#"(?i)(--?(?:password|passwd|pwd))\s+['"]?([^\s'"]+)"#,
+                        "[[PASSWORD]]",
+                    ),
+                    (
                         "EMAIL",
                         r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}",
                         "[[EMAIL]]",
@@ -320,5 +325,17 @@ mod tests {
         let sanitizer = ContextSanitizer::new(None).unwrap();
         let (sanitized, _) = sanitizer.sanitize("password=Hunter2", true).unwrap();
         assert_eq!(sanitized, "password=[[PASSWORD]]");
+    }
+
+    #[test]
+    fn test_password_flag_space_separated_redacted() {
+        // Review regression: a space-separated CLI password flag must be
+        // redacted even though it is neither an assignment nor a quoted value.
+        let sanitizer = ContextSanitizer::new(None).unwrap();
+        let (sanitized, _) = sanitizer
+            .sanitize("redis-cli --password Hunter2 PING", false)
+            .unwrap();
+        assert!(!sanitized.contains("Hunter2"));
+        assert!(sanitized.contains("[[PASSWORD]]"));
     }
 }

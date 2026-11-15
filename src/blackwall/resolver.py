@@ -101,6 +101,11 @@ class ContextHygiene:
             r"(?i)(password|passwd|pwd)(?:\s*[:=]\s*['\"]?|\s+['\"])([^\s'\"]+)",
             "[[PASSWORD]]",
         ),
+        (
+            "password",
+            r"(?i)(--?(?:password|passwd|pwd))\s+['\"]?([^\s'\"]+)",
+            "[[PASSWORD]]",
+        ),
         ("email", r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "[[EMAIL]]"),
     ]
 
@@ -158,6 +163,11 @@ class ContextHygiene:
         (
             "password",
             r"(?i)(password|passwd|pwd)(?:\s*[:=]\s*['\"]?|\s+['\"])([^\s'\"]+)",
+            "[[PASSWORD]]",
+        ),
+        (
+            "password",
+            r"(?i)(--?(?:password|passwd|pwd))\s+['\"]?([^\s'\"]+)",
             "[[PASSWORD]]",
         ),
         ("email", r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "[[EMAIL]]"),

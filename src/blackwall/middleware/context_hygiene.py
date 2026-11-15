@@ -181,6 +181,11 @@ class ContextHygiene:
                 r"(?i)(password|passwd|pwd)(?:\s*[:=]\s*['\"]?|\s+['\"])([^\s'\"]+)",
                 "[[PASSWORD]]",
             ),
+            (
+                "PASSWORD",
+                r"(?i)(--?(?:password|passwd|pwd))\s+['\"]?([^\s'\"]+)",
+                "[[PASSWORD]]",
+            ),
             ("EMAIL", r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "[[EMAIL]]"),
         ]
         for name, regex, placeholder in default_patterns:

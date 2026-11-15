@@ -288,6 +288,12 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > crate). Tests: `tests/unit/test_context_hygiene_overmatch.py` (both modes +
   > middleware) and Rust `sanitizer::tests` (`cargo test --no-default-features`).
   > This unblocks Track G re-calibration (it no longer corrupts states).
+  > **Review follow-up (2026-11-14):** the narrowing initially dropped the
+  > space-separated CLI flag form (`--password Hunter2`), which would have
+  > exposed the secret to Jev. Added a separate flag pattern
+  > `(?i)(--?(?:password|passwd|pwd))\s+['"]?([^\s'"]+)` across all four copies
+  > (the `--`/`-` prefix distinguishes a flag from a SQL column), with regression
+  > tests in `test_context_hygiene_overmatch.py` and Rust `sanitizer::tests`.
 * [ ] **TASK-F09: Balance the tool names across classes** (ADR 0009, Verification).
   `execute_shell`, `parse_xml`, `socket_connect`, `dns_query`, `download_file`
   and the two `deserialize_*` tools appear only in malicious cases, and 26
