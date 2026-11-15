@@ -125,6 +125,26 @@ evaluation, QUARANTINEing on exhaustion. A separate 300 RPM bucket SHALL guard
 only the Tier-2 Vertex call. When that bucket is empty and Tier-2 is triggered,
 FR-03 applies (QUARANTINE an ALLOW, let a BLOCK stand).
 
+### FR-09: Atomic Question Set, Criteria, and Structured State (PLANNED — Track G)
+> **Added 2026-11-14 (typesafe-ai skill audit F2/F3/F4). PLANNED, not yet
+> implemented; gated on live re-calibration (NFR-05). The current single
+> `is_threat` Noul and dict-repr state remain the production path until Track G
+> passes the golden A/B on held-out cases.**
+
+The Tier-1 request SHOULD replace the single compound `is_threat` Noul with a
+bundled set of atomic `noul` questions, one judgment each (injection,
+obfuscation, privilege escalation, unauthorized access, credential theft,
+exfiltration), each carrying concrete `criteria.true` / `criteria.false`
+situations. Code SHALL combine the per-category probabilities into the single
+weighted `threat_score` signal (candidate: fail-closed `max`); the combination
+rule and the `0.35/0.75` band SHALL be re-calibrated live, never tuned silently.
+`build_state` SHOULD emit a JSON object with named, relevant fields (not a
+Python dict repr) and SHALL guard the serialized size against the documented
+context limits (64k per request / 32k per question), truncating per-field with a
+marker and raising `JevUnavailableError` if still over-limit. FR-02 (signals not
+verdicts), FR-05 (sanitization-before-egress allowlist), FR-06 (fail-fast) and
+the F1 clear-high floor are unchanged. See design.md, Track G.
+
 ## Non-Functional Requirements
 
 ### NFR-01: Preserved Interception SLAs

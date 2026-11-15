@@ -276,9 +276,55 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   with a same-change sync of `AGENTS.md`, `.agents/rules/` and `.greptile/`.
   Needs a maintainer decision first.
   Dependencies: TASK-F09.
+## Track G — Atomic questions, criteria, structured state (typesafe-ai skill audit F2/F3/F4)
+
+> [!NOTE] PLANNED, not implemented (design.md Track G; FR-09). Changes Jev
+> behavior, so the production flip is gated on live re-calibration (NFR-05).
+> Live tasks follow testing rule 74 (never simulated; deferred until a paid
+> `TYPESAFE_API_KEY` is granted in-conversation). TASK-F08 (ContextHygiene
+> over-match) MUST land first — it corrupts states and invalidates stored runs.
+> The single `is_threat` Noul stays the production path until G04 passes.
+
+* [ ] **TASK-G01: Structured state + size/truncation guard** (F4; FR-09).
+  `build_state` returns a JSON object with named, relevant fields (not a dict
+  repr); a guard truncates oversized argument values per-field with a marker
+  against the 64k/32k limits and raises `JevUnavailableError` if still over.
+  Dependencies: TASK-F08. TDD with mocks (no live call for the guard).
+  - [ ] Failing tests: named-field state shape; per-field truncation marker; over-limit raises `JevUnavailableError`; sanitization still precedes egress.
+  - [ ] Implement `build_state` + guard; keep the `model`/`state`/`questions` allowlist.
+* [ ] **TASK-G02: Atomic question set + criteria + code combination** (F2/F3;
+  FR-09, FR-02). One wording module holds the bundled per-category `noul`
+  questions with concrete `criteria.true`/`false`; `_build_payload` sends them
+  over shared state; `_parse_response` reads each answer; code combines them
+  (candidate fail-closed `max`) into `threat_score` with the unchanged
+  0.35/0.75 band. Dependencies: TASK-G01. TDD with mocked multi-answer responses.
+  - [ ] Confirm against the OpenAPI schema whether `state` is an object or a compact JSON string; reference fields by path.
+  - [ ] Failing tests: one judgment per question; criteria present; combination is total over [0,1]; band/escalate/floor/Tier-2 routing unchanged.
+  - [ ] Implement the question module + parsing + combination; update the dev `.mjs` helper to share the wording (parity test, TASK-F09).
+* [ ] **TASK-G03: Live probe + wording refinement** (NFR-05; skill protocol).
+  Probe representative, hard and negative cases; compare wordings as separate
+  questions over one state; read individual answers; keep the exact payload per
+  case; check each change on held-out cases. Needs a live key — deferred.
+  Dependencies: TASK-G02.
+  - [ ] Record per-case payloads + answers; refine criteria against held-out cases (no prompt gymnastics).
+* [ ] **TASK-G04: Golden A/B + class-blind re-score, then production flip**
+  (NFR-05, US-01/02). Re-score 157 + 10 and the class-blind corpus, two
+  interleaved runs per release, report within-release spread; flip only if the
+  A/B gates pass on held-out cases. Needs a live key — deferred.
+  Dependencies: TASK-G03.
+  - [ ] Regenerate `tests/eval/results/` artifacts + recomputation unit tests; record served release and Tier-2 fire rate.
+  - [ ] If gates fail, keep the single-question path and record the misses (feeds TASK-F10).
+* [ ] **TASK-G05: Same-change sync + harness/BDD/corpus updates** (constitution
+  6.4). Update the egress-allowlist and parsing BDD assertions, the eval harness
+  scoring, `AGENTS.md`/`.agents/rules/`/`.greptile/` for the new question set,
+  and the completed-task follow-ups. Dependencies: TASK-G04.
+  - [ ] Sync rule prose + reviewer config in the same change as the behavior flip.
+
 ## Execution Order
 
 `A01 → (A02 + B01) → (B02 + B03 + C01) → C02 → D01 → D02 → D03 → D04 → E01 → E02 → E03 → E04 → E05`; Track F items are independent except where a
 dependency is stated.
 Tracks B/C overlap after A01; D is strictly sequential. Each task lands with
 tests green; no batch commits without a test run (repo TDD gate).
+Track G is gated on TASK-F08 and a live key: `F08 → G01 → G02 → G03 → G04 → G05`;
+the production question flip happens only at G04 after the A/B gates pass.

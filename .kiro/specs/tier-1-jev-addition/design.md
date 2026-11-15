@@ -214,3 +214,114 @@ experimental plan (accuracy ≥98%, AUROC ≥0.95, ECE ≤0.10, escalation ≤25
 * **Escalation band**: `0.35 ≤ P ≤ 0.75` — Gemini decides.
 * **Disagreement trigger**: deterministic high-risk novelty with `P < 0.2`.
 * **SemanticTriageProvider**: Tier-1 interface in `policy/semantic.py`; Jev is the only implementation.
+
+## Track G — Atomic Questions, Criteria, Structured State (typesafe-ai skill audit F2/F3/F4)
+
+> **Status: PLANNED, not implemented.** This track redesigns the Tier-1 question
+> and state to follow the official `typesafe-ai` skill. It changes Jev's
+> behavior, so it is gated on live re-calibration (NFR-05) and MUST NOT ship to
+> the production path until the golden A/B re-run passes on held-out cases.
+> The wording below is a *candidate to probe live*, not calibrated text — the
+> skill forbids prompt gymnastics and thresholds fitted to a handful of cases.
+
+### Why (audit findings)
+
+* **F2 — compound question.** `JEV_IS_THREAT_QUESTION` asks one `noul` joined by
+  "or" across six categories (injection, evasion/obfuscation, privilege
+  escalation, unauthorized access, credential theft, exfiltration). The skill:
+  "One judgment per question; beware the 'or'", and "Use a Noul per statement
+  when more than one can be true." A call that is both credential theft and
+  exfiltration forces a single probability to split between meanings, and code
+  cannot tell which category fired. This is a plausible contributor to the
+  class-blind misses (26–27/99 attacks below the lower band edge, ADR 0009).
+* **F3 — no criteria.** The question carries only `instructions`; there are no
+  `criteria.true` / `criteria.false` concrete situations. The skill: describe
+  each Noul's true/false as a concrete situation, and name the case that causes
+  confusion (a benign parameterized query is not an injection).
+* **F4 — dict-repr state, no size guard.** `build_state` emits
+  `Tool: ...\nArguments: {python dict repr}\nMetadata: {...}`. The skill:
+  "Structure with named fields. JSON objects with descriptive keys work better
+  than a string of serialized JSON", "Ensure every field in the state is
+  relevant", and "Be mindful when truncating." There is also no guard against
+  the documented context limits (64k per request / 32k per question), so an
+  oversized argument can produce a `400 max_tokens_exceeded` instead of a
+  bounded, fail-closed outcome.
+
+### Candidate question set (one judgment each, bundled over shared state)
+
+All questions share one `state` and run in parallel in a single request (the
+skill: bundle questions that share state; questions are cheap, state is read
+once). Each is a `noul` with concrete `criteria`. Names describe content (the
+skill: option/question names are sent to the model; IDs are not). Candidate
+set, to be refined against live answers:
+
+| key | judgment (instructions) | criteria.true | criteria.false |
+| --- | --- | --- | --- |
+| `injection` | Does `arguments` build a command or query by concatenating untrusted text instead of parameters? | A shell/SQL string is assembled by joining a value that could carry syntax. | The query uses bound parameters or placeholders. |
+| `obfuscation` | Is a payload encoded or split to hide its content? | base64/hex/char-code/concatenation hides the operative string. | The payload is plaintext and readable as-is. |
+| `privilege_escalation` | Does the call try to gain privileges beyond the caller's? | sudo/setuid/`chmod u+s`/token impersonation appears. | The call runs within the caller's existing privileges. |
+| `unauthorized_access` | Does the call reach a resource outside the caller's scope? | Reads/modifies another user's data or a protected path (e.g. `/etc/shadow`). | The resource is within the caller's declared scope. |
+| `credential_theft` | Does the call read or transmit a secret or credential? | A password file, API key, token, or env dump is read or sent. | No secret material is read or transmitted. |
+| `exfiltration` | Does the call send local data to an external destination? | An upload/post/DNS tunnel carries local data outward. | Data stays local or goes to a declared internal service. |
+
+The confusing case is named in criteria (parameterized query ≠ injection;
+internal service call ≠ exfiltration), per the skill. A category that proves
+unreliable live is split or re-worded against held-out cases, never patched
+with a clause per failing case.
+
+### Decision logic stays in code (truth table)
+
+Jev supplies the per-category probabilities; code combines them into the single
+weighted `threat_score` signal (FR-02 unchanged: signals, not verdicts). The
+candidate combination is a fail-closed `max` over the category probabilities
+(any strong category raises the signal), with the fixed `0.35/0.75` band applied
+to that combined signal. The combination rule and the band are re-calibrated
+live (NFR-05); `max` is a starting hypothesis, not a tuned result. Aggregation
+supremacy, the clear-high QUARANTINE floor (F1), Tier-2 routing and the
+fail-fast contract are all unchanged. Every combination of category answers has
+a defined outcome because the combination is a total function over `[0,1]`.
+
+### Structured state (F4)
+
+`build_state` returns a JSON object with named, relevant fields instead of a
+Python dict repr, e.g.:
+
+```json
+{
+  "tool": {"name": "query_db", "purpose": "read rows from the application database"},
+  "arguments": {"sql": "SELECT id FROM users WHERE id = :user_id"},
+  "metadata": {"caller": "reporting-service"},
+  "facts": ["the query uses bound parameters supplied by the caller"]
+}
+```
+
+* Only fields the questions need are included (the skill: irrelevant detail
+  reduces accuracy; an empty list can read as a signal). `facts` carries things
+  code already knows so the model need not re-derive them.
+* The state is sanitized before egress exactly as today (FR-05); the allowlist
+  stays `model`/`state`/`questions`.
+* Whether `state` is sent as a JSON object or a compact JSON string is confirmed
+  against the OpenAPI schema during live probing (G02); questions reference
+  fields by path (e.g. `arguments.sql`).
+
+### Size / truncation guard (F4)
+
+A guard measures the serialized state against the documented limits (64k per
+request, 32k per question). Oversized argument values are truncated per-field
+with an explicit marker, preserving the fields the questions need; the
+truncation is logged. If the state still exceeds the limit after truncation the
+backend raises `JevUnavailableError` (fail-fast, FR-06) rather than emitting a
+request that would `400`. Unit-tested with mocks; no live call needed for the
+guard itself.
+
+### Validation protocol (gated on a live key)
+
+Per the skill and testing rule 74: probe representative, hard and negative
+cases live; compare wordings as separate questions over one state; read
+individual answers; keep the exact payload per case; check each change against
+cases not used while tuning. The golden A/B (157 + 10) and the class-blind
+corpus are re-scored (TASK-D02 / TASK-F05b machinery), two interleaved runs per
+release, reporting within-release spread. The production flip happens only if
+the A/B gates pass on held-out cases; otherwise the track stays open. F08
+(ContextHygiene over-match) MUST land first — it corrupts states and invalidates
+stored runs (ADR 0009 D8).
