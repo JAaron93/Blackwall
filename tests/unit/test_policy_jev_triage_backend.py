@@ -583,6 +583,68 @@ async def test_missing_or_malformed_usage_records_none_tokens(caplog):
     assert record.output_tokens is None
 
 
+async def test_triage_record_logs_served_model_and_request_id(caplog):
+    """ADR 0008 Open Item 6 (typesafe-ai audit F5): the moving ``jev-latest``
+    alias means the served release can drift; record the model the API actually
+    served and the request id so an operator can correlate and detect drift."""
+    payload = _system_one_payload(0.02)
+    payload["model"] = "jev-1.14.0"  # served release, distinct from the alias
+    requests: List[httpx.Request] = []
+    backend = _backend(
+        lambda request: httpx.Response(
+            200, json=payload, headers={"x-typesafe-request-id": "req-abc123"}
+        ),
+        requests,
+    )
+    with caplog.at_level(logging.INFO, logger=SEMANTIC_LOGGER):
+        await backend.triage(_context())
+    record = _triage_records(caplog)[0]
+    assert record.served_model == "jev-1.14.0"
+    assert record.request_id == "req-abc123"
+
+
+async def test_triage_record_served_model_and_request_id_default_to_none(caplog):
+    payload = _system_one_payload(0.02)
+    del payload["model"]  # absent served model
+    requests: List[httpx.Request] = []
+    backend = _backend(lambda request: httpx.Response(200, json=payload), requests)
+    with caplog.at_level(logging.INFO, logger=SEMANTIC_LOGGER):
+        result = await backend.triage(_context())
+    assert result is not None  # telemetry only — never gates the signal
+    record = _triage_records(caplog)[0]
+    assert record.served_model is None
+    assert record.request_id is None
+
+
+async def test_triage_record_non_string_served_model_is_none(caplog):
+    payload = _system_one_payload(0.02)
+    payload["model"] = 123  # malformed served model must not be logged as-is
+    requests: List[httpx.Request] = []
+    backend = _backend(lambda request: httpx.Response(200, json=payload), requests)
+    with caplog.at_level(logging.INFO, logger=SEMANTIC_LOGGER):
+        await backend.triage(_context())
+    record = _triage_records(caplog)[0]
+    assert record.served_model is None
+
+
+async def test_triage_logs_exact_request_payload_at_debug(caplog):
+    """typesafe-ai skill audit F10: expose the exact request payload for
+    auditing. Debug level; the state is pre-sanitized in production and the
+    API key lives in a header, never in the payload."""
+    requests: List[httpx.Request] = []
+    backend = _backend(
+        lambda request: httpx.Response(200, json=_system_one_payload(0.02)),
+        requests,
+    )
+    with caplog.at_level(logging.DEBUG, logger=SEMANTIC_LOGGER):
+        await backend.triage(_context())
+    record = next(r for r in caplog.records if r.message == "jev_request_payload")
+    payload = record.payload
+    assert set(payload) == {"model", "state", "questions"}
+    assert payload["questions"]["is_threat"]["type"] == "noul"
+    assert payload["model"] == JEV_DEFAULT_MODEL
+
+
 
 
 

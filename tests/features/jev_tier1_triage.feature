@@ -15,6 +15,12 @@ Feature: Tier-1 Jev Triage Acceptance
     Then the verdict decision is "BLOCK"
     And Tier-2 escalation is never invoked
 
+  Scenario: Lone clear-high Jev signal floors to QUARANTINE without Tier-2 spend
+    Given a SyncResolver with a stubbed Jev backend returning P "0.98"
+    When a benign tool call is evaluated
+    Then the verdict decision is "QUARANTINE"
+    And Tier-2 escalation is never invoked
+
   Scenario: Ambiguous C2 beacon escalates to Tier-2 for the final verdict
     Given a SyncResolver with a stubbed Jev backend returning P "0.51"
     And Tier-2 returns "BLOCK" with threat_score "0.90"

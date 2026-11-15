@@ -50,6 +50,7 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   > `httpx` caller, still no SDK or Node sidecar). The mandatory
   > `disallowPromptTraining` flag is replaced by a `model`/`state`/`questions`
   > request-body allowlist. The 0.35/0.75 mapping is unchanged.
+  - [ ] **Task created post-typesafe-ai skill audit** (2026-11-14): the single compound `is_threat` Noul and dict-repr state are redesigned into atomic per-category questions with criteria and structured JSON state under Track G (F2/F3/F4), gated on live re-calibration. Wording parity with the dev `.mjs` helper is now guarded (TASK-F14, done).
 * [x] **TASK-B02: Bounded 429 backoff + fail-closed** (FR-06).
   Exponential backoff (bounded attempts), then fail-closed to `gemini`
   backend/Tier-2 — never ALLOW. Mock `429` storms in tests.
@@ -58,12 +59,14 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   > and `529` (Overloaded), the two statuses TypeSafe documents; storms of both
   > are tested, and the old tuning knobs (`JEV_MAX_ATTEMPTS`, backoff
   > parameters) are gone.
+  - [ ] **Task created post-typesafe-ai skill audit** (2026-11-14): consider honoring the server's `Retry-After` within a bounded budget vs the pinned fixed delay (TASK-F13, maintainer decision; F8).
   > [!TIP] PARALLEL EXECUTION — TASK-B03 may run alongside TASK-B02.
 * [x] **TASK-B03: Observability fields** (FR-07). Record `backend`, `P`,
   `confidence`, `latency_ms`, token usage per triage into existing telemetry.
   Dependencies: TASK-B01.
   > **Amended by ADR 0008:** `confidence` is `None` (a `noul` answer carries
   > none) and the per-call `gateway_cost` field is gone; token counts remain.
+  - [x] **Task created post-typesafe-ai skill audit** (2026-11-14): the `jev_triage` record now also carries `served_model` + `request_id` (TASK-F11, done; F5/OI6), and the exact request payload is logged at DEBUG (TASK-F14, done; F10).
 
 ## Track C — Escalation & Forensics (depends on Track A; integrates Track B)
 
@@ -81,6 +84,7 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   (P=0.05) combined with a structural BLOCK still verdicts BLOCK, and a
   clear-high Jev signal (P=0.95) with all other signals benign still
   passes through Score Aggregation (no direct-to-verdict short-circuit).
+  - [x] **Task created post-typesafe-ai skill audit** (2026-11-14): a lone clear-high signal now floors an aggregation ALLOW to QUARANTINE (TASK-F06, done; F1). Aggregation supremacy is kept — the floor is a post-aggregation raise, never a BLOCK short-circuit; the P=0.95 regression test was updated accordingly.
 * [x] **TASK-C02: Async signature path untouched** (FR-04). Regression tests
   proving every novel (non-signature-matched) BLOCK still yields
   `ThreatSignaturePayload` → TSG append off the hot path, and that
@@ -104,6 +108,7 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   > **Amended by ADR 0008:** the "disallows prompt training" assertion became
   > "targets the System One endpoint" and "carries only the allowlisted
   > fields", and a 529 fail-closed scenario was added.
+  - [x] **Task created post-typesafe-ai skill audit** (2026-11-14): added the "Lone clear-high Jev signal floors to QUARANTINE" acceptance scenario (F1).
 * [x] **TASK-D02: Golden A/B re-run on the TypeSafe API + gate check** (NFR-05,
   US-01, US-02). Live paid run of `scripts/jev_triage_eval.py` over the 157 + 10
   golden cases against `jev-latest` (deliberately unpinned, ADR 0008); it
@@ -144,6 +149,7 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   > clear-high malicious calls were blocked (by design: "a high P alone cannot
   > BLOCK"), and a Tier-2 abstention is an ALLOW at production thresholds. Results
   > are in ADR 0008, Verification and Open Items 8 to 10.
+  - [ ] **Task created post-typesafe-ai skill audit** (2026-11-14): the ContextHygiene over-match fix (TASK-F08, done; F6) invalidates stored Jev runs, and the Track G question/state redesign (F2/F3/F4) requires a fresh golden A/B + class-blind re-score on held-out cases before any production flip (TASK-G04, `--fresh`).
 * [ ] **TASK-D03: Benchmark + dual-gate CI confirmation** (NFR-01, NFR-02).
   `benchmark_report.json` SLAs green; full suite green under
   triage disabled (GCP-only no-regression) and enabled with Jev.
@@ -176,6 +182,7 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
 * [x] **TASK-E04: Live Tier-2 harness.** `scripts/jev_tier2_eval.py` (`forced`,
   `e2e`). Unit-tested, and both subcommands were run live on 2026-11-13
   (ADR 0009, Verification).
+  - [ ] **Task created post-typesafe-ai skill audit** (2026-11-14): the Tier-2 arbiter prompt was hardened with nonce-XML delimiting (F7); re-run the `forced`/`e2e` harness after the prompt change and complete the live steering measurement (TASK-F02).
 * [x] **TASK-E05: Same-change sync** of `AGENTS.md`, `.agents/rules/` and
   `.greptile/` (constitution 6.4). Approved by the maintainer 2026-11-13 and applied.
 ## Track F — Open work from ADR 0008 and ADR 0009
@@ -187,6 +194,7 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   without `policy.yaml`; figures and the comparison with ADR 0008 are in ADR 0009
   Verification. Rerun after any Gemini or Jev model change.
   Dependencies: TASK-E04.
+  - [ ] **Task created post-typesafe-ai skill audit** (2026-11-14): re-run the live Tier-2 harness after the F7 prompt hardening and measure the steering flip rate (TASK-F02); the prior figures predate the nonce-XML boundary.
 * [ ] **TASK-F02: Measure, then harden, Tier-2 against steering by tool-call
   text** (ADR 0009 OI3). The arbiter prompt interpolates tool name, arguments and
   metadata unseparated, and its ALLOW is final unless aggregation already blocks.
@@ -194,6 +202,13 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   measure how often a BLOCK flips to ALLOW; if any do, delimit the data (nonce
   XML, as the judge agents already do) test-first and re-measure.
   Dependencies: TASK-F01.
+  > **Hardening landed 2026-11-14 (typesafe-ai skill audit F7).** The arbiter
+  > prompt now delimits the tool name/arguments/metadata in a nonce-tagged,
+  > XML-escaped `<tool_call>` boundary with a "data, never instructions"
+  > directive (escaping only — attack evidence is preserved, not neutralized).
+  > Tests: `tests/unit/test_tier2_escalation.py`. This task stays OPEN for the
+  > live steering measurement and post-hardening re-measurement (gated on a live
+  > key); the delimiting is defense-in-depth, not a measured flip rate.
 * [ ] **TASK-F03: Account for the shared Vertex quota** (ADR 0009 OI2). Signature
   synthesis, the judges and other Gemini calls share the project quota that
   Tier-2 depends on and are not counted by the Tier-2 bucket. Decide between one
@@ -211,6 +226,7 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   malicious remain two classes, told apart by payload — this does not merge or
   rename them, and does not touch the wrapper template. Figures in ADR 0009,
   Verification. Tests: `tests/unit/test_golden_evalset_no_placeholders.py`.
+  - [x] **Task created post-typesafe-ai skill audit** (2026-11-14): the ContextHygiene password/sk- over-match found here is fixed (TASK-F08, done; F6), so concrete attack text is no longer corrupted before egress.
 * [x] **TASK-F05b: One shared wrapper template, and the re-score** (ADR 0008
   OI10, ADR 0009). Done 2026-11-13. One prompt template for every case, the same
   argument keys per tool in both classes, `attack_type`/`evasion_type`/
@@ -224,15 +240,28 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   `tests/unit/test_class_blind_evalset.py`,
   `tests/unit/test_jev_class_blind_runs_data.py`.
   Dependencies: TASK-F05a.
-* [ ] **TASK-F06: Decide whether a clear-high Jev P alone may BLOCK** (ADR 0008
+  - [ ] **Task created post-typesafe-ai skill audit** (2026-11-14): regenerate the class-blind re-score after the F6 hygiene fix (it invalidates stored runs) and re-run it under the Track G question/state redesign (F2/F3/F4) before any band change (TASK-F10).
+* [x] **TASK-F06: Decide whether a clear-high Jev P alone may BLOCK** (ADR 0008
   OI8). Commit `176ad80` made it a kept invariant (rule 106). A clear-high score
   that cannot BLOCK is why Tier-2 availability matters so much. This is a
   maintainer decision; any change is a spec amendment with a same-change sync of
   `AGENTS.md`, `.agents/rules/` and `.greptile/`.
+  > **Resolved 2026-11-14 (typesafe-ai skill audit F1).** The maintainer
+  > delegated the decision. Outcome: a clear-high P alone still may NOT BLOCK
+  > (aggregation supremacy kept), but a lone clear-high signal (`P > 0.75`)
+  > that survives aggregation as an ALLOW now floors to a fail-closed
+  > QUARANTINE — a hold, never forwarded — closing the 56/56 bypass. Jev is
+  > steerable by adversarial tool-call text, so QUARANTINE (not BLOCK) is the
+  > floor; a deterministic BLOCK stands. Implemented as step 5e in
+  > `SyncResolver.evaluate`; FR-02 amended; design.md, rules 106/107,
+  > `AGENTS.md` and `.greptile/` synced in the same change. Tests:
+  > `tests/unit/test_tier2_escalation.py` (floor, supremacy, band-edge) and the
+  > "Lone clear-high Jev signal floors to QUARANTINE" scenario in
+  > `tests/features/jev_tier1_triage.feature`.
 * [ ] **TASK-F07: Re-run TASK-D02 after each TypeSafe release** behind
   `jev-latest` (ADR 0008 OI1). The fixed 0.35/0.75 band does not follow the
   model. Recurring; needs a live Jev key.
-* [ ] **TASK-F08: Fix `ContextHygiene`'s password-redaction over-match**
+* [x] **TASK-F08: Fix `ContextHygiene`'s password-redaction over-match**
   (found during TASK-F05a). `(?i)(password|passwd|pwd)[\s:=]+['"]?([^\s'"]+)`
   matches a bare SQL column named `password`/`passwd`/`pwd` followed by any
   next token and redacts that token too — `"... password FROM table"` becomes
@@ -248,6 +277,23 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   corpus avoids it with a different value, and a test fails if a state is
   corrupted that way). The same fix should anchor `sk-` to a
   word boundary and add a regression test for it.
+  > **Done 2026-11-14 (typesafe-ai skill audit F6).** The password pattern now
+  > requires a credential-shaped value — an assignment (`:`/`=`) or a quoted
+  > string — `(?i)(password|passwd|pwd)(?:\s*[:=]\s*['"]?|\s+['"])([^\s'"]+)`,
+  > so a bare SQL column (`SELECT password FROM users`) survives. The `sk-`
+  > pattern is anchored to a word boundary (`\bsk-...`), so `disk-usage-report-12345`
+  > and `computation_task-5531_result` survive. Fixed in both `resolver.py`
+  > pattern lists (default + IOC), the async middleware, and the Rust
+  > `sanitizer.rs` mirror (no lookahead, so it compiles in the Rust `regex`
+  > crate). Tests: `tests/unit/test_context_hygiene_overmatch.py` (both modes +
+  > middleware) and Rust `sanitizer::tests` (`cargo test --no-default-features`).
+  > This unblocks Track G re-calibration (it no longer corrupts states).
+  > **Review follow-up (2026-11-14):** the narrowing initially dropped the
+  > space-separated CLI flag form (`--password Hunter2`), which would have
+  > exposed the secret to Jev. Added a separate flag pattern
+  > `(?i)(--?(?:password|passwd|pwd))\s+['"]?([^\s'"]+)` across all four copies
+  > (the `--`/`-` prefix distinguishes a flag from a SQL column), with regression
+  > tests in `test_context_hygiene_overmatch.py` and Rust `sanitizer::tests`.
 * [ ] **TASK-F09: Balance the tool names across classes** (ADR 0009, Verification).
   `execute_shell`, `parse_xml`, `socket_connect`, `dns_query`, `download_file`
   and the two `deserialize_*` tools appear only in malicious cases, and 26
@@ -264,9 +310,93 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   with a same-change sync of `AGENTS.md`, `.agents/rules/` and `.greptile/`.
   Needs a maintainer decision first.
   Dependencies: TASK-F09.
+* [x] **TASK-F11: Log the served release + request id** (ADR 0008 OI6; FR-07).
+  Done 2026-11-14 (typesafe-ai skill audit F5): the `jev_triage` record carries
+  `served_model` (response `model`, or `None` when absent/non-string) and
+  `request_id` (`x-typesafe-request-id`). Telemetry only — never gates the
+  signal. Tests: `tests/unit/test_policy_jev_triage_backend.py`.
+  - [x] Failing tests for served model + request id, absent → None, non-string → None.
+  - [x] Record both fields; amend FR-07 and ADR 0008 Open Item 6.
+* [ ] **TASK-F12: Decide alias vs pinned model in light of the skill guidance**
+  (typesafe-ai skill audit F5; ADR 0008 D7, rule 105). The official skill's
+  models page advises sending a specific version ID (not the moving alias) when
+  confidence thresholds are tuned against a release; the fixed 0.35/0.75 band
+  was tuned on an earlier release. ADR 0008 D7 deliberately keeps `jev-latest`
+  and rule 105 forbids "fixing" it to a versioned ID. TASK-F11 now makes drift
+  observable. Maintainer decision: keep the alias (re-validate per TASK-F07 on
+  each release) or pin a release for verdict stability. Any change is a spec
+  amendment with a same-change sync of `AGENTS.md`, `.agents/rules/` and
+  `.greptile/`; do not pin unilaterally.
+  - [ ] Weigh verdict stability vs newest-release coverage using the served-model logs.
+  - [ ] If pinning, amend rule 105 / ADR 0008 D7 and the band re-validation cadence.
+
+* [ ] **TASK-F13: Consider honoring Retry-After within the timeout budget**
+  (typesafe-ai skill audit F8; FR-06, rule 105). The skill's errors guidance
+  retries 429/529 after the server's `Retry-After`; the backend currently uses a
+  fixed short delay (deliberately pinned: one retry, no tuning knobs). Maintainer
+  decision: keep the fixed delay, or honor `Retry-After` bounded by a hard cap so
+  the hot path cannot stall. Any change amends FR-06 / rule 105 with a same-change
+  sync and TDD (mocked `Retry-After` storms); do not change the pinned contract
+  unilaterally.
+  - [ ] Weigh latency determinism vs server-guided backoff.
+  - [ ] If adopted, cap the delay and keep exactly one retry; amend FR-06 / rule 105.
+* [x] **TASK-F14: Wording-parity guard + debug payload logging** (typesafe-ai
+  skill audit F9/F10; FR-07). Done 2026-11-14: a static guard asserts the dev
+  Node helper (`scripts/jev_evaluate.mjs`) and `JEV_IS_THREAT_QUESTION` carry
+  identical wording/type, and the backend logs the exact request payload at
+  DEBUG (`jev_request_payload`).
+  - [x] Parity guard `tests/unit/test_jev_question_wording_parity.py` (no Node execution; rule 61).
+  - [x] Debug payload log + test (state pre-sanitized; the API key is a header, never in the payload).
+
+## Track G — Atomic questions, criteria, structured state (typesafe-ai skill audit F2/F3/F4)
+
+> [!NOTE] PLANNED, not implemented (design.md Track G; FR-09). Changes Jev
+> behavior, so the production flip is gated on live re-calibration (NFR-05).
+> Live tasks follow testing rule 74 (never simulated; deferred until a paid
+> `TYPESAFE_API_KEY` is granted in-conversation). TASK-F08 (ContextHygiene
+> over-match) MUST land first — it corrupts states and invalidates stored runs.
+> The single `is_threat` Noul stays the production path until G04 passes.
+
+* [ ] **TASK-G01: Structured state + size/truncation guard** (F4; FR-09).
+  `build_state` returns a JSON object with named, relevant fields (not a dict
+  repr); a guard truncates oversized argument values per-field with a marker
+  against the 64k/32k limits and raises `JevUnavailableError` if still over.
+  Dependencies: TASK-F08. TDD with mocks (no live call for the guard).
+  - [ ] Failing tests: named-field state shape; per-field truncation marker; over-limit raises `JevUnavailableError`; sanitization still precedes egress.
+  - [ ] Implement `build_state` + guard; keep the `model`/`state`/`questions` allowlist.
+* [ ] **TASK-G02: Atomic question set + criteria + code combination** (F2/F3;
+  FR-09, FR-02). One wording module holds the bundled per-category `noul`
+  questions with concrete `criteria.true`/`false`; `_build_payload` sends them
+  over shared state; `_parse_response` reads each answer; code combines them
+  (candidate fail-closed `max`) into `threat_score` with the unchanged
+  0.35/0.75 band. Dependencies: TASK-G01. TDD with mocked multi-answer responses.
+  - [ ] Confirm against the OpenAPI schema whether `state` is an object or a compact JSON string; reference fields by path.
+  - [ ] Failing tests: one judgment per question; criteria present; combination is total over [0,1]; band/escalate/floor/Tier-2 routing unchanged.
+  - [ ] Implement the question module + parsing + combination; update the dev `.mjs` helper to share the wording (parity test, TASK-F09).
+* [ ] **TASK-G03: Live probe + wording refinement** (NFR-05; skill protocol).
+  Probe representative, hard and negative cases; compare wordings as separate
+  questions over one state; read individual answers; keep the exact payload per
+  case; check each change on held-out cases. Needs a live key — deferred.
+  Dependencies: TASK-G02.
+  - [ ] Record per-case payloads + answers; refine criteria against held-out cases (no prompt gymnastics).
+* [ ] **TASK-G04: Golden A/B + class-blind re-score, then production flip**
+  (NFR-05, US-01/02). Re-score 157 + 10 and the class-blind corpus, two
+  interleaved runs per release, report within-release spread; flip only if the
+  A/B gates pass on held-out cases. Needs a live key — deferred.
+  Dependencies: TASK-G03.
+  - [ ] Regenerate `tests/eval/results/` artifacts + recomputation unit tests; record served release and Tier-2 fire rate.
+  - [ ] If gates fail, keep the single-question path and record the misses (feeds TASK-F10).
+* [ ] **TASK-G05: Same-change sync + harness/BDD/corpus updates** (constitution
+  6.4). Update the egress-allowlist and parsing BDD assertions, the eval harness
+  scoring, `AGENTS.md`/`.agents/rules/`/`.greptile/` for the new question set,
+  and the completed-task follow-ups. Dependencies: TASK-G04.
+  - [ ] Sync rule prose + reviewer config in the same change as the behavior flip.
+
 ## Execution Order
 
 `A01 → (A02 + B01) → (B02 + B03 + C01) → C02 → D01 → D02 → D03 → D04 → E01 → E02 → E03 → E04 → E05`; Track F items are independent except where a
 dependency is stated.
 Tracks B/C overlap after A01; D is strictly sequential. Each task lands with
 tests green; no batch commits without a test run (repo TDD gate).
+Track G is gated on TASK-F08 and a live key: `F08 → G01 → G02 → G03 → G04 → G05`;
+the production question flip happens only at G04 after the A/B gates pass.

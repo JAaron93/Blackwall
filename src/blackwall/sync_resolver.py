@@ -54,6 +54,7 @@ from blackwall.models import (
     VerdictDecision,
 )
 from blackwall.policy.semantic import (
+    JEV_CLEAR_HIGH_THRESHOLD,
     TIER2_DISAGREEMENT_NOVELTY,
     TIER2_DISAGREEMENT_P,
     GeminiTier2Backend,
@@ -544,6 +545,25 @@ class SyncResolver:
         )
         if tier2_quarantine:
             decision = VerdictDecision.QUARANTINE
+
+        # 5e. Clear-high Tier-1 floor (typesafe-ai skill audit F1; resolves
+        # ADR 0008 Open Item 8). A lone clear-high signal (P > 0.75) aggregates
+        # below the production BLOCK threshold when every deterministic signal
+        # is benign, so it would otherwise ALLOW — the 56/56 bypass measured in
+        # ADR 0008. Jev is steerable by adversarial tool-call text, so it is not
+        # granted unilateral BLOCK authority; instead raise an ALLOW to a
+        # fail-closed QUARANTINE (a hold, never forwarded). This is a
+        # post-aggregation raise, not a short-circuit: Score Aggregation still
+        # runs and a deterministic BLOCK stands (aggregation supremacy,
+        # ADR 0006 / rule 106). Clear-high never escalates, so Tier-2 is absent
+        # here by construction.
+        clear_high_floor = (
+            tier1_result is not None
+            and tier1_result.threat_score > JEV_CLEAR_HIGH_THRESHOLD
+            and decision == VerdictDecision.ALLOW
+        )
+        if clear_high_floor:
+            decision = VerdictDecision.QUARANTINE
         base_reasoning = self._build_reasoning(
             score, threat_resp, cbm_resp, semantic_score=semantic_score
         )
@@ -551,6 +571,12 @@ class SyncResolver:
             base_reasoning = (
                 f"Tier-2 escalation required but unavailable ({tier2_unavailable_reason}). "
                 f"Fail-closed: QUARANTINE pending retry. | {base_reasoning}"
+            )
+        if clear_high_floor and tier1_result is not None:
+            base_reasoning = (
+                f"Clear-high Tier-1 signal (P={tier1_result.threat_score:.2f} > "
+                f"{JEV_CLEAR_HIGH_THRESHOLD:.2f}) without a corroborating deterministic "
+                f"block. Fail-closed: QUARANTINE pending review. | {base_reasoning}"
             )
         if structural_blocked:
             reasoning = f"Blocked via structural policy rule: {structural_rule_id} | {base_reasoning}"
