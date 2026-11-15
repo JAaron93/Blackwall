@@ -504,6 +504,19 @@ Tier-1 Jev calls the official TypeSafe AI API directly. Everything else in ADR
    clear-high floor should be added (for example at least QUARANTINE, never
    overriding a deterministic BLOCK; this would amend a kept invariant), is a
    maintainer decision.
+   > **Resolved 2026-11-14 (typesafe-ai skill audit F1; TASK-F06).** The
+   > maintainer delegated the decision and chose the QUARANTINE floor sketched
+   > above: a lone clear-high signal (`P > 0.75`) that survives Score
+   > Aggregation as an ALLOW is raised to a fail-closed QUARANTINE (a hold,
+   > never forwarded). A clear-high P alone still may NOT BLOCK — aggregation
+   > supremacy (ADR 0006, rule 106) is kept — and a deterministic BLOCK stands.
+   > QUARANTINE rather than BLOCK because Jev is steerable by adversarial
+   > tool-call text (see Open Item 3 / ADR 0009 OI3), so it is not granted
+   > unilateral BLOCK authority. The floor is a post-aggregation raise applied
+   > after the Tier-2 finality and Tier-2-unavailable rules, strictly above the
+   > inclusive band edge (`P == 0.75` still escalates). FR-02 amended; design.md,
+   > rules 106/107, `AGENTS.md` and `.greptile/` synced in the same change. The
+   > 56/56 end-to-end ALLOW figure above is the pre-floor baseline this resolves.
 9. **A Tier-2 abstention is an ALLOW at production thresholds.** The code says an
    abstaining Tier-2 "fails closed to Score Aggregation", but with no other signal
    the aggregate stays under 0.50, so a band-zone call whose Tier-2 times out,

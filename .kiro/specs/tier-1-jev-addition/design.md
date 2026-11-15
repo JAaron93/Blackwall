@@ -91,7 +91,7 @@ Tier 0: Deterministic & AST Graph (<5ms)  [UNCHANGED]
 Tier 1: SemanticTriageProvider  [Jev only; fails fast, ADR 0009]
         ├── backend=jev (TypeSafe API, paid): P(threat)
         │     ├── P < 0.35 → clear-low SIGNAL → Score Aggregation (no Tier-2 call)
-        │     ├── P > 0.75 → clear-high SIGNAL → Score Aggregation (no Tier-2 call)
+        │     ├── P > 0.75 → clear-high SIGNAL → Score Aggregation (no Tier-2 call; lone clear-high floors ALLOW→QUARANTINE, F1)
         │     └── 0.35 ≤ P ≤ 0.75 → Tier-2 escalation
         └── Jev unavailable (any reason) → JevUnavailableError; no fallback
                     │
@@ -102,6 +102,13 @@ Tier 1: SemanticTriageProvider  [Jev only; fails fast, ADR 0009]
           by a low P, and a high P alone cannot BLOCK. The Tier-1 win is
           skipping the Tier-2 Gemini call — never skipping aggregation
           (local, microseconds).
+          CLEAR-HIGH FLOOR (typesafe-ai skill audit F1; resolves ADR 0008
+          Open Item 8): after aggregation, a lone clear-high signal (P > 0.75)
+          that would otherwise ALLOW is raised to a fail-closed QUARANTINE
+          (a hold, never forwarded). This is a post-aggregation raise, not a
+          short-circuit and not a BLOCK: Jev is steerable by adversarial
+          tool-call text, so it is not granted unilateral BLOCK authority,
+          and a deterministic BLOCK still stands.
                     │
 Tier 2 Escalation: Gemini (3.5 Flash-Lite, medium thinking, pinned)  [ADR 0009]
         ├── Ambiguity band referrals from Tier-1

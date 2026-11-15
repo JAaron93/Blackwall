@@ -47,6 +47,21 @@ Terminal ALLOW/BLOCK/QUARANTINE SHALL be decided exclusively at Score
 Aggregation + Threshold Verdict, preserving deterministic overrides.
 Threshold changes SHALL require a spec amendment with fresh labeled evidence.
 
+> **Amendment (2026-11-14, typesafe-ai skill audit F1; resolves ADR 0008 Open
+> Item 8):** a lone clear-high signal (`P > 0.75`) SHALL floor an aggregation
+> ALLOW to QUARANTINE. After Score Aggregation + Threshold Verdict (and the
+> Tier-2 finality / Tier-2-unavailable rules of FR-03), if Tier-1 ran and
+> returned `P > 0.75` and the decision is still ALLOW, the resolver SHALL raise
+> it to QUARANTINE — a fail-closed hold, never forwarded. This is a
+> post-aggregation raise, NOT a terminal verdict from Jev and NOT a BLOCK: a
+> deterministic BLOCK (structural, TSG, threat-intel-malicious, or
+> block-threshold aggregate) SHALL stand, and Score Aggregation SHALL still
+> run. Rationale: Jev is steerable by adversarial tool-call text, so a
+> clear-high P alone is not granted unilateral BLOCK authority, but it MUST NOT
+> silently ALLOW (the 56/56 bypass measured in ADR 0008). The 0.35/0.75 band
+> itself is unchanged; the floor is strictly above the inclusive upper edge
+> (`P == 0.75` remains in-band and escalates).
+
 ### FR-03: Tier-2 Escalation Routing
 The system SHALL route to Gemini Tier-2 on (a) `escalate=true`, or
 (b) deterministic-vs-semantic disagreement (high-risk argument novelty with

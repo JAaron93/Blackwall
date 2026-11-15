@@ -224,11 +224,23 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   `tests/unit/test_class_blind_evalset.py`,
   `tests/unit/test_jev_class_blind_runs_data.py`.
   Dependencies: TASK-F05a.
-* [ ] **TASK-F06: Decide whether a clear-high Jev P alone may BLOCK** (ADR 0008
+* [x] **TASK-F06: Decide whether a clear-high Jev P alone may BLOCK** (ADR 0008
   OI8). Commit `176ad80` made it a kept invariant (rule 106). A clear-high score
   that cannot BLOCK is why Tier-2 availability matters so much. This is a
   maintainer decision; any change is a spec amendment with a same-change sync of
   `AGENTS.md`, `.agents/rules/` and `.greptile/`.
+  > **Resolved 2026-11-14 (typesafe-ai skill audit F1).** The maintainer
+  > delegated the decision. Outcome: a clear-high P alone still may NOT BLOCK
+  > (aggregation supremacy kept), but a lone clear-high signal (`P > 0.75`)
+  > that survives aggregation as an ALLOW now floors to a fail-closed
+  > QUARANTINE — a hold, never forwarded — closing the 56/56 bypass. Jev is
+  > steerable by adversarial tool-call text, so QUARANTINE (not BLOCK) is the
+  > floor; a deterministic BLOCK stands. Implemented as step 5e in
+  > `SyncResolver.evaluate`; FR-02 amended; design.md, rules 106/107,
+  > `AGENTS.md` and `.greptile/` synced in the same change. Tests:
+  > `tests/unit/test_tier2_escalation.py` (floor, supremacy, band-edge) and the
+  > "Lone clear-high Jev signal floors to QUARANTINE" scenario in
+  > `tests/features/jev_tier1_triage.feature`.
 * [ ] **TASK-F07: Re-run TASK-D02 after each TypeSafe release** behind
   `jev-latest` (ADR 0008 OI1). The fixed 0.35/0.75 band does not follow the
   model. Recurring; needs a live Jev key.
