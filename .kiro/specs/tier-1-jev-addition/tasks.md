@@ -287,6 +287,26 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   with a same-change sync of `AGENTS.md`, `.agents/rules/` and `.greptile/`.
   Needs a maintainer decision first.
   Dependencies: TASK-F09.
+* [x] **TASK-F11: Log the served release + request id** (ADR 0008 OI6; FR-07).
+  Done 2026-11-14 (typesafe-ai skill audit F5): the `jev_triage` record carries
+  `served_model` (response `model`, or `None` when absent/non-string) and
+  `request_id` (`x-typesafe-request-id`). Telemetry only — never gates the
+  signal. Tests: `tests/unit/test_policy_jev_triage_backend.py`.
+  - [x] Failing tests for served model + request id, absent → None, non-string → None.
+  - [x] Record both fields; amend FR-07 and ADR 0008 Open Item 6.
+* [ ] **TASK-F12: Decide alias vs pinned model in light of the skill guidance**
+  (typesafe-ai skill audit F5; ADR 0008 D7, rule 105). The official skill's
+  models page advises sending a specific version ID (not the moving alias) when
+  confidence thresholds are tuned against a release; the fixed 0.35/0.75 band
+  was tuned on an earlier release. ADR 0008 D7 deliberately keeps `jev-latest`
+  and rule 105 forbids "fixing" it to a versioned ID. TASK-F11 now makes drift
+  observable. Maintainer decision: keep the alias (re-validate per TASK-F07 on
+  each release) or pin a release for verdict stability. Any change is a spec
+  amendment with a same-change sync of `AGENTS.md`, `.agents/rules/` and
+  `.greptile/`; do not pin unilaterally.
+  - [ ] Weigh verdict stability vs newest-release coverage using the served-model logs.
+  - [ ] If pinning, amend rule 105 / ADR 0008 D7 and the band re-validation cadence.
+
 ## Track G — Atomic questions, criteria, structured state (typesafe-ai skill audit F2/F3/F4)
 
 > [!NOTE] PLANNED, not implemented (design.md Track G; FR-09). Changes Jev

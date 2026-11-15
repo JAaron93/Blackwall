@@ -471,6 +471,13 @@ Tier-1 Jev calls the official TypeSafe AI API directly. Everything else in ADR
 6. **Optional:** log the served release (`response.model`) and
    `x-typesafe-request-id` in the `jev_triage` record. With an unpinned alias
    this is how a change in verdicts could be tied to a release change.
+   > **Resolved 2026-11-14 (typesafe-ai skill audit F5).** The `jev_triage`
+   > record now carries `served_model` (the response `model`, or `None` when
+   > absent/non-string) and `request_id` (the `x-typesafe-request-id` header).
+   > Telemetry only — never gates the signal. Tests:
+   > `tests/unit/test_policy_jev_triage_backend.py`. This makes alias drift
+   > observable and informs the alias-vs-pin decision (TASK-F12); it does not
+   > change the deliberately unpinned `jev-latest` default (Decision 7, rule 105).
 7. **Resolved: `.env.example` recommended pinning.** It told operators to pin
    `JEV_MODEL` and showed `jev-1.13.0`, which conflicted with Decision 7. It now
    documents the unpinned `jev-latest` default and says a specific release is for

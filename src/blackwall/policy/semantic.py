@@ -1032,10 +1032,15 @@ class JevTriageBackend(SemanticTriageProvider):
         started: float,
         input_tokens: Optional[int] = None,
         output_tokens: Optional[int] = None,
+        served_model: Optional[str] = None,
+        request_id: Optional[str] = None,
     ) -> None:
         """FR-07: one structured record per successful triage. Failures raise
         ``JevUnavailableError`` and are logged by the caller. Spend is derived
-        downstream from the token counts (the API returns no per-call cost)."""
+        downstream from the token counts (the API returns no per-call cost).
+        ``served_model`` and ``request_id`` (ADR 0008 Open Item 6) let an
+        operator detect drift behind the moving ``jev-latest`` alias and
+        correlate a call with TypeSafe's logs."""
         logger.info(
             "jev_triage",
             extra={
@@ -1045,6 +1050,8 @@ class JevTriageBackend(SemanticTriageProvider):
                 "latency_ms": round((time.monotonic() - started) * 1000.0, 3),
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
+                "served_model": served_model,
+                "request_id": request_id,
             },
         )
 
@@ -1071,11 +1078,14 @@ class JevTriageBackend(SemanticTriageProvider):
         if result is None:
             raise JevUnavailableError("Jev TypeSafe API returned a malformed payload")
         usage = self._extract_usage(data)
+        served_model = data.get("model")
         self._record_triage(
             result,
             started=started,
             input_tokens=usage["input"],
             output_tokens=usage["output"],
+            served_model=served_model if isinstance(served_model, str) else None,
+            request_id=response.headers.get("x-typesafe-request-id"),
         )
         return result
 

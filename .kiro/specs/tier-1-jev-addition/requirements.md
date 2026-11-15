@@ -118,6 +118,11 @@ usage for logs, budgets, and `HistoricalRegressionTracker` baselines.
 > spend is derived from the recorded token counts.
 > **Amended by ADR 0009:** failures raise instead of being recorded; there is no
 > `is_fallback` field.
+> **Amended 2026-11-14 (typesafe-ai skill audit F5; ADR 0008 Open Item 6):** each
+> record also carries `served_model` (the release the API actually served, or
+> `None`) and `request_id` (the `x-typesafe-request-id` header), so drift behind
+> the unpinned `jev-latest` alias is observable. Telemetry only — never gates
+> the signal.
 
 ### FR-08: Two Rate Limits
 The front bucket SHALL be 80 req/s (Jev's organization limit) and guard every
