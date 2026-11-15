@@ -4592,9 +4592,20 @@ How the open tasks interact:
 - **TASK-F08 (hygiene over-match): parallel.** The corpus avoids it by value, and
   the harness pins that. Its fix changes sanitized states, so the stored Jev runs
   and every run set are re-scored in the same change.
+  > **Landed 2026-11-14 (typesafe-ai skill audit F6).** The over-match is fixed
+  > in `resolver.py` (both pattern lists), the async middleware and the Rust
+  > mirror; stored Jev runs and run sets must be re-scored before reuse.
 - **TASK-F06 (may a clear-high P alone BLOCK): consumer.** The harness models it as
   `clear_high_policy="block"` in the composer and the replay surface, labeled
   hypothetical. The decision, and any change to `src/`, is the maintainer's.
+  > **Resolved 2026-11-14 (typesafe-ai skill audit F1).** F06 landed as a
+  > clear-high QUARANTINE floor (not BLOCK, not aggregate): a lone `P > 0.75`
+  > that survives aggregation as ALLOW is raised to QUARANTINE, and a
+  > deterministic BLOCK stands. When this harness is implemented,
+  > `ComposeConfig.clear_high_policy` needs a `"quarantine"` option to reproduce
+  > the shipped post-F1 behavior, and `replay_identity` must use it for run sets
+  > recorded after F1 (stored pre-F1 runs still replay under `"aggregate"`).
+  > `"aggregate"` and `"block"` remain as comparison what-ifs.
 - **TASK-F10 (band decision): consumer.** The replay surface and its held-out
   comparison are the evidence F10 asked for; F10 still needs Fresh_Evidence cases
   before a band changes.
