@@ -627,6 +627,24 @@ async def test_triage_record_non_string_served_model_is_none(caplog):
     assert record.served_model is None
 
 
+async def test_triage_logs_exact_request_payload_at_debug(caplog):
+    """typesafe-ai skill audit F10: expose the exact request payload for
+    auditing. Debug level; the state is pre-sanitized in production and the
+    API key lives in a header, never in the payload."""
+    requests: List[httpx.Request] = []
+    backend = _backend(
+        lambda request: httpx.Response(200, json=_system_one_payload(0.02)),
+        requests,
+    )
+    with caplog.at_level(logging.DEBUG, logger=SEMANTIC_LOGGER):
+        await backend.triage(_context())
+    record = next(r for r in caplog.records if r.message == "jev_request_payload")
+    payload = record.payload
+    assert set(payload) == {"model", "state", "questions"}
+    assert payload["questions"]["is_threat"]["type"] == "noul"
+    assert payload["model"] == JEV_DEFAULT_MODEL
+
+
 
 
 

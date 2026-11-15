@@ -1059,6 +1059,10 @@ class JevTriageBackend(SemanticTriageProvider):
     async def triage(self, context: ToolCallContext) -> SemanticTriageResult:
         started = time.monotonic()
         payload = self._build_payload(context)
+        # Auditability (typesafe-ai skill audit F10): the exact request payload
+        # at DEBUG. The state is pre-sanitized in production (FR-05) and the API
+        # key is a header, never part of this payload.
+        logger.debug("jev_request_payload", extra={"payload": payload})
         try:
             response = await self._post_with_one_retry(payload)
         except Exception as exc:

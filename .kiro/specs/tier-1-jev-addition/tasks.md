@@ -314,6 +314,24 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   - [ ] Weigh verdict stability vs newest-release coverage using the served-model logs.
   - [ ] If pinning, amend rule 105 / ADR 0008 D7 and the band re-validation cadence.
 
+* [ ] **TASK-F13: Consider honoring Retry-After within the timeout budget**
+  (typesafe-ai skill audit F8; FR-06, rule 105). The skill's errors guidance
+  retries 429/529 after the server's `Retry-After`; the backend currently uses a
+  fixed short delay (deliberately pinned: one retry, no tuning knobs). Maintainer
+  decision: keep the fixed delay, or honor `Retry-After` bounded by a hard cap so
+  the hot path cannot stall. Any change amends FR-06 / rule 105 with a same-change
+  sync and TDD (mocked `Retry-After` storms); do not change the pinned contract
+  unilaterally.
+  - [ ] Weigh latency determinism vs server-guided backoff.
+  - [ ] If adopted, cap the delay and keep exactly one retry; amend FR-06 / rule 105.
+* [x] **TASK-F14: Wording-parity guard + debug payload logging** (typesafe-ai
+  skill audit F9/F10; FR-07). Done 2026-11-14: a static guard asserts the dev
+  Node helper (`scripts/jev_evaluate.mjs`) and `JEV_IS_THREAT_QUESTION` carry
+  identical wording/type, and the backend logs the exact request payload at
+  DEBUG (`jev_request_payload`).
+  - [x] Parity guard `tests/unit/test_jev_question_wording_parity.py` (no Node execution; rule 61).
+  - [x] Debug payload log + test (state pre-sanitized; the API key is a header, never in the payload).
+
 ## Track G — Atomic questions, criteria, structured state (typesafe-ai skill audit F2/F3/F4)
 
 > [!NOTE] PLANNED, not implemented (design.md Track G; FR-09). Changes Jev
