@@ -194,6 +194,13 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   measure how often a BLOCK flips to ALLOW; if any do, delimit the data (nonce
   XML, as the judge agents already do) test-first and re-measure.
   Dependencies: TASK-F01.
+  > **Hardening landed 2026-11-14 (typesafe-ai skill audit F7).** The arbiter
+  > prompt now delimits the tool name/arguments/metadata in a nonce-tagged,
+  > XML-escaped `<tool_call>` boundary with a "data, never instructions"
+  > directive (escaping only — attack evidence is preserved, not neutralized).
+  > Tests: `tests/unit/test_tier2_escalation.py`. This task stays OPEN for the
+  > live steering measurement and post-hardening re-measurement (gated on a live
+  > key); the delimiting is defense-in-depth, not a measured flip rate.
 * [ ] **TASK-F03: Account for the shared Vertex quota** (ADR 0009 OI2). Signature
   synthesis, the judges and other Gemini calls share the project quota that
   Tier-2 depends on and are not counted by the Tier-2 bucket. Decide between one
