@@ -65,7 +65,7 @@ class ContextHygiene:
         ),
         (
             "openai_key",
-            r"sk-[a-zA-Z0-9_\-]{10,}",
+            r"\bsk-[a-zA-Z0-9_\-]{10,}",
             "[[OPENAI_API_KEY]]",
         ),
         (
@@ -98,7 +98,7 @@ class ContextHygiene:
         ("file_path", r"(?:/[^/\s]+)+/?", "[[FILE_PATH]]"),
         (
             "password",
-            r"(?i)(password|passwd|pwd)[\s:=]+['\"]?([^\s'\"]+)",
+            r"(?i)(password|passwd|pwd)(?:\s*[:=]\s*['\"]?|\s+['\"])([^\s'\"]+)",
             "[[PASSWORD]]",
         ),
         ("email", r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "[[EMAIL]]"),
@@ -117,7 +117,7 @@ class ContextHygiene:
         ),
         (
             "openai_key",
-            r"sk-[a-zA-Z0-9_\-]{10,}",
+            r"\bsk-[a-zA-Z0-9_\-]{10,}",
             "[[OPENAI_API_KEY]]",
         ),
         (
@@ -157,7 +157,7 @@ class ContextHygiene:
         ),
         (
             "password",
-            r"(?i)(password|passwd|pwd)[\s:=]+['\"]?([^\s'\"]+)",
+            r"(?i)(password|passwd|pwd)(?:\s*[:=]\s*['\"]?|\s+['\"])([^\s'\"]+)",
             "[[PASSWORD]]",
         ),
         ("email", r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "[[EMAIL]]"),

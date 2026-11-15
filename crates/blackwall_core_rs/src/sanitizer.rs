@@ -114,7 +114,7 @@ impl ContextSanitizer {
                     ),
                     (
                         "PASSWORD",
-                        r#"(?i)(password|passwd|pwd)[\s:=]+['"]?([^\s'"]+)"#,
+                        r#"(?i)(password|passwd|pwd)(?:\s*[:=]\s*['"]?|\s+['"])([^\s'"]+)"#,
                         "[[PASSWORD]]",
                     ),
                     (
@@ -302,5 +302,23 @@ mod tests {
         let input = r#"password="supersecret_password_123""#;
         let (sanitized, _) = sanitizer.sanitize(input, true).unwrap();
         assert_eq!(sanitized, r#"password="[[PASSWORD]]""#);
+    }
+
+    #[test]
+    fn test_password_column_not_over_matched() {
+        // TASK-F08: a bare SQL column named `password` followed by a keyword
+        // is neither an assignment nor a quoted value, so it must survive.
+        let sanitizer = ContextSanitizer::new(None).unwrap();
+        let (sanitized, _) = sanitizer
+            .sanitize("SELECT password FROM users", true)
+            .unwrap();
+        assert_eq!(sanitized, "SELECT password FROM users");
+    }
+
+    #[test]
+    fn test_password_assignment_still_redacted() {
+        let sanitizer = ContextSanitizer::new(None).unwrap();
+        let (sanitized, _) = sanitizer.sanitize("password=Hunter2", true).unwrap();
+        assert_eq!(sanitized, "password=[[PASSWORD]]");
     }
 }

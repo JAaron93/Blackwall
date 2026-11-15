@@ -178,7 +178,7 @@ class ContextHygiene:
             ("FILE_PATH", r"(?:/[^/\\\s\"']+)+/?", "[[FILE_PATH]]"),
             (
                 "PASSWORD",
-                r"(?i)(password|passwd|pwd)[\s:=]+['\"]?([^\s'\"]+)",
+                r"(?i)(password|passwd|pwd)(?:\s*[:=]\s*['\"]?|\s+['\"])([^\s'\"]+)",
                 "[[PASSWORD]]",
             ),
             ("EMAIL", r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "[[EMAIL]]"),

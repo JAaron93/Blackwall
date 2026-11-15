@@ -244,7 +244,7 @@ testing rule 74 (never simulated, deferred in this file until it can run).
 * [ ] **TASK-F07: Re-run TASK-D02 after each TypeSafe release** behind
   `jev-latest` (ADR 0008 OI1). The fixed 0.35/0.75 band does not follow the
   model. Recurring; needs a live Jev key.
-* [ ] **TASK-F08: Fix `ContextHygiene`'s password-redaction over-match**
+* [x] **TASK-F08: Fix `ContextHygiene`'s password-redaction over-match**
   (found during TASK-F05a). `(?i)(password|passwd|pwd)[\s:=]+['"]?([^\s'"]+)`
   matches a bare SQL column named `password`/`passwd`/`pwd` followed by any
   next token and redacts that token too — `"... password FROM table"` becomes
@@ -260,6 +260,17 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   corpus avoids it with a different value, and a test fails if a state is
   corrupted that way). The same fix should anchor `sk-` to a
   word boundary and add a regression test for it.
+  > **Done 2026-11-14 (typesafe-ai skill audit F6).** The password pattern now
+  > requires a credential-shaped value — an assignment (`:`/`=`) or a quoted
+  > string — `(?i)(password|passwd|pwd)(?:\s*[:=]\s*['"]?|\s+['"])([^\s'"]+)`,
+  > so a bare SQL column (`SELECT password FROM users`) survives. The `sk-`
+  > pattern is anchored to a word boundary (`\bsk-...`), so `disk-usage-report-12345`
+  > and `computation_task-5531_result` survive. Fixed in both `resolver.py`
+  > pattern lists (default + IOC), the async middleware, and the Rust
+  > `sanitizer.rs` mirror (no lookahead, so it compiles in the Rust `regex`
+  > crate). Tests: `tests/unit/test_context_hygiene_overmatch.py` (both modes +
+  > middleware) and Rust `sanitizer::tests` (`cargo test --no-default-features`).
+  > This unblocks Track G re-calibration (it no longer corrupts states).
 * [ ] **TASK-F09: Balance the tool names across classes** (ADR 0009, Verification).
   `execute_shell`, `parse_xml`, `socket_connect`, `dns_query`, `download_file`
   and the two `deserialize_*` tools appear only in malicious cases, and 26
