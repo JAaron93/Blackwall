@@ -50,7 +50,7 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   > `httpx` caller, still no SDK or Node sidecar). The mandatory
   > `disallowPromptTraining` flag is replaced by a `model`/`state`/`questions`
   > request-body allowlist. The 0.35/0.75 mapping is unchanged.
-  - [ ] **Task created post-typesafe-ai skill audit** (2026-11-14): the single compound `is_threat` Noul and dict-repr state are redesigned into atomic per-category questions with criteria and structured JSON state under Track G (F2/F3/F4), gated on live re-calibration. Wording parity with the dev `.mjs` helper is now guarded (TASK-F14, done).
+  > **Task created post-typesafe-ai skill audit** (2026-11-14): the single compound `is_threat` Noul and dict-repr state are redesigned into atomic per-category questions with criteria and structured JSON state under Track G (F2/F3/F4), gated on live re-calibration. Wording parity with the dev `.mjs` helper is now guarded (TASK-F14, done).
 * [x] **TASK-B02: Bounded 429 backoff + fail-closed** (FR-06).
   Exponential backoff (bounded attempts), then fail-closed to `gemini`
   backend/Tier-2 — never ALLOW. Mock `429` storms in tests.
@@ -59,14 +59,14 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   > and `529` (Overloaded), the two statuses TypeSafe documents; storms of both
   > are tested, and the old tuning knobs (`JEV_MAX_ATTEMPTS`, backoff
   > parameters) are gone.
-  - [ ] **Task created post-typesafe-ai skill audit** (2026-11-14): consider honoring the server's `Retry-After` within a bounded budget vs the pinned fixed delay (TASK-F13, maintainer decision; F8).
+  > **Task created post-typesafe-ai skill audit** (2026-11-14): consider honoring the server's `Retry-After` within a bounded budget vs the pinned fixed delay (TASK-F13, maintainer decision; F8).
   > [!TIP] PARALLEL EXECUTION — TASK-B03 may run alongside TASK-B02.
 * [x] **TASK-B03: Observability fields** (FR-07). Record `backend`, `P`,
   `confidence`, `latency_ms`, token usage per triage into existing telemetry.
   Dependencies: TASK-B01.
   > **Amended by ADR 0008:** `confidence` is `None` (a `noul` answer carries
   > none) and the per-call `gateway_cost` field is gone; token counts remain.
-  - [x] **Task created post-typesafe-ai skill audit** (2026-11-14): the `jev_triage` record now also carries `served_model` + `request_id` (TASK-F11, done; F5/OI6), and the exact request payload is logged at DEBUG (TASK-F14, done; F10).
+  > **Task created post-typesafe-ai skill audit** (2026-11-14): the `jev_triage` record now also carries `served_model` + `request_id` (TASK-F11, done; F5/OI6), and the exact request payload is logged at DEBUG (TASK-F14, done; F10).
 
 ## Track C — Escalation & Forensics (depends on Track A; integrates Track B)
 
@@ -84,7 +84,7 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   (P=0.05) combined with a structural BLOCK still verdicts BLOCK, and a
   clear-high Jev signal (P=0.95) with all other signals benign still
   passes through Score Aggregation (no direct-to-verdict short-circuit).
-  - [x] **Task created post-typesafe-ai skill audit** (2026-11-14): a lone clear-high signal now floors an aggregation ALLOW to QUARANTINE (TASK-F06, done; F1). Aggregation supremacy is kept — the floor is a post-aggregation raise, never a BLOCK short-circuit; the P=0.95 regression test was updated accordingly.
+  > **Task created post-typesafe-ai skill audit** (2026-11-14): a lone clear-high signal now floors an aggregation ALLOW to QUARANTINE (TASK-F06, done; F1). Aggregation supremacy is kept — the floor is a post-aggregation raise, never a BLOCK short-circuit; the P=0.95 regression test was updated accordingly.
 * [x] **TASK-C02: Async signature path untouched** (FR-04). Regression tests
   proving every novel (non-signature-matched) BLOCK still yields
   `ThreatSignaturePayload` → TSG append off the hot path, and that
@@ -108,7 +108,7 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   > **Amended by ADR 0008:** the "disallows prompt training" assertion became
   > "targets the System One endpoint" and "carries only the allowlisted
   > fields", and a 529 fail-closed scenario was added.
-  - [x] **Task created post-typesafe-ai skill audit** (2026-11-14): added the "Lone clear-high Jev signal floors to QUARANTINE" acceptance scenario (F1).
+  > **Task created post-typesafe-ai skill audit** (2026-11-14): added the "Lone clear-high Jev signal floors to QUARANTINE" acceptance scenario (F1).
 * [x] **TASK-D02: Golden A/B re-run on the TypeSafe API + gate check** (NFR-05,
   US-01, US-02). Live paid run of `scripts/jev_triage_eval.py` over the 157 + 10
   golden cases against `jev-latest` (deliberately unpinned, ADR 0008); it
@@ -149,7 +149,7 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
   > clear-high malicious calls were blocked (by design: "a high P alone cannot
   > BLOCK"), and a Tier-2 abstention is an ALLOW at production thresholds. Results
   > are in ADR 0008, Verification and Open Items 8 to 10.
-  - [ ] **Task created post-typesafe-ai skill audit** (2026-11-14): the ContextHygiene over-match fix (TASK-F08, done; F6) invalidates stored Jev runs, and the Track G question/state redesign (F2/F3/F4) requires a fresh golden A/B + class-blind re-score on held-out cases before any production flip (TASK-G04, `--fresh`).
+  > **Task created post-typesafe-ai skill audit** (2026-11-14): the ContextHygiene over-match fix (TASK-F08, done; F6) invalidates stored Jev runs, and the Track G question/state redesign (F2/F3/F4) requires a fresh golden A/B + class-blind re-score on held-out cases before any production flip (TASK-G04, `--fresh`).
 * [ ] **TASK-D03: Benchmark + dual-gate CI confirmation** (NFR-01, NFR-02).
   `benchmark_report.json` SLAs green; full suite green under
   triage disabled (GCP-only no-regression) and enabled with Jev.
@@ -182,7 +182,7 @@ calls in unit/BDD tests (mocked); live calls only in the eval harness.
 * [x] **TASK-E04: Live Tier-2 harness.** `scripts/jev_tier2_eval.py` (`forced`,
   `e2e`). Unit-tested, and both subcommands were run live on 2026-11-13
   (ADR 0009, Verification).
-  - [ ] **Task created post-typesafe-ai skill audit** (2026-11-14): the Tier-2 arbiter prompt was hardened with nonce-XML delimiting (F7); re-run the `forced`/`e2e` harness after the prompt change and complete the live steering measurement (TASK-F02).
+  > **Task created post-typesafe-ai skill audit** (2026-11-14): the Tier-2 arbiter prompt was hardened with nonce-XML delimiting (F7); re-run the `forced`/`e2e` harness after the prompt change and complete the live steering measurement (TASK-F02).
 * [x] **TASK-E05: Same-change sync** of `AGENTS.md`, `.agents/rules/` and
   `.greptile/` (constitution 6.4). Approved by the maintainer 2026-11-13 and applied.
 ## Track F — Open work from ADR 0008 and ADR 0009
@@ -194,7 +194,7 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   without `policy.yaml`; figures and the comparison with ADR 0008 are in ADR 0009
   Verification. Rerun after any Gemini or Jev model change.
   Dependencies: TASK-E04.
-  - [ ] **Task created post-typesafe-ai skill audit** (2026-11-14): re-run the live Tier-2 harness after the F7 prompt hardening and measure the steering flip rate (TASK-F02); the prior figures predate the nonce-XML boundary.
+  > **Task created post-typesafe-ai skill audit** (2026-11-14): re-run the live Tier-2 harness after the F7 prompt hardening and measure the steering flip rate (TASK-F02); the prior figures predate the nonce-XML boundary.
 * [ ] **TASK-F02: Measure, then harden, Tier-2 against steering by tool-call
   text** (ADR 0009 OI3). The arbiter prompt interpolates tool name, arguments and
   metadata unseparated, and its ALLOW is final unless aggregation already blocks.
@@ -226,7 +226,7 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   malicious remain two classes, told apart by payload — this does not merge or
   rename them, and does not touch the wrapper template. Figures in ADR 0009,
   Verification. Tests: `tests/unit/test_golden_evalset_no_placeholders.py`.
-  - [x] **Task created post-typesafe-ai skill audit** (2026-11-14): the ContextHygiene password/sk- over-match found here is fixed (TASK-F08, done; F6), so concrete attack text is no longer corrupted before egress.
+  > **Task created post-typesafe-ai skill audit** (2026-11-14): the ContextHygiene password/sk- over-match found here is fixed (TASK-F08, done; F6), so concrete attack text is no longer corrupted before egress.
 * [x] **TASK-F05b: One shared wrapper template, and the re-score** (ADR 0008
   OI10, ADR 0009). Done 2026-11-13. One prompt template for every case, the same
   argument keys per tool in both classes, `attack_type`/`evasion_type`/
@@ -240,7 +240,7 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   `tests/unit/test_class_blind_evalset.py`,
   `tests/unit/test_jev_class_blind_runs_data.py`.
   Dependencies: TASK-F05a.
-  - [ ] **Task created post-typesafe-ai skill audit** (2026-11-14): regenerate the class-blind re-score after the F6 hygiene fix (it invalidates stored runs) and re-run it under the Track G question/state redesign (F2/F3/F4) before any band change (TASK-F10).
+  > **Task created post-typesafe-ai skill audit** (2026-11-14): regenerate the class-blind re-score after the F6 hygiene fix (it invalidates stored runs) and re-run it under the Track G question/state redesign (F2/F3/F4) before any band change (TASK-F10).
 * [x] **TASK-F06: Decide whether a clear-high Jev P alone may BLOCK** (ADR 0008
   OI8). Commit `176ad80` made it a kept invariant (rule 106). A clear-high score
   that cannot BLOCK is why Tier-2 availability matters so much. This is a
