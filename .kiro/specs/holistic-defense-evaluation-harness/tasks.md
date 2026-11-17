@@ -4,6 +4,31 @@
 
 This plan implements the harness in `design.md` against `requirements.md`, in the design's four phases. Phase 1 is the pure library (including the Findings_Module `findings.py`, the Report_Module `report.py` and the dollar-cost computation `billing.py`), the Corpus_Loader `corpus.py`, the Egress_Guard `egress.py` (installed from the first `stages` run, with an empty Runtime_Hosts for every offline subcommand), the observers, the offline stage pass, the Composer with its differential test and the Identity_Check, and the Run_Set schema and the Run_Store with its create and append rule (`stages` alone creates a Run_Set; every later subcommand opens it for append first). Phase 2 adds the run protocol, the live whole-system and Forced_Table runs, the TASK-F06 finding from the Whole_System_Runs, the comparison notebook, the recompute tests and the mutation guard. Phase 3 adds the optional layers (IOC corpus, threat intelligence, CBM fixture, W3 to W5), the CBM_Probe_Step `cbm_probe.py` and the LX-wave support. Phase 4 adds the band study, the recommendation gate, the cross-link cell and the ADR.
 
+## Telos (research purpose)
+
+This harness is a research instrument, not a feature. Its telos:
+
+- **Question:** What does the *whole* firewall actually catch, versus what each
+  defensive stage claims — and what would a Jev band change do to the system as a
+  whole (catch rate, false alarms, Tier-2 load, outage exposure)?
+- **Hypothesis:** A stage gate is not a system rate. Isolated-stage figures (Jev
+  accuracy, ECE, AUROC) overstate the system's catch rate: a signal one stage
+  flags is lost by aggregation, thresholding, or a skipped Tier-2; and a band edge
+  that looks good on the Jev stage moves misses and false alarms differently once
+  the whole resolver runs.
+- **Decision informed:** The maintainer's calibration decisions — the band
+  amendment (tier-1 TASK-F10) and any steering defense (TASK-F02) — grounded in
+  whole-system, held-out evidence rather than isolated-stage figures. The
+  harness's deliverable is *trustworthy measurement* (committed, recomputed,
+  stratified by tool-name group), never a production change.
+
+The phases are sub-questions: Phase 1 builds the instrument (offline, no
+credential); Phase 2 measures whole-system versus stage and the F06 clear-high
+finding; Phase 3 adds the optional layers (threat intelligence, CBM fixture) as
+separate evidence; Phase 4 runs the band study with the held-out protocol and the
+recommendation gate. Every live figure carries its StageContext (stage,
+`demo_mode`, layers on/off) so a stage gate is never read as a system rate.
+
 Task ids are the numbers below (for example 6.1). The repository convention of a "Dependencies:" line and a requirement reference is kept inside each task. Requirement references use `X.Y` for requirement X, criterion Y. "Validates" lines cite the numbered correctness properties of `design.md`.
 
 ## Conventions that apply to every task

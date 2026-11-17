@@ -65,6 +65,18 @@ holistic-defense-evaluation-harness infrastructure and the class-blind corpus;
 the engineering cluster (Tracks A–E, F03/F04/F06/F08/F11/F13/F14) is
 mock-testable and independent of live budget.
 
+### Cluster 2 telos (why the empirical work exists)
+
+Cluster 1 tasks *build*; Cluster 2 tasks *learn*. Each C2 task or track carries a
+**telos**: the research question it answers, the hypothesis it tests, and the
+decision its evidence informs. The deliverable of a C2 task is *evidence* — a
+committed, recomputed measurement — not code; a `src/` change is only a
+*consequence* of an answer and must itself be validated. Framing the work as a
+question prevents the category error of shipping an unvalidated "fix" for a
+threat that was never measured (the removed steering guard, TASK-F02). Read a C2
+task's telos before starting it: if the question is already answered, the task is
+done or needs re-scoping, not more code.
+
 ## Track A — Provider Seam (foundation; all else depends on this)
 
 > [!TIP] PARALLEL EXECUTION — TASK-A01 and TASK-A02 may run concurrently once
@@ -257,6 +269,13 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   measure how often a BLOCK flips to ALLOW; if any do, delimit the data (nonce
   XML, as the judge agents already do) test-first and re-measure.
   Dependencies: TASK-F01.
+  > **Telos:** Can adversarial tool-call text steer the semantic tiers into
+  > allowing a malicious call? Hypothesis: the hardened Tier-2 prompt resists
+  > steering, but Tier-1's score is steerable below the band edge. Informs
+  > whether/where a validated steering defense is needed and how the band edge
+  > trades misses against false alarms (→ F10). The deliverable is evidence; the
+  > removed guard was the category error of shipping code before measuring.
+  >
   > **Hardening landed 2026-11-14 (typesafe-ai skill audit F7).** The arbiter
   > prompt now delimits the tool name/arguments/metadata in a nonce-tagged,
   > XML-escaped `<tool_call>` boundary with a "data, never instructions"
@@ -403,6 +422,9 @@ testing rule 74 (never simulated, deferred in this file until it can run).
 * [ ] **TASK-F07 [C2]: Re-run TASK-D02 after each TypeSafe release** behind
   `jev-latest` (ADR 0008 OI1). The fixed 0.35/0.75 band does not follow the
   model. Recurring; needs a live Jev key.
+  > **Telos:** Does a new Jev release preserve calibration at the fixed band?
+  > Hypothesis: release drift shifts P near band edges. Informs the re-validation
+  > cadence and the alias-vs-pin decision (→ F12).
 * [x] **TASK-F08 [C1]: Fix `ContextHygiene`'s password-redaction over-match**
   (found during TASK-F05a). `(?i)(password|passwd|pwd)[\s:=]+['"]?([^\s'"]+)`
   matches a bare SQL column named `password`/`passwd`/`pwd` followed by any
@@ -443,6 +465,9 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   Add benign cases for the malicious-only tools (and malicious ones for the
   shared tools) test-first, re-score, and record the effect. Needs a live Jev key.
   Dependencies: TASK-F05b.
+  > **Telos:** Is the tool name a class tell that inflates measured accuracy?
+  > Hypothesis: balancing tool names across classes removes the tell. Informs
+  > whether the corpus is valid evidence for band calibration (→ F10).
 * [ ] **TASK-F10 [C2]: Decide what to do about the failed accuracy and ECE gates**
   (ADR 0009 OI4). On the class-blind corpus AUROC is 0.99 but 26 to 27 of 99 attacks
   fall below the 0.35 lower band edge (12 to 13 are C2/IOC-type calls). Options:
@@ -452,6 +477,11 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   with a same-change sync of `AGENTS.md`, `.agents/rules/` and `.greptile/`.
   Needs a maintainer decision first.
   Dependencies: TASK-F09.
+  > **Telos:** Where should the band edges sit so novel attacks are caught without
+  > false alarms? Hypothesis: the 0.35 lower edge misses C2/IOC-type calls; a lower
+  > edge or threat-intel catches them. Informs the band spec amendment (fresh
+  > labeled evidence required); the Tier-1 steering bypass surface also shrinks
+  > with a lower edge (→ F02).
 * [x] **TASK-F11 [C1]: Log the served release + request id** (ADR 0008 OI6; FR-07).
   Done 2026-11-14 (typesafe-ai skill audit F5): the `jev_triage` record carries
   `served_model` (response `model`, or `None` when absent/non-string) and
@@ -469,6 +499,9 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   each release) or pin a release for verdict stability. Any change is a spec
   amendment with a same-change sync of `AGENTS.md`, `.agents/rules/` and
   `.greptile/`; do not pin unilaterally.
+  > **Telos:** Does the moving alias or a pinned release give more trustworthy
+  > verdicts? Hypothesis: pinning stabilizes calibration but misses release
+  > improvements. Informs model governance and the F07 re-validation cadence.
   - [ ] Weigh verdict stability vs newest-release coverage using the served-model logs.
   - [ ] If pinning, amend rule 105 / ADR 0008 D7 and the band re-validation cadence.
 
@@ -491,6 +524,16 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   - [x] Debug payload log + test (state pre-sanitized; the API key is a header, never in the payload).
 
 ## Track G — Atomic questions, criteria, structured state (typesafe-ai skill audit F2/F3/F4)
+
+> **Telos (research program):** Does replacing the single compound `is_threat`
+> Noul with atomic per-category questions + concrete criteria + structured JSON
+> state improve Jev's calibration (accuracy and ECE) on the class-blind corpus,
+> especially the weak C2/IOC class? Hypothesis: one judgment per question with
+> named criteria reduces the compound-question ambiguity that drives the ECE
+> failure. Informs the production question flip (G04) — a spec amendment gated on
+> fresh held-out evidence, never shipped uncalibrated. Coupled to F10 (the band)
+> and F09 (a balanced corpus): a question change invalidates stored runs and must
+> be re-scored before any band decision rests on it.
 
 > [!NOTE] PLANNED, not implemented (design.md Track G; FR-09). Changes Jev
 > behavior, so the production flip is gated on live re-calibration (NFR-05).
