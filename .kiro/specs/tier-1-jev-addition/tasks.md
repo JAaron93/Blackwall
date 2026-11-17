@@ -281,8 +281,8 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > structure holds; they do not show how the live model weighs text inside an
   > intact boundary.
   >
-  > **Live measurement done 2026-11-14** (maintainer's in-conversation grant,
-  > testing rule 74; Vertex project and TypeSafe key supplied from the maintainer's
+  > **Live measurement done 2026-11-14** (access-authorized live read,
+  > testing rules 74/78; Vertex project and TypeSafe key supplied from the maintainer's
   > environment, no secret recorded). Arbiter `gemini-3.5-flash-lite` at the pinned
   > medium level (the response `model_version`, every call); Tier-1 for `e2e`
   > `jev-1.14.0` (the `served_model` field, 668 of 668 calls, requested as
@@ -473,7 +473,8 @@ testing rule 74 (never simulated, deferred in this file until it can run).
 > [!NOTE] PLANNED, not implemented (design.md Track G; FR-09). Changes Jev
 > behavior, so the production flip is gated on live re-calibration (NFR-05).
 > Live tasks follow testing rule 74 (never simulated; deferred until a paid
-> `TYPESAFE_API_KEY` is granted in-conversation). TASK-F08 (ContextHygiene
+> `TYPESAFE_API_KEY` is available — reads are access-authorized per rule 78, no
+> per-read approval). TASK-F08 (ContextHygiene
 > over-match) MUST land first — it corrupts states and invalidates stored runs.
 > The single `is_threat` Noul stays the production path until G04 passes.
 
