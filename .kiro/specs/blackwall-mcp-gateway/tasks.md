@@ -274,7 +274,7 @@ Implement the macOS background service management module and CLI subcommands for
 - `blackwall service start|stop|status|uninstall|configure` — Dispatch to `launchctl`; `configure` updates project IDs and credential paths (`--project <id>`, `--credentials <path>`). `configure --typesafe-key <key>` provisions the protected env file with the same `0600` rules.
 
 **Acceptance Criteria:**
-1. Unit tests assert correct XML generation for macOS `com.blackwall.gateway.plist`, verifying `ThrottleInterval=30`, `RunAtLoad=true`, `KeepAlive.SuccessfulExit=false`, and `ExecStart` includes `--foreground` (TDD).
+1. Unit tests assert correct XML generation for macOS `com.blackwall.gateway.plist`, verifying `ThrottleInterval=30`, `RunAtLoad=true`, `KeepAlive.SuccessfulExit=false`, and `ProgramArguments` contains `--foreground` (TDD).
 2. Service installer resolves all paths to absolute filesystem paths; tests assert 0 unexpanded `~` characters in generated plist files.
 3. Installer resolves standard gcloud ADC (`application_default_credentials.json`) from the user's home directory when `GOOGLE_APPLICATION_CREDENTIALS` is unset, injecting the resolved absolute path into the plist `EnvironmentVariables`.
 4. Service installer writes to correct macOS platform path (`~/Library/LaunchAgents/`).

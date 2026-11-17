@@ -368,7 +368,8 @@
   5. **Install-Time Validation Rejection**: Installation fails with non-zero exit when `GCP_PROJECT` is absent.
 * **Rationale:** Ensures plist generation logic does not omit critical environment or upstream flags that would cause silent failures or crash loops in production `launchd` environments.
 
-## 47. Linux Systemd Unit & DGX Co-Existence Test Invariants
+## 47. Linux Systemd Unit & Hardware Co-Existence Test Invariants (Enterprise Mesh Scope)
+* **Rule (Scope Demarcation):** Core Phase 5 background service management targets macOS `launchd`. Linux systemd unit generation and testing apply to Enterprise Mesh deployments.
 * **Rule (Systemd Unit Generation Test Matrix):** Unit tests covering Linux service generation (`blackwall service install`) MUST assert:
   1. **Syntax & Sectioning**: `StartLimitBurst=5` and `StartLimitIntervalSec=60s` are strictly placed under `[Unit]`; `Restart=on-failure`, `RestartSec=5s`, `Type=exec`, `PIDFile=`, `MemoryHigh=320M`, and `MemoryMax=350M` are placed under `[Service]`.
   2. **Zero Unexpanded Tildes**: Generated service definition strings contain 0 raw `~` characters (`Path.resolve()` enforced).
@@ -530,13 +531,13 @@
 * **Rule (No Ambient PATH Dependency):** Tests MUST NOT depend on or execute ambient host binaries, ensuring 100% deterministic test execution across environments regardless of whether companion tools (like `harpoon`) are installed on the local system.
 * **Rationale:** Discovered during Phase 3 test suite implementation on PR #151. Relying on unmocked binary presence causes test behavior to diverge between local development machines with external CLI tools installed and isolated CI runner containers.
 
-## 62. Threat Intelligence Cache SLA Benchmarking & DGX Spark Zero-CUDA Verification
+## 62. Threat Intelligence Cache SLA Benchmarking & Hardware Zero-GPU Verification
 * **Rule (Sub-Millisecond Cache SLA):** Benchmarks evaluating threat intelligence cache performance (`scripts/benchmark_threat_intel.py`, `tests/unit/threat_intel/test_benchmarks_sla.py`) MUST assert an average read latency $\le 1.0\text{ ms}$ across sequential lookups and process RSS memory overhead $\le 50\text{ MB}$.
-* **Rule (Multi-Layer Zero-CUDA Verification):** On Linux / NVIDIA DGX Spark environments, conformance benchmarks MUST verify that threat intelligence execution remains 100% in CPU user-space with zero CUDA VRAM allocations across three independent layers:
-  1. Inspecting `/proc/<daemon_pid>/fd/` for `/dev/nvidia*` device file descriptors on the target process PID.
-  2. Inspecting NVML compute process tables to verify daemon PID absence.
-  3. Asserting `torch.cuda.is_initialized() is False`.
-* **Rationale:** Discovered during Phase 4 benchmarking on PR #152. Blackwall Core must preserve 100% of unified GPU memory (>127.6GB on DGX Spark GB10 ARM64) for hosted AI models.
+* **Rule (Multi-Layer Zero-GPU Allocation Verification):** Conformance benchmarks MUST verify that threat intelligence execution remains 100% in CPU user-space with zero GPU VRAM or Metal/ANE allocations across supported environments:
+  1. Inspecting file descriptors or process tables to verify absence of GPU compute contexts on the target process PID.
+  2. Inspecting process tables to verify daemon PID absence from GPU compute processes.
+  3. Asserting framework contexts (`torch.cuda.is_initialized() is False` if torch is present, zero Metal devices allocated).
+* **Rationale:** Discovered during Phase 4 benchmarking on PR #152. Blackwall Core must preserve unified memory and GPU capacity for hosted AI models.
 
 ## 63. Agent Instruction Hygiene: Abstract Specification Demarcation & Citation Preservation
 * **Rule (Abstract Specification Target Qualification):** In agent instruction files (`AGENTS.md`, `.agents/rules/`, `.greptile/rules.md`), planned architectural components (such as `.kiro/specs/blackwall-mcp-gateway/`) MUST be explicitly qualified as abstract specification targets rather than concrete on-disk modules. Non-existent paths MUST NOT be formatted in backticks or Markdown file links that trigger automated static scanners as missing targets or phantom paths.

@@ -22,7 +22,7 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 - **JSON-RPC `id` Tracking**: The stream layer MUST track all in-flight requests by their JSON-RPC `id` to prevent concurrent call mismatching.
 - **Upstream Management**: Supports `--wrap` (single downstream tool server as child process) and specification config file gateway.yaml (multi-server configuration). ALLOW'd requests are forwarded; BLOCK'd requests return synthesized JSON-RPC errors.
 - **Resource Budget**: Gateway components MUST operate within the 2019 Intel MacBook Pro baseline: ≤60MB idle RAM, ~0% idle CPU, <2s startup, ≤150MB active RAM during evaluation.
-- **Hardware Targets**: Blackwall Core targets the 2019 Intel MacBook Pro as its baseline (<=60MB idle RAM, <=150MB active RAM) and the NVIDIA DGX Spark (Grace Blackwell GB10 ARM64, 128GB unified memory) as top-of-the-line (0MB CUDA contexts, host RSS <= 350MB, preserving >127.6GB unified memory for AI models).
+- **Hardware Targets**: Blackwall Core targets the 2019 Intel MacBook Pro as its baseline (<=60MB idle RAM, <=150MB active RAM) and the Apple Silicon MacBook Pro (M-Series ARM64: M1/M2/M3/M4 Pro/Max, 36GB–128GB unified memory) as top-of-the-line (0MB Metal/ANE allocation, host RSS <= 150MB, preserving full GPU/ANE capacity for local AI models).
 - **Spec Reference**: Architecture governed by `.kiro/specs/blackwall-mcp-gateway/` (design.md, requirements.md, tasks.md).
 
 ### Blackwall Enterprise Mesh (Enterprise Edition)
@@ -149,27 +149,27 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 
 ---
 
-## 7. Cross-Platform Background Service Management (`launchd` & `systemd`) & Packaging Invariants
+## 7. macOS Background Service Management (`launchd` LaunchAgent) & Packaging Invariants
 
-- **Foreground Execution Invariant**: Both macOS `launchd` and Linux `systemd` must supervise `blackwall serve --foreground` (with `Type=exec` and `PIDFile=` in systemd), ensuring supervisors directly track the active gateway child process rather than an exiting daemonized parent.
+- **Foreground Execution Invariant**: macOS `launchd` must supervise `blackwall serve --foreground`, ensuring the supervisor directly tracks the active gateway child process rather than an exiting daemonized parent.
 - **Foreground PID Creation**: In `--foreground` mode, whenever `--pidfile <path>` is supplied, `blackwall serve` MUST write its active process PID upon startup and delete it upon shutdown.
 - **Absolute Path Resolution**: Because system service supervisors do not execute in a shell and do not expand tildes (`~`), `blackwall service install` MUST resolve all configuration paths, executable paths, log paths, and credential files to absolute filesystem paths (`Path.resolve()`). Zero unexpanded `~` characters may appear in generated service definitions.
-- **systemd Syntax & Sectioning**: Start-rate limit throttling (`StartLimitBurst=5`, `StartLimitIntervalSec=60s`) belongs strictly under `[Unit]`. Placing rate limits under `[Service]` is invalid systemd syntax and disables throttling.
-- **FHS Separation for System Services**: System units (`/etc/systemd/system/blackwall.service`) MUST NOT reference `~/.blackwall/`. System units MUST use standard FHS directories: `/etc/blackwall/gateway.yaml` (config), `/run/blackwall/blackwall.pid` (`RuntimeDirectory=blackwall`), `/var/log/blackwall/blackwall.log` (`LogsDirectory=blackwall`), and `/var/lib/blackwall/threat_signatures.db` (`StateDirectory=blackwall`).
-- **Non-Root Execution Identity**: Running systemd units as root (`User=root`) is strictly disallowed. Identity is derived in order: (1) `--user <name>`, (2) `SUDO_USER`, or (3) dedicated system user `blackwall` (group `blackwall`) provisioned with `--home-dir /var/lib/blackwall --create-home`.
-- **Debian Package (`.deb`) Structure**: Packaged `.deb` files deploy the system unit to `/lib/systemd/system/blackwall.service` configured with `EnvironmentFile=-/etc/default/blackwall`. In `postinst`, the package creates `blackwall:blackwall` if absent, assigns FHS directory ownership, auto-captures `$SUDO_USER` ADC credentials when present, and runs `systemctl daemon-reload`.
-- **Credential Configuration Subcommand**: The CLI provides `blackwall service configure --project <id> --credentials <path> --system` to provision `/etc/default/blackwall` and `/etc/blackwall/credentials.json` (`0600 blackwall:blackwall`) on hosts without pre-existing credentials.
+- **launchd Configuration & Sectioning**: Start throttling (`ThrottleInterval=30`), keep-alive (`KeepAlive.SuccessfulExit=false`), and process supervision arguments (`ProgramArguments`) must be correctly configured in the LaunchAgent plist.
+- **LaunchAgent Directory Separation**: User LaunchAgents deploy to `~/Library/LaunchAgents/com.blackwall.gateway.plist` with `RunAtLoad=true`.
+- **macOS DMG Packaging Structure**: Pre-built downloadable `.dmg` releases provide drag-and-drop installation for Apple Silicon (`arm64`) and Intel (`x86_64`) MacBooks, packaging the self-contained gateway binary with zero Python environment setup required. Linux packaging (`systemd`, Debian `.deb`) is de-scoped from Core Phase 5 and reserved for Enterprise Mesh deployments.
+- **Protected Secrets Invariant**: Bearer secrets (e.g. `TYPESAFE_API_KEY`) MUST NOT be embedded inline within generated plist files or logs. They must be written exclusively to a `0600` env file (`~/.blackwall/gateway.env`) loaded at startup.
+- **Credential Configuration Subcommand**: The CLI provides `blackwall service configure --project <id> --credentials <path>` and `blackwall service configure --typesafe-key <key>` to update LaunchAgent configuration and protected environment files.
 
 ---
 
-## 8. NVIDIA DGX Spark Co-Existence, Unified Memory Bounding & Hardware Invariants
+## 8. Apple Silicon High-End & Intel Baseline Architecture (Zero-GPU Footprint & Unified Memory Efficiency)
 
-- **Unified Memory Guarantee**: On unified memory systems (NVIDIA DGX Spark / Grace Blackwell GB10, 128GB LPDDR5x), CPU and GPU share the same physical pool. Blackwall Core MUST run 100% in CPU user-space threads with 0MB allocated in CUDA contexts/VRAM. Its host process RSS memory MUST NOT exceed 350MB (<0.28% of the unified pool), strictly preserving >127.6GB (>99.7%) of unified memory for colocated AI inference engines (vLLM, Ollama, TensorRT-LLM) or model fine-tuning.
-- **Port Non-Collision**: Default gateway port `9229` MUST NOT collide with standard DGX OS AI serving ports: `11434` (Ollama), `8000`/`8001`/`8002` (vLLM, Triton), or `8888`/`8080` (JupyterLab).
-- **Multi-Layer Zero-CUDA Verification**: Conformance tests asserting zero-CUDA usage must inspect `/proc/<daemon_pid>/fd/` for `/dev/nvidia*` character devices on the target daemon PID (resolved from `blackwall.pid` or subprocess handle, NOT `/proc/self/fd/`), confirm daemon PID absence from `nvmlDeviceGetComputeRunningProcesses`, and verify `torch.cuda.is_initialized() is False`.
+- **Unified Memory & Zero-Allocation Guarantee**: On unified memory systems (Apple Silicon M-Series ARM64, 36GB–128GB unified memory), CPU, GPU, and Neural Engine share the same unified memory pool. Blackwall Core MUST run 100% in CPU user-space threads with 0MB allocated to Metal command queues or Apple Neural Engine (ANE) compute requests. Its host process RSS memory MUST NOT exceed 150MB (<0.42% of a 36GB pool), strictly preserving full GPU, ANE, and unified memory bandwidth for colocated AI inference engines (Ollama, llama.cpp, MLX) or model fine-tuning.
+- **Port Non-Collision**: Default gateway port `9229` MUST NOT collide with standard local AI and developer serving ports: `11434` (Ollama), `8000`/`8001`/`8002` (vLLM, local dev servers), or `8888`/`8080` (JupyterLab).
+- **Multi-Layer Zero-GPU/ANE Verification**: Conformance tests asserting zero-Metal and zero-ANE usage verify that no Metal devices (`MTLCreateSystemDefaultDevice`) or CoreML/ANE contexts are initialized by the gateway daemon process, and that daemon RSS remains <= 150MB under active evaluation load.
 - **Resource Budgets**:
-  - **2019 MacBook Pro Baseline**: <=60MB idle RAM, <=150MB active RAM, ~0% idle CPU, <5% active CPU, <2s startup.
-  - **NVIDIA DGX Spark Top-of-the-Line**: <=100MB idle RAM, <=350MB active RAM, 0MB CUDA, ~0% idle CPU, <2% active CPU across 20 cores, <1s startup.
+  - **2019 MacBook Pro Baseline (Intel Core i7, 16GB)**: <=60MB idle RAM, <=150MB active RAM, ~0% idle CPU, <5% active CPU, <2s startup.
+  - **Apple Silicon MacBook High-End (M-Series ARM64, 36GB–128GB)**: <=60MB idle RAM, <=150MB active RAM, 0MB Metal / 0MB ANE, ~0% idle CPU, <2% active CPU across performance cores, <1s startup.
 
 ---
 
@@ -177,8 +177,7 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
 
 - **Supported Operating Systems**:
   1. **macOS**: Darwin `x86_64` (Intel baseline) and `arm64` (Apple Silicon).
-  2. **GNU/Linux**: **DGX OS / Ubuntu 24.04 LTS `aarch64`** (NVIDIA DGX Spark) and Ubuntu `x86_64`.
-- **Strict Windows Exclusion**: Windows OS packaging (`.exe`, `.msi`), PowerShell scripts, and Windows service wrappers are explicitly barred from all codebase development, CI workflows, and release pipelines.
+- **Strict Windows & Linux Scope Demarcation**: Windows OS packaging (`.exe`, `.msi`), PowerShell scripts, and Windows service wrappers are explicitly barred from all codebase development, CI workflows, and release pipelines. Linux packaging (`systemd`, Debian `.deb`, DGX OS `aarch64`) is de-scoped from Core Phase 5 and reserved exclusively for Enterprise Mesh deployments.
 
 ---
 
@@ -271,9 +270,9 @@ Blackwall is divided into two distinct product tiers, with the MCP Gateway servi
   - `SyncResolver._query_threat_intel` integrates with `ThreatIntelOrchestrator` (`lookup`), escalating malicious detections to trigger `BLOCK` verdicts.
   - Typed exceptions (`OTXCircuitBreakerOpenError`, `OTXTokenBucketExhaustedError`, `OTXLookupError`, `ThreatIntelError`, `CircuitBreakerError`, `AbuseIPDBError`, `AbuseChError`, `HarpoonError`) MUST propagate out of `_query_threat_intel` without being suppressed into `None` (which would mask failures as benign / `ALLOW`). Lookups returning provider failure error responses MUST raise `OTXLookupError`.
   - Legacy `detection_rate` percentages ($> 1.0$) in `_score_threat_intel` MUST be normalized by dividing by `100.0` and clamped to `[0.0, 1.0]` to avoid score saturation.
-- **SLA Benchmarking & DGX Spark Conformance** (`scripts/benchmark_threat_intel.py`):
+- **SLA Benchmarking & Hardware Conformance** (`scripts/benchmark_threat_intel.py`):
   - Strict average latency $\le 1.0\text{ ms}$ on cache hits and RSS memory overhead $\le 50\text{ MB}$.
-  - Multi-layer zero-CUDA verification MUST inspect `/proc/<pid>/fd` for `/dev/nvidia*` descriptors, verify absence from NVML compute processes, and assert `torch.cuda.is_initialized() is False`.
+  - Conformance verification MUST assert zero-GPU/Metal allocation, process RSS within baseline budgets, and absence of GPU compute contexts.
 - **Subsystem Migration & Architectural Reuse**:
   - In major version upgrades or subsystem deprecations (e.g. GTI → AlienVault OTX in v3.0), do NOT perform blanket deletions if existing utility code, CLI command flows, or test harnesses are consistent with the replacement engine. Rename and modernize them in-place to preserve architectural continuity and test coverage investments.
 - **Specification Demarcation & Citation Preservation**:

@@ -242,7 +242,7 @@ All gateway components MUST operate within these hardware budgets:
 | **Active RAM** | ≤ 150MB | ≤ 150MB | Peak during SyncResolver eval + concurrent multi-agent batch queries. |
 | **GPU / Metal / ANE** | 0MB (N/A) | **0MB Metal / 0MB ANE** | **Strict Invariant**: Zero Metal command queues or ANE compute requests; full GPU and ANE bandwidth reserved for local LLM workloads. |
 | **Idle CPU** | ~0% | ~0% | Asyncio event loop sleep. Zero polling. |
-| **Active CPU** | < 5% single core | < 2% performance core | Sub-10ms evaluation burst (JSON parse + FTS5 + hygiene). Apple Silicon P-cores deliver sub-5ms on M2+. |
+| **Active CPU** | < 5% single core | < 2% performance core | Sub-10ms evaluation burst (JSON parse + FTS5 + hygiene). Apple Silicon P-cores deliver sub-5ms on M2+ for Tier 0 local checks (structural + FTS5 graph, no network). |
 | **Disk** | ≤ 50MB | ≤ 50MB | SQLite threat graph + policy YAML + logs. |
 | **Startup** | < 2s | < 1s | APFS + unified memory enables faster cold-start on Apple Silicon. Lazy-load heavy dependencies on first call. |
 
@@ -266,7 +266,7 @@ Tier-1 semantic triage may instead run on the Jev classifier via the official Ty
 *   **Operating System Scope & Explicit Windows Exclusion:** Supported platforms are **macOS** (Darwin `arm64` Apple Silicon and `x86_64` Intel). Linux packaging and NVIDIA DGX Spark support are explicitly de-scoped from Phase 5 (see Phase 5 scope refinement note below). **Windows is strictly unsupported** — no Windows releases, no PowerShell/MSI installers, and zero maintenance overhead.
 *   **Dual Hardware Target Profiles:**
     - **Baseline**: 2019 Intel MacBook Pro (Intel Core i7, 16GB RAM) prioritizing strict resource conservation and low-power battery efficiency.
-    - **Top-of-the-Line**: Apple Silicon MacBook Pro (M-Series ARM64: M1/M2/M3/M4 Pro/Max, 36GB–128GB unified memory) delivering high-throughput concurrent agent security at sub-5ms evaluation latency with zero Metal/ANE allocation, preserving full GPU and ANE capacity for local developer workloads and LLM inference.
+    - **Top-of-the-Line**: Apple Silicon MacBook Pro (M-Series ARM64: M1/M2/M3/M4 Pro/Max, 36GB–128GB unified memory) delivering high-throughput concurrent agent security at sub-5ms Tier 0 local evaluation latency (structural + FTS5 graph checks, no network calls) with zero Metal/ANE allocation, preserving full GPU and ANE capacity for local developer workloads and LLM inference.
 *   **Performance:** Gateway overhead MUST remain < 10ms on top of core evaluation latency.
 *   **Local-Only Binding:** HTTP transport binds to `127.0.0.1` by default. Network-bound deployments require explicit `--host` override and a pre-shared bearer token (`--auth-token` or `BLACKWALL_AUTH_TOKEN`). The gateway MUST refuse to start on a non-loopback address without a configured auth token.
 *   **State Persistence:** SQLite Threat Signature Graph in WAL mode with strict connection pooling. TTL/LFU pruning keeps query latencies under 10ms.

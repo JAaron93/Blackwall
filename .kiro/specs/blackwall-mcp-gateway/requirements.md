@@ -138,7 +138,7 @@ All gateway components MUST operate within these budgets across supported hardwa
 | **Active RAM** | ≤ 150MB | ≤ 150MB | Peak during SyncResolver + GTI evaluation |
 | **GPU / Metal / ANE** | 0MB (N/A) | **0MB Metal / 0MB ANE** | Zero Metal command queues or ANE compute requests; full GPU and ANE bandwidth reserved for local LLMs |
 | **Idle CPU** | ~0% | ~0% | Event loop sleeping, no polling or background threads |
-| **Active CPU** | < 5% single core | < 2% performance core | Sub-10ms burst per tool call; sub-5ms on M2+ P-cores |
+| **Active CPU** | < 5% single core | < 2% performance core | Sub-10ms burst per tool call; sub-5ms on M2+ P-cores for Tier 0 local checks |
 | **Disk** | ≤ 50MB | ≤ 50MB | SQLite + policy + logs |
 | **Startup** | < 2s | < 1s | APFS + unified memory enables faster cold-start on Apple Silicon; deferred initialization |
 
@@ -188,7 +188,7 @@ I want to download a pre-built `Blackwall.dmg` directly from GitHub Releases,
 ### US-08: High-Throughput Protection on Apple Silicon MacBook
 **As an AI developer running a high-end Apple Silicon MacBook Pro (M-Series),**
 I want Blackwall Core to run as a native `launchd` LaunchAgent on macOS (`arm64`) with zero Metal/ANE allocation and strictly bounded host RSS (≤150MB),
-**So that** my multi-agent development workflows are secured at sub-5ms evaluation latency while preserving full GPU and ANE capacity for local LLM inference (Ollama, llama.cpp, MLX) and other developer workloads.
+**So that** my multi-agent development workflows are secured at sub-5ms Tier 0 local evaluation latency (structural + FTS5 graph checks, no network calls) while preserving full GPU and ANE capacity for local LLM inference (Ollama, llama.cpp, MLX) and other developer workloads.
 
 ### US-09: One-Click macOS Installation (`.dmg` & LaunchAgent)
 **As a macOS developer setting up Blackwall on an Apple Silicon or Intel Mac,**
