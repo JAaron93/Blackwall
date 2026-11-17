@@ -321,6 +321,14 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > text that lowers Jev's own P below the 0.35 band edge so Tier-2 is never called;
   > cases Tier-2 is unsure about; and a different Gemini or Jev release. Rerun
   > `steering`, `forced` and `e2e` after any of those changes (TASK-F07 for Jev).
+  >
+  > **Unvalidated steering guard removed 2026-11-14.** A draft `src/` change added
+  > four Jev steering questions to every triage call and an ALLOW→QUARANTINE raise
+  > aimed at the unmeasured Tier-1 path above. It was removed before merge: no
+  > saved result measured it (the "Measured live" comment was unsupported), and it
+  > altered the egress payload/calibration without evidence — a Cluster 2 change
+  > shipped without validation. The Tier-1 steering path stays open empirical work
+  > (coupled to TASK-F10); validate live before proposing any guard.
 * [ ] **TASK-F03 [C1]: Account for the shared Vertex quota** (ADR 0009 OI2). Signature
   synthesis, the judges and other Gemini calls share the project quota that
   Tier-2 depends on and are not counted by the Tier-2 bucket. Decide between one

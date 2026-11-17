@@ -73,15 +73,3 @@ Feature: Tier-1 Jev Triage Acceptance
     And Tier-2 escalation was invoked exactly "1" times
     And the arbiter prompt boundary was intact
     And the arbiter still sees the attacker text as escaped data
-  Scenario: Steering text found in a tool call holds an otherwise clear-low ALLOW
-    Given a SyncResolver with a stubbed Jev backend returning P "0.20" and a steering answer of "0.90" from the guard questions
-    When a benign tool call is evaluated
-    Then the verdict decision is "QUARANTINE"
-    And Tier-2 escalation is never invoked
-    And the verdict reasoning records the steering hold
-  Scenario: Steering text never lowers a Tier-2 BLOCK
-    Given a SyncResolver with a stubbed Jev backend returning P "0.51" and a steering answer of "0.90" from the guard questions
-    And Tier-2 returns "BLOCK" with threat_score "0.90"
-    When a C2-beacon-like tool call is evaluated
-    Then the verdict decision is "BLOCK"
-    And Tier-2 escalation was invoked exactly "1" times

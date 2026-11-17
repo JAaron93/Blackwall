@@ -13,7 +13,6 @@ from pytest_bdd import given, parsers, scenarios, then, when
 
 from blackwall.models import ToolCallContext, VerdictDecision
 from blackwall.policy.semantic import (
-    JEV_STEERING_QUESTIONS,
     JevTriageBackend,
     JevUnavailableError,
     SemanticTriageResult,
@@ -56,13 +55,12 @@ def state() -> BDDState:
     return BDDState()
 
 
-def _tier1(p: float, steering_p: float | None = None) -> SemanticTriageResult:
+def _tier1(p: float) -> SemanticTriageResult:
     return SemanticTriageResult(
         threat_score=p,
         confidence=0.9,
         backend="jev",
         escalate=0.35 <= p <= 0.75,
-        steering_p=steering_p,
     )
 
 
@@ -97,18 +95,6 @@ def resolver_with_stub_jev(state: BDDState, p: str) -> None:
     # scenario restores the real ABA so the TSG write is genuinely asserted.
     state.real_aba = state.resolver.aba
     state.resolver.aba = AsyncMock()
-
-
-@given(
-    parsers.parse(
-        'a SyncResolver with a stubbed Jev backend returning P "{p}" '
-        'and a steering answer of "{steering}" from the guard questions'
-    )
-)
-def resolver_with_stub_jev_and_steering(state: BDDState, p: str, steering: str) -> None:
-    resolver_with_stub_jev(state, p)
-    state.tier1 = _StubTier1(_tier1(float(p), float(steering)))
-    state.resolver._semantic_provider = state.tier1
 
 
 @given(
@@ -159,7 +145,6 @@ def resolver_with_capturing_jev_backend(state: BDDState) -> None:
                 "model": "jev-latest",
                 "answers": {
                     "is_threat": {"type": "noul", "noul": 0.02},
-                    **{n: {"type": "noul", "noul": 0.05} for n in JEV_STEERING_QUESTIONS},
                 },
                 "usage": {"input_tokens": 100, "output_tokens": 5},
             },
@@ -313,11 +298,6 @@ def assert_no_tier2(state: BDDState) -> None:
 @then(parsers.parse('Tier-2 escalation was invoked exactly "{n}" times'))
 def assert_tier2_calls(state: BDDState, n: str) -> None:
     assert state.resolver.tier2_calls == int(n)
-
-
-@then("the verdict reasoning records the steering hold")
-def assert_steering_hold(state: BDDState) -> None:
-    assert "Steering text" in state.verdict.reasoning
 
 
 @then("the verdict reasoning records Tier-2 provenance")

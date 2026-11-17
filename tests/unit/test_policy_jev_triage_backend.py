@@ -25,7 +25,6 @@ from blackwall.policy.semantic import (
     JEV_DEFAULT_MODEL,
     JEV_IS_THREAT_QUESTION,
     JEV_RETRY_DELAY_S,
-    JEV_STEERING_QUESTIONS,
     JEV_SYSTEM_ONE_PATH,
     JevTriageBackend,
     JevUnavailableError,
@@ -59,8 +58,6 @@ def _system_one_payload(
         "model": JEV_DEFAULT_MODEL,
         "answers": {
             "is_threat": {"type": "noul", "noul": probability},
-            # The steering questions ride in the same request (ADR 0009 OI3).
-            **{n: {"type": "noul", "noul": 0.05} for n in JEV_STEERING_QUESTIONS},
         },
         "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
     }
@@ -166,7 +163,7 @@ async def test_request_hits_v1_systemone_with_bearer_and_noul_question():
 
     body = json.loads(request.content.decode())
     assert body["model"] == JEV_DEFAULT_MODEL
-    assert set(body["questions"].keys()) == {"is_threat", *JEV_STEERING_QUESTIONS}
+    assert set(body["questions"].keys()) == {"is_threat"}
     assert body["questions"]["is_threat"]["type"] == "noul"
     assert body["questions"]["is_threat"] == JEV_IS_THREAT_QUESTION
 

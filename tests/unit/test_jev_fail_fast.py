@@ -19,7 +19,6 @@ from blackwall.policy import semantic
 from blackwall.policy.semantic import (
     JEV_DEFAULT_BASE_URL,
     JEV_DEFAULT_MODEL,
-    JEV_STEERING_QUESTIONS,
     JevTriageBackend,
     JevUnavailableError,
     SemanticTriageProvider,
@@ -47,7 +46,6 @@ def _ok(p: float) -> Dict[str, Any]:
         "model": JEV_DEFAULT_MODEL,
         "answers": {
             "is_threat": {"type": "noul", "noul": p},
-            **{n: {"type": "noul", "noul": 0.05} for n in JEV_STEERING_QUESTIONS},
         },
         "usage": {"input_tokens": 10, "output_tokens": 2},
     }

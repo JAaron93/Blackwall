@@ -502,6 +502,15 @@ Reading it:
    > unmeasured here; (c) a zero is bounded, not proven (upper bound 1.32% per run,
    > and a different model release can differ). Rerun `steering` after any Gemini
    > or Jev model change or any prompt change.
+   >
+   > **Unvalidated Jev steering guard removed 2026-11-14.** A draft change briefly
+   > added four Jev "steering" questions to every triage request plus an
+   > ALLOW→QUARANTINE raise (a proposed defense for path (b) above). It was removed
+   > before merge: no live artifact measured it, its "Measured live" comment was
+   > unsupported (this Verification covers the Tier-2 *prompt*, not a Jev guard),
+   > and it changed the egress payload and calibration on every call without
+   > evidence. Path (b) remains open empirical work (TASK-F02, coupled to
+   > TASK-F10's band decision); any future guard must be validated live first.
 4. **What the class-blind result implies.** *(Wrapper template and payloads:
    done, see Verification.)* On the class-blind corpus the accuracy and ECE gates
    fail at the fixed 0.35/0.75 band while AUROC is 0.99. Whether to move the
