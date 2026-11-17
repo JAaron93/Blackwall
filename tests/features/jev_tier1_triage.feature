@@ -64,3 +64,12 @@ Feature: Tier-1 Jev Triage Acceptance
     Then evaluation fails fast with JevUnavailableError
     And no verdict is produced
     And the TypeSafe API was called exactly "2" times
+
+  Scenario: Text addressed to the Tier-2 arbiter cannot alter the arbiter prompt boundary
+    Given a SyncResolver with a stubbed Jev backend returning P "0.51"
+    And a Tier-2 arbiter that reads the prompt structure
+    When a tool call carrying text addressed to the Tier-2 arbiter is evaluated
+    Then the verdict decision is "BLOCK"
+    And Tier-2 escalation was invoked exactly "1" times
+    And the arbiter prompt boundary was intact
+    And the arbiter still sees the attacker text as escaped data

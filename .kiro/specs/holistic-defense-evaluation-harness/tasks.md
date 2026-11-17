@@ -4,13 +4,38 @@
 
 This plan implements the harness in `design.md` against `requirements.md`, in the design's four phases. Phase 1 is the pure library (including the Findings_Module `findings.py`, the Report_Module `report.py` and the dollar-cost computation `billing.py`), the Corpus_Loader `corpus.py`, the Egress_Guard `egress.py` (installed from the first `stages` run, with an empty Runtime_Hosts for every offline subcommand), the observers, the offline stage pass, the Composer with its differential test and the Identity_Check, and the Run_Set schema and the Run_Store with its create and append rule (`stages` alone creates a Run_Set; every later subcommand opens it for append first). Phase 2 adds the run protocol, the live whole-system and Forced_Table runs, the TASK-F06 finding from the Whole_System_Runs, the comparison notebook, the recompute tests and the mutation guard. Phase 3 adds the optional layers (IOC corpus, threat intelligence, CBM fixture, W3 to W5), the CBM_Probe_Step `cbm_probe.py` and the LX-wave support. Phase 4 adds the band study, the recommendation gate, the cross-link cell and the ADR.
 
+## Telos (research purpose)
+
+This harness is a research instrument, not a feature. Its telos:
+
+- **Question:** What does the *whole* firewall actually catch, versus what each
+  defensive stage claims — and what would a Jev band change do to the system as a
+  whole (catch rate, false alarms, Tier-2 load, outage exposure)?
+- **Hypothesis:** A stage gate is not a system rate. Isolated-stage figures (Jev
+  accuracy, ECE, AUROC) overstate the system's catch rate: a signal one stage
+  flags is lost by aggregation, thresholding, or a skipped Tier-2; and a band edge
+  that looks good on the Jev stage moves misses and false alarms differently once
+  the whole resolver runs.
+- **Decision informed:** The maintainer's calibration decisions — the band
+  amendment (tier-1 TASK-F10) and any steering defense (TASK-F02) — grounded in
+  whole-system, held-out evidence rather than isolated-stage figures. The
+  harness's deliverable is *trustworthy measurement* (committed, recomputed,
+  stratified by tool-name group), never a production change.
+
+The phases are sub-questions: Phase 1 builds the instrument (offline, no
+credential); Phase 2 measures whole-system versus stage and the F06 clear-high
+finding; Phase 3 adds the optional layers (threat intelligence, CBM fixture) as
+separate evidence; Phase 4 runs the band study with the held-out protocol and the
+recommendation gate. Every live figure carries its StageContext (stage,
+`demo_mode`, layers on/off) so a stage gate is never read as a system rate.
+
 Task ids are the numbers below (for example 6.1). The repository convention of a "Dependencies:" line and a requirement reference is kept inside each task. Requirement references use `X.Y` for requirement X, criterion Y. "Validates" lines cite the numbered correctness properties of `design.md`.
 
 ## Conventions that apply to every task
 
 - Strict TDD (repository rule): write the named failing test or reproduction first and watch it fail with an assertion that names the missing behavior (Requirement 30.1, 30.2), then implement.
 - Every commit goes to a feature branch only. No task pushes, merges, or commits to `main` or `master`. Before staging, check that no `.env` file, key, credential or `.sqlite` WAL file is in the payload.
-- No task edits, creates, prints or reads a real `.env` file. A live credential is read only after the human names that variable in the current conversation (Human_Grant), from the environment of the child process, never logged or written.
+- No task edits, creates, prints or writes a real `.env` file. A live credential is read under the harness's access authorization (e.g. Qoder Full Access; no per-conversation grant required — amended 2026-11-14, rule 78), from the main checkout's `.env` into the child's environment only, never logged or written. "Human_Grant"/"grant" below are legacy labels for an access-authorized credential (see the Requirement 23 amendment).
 - No task executes, imports or fetches a payload. Payloads are inert strings.
 - No task changes `src/` outside `src/blackwall/holistic_eval/`, except the conditional task 5.3. No task edits `AGENTS.md`, `.agents/rules/` or `.greptile/`. The spec-list entry in `AGENTS.md` landed with the spec itself, and the two rule proposals are documents prepared in the Caught_Module task (1.2) and applied only after maintainer approval.
 - Property tests use Hypothesis with at least 100 examples, strategies that generate valid values only, and no more than 50% discards. Async BDD steps use `run_async`, and background tasks are flushed in the same coroutine as the scheduling call (rules 2, 13, 16, 75).
@@ -375,10 +400,10 @@ Phase 1 tasks open no network connection and read no credential variable (Requir
     - Failing test first: `tests/unit/test_holistic_cli_plan.py` asserting zero network connections and exit 0 in under 5 seconds, each Layer enabled or disabled, the resolver mode, per-configuration planned call counts for Jev, Tier-2 and OTX, the Jev and Tier-2 model identifiers, the Vertex project that would be billed, every host of the Runtime_Hosts that `egress.derive_runtime_hosts` (task 3.4) derives for the selected rows, each marked `overridden` when it differs from its client's shipped default (20.23, 25.7), whether a Pricing_File was given with `--pricing` (25.27), the variable names that need a Human_Grant (never values), an unresolved project printed with its reason and a non-zero exit, the Egress_Guard installed before any client is built and removed after the last line is printed (20.39), and a Vertex location with a character other than a lowercase letter, a digit or a hyphen exiting non-zero naming `GCP_LOCATION` before any client is built (20.40).
     - _Requirements: 20.23, 20.39, 20.40, 25.1, 25.2, 25.3, 25.4, 25.5, 25.6, 25.7, 25.8, 25.9, 25.27_
 
-  - [ ] 12.2 Implement the Runner preflight for Human_Grant gating (`runner.py`, `scripts/holistic_eval.py`): Named_Explicitly versus Default_Plan and the `--concurrency` option
+  - [ ] 12.2 Implement the Runner preflight for credential-availability gating (`runner.py`, `scripts/holistic_eval.py`): Named_Explicitly versus Default_Plan and the `--concurrency` option
     - Dependencies: 12.1, 12.3
     - Module placement follows Run Protocol step 3 of the design: the Runner performs the preflight (`runner.py`) and the CLI turns an abort into a non-zero exit and parses `--configs` and `--concurrency` (`scripts/holistic_eval.py`). The pure check `validate_concurrency` is task 12.3.
-    - Failing test first: `tests/unit/test_holistic_preflight.py` for a Named_Explicitly row (id in `--configs`) missing its credential exiting non-zero naming the variable before any client, network call or record (`GCP_PROJECT` and `GOOGLE_CLOUD_PROJECT` for Vertex, `TYPESAFE_API_KEY` for Jev, `BW_OTX_API_KEY` for threat intelligence), a Default_Plan row missing a credential, grant, fixture or transport recorded Not_Measured with a reason (beginning `no grant` and naming `BW_OTX_API_KEY` for threat intelligence) while the run continues, a missing fixture or transport Not_Measured even when Named_Explicitly, no stub substituted, only the granted variable passed to the child through its environment (never an argument or file), grants not carried into a new conversation, `--concurrency` non-integer or below 1 rejected naming the option and minimum before any case with 2 as default, and no read of any `.env` file other than `.env.example`.
+    - Failing test first: `tests/unit/test_holistic_preflight.py` for a Named_Explicitly row (id in `--configs`) missing its credential exiting non-zero naming the variable before any client, network call or record (`GCP_PROJECT` and `GOOGLE_CLOUD_PROJECT` for Vertex, `TYPESAFE_API_KEY` for Jev, `BW_OTX_API_KEY` for threat intelligence), a Default_Plan row missing a credential, grant, fixture or transport recorded Not_Measured with a reason (beginning `no grant` and naming `BW_OTX_API_KEY` for threat intelligence) while the run continues, a missing fixture or transport Not_Measured even when Named_Explicitly, no stub substituted, only the needed variable passed to the child through its environment (never an argument or file), credential availability persisting across conversations (amended 23.9), `--concurrency` non-integer or below 1 rejected naming the option and minimum before any case with 2 as default, and no read of any `.env` file other than `.env.example`.
     - _Requirements: 4.8, 19.16, 19.17, 22.1, 22.2, 22.3, 22.4, 22.5, 23.7, 23.8, 23.9, 23.10, 23.11, 23.12, 23.15, 23.16, 23.17, 23.18, 23.20, 31.11, 31.12, 31.14, 31.15_
 
   - [ ] 12.3 Implement `runner.py`: `validate_concurrency`, `run_pass`, Pass orchestration, pacing, invalidation and re-runs

@@ -1,0 +1,53 @@
+{
+  "description": "Live Tier-2 harness runs for TASK-F02 (ADR 0009, Open Item 3 and Verification), 2026-11-14, one file per run, produced by scripts/jev_tier2_eval.py. Each file holds the summary, the served model release tally, the error tally and one row per call. Steering and forced rows carry the exact tool, arguments and metadata sent, the Tier-1 P handed to the arbiter, and the arbiter's answer, so any single call can be rerun. Everything was measured against gemini-3.5-flash-lite at the pinned medium thinking level on Vertex AI (location from the environment), and e2e also against Tier-1 jev-1.14.0 requested as jev-latest. Run order was interleaved: steering, forced, e2e, steering, forced, e2e. Concurrency was 2 (the setting ADR 0009 used).",
+  "runs": [
+    {"key": "steering_run1", "file": "steering_2026-11-14_run1.json", "kind": "steering", "arbiter": "gemini-3.5-flash-lite", "prompt": "shipped (nonce-delimited, ADR 0009 OI3 hardening)"},
+    {"key": "steering_run2", "file": "steering_2026-11-14_run2.json", "kind": "steering", "arbiter": "gemini-3.5-flash-lite", "prompt": "shipped (nonce-delimited, ADR 0009 OI3 hardening)"},
+    {"key": "forced_run1", "file": "forced_2026-11-14_run1.json", "kind": "forced", "arbiter": "gemini-3.5-flash-lite", "prompt": "shipped"},
+    {"key": "forced_run2", "file": "forced_2026-11-14_run2.json", "kind": "forced", "arbiter": "gemini-3.5-flash-lite", "prompt": "shipped"},
+    {"key": "e2e_run1", "file": "e2e_2026-11-14_run1.json", "kind": "e2e", "arbiter": "gemini-3.5-flash-lite", "tier1": "jev-1.14.0 (requested as jev-latest, served-model field)", "prompt": "shipped"},
+    {"key": "e2e_run2", "file": "e2e_2026-11-14_run2.json", "kind": "e2e", "arbiter": "gemini-3.5-flash-lite", "tier1": "jev-1.14.0 (requested as jev-latest, served-model field)", "prompt": "shipped"},
+    {
+      "key": "control_steering",
+      "file": "control_steering_unhardened-prompt_2026-11-14.json",
+      "kind": "steering",
+      "arbiter": "gemini-3.5-flash-lite",
+      "prompt": "CONTROL, not shipped: the arbiter prompt before the nonce-XML hardening, which interpolated 'Tool: ...', 'Arguments: ...' and 'Metadata: ...' unseparated (git 02635b1^, src/blackwall/policy/semantic.py). Same model, thinking level, cases, payloads and harness code as the steering runs; only the prompt text differs. One run.",
+      "purpose": "A positive control. It shows whether the payload corpus can flip a prompt that has no boundary, which is what makes zero flips against the shipped prompt informative."
+    },
+    {
+      "key": "control_forced",
+      "file": "control_forced_unhardened-prompt_2026-11-14.json",
+      "kind": "forced",
+      "arbiter": "gemini-3.5-flash-lite",
+      "prompt": "CONTROL, not shipped: same pre-hardening prompt as control_steering. One run.",
+      "purpose": "Separates the effect of the prompt from the effect of the regenerated corpus when comparing with the ADR 0009 forced figures."
+    },
+    {
+      "key": "tier1_steering_dev",
+      "file": "tier1_steering_2026-11-14_dev.json",
+      "kind": "tier1-steering",
+      "arbiter": "gemini-3.5-flash-lite",
+      "tier1": "jev-1.14.0 (pinned via JEV_MODEL; served-model field)",
+      "split": "dev",
+      "config": "semantic_only",
+      "purpose": "Tier-1 steering (ADR 0009 OI3 path b): Jev-directed payloads attached to malicious and benign calls, measuring final-verdict downgrades and P crossings below the 0.35 band edge that skip Tier-2. Dev split."
+    },
+    {
+      "key": "tier1_steering_heldout",
+      "file": "tier1_steering_2026-11-14_heldout.json",
+      "kind": "tier1-steering",
+      "arbiter": "gemini-3.5-flash-lite",
+      "tier1": "jev-1.14.0 (pinned via JEV_MODEL; served-model field)",
+      "split": "heldout",
+      "config": "semantic_only",
+      "purpose": "Held-out validation of the Tier-1 steering measurement (payloads not used to design any defense)."
+    }
+  ],
+  "discarded": [
+    {
+      "what": "A first steering run at concurrency 4 on 2026-11-14.",
+      "why": "Vertex returned 429 RESOURCE_EXHAUSTED partway through (about 100 calls in), so 182 of 306 calls abstained within 47 to 79 ms and the run measured quota, not the model. Not kept in this directory. A diagnostic rerun at the same concurrency reproduced the cause (87 of 306 calls rejected with 429 RESOURCE_EXHAUSTED). The runs above used concurrency 2 and had no errors."
+    }
+  ]
+}

@@ -2469,12 +2469,13 @@ sequenceDiagram
    named (rule 79: the gcloud default project can differ from `.env`).
 2. **Hermetic by default** (rules 78 and 79). Runs use `env -i` with a scratch
    `HOME`, `PYTHON_DOTENV_DISABLED=1`, and an empty `CLOUDSDK_CONFIG` unless a
-   Vertex run is granted. A live key is read only after the human grants that named
-   variable in the current conversation, from the main checkout's `.env` with
-   `dotenv_values` into a shell variable, passed to the child through its
-   environment only, and never printed, logged, echoed, written or committed. The
-   harness itself never opens a credential file. A grant does not carry into a new
-   conversation. The manifest records variable names and the grant date, not values.
+   Vertex run is granted. A live key is read under the harness's access authorization
+   (e.g. Qoder Full Access; no per-conversation human grant required — amended
+   2026-11-14, rule 78), from the main checkout's `.env` with `dotenv_values` into a
+   shell variable, passed to the child through its environment only, and never
+   printed, logged, echoed, written or committed. The harness itself never opens a
+   credential file. Credential availability persists across conversations. The
+   manifest records variable names and the read date, not values.
 3. **Abort for a named row, record Not_Measured for a default row** (Q12, decided
    2026-11-13). `--configs` selects the rows of a `run`. A live row whose
    configuration id appears in `--configs` is Named_Explicitly. A row that a
@@ -3769,8 +3770,8 @@ already cited by ADR 0009.
 | Concurrency differs between passes | Valid passes of one configuration used different `--concurrency` values | Every pass is recorded; a pass whose N differs from the others carries a `comparison_exclusion` reason and is left out of the valid-pass count, the Pass_Spread and release comparisons | Re-run at the common N so two valid passes remain |
 | Invalid `--concurrency` | Not an integer, or below 1 | CLI exits non-zero naming `--concurrency` and the minimum of 1, before any case runs | Pass an integer of 1 or more |
 | OTX typed error | `OTXLookupError` and the other typed errors re-raise out of `evaluate()` | `ERROR` row with the class name; threat-intel rows keep their error count | Pass stays valid; the table shows the count |
-| No credential grant, Named_Explicitly row | Variable absent, empty or not granted, and the row's id is in `--configs` | Abort: non-zero exit with an error naming the variable (both `GCP_PROJECT` and `GOOGLE_CLOUD_PROJECT` for a Vertex row), before any client is built, any network call or any record is written; no stub in its place | A human grants in the current conversation and the run is repeated |
-| No credential grant, Default_Plan row | Variable absent, empty or not granted, and the row is not in `--configs` | The row is recorded in `not_measured` with a reason that begins `no grant` and names the variable (for threat intelligence, `BW_OTX_API_KEY`); no live call, no degraded run, no stub in its place; the run continues | A human grants in the current conversation and the row is run |
+| No credential grant, Named_Explicitly row | Variable absent, empty or not granted, and the row's id is in `--configs` | Abort: non-zero exit with an error naming the variable (both `GCP_PROJECT` and `GOOGLE_CLOUD_PROJECT` for a Vertex row), before any client is built, any network call or any record is written; no stub in its place | Make the credential available (access-authorized) and repeat the run |
+| No credential grant, Default_Plan row | Variable absent, empty or not granted, and the row is not in `--configs` | The row is recorded in `not_measured` with a reason that begins `no grant` and names the variable (for threat intelligence, `BW_OTX_API_KEY`); no live call, no degraded run, no stub in its place; the run continues | Make the credential available (access-authorized) and run the row |
 | Missing Tier-2 entry in replay | Triggered case without a row in the replayed release's own forced table | Cell status `unmeasured` for that case; em dash; never filled from another release's table | Complete that release's forced table |
 | Forced_Table not buildable for a release | The Manifest names no Jev run for the release, or the run lacks a Jev P for a case | The release is recorded in `not_measured` with the reason and has no Passes; its replay is Not_Measured; the other release is unaffected | Commit the missing Jev run, then build the table |
 | Fewer than two Forced_Table Passes | A release has one Pass, for example after a discarded Pass that was not re-run | The error band is Not_Measured with the reason and no band is drawn | Re-run the Pass |

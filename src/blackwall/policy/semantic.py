@@ -989,11 +989,9 @@ class JevTriageBackend(SemanticTriageProvider):
             response = await self._post(payload)
         return response
 
-    def _parse_response(self, data: Dict[str, Any]) -> Optional[SemanticTriageResult]:
-        answers = data.get("answers")
-        if not isinstance(answers, dict):
-            return None
-        answer = answers.get("is_threat")
+    @staticmethod
+    def _read_noul(answer: Any) -> float | None:
+        """The probability in one ``noul`` answer, or None when it is not one."""
         if not isinstance(answer, dict):
             return None
         probability = answer.get("noul")
@@ -1004,6 +1002,15 @@ class JevTriageBackend(SemanticTriageProvider):
         # SemanticTriageResult would mint a legitimate-looking signal that
         # is a legitimate-looking signal. Malformed means unavailable.
         if not math.isfinite(p) or not 0.0 <= p <= 1.0:
+            return None
+        return p
+
+    def _parse_response(self, data: Dict[str, Any]) -> Optional[SemanticTriageResult]:
+        answers = data.get("answers")
+        if not isinstance(answers, dict):
+            return None
+        p = self._read_noul(answers.get("is_threat"))
+        if p is None:
             return None
         # A noul answer has no separate confidence (the probability already
         # carries the uncertainty), so ``confidence`` stays None — never invent

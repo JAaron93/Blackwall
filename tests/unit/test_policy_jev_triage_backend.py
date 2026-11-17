@@ -56,7 +56,9 @@ def _system_one_payload(
     """Success body of ``POST /v1/systemone`` for one ``noul`` question."""
     return {
         "model": JEV_DEFAULT_MODEL,
-        "answers": {"is_threat": {"type": "noul", "noul": probability}},
+        "answers": {
+            "is_threat": {"type": "noul", "noul": probability},
+        },
         "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
     }
 

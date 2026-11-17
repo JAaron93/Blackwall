@@ -44,7 +44,9 @@ def _context() -> ToolCallContext:
 def _ok(p: float) -> Dict[str, Any]:
     return {
         "model": JEV_DEFAULT_MODEL,
-        "answers": {"is_threat": {"type": "noul", "noul": p}},
+        "answers": {
+            "is_threat": {"type": "noul", "noul": p},
+        },
         "usage": {"input_tokens": 10, "output_tokens": 2},
     }
 
