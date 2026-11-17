@@ -71,7 +71,7 @@ The design's open questions Q1 to Q18 are all decided as of 2026-11-13, and the 
 - **Fixture_Adapter**: `FixtureCodebaseMemoryClient`, which answers CBM queries from the CBM_Fixture snapshot without network access.
 - **Permuted_Control**: The CBM row in which the same fixture graphs are assigned to tool names by a seeded permutation.
 - **Not_Measured**: The recorded status of a Stage or configuration that lacks a prerequisite, rendered as an em dash with the reason.
-- **Human_Grant**: An explicit statement by the human, in the current conversation, permitting one named credential variable to be read for a live run.
+- **Human_Grant** (legacy label; semantics amended 2026-11-14): A credential variable made available to the harness for a live run under the harness's access authorization (e.g. Qoder Full Access). The former requirement of an explicit human statement in the current conversation is retired: availability follows the access settings and the variable's presence in the environment, and persists across conversations. Secret discipline is unchanged — read only the needed variable, pass it to the child through its environment only, and never print, log, write or commit a value.
 - **Authoring_Record**: The record committed with a set of Fresh_Evidence cases that states the author (the maintainer, or the identity of an agent session), the session identity, the replay-surface freeze timestamp (recorded once for the record), each case's own authoring timestamp (UTC ISO 8601, to the second), what the author was and was not shown, and the maintainer's per-case label confirmation.
 - **Fresh_Evidence**: Labeled attack and benign cases that an independent author wrote after the replay surface was frozen, that are absent from the tuning Corpus, that were not scored before the recommendation was drafted, and whose labels the maintainer has confirmed, as Requirement 16 criterion 22 defines.
 - **Runner**: The asynchronous orchestration module and the `scripts/holistic_eval.py` CLI.
@@ -850,7 +850,9 @@ The design's open questions Q1 to Q18 are all decided as of 2026-11-13, and the 
 
 ### Requirement 23: Hermetic Runs and Credential Handling
 
-**User Story:** As a security-conscious maintainer, I want runs hermetic by default and credentials read only under a human grant, so that no key is leaked or silently spent.
+**User Story:** As a security-conscious maintainer, I want runs hermetic by default and credentials read only under access authorization, so that no key is leaked or silently spent.
+
+> **Amendment (2026-11-14):** the Kiro-style per-conversation Human_Grant gate is retired (rule 78). A credential is available under the harness's access settings (e.g. Qoder Full Access); no per-read or per-conversation human approval is required, and availability persists across conversations. The criteria below keep credential-availability gating (a missing/empty variable still aborts a Named_Explicitly row or records Not_Measured), provenance (variable name + date), hermetic verification, and full secret discipline. "Human_Grant" and the "no grant" reason string are retained as legacy labels meaning "access-authorized credential" / "credential unavailable".
 
 #### Acceptance Criteria
 
@@ -860,12 +862,12 @@ The design's open questions Q1 to Q18 are all decided as of 2026-11-13, and the 
 4. WHEN the Runner starts a verification subcommand or an offline subcommand, THE Runner SHALL set `CLOUDSDK_CONFIG` in the child environment to a directory that is empty at launch.
 5. WHERE the platform supports blocking outbound HTTPS, THE Runner SHALL block outbound HTTPS for verification and offline subcommands, so that an HTTPS connection attempt from the child process fails.
 6. IF the platform cannot block outbound HTTPS, THEN THE Runner SHALL print a notice stating that outbound HTTPS is not blocked and SHALL still run the subcommand.
-7. WHEN a Human_Grant names a credential variable, THE Runner SHALL read only that named variable from its own environment and SHALL pass no other credential variable to the child process.
+7. WHEN a credential variable is access-authorized for a live run, THE Runner SHALL read only that needed variable from its own environment and SHALL pass no other credential variable to the child process.
 8. WHEN the Runner passes a granted credential variable to a child process, THE Runner SHALL place it in the child's environment and SHALL NOT place it in the child's command-line arguments or in any file.
-9. WHEN a new conversation starts, THE Runner SHALL treat every credential variable as not granted until a new Human_Grant names it in that conversation.
+9. Credential availability SHALL persist across conversations under the harness's access authorization; no per-conversation re-grant is required (amended 2026-11-14; the former per-conversation reset is retired).
 10. THE Harness SHALL NOT print, log, echo or write any credential value to standard output, standard error, a log, a Run_Set file or any other file.
 11. THE Harness SHALL NOT commit any credential value to version control.
-12. THE Manifest SHALL record, for each Human_Grant, the credential variable name and the grant date as a UTC calendar date in `YYYY-MM-DD` form, and SHALL record no credential value.
+12. THE Manifest SHALL record, for each credential read, the credential variable name and the read date as a UTC calendar date in `YYYY-MM-DD` form, and SHALL record no credential value.
 13. THE Harness library, THE CLI and THE Notebook SHALL NOT open any file named `.env` or matching `.env.*`, other than `.env.example`.
 14. THE Harness SHALL NOT create, overwrite or edit any file named `.env` or matching `.env.*`, other than `.env.example`.
 15. IF a live Vertex row is Named_Explicitly and both `GCP_PROJECT` and `GOOGLE_CLOUD_PROJECT` are unset or empty, THEN THE CLI SHALL exit with a non-zero status and an error message naming both variables, before it builds any client, makes any network call or writes any record.
@@ -873,8 +875,8 @@ The design's open questions Q1 to Q18 are all decided as of 2026-11-13, and the 
 17. IF a threat-intelligence row is Named_Explicitly and `BW_OTX_API_KEY` is unset or empty, THEN THE CLI SHALL exit with a non-zero status and an error message naming `BW_OTX_API_KEY`, before it builds any client, makes any network call or writes any record.
 18. IF `--concurrency` is not an integer or is below 1, THEN THE CLI SHALL exit with a non-zero status and an error message naming `--concurrency` and the accepted minimum of 1, before it runs any case. THE CLI SHALL use 2 as the value of `--concurrency` when the option is not given.
 19. WHILE the Harness test suite runs, THE Harness SHALL make zero live calls, where a live call is any request to Vertex AI, TypeSafe or AlienVault OTX.
-20. IF a live run is requested and no Human_Grant names the credential variable that the run needs, THEN THE Runner SHALL NOT start the live run and SHALL name the missing grant, by exiting as criteria 15, 16 and 17 require when the row is Named_Explicitly, and by reporting the row as deferred and recording it as Not_Measured when the row is part of the Default_Plan.
-21. WHEN the Runner starts a verification run without a Human_Grant in effect, THE Runner SHALL deselect every test carrying the `sla_benchmark`, `gcp_eval` or `vertex_evaluation` mark, so that zero tests with those marks execute.
+20. IF a live run is requested and the credential variable that the run needs is unavailable (unset or empty), THEN THE Runner SHALL NOT start the live run and SHALL name the missing credential, by exiting as criteria 15, 16 and 17 require when the row is Named_Explicitly, and by reporting the row as deferred and recording it as Not_Measured when the row is part of the Default_Plan.
+21. WHEN the Runner starts a verification run (hermetic by default, no live credentials in effect), THE Runner SHALL deselect every test carrying the `sla_benchmark`, `gcp_eval` or `vertex_evaluation` mark, so that zero tests with those marks execute.
 
 ### Requirement 24: Interleaved Passes, Pacing and Pass Invalidation
 
