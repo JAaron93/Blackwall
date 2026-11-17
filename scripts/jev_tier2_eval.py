@@ -763,6 +763,7 @@ def _build_resolver(
     with_policy: bool,
     jev_http_client: Any | None = None,
     tier2_gate: asyncio.Semaphore | None = None,
+    tier2_timeout: float = 30.0,
 ) -> Tuple[Any, _CaptureTier1, _RecordTier2]:
     from blackwall.policy.engine import StructuralGatingEngine
     from blackwall.policy.semantic import SemanticGatingEngine
@@ -788,7 +789,7 @@ def _build_resolver(
         inner = resolver.semantic_provider  # raises if no key
     capture = _CaptureTier1(inner)
     resolver._semantic_provider = capture
-    record = _RecordTier2(GeminiTier2Backend(client), gate=tier2_gate)
+    record = _RecordTier2(GeminiTier2Backend(client, timeout=tier2_timeout), gate=tier2_gate)
     resolver._tier2_backend = record
 
     def _drop(coro: Any, *a: Any, **k: Any) -> None:
@@ -1153,10 +1154,34 @@ def job_hash(config: str, case: SteeringCase) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
 
+# Bump when the measured Jev question, arbiter prompt or scoring logic changes, so a
+# checkpoint cannot reuse answers produced under a different configuration.
+HARNESS_CONFIG_VERSION = "1"
+
+
+def tier1_config_fingerprint() -> str:
+    """A fingerprint of the measured configuration (model, Jev question, arbiter model
+    and thinking level, harness version). Folded into the checkpoint scope so a changed
+    model or prompt invalidates cached answers instead of silently reusing them."""
+    payload = json.dumps(
+        {
+            "version": HARNESS_CONFIG_VERSION,
+            "jev_model": os.getenv(semantic.JEV_MODEL_ENV_VAR) or semantic.JEV_DEFAULT_MODEL,
+            "jev_question": semantic.JEV_IS_THREAT_QUESTION,
+            "arbiter_model": semantic.DEFAULT_GEMINI_MODEL,
+            "thinking": semantic.TIER2_THINKING_LEVEL,
+        },
+        sort_keys=True,
+        default=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
 def tier1_provenance(run: str, configs: Sequence[str], payloads: Sequence[SteeringPayload]) -> dict[str, Any]:
     """What a Tier-1 steering result was measured against, so it can be rerun and compared."""
     return {
         "run": run,
+        "config_fingerprint": tier1_config_fingerprint(),
         "arbiter_model": semantic.DEFAULT_GEMINI_MODEL,
         "thinking_level": semantic.TIER2_THINKING_LEVEL,
         "jev_requested_model": os.getenv(semantic.JEV_MODEL_ENV_VAR) or semantic.JEV_DEFAULT_MODEL,
@@ -1405,6 +1430,18 @@ def tally_served(rows: Sequence[dict[str, Any]]) -> dict[str, dict[str, int]]:
     return {"jev": dict(sorted(counts.items()))} if counts else {}
 
 
+def tally_tier2_served(rows: Sequence[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    """Tier-2 releases that answered, rebuilt from the rows so a resumed (fully cached)
+    run still reports its arbiter model. A cached row carries ``tier2_model``; a call
+    that abstained or failed has none and is not counted."""
+    counts: dict[str, int] = {}
+    for r in rows:
+        name = r.get("tier2_model")
+        if name:
+            counts[name] = counts.get(name, 0) + 1
+    return {"tier2": dict(sorted(counts.items()))} if counts else {}
+
+
 def tally_row_errors(rows: Sequence[dict[str, Any]]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for r in rows:
@@ -1493,6 +1530,19 @@ def _load_checkpoint(path: Path, scope: str) -> dict[tuple[str, str], tuple[str,
     return found
 
 
+def _trim_torn_tail(path: Path) -> None:
+    """Drop a partial final line left by a crash mid-write so the next append starts
+    on a fresh line. Complete rows always end in a newline; a torn tail does not.
+    Without this the first appended row joins the damaged text, and the next resume
+    raises JSONDecodeError on a line that is no longer final."""
+    if not path.exists():
+        return
+    data = path.read_bytes()
+    if data and not data.endswith(b"\n"):
+        cut = data.rfind(b"\n")
+        path.write_bytes(data[: cut + 1] if cut != -1 else b"")
+
+
 async def run_tier1_steering(
     client: Any,
     jobs: Sequence[tuple[str, SteeringCase]],
@@ -1526,6 +1576,8 @@ async def run_tier1_steering(
             pending.append((index, config, case))
     done = len(results)
     total = len(jobs)
+    if checkpoint:
+        _trim_torn_tail(checkpoint)
     out_file = checkpoint.open("a", encoding="utf-8") if checkpoint else None
 
     async def one(index: int, config: str, case: SteeringCase) -> None:
@@ -1536,7 +1588,8 @@ async def run_tier1_steering(
         error: str | None = None
         async with sem:
             resolver, capture, record = _build_resolver(
-                client, config == "policy", jev_http_client=http, tier2_gate=gate
+                client, config == "policy", jev_http_client=http, tier2_gate=gate,
+                tier2_timeout=timeout_s,
             )
             ctx = ToolCallContext(tool_name=case.tool, arguments=case.args, metadata=case.metadata)
             t0 = time.monotonic()
@@ -1568,6 +1621,7 @@ async def run_tier1_steering(
             "tier2_score": t2.threat_score if t2 else None,
             "tier2_reason": t2.reasoning[:300] if t2 else None,
             "tier2_ms": record.ms,
+            "tier2_model": semantic.DEFAULT_GEMINI_MODEL if t2 else None,
             "verdict": verdict.decision.value if verdict else None,
             "verdict_score": round(float(verdict.confidence_score), 4) if verdict else None,
             "reasoning": verdict.reasoning[:300] if verdict else None,
@@ -1740,7 +1794,8 @@ def _main_tier1(args: argparse.Namespace) -> int:
         rows = asyncio.run(run_tier1_steering(
             client, jobs, concurrency=args.concurrency, tier2_concurrency=args.tier2_concurrency,
             timeout_s=args.timeout,
-            checkpoint=Path(args.checkpoint) if args.checkpoint else None, scope=args.run_label,
+            checkpoint=Path(args.checkpoint) if args.checkpoint else None,
+            scope=f"{args.run_label}:{tier1_config_fingerprint()}",
         ))
         summary = {
             **summarize_tier1_steering(rows),
@@ -1750,7 +1805,7 @@ def _main_tier1(args: argparse.Namespace) -> int:
                     "concurrency": args.concurrency, "tier2_concurrency": args.tier2_concurrency},
         }
         errors = {**served.errors(), "rows": tally_row_errors(rows)}
-        served_models = {**served.snapshot(), **tally_served(rows)}
+        served_models = {**served.snapshot(), **tally_served(rows), **tally_tier2_served(rows)}
     print(json.dumps(summary, indent=1))
     print("served_models=" + json.dumps(served_models), flush=True)
     print("errors=" + json.dumps(errors), flush=True)
