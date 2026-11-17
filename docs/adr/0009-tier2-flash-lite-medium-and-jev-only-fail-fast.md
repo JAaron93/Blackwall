@@ -511,6 +511,15 @@ Reading it:
    > and it changed the egress payload and calibration on every call without
    > evidence. Path (b) remains open empirical work (TASK-F02, coupled to
    > TASK-F10's band decision); any future guard must be validated live first.
+   >
+   > **e2e provenance confirmed 2026-11-14.** A guard-free e2e re-run
+   > (`jev-1.14.0`, 334 calls, 0 errors) matched stored `e2e_run1` within
+   > run-to-run noise: 2 verdict differences (`BLOCK→QUARANTINE`,
+   > `ALLOW→BLOCK`), neither the guard's `ALLOW→QUARANTINE` steering signature
+   > (the guard never downgrades a BLOCK nor produces a BLOCK); `jev_p` mean abs
+   > delta 0.0083. Zero `ALLOW→QUARANTINE` differences, so the guard added no
+   > quarantines in the stored run. The stored e2e artifacts are
+   > guard-free-equivalent and need no replacement.
 4. **What the class-blind result implies.** *(Wrapper template and payloads:
    done, see Verification.)* On the class-blind corpus the accuracy and ECE gates
    fail at the fixed 0.35/0.75 band while AUROC is 0.99. Whether to move the
