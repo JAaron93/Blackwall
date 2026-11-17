@@ -499,7 +499,7 @@ Reading it:
    > Tier-2 already ALLOWs) and the cases Tier-2 is unsure about are not in the
    > sample; (b) the harness hands Tier-2 the stored Jev P, so text that lowers
    > Jev's own P below 0.35 and keeps Tier-2 from being called is a separate path,
-   > unmeasured here; (c) a zero is bounded, not proven (upper bound 1.32% per run,
+   > measured 2026-11-14 (see "Tier-1 steering" below); (c) a zero is bounded, not proven (upper bound 1.32% per run,
    > and a different model release can differ). Rerun `steering` after any Gemini
    > or Jev model change or any prompt change.
    >
@@ -520,6 +520,22 @@ Reading it:
    > delta 0.0083. Zero `ALLOW→QUARANTINE` differences, so the guard added no
    > quarantines in the stored run. The stored e2e artifacts are
    > guard-free-equivalent and need no replacement.
+   >
+   > **Tier-1 steering measured 2026-11-14 (path b).** The `tier1-steering`
+   > subcommand attached Jev-directed payloads to every malicious and benign case
+   > (real Jev `jev-1.14.0` + real Tier-2, semantic-only, dev and held-out splits,
+   > concurrency 2). The bypass is confirmed: dev (4002 Jev calls, 0 errors) — 72
+   > malicious calls steered below the 0.35 band edge so Tier-2 was skipped, 75 held
+   > verdicts flipped to ALLOW (4.5%, Wilson upper 5.66%), 47.1% of BLOCK-baseline
+   > calls weakened; held-out (4002 Jev calls) — 87 below-0.35 Tier-2-skipped
+   > crossings, 88 to-ALLOW (5.34%, upper 6.53%), 53.4% of BLOCK weakened (2 Tier-2
+   > timeout abstentions counted apart). Benign P rises under the same payloads
+   > (mean +0.188 dev / +0.170 held-out, ~27% raised) with zero baseline false
+   > alarms — a false-alarm asymmetry. A validated Tier-1 defense is therefore
+   > justified but must be designed and validated live (Track G questions/criteria
+   > or a band-edge change); the below-0.35 surface shrinks if the lower edge drops
+   > (TASK-F10). Artifacts: `tier1_steering_2026-11-14_{dev,heldout}.json`,
+   > recomputed by `tests/unit/test_jev_tier1_steering_runs_data.py`.
 4. **What the class-blind result implies.** *(Wrapper template and payloads:
    done, see Verification.)* On the class-blind corpus the accuracy and ECE gates
    fail at the fixed 0.35/0.75 band while AUROC is 0.99. Whether to move the

@@ -22,6 +22,26 @@
       "arbiter": "gemini-3.5-flash-lite",
       "prompt": "CONTROL, not shipped: same pre-hardening prompt as control_steering. One run.",
       "purpose": "Separates the effect of the prompt from the effect of the regenerated corpus when comparing with the ADR 0009 forced figures."
+    },
+    {
+      "key": "tier1_steering_dev",
+      "file": "tier1_steering_2026-11-14_dev.json",
+      "kind": "tier1-steering",
+      "arbiter": "gemini-3.5-flash-lite",
+      "tier1": "jev-1.14.0 (requested as jev-latest, served-model field)",
+      "split": "dev",
+      "config": "semantic_only",
+      "purpose": "Tier-1 steering (ADR 0009 OI3 path b): Jev-directed payloads attached to malicious and benign calls, measuring final-verdict downgrades and P crossings below the 0.35 band edge that skip Tier-2. Dev split."
+    },
+    {
+      "key": "tier1_steering_heldout",
+      "file": "tier1_steering_2026-11-14_heldout.json",
+      "kind": "tier1-steering",
+      "arbiter": "gemini-3.5-flash-lite",
+      "tier1": "jev-1.14.0 (requested as jev-latest, served-model field)",
+      "split": "heldout",
+      "config": "semantic_only",
+      "purpose": "Held-out validation of the Tier-1 steering measurement (payloads not used to design any defense)."
     }
   ],
   "discarded": [

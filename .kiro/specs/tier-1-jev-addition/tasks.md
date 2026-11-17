@@ -316,11 +316,33 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > hit Vertex `429 RESOURCE_EXHAUSTED` (182 of 306 calls abstained in under 80 ms)
   > and was discarded; it is the reason failures are now tallied.
   >
-  > **Still open (so this task keeps its marker):** the measurement covers only the
-  > 18 cases Tier-2 BLOCKs unsteered and hands Tier-2 the stored Jev P. Not measured:
-  > text that lowers Jev's own P below the 0.35 band edge so Tier-2 is never called;
-  > cases Tier-2 is unsure about; and a different Gemini or Jev release. Rerun
-  > `steering`, `forced` and `e2e` after any of those changes (TASK-F07 for Jev).
+  > **Tier-1 steering measured 2026-11-14 (path b of ADR 0009 OI3).** The
+  > `tier1-steering` subcommand attached the Jev-directed payloads (reviewed-safe
+  > claims, classifier instructions, answer-format mimic, padding dilution,
+  > criteria redefinition, etc.; dev and held-out splits) to every malicious and
+  > benign case, real Jev (`jev-1.14.0`) + real Tier-2, semantic-only config,
+  > concurrency 2. **The bypass is real:** dev (4002 Jev calls, 0 errors) — 72
+  > malicious calls steered from P≥0.35 to P<0.35 so Tier-2 was skipped, 75 held
+  > verdicts flipped to ALLOW (4.5%, Wilson upper 5.66%), 197 of 418 BLOCK-baseline
+  > calls weakened (47.1%); held-out (4002 Jev calls, 2 Tier-2 timeout abstentions
+  > counted apart) — 87 below-0.35 Tier-2-skipped crossings, 88 to-ALLOW (5.34%,
+  > upper 6.53%), 246 of 461 BLOCK weakened (53.4%). Benign P *rises* under the same
+  > payloads (dev mean +0.188, held-out +0.170; ~27% raised) with zero baseline
+  > false alarms — a false-alarm asymmetry, not a free defense. Rows + summary:
+  > `tier1_steering_2026-11-14_{dev,heldout}.json`, recomputed by
+  > `tests/unit/test_jev_tier1_steering_runs_data.py`.
+  >
+  > **Consequence.** A validated Tier-1 steering defense is now justified (the
+  > removed guard was an unvalidated attempt at this same threat). It must be
+  > designed and validated live, not shipped speculatively; candidates are Track G's
+  > atomic questions/criteria and a band-edge change. The below-0.35 bypass surface
+  > shrinks if the lower band edge drops — this is the F02↔F10 coupling. Any defense
+  > must also weigh the benign false-alarm rise.
+  >
+  > **Still open (so this task keeps its marker):** a validated Tier-1 steering
+  > defense (above); cases Tier-2 is unsure about; and a different Gemini or Jev
+  > release. Rerun `steering`, `forced`, `e2e` and `tier1-steering` after any of
+  > those changes (TASK-F07 for Jev).
   >
   > **Unvalidated steering guard removed 2026-11-14.** A draft `src/` change added
   > four Jev steering questions to every triage call and an ALLOW→QUARANTINE raise
