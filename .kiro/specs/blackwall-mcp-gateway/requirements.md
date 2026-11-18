@@ -65,24 +65,17 @@ The gateway MUST support two modes for managing downstream tool servers:
 ### FR-09: GCP Vertex AI Mode (Mandatory for Tier-2, Forensics & Evaluation)
 The gateway MUST require GCP Vertex AI Mode for Tier-2 deep-reasoning escalation, async forensic signature synthesis, and Agent-as-a-Judge evaluation. Configuration requires `GCP_PROJECT` / `GOOGLE_CLOUD_PROJECT` and Application Default Credentials (ADC). Google AI Studio API Key Mode is permanently removed. The gateway MUST fail fast with a clear error message if GCP credentials are not configured. Tier-1 semantic triage MAY run on the Jev classifier via the official TypeSafe AI API on paid per-token billing (`TYPESAFE_API_KEY`, governed by `.kiro/specs/tier-1-jev-addition/` and ADR 0008), but this never waives the Vertex requirement.
 
-### FR-10: Cross-Platform Background Service Management (`launchd` on macOS & `systemd` on Linux/DGX OS)
-Blackwall MUST provide CLI and programmatic subcommands (`blackwall service install|uninstall|start|stop|status|configure`) that auto-detect the operating system and manage native background daemon services:
+### FR-10: macOS Background Service Management (`launchd` LaunchAgent)
+Blackwall MUST provide CLI and programmatic subcommands (`blackwall service install|uninstall|start|stop|status|configure`) that manage native macOS background daemon services via `launchd`:
 *   **macOS (`launchd`):** Generates and manages `~/Library/LaunchAgents/com.blackwall.gateway.plist` via `launchctl`.
-*   **GNU/Linux (`systemd`):** Generates and manages `blackwall.service` (`~/.config/systemd/user/blackwall.service` or `/etc/systemd/system/blackwall.service` when `--system` is provided) via `systemctl`.
-*   **Absolute Path Resolution & Non-Tilde Invariant:** Because systemd `ExecStart` does not execute in a shell and does not perform tilde (`~`) expansion, `blackwall service install` MUST resolve all configuration paths, log file locations, upstream targets, and credential paths to absolute filesystem paths (`Path.resolve()`). Raw `~` characters MUST NOT appear in generated service definitions.
-*   **Authoritative Upstream Target & System Paths:** For user services, configuration defaults to `~/.blackwall/gateway.yaml` with state at `~/.blackwall/`. For system services (`--system`), Blackwall MUST NOT rely on user `~/.blackwall` paths; the unit MUST configure FHS system paths (`/etc/blackwall/gateway.yaml`, `/run/blackwall/blackwall.pid`, `/var/log/blackwall/blackwall.log`, `/var/lib/blackwall/threat_signatures.db`) via systemd `RuntimeDirectory=blackwall`, `StateDirectory=blackwall`, and `LogsDirectory=blackwall`. The installer MUST explicitly bind these paths in the generated `/etc/blackwall/gateway.yaml` (`pid_file`, `log_file`, `db_path`), pass them as explicit CLI flags in `ExecStart` (`--pidfile /run/blackwall/blackwall.pid --logfile /var/log/blackwall/blackwall.log --db-path /var/lib/blackwall/threat_signatures.db`), and inject `Environment="BLACKWALL_DB_PATH=/var/lib/blackwall/threat_signatures.db"` so runtime daemon components never fall back to user-space defaults. To ensure the supervisor tracks the active process and does not track an exiting parent, the service MUST execute `blackwall serve --foreground --transport http --port 9229 --config <resolved-config-path> --pidfile <resolved-pidfile> --logfile <resolved-logfile> --db <resolved-db>` (or user-specified `--wrap <cmd>`), ensuring allowed tool requests are deterministically forwarded to downstream tool servers and the PID file is created upon startup in foreground mode.
-*   **CLI Options & Service Identity Derivation:** `blackwall service install` MUST support `--system` and `--user <name>` options. For user services (`~/.config/systemd/user/`), the unit runs as the active user. When `--system` is specified (`/etc/systemd/system/blackwall.service`), the installer derives the non-root execution identity in prioritized order:
-    1.  Explicit `--user <name>` flag if provided.
-    2.  `SUDO_USER` environment variable if executed via `sudo`.
-    3.  Dedicated system account `blackwall` (group `blackwall`) if executed directly from a root shell without `SUDO_USER`. The installer provisions this system account with home directory `/var/lib/blackwall` (`useradd --system --home-dir /var/lib/blackwall --create-home blackwall`) if it does not already exist. Running the systemd gateway service as root (`User=root`) is strictly prohibited.
-*   **Install-Time Credential Validation & ADC Fallback:** `install` MUST validate that `GCP_PROJECT` (or `GOOGLE_CLOUD_PROJECT`) is configured, failing fast with an exit code != 0 if absent. If `GOOGLE_APPLICATION_CREDENTIALS` is unset in the environment, `install` MUST inspect the standard user Application Default Credentials path (`~/.config/gcloud/application_default_credentials.json`), resolving against the derived non-root service user's home directory. When installing as root with the dedicated `blackwall` user, the installer accepts `--credentials <path>` or active `GOOGLE_APPLICATION_CREDENTIALS`, copying credentials to `/etc/blackwall/credentials.json` with permissions `0600` owned by `blackwall:blackwall`. If credentials cannot be resolved or are unreadable by the service user, `install` MUST fail fast with an actionable error.
-*   **Environment Variable Injection & Service User:** `install` MUST embed active GCP environment variables (`GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, `PATH`) into the plist's `EnvironmentVariables` dictionary on macOS, or the systemd `[Service]` `Environment=` directives on Linux. Bearer secret *values* (notably `TYPESAFE_API_KEY`) MUST NEVER appear inline in plist definitions, unit files, or logs: when the Tier-1 Jev backend is selected (see `.kiro/specs/tier-1-jev-addition/`), `install` MUST persist a present `TYPESAFE_API_KEY` exclusively to a `0600` env file — `~/.blackwall/gateway.env` (user services) or `/etc/blackwall/gateway.env` (system services, owned `blackwall:blackwall`) — loaded by the daemon at startup (systemd `EnvironmentFile`; startup dotenv load on macOS). `configure --typesafe-key <key>` MUST provision the same file. When `--system` is specified on Linux, the generated service MUST configure `User=<derived_user>` and `Group=<derived_group>`, inject the resolved absolute credential path as `Environment="GOOGLE_APPLICATION_CREDENTIALS=<resolved-path>"`, verify that the service user has read permissions to the credential file, and ensure non-root execution.
-*   **Supervision & Throttling:**
-    *   macOS plist MUST execute `blackwall serve --foreground` and configure `RunAtLoad=true`, `KeepAlive` with `SuccessfulExit=false`, and `ThrottleInterval=30`.
-    *   Linux systemd unit MUST configure `Type=exec`, `PIDFile=<resolved-pid-file>`, `StartLimitBurst=5` and `StartLimitIntervalSec=60s` under the `[Unit]` section, and `Restart=on-failure`, `RestartSec=5s`, `MemoryHigh=320M`, and `MemoryMax=350M` under the `[Service]` section (strictly enforcing the 350MB host memory ceiling for DGX Spark co-existence). Passing `--foreground` ensures systemd directly supervises the gateway runtime without premature parent process exit.
-*   `start`, `stop`, and `status` MUST invoke platform-native tools (`launchctl` or `systemctl`).
-*   `configure` MUST support setting cloud project identifiers and credential paths (`--project <id>`, `--credentials <path>`, `--system`), writing configuration to `/etc/default/blackwall` and credentials to `/etc/blackwall/credentials.json` (mode `0600` owned by `blackwall:blackwall`) on system services, or updating user service environment settings.
-*   `uninstall` MUST unload the service and remove the service configuration file cleanly.
+*   **Absolute Path Resolution & Non-Tilde Invariant:** `blackwall service install` MUST resolve all configuration paths, log file locations, upstream targets, and credential paths to absolute filesystem paths (`Path.resolve()`). Raw `~` characters MUST NOT appear in generated plist service definitions.
+*   **Authoritative Upstream Target & Paths:** Configuration defaults to `~/.blackwall/gateway.yaml` with state at `~/.blackwall/`. The service MUST execute `blackwall serve --foreground --transport http --port 9229 --config <resolved-config-path> --pidfile <resolved-pidfile> --logfile <resolved-logfile> --db <resolved-db>` (or user-specified `--wrap <cmd>`), ensuring allowed tool requests are deterministically forwarded to downstream tool servers and the PID file is created upon startup in foreground mode so `launchd` directly supervises the active process.
+*   **Install-Time Credential Validation & ADC Fallback:** `install` MUST validate that `GCP_PROJECT` (or `GOOGLE_CLOUD_PROJECT`) is configured, failing fast with an exit code != 0 if absent. If `GOOGLE_APPLICATION_CREDENTIALS` is unset in the environment, `install` MUST inspect the standard user Application Default Credentials path (`~/.config/gcloud/application_default_credentials.json`) and inject the resolved absolute path into the plist `EnvironmentVariables`. If credentials cannot be resolved, `install` MUST fail fast with an actionable error.
+*   **Environment Variable Injection:** `install` MUST embed active GCP environment variables (`GCP_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, `GEMINI_TIER="paid"`, `PATH`) into the plist's `EnvironmentVariables` dictionary. Bearer secret *values* (notably `TYPESAFE_API_KEY`) MUST NEVER appear inline in plist definitions or logs: when the Tier-1 Jev backend is selected (see `.kiro/specs/tier-1-jev-addition/`), `install` MUST persist a present `TYPESAFE_API_KEY` exclusively to a `0600` env file — `~/.blackwall/gateway.env` — loaded by the daemon at startup via dotenv loading. `configure --typesafe-key <key>` MUST provision the same file.
+*   **Supervision & Throttling:** macOS plist MUST execute `blackwall serve --foreground` and configure `RunAtLoad=true`, `KeepAlive` with `SuccessfulExit=false`, and `ThrottleInterval=30`.
+*   `start`, `stop`, and `status` MUST invoke `launchctl`.
+*   `configure` MUST support setting cloud project identifiers and credential paths (`--project <id>`, `--credentials <path>`).
+*   `uninstall` MUST unload the service via `launchctl` and remove `~/Library/LaunchAgents/com.blackwall.gateway.plist` cleanly.
 
 ### FR-11: Native macOS Menu Bar GUI & System Notifications
 Blackwall MUST support packaging as a native macOS Menu Bar application (`Blackwall.app`):
@@ -91,24 +84,21 @@ Blackwall MUST support packaging as a native macOS Menu Bar application (`Blackw
 *   Provide a GUI menu showing daemon liveness, threat signature graph count, and one-click MCP registration for Antigravity, Warp Terminal, Claude Desktop, and Cursor.
 
 ### FR-12: Global Python Audit Hook Bootstrapping
-Blackwall MUST provide subcommands (`blackwall hook install|uninstall|status`) to manage global Python runtime audit hook integration across macOS and Linux:
+Blackwall MUST provide subcommands (`blackwall hook install|uninstall|status`) to manage global Python runtime audit hook integration across macOS (Apple Silicon `arm64` and Intel `x86_64`):
 *   `install` MUST inject a non-destructive bootstrap snippet into `sitecustomize.py` (or a `.pth` file) in target Python environments.
 *   The bootstrap snippet MUST attach Blackwall's `sys.addaudithook` before arbitrary user scripts execute.
 *   `uninstall` MUST remove the bootstrap code cleanly without affecting existing `sitecustomize.py` customizations.
 
-### FR-13: Cross-Platform Release Packaging Pipeline (macOS `.dmg` & Linux `.deb` / Tarball)
-The build and CI pipeline MUST produce standalone release artifacts attached to GitHub Releases:
-*   **macOS:** Standalone disk image installers (`.dmg`) containing `Blackwall.app` for both Intel (`x86_64`) and Apple Silicon (`arm64`).
-*   **GNU/Linux:**
-    *   Debian/Ubuntu packages (`.deb`) targeting **DGX OS / Ubuntu 24.04 LTS `aarch64`** (NVIDIA DGX Spark) and Ubuntu `x86_64`, bundling binary (`/usr/bin/blackwall`), default configuration (`/etc/blackwall/gateway.yaml`), environment template (`/etc/default/blackwall`), system-scope systemd unit (`/lib/systemd/system/blackwall.service` configured with `EnvironmentFile=-/etc/default/blackwall`), optional user unit (`/usr/lib/systemd/user/blackwall.service`), post-install hooks (dedicated non-root service account provisioning via `useradd --system --home-dir /var/lib/blackwall --create-home --shell /usr/sbin/nologin --user-group blackwall` if absent, directory ownership assignment for `/var/lib/blackwall`, `/etc/blackwall`, `/var/log/blackwall`, auto-copying `$SUDO_USER` ADC credentials to `/etc/blackwall/credentials.json` with permissions `0600` when present, populating `/etc/default/blackwall`, and `systemctl daemon-reload`), and man pages for single-command installation (`sudo dpkg -i blackwall-*.deb` or `apt install ./blackwall-*.deb`). When installed on hosts lacking pre-existing credentials, administrators populate `/etc/default/blackwall` or execute `sudo blackwall service configure --project <id> --credentials <path>` before starting the service.
-    *   Standalone Linux binary tarballs (`.tar.gz`) with automated `install.sh` scripts.
+### FR-13: macOS Release Packaging Pipeline (`.dmg` for Apple Silicon & Intel)
+The build and CI pipeline MUST produce standalone macOS release artifacts attached to GitHub Releases:
+*   **macOS:** Standalone disk image installers (`.dmg`) containing `Blackwall.app` for both Intel (`x86_64`) and Apple Silicon (`arm64`), producing `Blackwall-Intel.dmg` and `Blackwall-AppleSilicon.dmg` respectively.
 *   **Windows Strictly Excluded:** Windows formats (`.exe`, `.msi`, PowerShell) are explicitly excluded from all release workflows.
 
-### FR-14: NVIDIA DGX Stack Co-Existence & Zero-VRAM Footprint
-When deployed on the top-of-the-line **NVIDIA DGX Spark** (DGX OS / Ubuntu 24.04 LTS `aarch64`), Blackwall Core MUST guarantee complete non-interference with the pre-installed NVIDIA AI stack:
-*   **Zero GPU VRAM Reservation & Host Memory Ceiling:** On unified memory architectures where CPU and GPU share the same 128GB LPDDR5x pool, Blackwall Core MUST run 100% in CPU user-space threads without initializing a CUDA runtime/driver context, and its host process RSS memory MUST NOT exceed 350MB (<0.28% of the unified pool). This strictly preserves >127.6GB (>99.7%) of unified memory for local LLM weights (vLLM, Ollama, TensorRT-LLM) and training workloads. Conformance testing MUST assert that no CUDA contexts or device allocations exist across all layers: (1) no open file descriptors to NVIDIA device character devices (`/dev/nvidia*`, `/dev/nvidiactl`, `/dev/nvidia-uvm`) in the daemon's `/proc/<daemon_pid>/fd/` (resolving the target daemon PID from `~/.blackwall/blackwall.pid`, `/run/blackwall/blackwall.pid` for system services, or the daemon subprocess handle), (2) NVML compute process listings (`nvmlDeviceGetComputeRunningProcesses`) confirm the daemon PID is absent from all GPUs, (3) `torch.cuda.is_initialized()` is False (if torch is present), and (4) host process RSS memory remains strictly ≤ 350MB under active evaluation load.
-*   **Port Collision Avoidance:** Default gateway port `9229` MUST NOT collide with standard DGX OS AI serving ports: `11434` (Ollama), `8000`/`8001`/`8002` (vLLM, Triton), or `8888` (JupyterLab).
-*   **Container & Driver Transparency:** Blackwall's stream layer and Python audit hooks MUST operate transparently alongside Docker, `nvidia-container-toolkit` (`nvidia-ctk`), and CUDA IPC without intercepting or degrading GPU tensor operations.
+### FR-14: Apple Silicon High-End & Intel Baseline Architecture (Zero-GPU Footprint & Unified Memory Efficiency)
+When deployed on the top-of-the-line **Apple Silicon MacBook Pro** (M-Series ARM64: M1/M2/M3/M4 Pro/Max, up to 128GB unified memory, macOS), Blackwall Core MUST guarantee complete non-interference with developer workloads and local AI models:
+*   **Zero GPU / Metal / ANE Footprint & Host Memory Ceiling:** On Apple Silicon unified memory architectures where CPU, GPU cores, and Apple Neural Engine share the same physical memory pool, Blackwall Core MUST run 100% in CPU user-space threads without initializing a Metal command queue or ANE compute context, and its host process RSS memory MUST NOT exceed 150MB. This strictly preserves the full GPU and ANE bandwidth for local LLM inference engines (Ollama, llama.cpp, MLX) and developer workloads. Conformance testing MUST assert that no Metal or ANE contexts are allocated and host process RSS memory remains strictly ≤ 150MB under active evaluation load.
+*   **Port Collision Avoidance:** Default gateway port `9229` MUST NOT collide with common macOS developer and AI serving ports: `11434` (Ollama), `8000`/`8080` (local dev servers), or `8888`/`8889` (JupyterLab / Jupyter Notebook).
+*   **Apple Ecosystem Transparency:** Blackwall's stream layer and Python audit hooks MUST operate transparently alongside macOS security frameworks (Gatekeeper, TCC, SIP), APFS, and XPC communication without intercepting or degrading native macOS operations.
 
 ### FR-15: MCP Gateway Demo & Showcase Scenarios
 Blackwall MUST provide a self-contained, reproducible demo suite demonstrating the MCP Gateway's threat interception capabilities against real-world AI agent attack vectors:
@@ -125,7 +115,7 @@ Blackwall MUST provide a self-contained, reproducible demo suite demonstrating t
 ## Non-Functional Requirements
 
 ### NFR-01: Zero Non-Python Dependencies
-Blackwall Core MUST remain 100% Python-based (`asyncio`, `pydantic`, `click`). No Node.js, no Rust extensions required for Core functionality. The gateway MUST be installable via `pip install blackwall` or native `.deb` package. Semantic triage backends, including Tier-1 Jev (see `.kiro/specs/tier-1-jev-addition/`), MUST be pure-Python pip-installable clients so the Phase 5 packaging pipeline inherits a clean dependency closure.
+Blackwall Core MUST remain 100% Python-based (`asyncio`, `pydantic`, `click`). No Node.js, no Rust extensions required for Core functionality. The gateway MUST be installable via `pip install blackwall` or native macOS `.dmg` package. Semantic triage backends, including Tier-1 Jev (see `.kiro/specs/tier-1-jev-addition/`), MUST be pure-Python pip-installable clients so the Phase 5 packaging pipeline inherits a clean dependency closure.
 
 ### NFR-02: Latency Constraints
 The serialization, parsing, and proxying of JSON-RPC messages MUST add no more than 10ms of overhead to the baseline `SyncResolver` evaluation latency (which is < 10ms for structural evaluation).
@@ -142,20 +132,20 @@ End-to-end security and interception workflows MUST be defined using Gherkin syn
 ### NFR-06: Resource Constraints (Dual Hardware Target Tiers)
 All gateway components MUST operate within these budgets across supported hardware profiles:
 
-| Resource | 2019 MacBook Pro Baseline (Intel i7, 16GB) | NVIDIA DGX Spark Top-of-the-Line (GB10 ARM64, 128GB) | Enforcement |
+| Resource | Intel MacBook Pro Baseline (Core i7, 16GB) | Apple Silicon MacBook High-End (M-Series ARM64, 36GB–128GB Unified Memory) | Enforcement |
 | :--- | :--- | :--- | :--- |
-| **Idle RAM** | ≤ 60MB | ≤ 100MB | Lazy-load heavy modules on first tool call |
-| **Active RAM** | ≤ 150MB | ≤ 350MB | Peak during SyncResolver + GTI evaluation |
-| **GPU VRAM** | 0MB (N/A) | **0MB CUDA / host RSS ≤ 350MB** | Zero CUDA context; host RSS capped to ≤350MB, leaving >127.6GB (>99.7%) unified memory free |
+| **Idle RAM** | ≤ 60MB | ≤ 60MB | Lazy-load heavy modules on first tool call |
+| **Active RAM** | ≤ 150MB | ≤ 150MB | Peak during SyncResolver + GTI evaluation |
+| **GPU / Metal / ANE** | 0MB (N/A) | **0MB Metal / 0MB ANE** | Zero Metal command queues or ANE compute requests; full GPU and ANE bandwidth reserved for local LLMs |
 | **Idle CPU** | ~0% | ~0% | Event loop sleeping, no polling or background threads |
-| **Active CPU** | < 5% single core | < 2% across 20 ARM cores | Sub-10ms burst per tool call |
+| **Active CPU** | < 5% single core | < 2% performance core | Sub-10ms burst per tool call; sub-5ms on M2+ P-cores for Tier 0 local checks |
 | **Disk** | ≤ 50MB | ≤ 50MB | SQLite + policy + logs |
-| **Startup** | < 2s | < 1s | Deferred initialization |
+| **Startup** | < 2s | < 1s | APFS + unified memory enables faster cold-start on Apple Silicon; deferred initialization |
 
 ### NFR-07: Operating System Support & Windows Exclusion
 Blackwall Core MUST support:
-1. **macOS** (Darwin `x86_64` and `arm64`).
-2. **GNU/Linux** (**DGX OS / Ubuntu 24.04 LTS `aarch64`** on NVIDIA DGX Spark, and Debian/Ubuntu `x86_64`).
+1. **macOS** (Darwin `arm64` Apple Silicon and `x86_64` Intel).
+Linux packaging and NVIDIA DGX Spark support are explicitly de-scoped from Phase 5 (see Phase 5 scope refinement in `design.md`).
 **Windows is strictly and permanently unsupported.** No Windows installers, services, or documentation shall be produced or maintained.
 
 ## User Stories
@@ -195,15 +185,15 @@ I want Blackwall to run unobtrusively in my menu bar and start automatically on 
 I want to download a pre-built `Blackwall.dmg` directly from GitHub Releases,
 **So that** I can install and run Blackwall with a single drag-and-drop without manually configuring Python environments.
 
-### US-08: High-Throughput Protection on NVIDIA DGX Spark
-**As an AI researcher running an NVIDIA DGX Spark AI supercomputer,**
-I want Blackwall Core to run as a native `systemd` daemon on DGX OS (`aarch64`) with zero CUDA allocation and strictly bounded host RSS (≤350MB),
-**So that** my multi-agent development workflows are secured at wire speed while preserving >99.7% (>127.6GB) of unified memory and all tensor cores for local LLM serving and model fine-tuning.
+### US-08: High-Throughput Protection on Apple Silicon MacBook
+**As an AI developer running a high-end Apple Silicon MacBook Pro (M-Series),**
+I want Blackwall Core to run as a native `launchd` LaunchAgent on macOS (`arm64`) with zero Metal/ANE allocation and strictly bounded host RSS (≤150MB),
+**So that** my multi-agent development workflows are secured at sub-5ms Tier 0 local evaluation latency (structural + FTS5 graph checks, no network calls) while preserving full GPU and ANE capacity for local LLM inference (Ollama, llama.cpp, MLX) and other developer workloads.
 
-### US-09: Native Linux Package Installation (`.deb`)
-**As a DGX OS / Ubuntu Linux user,**
-I want to install Blackwall via `sudo dpkg -i blackwall-*.deb` or `apt install ./blackwall-*.deb`,
-**So that** the executable, systemd unit, and default configuration are pre-installed and ready to run with zero manual configuration.
+### US-09: One-Click macOS Installation (`.dmg` & LaunchAgent)
+**As a macOS developer setting up Blackwall on an Apple Silicon or Intel Mac,**
+I want to download a pre-built `Blackwall-AppleSilicon.dmg` or `Blackwall-Intel.dmg` directly from GitHub Releases and run `blackwall service install` for automatic login-time startup,
+**So that** I am protected within minutes without manually configuring Python environments or reading extensive documentation.
 
 ### US-10: Witnessing Gateway BLOCK Against Indirect Prompt Injection
 **As a potential Blackwall user evaluating the product,**

@@ -5,7 +5,7 @@
   },
   {
     "path": ".agents/rules/architecture_and_security.md",
-    "description": "Project architectural, database, security, and service supervision rules (launchd/systemd supervision, FHS separation, DGX Spark unified memory, Gateway eval-client constraints)."
+    "description": "Project architectural, database, security, and service supervision rules (launchd supervision, Apple Silicon unified memory, Gateway eval-client constraints)."
   },
   {
     "path": ".agents/rules/testing_and_hygiene.md",
