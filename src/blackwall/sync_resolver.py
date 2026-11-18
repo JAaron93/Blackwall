@@ -306,6 +306,11 @@ class SyncResolver:
             refill_rate=TIER2_RATE_LIMIT_REFILL_PER_S,
         )
         self.tier2_rate_limit_hits: int = 0
+        self.tier2_no_verdict_by_reason: dict[str, int] = {
+            "no client": 0,
+            "rate limit": 0,
+            "no verdict": 0,
+        }
 
         # Context hygiene sanitizer with security IOC preservation mode enabled
         self._hygiene = ContextHygiene(preserve_iocs=True)
@@ -989,6 +994,12 @@ class SyncResolver:
             self._tier2_backend = GeminiTier2Backend(self.client)
         return self._tier2_backend
 
+    def _record_tier2_no_verdict(self, reason: str) -> None:
+        """Record Tier-2 outage outcomes categorized by reason (TASK-F04, ADR 0009 OI1)."""
+        self.tier2_no_verdict_by_reason[reason] = (
+            self.tier2_no_verdict_by_reason.get(reason, 0) + 1
+        )
+
     async def _maybe_escalate_tier2(
         self, context: ToolCallContext, tier1: SemanticTriageResult
     ) -> Optional[Tier2EscalationVerdict]:
@@ -1014,6 +1025,7 @@ class SyncResolver:
         if not getattr(self.tier2_backend, "available", True):
             # No request can be sent, so no token is spent and no call is
             # counted; evaluate() still QUARANTINEs an ALLOW (ADR 0009).
+            self._record_tier2_no_verdict("no client")
             logger.warning(
                 "Tier-2 escalation triggered (%s) but no Gemini client can send "
                 "a request — QUARANTINE unless the aggregate blocks",
@@ -1023,6 +1035,7 @@ class SyncResolver:
         if not await self._tier2_rate_limiter.consume(1.0):
             # Not an abstention: see 5d in evaluate().
             self.tier2_rate_limit_hits += 1
+            self._record_tier2_no_verdict("rate limit")
             logger.warning(
                 "Tier-2 escalation triggered (%s) but the Vertex rate limit "
                 "(300 RPM) is exhausted — QUARANTINE unless the aggregate blocks",
@@ -1033,6 +1046,7 @@ class SyncResolver:
         started = time.monotonic()
         verdict = await self.tier2_backend.escalate(context, tier1)
         if verdict is None:
+            self._record_tier2_no_verdict("no verdict")
             logger.warning(
                 "Tier-2 escalation triggered (%s) but Gemini returned no "
                 "verdict — QUARANTINE unless the aggregate blocks",
@@ -1301,6 +1315,9 @@ class SyncResolver:
             block_count=self._block_count,
             quarantine_count=self._quarantine_count,
             allow_count=self._allow_count,
+            tier2_calls=self.tier2_calls,
+            tier2_rate_limit_hits=self.tier2_rate_limit_hits,
+            tier2_no_verdict_by_reason=dict(self.tier2_no_verdict_by_reason),
         ).model_dump()
 
     # ------------------------------------------------------------------

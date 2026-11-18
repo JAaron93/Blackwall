@@ -170,6 +170,13 @@ sync_resolver_metrics_st = st.builds(
     block_count=st.integers(min_value=0, max_value=1000),
     quarantine_count=st.integers(min_value=0, max_value=1000),
     allow_count=st.integers(min_value=0, max_value=1000),
+    tier2_calls=st.integers(min_value=0, max_value=1000),
+    tier2_rate_limit_hits=st.integers(min_value=0, max_value=1000),
+    tier2_no_verdict_by_reason=st.dictionaries(
+        st.text(min_size=1, max_size=20),
+        st.integers(min_value=0, max_value=1000),
+        max_size=5,
+    ),
 )
 
 policy_server_state_st = st.builds(

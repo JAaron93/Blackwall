@@ -364,10 +364,21 @@ class TestMetricsModels:
         assert srm.block_count == 0
         assert srm.quarantine_count == 0
         assert srm.allow_count == 0
+        assert srm.tier2_calls == 0
+        assert srm.tier2_rate_limit_hits == 0
+        assert srm.tier2_no_verdict_by_reason == {}
 
         srm.total_evaluations = 50
         srm.block_count = 5
-        assert SyncResolverMetrics(**srm.model_dump()).total_evaluations == 50
+        srm.tier2_calls = 3
+        srm.tier2_rate_limit_hits = 1
+        srm.tier2_no_verdict_by_reason = {"rate limit": 1, "no client": 2}
+        dumped = srm.model_dump()
+        reconstructed = SyncResolverMetrics(**dumped)
+        assert reconstructed.total_evaluations == 50
+        assert reconstructed.tier2_calls == 3
+        assert reconstructed.tier2_rate_limit_hits == 1
+        assert reconstructed.tier2_no_verdict_by_reason == {"rate limit": 1, "no client": 2}
 
 
 # ==============================================================================

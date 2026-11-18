@@ -375,7 +375,7 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   Tier-2 depends on and are not counted by the Tier-2 bucket. Decide between one
   shared budget and a reservation for Tier-2, then implement it with tests.
   Needs a maintainer decision first (amend FR-08).
-* [ ] **TASK-F04 [C1]: Make Tier-2 outages visible** (ADR 0009 OI1). Count Tier-2
+* [x] **TASK-F04 [C1]: Make Tier-2 outages visible** (ADR 0009 OI1). Count Tier-2
   "no verdict" outcomes by reason in `SyncResolverMetrics` (today only
   `tier2_rate_limit_hits` exists) so an operator can see the QUARANTINEs that
   Decision 6 causes.

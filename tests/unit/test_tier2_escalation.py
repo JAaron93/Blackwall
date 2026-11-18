@@ -773,3 +773,72 @@ def test_property_no_tool_call_content_can_alter_the_prompt_structure(
     baseline = StructureReadingArbiter()
     _run(GeminiTier2Backend(baseline).escalate(_beacon_context(), _in_band(0.51)))
     assert view.head.replace(view.nonce, "N") == baseline.views[0].head.replace(baseline.views[0].nonce, "N")
+
+
+# ----------------------------------------------------------------------
+# Tier-2 Outage Metrics by Reason (TASK-F04, ADR 0009 OI1)
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tier2_outages_are_counted_by_reason_in_metrics():
+    """TASK-F04 (ADR 0009 OI1): Count Tier-2 'no verdict' outcomes by reason in
+    SyncResolverMetrics so an operator can see the QUARANTINEs that Decision 6 causes.
+    """
+    from blackwall.resolver import TokenBucketRateLimiter
+
+    # 1. "no client" outage: client is None
+    resolver_no_client = SyncResolver(client=None, enable_semantic_triage=True)
+    resolver_no_client._semantic_provider = _StubTier1(_in_band(0.51))
+    verdict = await resolver_no_client.evaluate(_beacon_context())
+    assert verdict.decision == VerdictDecision.QUARANTINE
+    assert "no client" in verdict.reasoning
+    assert resolver_no_client.tier2_no_verdict_by_reason["no client"] == 1
+    metrics_no_client = resolver_no_client.get_metrics()
+    assert metrics_no_client["tier2_calls"] == 0
+    assert metrics_no_client["tier2_rate_limit_hits"] == 0
+    assert metrics_no_client["tier2_no_verdict_by_reason"]["no client"] == 1
+    assert metrics_no_client["tier2_no_verdict_by_reason"]["rate limit"] == 0
+    assert metrics_no_client["tier2_no_verdict_by_reason"]["no verdict"] == 0
+
+    # 2. "rate limit" outage: 300 RPM bucket is empty
+    client = _tier2_client(decision="ALLOW", threat_score=0.0)
+    resolver_rate_limit = _resolver(client, _StubTier1(_in_band(0.51)))
+    resolver_rate_limit._tier2_rate_limiter = TokenBucketRateLimiter(capacity=0.0, refill_rate=0.0)
+    verdict = await resolver_rate_limit.evaluate(_beacon_context())
+    assert verdict.decision == VerdictDecision.QUARANTINE
+    assert "rate limit" in verdict.reasoning
+    assert resolver_rate_limit.tier2_rate_limit_hits == 1
+    assert resolver_rate_limit.tier2_no_verdict_by_reason["rate limit"] == 1
+    metrics_rate_limit = resolver_rate_limit.get_metrics()
+    assert metrics_rate_limit["tier2_calls"] == 0
+    assert metrics_rate_limit["tier2_rate_limit_hits"] == 1
+    assert metrics_rate_limit["tier2_no_verdict_by_reason"]["rate limit"] == 1
+    assert metrics_rate_limit["tier2_no_verdict_by_reason"]["no client"] == 0
+    assert metrics_rate_limit["tier2_no_verdict_by_reason"]["no verdict"] == 0
+
+    # 3. "no verdict" outage: Gemini abstains / returns None
+    resolver_no_verdict = _resolver(None, _StubTier1(_in_band(0.51)))
+    resolver_no_verdict._tier2_backend = _AbstainingTier2()
+    verdict = await resolver_no_verdict.evaluate(_beacon_context())
+    assert verdict.decision == VerdictDecision.QUARANTINE
+    assert resolver_no_verdict.tier2_calls == 1
+    assert resolver_no_verdict.tier2_no_verdict_by_reason["no verdict"] == 1
+    metrics_no_verdict = resolver_no_verdict.get_metrics()
+    assert metrics_no_verdict["tier2_calls"] == 1
+    assert metrics_no_verdict["tier2_rate_limit_hits"] == 0
+    assert metrics_no_verdict["tier2_no_verdict_by_reason"]["no verdict"] == 1
+
+    # 4. Successful escalation: no outage recorded
+    client_ok = _tier2_client(decision="ALLOW", threat_score=0.1)
+    resolver_ok = _resolver(client_ok, _StubTier1(_in_band(0.51)))
+    verdict = await resolver_ok.evaluate(_beacon_context())
+    assert verdict.decision == VerdictDecision.ALLOW
+    assert resolver_ok.tier2_calls == 1
+    metrics_ok = resolver_ok.get_metrics()
+    assert metrics_ok["tier2_calls"] == 1
+    assert metrics_ok["tier2_rate_limit_hits"] == 0
+    assert metrics_ok["tier2_no_verdict_by_reason"]["no client"] == 0
+    assert metrics_ok["tier2_no_verdict_by_reason"]["rate limit"] == 0
+    assert metrics_ok["tier2_no_verdict_by_reason"]["no verdict"] == 0
+
