@@ -182,6 +182,9 @@ class SyncResolverMetrics(BaseModel):
     block_count: int = 0
     quarantine_count: int = 0
     allow_count: int = 0
+    tier2_calls: int = 0
+    tier2_rate_limit_hits: int = 0
+    tier2_no_verdict_by_reason: dict[str, int] = Field(default_factory=dict)
 
 
 class PolicyServerState(BaseModel):

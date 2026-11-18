@@ -557,7 +557,14 @@ def test_get_metrics_initial_state():
     assert metrics["quarantine_count"] == 0
     assert metrics["allow_count"] == 0
     assert metrics["threat_intel_queries_executed"] == 0
-    assert metrics["threat_intel_queries_executed"] == 0
+    assert metrics["threat_intel_queries_deferred"] == 0
+    assert metrics["tier2_calls"] == 0
+    assert metrics["tier2_rate_limit_hits"] == 0
+    assert metrics["tier2_no_verdict_by_reason"] == {
+        "no client": 0,
+        "rate limit": 0,
+        "no verdict": 0,
+    }
 
 
 def test_get_metrics_after_increments():
@@ -571,6 +578,10 @@ def test_get_metrics_after_increments():
     r._threat_intel_queries_executed = 5
     r._threat_intel_queries_deferred = 2
     r._inline_signatures_generated = 3
+    r.tier2_calls = 2
+    r.tier2_rate_limit_hits = 1
+    r.tier2_no_verdict_by_reason["no client"] = 1
+    r.tier2_no_verdict_by_reason["rate limit"] = 1
 
     metrics = r.get_metrics()
     assert metrics["total_evaluations"] == 10
@@ -581,9 +592,12 @@ def test_get_metrics_after_increments():
     assert metrics["rate_limit_hits"] == 1
     assert metrics["threat_intel_queries_executed"] == 5
     assert metrics["threat_intel_queries_deferred"] == 2
-    assert metrics["threat_intel_queries_executed"] == 5
-    assert metrics["threat_intel_queries_deferred"] == 2
     assert metrics["inline_signatures_generated"] == 3
+    assert metrics["tier2_calls"] == 2
+    assert metrics["tier2_rate_limit_hits"] == 1
+    assert metrics["tier2_no_verdict_by_reason"]["no client"] == 1
+    assert metrics["tier2_no_verdict_by_reason"]["rate limit"] == 1
+    assert metrics["tier2_no_verdict_by_reason"]["no verdict"] == 0
 
 
 def test_get_metrics_returns_dict():
