@@ -142,11 +142,22 @@ usage for logs, budgets, and `HistoricalRegressionTracker` baselines.
 > the unpinned `jev-latest` alias is observable. Telemetry only — never gates
 > the signal.
 
-### FR-08: Two Rate Limits
+### FR-08: Two Rate Limits (Jev front; shared Vertex quota with a Tier-2 reservation)
 The front bucket SHALL be 80 req/s (Jev's organization limit) and guard every
-evaluation, QUARANTINEing on exhaustion. A separate 300 RPM bucket SHALL guard
-only the Tier-2 Vertex call. When that bucket is empty and Tier-2 is triggered,
-FR-03 applies (QUARANTINE an ALLOW, let a BLOCK stand).
+evaluation, QUARANTINEing on exhaustion. A separate shared Vertex quota bucket
+(300 RPM, 5 tokens/s) SHALL guard all Gemini consumers — Tier-2, signature
+synthesis and ABA refactoring — with a reserved token floor for Tier-2
+(`TIER2_QUOTA_RESERVE_TOKENS`). Tier-2 SHALL consume with priority (may use any
+token); synthesis and refactoring SHALL consume non-priority (may not drain below
+the reserve) and SHALL skip gracefully when the quota is reserved. When the bucket
+cannot satisfy a triggered Tier-2 call, FR-03 applies (QUARANTINE an ALLOW, let a
+BLOCK stand). The Jev front bucket and the Vertex quota bucket are independent
+(TypeSafe vs Vertex).
+
+> **Amended 2026-11-14 (TASK-F03):** the former Tier-2-only bucket let uncounted
+> signature synthesis exhaust the shared Vertex quota and 429 Tier-2. A live burst
+> test measured a 30% Tier-2 429 rate uncoordinated vs ~0 with a reservation, and
+> the reservation also improved synthesis throughput (ADR 0009 Open Item 2).
 
 ### FR-09: Atomic Question Set, Criteria, and Structured State (PLANNED — Track G)
 > **Added 2026-11-14 (typesafe-ai skill audit F2/F3/F4). PLANNED, not yet

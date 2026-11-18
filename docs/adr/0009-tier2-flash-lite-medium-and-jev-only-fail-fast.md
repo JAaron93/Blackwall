@@ -460,6 +460,21 @@ Reading it:
    Gemini consumers can still exhaust the project quota. Decision 6 makes that a
    QUARANTINE instead of an ALLOW, but a shared budget would avoid the
    QUARANTINEs.
+   > **Resolved 2026-11-14 (TASK-F03).** The Vertex bucket is now shared by Tier-2,
+   > signature synthesis and ABA refactoring, with a reserved token floor for Tier-2
+   > (`TIER2_QUOTA_RESERVE_TOKENS`, default 60): Tier-2 consumes with priority (any
+   > token), synthesis/refactoring non-priority (cannot drain below the reserve, skip
+   > gracefully). Empirical basis (live burst test, real `gemini-3.5-flash-lite`
+   > calls, isolated 65s quota windows; `scripts/vertex_quota_burst_test.py`):
+   > quota ≈ 300 RPM (a 400-call burst gave 334 ok / 66 `429`); embeddings
+   > (`gemini-embedding-001`) are a separate, high quota (6k–300k RPM, no contention);
+   > Jev clears 88.3% of calls so Tier-2 fires on ~11% (committed e2e rows). Under
+   > synthesis bursts the uncoordinated path gave Tier-2 a **30% 429 rate** (12/40);
+   > a shared bucket removed Tier-2 429s but starved synthesis (47 skips); the
+   > reservation kept Tier-2 reliable (1/40 `429`, 0 skip) **and** improved synthesis
+   > throughput (90 ok vs 80, 35 skips vs 47). The Jev front bucket (80 req/s) is
+   > unchanged. FR-08 amended; rule 107 and `.greptile` synced; mechanism pinned by
+   > `tests/unit/test_vertex_quota_reservation.py`.
 3. **The Tier-2 prompt interpolated the tool name, arguments and metadata
    unseparated.** Whether text inside a tool call can steer the arbiter's
    verdict was unmeasured. Tier-2's ALLOW is final unless aggregation

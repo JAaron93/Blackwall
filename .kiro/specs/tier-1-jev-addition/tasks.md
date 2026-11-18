@@ -370,11 +370,22 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > altered the egress payload/calibration without evidence — a Cluster 2 change
   > shipped without validation. The Tier-1 steering path stays open empirical work
   > (coupled to TASK-F10); validate live before proposing any guard.
-* [ ] **TASK-F03 [C1]: Account for the shared Vertex quota** (ADR 0009 OI2). Signature
+* [x] **TASK-F03 [C1]: Account for the shared Vertex quota** (ADR 0009 OI2). Signature
   synthesis, the judges and other Gemini calls share the project quota that
   Tier-2 depends on and are not counted by the Tier-2 bucket. Decide between one
   shared budget and a reservation for Tier-2, then implement it with tests.
   Needs a maintainer decision first (amend FR-08).
+  > **Done 2026-11-14.** Maintainer-delegated decision: a shared 300 RPM Vertex
+  > budget with a reserved token floor for Tier-2 (`TIER2_QUOTA_RESERVE_TOKENS`,
+  > default 60). Tier-2 consumes priority; synthesis (`_inline_generate_signature`)
+  > and ABA refactoring (`_handle_quarantine_refactoring`) consume non-priority and
+  > skip gracefully when reserved. `TokenBucketRateLimiter` gained `reserve` +
+  > `priority`. Chosen over a plain shared bucket because a live burst test showed
+  > the reservation protects Tier-2 (30% 429 uncoordinated → ~0) AND improves
+  > synthesis throughput. FR-08 amended; rule 107 + `.greptile` synced; ADR 0009 OI2
+  > records the figures. Tests: `tests/unit/test_vertex_quota_reservation.py`;
+  > methodology: `scripts/vertex_quota_burst_test.py`. The eval judges are eval-time
+  > (paced separately), not a production hot-path consumer.
 * [x] **TASK-F04 [C1]: Make Tier-2 outages visible** (ADR 0009 OI1). Count Tier-2
   "no verdict" outcomes by reason in `SyncResolverMetrics` (today only
   `tier2_rate_limit_hits` exists) so an operator can see the QUARANTINEs that
