@@ -323,3 +323,6 @@ test_blackwall.db-wal
 
 # Spec-tooling metadata sidecars (generated, not source)
 .kiro/specs/**/*.meta.json
+
+# Repo-local skill sync artifacts (canonical skills live in the user dir)
+.agents/skills/
