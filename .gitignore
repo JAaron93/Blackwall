@@ -320,3 +320,6 @@ test_blackwall.db-wal
 
 # Git worktrees (if using git worktree for parallel branches)
 .worktrees/
+
+# Spec-tooling metadata sidecars (generated, not source)
+.kiro/specs/**/*.meta.json
