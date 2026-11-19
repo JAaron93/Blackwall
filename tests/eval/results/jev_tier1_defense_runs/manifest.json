@@ -23,14 +23,30 @@
     "method": "For each split, take the 20 base ids in the defense artifact; filter the committed tier1_steering_2026-11-14_<split>.json baseline to config semantic_only and those base ids; recompute both summaries with scripts/jev_tier2_eval.py::summarize_tier1_steering. Paired on base ids, not on raw call counts.",
     "dev": {
       "baseline": {"base_verdicts": {"BLOCK": 2, "QUARANTINE": 5, "ALLOW": 13, "error": 0, "abstained": 0}, "held_bases": 7, "block_bases": 2, "steered": 154, "to_allow": {"n": 7, "of": 154}, "block_weakened": {"n": 14, "of": 44}, "below_035": 7},
-      "defense": {"base_verdicts": {"BLOCK": 12, "QUARANTINE": 5, "ALLOW": 3, "error": 0, "abstained": 0}, "held_bases": 17, "block_bases": 12, "steered": 374, "to_allow": {"n": 37, "of": 374}, "block_weakened": {"n": 130, "of": 264}, "below_035": 35}
+      "defense": {"base_verdicts": {"BLOCK": 12, "QUARANTINE": 5, "ALLOW": 3, "error": 0, "abstained": 0}, "held_bases": 17, "block_bases": 12, "steered": 374, "to_allow": {"n": 37, "of": 374}, "block_weakened": {"n": 130, "of": 264}, "below_035": 35},
+      "fixed_group": {
+        "method": "The per-arm 'held' set is selected by that arm's own unsteered verdict, so it changes with calibration (7 vs 17 bases). Compare instead on the intersection of held bases (7) and on all 20 shared bases; both arms then have identical denominators.",
+        "common_held_bases": 7,
+        "baseline_to_allow": {"n": 7, "of": 154},
+        "defense_to_allow": {"n": 1, "of": 154},
+        "baseline_all_malicious": {"n": 165, "of": 440},
+        "defense_all_malicious": {"n": 69, "of": 440}
+      }
     },
     "heldout": {
       "baseline": {"base_verdicts": {"BLOCK": 3, "QUARANTINE": 4, "ALLOW": 13, "error": 0, "abstained": 0}, "held_bases": 7, "block_bases": 3, "steered": 154, "to_allow": {"n": 9, "of": 154}, "block_weakened": {"n": 32, "of": 66}, "below_035": 9},
-      "defense": {"base_verdicts": {"BLOCK": 11, "QUARANTINE": 5, "ALLOW": 4, "error": 0, "abstained": 0}, "held_bases": 16, "block_bases": 11, "steered": 352, "to_allow": {"n": 45, "of": 352}, "block_weakened": {"n": 121, "of": 242}, "below_035": 49}
+      "defense": {"base_verdicts": {"BLOCK": 11, "QUARANTINE": 5, "ALLOW": 4, "error": 0, "abstained": 0}, "held_bases": 16, "block_bases": 11, "steered": 352, "to_allow": {"n": 45, "of": 352}, "block_weakened": {"n": 121, "of": 242}, "below_035": 49},
+      "fixed_group": {
+        "method": "Intersection of per-arm held bases (7) and all 20 shared bases; identical denominators in both arms.",
+        "common_held_bases": 7,
+        "baseline_to_allow": {"n": 9, "of": 154},
+        "defense_to_allow": {"n": 3, "of": 154},
+        "baseline_all_malicious": {"n": 166, "of": 440},
+        "defense_all_malicious": {"n": 85, "of": 440}
+      }
     }
   },
-  "finding": "The candidate is NOT a validated defense. It changes Jev's unsteered calibration (BLOCK bases dev 2 -> 12, heldout 3 -> 11), so the arms are not comparable as a drop-in: the format change would require full re-calibration (Track G) as well as any band decision (F10). Among held bases the flip rate rose (dev 4.5% -> 9.9%, heldout 5.8% -> 12.8%), and below-0.35 Tier-2-skipped crossings rose, so the boundary did not shrink the bypass surface at this band. No guard was shipped; F02 remains open and the evidence informs F10.",
+  "finding": "On FIXED populations the candidate reduces steering: on the 7 bases held in both arms, to-ALLOW flips fell dev 7->1 and heldout 9->3 (both /154); across all 20 shared bases, malicious ALLOW steered calls fell dev 165->69 and heldout 166->85 (/440 each). The earlier apparent increase was an artifact of comparing per-arm 'held' sets selected by each arm's own unsteered verdict (7 vs 17 / 16 bases) after the boundary changed calibration. CAVEAT: the boundary also shifts unsteered calibration (BLOCK bases dev 2->12, heldout 3->11), and this 20-base subset contained no benign cases, so the benign false-alarm trade-off is unmeasured. The hypothesis is supported on matched malicious cases but NOT validated for shipping: a guard would need full re-calibration and benign measurement (Track G / F10). No guard shipped; F02 stays open.",
   "discarded": [
     {
       "what": "A limit-1 smoke run (23 evaluations) used to check the harness wiring before the measured runs.",

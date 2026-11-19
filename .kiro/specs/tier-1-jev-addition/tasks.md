@@ -374,14 +374,17 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   >
   > **Empirical defense experiment (2026-11-19; sequencing decision F02 → F10).**
   > Telos: does a nonce-tagged XML boundary on the Jev state resist the measured
-  > Tier-1 steering? **Hypothesis NOT validated.** The harness-only
-  > `--defense state-boundary` arm (no `src/` change) changed Jev's unsteered
-  > calibration on 20 matched bases (BLOCK bases dev 2→12, held-out 3→11), so it is
-  > not a drop-in defense; among held bases the to-ALLOW rate rose (dev 4.5%→9.9%,
-  > held-out 5.8%→12.8%) and below-0.35 Tier-2-skipped crossings rose (7→35, 9→49).
-  > Decision informed: a state-format defense is not a cheap alternative to F10's
-  > band decision — it would also require full re-calibration (Track G). No guard
-  > was shipped and **this task stays open**. Evidence:
+  > Tier-1 steering? **Hypothesis supported on matched malicious cases, not validated
+  > for shipping.** On fixed populations the boundary cut to-ALLOW flips from 7→1
+  > (dev) and 9→3 (held-out) on the 7 bases held in both arms (both /154), and total
+  > malicious ALLOW steered calls from 165→69 and 166→85 on all 20 shared bases
+  > (/440 each). An earlier apparent increase was an artifact of comparing per-arm
+  > 'held' sets selected by each arm's own unsteered verdict (7 vs 17/16 bases).
+  > Caveat: the boundary also shifts unsteered calibration (BLOCK bases dev 2→12,
+  > held-out 3→11) and this subset had no benign cases, so the false-alarm trade-off
+  > is unmeasured. Decision informed: a state-format defense is promising but needs
+  > full re-calibration and benign measurement (Track G) plus F10's band decision.
+  > No guard was shipped and **this task stays open**. Evidence:
   > `tests/eval/results/jev_tier1_defense_runs/` (`manifest.json` + both arm JSONs),
   > recomputed by `tests/unit/test_jev_tier1_defense_runs_data.py`; harness support
   > in `scripts/jev_tier2_eval.py --defense`. Sequencing: F02's measurement is an

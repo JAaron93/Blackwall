@@ -581,11 +581,16 @@ Reading it:
    >
    > **Defense experiment 2026-11-19 (TASK-F02).** A harness-only nonce-XML boundary
    > on the Jev state was measured on 20 matched bases per split against the
-   > shipped-state baseline. It did not validate the defense: the boundary changed
-   > unsteered calibration (BLOCK bases dev 2→12, held-out 3→11), and to-ALLOW flips
-   > rose (dev 4.5%→9.9%, held-out 5.8%→12.8%) with more below-0.35 Tier-2-skipped
-   > crossings (7→35, 9→49). A state-format defense therefore needs full
-   > re-calibration (Track G), not just a band change (F10); no guard shipped.
+   > shipped-state baseline. On fixed populations it **reduced** steering: to-ALLOW
+   > flips fell 7→1 (dev) and 9→3 (held-out) on the 7 bases held in both arms (both
+   > /154), and malicious ALLOW steered calls fell 165→69 and 166→85 across all 20
+   > shared bases (/440 each). The per-arm 'held' sets (7 vs 17/16) are selected by
+   > each arm's own unsteered verdict and must not be compared directly. CAVEAT: the
+   > boundary shifts unsteered calibration (BLOCK bases dev 2→12, held-out 3→11) and
+   > this subset had no benign cases, so the false-alarm trade-off is unmeasured. The
+   > hypothesis is supported on matched malicious cases but not validated for
+   > shipping: it needs full re-calibration (Track G) plus F10's band decision; no
+   > guard shipped.
    > Artifacts: `tests/eval/results/jev_tier1_defense_runs/` (manifest + two arms),
    > recomputed by `tests/unit/test_jev_tier1_defense_runs_data.py`.
 4. **What the class-blind result implies.** *(Wrapper template and payloads:

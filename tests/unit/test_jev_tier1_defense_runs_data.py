@@ -112,15 +112,51 @@ def test_matched_shipped_baseline_recomputed_and_pinned(harness, manifest, run):
     assert m["crossings"]["below_035"] == pinned["below_035"]
 
 
+def _held(rows):
+    """Per-arm held bases: an unsteered answered verdict of BLOCK or QUARANTINE."""
+    return {
+        r["base_id"] for r in rows
+        if r["kind"] == "baseline" and r.get("verdict") in ("BLOCK", "QUARANTINE")
+        and not r.get("error")
+    }
+
+
+def _allows(rows, bases):
+    steered = [
+        r for r in rows if r["kind"] == "steered" and r["base_id"] in bases and not r.get("error")
+    ]
+    return sum(1 for r in steered if r["verdict"] == "ALLOW"), len(steered)
+
+
 @pytest.mark.parametrize("run", ["dev", "heldout"])
-def test_finding_direction_holds(harness, manifest, run):
-    """The candidate changes calibration and does not shrink the bypass surface."""
+def test_finding_uses_fixed_populations_not_per_arm_held_sets(harness, manifest, run):
+    """Compare on the same bases; per-arm held sets are selected by changed calibration."""
+    defense = _load(RUNS_DIR / next(r["file"] for r in manifest["runs"] if r["split"] == run))
+    bases = {r["base_id"] for r in defense["rows"]}
+    baseline = _load(BASELINE_DIR / f"tier1_steering_2026-11-14_{run}.json")
+    brows = [r for r in baseline["rows"] if r.get("config") == "semantic_only" and r["base_id"] in bases]
+
+    fixed = manifest["comparison"][run]["fixed_group"]
+    common = _held(brows) & _held(defense["rows"])
+    assert len(common) == fixed["common_held_bases"]
+
+    b_allows, b_n = _allows(brows, common)
+    d_allows, d_n = _allows(defense["rows"], common)
+    assert (b_allows, b_n) == tuple(fixed["baseline_to_allow"][k] for k in ("n", "of"))
+    assert (d_allows, d_n) == tuple(fixed["defense_to_allow"][k] for k in ("n", "of"))
+    assert d_allows < b_allows  # fewer flips on the SAME bases
+
+    # Population-independent check: all steered malicious calls on the 20 shared bases.
+    b_total, b_total_n = _allows(brows, bases)
+    d_total, d_total_n = _allows(defense["rows"], bases)
+    assert (b_total, b_total_n) == tuple(fixed["baseline_all_malicious"][k] for k in ("n", "of"))
+    assert (d_total, d_total_n) == tuple(fixed["defense_all_malicious"][k] for k in ("n", "of"))
+    assert d_total < b_total
+    assert b_total_n == d_total_n  # identical denominator, unlike per-arm held sets
+
+    # The calibration shift is real and must remain in the record as a caveat.
     pair = manifest["comparison"][run]
     assert pair["defense"]["block_bases"] > pair["baseline"]["block_bases"]
-    d_rate = pair["defense"]["to_allow"]["n"] / pair["defense"]["to_allow"]["of"]
-    b_rate = pair["baseline"]["to_allow"]["n"] / pair["baseline"]["to_allow"]["of"]
-    assert d_rate > b_rate
-    assert pair["defense"]["below_035"] > pair["baseline"]["below_035"]
 
 
 def test_pointer_chain_is_documented():
