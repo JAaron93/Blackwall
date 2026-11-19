@@ -10,6 +10,7 @@ test). They read committed files only and never touch the network.
 
 import importlib.util
 import json
+import os
 import re
 import sys
 from datetime import UTC, datetime
@@ -66,6 +67,17 @@ def script():
 @pytest.fixture(scope="module")
 def run():
     return _load(RUNS_DIR / HISTORICAL_RUN)
+
+
+def test_importing_script_does_not_mutate_environment(monkeypatch):
+    monkeypatch.setenv("NO_PROXY", "localhost,127.0.0.1")
+    monkeypatch.setenv("ALL_PROXY", "http://proxy.invalid:3128")
+    spec = importlib.util.spec_from_file_location("vertex_quota_burst_import_check", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert os.environ["NO_PROXY"] == "localhost,127.0.0.1"
+    assert os.environ["ALL_PROXY"] == "http://proxy.invalid:3128"
 
 
 def test_manifest_names_every_result_file_and_no_other():

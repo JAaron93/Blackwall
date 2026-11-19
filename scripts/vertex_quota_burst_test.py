@@ -24,13 +24,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from dotenv import dotenv_values
-
-for k, v in dotenv_values(".env").items():
-    if v is not None:
-        os.environ[k] = v
-for p in ("NO_PROXY", "no_proxy", "ALL_PROXY", "all_proxy"):
-    os.environ.pop(p, None)
-
 from google import genai
 from google.genai import types
 
@@ -38,6 +31,19 @@ from blackwall import sync_resolver as sr
 from blackwall.resolver import TokenBucketRateLimiter
 
 client = None  # created in main(), so this module can be imported for hermetic tests
+
+
+def load_environment():
+    """Apply runtime env setup only when the script is actually run.
+
+    Importing this module for hermetic tests must not mutate the shared process
+    environment (proxy settings, values from .env).
+    """
+    for k, v in dotenv_values(".env").items():
+        if v is not None:
+            os.environ[k] = v
+    for p in ("NO_PROXY", "no_proxy", "ALL_PROXY", "all_proxy"):
+        os.environ.pop(p, None)
 
 
 def make_client():
@@ -183,6 +189,7 @@ async def main():
              "tests/eval/results/vertex_quota_runs/<date>.json).",
     )
     global client
+    load_environment()
     client = make_client()
     args = parser.parse_args()
     results = {}
