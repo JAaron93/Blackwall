@@ -578,6 +578,16 @@ Reading it:
    > or a band-edge change); the below-0.35 surface shrinks if the lower edge drops
    > (TASK-F10). Artifacts: `tier1_steering_2026-11-14_{dev,heldout}.json`,
    > recomputed by `tests/unit/test_jev_tier1_steering_runs_data.py`.
+   >
+   > **Defense experiment 2026-11-19 (TASK-F02).** A harness-only nonce-XML boundary
+   > on the Jev state was measured on 20 matched bases per split against the
+   > shipped-state baseline. It did not validate the defense: the boundary changed
+   > unsteered calibration (BLOCK bases dev 2→12, held-out 3→11), and to-ALLOW flips
+   > rose (dev 4.5%→9.9%, held-out 5.8%→12.8%) with more below-0.35 Tier-2-skipped
+   > crossings (7→35, 9→49). A state-format defense therefore needs full
+   > re-calibration (Track G), not just a band change (F10); no guard shipped.
+   > Artifacts: `tests/eval/results/jev_tier1_defense_runs/` (manifest + two arms),
+   > recomputed by `tests/unit/test_jev_tier1_defense_runs_data.py`.
 4. **What the class-blind result implies.** *(Wrapper template and payloads:
    done, see Verification.)* On the class-blind corpus the accuracy and ECE gates
    fail at the fixed 0.35/0.75 band while AUROC is 0.99. Whether to move the
