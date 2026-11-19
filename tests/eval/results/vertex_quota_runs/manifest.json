@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "description": "Live Vertex quota-allocation burst runs for TASK-F03 (FR-08, ADR 0009 Open Item 2). scripts/vertex_quota_burst_test.py drives steady Tier-2 demand and bursty signature-synthesis demand against the paid gemini-3.5-flash-lite quota (location=global, ~300 RPM), exercising the production TokenBucketRateLimiter and the constants from blackwall.sync_resolver. Each policy ran after a 65s quiet window to get a fresh provider minute. The shipped policy is 'reserved' (rate-partition: 60 RPM Tier-2 share + 240 RPM synthesis share); 'uncoordinated' and 'shared' are comparison baselines. Run with --out to add a new file, then list it here and keep tests/unit/test_vertex_quota_burst_data.py green. No project id or credentials are recorded in any file.",
+  "runs": [
+    {
+      "key": "burst_2026-11-19",
+      "file": "burst_2026-11-19.json",
+      "date": "2026-11-19",
+      "purpose": "Re-run that validated the shipped rate-partition after the PR #212 Greptile fixes: Tier-2 429 was 11/40 uncoordinated, 10/40 with one shared bucket, and 0/40 partitioned (synthesis 92 ok, 36 graceful skips, 0 429). Figures are transcribed from the console output; the script gained --out in the follow-up commit.",
+      "cited_in": [
+        "ADR 0009 Open Item 2 and Decision 5",
+        ".kiro/specs/tier-1-jev-addition/tasks.md TASK-F03",
+        ".kiro/specs/tier-1-jev-addition/requirements.md FR-08"
+      ]
+    }
+  ],
+  "discarded": [
+    {
+      "what": "Two 2026-11-19 attempts in which every call errored (0 ok, 0 429; ClientError 403 CONSUMER_INVALID) before any measurement was taken.",
+      "why": "The Google Cloud project variable in .env is quoted; extracting it with a shell cut passed the literal quotes into the client, so Vertex rejected every request. The script now fails loudly when a caller receives no Vertex responses, and this directory records the invalid run instead of silently dropping it."
+    }
+  ]
+}

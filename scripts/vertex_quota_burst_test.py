@@ -8,11 +8,20 @@ steady Tier-2 caller (band escalations) and a bursty signature-synthesis caller
 (BLOCK waves) against the real flash-lite Vertex quota (~300 RPM). Measures, per
 policy: actual 429s from Vertex and caller skips (bucket starvation). Real calls,
 small prompts. Project id is read from env at runtime, never written to output.
+
+Pass ``--out tests/eval/results/vertex_quota_runs/<date>.json`` to persist a
+machine-readable result: the counters, the production constants and the model,
+with no project id or credentials. Add every persisted file to that directory's
+``manifest.json`` and keep ``tests/unit/test_vertex_quota_burst_data.py`` green.
 """
+import argparse
 import asyncio
+import json
 import os
 import time
 from collections import Counter
+from datetime import UTC, datetime
+from pathlib import Path
 
 from dotenv import dotenv_values
 
@@ -111,10 +120,50 @@ async def run_policy(policy):
     return stats
 
 
+def build_artifact(results, now):
+    """Return the credential-free, machine-readable record of one burst run."""
+    return {
+        "schema_version": 1,
+        "generated_at": now.isoformat(),
+        "script": "scripts/vertex_quota_burst_test.py",
+        "model": MODEL,
+        "location": "global",
+        "quota_rpm": sr.VERTEX_QUOTA_RPM,
+        "duration_s": DURATION,
+        "demand": {
+            "tier2_rps": TIER2_RPS,
+            "synthesis_burst_rps": SYNTH_BURST_RPS,
+            "synthesis_burst_on_s": SYNTH_BURST_ON,
+            "synthesis_burst_off_s": SYNTH_BURST_OFF,
+        },
+        "constants": {
+            "tier2_reserved_rpm": sr.TIER2_RESERVED_RPM,
+            "tier2_capacity": sr.TIER2_RATE_LIMIT_CAPACITY,
+            "tier2_refill_per_s": sr.TIER2_RATE_LIMIT_REFILL_PER_S,
+            "synthesis_capacity": sr.SYNTHESIS_RATE_LIMIT_CAPACITY,
+            "synthesis_refill_per_s": sr.SYNTHESIS_RATE_LIMIT_REFILL_PER_S,
+        },
+        "policies": results,
+        "note": (
+            "Aggregate counters only; no project id, credentials or response bodies. "
+            "Each policy ran after a 65s quiet window against the live flash-lite quota."
+        ),
+    }
+
+
 async def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--out", type=Path, default=None,
+        help="Write a machine-readable result JSON here (recommended: "
+             "tests/eval/results/vertex_quota_runs/<date>.json).",
+    )
+    args = parser.parse_args()
+    results = {}
     for policy in ("uncoordinated", "shared", "reserved"):
         await asyncio.sleep(65)  # fresh per-minute Vertex quota window before each policy
         stats = await run_policy(policy)
+        results[policy] = {name: dict(s) for name, s in stats.items()}
         print(f"\n== {policy} ==", flush=True)
         for name in ("tier2", "synthesis"):
             s = stats[name]
@@ -124,6 +173,13 @@ async def main():
                   f"ok={s['ok']} 429={s['429']} skipped={s['skipped']} "
                   f"other={other}",
                   flush=True)
+    if args.out is not None:
+        artifact = build_artifact(results, datetime.now(UTC))
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(
+            json.dumps(artifact, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        print(f"Wrote {args.out}", flush=True)
 
 
 asyncio.run(main())

@@ -1,0 +1,73 @@
+{
+  "generated_at": "2026-11-19",
+  "constants": {
+    "synthesis_capacity": 8.0,
+    "synthesis_refill_per_s": 4.0,
+    "tier2_capacity": 2.0,
+    "tier2_refill_per_s": 1.0,
+    "tier2_reserved_rpm": 60.0
+  },
+  "demand": {
+    "synthesis_burst_off_s": 8.0,
+    "synthesis_burst_on_s": 4.0,
+    "synthesis_burst_rps": 8.0,
+    "tier2_rps": 1.0
+  },
+  "duration_s": 40.0,
+  "location": "global",
+  "model": "gemini-3.5-flash-lite",
+  "note": "Transcribed from the 2026-11-19 live re-run console output in PR #212; the script gained --out JSON export in the follow-up PR. Aggregate counters only; no project id, credentials or response bodies.",
+  "policies": {
+    "reserved": {
+      "synthesis": {
+        "429": 0,
+        "attempts": 128,
+        "ok": 92,
+        "sent": 92,
+        "skipped": 36
+      },
+      "tier2": {
+        "429": 0,
+        "attempts": 40,
+        "ok": 40,
+        "sent": 40,
+        "skipped": 0
+      }
+    },
+    "shared": {
+      "synthesis": {
+        "429": 31,
+        "attempts": 128,
+        "ok": 97,
+        "sent": 128,
+        "skipped": 0
+      },
+      "tier2": {
+        "429": 10,
+        "attempts": 40,
+        "ok": 30,
+        "sent": 40,
+        "skipped": 0
+      }
+    },
+    "uncoordinated": {
+      "synthesis": {
+        "429": 38,
+        "attempts": 128,
+        "ok": 90,
+        "sent": 128,
+        "skipped": 0
+      },
+      "tier2": {
+        "429": 11,
+        "attempts": 40,
+        "ok": 29,
+        "sent": 40,
+        "skipped": 0
+      }
+    }
+  },
+  "quota_rpm": 300.0,
+  "schema_version": 1,
+  "script": "scripts/vertex_quota_burst_test.py"
+}
