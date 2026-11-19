@@ -86,13 +86,18 @@ logger = logging.getLogger(__name__)
 # (4,800 RPM; ADR 0008). Tier-1 is Jev only, so Vertex does not bound this path.
 FRONT_RATE_LIMIT_CAPACITY: float = 80.0
 FRONT_RATE_LIMIT_REFILL_PER_S: float = 80.0
-# Shared Vertex quota bucket: Tier-2, signature synthesis and ABA all draw on the
-# 300 RPM paid tier (5 tokens/s). A reserved token floor protects Tier-2 from being
-# starved by synthesis bursts (TASK-F03, ADR 0009 Open Item 2). The Jev front bucket
-# above is separate (TypeSafe, not Vertex).
-TIER2_RATE_LIMIT_CAPACITY: float = 300.0
-TIER2_RATE_LIMIT_REFILL_PER_S: float = 5.0
-TIER2_QUOTA_RESERVE_TOKENS: float = 60.0
+# Vertex quota (300 RPM paid tier) is rate-partitioned: a reserved rate share for
+# Tier-2 and the remainder for signature synthesis / ABA refactoring. Separate
+# refills sum to the provider quota so neither caller can over-commit the provider's
+# per-minute window (a shared token floor could: burst + refill > quota). TASK-F03,
+# ADR 0009 Open Item 2. The Jev front bucket above is separate (TypeSafe, not Vertex).
+VERTEX_QUOTA_RPM: float = 300.0
+TIER2_RESERVED_RPM: float = 60.0
+# Micro-burst capacities (tokens); the sustained rate is the refill.
+TIER2_RATE_LIMIT_CAPACITY: float = 2.0
+TIER2_RATE_LIMIT_REFILL_PER_S: float = TIER2_RESERVED_RPM / 60.0
+SYNTHESIS_RATE_LIMIT_CAPACITY: float = 8.0
+SYNTHESIS_RATE_LIMIT_REFILL_PER_S: float = (VERTEX_QUOTA_RPM - TIER2_RESERVED_RPM) / 60.0
 
 
 class _Tier2Unavailable(Exception):
@@ -299,9 +304,9 @@ class SyncResolver:
             max_workers=2, thread_name_prefix="bw_callback"
         )
 
-        # Front limiter sized to Jev's 80 req/s org limit; a shared Vertex quota
-        # limiter (300 RPM) guards Tier-2, synthesis and ABA, with a reserved floor
-        # for Tier-2 (priority). ADR 0009; TASK-F03.
+        # Front limiter sized to Jev's 80 req/s org limit. The Vertex quota (300 RPM)
+        # is rate-partitioned: a reserved share for Tier-2 and the remainder for
+        # synthesis/ABA, so neither over-commits the provider window. ADR 0009; F03.
         self._rate_limiter = TokenBucketRateLimiter(
             capacity=FRONT_RATE_LIMIT_CAPACITY,
             refill_rate=FRONT_RATE_LIMIT_REFILL_PER_S,
@@ -309,7 +314,10 @@ class SyncResolver:
         self._tier2_rate_limiter = TokenBucketRateLimiter(
             capacity=TIER2_RATE_LIMIT_CAPACITY,
             refill_rate=TIER2_RATE_LIMIT_REFILL_PER_S,
-            reserve=TIER2_QUOTA_RESERVE_TOKENS,
+        )
+        self._synthesis_rate_limiter = TokenBucketRateLimiter(
+            capacity=SYNTHESIS_RATE_LIMIT_CAPACITY,
+            refill_rate=SYNTHESIS_RATE_LIMIT_REFILL_PER_S,
         )
         self.tier2_rate_limit_hits: int = 0
         self.tier2_no_verdict_by_reason: dict[str, int] = {
@@ -1038,7 +1046,7 @@ class SyncResolver:
                 trigger,
             )
             raise _Tier2Unavailable("no client")
-        if not await self._tier2_rate_limiter.consume(1.0, priority=True):
+        if not await self._tier2_rate_limiter.consume(1.0):
             # Not an abstention: see 5d in evaluate().
             self.tier2_rate_limit_hits += 1
             self._record_tier2_no_verdict("rate limit")
@@ -1130,10 +1138,10 @@ class SyncResolver:
         ABA.generateSignature() and write it to the SQLite repo.
         Adds ~200-500ms. Skipped gracefully if repo is None or Gemini fails.
         """
-        # Synthesis yields the Vertex quota to Tier-2: a non-priority consume cannot
-        # drain below the Tier-2 reserve. If the quota is reserved, skip synthesis
-        # (best-effort) rather than starve the security path (TASK-F03).
-        if not await self._tier2_rate_limiter.consume(1.0, priority=False):
+        # Synthesis draws on its own rate share of the Vertex quota (the remainder
+        # after Tier-2's reserved share). If that share is exhausted, skip synthesis
+        # (best-effort) rather than over-commit the provider window (TASK-F03).
+        if not await self._synthesis_rate_limiter.consume(1.0):
             return
         try:
             from google.genai import types
@@ -1291,9 +1299,9 @@ class SyncResolver:
         """
         if not self.aba:
             return None
-        # Refactoring yields the Vertex quota to Tier-2 (non-priority); skip if the
-        # quota is reserved for the security path (TASK-F03).
-        if not await self._tier2_rate_limiter.consume(1.0, priority=False):
+        # Refactoring draws on the synthesis rate share of the Vertex quota; skip if
+        # exhausted rather than over-commit the provider window (TASK-F03).
+        if not await self._synthesis_rate_limiter.consume(1.0):
             return None
         try:
             sec_event = SecurityEvent(

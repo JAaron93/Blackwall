@@ -375,17 +375,22 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   Tier-2 depends on and are not counted by the Tier-2 bucket. Decide between one
   shared budget and a reservation for Tier-2, then implement it with tests.
   Needs a maintainer decision first (amend FR-08).
-  > **Done 2026-11-14.** Maintainer-delegated decision: a shared 300 RPM Vertex
-  > budget with a reserved token floor for Tier-2 (`TIER2_QUOTA_RESERVE_TOKENS`,
-  > default 60). Tier-2 consumes priority; synthesis (`_inline_generate_signature`)
-  > and ABA refactoring (`_handle_quarantine_refactoring`) consume non-priority and
-  > skip gracefully when reserved. `TokenBucketRateLimiter` gained `reserve` +
-  > `priority`. Chosen over a plain shared bucket because a live burst test showed
-  > the reservation protects Tier-2 (30% 429 uncoordinated → ~0) AND improves
-  > synthesis throughput. FR-08 amended; rule 107 + `.greptile` synced; ADR 0009 OI2
-  > records the figures. Tests: `tests/unit/test_vertex_quota_reservation.py`;
-  > methodology: `scripts/vertex_quota_burst_test.py`. The eval judges are eval-time
-  > (paced separately), not a production hot-path consumer.
+  > **Done 2026-11-14; re-validated 2026-11-19.** Maintainer-delegated decision:
+  > the 300 RPM Vertex quota is rate-partitioned — a reserved share for Tier-2
+  > (`TIER2_RESERVED_RPM`, default 60 RPM; refill 1/s, micro-burst 2) and the
+  > remainder for signature synthesis/ABA refactoring (refill 4/s, micro-burst 8),
+  > with separate refills summing to the provider quota. Tier-2 consumes its share
+  > immediately before its Vertex call; synthesis (`_inline_generate_signature`)
+  > and ABA refactoring (`_handle_quarantine_refactoring`) consume the remainder
+  > and skip gracefully when it is exhausted. A shared 300-token bucket with a
+  > 60-token floor was rejected: burst + refill still over-commits the provider
+  > window (Greptile P1). The re-run burst test (2026-11-19) exercises the production
+  > `TokenBucketRateLimiter` and constants (Greptile P2): Tier-2 429 was 11/40
+  > uncoordinated and 10/40 shared, vs **0/40 partitioned** (synthesis 92 ok, 36
+  > skips). FR-08 amended; rule 107 + `.greptile` synced; ADR 0009 OI2 records the
+  > figures. Tests: `tests/unit/test_vertex_quota_reservation.py`; methodology:
+  > `scripts/vertex_quota_burst_test.py`. The eval judges are eval-time (paced
+  > separately), not a production hot-path consumer.
 * [x] **TASK-F04 [C1]: Make Tier-2 outages visible** (ADR 0009 OI1). Count Tier-2
   "no verdict" outcomes by reason in `SyncResolverMetrics` (today only
   `tier2_rate_limit_hits` exists) so an operator can see the QUARANTINEs that

@@ -142,22 +142,24 @@ usage for logs, budgets, and `HistoricalRegressionTracker` baselines.
 > the unpinned `jev-latest` alias is observable. Telemetry only — never gates
 > the signal.
 
-### FR-08: Two Rate Limits (Jev front; shared Vertex quota with a Tier-2 reservation)
+### FR-08: Two Rate Limits (Jev front; rate-partitioned Vertex quota)
 The front bucket SHALL be 80 req/s (Jev's organization limit) and guard every
-evaluation, QUARANTINEing on exhaustion. A separate shared Vertex quota bucket
-(300 RPM, 5 tokens/s) SHALL guard all Gemini consumers — Tier-2, signature
-synthesis and ABA refactoring — with a reserved token floor for Tier-2
-(`TIER2_QUOTA_RESERVE_TOKENS`). Tier-2 SHALL consume with priority (may use any
-token); synthesis and refactoring SHALL consume non-priority (may not drain below
-the reserve) and SHALL skip gracefully when the quota is reserved. When the bucket
-cannot satisfy a triggered Tier-2 call, FR-03 applies (QUARANTINE an ALLOW, let a
-BLOCK stand). The Jev front bucket and the Vertex quota bucket are independent
-(TypeSafe vs Vertex).
+evaluation, QUARANTINEing on exhaustion. The Vertex quota (300 RPM paid tier) SHALL
+be rate-partitioned: a reserved rate share for Tier-2 (`TIER2_RESERVED_RPM`, default
+60) and the remainder for signature synthesis and ABA refactoring. Separate token
+buckets whose refills sum to the provider quota SHALL bound each caller's sustained
+rate so neither can over-commit the provider's per-minute window. Tier-2 SHALL
+consume its reserved bucket; synthesis and refactoring SHALL consume the remainder
+bucket and SHALL skip gracefully when it is exhausted. When Tier-2's bucket cannot
+satisfy a triggered call, FR-03 applies (QUARANTINE an ALLOW, let a BLOCK stand). The
+Jev front bucket and the Vertex buckets are independent (TypeSafe vs Vertex).
 
 > **Amended 2026-11-14 (TASK-F03):** the former Tier-2-only bucket let uncounted
-> signature synthesis exhaust the shared Vertex quota and 429 Tier-2. A live burst
-> test measured a 30% Tier-2 429 rate uncoordinated vs ~0 with a reservation, and
-> the reservation also improved synthesis throughput (ADR 0009 Open Item 2).
+> signature synthesis exhaust the shared Vertex quota and 429 Tier-2. A shared token
+> floor was rejected because burst + refill over-commits the provider's per-minute
+> window (Greptile P1); rate-partitioning bounds each caller's sustained rate. A live
+> burst test exercising the production limiter compares the uncoordinated path's
+> Tier-2 429 rate against the partition (ADR 0009 Open Item 2).
 
 ### FR-09: Atomic Question Set, Criteria, and Structured State (PLANNED — Track G)
 > **Added 2026-11-14 (typesafe-ai skill audit F2/F3/F4). PLANNED, not yet

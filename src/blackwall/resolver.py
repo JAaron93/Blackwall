@@ -27,31 +27,23 @@ logger = logging.getLogger(__name__)
 
 
 class TokenBucketRateLimiter:
-    """Thread-safe and async-safe token bucket rate limiter.
+    """Thread-safe and async-safe token bucket rate limiter."""
 
-    ``reserve`` is a token floor protected for priority callers: a non-priority
-    consume may not drain the bucket below it, while a priority consume may use
-    any token. Used to reserve Vertex quota for Tier-2 against signature synthesis
-    and ABA (TASK-F03, ADR 0009 Open Item 2).
-    """
-
-    def __init__(self, capacity: float = 300.0, refill_rate: float = 5.0, reserve: float = 0.0):
+    def __init__(self, capacity: float = 300.0, refill_rate: float = 5.0):
         # 300 RPM -> refill rate of 300 / 60 = 5 tokens per second
         self.capacity = capacity
         self.refill_rate = refill_rate
-        self.reserve = reserve
         self.tokens = capacity
         self.last_refill = time.time()
         self._lock = asyncio.Lock()
 
-    async def consume(self, amount: float = 1.0, priority: bool = False) -> bool:
+    async def consume(self, amount: float = 1.0) -> bool:
         async with self._lock:
             now = time.time()
             elapsed = now - self.last_refill
             self.last_refill = now
             self.tokens = min(self.capacity, self.tokens + elapsed * self.refill_rate)
-            floor = 0.0 if priority else self.reserve
-            if self.tokens - amount >= floor:
+            if self.tokens >= amount:
                 self.tokens -= amount
                 return True
             return False

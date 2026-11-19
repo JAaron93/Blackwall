@@ -1,80 +1,67 @@
-"""Tier-2 Vertex quota reservation (TASK-F03, ADR 0009 Open Item 2).
+"""Tier-2 Vertex quota reservation by rate-partition (TASK-F03, ADR 0009 OI2).
 
-The 300 RPM Vertex quota is shared by Tier-2, signature synthesis and ABA. A
-reserved token floor protects Tier-2: non-priority callers (synthesis/ABA) cannot
-drain the bucket below the reserve, while Tier-2 (priority) may use any token.
-Empirical basis: a live burst test showed the uncoordinated path gave Tier-2 a 30%
-429 rate under synthesis bursts, while a reservation kept Tier-2 reliable and improved
-synthesis throughput (ADR 0009 OI2). These tests pin the mechanism deterministically.
+The 300 RPM Vertex quota is split into a reserved rate share for Tier-2 and the
+remainder for signature synthesis / ABA refactoring. Separate refills sum to the
+provider quota, so neither caller can over-commit the provider's per-minute window
+(a shared token floor could: burst + refill > quota — Greptile P1). These tests pin
+the partition and that synthesis/refactoring yield when their share is exhausted
+without touching Tier-2's share.
 """
 
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from blackwall import sync_resolver
 from blackwall.resolver import TokenBucketRateLimiter
 from blackwall.sync_resolver import SyncResolver
 
 
-@pytest.mark.asyncio
-async def test_non_priority_cannot_drain_below_reserve():
-    bucket = TokenBucketRateLimiter(capacity=10.0, refill_rate=0.0, reserve=3.0)
-    for _ in range(7):  # 10 -> 3
-        assert await bucket.consume(1.0, priority=False)
-    assert not await bucket.consume(1.0, priority=False)  # blocked at the reserve
-    assert bucket.tokens == pytest.approx(3.0)
-
-
-@pytest.mark.asyncio
-async def test_priority_may_use_tokens_below_the_reserve():
-    bucket = TokenBucketRateLimiter(capacity=10.0, refill_rate=0.0, reserve=3.0)
-    for _ in range(7):
-        assert await bucket.consume(1.0, priority=False)
-    # Tier-2 (priority) can spend the reserved tokens and below.
-    for _ in range(3):
-        assert await bucket.consume(1.0, priority=True)
-    assert bucket.tokens == pytest.approx(0.0)
-    assert not await bucket.consume(1.0, priority=True)
-
-
-@pytest.mark.asyncio
-async def test_priority_ignores_reserve_entirely():
-    bucket = TokenBucketRateLimiter(capacity=5.0, refill_rate=0.0, reserve=5.0)
-    assert not await bucket.consume(1.0, priority=False)  # floor == capacity
-    assert await bucket.consume(1.0, priority=True)
-    assert bucket.tokens == pytest.approx(4.0)
-
-
-@pytest.mark.asyncio
-async def test_default_reserve_zero_preserves_legacy_behavior():
-    bucket = TokenBucketRateLimiter(capacity=5.0, refill_rate=0.0)
-    assert bucket.reserve == 0.0
-    for _ in range(5):
-        assert await bucket.consume(1.0)  # default non-priority, floor 0
-    assert not await bucket.consume(1.0)
-
-
-@pytest.mark.asyncio
-async def test_synthesis_cannot_starve_tier2():
-    resolver = SyncResolver(client=MagicMock(), enable_semantic_triage=True)
-    resolver._tier2_rate_limiter = TokenBucketRateLimiter(
-        capacity=5.0, refill_rate=0.0, reserve=3.0
+def test_rate_shares_sum_to_the_provider_quota():
+    assert sync_resolver.VERTEX_QUOTA_RPM == 300.0
+    assert sync_resolver.TIER2_RESERVED_RPM == 60.0
+    total_refill = (
+        sync_resolver.TIER2_RATE_LIMIT_REFILL_PER_S
+        + sync_resolver.SYNTHESIS_RATE_LIMIT_REFILL_PER_S
     )
-    # Synthesis drains to the reserve.
-    assert await resolver._tier2_rate_limiter.consume(1.0, priority=False)
-    assert await resolver._tier2_rate_limiter.consume(1.0, priority=False)
-    # Tier-2 still gets a token (priority); synthesis is now blocked.
-    assert await resolver._tier2_rate_limiter.consume(1.0, priority=True)
-    assert not await resolver._tier2_rate_limiter.consume(1.0, priority=False)
+    assert total_refill == pytest.approx(sync_resolver.VERTEX_QUOTA_RPM / 60.0)
+    assert sync_resolver.TIER2_RATE_LIMIT_REFILL_PER_S == pytest.approx(1.0)
+    assert sync_resolver.SYNTHESIS_RATE_LIMIT_REFILL_PER_S == pytest.approx(4.0)
+
+
+def test_resolver_builds_separate_tier2_and_synthesis_buckets():
+    resolver = SyncResolver(client=MagicMock(), enable_semantic_triage=True)
+    assert resolver._tier2_rate_limiter is not resolver._synthesis_rate_limiter
+    assert resolver._tier2_rate_limiter.refill_rate == pytest.approx(1.0)
+    assert resolver._synthesis_rate_limiter.refill_rate == pytest.approx(4.0)
+    assert resolver._tier2_rate_limiter is not resolver._rate_limiter
 
 
 @pytest.mark.asyncio
-async def test_inline_signature_skips_when_quota_is_reserved_for_tier2():
-    """When the shared Vertex quota is drained to the Tier-2 reserve, signature
-    synthesis yields (no Gemini call) rather than starving Tier-2."""
+async def test_synthesis_burst_cannot_drain_tier2_share():
     resolver = SyncResolver(client=MagicMock(), enable_semantic_triage=True)
-    resolver._tier2_rate_limiter = TokenBucketRateLimiter(
-        capacity=3.0, refill_rate=0.0, reserve=3.0
+    # Exhaust the synthesis share completely.
+    while await resolver._synthesis_rate_limiter.consume(1.0):
+        pass
+    # Tier-2's reserved share is untouched and still serves a call.
+    assert resolver._tier2_rate_limiter.tokens > 0
+    assert await resolver._tier2_rate_limiter.consume(1.0)
+
+
+@pytest.mark.asyncio
+async def test_tier2_burst_cannot_drain_synthesis_share():
+    resolver = SyncResolver(client=MagicMock(), enable_semantic_triage=True)
+    while await resolver._tier2_rate_limiter.consume(1.0):
+        pass
+    assert resolver._synthesis_rate_limiter.tokens > 0
+    assert await resolver._synthesis_rate_limiter.consume(1.0)
+
+
+@pytest.mark.asyncio
+async def test_inline_signature_skips_when_synthesis_share_exhausted():
+    resolver = SyncResolver(client=MagicMock(), enable_semantic_triage=True)
+    resolver._synthesis_rate_limiter = TokenBucketRateLimiter(
+        capacity=0.0, refill_rate=0.0
     )
     client = MagicMock()
     resolver.client = client
@@ -91,10 +78,10 @@ async def test_inline_signature_skips_when_quota_is_reserved_for_tier2():
 
 
 @pytest.mark.asyncio
-async def test_quarantine_refactoring_skips_when_quota_is_reserved_for_tier2():
+async def test_quarantine_refactoring_skips_when_synthesis_share_exhausted():
     resolver = SyncResolver(client=MagicMock(), enable_semantic_triage=True)
-    resolver._tier2_rate_limiter = TokenBucketRateLimiter(
-        capacity=3.0, refill_rate=0.0, reserve=3.0
+    resolver._synthesis_rate_limiter = TokenBucketRateLimiter(
+        capacity=0.0, refill_rate=0.0
     )
     aba = MagicMock()
     aba.triggerRefactoring = AsyncMock()
