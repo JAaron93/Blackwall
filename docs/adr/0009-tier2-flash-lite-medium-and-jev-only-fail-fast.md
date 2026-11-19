@@ -64,6 +64,18 @@ organization limit, ADR 0008) it throttled the path that Vertex does not bound.
    the bucket was empty is counted in `tier2_rate_limit_hits`. A call skipped
    because there is no Gemini client that can send a request spends no token and
    is counted in neither; its verdict reasoning says "no client".
+   > **Amended 2026-11-14, re-validated 2026-11-19 (TASK-F03, FR-08):** the "separate
+   > 300 RPM bucket" above was replaced by a rate-partition of the 300 RPM Vertex
+   > quota: Tier-2 gets a reserved 60 RPM share (refill 1/s, micro-burst capacity 2)
+   > and signature synthesis / ABA refactoring the remaining 240 RPM (refill 4/s,
+   > capacity 8), with separate refills summing to the provider quota. A shared
+   > 300-token bucket with a 60-token floor was rejected: burst + refill over-commits
+   > the provider window (Greptile P1). Tier-2 consumes its reserved share immediately
+   > before its Vertex call; synthesis/refactoring consume the remainder and skip
+   > gracefully when exhausted. An empty Tier-2 share still maps to Decision 6, and
+   > `tier2_calls` / `tier2_rate_limit_hits` keep their meaning. Live burst test with
+   > the production limiter: Tier-2 429 11/40 uncoordinated, 10/40 shared, 0/40
+   > partitioned (Open Item 2).
 6. **A Tier-2 that fired and returned no verdict QUARANTINEs an ALLOW** (resolves
    ADR 0008, Open Item 9). "No verdict" covers an empty Tier-2 bucket, a deadline
    miss, a malformed answer, a Vertex error or 429, and a missing Gemini client.
@@ -77,6 +89,11 @@ organization limit, ADR 0008) it throttled the path that Vertex does not bound.
    signature-synthesis call, and the judges use the same quota, none of which the
    Tier-2 bucket counts) until Tier-2 receives 429s. The message names the cause
    by a short static label and carries no provider text.
+   > **Amended 2026-11-14 (TASK-F03):** the last bypass vector above — other Gemini
+   > traffic draining the quota Tier-2 needs — is now mitigated by the rate-partition
+   > in Decision 5: synthesis/refactoring draw on a separate 240 RPM share and skip
+   > when it is exhausted, so they cannot 429 Tier-2. Decision 6's QUARANTINE stays
+   > the fail-closed floor for any Tier-2 abstention.
 7. **The live Tier-2 harness is committed** as `scripts/jev_tier2_eval.py`,
    reading only the committed class-blind data. It is dev tooling and CI never
    runs it.

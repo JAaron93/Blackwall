@@ -388,8 +388,9 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > window (Greptile P1). The re-run burst test (2026-11-19) exercises the production
   > `TokenBucketRateLimiter` and constants (Greptile P2): Tier-2 429 was 11/40
   > uncoordinated and 10/40 shared, vs **0/40 partitioned** (synthesis 92 ok, 36
-  > skips). FR-08 amended; rule 107 + `.greptile` synced; ADR 0009 OI2 records the
-  > figures. Tests: `tests/unit/test_vertex_quota_reservation.py`; methodology:
+  > skips). FR-08 amended; rule 107 + `.greptile` synced; ADR 0009 Decision 5 / OI2
+  > and ADR 0008 Directions (item 2) amended in the same change. Tests:
+  > `tests/unit/test_vertex_quota_reservation.py`; methodology:
   > `scripts/vertex_quota_burst_test.py`. The eval judges are eval-time (paced
   > separately), not a production hot-path consumer.
 * [x] **TASK-F04 [C1]: Make Tier-2 outages visible** (ADR 0009 OI1). Count Tier-2
