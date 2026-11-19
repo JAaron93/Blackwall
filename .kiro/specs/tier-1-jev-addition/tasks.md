@@ -390,8 +390,10 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > uncoordinated and 10/40 shared, vs **0/40 partitioned** (synthesis 92 ok, 36
   > skips). FR-08 amended; rule 107 + `.greptile` synced; ADR 0009 Decision 5 / OI2
   > and ADR 0008 Directions (item 2) amended in the same change. Tests:
-  > `tests/unit/test_vertex_quota_reservation.py`; methodology:
-  > `scripts/vertex_quota_burst_test.py`. The eval judges are eval-time (paced
+  > `tests/unit/test_vertex_quota_reservation.py`; methodology and committed raw
+  > result: `scripts/vertex_quota_burst_test.py` and
+  > `tests/eval/results/vertex_quota_runs/` (`burst_2026-11-19.json` + `manifest.json`,
+  > figures recomputed by `tests/unit/test_vertex_quota_burst_data.py`). The eval judges are eval-time (paced
   > separately), not a production hot-path consumer.
 * [x] **TASK-F04 [C1]: Make Tier-2 outages visible** (ADR 0009 OI1). Count Tier-2
   "no verdict" outcomes by reason in `SyncResolverMetrics` (today only

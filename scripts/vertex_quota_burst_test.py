@@ -8,27 +8,48 @@ steady Tier-2 caller (band escalations) and a bursty signature-synthesis caller
 (BLOCK waves) against the real flash-lite Vertex quota (~300 RPM). Measures, per
 policy: actual 429s from Vertex and caller skips (bucket starvation). Real calls,
 small prompts. Project id is read from env at runtime, never written to output.
+
+Pass ``--out tests/eval/results/vertex_quota_runs/<date>.json`` to persist a
+machine-readable result: the counters, the production constants and the model,
+with no project id or credentials. Add every persisted file to that directory's
+``manifest.json`` and keep ``tests/unit/test_vertex_quota_burst_data.py`` green.
 """
+import argparse
 import asyncio
+import json
 import os
 import time
 from collections import Counter
+from datetime import UTC, datetime
+from pathlib import Path
 
 from dotenv import dotenv_values
-
-for k, v in dotenv_values(".env").items():
-    if v is not None:
-        os.environ[k] = v
-for p in ("NO_PROXY", "no_proxy", "ALL_PROXY", "all_proxy"):
-    os.environ.pop(p, None)
-
 from google import genai
 from google.genai import types
 
 from blackwall import sync_resolver as sr
 from blackwall.resolver import TokenBucketRateLimiter
 
-client = genai.Client(vertexai=True, project=os.environ["GCP_PROJECT"], location="global")
+client = None  # created in main(), so this module can be imported for hermetic tests
+
+
+def load_environment():
+    """Apply runtime env setup only when the script is actually run.
+
+    Importing this module for hermetic tests must not mutate the shared process
+    environment (proxy settings, values from .env).
+    """
+    for k, v in dotenv_values(".env").items():
+        if v is not None:
+            os.environ[k] = v
+    for p in ("NO_PROXY", "no_proxy", "ALL_PROXY", "all_proxy"):
+        os.environ.pop(p, None)
+
+
+def make_client():
+    return genai.Client(vertexai=True, project=os.environ["GCP_PROJECT"], location="global")
+
+
 MODEL = "gemini-3.5-flash-lite"
 QUOTA_RPS = sr.VERTEX_QUOTA_RPM / 60.0   # 5/s ~ 300 RPM
 DURATION = 40.0          # seconds per policy
@@ -111,10 +132,71 @@ async def run_policy(policy):
     return stats
 
 
+STANDARD_COUNTERS = ("attempts", "sent", "ok", "429", "skipped")
+
+
+def normalize_counters(stats):
+    """Return stats with every standard counter present, explicit zeros included.
+
+    A ``Counter`` omits keys that were never incremented; a JSON export must not
+    inherit that, or a fresh run cannot be checked against the committed schema.
+    Unexpected outcome keys (error classes) are preserved.
+    """
+    normalized = {name: stats.get(name, 0) for name in STANDARD_COUNTERS}
+    normalized.update({key: value for key, value in stats.items() if key not in STANDARD_COUNTERS})
+    return normalized
+
+
+def build_artifact(results, now):
+    """Return the credential-free, machine-readable record of one burst run."""
+    return {
+        "schema_version": 1,
+        "generated_at": now.isoformat(),
+        "script": "scripts/vertex_quota_burst_test.py",
+        "model": MODEL,
+        "location": "global",
+        "quota_rpm": sr.VERTEX_QUOTA_RPM,
+        "duration_s": DURATION,
+        "demand": {
+            "tier2_rps": TIER2_RPS,
+            "synthesis_burst_rps": SYNTH_BURST_RPS,
+            "synthesis_burst_on_s": SYNTH_BURST_ON,
+            "synthesis_burst_off_s": SYNTH_BURST_OFF,
+        },
+        "constants": {
+            "tier2_reserved_rpm": sr.TIER2_RESERVED_RPM,
+            "tier2_capacity": sr.TIER2_RATE_LIMIT_CAPACITY,
+            "tier2_refill_per_s": sr.TIER2_RATE_LIMIT_REFILL_PER_S,
+            "synthesis_capacity": sr.SYNTHESIS_RATE_LIMIT_CAPACITY,
+            "synthesis_refill_per_s": sr.SYNTHESIS_RATE_LIMIT_REFILL_PER_S,
+        },
+        "policies": {
+            policy: {name: normalize_counters(stats) for name, stats in callers.items()}
+            for policy, callers in results.items()
+        },
+        "note": (
+            "Aggregate counters only; no project id, credentials or response bodies. "
+            "Each policy ran after a 65s quiet window against the live flash-lite quota."
+        ),
+    }
+
+
 async def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--out", type=Path, default=None,
+        help="Write a machine-readable result JSON here (recommended: "
+             "tests/eval/results/vertex_quota_runs/<date>.json).",
+    )
+    global client
+    load_environment()
+    client = make_client()
+    args = parser.parse_args()
+    results = {}
     for policy in ("uncoordinated", "shared", "reserved"):
         await asyncio.sleep(65)  # fresh per-minute Vertex quota window before each policy
         stats = await run_policy(policy)
+        results[policy] = {name: dict(s) for name, s in stats.items()}
         print(f"\n== {policy} ==", flush=True)
         for name in ("tier2", "synthesis"):
             s = stats[name]
@@ -124,6 +206,14 @@ async def main():
                   f"ok={s['ok']} 429={s['429']} skipped={s['skipped']} "
                   f"other={other}",
                   flush=True)
+    if args.out is not None:
+        artifact = build_artifact(results, datetime.now(UTC))
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(
+            json.dumps(artifact, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        print(f"Wrote {args.out}", flush=True)
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

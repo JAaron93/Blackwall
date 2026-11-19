@@ -73,7 +73,7 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
 Detailed architectural, security, database persistence, and testing hygiene rules are modularized under `.agents/rules/`:
 
 * [`architecture_and_security.md`](.agents/rules/architecture_and_security.md): DSN log privacy, atomic DB transactions, explicit connection error escalation, credential purging, and import handling.
-* [`testing_and_hygiene.md`](.agents/rules/testing_and_hygiene.md): SLA warmup benchmarking, audit hook isolation, BDD `run_async` step execution, Pydantic model validation, Pytest asyncio scoping, and property test isolation.
+* [`testing_and_hygiene.md`](.agents/rules/testing_and_hygiene.md): SLA warmup benchmarking, audit hook isolation, BDD `run_async` step execution, Pydantic model validation, Pytest asyncio scoping, property test isolation, and empirical evidence recording etiquette (committed JSON + manifest + recomputation test).
 
 ---
 
@@ -98,6 +98,14 @@ Agents updating or expanding project rules (e.g. via `/learn` or code review res
    - Rulebooks (`AGENTS.md`, `.agents/rules/**`, `.greptile/rules.md`, README claims) and review directives MUST reference version *series* only (e.g. "the legacy pytest major line"). Quoting package floors/ceilings in prose is prohibited — they age into falsehood (precedent, 2026-11 audit: the transitive-bump rule quoted the era google-adk cap `opentelemetry-api<=1.44` while the active google-adk 2.14.0 release already declares `<=1.45.2,>=1.39`; the test-hygiene rule quoted a `pytest>=8.0.0` floor while the manifest had drifted to `>=8.4.2`).
    - Exceptions: archived specs (`.kiro/specs/**`) and dated architecture decision records (`docs/adr/**`) are immutable historical snapshots and may quote era-specific versions; within living rulebooks, historical numbers may appear ONLY when explicitly labeled as dated drift evidence.
    - PR discipline: a diff that changes a manifest constraint MUST NOT also edit rule-prose version numbers (and vice versa); dependency PRs MUST verify resolvability (`uv lock`, `cargo check`, per ecosystem, of the affected packages against the manifest) before commit.
+
+6. **Empirical Evidence Integrity (Cluster 2 / calibration tasks):**
+   - A published figure from an empirical or calibration task is valid evidence ONLY when it is backed by a committed machine-readable artifact under `tests/eval/results/`, a `manifest.json` recording its provenance and discarded runs, and a hermetic recomputation test that derives the published numbers from those rows.
+   - Prose-only figures, stdout-only measurement scripts, and results whose pointer chain (task note → ADR section → manifest → artifact → recomputation test) is not documented do not satisfy this invariant. The detailed etiquette lives in `.agents/rules/testing_and_hygiene.md` §80.
+
+7. **C2 Task Completion Answers Its Telos:**
+   - When an agent flips a `[C2]` or `[hybrid]` task from `[ ]` to `[x]` in `.kiro/specs/**/tasks.md`, it MUST append a dated note to that task recording: the Telos question, whether the Hypothesis was validated / invalidated / remains unmeasured (with the deciding figures), the decision the evidence informs (including any maintainer decision), and the artifact-chain pointer required by item 6.
+   - A C2 task MUST NOT be marked complete on engineering deliverables alone: an unmeasured hypothesis means the task stays open or is re-scoped. This note is the durable record that lets a later agent tell what was learned without re-running the experiment.
 
 ---
 

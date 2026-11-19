@@ -498,7 +498,10 @@ Reading it:
    > because its 300-token burst plus 5/s refill over-commits the provider window;
    > only the partition bounds burst and refill together. The Jev front bucket
    > (80 req/s) is unchanged. FR-08 amended; rule 107 and `.greptile` synced;
-   > mechanism pinned by `tests/unit/test_vertex_quota_reservation.py`.
+   > mechanism pinned by `tests/unit/test_vertex_quota_reservation.py`. The raw
+   > counters are committed in `tests/eval/results/vertex_quota_runs/burst_2026-11-19.json`
+   > with provenance and discarded runs in that directory's `manifest.json`; every
+   > figure above is recomputed by `tests/unit/test_vertex_quota_burst_data.py`.
 3. **The Tier-2 prompt interpolated the tool name, arguments and metadata
    unseparated.** Whether text inside a tool call can steer the arbiter's
    verdict was unmeasured. Tier-2's ALLOW is final unless aggregation

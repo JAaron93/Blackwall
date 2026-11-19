@@ -202,3 +202,27 @@ The **Jev release comparison** cell overlays per-case `P(threat)` from the runs 
 ### Production integration status
 
 Jev is wired into the interception path as the Tier-1 **System-1** classifier (ADR 0006): `JevTriageBackend` evaluates every novel tool call through the `SemanticTriageProvider` seam with the fixed `0.35/0.75` band, a single 429/529 retry and then `JevUnavailableError` (no fallback, ADR 0009), and structured `jev_triage` observability records. Ambiguous calls escalate to **Tier-2** Gemini 3.5 Flash-Lite at a pinned medium thinking level, which returns the final ALLOW/BLOCK verdict (deterministic BLOCKs always win — aggregation supremacy). There is no backend selection: Jev is the only Tier-1 backend. The TASK-D02 live golden re-run (167 cases) is done and recorded in ADR 0008 together with the Tier-2 fire rate. BDD acceptance for the wired pipeline lives in `tests/features/jev_tier1_triage.feature`.
+
+## 8. Vertex Quota Burst Calibration Artifacts (TASK-F03)
+
+The shared-quota decision (FR-08, ADR 0009 Open Item 2) keeps its raw measurement in
+`tests/eval/results/vertex_quota_runs/`. `manifest.json` records the method, the production
+constants, the three policies (uncoordinated / one shared bucket / shipped rate-partition),
+and the invalid 403 runs that were discarded. `burst_2026-11-19.json` holds the per-policy,
+per-caller counters (attempts, sent, ok, 429, skipped). ADR 0009 OI2 cites those figures;
+`tests/unit/test_vertex_quota_burst_data.py` recomputes every published number from the
+committed counters without network access and checks that no project id or credential
+leaked into the artifacts.
+
+To reproduce against the live paid Vertex quota (spends money; needs `GCP_PROJECT` and ADC):
+
+```bash
+GCP_PROJECT=<from .env> .venv/bin/python scripts/vertex_quota_burst_test.py \
+  --out tests/eval/results/vertex_quota_runs/<date>.json
+```
+
+Read `GCP_PROJECT` with `dotenv_values` instead of extracting a quoted shell value: a
+quoted project id yields HTTP 403 `CONSUMER_INVALID` and an all-error run. After any run,
+list its file in the manifest (including discarded runs with their reasons) and keep the
+recomputation test green. The full recording etiquette is in
+`.agents/rules/testing_and_hygiene.md` §80.
