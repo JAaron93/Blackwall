@@ -103,6 +103,10 @@ Agents updating or expanding project rules (e.g. via `/learn` or code review res
    - A published figure from an empirical or calibration task is valid evidence ONLY when it is backed by a committed machine-readable artifact under `tests/eval/results/`, a `manifest.json` recording its provenance and discarded runs, and a hermetic recomputation test that derives the published numbers from those rows.
    - Prose-only figures, stdout-only measurement scripts, and results whose pointer chain (task note → ADR section → manifest → artifact → recomputation test) is not documented do not satisfy this invariant. The detailed etiquette lives in `.agents/rules/testing_and_hygiene.md` §80.
 
+7. **C2 Task Completion Answers Its Telos:**
+   - When an agent flips a `[C2]` or `[hybrid]` task from `[ ]` to `[x]` in `.kiro/specs/**/tasks.md`, it MUST append a dated note to that task recording: the Telos question, whether the Hypothesis was validated / invalidated / remains unmeasured (with the deciding figures), the decision the evidence informs (including any maintainer decision), and the artifact-chain pointer required by item 6.
+   - A C2 task MUST NOT be marked complete on engineering deliverables alone: an unmeasured hypothesis means the task stays open or is re-scoped. This note is the durable record that lets a later agent tell what was learned without re-running the experiment.
+
 ---
 
 ## 7. Antigravity 2.0 CLI-First Architecture & Tool Governance
