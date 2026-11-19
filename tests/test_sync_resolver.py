@@ -274,13 +274,14 @@ async def test_inline_signature_generation_after_block():
 async def test_sync_resolver_rate_limit_defaults():
     """
     Verify the SyncResolver front bucket matches Jev's 80 req/s organization
-    limit and the Tier-2 bucket matches Vertex's 300 RPM (ADR 0009).
+    limit and the Vertex quota is rate-partitioned (Tier-2 reserved share +
+    synthesis remainder summing to 300 RPM; ADR 0009, TASK-F03).
     """
     resolver = _make_resolver()
     assert resolver._rate_limiter.capacity == 80.0
     assert resolver._rate_limiter.refill_rate == 80.0
-    assert resolver._tier2_rate_limiter.capacity == 300.0
-    assert resolver._tier2_rate_limiter.refill_rate == 5.0
+    assert resolver._tier2_rate_limiter.refill_rate == 1.0
+    assert resolver._synthesis_rate_limiter.refill_rate == 4.0
 
 
 @pytest.mark.asyncio

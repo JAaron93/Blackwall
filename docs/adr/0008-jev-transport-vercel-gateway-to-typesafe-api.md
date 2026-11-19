@@ -441,6 +441,16 @@ Tier-1 Jev calls the official TypeSafe AI API directly. Everything else in ADR
    needs its own spec amendment with a same-change sync of AGENTS.md, the rules and
    `.greptile/`. It should wait for TASK-D04: while the default backend is gemini,
    the front bucket is Tier-1's guard.
+
+   **Amended 2026-11-14, re-validated 2026-11-19 (TASK-F03, FR-08):** the direction
+   above was implemented and then refined. The front bucket is 80 req/s (Jev's
+   organization limit), and the 300 RPM Vertex quota is rate-partitioned — a
+   reserved 60 RPM share for Tier-2 (refill 1/s, micro-burst 2) and the remaining
+   240 RPM for signature synthesis / ABA refactoring (refill 4/s, micro-burst 8) —
+   rather than a single 300 RPM bucket guarding only the Tier-2 call. This keeps
+   uncounted synthesis from exhausting the shared provider quota and 429-ing
+   Tier-2. See ADR 0009 Decision 5 and Open Item 2 for the change and its live
+   burst-test figures.
 3. **C2 beacons stay the weak class, and the drop is a release effect.** The
    pinned runs on one transport show the C2-class mean falling from 0.698
    (`jev-1.13.0`) to 0.633 (`jev-1.14.0`), and the Gateway-era agreement rules out

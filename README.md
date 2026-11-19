@@ -274,7 +274,7 @@ F1 Score (Malicious):     100.0%
 | **Primary Class** | `SyncResolver` | `ADKIntegration` / `BatchResolver` |
 | **API Method** | Tier-1 Jev: `POST /v1/systemone` (official TypeSafe AI API); Tier-2: Gemini 3.5 Flash-Lite via `client.models.generate_content()` | `client.interactions.create()` |
 | **Batching** | None (1 req / interception) | Yes (up to 5 reqs / batch) |
-| **Rate Limit** | 80 req/s front bucket (Jev org limit) plus a 300 RPM bucket on the Tier-2 Vertex call | 300 RPM (token bucket) |
+| **Rate Limit** | 80 req/s front bucket (Jev org limit) plus a rate-partitioned 300 RPM Vertex quota: 60 RPM reserved for Tier-2, 240 RPM for signature synthesis / refactoring | 300 RPM (token bucket) |
 | **Context Caching** | None | Server-side (`previous_interaction_id`) |
 | **Threat Intel / CBM Queries** | Awaits CBM, then conditionally awaits Threat Intel (high-risk only) | Batched API evaluation without inline MCP gather |
 | **Signature Generation** | Asynchronous background task (`loop.create_task`) | Asynchronous background task / webhook |

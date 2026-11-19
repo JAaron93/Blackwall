@@ -47,13 +47,14 @@ def test_front_bucket_matches_the_jev_org_limit():
     assert resolver._rate_limiter.refill_rate == 80.0
 
 
-def test_tier2_bucket_matches_the_vertex_limit():
-    assert sync_resolver.TIER2_RATE_LIMIT_CAPACITY == 300.0
-    assert sync_resolver.TIER2_RATE_LIMIT_REFILL_PER_S == 5.0
+def test_tier2_bucket_matches_the_reserved_vertex_share():
+    assert sync_resolver.VERTEX_QUOTA_RPM == 300.0
+    assert sync_resolver.TIER2_RESERVED_RPM == 60.0
+    assert sync_resolver.TIER2_RATE_LIMIT_REFILL_PER_S == pytest.approx(1.0)
     resolver = SyncResolver(client=None)
-    assert resolver._tier2_rate_limiter.capacity == 300.0
-    assert resolver._tier2_rate_limiter.refill_rate == 5.0
+    assert resolver._tier2_rate_limiter.refill_rate == pytest.approx(1.0)
     assert resolver._tier2_rate_limiter is not resolver._rate_limiter
+    assert resolver._tier2_rate_limiter is not resolver._synthesis_rate_limiter
 
 
 @pytest.mark.asyncio

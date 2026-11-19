@@ -1,0 +1,129 @@
+"""F03 burst test: 429 + Tier-2 starvation under uncoordinated/shared/reserved quota.
+
+Exercises the PRODUCTION ``TokenBucketRateLimiter`` with the production constants
+from ``blackwall.sync_resolver`` so the comparison validates the shipped policy.
+The ``reserved`` policy is the shipped rate-partition (Tier-2 reserved share +
+synthesis remainder, separate refills summing to the provider quota). Simulates a
+steady Tier-2 caller (band escalations) and a bursty signature-synthesis caller
+(BLOCK waves) against the real flash-lite Vertex quota (~300 RPM). Measures, per
+policy: actual 429s from Vertex and caller skips (bucket starvation). Real calls,
+small prompts. Project id is read from env at runtime, never written to output.
+"""
+import asyncio
+import os
+import time
+from collections import Counter
+
+from dotenv import dotenv_values
+
+for k, v in dotenv_values(".env").items():
+    if v is not None:
+        os.environ[k] = v
+for p in ("NO_PROXY", "no_proxy", "ALL_PROXY", "all_proxy"):
+    os.environ.pop(p, None)
+
+from google import genai
+from google.genai import types
+
+from blackwall import sync_resolver as sr
+from blackwall.resolver import TokenBucketRateLimiter
+
+client = genai.Client(vertexai=True, project=os.environ["GCP_PROJECT"], location="global")
+MODEL = "gemini-3.5-flash-lite"
+QUOTA_RPS = sr.VERTEX_QUOTA_RPM / 60.0   # 5/s ~ 300 RPM
+DURATION = 40.0          # seconds per policy
+TIER2_RPS = 1.0          # steady band-escalation demand (60 RPM)
+SYNTH_BURST_RPS = 8.0    # synthesis burst demand
+SYNTH_BURST_ON = 4.0     # burst length
+SYNTH_BURST_OFF = 8.0    # idle between bursts
+
+
+async def call():
+    try:
+        await client.aio.models.generate_content(
+            model=MODEL, contents="Reply OK.",
+            config=types.GenerateContentConfig(max_output_tokens=5),
+        )
+        return "ok"
+    except Exception as e:  # noqa: BLE001
+        return "429" if getattr(e, "code", None) == 429 else type(e).__name__
+
+
+async def caller(name, demand_rps, bucket, stats, t_start, bursty=False):
+    interval = 1.0 / demand_rps
+    end = time.monotonic() + DURATION
+    tasks = []
+
+    async def do_call():
+        res = await call()
+        stats[name][res] += 1
+
+    while time.monotonic() < end:
+        if bursty:
+            phase = (time.monotonic() - t_start) % (SYNTH_BURST_ON + SYNTH_BURST_OFF)
+            if phase >= SYNTH_BURST_ON:
+                await asyncio.sleep(0.05)
+                continue
+        stats[name]["attempts"] += 1
+        if bucket is None or await bucket.consume(1.0):
+            stats[name]["sent"] += 1
+            tasks.append(asyncio.create_task(do_call()))
+        else:
+            stats[name]["skipped"] += 1
+        await asyncio.sleep(interval)
+    if tasks:
+        await asyncio.gather(*tasks)
+
+
+async def run_policy(policy):
+    stats = {"tier2": Counter(), "synthesis": Counter()}
+    if policy == "uncoordinated":
+        # Tier-2 own full bucket; synthesis uncounted (the pre-F03 bug).
+        t2 = TokenBucketRateLimiter(capacity=sr.VERTEX_QUOTA_RPM, refill_rate=QUOTA_RPS)
+        syn = None
+    elif policy == "shared":
+        # One shared bucket (over-commits the provider window: burst + refill).
+        shared = TokenBucketRateLimiter(capacity=sr.VERTEX_QUOTA_RPM, refill_rate=QUOTA_RPS)
+        t2 = syn = shared
+    elif policy == "reserved":
+        # The shipped rate-partition: production constants, separate refills.
+        t2 = TokenBucketRateLimiter(
+            capacity=sr.TIER2_RATE_LIMIT_CAPACITY,
+            refill_rate=sr.TIER2_RATE_LIMIT_REFILL_PER_S,
+        )
+        syn = TokenBucketRateLimiter(
+            capacity=sr.SYNTHESIS_RATE_LIMIT_CAPACITY,
+            refill_rate=sr.SYNTHESIS_RATE_LIMIT_REFILL_PER_S,
+        )
+    t_start = time.monotonic()
+    await asyncio.gather(
+        caller("tier2", TIER2_RPS, t2, stats, t_start),
+        caller("synthesis", SYNTH_BURST_RPS, syn, stats, t_start, bursty=True),
+    )
+    # Guard against invalid runs (bad ADC/project/network/model): if a caller got
+    # no Vertex response at all, the 429 comparison is meaningless. Fail loudly.
+    for name, s in stats.items():
+        if s["ok"] + s["429"] == 0:
+            raise RuntimeError(
+                f"{policy}/{name}: no Vertex responses ({dict(s)}). "
+                "Check GCP_PROJECT / ADC / model availability."
+            )
+    return stats
+
+
+async def main():
+    for policy in ("uncoordinated", "shared", "reserved"):
+        await asyncio.sleep(65)  # fresh per-minute Vertex quota window before each policy
+        stats = await run_policy(policy)
+        print(f"\n== {policy} ==", flush=True)
+        for name in ("tier2", "synthesis"):
+            s = stats[name]
+            other = {k: v for k, v in s.items()
+                     if k not in ("attempts", "sent", "ok", "429", "skipped")}
+            print(f"  {name}: attempts={s['attempts']} sent={s['sent']} "
+                  f"ok={s['ok']} 429={s['429']} skipped={s['skipped']} "
+                  f"other={other}",
+                  flush=True)
+
+
+asyncio.run(main())

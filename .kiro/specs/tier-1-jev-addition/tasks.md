@@ -241,7 +241,8 @@ done or needs re-scoping, not more code.
   `JevUnavailableError` on any failure; Tier-1 no longer needs a Gemini client.
   Tests: `tests/unit/test_jev_fail_fast.py`, `tests/features/jev_tier1_triage.feature`.
 * [x] **TASK-E03 [C1]: Two rate limits, and Tier-2 unavailable** (FR-03, FR-08).
-  80 req/s front bucket; 300 RPM Tier-2 bucket; a Tier-2 that fired and
+  80 req/s front bucket; 300 RPM Vertex quota rate-partitioned (F03) into a reserved
+  60 RPM Tier-2 share and a 240 RPM synthesis share; a Tier-2 that fired and
   returned no verdict (empty bucket, deadline, malformed answer, Vertex error or
   429, no client) QUARANTINEs an ALLOW and leaves a BLOCK alone.
   Tests: `tests/unit/test_sync_resolver_rate_limits.py`,
@@ -370,11 +371,28 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > altered the egress payload/calibration without evidence — a Cluster 2 change
   > shipped without validation. The Tier-1 steering path stays open empirical work
   > (coupled to TASK-F10); validate live before proposing any guard.
-* [ ] **TASK-F03 [C1]: Account for the shared Vertex quota** (ADR 0009 OI2). Signature
+* [x] **TASK-F03 [C1]: Account for the shared Vertex quota** (ADR 0009 OI2). Signature
   synthesis, the judges and other Gemini calls share the project quota that
   Tier-2 depends on and are not counted by the Tier-2 bucket. Decide between one
   shared budget and a reservation for Tier-2, then implement it with tests.
   Needs a maintainer decision first (amend FR-08).
+  > **Done 2026-11-14; re-validated 2026-11-19.** Maintainer-delegated decision:
+  > the 300 RPM Vertex quota is rate-partitioned — a reserved share for Tier-2
+  > (`TIER2_RESERVED_RPM`, default 60 RPM; refill 1/s, micro-burst 2) and the
+  > remainder for signature synthesis/ABA refactoring (refill 4/s, micro-burst 8),
+  > with separate refills summing to the provider quota. Tier-2 consumes its share
+  > immediately before its Vertex call; synthesis (`_inline_generate_signature`)
+  > and ABA refactoring (`_handle_quarantine_refactoring`) consume the remainder
+  > and skip gracefully when it is exhausted. A shared 300-token bucket with a
+  > 60-token floor was rejected: burst + refill still over-commits the provider
+  > window (Greptile P1). The re-run burst test (2026-11-19) exercises the production
+  > `TokenBucketRateLimiter` and constants (Greptile P2): Tier-2 429 was 11/40
+  > uncoordinated and 10/40 shared, vs **0/40 partitioned** (synthesis 92 ok, 36
+  > skips). FR-08 amended; rule 107 + `.greptile` synced; ADR 0009 Decision 5 / OI2
+  > and ADR 0008 Directions (item 2) amended in the same change. Tests:
+  > `tests/unit/test_vertex_quota_reservation.py`; methodology:
+  > `scripts/vertex_quota_burst_test.py`. The eval judges are eval-time (paced
+  > separately), not a production hot-path consumer.
 * [x] **TASK-F04 [C1]: Make Tier-2 outages visible** (ADR 0009 OI1). Count Tier-2
   "no verdict" outcomes by reason in `SyncResolverMetrics` (today only
   `tier2_rate_limit_hits` exists) so an operator can see the QUARANTINEs that
