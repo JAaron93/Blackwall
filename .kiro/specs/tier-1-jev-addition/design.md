@@ -155,9 +155,12 @@ Gemini (3.5 Flash-Lite, medium) fires only on: (a) ambiguity band, (b) determini
 disagreement (high-risk argument novelty vs `P < 0.2`), (c) async forensics.
 Expected Tier-2 rate: ~0% on routine suites, ~30% on hard evasion probes
 (measured). This is the cost control: Gemini deep reasoning spends only where
-judgment exists. A 300 RPM bucket guards only the Tier-2 call; Tier-2 returning no verdict
-for any reason (including an empty bucket) QUARANTINEs an ALLOW (FR-03). The
-front bucket is 80 req/s.
+judgment exists. The 300 RPM Vertex quota is rate-partitioned (TASK-F03, FR-08):
+a reserved 60 RPM share guards the Tier-2 call (refill 1/s, micro-burst capacity 2)
+and the remaining 240 RPM serves signature synthesis / ABA refactoring (refill 4/s,
+micro-burst capacity 8), which skip gracefully when their share is exhausted. Tier-2
+returning no verdict for any reason (including an empty reserved bucket) QUARANTINEs
+an ALLOW (FR-03). The front bucket is 80 req/s (TypeSafe Jev, a separate quota).
 
 ### 4. Privacy & Data Handling
 

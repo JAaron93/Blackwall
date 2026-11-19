@@ -241,7 +241,8 @@ done or needs re-scoping, not more code.
   `JevUnavailableError` on any failure; Tier-1 no longer needs a Gemini client.
   Tests: `tests/unit/test_jev_fail_fast.py`, `tests/features/jev_tier1_triage.feature`.
 * [x] **TASK-E03 [C1]: Two rate limits, and Tier-2 unavailable** (FR-03, FR-08).
-  80 req/s front bucket; 300 RPM Tier-2 bucket; a Tier-2 that fired and
+  80 req/s front bucket; 300 RPM Vertex quota rate-partitioned (F03) into a reserved
+  60 RPM Tier-2 share and a 240 RPM synthesis share; a Tier-2 that fired and
   returned no verdict (empty bucket, deadline, malformed answer, Vertex error or
   429, no client) QUARANTINEs an ALLOW and leaves a BLOCK alone.
   Tests: `tests/unit/test_sync_resolver_rate_limits.py`,
