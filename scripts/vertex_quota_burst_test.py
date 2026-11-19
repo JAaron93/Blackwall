@@ -37,7 +37,13 @@ from google.genai import types
 from blackwall import sync_resolver as sr
 from blackwall.resolver import TokenBucketRateLimiter
 
-client = genai.Client(vertexai=True, project=os.environ["GCP_PROJECT"], location="global")
+client = None  # created in main(), so this module can be imported for hermetic tests
+
+
+def make_client():
+    return genai.Client(vertexai=True, project=os.environ["GCP_PROJECT"], location="global")
+
+
 MODEL = "gemini-3.5-flash-lite"
 QUOTA_RPS = sr.VERTEX_QUOTA_RPM / 60.0   # 5/s ~ 300 RPM
 DURATION = 40.0          # seconds per policy
@@ -120,6 +126,21 @@ async def run_policy(policy):
     return stats
 
 
+STANDARD_COUNTERS = ("attempts", "sent", "ok", "429", "skipped")
+
+
+def normalize_counters(stats):
+    """Return stats with every standard counter present, explicit zeros included.
+
+    A ``Counter`` omits keys that were never incremented; a JSON export must not
+    inherit that, or a fresh run cannot be checked against the committed schema.
+    Unexpected outcome keys (error classes) are preserved.
+    """
+    normalized = {name: stats.get(name, 0) for name in STANDARD_COUNTERS}
+    normalized.update({key: value for key, value in stats.items() if key not in STANDARD_COUNTERS})
+    return normalized
+
+
 def build_artifact(results, now):
     """Return the credential-free, machine-readable record of one burst run."""
     return {
@@ -143,7 +164,10 @@ def build_artifact(results, now):
             "synthesis_capacity": sr.SYNTHESIS_RATE_LIMIT_CAPACITY,
             "synthesis_refill_per_s": sr.SYNTHESIS_RATE_LIMIT_REFILL_PER_S,
         },
-        "policies": results,
+        "policies": {
+            policy: {name: normalize_counters(stats) for name, stats in callers.items()}
+            for policy, callers in results.items()
+        },
         "note": (
             "Aggregate counters only; no project id, credentials or response bodies. "
             "Each policy ran after a 65s quiet window against the live flash-lite quota."
@@ -158,6 +182,8 @@ async def main():
         help="Write a machine-readable result JSON here (recommended: "
              "tests/eval/results/vertex_quota_runs/<date>.json).",
     )
+    global client
+    client = make_client()
     args = parser.parse_args()
     results = {}
     for policy in ("uncoordinated", "shared", "reserved"):
@@ -182,4 +208,5 @@ async def main():
         print(f"Wrote {args.out}", flush=True)
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
