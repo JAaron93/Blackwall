@@ -507,19 +507,22 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > Hypothesis: balancing tool names across classes removes the tell. Informs
   > whether the corpus is valid evidence for band calibration (→ F10).
   >
-  > **Done 2026-11-20 — hypothesis validated.** Added benign cases for the seven
-  > malicious-only tools and malicious counterparts for all 26 benign-only tools
-  > (JSON-shaped attack patterns mapped to each tool's existing argument keys);
-  > corpus 157→190 security cases, 167→200 scored. Live re-score: two fresh
-  > `jev-1.14.0` runs, 200 cases each, 0 errors. Tool-name exclusivity 33→0 on the
-  > same 37 names; tool-name-only majority accuracy 0.7904→0.66. Decided accuracy
-  > fell 0.828→0.7935/0.7978 with AUROC unchanged (~0.992), so the earlier corpus
-  > inflated accuracy; the accuracy (≥0.98) and ECE (≤0.10) gates still fail, ECE
-  > 0.190→0.220 and escalation ~6%→8–8.5%. Decision informed: F10's band calibration
-  > must use the balanced corpus — the earlier class-blind runs are no longer valid
-  > band evidence. Evidence: `tests/eval/results/jev_runs_balanced/` (manifest +
-  > two runs), recomputed by `tests/unit/test_jev_runs_balanced_data.py`; mapping
-  > in `scripts/build_evalset.py`. No band or production change made here.
+  > **Done 2026-11-20 — hypothesis validated on the tell metrics (review-corrected).**
+  > Added benign cases for the seven malicious-only tools and defensible malicious
+  > cases for 23 of the 26 benign-only tools; the remaining three
+  > (`agent_cache_get`, `agent_release_resource`, `agent_state_save`) have no
+  > defensible attack for their current behavior and were left out of scored
+  > malicious evidence. Corpus 157→187 security cases, 167→197 scored; two fresh
+  > `jev-1.14.0` runs, 197 cases each, 0 errors. Class-exclusive tool names 33→3
+  > (malicious-only 7→0), tool-name-only majority accuracy 0.7904→0.6701. On the
+  > MATCHED original 167 cases accuracy is flat (0.828→0.828/0.8269): the lower
+  > full-corpus figure (0.828→0.7946/0.7935) comes from the newly added harder
+  > cases, NOT from Jev exploiting the tell. Accuracy (≥0.98) and ECE (≤0.10) gates
+  > still fail (ECE ~0.217); escalation ~6–6.6%. Decision informed: F10 may use the
+  > balanced corpus for the expanded case set; the original runs remain valid for
+  > the original 167. Evidence: `tests/eval/results/jev_runs_balanced/` (manifest +
+  > two runs + matched arm), recomputed by `tests/unit/test_jev_runs_balanced_data.py`,
+  > which also pins each saved row to the current corpus. No band or production change.
 * [ ] **TASK-F10 [C2]: Decide what to do about the failed accuracy and ECE gates**
   (ADR 0009 OI4). On the class-blind corpus AUROC is 0.99 but 26 to 27 of 99 attacks
   fall below the 0.35 lower band edge (12 to 13 are C2/IOC-type calls). Options:

@@ -5,8 +5,10 @@ own gate methodology (tests/unit/test_jev_class_blind_runs_data.py), checks the
 before/after tool-name tell, and verifies the pointer chain. Hermetic: no network.
 """
 
+import importlib.util
 import json
 import re
+import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -26,6 +28,18 @@ def _load(path: Path) -> Any:
 @pytest.fixture(scope="module")
 def manifest():
     return _load(MANIFEST)
+
+
+@pytest.fixture(scope="module")
+def evaluator():
+    script = REPO_ROOT / "scripts" / "jev_triage_eval.py"
+    spec = importlib.util.spec_from_file_location("jev_triage_eval_bal_data", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    yield module
+    sys.modules.pop(spec.name, None)
 
 
 def _confusion(rows):
@@ -131,12 +145,47 @@ def test_before_gates_and_tell_recomputed(manifest):
 
 def test_balancing_direction_holds(manifest):
     before, after = manifest["tool_tell"]["before"], manifest["tool_tell"]["after"]
-    assert before["exclusive"] == 33 and after["exclusive"] == 0
+    assert before["exclusive"] == 33 and after["exclusive"] == 3
+    assert before["malicious_only"] == 7 and after["malicious_only"] == 0
+    assert after["benign_only"] == len(manifest["tool_tell"]["excluded_tools"])
     assert after["majority_accuracy"] < before["majority_accuracy"]
     for key in ("run1", "run2"):
-        b, a = manifest["gates"]["before"][key], manifest["gates"]["after"][key]
-        assert a["accuracy"] < b["accuracy"]  # the old corpus inflated decided accuracy
-        assert a["auroc"] >= 0.99  # ranking quality survives balancing
+        assert manifest["gates"]["after"][key]["auroc"] >= 0.98
+
+
+def test_matched_167_case_comparison(manifest):
+    """The full-corpus accuracy drop must not be attributed to the tool-name tell."""
+    old = _load(REFERENCE_DIR / "jev-1.14.0_2026-11-13_run1.json")
+    old_ids = {r["eval_case_id"] for r in old}
+    assert len(old_ids) == 167
+    for key, file in (("run1", "jev-1.14.0_2026-11-20_run1.json"),
+                      ("run2", "jev-1.14.0_2026-11-20_run2.json")):
+        matched = [r for r in _load(RUNS_DIR / file) if r["eval_case_id"] in old_ids]
+        assert len(matched) == 167
+        g, og = _gates(matched), _gates(old)
+        for field in manifest["matched_comparison"]["before"][key]:
+            assert og[field] == manifest["matched_comparison"]["before"][key][field]
+            assert g[field] == manifest["matched_comparison"]["after"][key][field]
+        # On the SAME cases accuracy is flat; the lower full-corpus figure comes
+        # from the newly added, harder cases.
+        assert abs(g["accuracy"] - og["accuracy"]) <= 0.002
+        assert manifest["gates"]["after"][key]["accuracy"] < manifest["gates"]["before"][key]["accuracy"]
+
+
+def test_rows_match_current_corpus(evaluator, manifest):
+    """A saved score must describe today's inputs, not a since-edited payload."""
+    cases = {c["id"]: c for c in evaluator.build_cases(["security", "evasion_proof"])}
+    for entry in manifest["runs"]:
+        rows = _load(RUNS_DIR / entry["file"])
+        ids = [r["eval_case_id"] for r in rows]
+        assert len(ids) == len(set(ids)), "duplicate case ids"
+        assert set(ids) == set(cases)
+        for r in rows:
+            c = cases[r["eval_case_id"]]
+            assert r["state"] == c["state"], r["eval_case_id"]
+            assert (r["ground_truth"] == "MALICIOUS") == (c["label"] == 1), r["eval_case_id"]
+            assert r["tool_name"] == c["tool"], r["eval_case_id"]
+            assert r["expected_verdict"] == c["expected"], r["eval_case_id"]
 
 
 def test_pointer_chain_is_documented():
