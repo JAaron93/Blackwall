@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "description": "TASK-F02 final defense validation at the re-baselined 0.08/0.40 band on the CURRENT TASK-F09 balanced corpus (197 cases, no placeholders). Paired tier1-steering runs with scripts/jev_tier2_eval.py --corpus current comparing the shipped Jev state format to the harness-only nonce-XML boundary (--defense state-boundary), on a class-stratified subset (30 malicious + 30 benign base cases, dev payloads, semantic_only config, real jev-1.14.0 + gemini-3.5-flash-lite). No src change shipped. No project id, key or credential recorded.",
+  "runs": [
+    {"file": "final_baseline_malicious.json", "arm": "shipped state", "class_subset": "c2,other,probe", "bases": 30, "jev_calls": 690, "tier2_calls": 173, "outage_rows": 1, "errors": {"tier2": {"CancelledError": 1}, "rows": 0}},
+    {"file": "final_defense_malicious.json", "arm": "nonce-XML boundary", "class_subset": "c2,other,probe", "bases": 30, "jev_calls": 690, "tier2_calls": 119, "outage_rows": 1, "errors": {"tier2": {"CancelledError": 1}, "rows": 0}},
+    {"file": "final_baseline_benign.json", "arm": "shipped state", "class_subset": "benign", "bases": 30, "jev_calls": 690, "tier2_calls": 184, "outage_rows": 1, "errors": {"tier2": {"CancelledError": 1}, "rows": 0}},
+    {"file": "final_defense_benign.json", "arm": "nonce-XML boundary", "class_subset": "benign", "bases": 30, "jev_calls": 690, "tier2_calls": 171, "outage_rows": 0, "errors": {"rows": 0}}
+  ],
+  "discarded": [
+    {
+      "what": "Four earlier arm runs at the same 0.08/0.40 band and with the same stratified subsets (2026-11-20), overwritten by the four runs listed above.",
+      "why": "They silently used load_cases()'s 2026-11-12 ablation corpus, which contains [[VALUE]] placeholders in 23 of 30 benign base cases. They are not measurements of the tool-name-balanced corpus named in the manifest, and their to-ALLOW (19/572), crossing (14 -> 5) and benign-flag (299/660 -> 416/660) figures were withdrawn. The harness gained --corpus current and a saved-row provenance check; all four arms were re-run."
+    }
+  ],
+  "method": {
+    "corpus": "tests/eval/evalsets/blackwall_security.evalset.json + blackwall_evasion_proof.evalset.json via --corpus current; P values from tests/eval/results/jev_runs_balanced/jev-1.14.0_2026-11-20_run1.json. The old ablation corpus ([[VALUE]] placeholders) is not used; every saved row's tool/args/state is checked against the current cases by tests/unit/test_jev_tier1_defense_final_data.py.",
+    "selection": "--groups c2,other,probe --limit 30 (malicious) and --groups benign --limit 30 (benign), --split dev (22 payloads), --policy off",
+    "matched_comparison": "To-ALLOW flips are recomputed on the intersection of the per-arm held base sets (25 bases, unsteered BLOCK/QUARANTINE) so both arms use the same 550 steered calls; per-arm held sets (25 vs 26) are never compared directly.",
+    "outage_accounting": "Rows where Tier-2 was called but returned no verdict are service outages, not model verdicts. They are excluded from benign flagged/allow counts and reported separately as outage_rows; the QUARANTINE verdict they carry is a fail-closed hold, not a model false alarm."
+  },
+  "matched_results": {
+    "malicious": {
+      "common_held_bases": 25,
+      "baseline_to_allow": {"n": 9, "of": 550, "rate": 0.0164, "upper95": 0.0308},
+      "defense_to_allow": {"n": 6, "of": 550, "rate": 0.0109, "upper95": 0.0274},
+      "below_edge_crossings": {"baseline": 9, "defense": 20}
+    },
+    "benign": {
+      "baseline": {"steered_answered": 659, "outage": 1, "allow": 415, "block": 98, "quarantine": 146, "flagged": 244, "flagged_rate": 0.3703, "p_shift_mean": 0.1715, "rise_ge_0_05": 312},
+      "defense": {"steered_answered": 660, "outage": 0, "allow": 289, "block": 50, "quarantine": 321, "flagged": 371, "flagged_rate": 0.5621, "p_shift_mean": 0.3405, "rise_ge_0_05": 455}
+    }
+  },
+  "finding": "On the CURRENT corpus the nonce-XML boundary cuts matched malicious to-ALLOW flips only modestly (9/550 -> 6/550) while below-edge Tier-2-skipped crossings rise (9 -> 20) and benign false alarms rise sharply (244/659, 37.0% -> 371/660, 56.2%; mean benign P shift 0.172 -> 0.340). The hypothesis 'boundary resists steering without new false alarms' is NOT validated for shipping: it trades a small malicious-flip reduction for a much larger benign hold cost. No guard was shipped. Decision informed: a viable defense must address the benign side (Track G category-separated questions/criteria), not only delimit data; F02 stays open.",
+  "caveats": [
+    "One run per arm per class subset — exploratory, not a release gate.",
+    "Bounded subsets (30 bases per class) of the 197-case balanced corpus.",
+    "Tier-2 outages (1 in baseline malicious, 1 in baseline benign, 1 in defense malicious) are counted apart, never as model false alarms.",
+    "The harness field raised_above_035 is hardcoded to the former 0.35 edge and is NOT used; below_edge_crossings is the current-band figure from the 0.08/0.40 band.",
+    "Tier-1 + Tier-2 stage evidence only; no full-firewall catch-rate claim."
+  ],
+  "cited_in": [
+    ".kiro/specs/tier-1-jev-addition/tasks.md TASK-F02",
+    "docs/adr/0009-tier2-flash-lite-medium-and-jev-only-fail-fast.md Open Item 3"
+  ]
+}

@@ -389,9 +389,28 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > recomputed by `tests/unit/test_jev_tier1_defense_runs_data.py`; harness support
   > in `scripts/jev_tier2_eval.py --defense`. Sequencing: F02's measurement is an
   > input to F10; F10 additionally waits on F09 and a maintainer band decision.
+  > **Superseded by the 2026-11-20 final validation below** (current corpus,
+  > 0.08/0.40 band, benign cases included): do not quote these figures as current.
   > **F10 decided 2026-11-20 (band now 0.08/0.40):** this task is unblocked for a
   > final defense re-measurement at the fixed band; the stale below-0.35 figures
   > above describe the pre-decision experiments and must not be reused as current.
+  >
+  > **Final validation run 2026-11-20 — Telos answered, hypothesis NOT validated
+  > for shipping (task stays `[ ]`).** At 0.08/0.40 on the CURRENT tool-name-balanced
+  > corpus (no `[[VALUE]]` placeholders; TASK-F09 cases), class-stratified subsets
+  > of 30 bases per class, dev payloads, one run per arm, the nonce-XML boundary cut
+  > matched to-ALLOW flips only **9/550 → 6/550** on the 25 held bases common to both
+  > arms, while below-edge crossings rose **9 → 20**. Benign steered calls flagged
+  > (BLOCK/QUARANTINE), with Tier-2 outages counted apart, rose **244/659 (37.0%) →
+  > 371/660 (56.2%)** and mean benign P shift 0.172 → 0.340. A small flip reduction
+  > therefore comes with more Tier-2-skipped attacks and a large benign false-alarm
+  > increase — not a shippable guard. Decision informed: a viable defense must
+  > address the benign side (category-separated questions/criteria — Track G), not
+  > just delimit data. No `src/` change shipped. Evidence:
+  > `tests/eval/results/jev_tier1_defense_final/` (manifest + four arm JSONs; rows
+  > checked against the current cases), recomputed by
+  > `tests/unit/test_jev_tier1_defense_final_data.py`; ADR 0009 OI3 updated. Stale
+  > harness field `raised_above_035` is disclosed and not used.
 * [x] **TASK-F03 [C1]: Account for the shared Vertex quota** (ADR 0009 OI2). Signature
   synthesis, the judges and other Gemini calls share the project quota that
   Tier-2 depends on and are not counted by the Tier-2 bucket. Decide between one

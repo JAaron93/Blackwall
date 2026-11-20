@@ -628,7 +628,25 @@ Reading it:
    > shipping: it needs full re-calibration (Track G) plus F10's band decision; no
    > guard shipped.
    > Artifacts: `tests/eval/results/jev_tier1_defense_runs/` (manifest + two arms),
-   > recomputed by `tests/unit/test_jev_tier1_defense_runs_data.py`.
+   > recomputed by `tests/unit/test_jev_tier1_defense_runs_data.py`. **Superseded by
+   > the final 2026-11-20 validation below** (current corpus, 0.08/0.40 band, benign
+   > cases included); do not quote these figures as current.
+   >
+   > **Final validation 2026-11-20 (TASK-F02, at the F10 band 0.08/0.40).** The same
+   > harness-only boundary was re-run with `--corpus current` on the CURRENT
+   > tool-name-balanced corpus (no `[[VALUE]]` placeholders), on stratified subsets
+   > of 30 malicious + 30 benign bases, dev payloads, one run per arm. On the 25
+   > held bases common to both arms it cut to-ALLOW flips only **9/550 → 6/550**,
+   > while below-edge crossings rose **9 → 20**. Benign steered calls flagged
+   > (BLOCK/QUARANTINE), with Tier-2 outages counted apart, rose **244/659 (37.0%) →
+   > 371/660 (56.2%)** and mean benign P shift 0.172 → 0.340. The small malicious
+   > gain comes with more Tier-2-skipped attacks and a large benign false-alarm
+   > cost: the hypothesis is **not validated for shipping**, no guard was shipped,
+   > and a viable defense must address the benign side (Track G category-separated
+   > questions / criteria). Artifacts: `tests/eval/results/jev_tier1_defense_final/`
+   > (manifest + four arm JSONs; rows checked against the current cases), recomputed
+   > by `tests/unit/test_jev_tier1_defense_final_data.py`. Stale harness field
+   > `raised_above_035` is disclosed and not used.
 4. **What the class-blind result implies.** *(Wrapper template and payloads:
    done, see Verification.)* On the class-blind corpus the accuracy and ECE gates
    fail at the fixed 0.35/0.75 band while AUROC is 0.99. Whether to move the
