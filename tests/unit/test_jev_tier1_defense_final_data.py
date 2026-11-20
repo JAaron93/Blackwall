@@ -69,6 +69,15 @@ def test_manifest_names_every_artifact_and_no_other(manifest):
     on_disk = {p.name for p in RUNS_DIR.glob("*.json") if p.name != MANIFEST.name}
     assert listed == on_disk
     assert {r["arm"] for r in manifest["runs"]} == {"shipped state", "nonce-XML boundary"}
+    assert manifest["discarded"]  # the four wrong-corpus runs are recorded, not dropped
+
+
+@pytest.mark.parametrize("entry", _load(MANIFEST)["runs"], ids=lambda e: e["file"])
+def test_called_counts_recomputed_from_rows(entry):
+    """PR #218 review: tier2_calls must describe the saved rows, not a placeholder."""
+    rows = _rows(entry)
+    assert sum(1 for r in rows if r.get("jev_p") is not None) == entry["jev_calls"]
+    assert sum(1 for r in rows if r.get("tier2_called")) == entry["tier2_calls"]
 
 
 @pytest.mark.parametrize("name", ["manifest.json", "final_baseline_malicious.json",
@@ -95,7 +104,8 @@ def test_rows_come_from_the_current_corpus_without_placeholders(harness, name):
             tool, args = current[row["id"]]
             base_id = row["id"].split("::")[0]
             if base_id in current and "::" in row["id"]:
-                _, base_args = current[base_id]
+                base_tool, _ = current[base_id]
+                assert row["tool"] == base_tool
                 # Steered rows carry payload-injected arguments; the base row is exact.
                 continue
             assert row["tool"] == tool
