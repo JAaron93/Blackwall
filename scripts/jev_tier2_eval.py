@@ -95,6 +95,7 @@ from blackwall.policy.semantic import (  # noqa: E402
 from blackwall.resolver import ContextHygiene
 
 DATA = REPO_ROOT / "tests" / "eval" / "results" / "jev_runs" / "ablation_class_blind.json"
+PROOF_PROMPT_RE = re.compile(r"^Execute tool '([^']+)' with arguments: (\{.*\})$", re.S)
 POLICY = REPO_ROOT / "policy.yaml"
 DEFAULT_RELEASE = "jev-1.14.0"
 LEVELS = ("minimal", "low", "medium", "high", "shipped")
@@ -167,7 +168,64 @@ def _group(row: Dict[str, Any]) -> str:
     return "other"
 
 
-def load_cases(release: str = DEFAULT_RELEASE) -> List[Case]:
+def user_text(case: Dict[str, Any]) -> str:
+    """First user message text of an ADK eval case (proof evalsets)."""
+    for message in case.get("conversation") or []:
+        for holder in (message.get("user_content") or {}, message):
+            for part in holder.get("parts") or []:
+                if isinstance(part, dict) and part.get("text"):
+                    return str(part["text"])
+    return ""
+
+
+CURRENT_EVALSET = REPO_ROOT / "tests" / "eval" / "evalsets" / "blackwall_security.evalset.json"
+CURRENT_PROOF = REPO_ROOT / "tests" / "eval" / "evalsets" / "blackwall_evasion_proof.evalset.json"
+CURRENT_P_RUN = (
+    REPO_ROOT / "tests" / "eval" / "results" / "jev_runs_balanced"
+    / "jev-1.14.0_2026-11-20_run1.json"
+)
+
+
+def load_current_cases(release: str = DEFAULT_RELEASE) -> List[Case]:
+    """Build cases from the CURRENT class-blind, tool-name-balanced corpus.
+
+    TASK-F09 removed placeholders and balanced tool names; the old ablation JSON
+    used by ``load_cases`` still carries `[[VALUE]]` placeholders. New steering
+    experiments must use this loader (``--corpus current``).
+    """
+    p_rows = json.loads(CURRENT_P_RUN.read_text(encoding="utf-8"))
+    p_map = {r["eval_case_id"]: float(r["p_threat"]) for r in p_rows}
+    cases: List[Case] = []
+    for c in json.loads(CURRENT_EVALSET.read_text(encoding="utf-8"))["eval_cases"]:
+        md = c["metadata"]
+        label = md["ground_truth"]
+        attack = md.get("attack_type") or ""
+        group = "benign" if label == "BENIGN" else (
+            "c2" if attack in ("C2_IOC", "REVERSE_SHELL", "CREDENTIAL_EXFILTRATION", "COVERT_CHANNEL")
+            else "other"
+        )
+        cases.append(Case(
+            c["eval_case_id"], group, label, md["tool_name"],
+            dict(md["tool_arguments"]), p_map.get(c["eval_case_id"], 0.5),
+        ))
+    for c in json.loads(CURRENT_PROOF.read_text(encoding="utf-8"))["eval_cases"]:
+        match = PROOF_PROMPT_RE.match(user_text(c))
+        if match is not None:
+            cid = c.get("eval_id", "proof")
+            cases.append(Case(
+                cid, "proof", "MALICIOUS", match.group(1),
+                json.loads(match.group(2)), p_map.get(cid, 0.5),
+            ))
+    return cases
+
+
+def load_cases(release: str = DEFAULT_RELEASE, corpus: str = "historical") -> List[Case]:
+    """Load the historical ablation corpus by default; use ``corpus='current'``
+    for new experiments (TASK-F09/F02)."""
+    if corpus == "current":
+        return load_current_cases(release)
+    if corpus != "historical":
+        raise ValueError(f"unknown corpus {corpus!r}")
     data = json.loads(DATA.read_text(encoding="utf-8"))
     cases: List[Case] = []
     for row in data["cases"]:
@@ -1803,7 +1861,9 @@ def _main_tier1(args: argparse.Namespace) -> int:
     payloads = tier1_payloads(args.split)
     groups = [g.strip() for g in args.groups.split(",") if g.strip()] if args.groups else None
     defense = getattr(args, "defense", "none")
-    chosen = tier1_cases(load_cases(args.release), payloads, groups)
+    chosen = tier1_cases(
+        load_cases(args.release, getattr(args, "corpus", "historical")), payloads, groups
+    )
     apply_defense(defense)  # after case loading: corpus states must stay in the shipped format
     if args.limit:
         keep = list(dict.fromkeys(c.base_id for c in chosen))[: args.limit]
@@ -1883,6 +1943,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     help="Vertex calls in flight (--concurrency bounds all evaluations)")
     t1.add_argument("--policy", choices=("off", "on", "both"), default="both",
                     help="off: semantic tiers only; on: with policy.yaml; both: each")
+    t1.add_argument("--corpus", choices=("historical", "current"), default="historical",
+                    help="current = TASK-F09 balanced corpus (no placeholders); "
+                         "historical = 2026-11-12 ablation corpus for old-run recomputation")
     t1.add_argument("--policy-groups", default=None,
                     help="comma list of base groups the policy config covers (default: all chosen)")
     t1.add_argument("--no-benign", action="store_true", help="skip the benign P-shift control")

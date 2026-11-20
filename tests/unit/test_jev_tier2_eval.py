@@ -11,6 +11,7 @@ never create a client, spawn a process or read a credential file.
 """
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -31,6 +32,18 @@ def harness():
     spec.loader.exec_module(module)
     yield module
     sys.modules.pop(spec.name, None)
+
+
+def test_current_corpus_loader_uses_balanced_cases_without_placeholders(harness):
+    """PR #218 review: steering experiments must not silently use the old corpus."""
+    current = harness.load_current_cases()
+    assert len(current) == 197  # 187 security + 10 proof
+    assert not any("[[" in json.dumps(c.args) for c in current)
+    ids = {c.id for c in current}
+    assert "benign_db_select_001" in ids
+    case = next(c for c in current if c.id == "benign_db_select_001")
+    assert "4821" in json.dumps(case.args)
+    assert {c.group for c in current} >= {"benign", "other", "c2", "proof"}
 
 
 def test_band_edges_are_part_of_the_checkpoint_fingerprint(harness, monkeypatch):
