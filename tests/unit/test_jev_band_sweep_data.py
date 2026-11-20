@@ -74,7 +74,7 @@ def test_baseline_recomputed_and_pinned(sweep_module, artifact, manifest):
     runs, attack_types = sweep_module.load_inputs()
     got = sweep_module.metrics(runs[0], 0.35, 0.75, attack_types)
     assert got == artifact["baseline"]
-    head = manifest["headline"]["baseline_0.35_0.75"]
+    head = manifest["headline"]["full_corpus_baseline_0.35_0.75"]
     assert got["accuracy"] == head["accuracy"]
     assert got["below_low_attacks"] == head["below_low_attacks"]
     assert got["below_low_ioc_type_attacks"] == head["below_low_ioc_type_attacks"]
@@ -104,27 +104,51 @@ def test_holdout_recomputed_and_replicated(sweep_module, artifact, manifest, run
         sel["low"], sel["high"], attack_types,
     )
     assert got == artifact["holdout"][key]
-    head = manifest["headline"]["selected_0.08_0.40_holdout"]
+    head = manifest["headline"]["matched_heldout_selected_0.08_0.40"][key]
     assert got["accuracy"] == head["accuracy"]
-    assert got["below_low_attacks"] == head["below_low_attacks"]
+    assert got["below_low_attacks"] == head["misses"]
     assert got["fp"] == head["false_positives"]
     assert artifact["holdout"]["run1"] == artifact["holdout"]["run2"]
 
 
+@pytest.mark.parametrize("run_index,key", [(0, "run1"), (1, "run2")])
+def test_matched_holdout_baseline_recomputed_and_pinned(sweep_module, artifact, manifest, run_index, key):
+    """The baseline must be measured on the SAME held-out cases as the selection."""
+    runs, attack_types = sweep_module.load_inputs()
+    got = sweep_module.metrics(
+        [r for r in runs[run_index] if sweep_module.stable_split(r["eval_case_id"]) == 1],
+        0.35, 0.75, attack_types,
+    )
+    assert got == artifact["holdout_baseline"][key]
+    pinned = manifest["headline"]["matched_heldout_baseline_0.35_0.75"][key]
+    assert got["fn"] == pinned["misses"]
+    assert got["accuracy"] == pinned["accuracy"]
+    assert got["escalate"] == int(pinned["in_band_escalation"].split("/")[0])
+    assert got["escalation_rate"] == pinned["in_band_escalation_rate"]
+    assert got["fp"] == 0
+
+
 def test_tradeoff_direction(manifest):
-    base = manifest["headline"]["baseline_0.35_0.75"]
-    hold = manifest["headline"]["selected_0.08_0.40_holdout"]
-    assert hold["accuracy"] > base["accuracy"]
-    assert hold["below_low_attacks"] < base["below_low_attacks"]
-    assert hold["escalation_rate"] > base["escalation_rate"]
-    assert hold["false_positives"] == base["false_positives"] == 0
+    """Compare matched held-out arms, never all-cases baseline vs held-out selection."""
+    for key in ("run1", "run2"):
+        base = manifest["headline"]["matched_heldout_baseline_0.35_0.75"][key]
+        hold = manifest["headline"]["matched_heldout_selected_0.08_0.40"][key]
+        assert hold["accuracy"] > base["accuracy"]
+        assert hold["misses"] < base["misses"]
+        assert hold["in_band_escalation_rate"] > base["in_band_escalation_rate"]
+        assert hold["false_positives"] == base["false_positives"] == 0
+    assert "SAME 101 held-out cases" in manifest["headline"]["note"]
 
 
-def test_evidence_is_not_a_band_change(manifest, artifact):
+def test_evidence_is_exploratory_and_in_band_only(manifest, artifact):
     text = json.dumps(manifest) + json.dumps(artifact)
     assert "NOT a band change" in text or "not a band change" in text
     assert "Track G" in text
     assert "same-change sync" in text
+    assert "exploratory" in text.lower()
+    assert "previously inspected" in text.lower()
+    assert "disagreement route" in text.lower()
+    assert artifact["metric_definitions"]["escalation_rate"].startswith("IN-BAND")
 
 
 def test_pointer_chain_is_documented():

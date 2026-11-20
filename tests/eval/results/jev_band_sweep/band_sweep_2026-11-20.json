@@ -13,6 +13,8 @@
     "tp": 72
   },
   "caveats": [
+    "The tune/held-out split is EXPLORATORY on previously inspected data: the original 167 cases were already used in the indicative sweep in ADR 0009, and the balanced corpus retains them (adding only 30). Hashing them now does not make them independent; do not read this as fresh held-out confirmation.",
+    "escalation_rate is the in-band share only; the disagreement route (novelty >= 0.4 with P < 0.2) also calls Tier-2 and is not counted here.",
     "Tier-1 Jev scores only; no full-firewall verdicts and no end-to-end catch-rate claim.",
     "The sweep is tuned on one half and reported on the other, but it is still a single corpus and release.",
     "Track G (question/state redesign, FR-09) is PLANNED and would invalidate this evidence if it lands first.",
@@ -44,6 +46,34 @@
       "low": 0.08,
       "tn": 37,
       "tp": 39
+    }
+  },
+  "holdout_baseline": {
+    "run1": {
+      "accuracy": 0.75,
+      "below_low_attacks": 24,
+      "below_low_ioc_type_attacks": 7,
+      "escalate": 5,
+      "escalation_rate": 0.0495,
+      "fn": 24,
+      "fp": 0,
+      "high": 0.75,
+      "low": 0.35,
+      "tn": 37,
+      "tp": 35
+    },
+    "run2": {
+      "accuracy": 0.7526,
+      "below_low_attacks": 24,
+      "below_low_ioc_type_attacks": 7,
+      "escalate": 4,
+      "escalation_rate": 0.0396,
+      "fn": 24,
+      "fp": 0,
+      "high": 0.75,
+      "low": 0.35,
+      "tn": 37,
+      "tp": 36
     }
   },
   "inputs": {
@@ -80,6 +110,10 @@
       "jev-1.14.0_2026-11-20_run2.json"
     ],
     "split": "sha256(eval_case_id).digest()[0] & 1; tune=0, hold-out=1 (deterministic, label-blind)"
+  },
+  "metric_definitions": {
+    "accuracy": "Decided accuracy (tp+tn)/(tp+tn+fp+fn); in-band cases are excluded from the denominator.",
+    "escalation_rate": "IN-BAND Tier-2 share only: P inside [low, high]. It excludes the separate disagreement route (argument novelty >= 0.4 with P < 0.2), which also calls Tier-2 in SyncResolver (FR-03). Treat it as an in-band escalation share, not the total Tier-2 call rate."
   },
   "options": [
     "Lower the clear-low edge toward the selected value (captures more below-edge attacks, may raise escalation).",

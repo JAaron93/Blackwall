@@ -542,15 +542,19 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > with a lower edge (→ F02).
   >
   > **Evidence prepared 2026-11-20; decision still open (task stays `[ ]`).** An
-  > offline band sweep over the committed balanced-corpus Jev scores (no new live
-  > calls) is in `tests/eval/results/jev_band_sweep/` (`band_sweep_2026-11-20.json`
-  > + `manifest.json`), recomputed by `tests/unit/test_jev_band_sweep_data.py`.
-  > Baseline 0.35/0.75: 0.7946 accuracy, 38 below-edge attacks (9 IOC-type), ~6%
-  > escalation. A held-out-selected 0.08/0.40 edge gives 0.8736 accuracy, 11
-  > below-edge attacks (3 IOC-type), ~14% escalation and no new benign blocks —
-  > a capture-vs-Tier-2-load trade-off, not a decision. Hypothesis remains open
-  > pending the maintainer's choice among lower edges / threat intel / accept.
-  > Any band change still needs a spec amendment with the same-change sync (FR-02).
+  > offline band sweep over committed balanced-corpus Jev scores (no new live
+  > calls) is in `tests/eval/results/jev_band_sweep/` (manifest + artifact),
+  > recomputed by `tests/unit/test_jev_band_sweep_data.py`. This is an
+  > **exploratory split of previously inspected data** — the original 167 cases
+  > were tuned on in ADR 0009 and are retained here — not independent confirmation.
+  > Matched comparison on the SAME 101 held-out cases per run: baseline 0.35/0.75
+  > 24 misses / 0.7500–0.7526 accuracy / 5–4 in-band escalations → selected
+  > 0.08/0.40 11 misses / 0.8736 / 14, with no new benign blocks. The full-corpus
+  > baseline (38 misses / 0.7946) is reported separately and is NOT compared to
+  > held-out figures. Escalation is the **in-band Tier-2 share only**;
+  > disagreement-triggered Tier-2 calls (novelty ≥0.4 with P<0.2) are excluded.
+  > Hypothesis remains open pending the maintainer's choice; any band change
+  > still needs the FR-02 spec amendment and same-change sync.
 * [x] **TASK-F11 [C1]: Log the served release + request id** (ADR 0008 OI6; FR-07).
   Done 2026-11-14 (typesafe-ai skill audit F5): the `jev_triage` record carries
   `served_model` (response `model`, or `None` when absent/non-string) and
