@@ -219,11 +219,12 @@ async def test_state_is_tool_arguments_metadata_lines_verbatim():
     )
     await backend.triage(context)
     body = json.loads(requests[0].content.decode())
-    # TASK-G01: named JSON fields replace the flat Tool/Arguments/Metadata text.
-    state = json.loads(body["state"])
-    assert state["tool"]["name"] == "read_file"
-    assert state["arguments"] == {"path": "/var/log/app.log"}
-    assert state["metadata"] == {"agent": "bot-7"}
+    # FR-09: production state stays legacy until G04's held-out gate passes.
+    assert body["state"] == (
+        "Tool: read_file\n"
+        "Arguments: {'path': '/var/log/app.log'}\n"
+        "Metadata: {'agent': 'bot-7'}"
+    )
 
 
 async def test_sanitized_placeholders_pass_through_verbatim():
@@ -238,12 +239,12 @@ async def test_sanitized_placeholders_pass_through_verbatim():
         arguments={"token": "[[AWS_SECRET_ACCESS_KEY]]", "host": "wd-bouygues.com"}
     )
     await backend.triage(context)
-    state = json.loads(json.loads(requests[0].content.decode())["state"])
-    assert state["tool"]["name"] == "execute_bash"
-    assert state["arguments"] == {
-        "token": "[[AWS_SECRET_ACCESS_KEY]]", "host": "wd-bouygues.com"
-    }
-    assert state["metadata"] == {}
+    state = json.loads(requests[0].content.decode())["state"]
+    assert state == (
+        "Tool: execute_bash\n"
+        "Arguments: {'token': '[[AWS_SECRET_ACCESS_KEY]]', 'host': 'wd-bouygues.com'}\n"
+        "Metadata: {}"
+    )
 
 
 # ----------------------------------------------------------------------

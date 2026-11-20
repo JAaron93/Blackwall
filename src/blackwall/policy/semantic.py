@@ -959,22 +959,35 @@ class JevTriageBackend(SemanticTriageProvider):
         )
 
     @staticmethod
+    def truncate_state_fields(arguments: Dict[str, Any]) -> tuple[Dict[str, Any], list[str]]:
+        """Truncate oversized string values per field with an explicit marker.
+
+        A pure helper for the size guard: it never decides what the model may see.
+        """
+        result = dict(arguments)
+        truncated: list[str] = []
+        for key, value in list(result.items()):
+            if isinstance(value, str) and len(value) > JEV_MAX_FIELD_CHARS:
+                result[key] = value[:JEV_MAX_FIELD_CHARS] + JEV_TRUNCATION_MARKER
+                truncated.append(key)
+        return result, truncated
+
+    @staticmethod
     def build_state(context: ToolCallContext) -> str:
         """Serialize the already-sanitized context as compact JSON with named fields.
 
         FR-05 still applies: sanitization happens before this method is called and
-        the egress allowlist is unchanged. Oversized string argument values are
-        truncated per field with an explicit marker and logged; if the serialized
-        state still exceeds the request limit the backend fails closed.
+        the egress allowlist is unchanged. FAIL CLOSED on truncation: a partial view
+        of a tool call can hide executable text appended after the cut, so no
+        truncated input is ever sent to Jev (resolve in G02/G04 before re-enabling).
         """
-        arguments = dict(context.arguments)
-        for key, value in list(arguments.items()):
-            if isinstance(value, str) and len(value) > JEV_MAX_FIELD_CHARS:
-                arguments[key] = value[:JEV_MAX_FIELD_CHARS] + JEV_TRUNCATION_MARKER
-                logger.warning(
-                    "jev_state_field_truncated",
-                    extra={"field": key, "original_chars": len(value)},
-                )
+        arguments, truncated = JevTriageBackend.truncate_state_fields(context.arguments)
+        if truncated:
+            logger.warning("jev_state_field_truncated", extra={"fields": truncated})
+            raise JevUnavailableError(
+                "Jev state has oversized argument fields; refusing a partial view "
+                f"of the tool call ({', '.join(truncated)})"
+            )
         state = json.dumps(
             {
                 "tool": {"name": context.tool_name},
@@ -986,16 +999,17 @@ class JevTriageBackend(SemanticTriageProvider):
         )
         if len(state.encode("utf-8")) > JEV_MAX_STATE_BYTES:
             raise JevUnavailableError(
-                f"Jev state exceeds the {JEV_MAX_STATE_BYTES}-byte request limit "
-                "after per-field truncation"
+                f"Jev state exceeds the {JEV_MAX_STATE_BYTES}-byte request limit"
             )
         return state
 
     def _build_payload(self, context: ToolCallContext) -> Dict[str, Any]:
         # Egress allowlist (FR-05): exactly these three fields leave the host.
+        # FR-09: the production state flip is gated on G04's held-out A/B; until
+        # then the legacy shape stays live. build_state() is the G02+ foundation.
         return {
             "model": self.model,
-            "state": self.build_state(context),
+            "state": self.build_legacy_state(context),
             "questions": {"is_threat": JEV_IS_THREAT_QUESTION},
         }
 

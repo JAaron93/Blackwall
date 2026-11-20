@@ -654,16 +654,19 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   - [x] Failing tests: named-field state shape; per-field truncation marker; over-limit raises `JevUnavailableError`; sanitization still precedes egress.
   - [x] Implement `build_state` + guard; keep the `model`/`state`/`questions` allowlist.
   >
-  > **Done 2026-11-20 (engineering only; no empirical hypothesis — mock TDD).**
-  > `JevTriageBackend.build_state` now emits a compact JSON object with named
-  > `tool.name` / `arguments` / `metadata` fields; string argument values longer
-  > than the per-field cap are truncated with `JEV_TRUNCATION_MARKER` and logged,
-  > and a state still over the 64 KiB request limit raises `JevUnavailableError`
-  > (fail-fast, FR-06). FR-05's egress allowlist is unchanged and sanitization
-  > still precedes egress. `build_legacy_state()` preserves the pre-G01 shape so
-  > every stored run stays recomputable; harness call sites use it until G04's
-  > fresh runs. The object-vs-compact-string transport question is deferred to
-  > G02's live probe (design.md Track G). Tests:
+  > **Done 2026-11-20 (engineering only; no empirical hypothesis — mock TDD;
+  > review-corrected).** `JevTriageBackend.build_state` emits a compact JSON object
+  > with named `tool.name` / `arguments` / `metadata` fields, and the pure
+  > `truncate_state_fields()` helper marks oversized values with
+  > `JEV_TRUNCATION_MARKER`. FAIL CLOSED: `build_state` refuses any input needing
+  > truncation with `JevUnavailableError` — a partial view could hide an executable
+  > command tail that still runs after a clear-low skip (Greptile P1) — and a state
+  > over 64 KiB also raises (FR-06). FR-05's allowlist and sanitization-before-egress
+  > are unchanged. **Production `_build_payload` stays on `build_legacy_state()`
+  > until G04's held-out A/B passes** (FR-09): this PR is foundation only, and the
+  > structured builder is not live. Harness call sites use the legacy shape so
+  > stored runs stay recomputable; the object-vs-string transport choice is deferred
+  > to G02's probe. Tests:
   > `tests/unit/test_jev_structured_state.py` (+ updated backend/corpus tests);
   > full unit suite 2132 passed with only the known worktree environment failures.
   > No live calls, no production flip — FR-09 stays PLANNED until G04.

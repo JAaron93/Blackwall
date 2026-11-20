@@ -32,25 +32,28 @@ def test_build_state_emits_named_json_fields_not_a_dict_repr():
     assert not state.startswith("Tool:")
 
 
-def test_oversized_argument_values_are_truncated_per_field(caplog):
-    state = JevTriageBackend.build_state(_context(sql="A" * 20_000))
-    sql = json.loads(state)["arguments"]["sql"]
-    assert len(sql) < 20_000
-    assert JEV_TRUNCATION_MARKER in sql
+def test_truncation_helper_marks_fields_but_build_state_fails_closed(caplog):
+    args, truncated = JevTriageBackend.truncate_state_fields({"sql": "A" * 20_000})
+    assert truncated == ["sql"]
+    assert JEV_TRUNCATION_MARKER in args["sql"]
+    assert len(args["sql"]) < 20_000
+    # A partial view could hide an executable tail; never send it to the model.
+    with pytest.raises(JevUnavailableError, match="partial view"):
+        JevTriageBackend.build_state(_context(sql="A" * 20_000))
     assert "truncat" in caplog.text.lower()
 
 
 def test_state_still_over_limit_after_truncation_raises_fail_closed():
     args = {f"field_{i}": "A" * 5_000 for i in range(30)}
-    with pytest.raises(JevUnavailableError, match="state.*limit|too large|exceed"):
+    with pytest.raises(JevUnavailableError, match="partial view"):
         JevTriageBackend.build_state(_context(**args))
 
 
-def test_payload_keeps_egress_allowlist_and_uses_structured_state():
+def test_payload_keeps_egress_allowlist_and_legacy_state_until_g04():
     backend = JevTriageBackend(api_key="test-key")
     payload = backend._build_payload(_context(sql="SELECT 1"))
     assert set(payload) == {"model", "state", "questions"}
-    assert json.loads(payload["state"])["tool"]["name"] == "query_db"
+    assert payload["state"].startswith("Tool: query_db\nArguments:")
     assert set(payload["questions"]) == {"is_threat"}
 
 

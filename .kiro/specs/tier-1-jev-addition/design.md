@@ -321,11 +321,15 @@ Python dict repr, e.g.:
 * Whether `state` is sent as a JSON object or a compact JSON string is confirmed
   against the OpenAPI schema during live probing (G02); questions reference
   fields by path (e.g. `arguments.sql`).
-  > **G01 implemented 2026-11-20:** `build_state` emits a **compact JSON string**
-  > with named `tool.name` / `arguments` / `metadata` fields (the transport choice
-  > is provisional until G02's live probe), with a per-field truncation marker and
-  > a 64 KiB request-limit guard that raises `JevUnavailableError`. The pre-G01
-  > shape remains in `build_legacy_state()` for recomputing stored runs.
+  > **G01 implemented 2026-11-20 (review-corrected):** `build_state` emits a
+  > **compact JSON string** with named `tool.name` / `arguments` / `metadata` fields
+  > (transport choice provisional until G02's live probe). The pure truncation
+  > helper marks oversized fields, but `build_state` **fails closed** on any input
+  > needing truncation — a partial view could hide an executable command tail that
+  > still runs after a clear-low skip — and on states over 64 KiB. **Production
+  > `_build_payload` stays on `build_legacy_state()` until G04's held-out A/B passes**
+  > (FR-09); the structured builder is foundation-only for G02. The legacy shape
+  > also keeps stored runs recomputable.
 
 ### Size / truncation guard (F4)
 
