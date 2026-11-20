@@ -80,11 +80,15 @@ class. On the class-blind corpus decided accuracy is 82.8% to 83.0% and ECE is
 Verification.)*
 *(2026-11-20, TASK-F09: the corpus was rebalanced from 167 to 197 scored cases —
 75 benign / 82 malicious / 30 evasion / 10 proof — so tool name is no longer a
-class tell. Decided accuracy on the balanced corpus is 0.7946 / 0.7935 (ECE
-~0.217, AUROC ~0.988); on the MATCHED original 167 cases accuracy is flat at
-0.828 / 0.8269, so the full-corpus drop reflects newly added harder cases, not
-Jev exploiting the tell. See `tests/eval/results/jev_runs_balanced/` and ADR 0009
-Verification.)*
+class tell. At the THEN-shipped 0.35/0.75 band, decided accuracy on the balanced
+corpus was 0.7946 / 0.7935 (ECE ~0.217, AUROC ~0.988); on the MATCHED original
+167 cases accuracy was flat at 0.828 / 0.8269, so the full-corpus drop reflected
+newly added harder cases, not Jev exploiting the tell. See
+`tests/eval/results/jev_runs_balanced/` and ADR 0009 Verification.
+**TASK-F10 then lowered the band to 0.08/0.40** based on the matched sweep:
+held-out accuracy 0.8736 with 24→11 misses (exploratory evidence only — see
+`tests/eval/results/jev_band_sweep/`); 0.7946 is therefore a historical baseline,
+not the current operating point.)*
 
 ## Architecture Diagram
 

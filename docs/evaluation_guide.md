@@ -208,8 +208,10 @@ the corpus, the tool-tell metrics, the gate metrics, a matched 167-case comparis
 and the three tools excluded from scored malicious evidence. `tests/unit/test_jev_runs_balanced_data.py`
 recomputes all of it and pins every saved row's state, label, tool and expected verdict
 to `build_cases(["security", "evasion_proof"])`, so a later payload edit requires fresh
-evidence. Use these runs — not the older `jev_runs_class_blind/` runs — when calibrating
-the band on the expanded case set (F10); the older runs remain valid for the original 167.
+evidence. These runs — not the older `jev_runs_class_blind/` runs — were the input to
+the F10 band decision (now 0.08/0.40); the exploratory sweep with its matched baseline
+is in `tests/eval/results/jev_band_sweep/`. The older runs remain valid for the original
+167, and the re-baselined gates apply only to the balanced corpus.
 
 ### Production integration status
 
