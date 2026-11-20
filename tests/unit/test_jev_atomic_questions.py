@@ -1,9 +1,9 @@
-"""TASK-G02: atomic questions, strict multi-answer parsing, fail-closed max,
-and wording parity between the Python policy and the dev .mjs helper. No live calls.
+"""TASK-G02: atomic questions, strict multi-answer parsing, fail-closed max.
+
+Wording parity is checked statically here (no Node execution); executable JS
+checks live in ``scripts/jev_questions_export.test.mjs`` under ``node --test``.
 """
 
-import json
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -66,8 +66,12 @@ def test_build_state_returns_native_json_object():
     assert state["arguments"] == {"sql": "SELECT 1"}
 
 
-def test_dev_mjs_helper_shares_the_same_question_wording():
-    script = REPO_ROOT / "scripts" / "jev_questions_export.mjs"
-    out = subprocess.check_output(["node", str(script)], text=True)
-    exported = json.loads(out)
-    assert exported == JEV_ATOMIC_QUESTIONS
+def test_dev_mjs_helper_reads_shared_wording_without_duplicating_it():
+    """Static guard: no Node execution, no second copy of the calibrated wording."""
+    script = (REPO_ROOT / "scripts" / "jev_questions_export.mjs").read_text(encoding="utf-8")
+    assert "jev_questions.json" in script
+    assert "readFileSync" in script
+    for question in JEV_ATOMIC_QUESTIONS.values():
+        assert question["instructions"] not in script
+        assert question["criteria"]["true"] not in script
+        assert question["criteria"]["false"] not in script
