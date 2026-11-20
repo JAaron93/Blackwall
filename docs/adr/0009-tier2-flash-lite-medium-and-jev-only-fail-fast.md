@@ -259,6 +259,18 @@ production-shaped states that still carried placeholders (ADR 0008).
   `cat < /etc/passwd` and `echo \`id\``, 2 are SQL, 1 is path traversal and 2
   are other. Excluding the C2/IOC-type calls, decided accuracy is 90.0% to 90.2%. Threat intelligence is
   the layer built for IOC-type calls, and these runs do not configure it.
+  > **Decision 2026-11-20 (TASK-F10, maintainer).** The band is lowered from
+  > 0.35/0.75 to **0.08/0.40**. Evidence: the held-out band sweep in
+  > `tests/eval/results/jev_band_sweep/` (baseline 0.7946 accuracy / 38 below-edge
+  > attacks / ~6% escalation → 0.8736 / 11 / ~14%, no new benign blocks). Threat
+  > intelligence stays in the resolver pipeline as before — IOC-type calls already
+  > receive it, and no dedicated IOC change ships with this decision. The A/B gates
+  > are re-baselined on the balanced corpus with margin (accuracy ≥0.85, recall
+  > ≥75%, AUROC ≥0.97, ECE ≤0.27, escalation ≤20%); ECE ≤0.10 is deferred to Track
+  > G. This is an INTERIM calibration: if Track G (FR-09) lands, re-run
+  > `scripts/jev_band_sweep.py` on its runs before treating these edges as final.
+  > Any further band change still needs fresh labeled evidence and the same-change
+  > sync of `AGENTS.md`, `.agents/rules/` and `.greptile/`.
 - **Band sweep, indicative only.** Moving the lower edge of the band from 0.35 to
   about 0.08 to 0.10, with the upper edge at 0.40 to 0.50, raises decided
   accuracy to between 91.3% and 95.2% (lower edge 0.08 or 0.10, upper edge 0.40,

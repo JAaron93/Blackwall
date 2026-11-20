@@ -4,6 +4,13 @@ Notation: Python (marimo notebooks are Python-only and the repository is
 Python). Code blocks are design-level signatures and algorithms, not final
 source. Dependency versions are deliberately not quoted (AGENTS.md section 6.5).
 
+> **Band note (2026-11-20, TASK-F10):** the production Jev band is now **0.08 /
+> 0.40** and the A/B gates have been re-baselined on the tool-name-balanced
+> corpus. Every `0.35` / `0.75` edge, "shipped Band" and boundary value below
+> describes the **historical configuration and the runs recorded under it**;
+> it is not a statement of the current production band. New runs and any band
+> replay for the current configuration must use 0.08 / 0.40.
+
 ## Overview
 
 Every measurement Blackwall has of its own defenses is a single-stage
@@ -3136,7 +3143,7 @@ Forced_Table.
    hash is recomputed from the records. If the records lack the `suite` or
    `ground_truth` field, or the Run_Set's Corpus_Hash check fails, both counts render
    as Not_Measured with the reason.
-4. The aggregation weights, the 0.35/0.75 constants elsewhere, and the
+4. The aggregation weights, the 0.08/0.40 constants elsewhere, and the
    disagreement constants stay fixed; only the band edges and the clear-high policy
    move.
 5. The tool-name tell (D7) can carry a band result: the "other tool name" stratum
@@ -4611,7 +4618,7 @@ How the open tasks interact:
   `clear_high_policy="block"` in the composer and the replay surface, labeled
   hypothetical. The decision, and any change to `src/`, is the maintainer's.
   > **Resolved 2026-11-14 (typesafe-ai skill audit F1).** F06 landed as a
-  > clear-high QUARANTINE floor (not BLOCK, not aggregate): a lone `P > 0.75`
+  > clear-high QUARANTINE floor (not BLOCK, not aggregate): a lone `P > 0.40`
   > that survives aggregation as ALLOW is raised to QUARANTINE, and a
   > deterministic BLOCK stands. When this harness is implemented,
   > `ComposeConfig.clear_high_policy` needs a `"quarantine"` option to reproduce

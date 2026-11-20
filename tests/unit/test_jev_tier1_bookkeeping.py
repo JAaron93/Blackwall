@@ -150,7 +150,7 @@ def test_summarize_counts_failed_baselines_abstentions_and_final_verdicts(harnes
     rows = [
         # m1: BLOCK baseline steered to ALLOW below the band edge (the bypass).
         _mkrow(kind="baseline", id="m1", base_id="m1", jev_p=0.9, verdict="BLOCK"),
-        _mkrow(kind="steered", id="m1::p", base_id="m1", jev_p=0.2, band="clear_low", verdict="ALLOW"),
+        _mkrow(kind="steered", id="m1::p", base_id="m1", jev_p=0.05, band="clear_low", verdict="ALLOW"),
         # m2: a failed baseline (Jev outage) and its failed steered call.
         _mkrow(kind="baseline", id="m2", base_id="m2", jev_p=None, band=None, verdict=None, error="JevUnavailableError: x"),
         _mkrow(kind="steered", id="m2::p", base_id="m2", jev_p=None, band=None, verdict=None, error="JevUnavailableError: x"),

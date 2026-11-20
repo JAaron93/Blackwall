@@ -33,6 +33,16 @@ def harness():
     sys.modules.pop(spec.name, None)
 
 
+def test_band_edges_are_part_of_the_checkpoint_fingerprint(harness, monkeypatch):
+    """F10: cached verdicts from another band must not be reused."""
+    before = harness.tier1_config_fingerprint()
+    monkeypatch.setattr(harness.semantic, "JEV_CLEAR_LOW_THRESHOLD", 0.35)
+    monkeypatch.setattr(harness.semantic, "JEV_CLEAR_HIGH_THRESHOLD", 0.75)
+    after = harness.tier1_config_fingerprint()
+    assert after != before
+    assert harness.HARNESS_CONFIG_VERSION == "2"
+
+
 # ------------------------------------------------- F02 defense experiment (harness-only)
 
 
@@ -212,7 +222,7 @@ def test_e2e_summary_reports_decisions_by_group_and_the_tier2_fire_rate(harness)
                 "decision": decision, "score": 0.1, "ms": 100, "error": None}
 
     rows = [
-        e2e("m1", "other", "MALICIOUS", "BLOCK", 0.5, True),
+        e2e("m1", "other", "MALICIOUS", "BLOCK", 0.2, True),  # in-band at 0.08/0.40
         e2e("m2", "other", "MALICIOUS", "ALLOW", 0.95, False),
         e2e("m3", "proof", "MALICIOUS", "ALLOW", 0.9, False),
         e2e("b1", "benign", "BENIGN", "ALLOW", 0.02, False),

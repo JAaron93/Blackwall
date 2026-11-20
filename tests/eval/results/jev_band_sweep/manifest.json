@@ -36,6 +36,17 @@
     },
     "tradeoff": "On the SAME held-out cases, lowering the edge cuts misses 24 -> 11 and raises decided accuracy 0.7500/0.7526 -> 0.8736 with no new benign blocks, while in-band escalation rises from ~4-5% to ~14% (Tier-2 call share from the band route only)."
   },
+  "holdout_gates": {
+    "note": "Gate measurements for the matched held-out rows, exported by calibration() and recomputed by tests/unit/test_jev_band_sweep_data.py. AUROC/ECE are band-independent; recall is measured at each band.",
+    "baseline": {
+      "run1": {"recall": 0.5932, "auroc": 0.9806, "ece": 0.2552},
+      "run2": {"recall": 0.6, "auroc": 0.9766, "ece": 0.2537}
+    },
+    "selected": {
+      "run1": {"recall": 0.78, "auroc": 0.9806, "ece": 0.2552},
+      "run2": {"recall": 0.78, "auroc": 0.9766, "ece": 0.2537}
+    }
+  },
   "options_for_maintainer": [
     "Lower the edges (indicative selection 0.08 / 0.40) — best attack capture, highest Tier-2 load.",
     "Keep 0.35 / 0.75 and add threat-intelligence backing for IOC-type calls (9 below-edge IOC-type attacks in the full balanced corpus).",

@@ -1158,13 +1158,14 @@ def job_hash(config: str, case: SteeringCase) -> str:
 
 # Bump when the measured Jev question, arbiter prompt or scoring logic changes, so a
 # checkpoint cannot reuse answers produced under a different configuration.
-HARNESS_CONFIG_VERSION = "1"
+HARNESS_CONFIG_VERSION = "2"  # v2: band edges are part of the checkpoint fingerprint
 
 
 def tier1_config_fingerprint() -> str:
-    """A fingerprint of the measured configuration (model, Jev question, arbiter model
-    and thinking level, harness version). Folded into the checkpoint scope so a changed
-    model or prompt invalidates cached answers instead of silently reusing them."""
+    """A fingerprint of the measured configuration (model, Jev question, arbiter model,
+    thinking level, band edges, harness version). Folded into the checkpoint scope so a
+    changed model, prompt or band edge invalidates cached answers instead of silently
+    reusing verdicts from another configuration."""
     payload = json.dumps(
         {
             "version": HARNESS_CONFIG_VERSION,
@@ -1172,6 +1173,9 @@ def tier1_config_fingerprint() -> str:
             "jev_question": semantic.JEV_IS_THREAT_QUESTION,
             "arbiter_model": semantic.DEFAULT_GEMINI_MODEL,
             "thinking": semantic.TIER2_THINKING_LEVEL,
+            # F10: cached verdicts are only valid for the band they were scored at.
+            "clear_low": semantic.JEV_CLEAR_LOW_THRESHOLD,
+            "clear_high": semantic.JEV_CLEAR_HIGH_THRESHOLD,
         },
         sort_keys=True,
         default=str,

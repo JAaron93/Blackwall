@@ -83,7 +83,7 @@ def _backend(
 
 
 # ----------------------------------------------------------------------
-# Signal mapping (FR-02): fixed 0.35/0.75 band, boundaries inclusive
+# Signal mapping (FR-02): re-baselined 0.08/0.40 band (F10), boundaries inclusive
 # ----------------------------------------------------------------------
 
 
@@ -91,14 +91,14 @@ def _backend(
 @pytest.mark.parametrize(
     "probability,escalate",
     [
-        (0.02, False),  # clear-low signal (TASK-B01 mock: allow)
-        (0.98, False),  # clear-high signal (TASK-B01 mock: block)
-        (0.60, True),  # ambiguity band (TASK-B01 mock: escalate)
-        # SVM-style boundary probes
-        (0.349, False),
-        (0.35, True),
-        (0.75, True),
-        (0.751, False),
+        (0.02, False),  # clear-low signal
+        (0.98, False),  # clear-high signal
+        (0.20, True),  # ambiguity band
+        # boundary probes at the re-baselined 0.08/0.40 edges
+        (0.079, False),
+        (0.08, True),
+        (0.40, True),
+        (0.401, False),
     ],
 )
 async def test_probability_maps_to_signal_with_fixed_band(

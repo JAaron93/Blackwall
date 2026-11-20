@@ -37,7 +37,12 @@ def harness():
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
+    # These runs were measured at the original 0.35/0.75 band (2026-11-14).
+    patch = pytest.MonkeyPatch()
+    patch.setattr(module, "JEV_CLEAR_LOW_THRESHOLD", 0.35)
+    patch.setattr(module, "JEV_CLEAR_HIGH_THRESHOLD", 0.75)
     yield module
+    patch.undo()
     sys.modules.pop(spec.name, None)
 
 

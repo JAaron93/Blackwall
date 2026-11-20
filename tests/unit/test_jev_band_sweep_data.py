@@ -128,6 +128,21 @@ def test_matched_holdout_baseline_recomputed_and_pinned(sweep_module, artifact, 
     assert got["fp"] == 0
 
 
+@pytest.mark.parametrize("arm", ["baseline", "selected"])
+@pytest.mark.parametrize("run_index,key", [(0, "run1"), (1, "run2")])
+def test_holdout_gate_measurements_recomputed_and_pinned(
+    sweep_module, manifest, arm, run_index, key
+):
+    """AGENTS.md 6.6: published recall/AUROC/ECE need committed, recomputed evidence."""
+    runs, attack_types = sweep_module.load_inputs()
+    rows = [r for r in runs[run_index] if sweep_module.stable_split(r["eval_case_id"]) == 1]
+    band = (0.35, 0.75) if arm == "baseline" else (0.08, 0.40)
+    got = sweep_module.calibration(rows, band[0], band[1], attack_types)
+    assert got == manifest["holdout_gates"][arm][key]
+    assert got["auroc"] >= 0.97
+    assert got["ece"] <= 0.27
+
+
 def test_tradeoff_direction(manifest):
     """Compare matched held-out arms, never all-cases baseline vs held-out selection."""
     for key in ("run1", "run2"):
