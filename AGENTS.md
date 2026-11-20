@@ -75,6 +75,10 @@ Detailed architectural, security, database persistence, and testing hygiene rule
 * [`architecture_and_security.md`](.agents/rules/architecture_and_security.md): DSN log privacy, atomic DB transactions, explicit connection error escalation, credential purging, and import handling.
 * [`testing_and_hygiene.md`](.agents/rules/testing_and_hygiene.md): SLA warmup benchmarking, audit hook isolation, BDD `run_async` step execution, Pydantic model validation, Pytest asyncio scoping, property test isolation, and empirical evidence recording etiquette (committed JSON + manifest + recomputation test).
 
+Empirical / calibration (Cluster 2) work also has a canonical navigation document (not a rule file):
+
+* [`docs/evaluation_guide.md`](docs/evaluation_guide.md): corpus versions, committed run sets and manifests, gate definitions, harness invocation conventions (e.g. `--corpus current`), and recomputation tests.
+
 ---
 
 ## 6. Constitution & Rule Maintenance Protocol
@@ -101,6 +105,7 @@ Agents updating or expanding project rules (e.g. via `/learn` or code review res
 
 6. **Empirical Evidence Integrity (Cluster 2 / calibration tasks):**
    - A published figure from an empirical or calibration task is valid evidence ONLY when it is backed by a committed machine-readable artifact under `tests/eval/results/`, a `manifest.json` recording its provenance and discarded runs, and a hermetic recomputation test that derives the published numbers from those rows.
+   - Before designing a C2 / calibration experiment or reusing stored evidence, consult `docs/evaluation_guide.md` for the current corpus, run-set locations, gates and harness conventions; do not infer them from prose in specs or ADRs.
    - Prose-only figures, stdout-only measurement scripts, and results whose pointer chain (task note → ADR section → manifest → artifact → recomputation test) is not documented do not satisfy this invariant. The detailed etiquette lives in `.agents/rules/testing_and_hygiene.md` §80.
 
 7. **C2 Task Completion Answers Its Telos:**
