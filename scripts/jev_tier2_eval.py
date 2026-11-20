@@ -1637,9 +1637,13 @@ def defense_provenance(defense: str) -> dict[str, str]:
 
 
 def apply_defense(defense: str) -> None:
-    """Point Jev state building at the candidate format for one harness process."""
+    """Point the OUTGOING request builder at the candidate format for one process.
+
+    G01 moved production onto build_request_state() (legacy until G04), so patching
+    build_state() would leave both arms sending identical legacy states.
+    """
     if defense == "state-boundary":
-        semantic.JevTriageBackend.build_state = staticmethod(build_defended_state)
+        semantic.JevTriageBackend.build_request_state = staticmethod(build_defended_state)
 
 
 async def run_tier1_steering(

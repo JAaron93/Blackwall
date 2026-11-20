@@ -34,6 +34,23 @@ def harness():
     sys.modules.pop(spec.name, None)
 
 
+def test_defense_patches_the_outgoing_request_builder(harness):
+    """PR #219 review: both arms must actually differ in the payload sent to Jev."""
+    cls = harness.semantic.JevTriageBackend  # same module object the harness patches
+    original = cls.build_request_state
+    try:
+        ctx = SimpleNamespace(tool_name="http_request", arguments={"cmd": "id"}, metadata={})
+        backend = cls(api_key="test-key")
+        before = backend._build_payload(ctx)["state"]
+        assert before.startswith("Tool:")
+        harness.apply_defense("state-boundary")
+        after = backend._build_payload(ctx)["state"]
+        assert "<tool_call" in after
+        assert after != before
+    finally:
+        cls.build_request_state = original
+
+
 def test_current_corpus_loader_uses_balanced_cases_without_placeholders(harness):
     """PR #218 review: steering experiments must not silently use the old corpus."""
     current = harness.load_current_cases()

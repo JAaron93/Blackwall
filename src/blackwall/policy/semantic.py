@@ -1003,13 +1003,22 @@ class JevTriageBackend(SemanticTriageProvider):
             )
         return state
 
+    @staticmethod
+    def build_request_state(context: ToolCallContext) -> str:
+        """Builder for outgoing Jev requests — legacy until G04's held-out gate.
+
+        A single hook keeps the production default explicit and lets dev harnesses
+        swap the request builder (e.g. F02's `--defense`) without changing it.
+        """
+        return JevTriageBackend.build_legacy_state(context)
+
     def _build_payload(self, context: ToolCallContext) -> Dict[str, Any]:
         # Egress allowlist (FR-05): exactly these three fields leave the host.
         # FR-09: the production state flip is gated on G04's held-out A/B; until
         # then the legacy shape stays live. build_state() is the G02+ foundation.
         return {
             "model": self.model,
-            "state": self.build_legacy_state(context),
+            "state": self.build_request_state(context),
             "questions": {"is_threat": JEV_IS_THREAT_QUESTION},
         }
 
