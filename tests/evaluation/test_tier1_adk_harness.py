@@ -105,7 +105,7 @@ async def test_tier1_adk_benign_tool_call_allow():
 
 @pytest.mark.gcp_eval
 @pytest.mark.asyncio
-async def test_eval_kernel_interception():
+async def test_eval_kernel_interception(hermetic_vertexai_sdk):
     """
     TASK-V01: Evaluate system call interception accuracy across eBPF and Audit Hook drivers via EvalTask.
     Verifies that LinuxeBPFDriver and UserSpaceAuditDriver accurately intercept unauthorized

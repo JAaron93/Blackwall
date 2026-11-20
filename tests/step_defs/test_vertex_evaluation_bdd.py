@@ -77,7 +77,7 @@ from unittest.mock import MagicMock
 
 
 @when("the evaluation harness runs an EvalTask with threat accuracy autoraters")
-def when_runs_eval_task(bdd_state: BDDState):
+def when_runs_eval_task(bdd_state: BDDState, hermetic_vertexai_sdk):
     autorater = bdd_state.harness.build_threat_accuracy_autorater()
     bdd_state.harness._vertex_eval_available = True
     bdd_state.harness._init_error = None

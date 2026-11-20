@@ -164,7 +164,7 @@ def test_run_eval_task_local_fallback():
     assert res["http_timeout"] == 120.0
 
 
-def test_run_eval_task_fallback_telemetry_accuracy():
+def test_run_eval_task_fallback_telemetry_accuracy(hermetic_vertexai_sdk):
     from unittest.mock import MagicMock, patch
 
     exporter = GCPCloudTraceExporter(project_id="test-proj")
@@ -197,7 +197,25 @@ def test_run_eval_task_fallback_telemetry_accuracy():
     assert fallback_spans[0].attributes.get("gen_ai.request.thinking_level") == "none"
 
 
-def test_run_eval_task_capabilities_forwarded_to_vertex():
+def test_evaltask_import_surface_is_hermetic_without_optional_sdk(hermetic_vertexai_sdk):
+    """The managed EvalTask path must not require the optional Vertex AI SDK.
+
+    ``run_eval_task`` imports from three SDK modules as a group. When only
+    ``vertexai.preview.evaluation`` is stubbed, hosts without the
+    ``evaluation``/``eval`` extras still fail on the other imports.
+    """
+    from google.cloud.aiplatform_v1beta1.types import content
+    from vertexai.generative_models import GenerationConfig, GenerativeModel
+    from vertexai.preview.evaluation import AutoraterConfig, EvalTask
+
+    assert EvalTask is not None
+    assert AutoraterConfig is not None
+    assert GenerativeModel is not None
+    assert GenerationConfig is not None
+    assert content.GenerationConfig.ThinkingConfig is not None
+
+
+def test_run_eval_task_capabilities_forwarded_to_vertex(hermetic_vertexai_sdk):
     from unittest.mock import MagicMock, patch
 
     config = GCPVertexEvalConfig(
@@ -242,7 +260,7 @@ def test_run_eval_task_capabilities_forwarded_to_vertex():
     assert raw_cfg.thinking_config.thinking_budget == -1
 
 
-def test_run_eval_task_thinking_attachment_failure_handling():
+def test_run_eval_task_thinking_attachment_failure_handling(hermetic_vertexai_sdk):
     from unittest.mock import MagicMock, patch
 
     config = GCPVertexEvalConfig(
@@ -291,7 +309,7 @@ def test_run_eval_task_thinking_attachment_failure_handling():
         assert res_fb["thinking_level"] == "none"
 
 
-def test_run_eval_task_unknown_thinking_level_handling():
+def test_run_eval_task_unknown_thinking_level_handling(hermetic_vertexai_sdk):
     from unittest.mock import MagicMock, patch
 
     config = GCPVertexEvalConfig(
