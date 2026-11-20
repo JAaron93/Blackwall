@@ -15,6 +15,12 @@ app = marimo.App(
     app_title="Blackwall Agent: Evaluation & Benchmark Analytics",
 )
 
+# This dashboard grades the ORIGINAL and class-blind corpora, which were
+# measured at the historical 0.35/0.75 band. TASK-F10 re-baselined gates
+# (0.08/0.40 band, accuracy >=85% etc.) apply ONLY to the balanced corpus,
+# evidenced in tests/eval/results/jev_runs_balanced/ and jev_band_sweep/.
+HIST_CLEAR_LOW, HIST_CLEAR_HIGH = 0.35, 0.75
+
 
 @app.cell
 def _():
@@ -468,12 +474,12 @@ def _(mo, report):
 
 @app.cell
 def _(actual_results, category_filter, eval_cases, jev_by_id, mo, pd):
-    # Scenario Drill-down: recorded verdicts + Jev P(threat) at the FIXED
-    # acceptance band (0.35/0.75). Unmeasured cases render as "—" —
+    # Scenario Drill-down: recorded verdicts + Jev P(threat) at the HISTORICAL
+    # acceptance band of these corpora (0.35/0.75). Unmeasured cases render as "—" —
     # expected verdicts are never substituted.
     filtered_cases = []
     selected_cat = category_filter.value
-    _lo, _hi = 0.35, 0.75
+    _lo, _hi = HIST_CLEAR_LOW, HIST_CLEAR_HIGH
 
     for c in eval_cases:
         _cid = c.get("eval_case_id", "—")
@@ -550,10 +556,11 @@ def _(mo):
     return mo.md(r"""
     ### 🎯 Tier-1 Classifier Analytics (Jev P(threat))
     Per-case Jev scores from `tests/eval/results/jev_triage_results.json`
-    (produced by `scripts/jev_triage_eval.py`). Gates under test (F10 re-baseline on the balanced corpus): accuracy
-    ≥85%, recall ≥75%, AUROC ≥0.97, ECE ≤0.27, escalation ≤20%. Move the band
-    sliders to see how the operating point shifts — acceptance thresholds are
-    fixed at 0.08/0.40.
+    (produced by `scripts/jev_triage_eval.py`). Gates shown here are the ORIGINAL 157-case gates (accuracy ≥98%, recall
+    ≥0.98, AUROC ≥0.95, ECE ≤0.10, escalation ≤25%) at the historical 0.35/0.75
+    band, because this dashboard grades the original and class-blind corpora.
+    The TASK-F10 re-baselined gates apply ONLY to the balanced corpus; see
+    `tests/eval/results/jev_runs_balanced/` and `tests/eval/results/jev_band_sweep/`.
 
     > **These records are the earlier corpus (TASK-D02, ADR 0008).** Its states
     > reveal their class, so every gate tile below is an upper bound. The
@@ -620,12 +627,13 @@ def _(jev_backends, mo):
 
 @app.cell
 def _(jev_backend_filter, jev_hi_slider, jev_lo_slider, jev_records):
-    # Classifier metrics. ACCEPTANCE is computed at the fixed canonical band
-    # (0.35/0.75 — spec amendment required to change); the sliders drive an
+    # Classifier metrics. These runs are historical; ACCEPTANCE is computed at
+    # their measured 0.35/0.75 band (production is now 0.08/0.40 after TASK-F10).
+    # The sliders drive an
     # explicitly exploratory readout only. Escalations abstain from the
     # decided confusion matrix; coverage-adjusted (conservative) accuracy
     # counts them as incorrect since no Tier-2 disposition is recorded.
-    ACC_LO, ACC_HI = 0.35, 0.75
+    ACC_LO, ACC_HI = HIST_CLEAR_LOW, HIST_CLEAR_HIGH
     _lo = float(jev_lo_slider.value)
     _hi = float(jev_hi_slider.value)
     _be = jev_backend_filter.value
@@ -713,15 +721,15 @@ def _(jev_metrics, mo):
 def _(jev_metrics, mo):
     _m = jev_metrics
     _s_acc = mo.stat(value=f"{_m['accuracy']:.2%}", label="Accuracy (decided)",
-                     caption=f"Gate ≥85% {_m['accuracy'] >= 0.85 and '✅' or '❌'}")
+                     caption=f"Historical gate ≥98% {_m['accuracy'] >= 0.98 and '✅' or '❌'}")
     _s_rec = mo.stat(value=f"{_m['recall']:.2%}", label="Recall",
-                     caption=f"Gate ≥75% {_m['recall'] >= 0.75 and '✅' or '❌'}")
+                     caption=f"Historical gate ≥98% {_m['recall'] >= 0.98 and '✅' or '❌'}")
     _s_auroc = mo.stat(value=f"{_m['auroc']:.3f}", label="AUROC",
-                       caption=f"Gate ≥0.97 {_m['auroc'] >= 0.97 and '✅' or '❌'}")
+                       caption=f"Historical gate ≥0.95 {_m['auroc'] >= 0.95 and '✅' or '❌'}")
     _s_ece = mo.stat(value=f"{_m['ece']:.3f}", label="ECE (10-bin)",
-                     caption=f"Gate ≤0.27 {_m['ece'] <= 0.27 and '✅' or '❌'}")
+                     caption=f"Historical gate ≤0.10 {_m['ece'] <= 0.10 and '✅' or '❌'}")
     _s_esc = mo.stat(value=f"{_m['esc_rate']:.1%} ({_m['escalations']})", label="Escalation rate",
-                     caption=f"Gate ≤20% {_m['esc_rate'] <= 0.20 and '✅' or '❌'}")
+                     caption=f"Historical gate ≤25% {_m['esc_rate'] <= 0.25 and '✅' or '❌'}")
     _s_cov = mo.stat(value=f"{_m['coverage']:.1%}", label="Decided coverage",
                      caption=f"Conservative acc (esc=wrong): {_m['conservative_acc']:.2%}")
     _s_expl = mo.stat(value=f"{_m['expl_esc']}", label="Exploratory esc",
@@ -740,7 +748,7 @@ def _(go, jev_metrics):
         text=[[_m["tn"], _m["fp"]], [_m["fn"], _m["tp"]]],
         texttemplate="%{text}", colorscale="Blues", showscale=False,
     ))
-    _fig_cm.update_layout(title="Confusion Matrix (fixed 0.35/0.75, escalations abstained)",
+    _fig_cm.update_layout(title="Confusion Matrix (historical 0.35/0.75, escalations abstained)",
                           height=320, margin=dict(l=40, r=20, t=50, b=40))
     _fig_cm
 
@@ -868,7 +876,7 @@ def _(mo):
     opt-in: the Vercel Gateway free-tier run (a rate limit only paces calls, so
     it cannot move P; it overlays the pinned 1.13 lines) and the `jev-latest`
     TASK-D02 runs. Lines are sorted by the first pinned 1.13 run, so every other
-    run shows as a deviation from it. The shaded band is the fixed 0.35–0.75
+    run shows as a deviation from it. The shaded band is the historical 0.35–0.75
     Tier-2 escalation band.
     """)
 
@@ -1254,10 +1262,10 @@ def _(jev_cb_runs, jev_cmp_runs):
         return {
             "Corpus": corpus,
             "Run": run.get("short_label", run["label"]),
-            "Accuracy, decided (gate ≥85%)": f"{_acc:.1%} {_mark(_acc >= 0.85)}",
-            "ECE (gate ≤0.27)": f"{_ece:.3f} {_mark(_ece <= 0.27)}",
-            "AUROC (gate ≥0.97)": f"{_auroc:.3f} {_mark(_auroc >= 0.97)}",
-            "Escalation (gate ≤20%)": f"{_esc_rate:.1%} {_mark(_esc_rate <= 0.20)}",
+            "Accuracy, decided (historical gate ≥98%)": f"{_acc:.1%} {_mark(_acc >= 0.98)}",
+            "ECE (historical gate ≤0.10)": f"{_ece:.3f} {_mark(_ece <= 0.10)}",
+            "AUROC (historical gate ≥0.95)": f"{_auroc:.3f} {_mark(_auroc >= 0.95)}",
+            "Escalation (historical gate ≤25%)": f"{_esc_rate:.1%} {_mark(_esc_rate <= 0.25)}",
             "TP / FN / FP / TN": f"{_tp} / {_fn} / {_fp} / {_tn}",
             "Highest benign P": f"{max(_neg):.2f}" if _neg else "—",
         }
@@ -1273,9 +1281,11 @@ def _(jev_cb_runs, jev_cmp_runs):
 def _(jev_cb_gate_rows, mo, pd):
     mo.vstack([
         mo.md(
-            "**Gates at the fixed 0.35/0.75 band.** The earlier corpus passes because "
-            "its states reveal their class; on the class-blind corpus the accuracy and "
-            "ECE gates fail while AUROC and escalation pass (ADR 0009, Verification)."
+            "**Historical gates at the measured 0.35/0.75 band** for the original and "
+            "class-blind corpora. The earlier corpus passes because its states reveal "
+            "their class; on the class-blind corpus accuracy and ECE fail while AUROC "
+            "and escalation pass (ADR 0009). The TASK-F10 re-baselined gates apply to "
+            "the balanced corpus only — see `tests/eval/results/jev_band_sweep/`."
         ),
         mo.ui.table(pd.DataFrame(jev_cb_gate_rows), pagination=False, selection=None),
     ]) if jev_cb_gate_rows else mo.md("")

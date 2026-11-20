@@ -558,7 +558,7 @@ Demo flow (all fixtures synthetic; Jev evaluation calls are mocked — no live G
 1.  Start the gateway wrapping a mock tool server with `BW_SEMANTIC_BACKEND=jev` (mocked Jev responder returning canned `P` values).
 2.  Send a benign `tools/call` for `database_query` (parameterized SELECT) → assert **ALLOW** on the Jev fast path (`P≈0.02`), and assert Tier-2 was NOT invoked.
 3.  Send an obfuscated SQL injection `tools/call` → assert **BLOCK** (`-32603`) on the Jev fast path (`P≈0.98`), and assert Tier-2 was NOT invoked.
-4.  Send an ambiguous C2-beacon-like `tools/call` (mocked `P≈0.51`, inside the `0.35–0.75` band) → assert escalation to Tier-2 and a recorded final verdict, plus an async signature artifact for BLOCK outcomes.
+4.  Send an ambiguous C2-beacon-like `tools/call` (mocked `P≈0.51`, inside the `0.08–0.40` band) → assert escalation to Tier-2 and a recorded final verdict, plus an async signature artifact for BLOCK outcomes.
 5.  Output structured JSON event log (`$TMPDIR/bouncer_results.json`) with per-call `P`, backend (`jev` vs `gemini-tier-2`), and verdicts.
 
 **Acceptance Criteria:**

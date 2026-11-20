@@ -17,7 +17,7 @@ TypeSafe AI API funds Jev traffic.
 ## Glossary
 
 * **P(threat)**: Jev `noul` (yes/no) probability for `is_threat`.
-* **Escalation band**: `0.35 ≤ P ≤ 0.75`.
+* **Escalation band**: `0.08 ≤ P ≤ 0.40`.
 * **SemanticTriageResult**: `{ threat_score, confidence, backend, escalate }`.
 * **A/B gates**: for the original 157-case corpus, accuracy ≥98%, recall ≥0.98,
   AUROC ≥0.95, ECE ≤0.10, escalation ≤25%, FRR <5%, evasion <10%. For the
@@ -43,7 +43,7 @@ Tier-1 backend. `SemanticTriageProvider.triage` SHALL return a
 with no weight changes.
 ### FR-02: Jev Tier-1 Evaluation (Signals, Not Verdicts)
 The `jev` backend SHALL issue one `noul` `is_threat` evaluation per novel
-tool call with fixed thresholds: `P < 0.35` → clear-low signal,
+tool call with fixed thresholds: `P < 0.08` → clear-low signal,
 `P > 0.40` → clear-high signal, otherwise `escalate=true`. These are
 weighted triage SIGNALS feeding Score Aggregation (`_compute_threat_score`,
 weights and verdict thresholds unchanged) — NEVER terminal verdicts.
@@ -235,7 +235,7 @@ a cent, so Gemini spend is reserved for ambiguous threats.
 Acceptance: Tier-2 fire rate ~0% on routine suites (measured 0/157).
 
 ### US-02: Safe Ambiguity Handling
-As a security operator, I want uncertain calls (`0.35–0.75`, C2-beacon-like
+As a security operator, I want uncertain calls (`0.08–0.40`, C2-beacon-like
 evasions measured at 0.51–0.70) escalated to Gemini reasoning, so nothing
 borderline is decided by threshold alone.
 

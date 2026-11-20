@@ -4,6 +4,13 @@ Notation: Python (marimo notebooks are Python-only and the repository is
 Python). Code blocks are design-level signatures and algorithms, not final
 source. Dependency versions are deliberately not quoted (AGENTS.md section 6.5).
 
+> **Band note (2026-11-20, TASK-F10):** the production Jev band is now **0.08 /
+> 0.40** and the A/B gates have been re-baselined on the tool-name-balanced
+> corpus. Every `0.35` / `0.75` edge, "shipped Band" and boundary value below
+> describes the **historical configuration and the runs recorded under it**;
+> it is not a statement of the current production band. New runs and any band
+> replay for the current configuration must use 0.08 / 0.40.
+
 ## Overview
 
 Every measurement Blackwall has of its own defenses is a single-stage

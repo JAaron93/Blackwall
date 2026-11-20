@@ -97,9 +97,9 @@ Tier 0: Deterministic & AST Graph (<5ms)  [UNCHANGED]
                     │
 Tier 1: SemanticTriageProvider  [Jev only; fails fast, ADR 0009]
         ├── backend=jev (TypeSafe API, paid): P(threat)
-        │     ├── P < 0.35 → clear-low SIGNAL → Score Aggregation (no Tier-2 call)
+        │     ├── P < 0.08 → clear-low SIGNAL → Score Aggregation (no Tier-2 call)
         │     ├── P > 0.40 → clear-high SIGNAL → Score Aggregation (no Tier-2 call; lone clear-high floors ALLOW→QUARANTINE, F1)
-        │     └── 0.35 ≤ P ≤ 0.75 → Tier-2 escalation
+        │     └── 0.08 ≤ P ≤ 0.40 → Tier-2 escalation
         └── Jev unavailable (any reason) → JevUnavailableError; no fallback
                     │
           AGGREGATION SUPREMACY: triage outputs are weighted SIGNALS only.
@@ -225,7 +225,7 @@ FRR <5% and evasion <10% retained. The original 157-case gates (≥98% / ≥0.95
 
 * **Tier-1**: Calibrated fast classifier path (Jev `P(threat)`), clear-case signals feeding aggregation.
 * **Tier-2**: Gemini deep-reasoning escalation for ambiguity/disagreement + forensics.
-* **Escalation band**: `0.35 ≤ P ≤ 0.75` — Gemini decides.
+* **Escalation band**: `0.08 ≤ P ≤ 0.40` — Gemini decides.
 * **Disagreement trigger**: deterministic high-risk novelty with `P < 0.2`.
 * **SemanticTriageProvider**: Tier-1 interface in `policy/semantic.py`; Jev is the only implementation.
 

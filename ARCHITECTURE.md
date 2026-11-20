@@ -72,7 +72,7 @@ flowchart TD
     TIQuery --> SemanticEngine
     CBMQuery --> SemanticEngine
     Tier1Triage -- "P(threat) weighted signal" --> SemanticEngine
-    Tier1Triage -- "0.35 <= P <= 0.75 or disagreement" --> Tier2Gemini
+    Tier1Triage -- "0.08 <= P <= 0.40 or disagreement" --> Tier2Gemini
     Tier2Gemini -- "final ALLOW/BLOCK (never overrides deterministic BLOCK)" --> ThresholdEval{"Threat Score Threshold"}
     SemanticEngine --> ThresholdEval
 

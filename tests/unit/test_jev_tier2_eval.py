@@ -33,6 +33,16 @@ def harness():
     sys.modules.pop(spec.name, None)
 
 
+def test_band_edges_are_part_of_the_checkpoint_fingerprint(harness, monkeypatch):
+    """F10: cached verdicts from another band must not be reused."""
+    before = harness.tier1_config_fingerprint()
+    monkeypatch.setattr(harness.semantic, "JEV_CLEAR_LOW_THRESHOLD", 0.35)
+    monkeypatch.setattr(harness.semantic, "JEV_CLEAR_HIGH_THRESHOLD", 0.75)
+    after = harness.tier1_config_fingerprint()
+    assert after != before
+    assert harness.HARNESS_CONFIG_VERSION == "2"
+
+
 # ------------------------------------------------- F02 defense experiment (harness-only)
 
 

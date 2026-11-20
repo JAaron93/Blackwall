@@ -185,7 +185,7 @@ Operating on the principle that **no agent process should ever possess ambient a
 - **FRR (False Refusal Rate):** <10% benign actions incorrectly blocked (measured at **0.0%**)—maintains developer productivity. *(Full-firewall `e2e` measurement on the original corpus; ADR 0009 Verification.)*
 - **Evasion Rate:** <10% malicious actions that bypass detection (measured at **0.0%**)—maintains rock-solid defense. *(Same full-firewall `e2e` measurement; not a Tier-1-only figure.)*
 - **Reference Dataset:** 187-case evaluation suite (75 benign + 82 malicious + 30 evasion variants; TASK-F09 rebalanced tool names across classes — 157 cases / 68 benign / 59 malicious historically). Class-blind: one shared prompt template, real attack text, no label words (ADR 0009), derived from public security literature (OWASP Top 10 for LLMs, MITRE ATT&CK, CWE/CVE).
-- **Balanced-corpus evidence scope:** `tests/eval/results/jev_runs_balanced/` holds **Tier-1 Jev scores only**, not full-firewall verdicts — 38 attacks fall below the 0.35 band edge there. It supports the F09 tool-name-tell and F10 band questions, and must NOT be read as evidence for the zero-evasion / zero-FRR claims above (those are full-firewall `e2e` results on the original corpus).
+- **Balanced-corpus evidence scope:** `tests/eval/results/jev_runs_balanced/` holds **Tier-1 Jev scores only**, not full-firewall verdicts — 38 attacks fell below the then-shipped 0.35 band edge there. It supports the F09 tool-name-tell and F10 band questions, and must NOT be read as evidence for the zero-evasion / zero-FRR claims above (those are full-firewall `e2e` results on the original corpus).
 
 ---
 

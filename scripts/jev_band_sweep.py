@@ -79,6 +79,38 @@ def metrics(rows: list[dict[str, Any]], low: float, high: float,
     }
 
 
+def calibration(rows: list[dict[str, Any]], low: float, high: float,
+                attack_types: dict[str, str]) -> dict[str, Any]:
+    """Gate measurements (recall, AUROC, 10-bin ECE) for a fixed row set and band."""
+    confusion = metrics(rows, low, high, attack_types)
+    pairs = [
+        (float(r["p_threat"]), 1 if r["ground_truth"] == "MALICIOUS" else 0)
+        for r in rows
+    ]
+    pos = [p for p, y in pairs if y == 1]
+    neg = [p for p, y in pairs if y == 0]
+    auroc = (
+        sum((p > n) + 0.5 * (p == n) for p in pos for n in neg) / (len(pos) * len(neg))
+        if pos and neg else None
+    )
+    ece = 0.0
+    for b in range(10):
+        lo, hi = b / 10, (b + 1) / 10
+        bucket = [pair for pair in pairs
+                  if lo <= pair[0] < hi or (b == 9 and pair[0] == 1.0)]
+        if bucket:
+            ece += len(bucket) / len(pairs) * abs(
+                sum(p for p, _ in bucket) / len(bucket)
+                - sum(y for _, y in bucket) / len(bucket)
+            )
+    decided_malicious = confusion["tp"] + confusion["fn"]
+    return {
+        "recall": round(confusion["tp"] / decided_malicious, 4) if decided_malicious else None,
+        "auroc": round(auroc, 4) if auroc is not None else None,
+        "ece": round(ece, 4),
+    }
+
+
 def sweep(run: list[dict[str, Any]], half: int,
           attack_types: dict[str, str]) -> list[dict[str, Any]]:
     selected = [r for r in run if stable_split(r["eval_case_id"]) == half]
@@ -133,6 +165,22 @@ def build_artifact() -> dict[str, Any]:
         "selected": chosen,
         "holdout_baseline": holdout_baseline,
         "holdout": {"run1": holdout_run1, "run2": holdout_run2},
+        "holdout_gates": {
+            "baseline": {
+                f"run{i}": calibration(
+                    [r for r in runs[i - 1] if stable_split(r["eval_case_id"]) == 1],
+                    0.35, 0.75, attack_types,
+                )
+                for i in (1, 2)
+            },
+            "selected": {
+                f"run{i}": calibration(
+                    [r for r in runs[i - 1] if stable_split(r["eval_case_id"]) == 1],
+                    chosen["low"], chosen["high"], attack_types,
+                )
+                for i in (1, 2)
+            },
+        },
         "metric_definitions": {
             "escalation_rate": (
                 "IN-BAND Tier-2 share only: P inside [low, high]. It excludes the separate "
