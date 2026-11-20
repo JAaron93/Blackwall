@@ -48,7 +48,7 @@ def test_defense_patches_the_outgoing_request_builder(harness):
         assert "<tool_call" in after
         assert after != before
     finally:
-        cls.build_request_state = original
+        cls.build_request_state = staticmethod(original)
 
 
 def test_current_corpus_loader_uses_balanced_cases_without_placeholders(harness):
