@@ -28,6 +28,11 @@ from blackwall.models import (
     CachedIndicatorResponse,
 )
 from blackwall.policy.models import GateResult, StructuralAction
+from blackwall.policy.jev_questions import (
+    JEV_ATOMIC_QUESTIONS,
+    combine_answers,
+    parse_atomic_answers,
+)
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.mcp.codebase_memory import CodebaseMemoryClient
 from blackwall.validators import clamp_score, normalize_text
@@ -973,13 +978,14 @@ class JevTriageBackend(SemanticTriageProvider):
         return result, truncated
 
     @staticmethod
-    def build_state(context: ToolCallContext) -> str:
-        """Serialize the already-sanitized context as compact JSON with named fields.
+    def build_state(context: ToolCallContext) -> Dict[str, Any]:
+        """Return the already-sanitized context as a native JSON object (FR-09).
 
+        The official System One OpenAPI accepts ``state`` as string | object | array;
+        the skill guidance favors named object fields over serialized JSON text.
         FR-05 still applies: sanitization happens before this method is called and
-        the egress allowlist is unchanged. FAIL CLOSED on truncation: a partial view
-        of a tool call can hide executable text appended after the cut, so no
-        truncated input is ever sent to Jev (resolve in G02/G04 before re-enabling).
+        the allowlist is unchanged. FAIL CLOSED on truncation: a partial view of a
+        tool call can hide executable text appended after the cut.
         """
         arguments, truncated = JevTriageBackend.truncate_state_fields(context.arguments)
         if truncated:
@@ -988,16 +994,13 @@ class JevTriageBackend(SemanticTriageProvider):
                 "Jev state has oversized argument fields; refusing a partial view "
                 f"of the tool call ({', '.join(truncated)})"
             )
-        state = json.dumps(
-            {
-                "tool": {"name": context.tool_name},
-                "arguments": arguments,
-                "metadata": context.metadata or {},
-            },
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
-        if len(state.encode("utf-8")) > JEV_MAX_STATE_BYTES:
+        state: Dict[str, Any] = {
+            "tool": {"name": context.tool_name},
+            "arguments": arguments,
+            "metadata": context.metadata or {},
+        }
+        serialized = json.dumps(state, ensure_ascii=False, separators=(",", ":"))
+        if len(serialized.encode("utf-8")) > JEV_MAX_STATE_BYTES:
             raise JevUnavailableError(
                 f"Jev state exceeds the {JEV_MAX_STATE_BYTES}-byte request limit"
             )
@@ -1021,6 +1024,27 @@ class JevTriageBackend(SemanticTriageProvider):
             "state": self.build_request_state(context),
             "questions": {"is_threat": JEV_IS_THREAT_QUESTION},
         }
+
+    def _build_atomic_payload(self, context: ToolCallContext) -> Dict[str, Any]:
+        """G02 payload shape for the live probe (G03) and the G04 re-score.
+
+        Production still uses ``_build_payload`` until G04's held-out gate passes.
+        """
+        return {
+            "model": self.model,
+            "state": self.build_state(context),
+            "questions": JEV_ATOMIC_QUESTIONS,
+        }
+
+    def _parse_atomic_response(self, data: Dict[str, Any]) -> SemanticTriageResult:
+        """Combine the six category probabilities into the single Tier-1 signal."""
+        probabilities = parse_atomic_answers(data)
+        threat_score = combine_answers(probabilities)
+        return SemanticTriageResult(
+            threat_score=threat_score,
+            backend=self.name,
+            escalate=JEV_CLEAR_LOW_THRESHOLD <= threat_score <= JEV_CLEAR_HIGH_THRESHOLD,
+        )
 
     @property
     def endpoint(self) -> str:

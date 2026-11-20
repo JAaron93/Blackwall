@@ -676,9 +676,29 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   over shared state; `_parse_response` reads each answer; code combines them
   (candidate fail-closed `max`) into `threat_score` with the unchanged
   0.08/0.40 band. Dependencies: TASK-G01. TDD with mocked multi-answer responses.
-  - [ ] Confirm against the OpenAPI schema whether `state` is an object or a compact JSON string; reference fields by path.
-  - [ ] Failing tests: one judgment per question; criteria present; combination is total over [0,1]; band/escalate/floor/Tier-2 routing unchanged.
-  - [ ] Implement the question module + parsing + combination; update the dev `.mjs` helper to share the wording (parity test, TASK-F09).
+  - [x] Confirm against the OpenAPI schema whether `state` is an object or a compact JSON string; reference fields by path.
+  - [x] Failing tests: one judgment per question; criteria present; combination is total over [0,1]; band/escalate/floor/Tier-2 routing unchanged.
+  - [x] Implement the question module + parsing + combination; update the dev `.mjs` helper to share the wording (parity test, TASK-F09).
+  >
+  > **Done 2026-11-20 — engineering, no live calibration (mock TDD; G03/G04 gate the
+  > hypothesis).** Official OpenAPI (`GET https://api.typesafe.ai/openapi.json`,
+  > `POST /v1/systemone`) confirms `state` accepts `string | object | array` and
+  > `answers.<name>.noul` with `criteria.true/false`; per the skill guidance the
+  > structured builder now returns a **native JSON object**. Six atomic questions
+  > (`injection`, `obfuscation`, `privilege_escalation`, `unauthorized_access`,
+  > `credential_theft`, `exfiltration`) live in a single JSON source of truth shared
+  > with the dev `.mjs` probe helper; a Node parity test pins identical wording.
+  > Strict multi-answer parsing (`parse_atomic_answers`) and fail-closed `max`
+  > (`combine_answers`) produce the single `threat_score`; invalid/missing/out-of-range
+  > answers raise rather than being clamped. The 0.08/0.40 band, escalation,
+  > clear-high floor and Tier-2 routing are unchanged; **production still uses the
+  > legacy `is_threat` payload** until G04's held-out gate passes. Tests:
+  > `tests/unit/test_jev_atomic_questions.py` (5) + updated G01 tests; full unit
+  > suite 2138 passed with only the known worktree environment failures.
+  > Hypothesis (atomic questions improve calibration) remains **unmeasured** —
+  > G03 live probe and G04 A/B decide it. All engineering sub-items are done, but
+  > per AGENTS.md §6.7 the `[ ]` marker stays until that hypothesis is measured;
+  > the wording/parsing/combination code is ready for the probe.
 * [ ] **TASK-G03 [C2]: Live probe + wording refinement** (NFR-05; skill protocol).
   Probe representative, hard and negative cases; compare wordings as separate
   questions over one state; read individual answers; keep the exact payload per

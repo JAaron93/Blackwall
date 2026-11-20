@@ -23,13 +23,12 @@ def _context(**arguments):
     )
 
 
-def test_build_state_emits_named_json_fields_not_a_dict_repr():
+def test_build_state_emits_native_json_object_not_a_dict_repr():
     state = JevTriageBackend.build_state(_context(sql="SELECT id FROM users WHERE id = :id"))
-    data = json.loads(state)
-    assert data["tool"]["name"] == "query_db"
-    assert data["arguments"]["sql"] == "SELECT id FROM users WHERE id = :id"
-    assert data["metadata"] == {"caller": "reporting-service"}
-    assert not state.startswith("Tool:")
+    assert isinstance(state, dict)  # OpenAPI accepts object; skill favors named fields
+    assert state["tool"]["name"] == "query_db"
+    assert state["arguments"]["sql"] == "SELECT id FROM users WHERE id = :id"
+    assert state["metadata"] == {"caller": "reporting-service"}
 
 
 def test_truncation_helper_marks_fields_but_build_state_fails_closed(caplog):

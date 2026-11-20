@@ -287,6 +287,16 @@ internal service call ≠ exfiltration), per the skill. A category that proves
 unreliable live is split or re-worded against held-out cases, never patched
 with a clause per failing case.
 
+> **G02 engineering done 2026-11-20 (hypothesis unmeasured; G03/G04 gate it).**
+> The official System One OpenAPI confirms `state` accepts string | object | array
+> and `answers.<name>.noul` with `criteria.true/false`, so the structured builder
+> now returns a **native JSON object** (not a compact string). These six questions
+> live in `src/blackwall/policy/jev_questions.json`, read by both the Python policy
+> and the dev `.mjs` probe helper with a Node parity test. Strict parsing and a
+> fail-closed `max` produce the single `threat_score`; band/escalation/floor/Tier-2
+> routing are unchanged, and production stays on the legacy `is_threat` payload
+> until G04's held-out gate passes.
+
 ### Decision logic stays in code (truth table)
 
 Jev supplies the per-category probabilities; code combines them into the single
@@ -321,8 +331,8 @@ Python dict repr, e.g.:
 * Whether `state` is sent as a JSON object or a compact JSON string is confirmed
   against the OpenAPI schema during live probing (G02); questions reference
   fields by path (e.g. `arguments.sql`).
-  > **G01 implemented 2026-11-20 (review-corrected):** `build_state` emits a
-  > **compact JSON string** with named `tool.name` / `arguments` / `metadata` fields
+  > **G01 implemented 2026-11-20 (review-corrected; G02 switched to an object):**
+  > `build_state` emits JSON with named `tool.name` / `arguments` / `metadata` fields
   > (transport choice provisional until G02's live probe). The pure truncation
   > helper marks oversized fields, but `build_state` **fails closed** on any input
   > needing truncation — a partial view could hide an executable command tail that
