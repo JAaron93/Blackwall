@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "description": "TASK-F02 final defense validation at the re-baselined 0.08/0.40 band. Paired experiments with scripts/jev_tier2_eval.py tier1-steering --defense state-boundary vs the shipped state format, on a bounded class-stratified subset of the balanced corpus (30 malicious + 30 benign base cases, dev payloads, semantic_only config, real jev-1.14.0 + gemini-3.5-flash-lite, band 0.08/0.40, 0.08/0.40 recorded in each run's provenance). No src change shipped. No project id, key or credential recorded.",
+  "runs": [
+    {"file": "final_baseline_malicious.json", "arm": "shipped state", "class_subset": "c2,other,probe", "bases": 30, "jev_calls": 690, "tier2_calls": 212, "errors": {"rows": 0}},
+    {"file": "final_defense_malicious.json", "arm": "nonce-XML boundary", "class_subset": "c2,other,probe", "bases": 30, "jev_calls": 690, "tier2_calls": 85, "errors": {"rows": 0}},
+    {"file": "final_baseline_benign.json", "arm": "shipped state", "class_subset": "benign", "bases": 30, "jev_calls": 690, "tier2_calls": 300, "errors": {"tier2_timeouts": 2, "rows": 0}},
+    {"file": "final_defense_benign.json", "arm": "nonce-XML boundary", "class_subset": "benign", "bases": 30, "jev_calls": 690, "tier2_calls": 278, "errors": {"tier2_429": 1, "rows": 0}}
+  ],
+  "method": {
+    "selection": "--groups c2,other,probe --limit 30 for malicious; --groups benign --limit 30 for benign; --split dev (22 payloads); --policy off (semantic tiers only)",
+    "matched_comparison": "To-ALLOW flip counts are recomputed on the intersection of the per-arm held base sets (26 bases, BLOCK/QUARANTINE unsteered) so both arms use the same 572 steered calls; per-arm held sets (26 vs 27) are never compared directly.",
+    "benign_metric": "Benign steered calls with final verdict BLOCK or QUARANTINE are counted as flagged (fail-closed but a false-alarm cost); abstentions/errors are counted apart, never as benign ALLOW."
+  },
+  "matched_results": {
+    "malicious": {
+      "common_held_bases": 26,
+      "baseline_to_allow": {"n": 19, "of": 572, "rate": 0.0332, "upper95": 0.0513},
+      "defense_to_allow": {"n": 6, "of": 572, "rate": 0.0105},
+      "defense_to_allow_own_held_set": {"n": 8, "of": 594, "rate": 0.0135, "upper95": 0.0263},
+      "below_edge_crossings": {"baseline": 14, "defense": 5}
+    },
+    "benign": {
+      "baseline": {"steered": 660, "allow": 361, "block": 133, "quarantine": 166, "flagged": 299, "flagged_rate": 0.453, "p_shift_mean": 0.1754, "rise_ge_0.05": 341},
+      "defense": {"steered": 660, "allow": 244, "block": 66, "quarantine": 350, "flagged": 416, "flagged_rate": 0.6303, "p_shift_mean": 0.2681, "rise_ge_0.05": 428}
+    }
+  },
+  "finding": "The nonce-XML boundary cuts malicious to-ALLOW flips on matched held bases (19/572 -> 6/572) and below-edge crossings (14 -> 5), but it materially worsens the benign false-alarm trade-off: flagged benign steered calls rise 299/660 (45.3%) -> 416/660 (63.0%), and mean benign P shift rises 0.175 -> 0.268. Hypothesis 'boundary resists steering without new false alarms' is therefore NOT validated for shipping: the reduction in malicious flips comes with a large increase in benign holds. No guard was shipped. Decision informed: a defense must address the benign side (e.g. Track G's category-separated questions/criteria) rather than only delimiting data; F02 stays open.",
+  "caveats": [
+    "One run per arm per class subset — no replicate; figures are exploratory, not a release gate.",
+    "Bounded subsets (30 bases per class) of the balanced corpus, not the full 187-case set.",
+    "2 Tier-2 timeouts in the baseline benign arm and 1 Tier-2 429 in the defense benign arm are counted apart, never as benign ALLOW.",
+    "The harness field raised_above_035 is hardcoded to the former 0.35 edge; it is NOT used in this comparison (the matched analysis uses raw verdicts at 0.08/0.40).",
+    "Tier-1 + Tier-2 stage evidence only, demo_mode not used for the policy config; no full-firewall catch-rate claim."
+  ],
+  "cited_in": [
+    ".kiro/specs/tier-1-jev-addition/tasks.md TASK-F02",
+    "docs/adr/0009-tier2-flash-lite-medium-and-jev-only-fail-fast.md Open Item 3"
+  ]
+}

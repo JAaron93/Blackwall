@@ -629,6 +629,20 @@ Reading it:
    > guard shipped.
    > Artifacts: `tests/eval/results/jev_tier1_defense_runs/` (manifest + two arms),
    > recomputed by `tests/unit/test_jev_tier1_defense_runs_data.py`.
+   >
+   > **Final validation 2026-11-20 (TASK-F02, at the F10 band 0.08/0.40).** The same
+   > harness-only boundary was re-run on a class-stratified subset of the balanced
+   > corpus (30 malicious + 30 benign bases, dev payloads, one run per arm). On the
+   > 26 held bases common to both arms it cut to-ALLOW flips **19/572 → 6/572** and
+   > below-edge crossings 14 → 5, but benign steered calls flagged (BLOCK/QUARANTINE)
+   > rose **299/660 (45.3%) → 416/660 (63.0%)**, mean benign P shift 0.175 → 0.268.
+   > The malicious gain therefore comes with a large benign false-alarm cost: the
+   > hypothesis is **not validated for shipping**, no guard was shipped, and a viable
+   > defense must address the benign side (Track G category-separated questions /
+   > criteria). Artifacts: `tests/eval/results/jev_tier1_defense_final/` (manifest +
+   > four arm JSONs), recomputed by
+   > `tests/unit/test_jev_tier1_defense_final_data.py`. Stale harness field
+   > `raised_above_035` is disclosed and not used.
 4. **What the class-blind result implies.** *(Wrapper template and payloads:
    done, see Verification.)* On the class-blind corpus the accuracy and ECE gates
    fail at the fixed 0.35/0.75 band while AUROC is 0.99. Whether to move the
