@@ -1786,7 +1786,8 @@ async def run_naive_control(
 
     async def one(index: int, case: SteeringCase) -> None:
         ctx = ToolCallContext(tool_name=case.tool, arguments=case.args, metadata=case.metadata)
-        state = semantic.JevTriageBackend.build_state(hygiene.sanitize_context(ctx))
+        # Stored runs predate TASK-G01's structured state (legacy shape).
+        state = semantic.JevTriageBackend.build_legacy_state(hygiene.sanitize_context(ctx))
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
             thinking_config=types.ThinkingConfig(thinking_level=semantic.TIER2_THINKING_LEVEL),

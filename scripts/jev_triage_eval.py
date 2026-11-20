@@ -94,7 +94,9 @@ def build_cases(suites: list[str]) -> list[dict]:
         ctx = hygiene.sanitize_context(
             ToolCallContext(tool_name=tool, arguments=arguments)
         )
-        state = JevTriageBackend.build_state(ctx)
+        # Stored runs predate TASK-G01's structured state; recompute with the
+        # legacy shape so saved states stay comparable until G04 produces fresh runs.
+        state = JevTriageBackend.build_legacy_state(ctx)
         return {
             "id": case_id,
             "suite": suite,

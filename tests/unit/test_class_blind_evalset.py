@@ -236,7 +236,8 @@ def test_scoring_states_are_exactly_what_production_builds(evaluator):
     ctx = hygiene.sanitize_context(
         ToolCallContext(tool_name="database_query", arguments=sample["metadata"]["tool_arguments"])
     )
-    assert by_id["malicious_sql_001"]["state"] == JevTriageBackend.build_state(ctx)
+    # Committed runs predate TASK-G01's structured state (legacy shape).
+    assert by_id["malicious_sql_001"]["state"] == JevTriageBackend.build_legacy_state(ctx)
 
 
 def test_scoring_states_carry_no_harness_scaffolding_or_label_words(evaluator):

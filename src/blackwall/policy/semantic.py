@@ -805,6 +805,11 @@ JEV_SYSTEM_ONE_PATH = "/v1/systemone"
 # tool-name-balanced corpus and is
 # re-validated by re-running the TASK-D02 eval when TypeSafe ships a new one.
 JEV_DEFAULT_MODEL = "jev-latest"
+# TASK-G01 / FR-09: documented context limits and a bounded per-field truncation.
+JEV_MAX_STATE_BYTES = 64 * 1024
+JEV_MAX_QUESTION_BYTES = 32 * 1024
+JEV_MAX_FIELD_CHARS = 4096
+JEV_TRUNCATION_MARKER = "…[truncated]"
 JEV_DEFAULT_TIMEOUT_S = 5.0
 
 # Statuses TypeSafe documents as "retry after a short delay": 429 Too Many
@@ -945,13 +950,46 @@ class JevTriageBackend(SemanticTriageProvider):
         self._sleep = sleep
 
     @staticmethod
-    def build_state(context: ToolCallContext) -> str:
-        """Serialize the sanitized context — verbatim, never re-sanitized."""
+    def build_legacy_state(context: ToolCallContext) -> str:
+        """Pre-G01 state shape — kept only for recomputing stored runs."""
         return (
             f"Tool: {context.tool_name}\n"
             f"Arguments: {context.arguments}\n"
             f"Metadata: {context.metadata or {}}"
         )
+
+    @staticmethod
+    def build_state(context: ToolCallContext) -> str:
+        """Serialize the already-sanitized context as compact JSON with named fields.
+
+        FR-05 still applies: sanitization happens before this method is called and
+        the egress allowlist is unchanged. Oversized string argument values are
+        truncated per field with an explicit marker and logged; if the serialized
+        state still exceeds the request limit the backend fails closed.
+        """
+        arguments = dict(context.arguments)
+        for key, value in list(arguments.items()):
+            if isinstance(value, str) and len(value) > JEV_MAX_FIELD_CHARS:
+                arguments[key] = value[:JEV_MAX_FIELD_CHARS] + JEV_TRUNCATION_MARKER
+                logger.warning(
+                    "jev_state_field_truncated",
+                    extra={"field": key, "original_chars": len(value)},
+                )
+        state = json.dumps(
+            {
+                "tool": {"name": context.tool_name},
+                "arguments": arguments,
+                "metadata": context.metadata or {},
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        if len(state.encode("utf-8")) > JEV_MAX_STATE_BYTES:
+            raise JevUnavailableError(
+                f"Jev state exceeds the {JEV_MAX_STATE_BYTES}-byte request limit "
+                "after per-field truncation"
+            )
+        return state
 
     def _build_payload(self, context: ToolCallContext) -> Dict[str, Any]:
         # Egress allowlist (FR-05): exactly these three fields leave the host.
