@@ -1637,9 +1637,13 @@ def defense_provenance(defense: str) -> dict[str, str]:
 
 
 def apply_defense(defense: str) -> None:
-    """Point Jev state building at the candidate format for one harness process."""
+    """Point the OUTGOING request builder at the candidate format for one process.
+
+    G01 moved production onto build_request_state() (legacy until G04), so patching
+    build_state() would leave both arms sending identical legacy states.
+    """
     if defense == "state-boundary":
-        semantic.JevTriageBackend.build_state = staticmethod(build_defended_state)
+        semantic.JevTriageBackend.build_request_state = staticmethod(build_defended_state)
 
 
 async def run_tier1_steering(
@@ -1786,7 +1790,8 @@ async def run_naive_control(
 
     async def one(index: int, case: SteeringCase) -> None:
         ctx = ToolCallContext(tool_name=case.tool, arguments=case.args, metadata=case.metadata)
-        state = semantic.JevTriageBackend.build_state(hygiene.sanitize_context(ctx))
+        # Stored runs predate TASK-G01's structured state (legacy shape).
+        state = semantic.JevTriageBackend.build_legacy_state(hygiene.sanitize_context(ctx))
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
             thinking_config=types.ThinkingConfig(thinking_level=semantic.TIER2_THINKING_LEVEL),

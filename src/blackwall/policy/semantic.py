@@ -805,6 +805,11 @@ JEV_SYSTEM_ONE_PATH = "/v1/systemone"
 # tool-name-balanced corpus and is
 # re-validated by re-running the TASK-D02 eval when TypeSafe ships a new one.
 JEV_DEFAULT_MODEL = "jev-latest"
+# TASK-G01 / FR-09: documented context limits and a bounded per-field truncation.
+JEV_MAX_STATE_BYTES = 64 * 1024
+JEV_MAX_QUESTION_BYTES = 32 * 1024
+JEV_MAX_FIELD_CHARS = 4096
+JEV_TRUNCATION_MARKER = "…[truncated]"
 JEV_DEFAULT_TIMEOUT_S = 5.0
 
 # Statuses TypeSafe documents as "retry after a short delay": 429 Too Many
@@ -945,19 +950,75 @@ class JevTriageBackend(SemanticTriageProvider):
         self._sleep = sleep
 
     @staticmethod
-    def build_state(context: ToolCallContext) -> str:
-        """Serialize the sanitized context — verbatim, never re-sanitized."""
+    def build_legacy_state(context: ToolCallContext) -> str:
+        """Pre-G01 state shape — kept only for recomputing stored runs."""
         return (
             f"Tool: {context.tool_name}\n"
             f"Arguments: {context.arguments}\n"
             f"Metadata: {context.metadata or {}}"
         )
 
+    @staticmethod
+    def truncate_state_fields(arguments: Dict[str, Any]) -> tuple[Dict[str, Any], list[str]]:
+        """Truncate oversized string values per field with an explicit marker.
+
+        A pure helper for the size guard: it never decides what the model may see.
+        """
+        result = dict(arguments)
+        truncated: list[str] = []
+        for key, value in list(result.items()):
+            if isinstance(value, str) and len(value) > JEV_MAX_FIELD_CHARS:
+                result[key] = value[:JEV_MAX_FIELD_CHARS] + JEV_TRUNCATION_MARKER
+                truncated.append(key)
+        return result, truncated
+
+    @staticmethod
+    def build_state(context: ToolCallContext) -> str:
+        """Serialize the already-sanitized context as compact JSON with named fields.
+
+        FR-05 still applies: sanitization happens before this method is called and
+        the egress allowlist is unchanged. FAIL CLOSED on truncation: a partial view
+        of a tool call can hide executable text appended after the cut, so no
+        truncated input is ever sent to Jev (resolve in G02/G04 before re-enabling).
+        """
+        arguments, truncated = JevTriageBackend.truncate_state_fields(context.arguments)
+        if truncated:
+            logger.warning("jev_state_field_truncated", extra={"fields": truncated})
+            raise JevUnavailableError(
+                "Jev state has oversized argument fields; refusing a partial view "
+                f"of the tool call ({', '.join(truncated)})"
+            )
+        state = json.dumps(
+            {
+                "tool": {"name": context.tool_name},
+                "arguments": arguments,
+                "metadata": context.metadata or {},
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        if len(state.encode("utf-8")) > JEV_MAX_STATE_BYTES:
+            raise JevUnavailableError(
+                f"Jev state exceeds the {JEV_MAX_STATE_BYTES}-byte request limit"
+            )
+        return state
+
+    @staticmethod
+    def build_request_state(context: ToolCallContext) -> str:
+        """Builder for outgoing Jev requests — legacy until G04's held-out gate.
+
+        A single hook keeps the production default explicit and lets dev harnesses
+        swap the request builder (e.g. F02's `--defense`) without changing it.
+        """
+        return JevTriageBackend.build_legacy_state(context)
+
     def _build_payload(self, context: ToolCallContext) -> Dict[str, Any]:
         # Egress allowlist (FR-05): exactly these three fields leave the host.
+        # FR-09: the production state flip is gated on G04's held-out A/B; until
+        # then the legacy shape stays live. build_state() is the G02+ foundation.
         return {
             "model": self.model,
-            "state": self.build_state(context),
+            "state": self.build_request_state(context),
             "questions": {"is_threat": JEV_IS_THREAT_QUESTION},
         }
 

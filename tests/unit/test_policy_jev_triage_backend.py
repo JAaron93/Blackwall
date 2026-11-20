@@ -219,6 +219,7 @@ async def test_state_is_tool_arguments_metadata_lines_verbatim():
     )
     await backend.triage(context)
     body = json.loads(requests[0].content.decode())
+    # FR-09: production state stays legacy until G04's held-out gate passes.
     assert body["state"] == (
         "Tool: read_file\n"
         "Arguments: {'path': '/var/log/app.log'}\n"
