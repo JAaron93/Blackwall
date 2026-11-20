@@ -93,7 +93,7 @@ python3 scripts/run_gcp_eval.py --eval-threshold 3.5 --allow-fallback
 System 2 evaluates Blackwall Core's tool interception proxy (`before_tool_callback`) using Google's official Agent Development Kit (ADK) evaluation tooling (`agents-cli`). It verifies that `before_tool_callback` fires before tool execution, returns proper verdicts (ALLOW, BLOCK, QUARANTINE), and that the self-learning threat signature loop detects structural variants 100x faster.
 
 ### Dataset Files
-- **`tests/eval/evalsets/blackwall_security.evalset.json`**: 157 labelled test cases (59 malicious, 50+ benign, 20+ evasion variants).
+- **`tests/eval/evalsets/blackwall_security.evalset.json`**: 187 labelled test cases (82 malicious, 75 benign, 30 evasion) after TASK-F09 rebalanced tool names; the historical 157-case corpus figures in older docs refer to the pre-F09 version.
 - **`tests/eval/evalsets/blackwall_evasion_proof.evalset.json`**: 10-case two-wave evaluation proof:
   - *Wave 1*: 5 novel attacks requiring full semantic evaluation.
   - *Wave 2*: 5 structurally similar variants demonstrating instant TSG signature matching.
@@ -198,6 +198,18 @@ The **Tier-1 Classifier Analytics** section shows gate stats (accuracy ≥98%, A
 The dashboard reads the committed `tests/eval/results/jev_triage_results.json`, which is the TASK-D02 artifact behind ADR 0008. It was scored on the earlier corpus, whose states reveal their class (ADR 0008, Open Item 10), so read its gate figures as upper bounds. The class-blind corpus (one shared prompt template, real attack text, no label words; TASK-F05b, ADR 0009) is scored by `scripts/jev_triage_eval.py`, and its four committed runs are in `tests/eval/results/jev_runs_class_blind/`. The dashboard plots them in the **Class-blind corpus: Jev release comparison** section: a per-case P chart with the fixed 0.35–0.75 band, an optional overlay of the earlier corpus's runs, a gate table (accuracy, ECE, AUROC, escalation, with ✅/❌) for both corpora side by side, and a table of the malicious cases scored below the band. On that corpus the accuracy and ECE gates fail and the AUROC and escalation gates pass (ADR 0009, Verification).
 
 The **Jev release comparison** cell overlays per-case `P(threat)` from the runs listed in `tests/eval/results/jev_runs/manifest.json`, all over the same 167 states. The default ("headline") runs request each release by name, `jev-1.13.0` and `jev-1.14.0`, twice each on the paid API, so a release difference can be read against the run-to-run noise of one release. "History" runs are opt-in: the Vercel Gateway free-tier run (it overlays the pinned 1.13 runs, which is the evidence that a rate limit does not move P) and the `jev-latest` TASK-D02 runs. To add a run, write it with `JEV_MODEL=<release> .venv/bin/python scripts/jev_triage_eval.py --out tests/eval/results/jev_runs/<file>.json` and list it in the manifest; `tests/unit/test_jev_run_comparison_data.py` checks that it scores the same states with no errors and that the served release matches the request. `tests/eval/results/jev_runs/ablation_class_blind.json` holds the class-blind ablation (the exact states sent and every probability); `tests/unit/test_jev_class_blind_ablation_data.py` pins the figures ADR 0008 cites.
+
+### Balanced corpus for band calibration (TASK-F09)
+
+TASK-F09 removed the tool-name class tell from the golden corpus (187 security /
+197 scored cases; class-exclusive tool names 33→3). Two fresh `jev-1.14.0` runs live
+in `tests/eval/results/jev_runs_balanced/` alongside a `manifest.json` that records
+the corpus, the tool-tell metrics, the gate metrics, a matched 167-case comparison,
+and the three tools excluded from scored malicious evidence. `tests/unit/test_jev_runs_balanced_data.py`
+recomputes all of it and pins every saved row's state, label, tool and expected verdict
+to `build_cases(["security", "evasion_proof"])`, so a later payload edit requires fresh
+evidence. Use these runs — not the older `jev_runs_class_blind/` runs — when calibrating
+the band on the expanded case set (F10); the older runs remain valid for the original 167.
 
 ### Production integration status
 

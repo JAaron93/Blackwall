@@ -524,14 +524,17 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > two runs + matched arm), recomputed by `tests/unit/test_jev_runs_balanced_data.py`,
   > which also pins each saved row to the current corpus. No band or production change.
 * [ ] **TASK-F10 [C2]: Decide what to do about the failed accuracy and ECE gates**
-  (ADR 0009 OI4). On the class-blind corpus AUROC is 0.99 but 26 to 27 of 99 attacks
-  fall below the 0.35 lower band edge (12 to 13 are C2/IOC-type calls). Options:
+  (ADR 0009 OI4). On the balanced corpus (TASK-F09, 197 scored cases) AUROC is
+  ~0.988 but 38 of 122 attacks fall below the 0.35 lower band edge; the earlier
+  class-blind corpus had 26 to 27 of 99 (12 to 13 C2/IOC-type — not re-derived
+  on the new corpus). Options:
   a lower band edge (an indicative sweep reached 91.3% to 95.2% on the cases it
   was tuned on, so it needs fresh labeled evidence), threat intelligence for the
   IOC-type calls, or accepting the misses. Any band change is a spec amendment
   with a same-change sync of `AGENTS.md`, `.agents/rules/` and `.greptile/`.
   Needs a maintainer decision first.
-  Dependencies: TASK-F09.
+  Dependencies: TASK-F09 (done 2026-11-20 — calibrate on the balanced corpus and
+  its `tests/eval/results/jev_runs_balanced/` artifacts, including the matched arm).
   > **Telos:** Where should the band edges sit so novel attacks are caught without
   > false alarms? Hypothesis: the 0.35 lower edge misses C2/IOC-type calls; a lower
   > edge or threat-intel catches them. Informs the band spec amendment (fresh
