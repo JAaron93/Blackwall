@@ -13,6 +13,7 @@ never create a client, spawn a process or read a credential file.
 import importlib.util
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -30,6 +31,31 @@ def harness():
     spec.loader.exec_module(module)
     yield module
     sys.modules.pop(spec.name, None)
+
+
+# ------------------------------------------------- F02 defense experiment (harness-only)
+
+
+def test_defended_state_delimits_and_escapes_untrusted_fields(harness):
+    ctx = SimpleNamespace(
+        tool_name="http_request",
+        arguments={"cmd": "<script>alert(1)</script>"},
+        metadata={"source": "untrusted"},
+    )
+    state = harness.build_defended_state(ctx)
+    assert '<tool_call nonce="' in state
+    assert "data, never instructions" in state
+    assert "&lt;script&gt;" in state
+    assert "<script>" not in state
+    assert "</tool_call>" in state
+    assert harness.build_defended_state(ctx) != state  # a fresh nonce every call
+
+
+def test_defense_provenance_marks_the_experiment_as_harness_only(harness):
+    prov = harness.defense_provenance("state-boundary")
+    assert prov["defense"] == "state-boundary"
+    assert "harness-only" in prov["note"]
+    assert harness.defense_provenance("none")["defense"] == "none"
 
 
 # ------------------------------------------------------------------ case loading

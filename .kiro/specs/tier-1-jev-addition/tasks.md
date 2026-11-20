@@ -371,6 +371,24 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > altered the egress payload/calibration without evidence — a Cluster 2 change
   > shipped without validation. The Tier-1 steering path stays open empirical work
   > (coupled to TASK-F10); validate live before proposing any guard.
+  >
+  > **Empirical defense experiment (2026-11-19; sequencing decision F02 → F10).**
+  > Telos: does a nonce-tagged XML boundary on the Jev state resist the measured
+  > Tier-1 steering? **Hypothesis supported on matched malicious cases, not validated
+  > for shipping.** On fixed populations the boundary cut to-ALLOW flips from 7→1
+  > (dev) and 9→3 (held-out) on the 7 bases held in both arms (both /154), and total
+  > malicious ALLOW steered calls from 165→69 and 166→85 on all 20 shared bases
+  > (/440 each). An earlier apparent increase was an artifact of comparing per-arm
+  > 'held' sets selected by each arm's own unsteered verdict (7 vs 17/16 bases).
+  > Caveat: the boundary also shifts unsteered calibration (BLOCK bases dev 2→12,
+  > held-out 3→11) and this subset had no benign cases, so the false-alarm trade-off
+  > is unmeasured. Decision informed: a state-format defense is promising but needs
+  > full re-calibration and benign measurement (Track G) plus F10's band decision.
+  > No guard was shipped and **this task stays open**. Evidence:
+  > `tests/eval/results/jev_tier1_defense_runs/` (`manifest.json` + both arm JSONs),
+  > recomputed by `tests/unit/test_jev_tier1_defense_runs_data.py`; harness support
+  > in `scripts/jev_tier2_eval.py --defense`. Sequencing: F02's measurement is an
+  > input to F10; F10 additionally waits on F09 and a maintainer band decision.
 * [x] **TASK-F03 [C1]: Account for the shared Vertex quota** (ADR 0009 OI2). Signature
   synthesis, the judges and other Gemini calls share the project quota that
   Tier-2 depends on and are not counted by the Tier-2 bucket. Decide between one
