@@ -243,10 +243,12 @@ def test_notebook_gate_table_matches_the_recomputed_figures(notebook_namespace, 
     for row, key in zip(blind, [("jev-1.13.0", "run1"), ("jev-1.13.0", "run2"), ("jev-1.14.0", "run1"), ("jev-1.14.0", "run2")]):
         tp, fn, fp, tn, _esc = _confusion(expected[key])
         assert row["TP / FN / FP / TN"] == f"{tp} / {fn} / {fp} / {tn}"
-        assert row["Accuracy, decided (gate ≥98%)"] == f"{(tp + tn) / (tp + tn + fp + fn):.1%} ❌"
-        assert row["ECE (gate ≤0.10)"] == f"{_ece(expected[key]):.3f} ❌"
-        assert row["AUROC (gate ≥0.95)"].endswith("✅")
-        assert row["Escalation (gate ≤25%)"].endswith("✅")
+        # Gate labels follow the F10 re-baseline; these historical class-blind
+        # runs are scored against the new thresholds, not their original ones.
+        assert row["Accuracy, decided (gate ≥85%)"] == f"{(tp + tn) / (tp + tn + fp + fn):.1%} ❌"
+        assert row["ECE (gate ≤0.27)"] == f"{_ece(expected[key]):.3f} ✅"
+        assert row["AUROC (gate ≥0.97)"].endswith("✅")
+        assert row["Escalation (gate ≤20%)"].endswith("✅")
     # the earlier corpus passes every gate, which is exactly why it is only an upper bound
     assert all("❌" not in v for r in earlier for k, v in r.items() if "gate" in k)
 

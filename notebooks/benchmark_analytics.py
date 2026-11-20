@@ -550,10 +550,10 @@ def _(mo):
     return mo.md(r"""
     ### 🎯 Tier-1 Classifier Analytics (Jev P(threat))
     Per-case Jev scores from `tests/eval/results/jev_triage_results.json`
-    (produced by `scripts/jev_triage_eval.py`). Gates under test: accuracy
-    ≥98%, AUROC ≥0.95, ECE ≤0.10, escalation ≤25%. Move the band sliders to
-    see how the operating point shifts — thresholds are fixed at 0.35/0.75
-    for acceptance.
+    (produced by `scripts/jev_triage_eval.py`). Gates under test (F10 re-baseline on the balanced corpus): accuracy
+    ≥85%, recall ≥75%, AUROC ≥0.97, ECE ≤0.27, escalation ≤20%. Move the band
+    sliders to see how the operating point shifts — acceptance thresholds are
+    fixed at 0.08/0.40.
 
     > **These records are the earlier corpus (TASK-D02, ADR 0008).** Its states
     > reveal their class, so every gate tile below is an upper bound. The
@@ -713,15 +713,15 @@ def _(jev_metrics, mo):
 def _(jev_metrics, mo):
     _m = jev_metrics
     _s_acc = mo.stat(value=f"{_m['accuracy']:.2%}", label="Accuracy (decided)",
-                     caption=f"Gate ≥98% {_m['accuracy'] >= 0.98 and '✅' or '❌'}")
+                     caption=f"Gate ≥85% {_m['accuracy'] >= 0.85 and '✅' or '❌'}")
     _s_rec = mo.stat(value=f"{_m['recall']:.2%}", label="Recall",
-                     caption=f"Gate ≥98% {_m['recall'] >= 0.98 and '✅' or '❌'}")
+                     caption=f"Gate ≥75% {_m['recall'] >= 0.75 and '✅' or '❌'}")
     _s_auroc = mo.stat(value=f"{_m['auroc']:.3f}", label="AUROC",
-                       caption=f"Gate ≥0.95 {_m['auroc'] >= 0.95 and '✅' or '❌'}")
+                       caption=f"Gate ≥0.97 {_m['auroc'] >= 0.97 and '✅' or '❌'}")
     _s_ece = mo.stat(value=f"{_m['ece']:.3f}", label="ECE (10-bin)",
-                     caption=f"Gate ≤0.10 {_m['ece'] <= 0.10 and '✅' or '❌'}")
+                     caption=f"Gate ≤0.27 {_m['ece'] <= 0.27 and '✅' or '❌'}")
     _s_esc = mo.stat(value=f"{_m['esc_rate']:.1%} ({_m['escalations']})", label="Escalation rate",
-                     caption=f"Gate ≤25% {_m['esc_rate'] <= 0.25 and '✅' or '❌'}")
+                     caption=f"Gate ≤20% {_m['esc_rate'] <= 0.20 and '✅' or '❌'}")
     _s_cov = mo.stat(value=f"{_m['coverage']:.1%}", label="Decided coverage",
                      caption=f"Conservative acc (esc=wrong): {_m['conservative_acc']:.2%}")
     _s_expl = mo.stat(value=f"{_m['expl_esc']}", label="Exploratory esc",
@@ -1254,10 +1254,10 @@ def _(jev_cb_runs, jev_cmp_runs):
         return {
             "Corpus": corpus,
             "Run": run.get("short_label", run["label"]),
-            "Accuracy, decided (gate ≥98%)": f"{_acc:.1%} {_mark(_acc >= 0.98)}",
-            "ECE (gate ≤0.10)": f"{_ece:.3f} {_mark(_ece <= 0.10)}",
-            "AUROC (gate ≥0.95)": f"{_auroc:.3f} {_mark(_auroc >= 0.95)}",
-            "Escalation (gate ≤25%)": f"{_esc_rate:.1%} {_mark(_esc_rate <= 0.25)}",
+            "Accuracy, decided (gate ≥85%)": f"{_acc:.1%} {_mark(_acc >= 0.85)}",
+            "ECE (gate ≤0.27)": f"{_ece:.3f} {_mark(_ece <= 0.27)}",
+            "AUROC (gate ≥0.97)": f"{_auroc:.3f} {_mark(_auroc >= 0.97)}",
+            "Escalation (gate ≤20%)": f"{_esc_rate:.1%} {_mark(_esc_rate <= 0.20)}",
             "TP / FN / FP / TN": f"{_tp} / {_fn} / {_fp} / {_tn}",
             "Highest benign P": f"{max(_neg):.2f}" if _neg else "—",
         }

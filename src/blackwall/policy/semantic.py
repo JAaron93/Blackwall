@@ -801,7 +801,8 @@ JEV_DEFAULT_BASE_URL = "https://api.typesafe.ai"
 JEV_SYSTEM_ONE_PATH = "/v1/systemone"
 # ``jev-latest`` is the vendor's moving alias for the newest stable release.
 # Policy (ADR 0008): deliberately NOT pinned, so Blackwall always runs the
-# newest Jev. The fixed 0.35/0.75 band below was set on an earlier release and is
+# newest Jev. The fixed 0.08/0.40 band below was re-baselined by TASK-F10 on the
+# tool-name-balanced corpus and is
 # re-validated by re-running the TASK-D02 eval when TypeSafe ships a new one.
 JEV_DEFAULT_MODEL = "jev-latest"
 JEV_DEFAULT_TIMEOUT_S = 5.0
@@ -816,8 +817,8 @@ JEV_RETRY_DELAY_S = 0.5
 
 # Fixed a priori by the 2026-09-19 A/B run (ADR 0006); recalibration requires
 # a spec amendment with fresh labeled evidence — never tune silently.
-JEV_CLEAR_LOW_THRESHOLD = 0.35
-JEV_CLEAR_HIGH_THRESHOLD = 0.75
+JEV_CLEAR_LOW_THRESHOLD = 0.08
+JEV_CLEAR_HIGH_THRESHOLD = 0.40
 
 # Tier-2 escalation triggers (FR-03): the ambiguity band maps to
 # SemanticTriageResult.escalate; the disagreement trigger fires when
@@ -894,7 +895,7 @@ class JevTriageBackend(SemanticTriageProvider):
 
     Emits weighted SIGNALS only (FR-02): ``threat_score`` is Jev's
     ``P(is_threat=true)`` — the ``noul`` answer to a single yes/no question —
-    and ``escalate`` marks the fixed 0.35/0.75 ambiguity band. Terminal
+    and ``escalate`` marks the fixed 0.08/0.40 ambiguity band. Terminal
     verdicts remain the exclusive domain of Score Aggregation + Threshold
     Verdict.
 

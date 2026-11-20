@@ -153,7 +153,8 @@ async def test_valid_answer_is_returned_unchanged():
         _context()
     )
     assert result is not None
-    assert (result.threat_score, result.backend, result.escalate) == (0.5, "jev", True)
+    # P=0.5 is clear-high at the re-baselined 0.08/0.40 band (F10), so no escalation.
+    assert (result.threat_score, result.backend, result.escalate) == (0.5, "jev", False)
 
 
 def test_error_message_never_contains_the_key():
