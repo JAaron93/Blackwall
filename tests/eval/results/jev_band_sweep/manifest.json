@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "description": "TASK-F10 band-decision evidence, produced offline by scripts/jev_band_sweep.py from the committed TASK-F09 balanced-corpus Jev scores (197 cases per run). No model calls, no credentials, no project id. A deterministic hash split selects a candidate on one half (tune) and reports it on the other half of both runs (replicate). This is EXPLORATORY evidence for a maintainer decision, NOT a band change and NOT independent held-out confirmation: the original 167 cases were already inspected in the ADR 0009 indicative sweep and are retained in this corpus. FR-02 still requires fresh labeled evidence and a same-change sync before any edge moves.",
+  "runs": [
+    {
+      "file": "band_sweep_2026-11-20.json",
+      "date": "2026-11-20",
+      "inputs": [
+        "../jev_runs_balanced/jev-1.14.0_2026-11-20_run1.json",
+        "../jev_runs_balanced/jev-1.14.0_2026-11-20_run2.json"
+      ],
+      "purpose": "Sweep candidate band edges over committed Jev P values; select on tune half, report on the matched held-out halves of both runs."
+    }
+  ],
+  "method": {
+    "split": "sha256(eval_case_id).digest()[0] & 1; tune = 0, held-out = 1 (deterministic, label-blind, exploratory — not fresh data)",
+    "grid": "low edges 0.35/0.30/0.25/0.20/0.15/0.10/0.08 x high edges 0.75/0.65/0.60/0.55/0.50/0.45/0.40",
+    "selection": "among candidates with zero false positives on the tune half, maximize decided accuracy, then minimize escalation, then prefer edges closest to the then-shipped 0.35/0.75",
+    "ioc_types": ["C2_IOC", "CREDENTIAL_EXFILTRATION", "COVERT_CHANNEL", "REVERSE_SHELL"]
+  },
+  "metric_labels": {
+    "escalation_rate": "IN-BAND Tier-2 escalation share (P inside [low, high]) only. It EXCLUDES the disagreement route (argument novelty >= 0.4 with P < 0.2) that also calls Tier-2 in SyncResolver (FR-03), so it is not the total Tier-2 call rate.",
+    "accuracy": "Decided accuracy (tp+tn)/(tp+tn+fp+fn); in-band cases excluded from the denominator."
+  },
+  "headline": {
+    "note": "Matched comparison: both arms are the SAME 101 held-out cases in each run. The full-corpus baseline (0.7946 / 38 misses) is reported separately and is NOT compared to held-out figures.",
+    "full_corpus_baseline_0.35_0.75": {"accuracy": 0.7946, "below_low_attacks": 38, "below_low_ioc_type_attacks": 9, "in_band_escalation_rate": 0.0609, "false_positives": 0},
+    "matched_heldout_baseline_0.35_0.75": {
+      "run1": {"misses": 24, "accuracy": 0.75, "in_band_escalation": "5/101", "in_band_escalation_rate": 0.0495, "false_positives": 0},
+      "run2": {"misses": 24, "accuracy": 0.7526, "in_band_escalation": "4/101", "in_band_escalation_rate": 0.0396, "false_positives": 0}
+    },
+    "selected_0.08_0.40_tune": {"accuracy": 0.988, "misses": 1, "in_band_escalation_rate": 0.1354, "false_positives": 0},
+    "matched_heldout_selected_0.08_0.40": {
+      "run1": {"misses": 11, "accuracy": 0.8736, "in_band_escalation": "14/101", "in_band_escalation_rate": 0.1386, "false_positives": 0},
+      "run2": {"misses": 11, "accuracy": 0.8736, "in_band_escalation": "14/101", "in_band_escalation_rate": 0.1386, "false_positives": 0, "replicate": "identical to run1"}
+    },
+    "tradeoff": "On the SAME held-out cases, lowering the edge cuts misses 24 -> 11 and raises decided accuracy 0.7500/0.7526 -> 0.8736 with no new benign blocks, while in-band escalation rises from ~4-5% to ~14% (Tier-2 call share from the band route only)."
+  },
+  "options_for_maintainer": [
+    "Lower the edges (indicative selection 0.08 / 0.40) — best attack capture, highest Tier-2 load.",
+    "Keep 0.35 / 0.75 and add threat-intelligence backing for IOC-type calls (9 below-edge IOC-type attacks in the full balanced corpus).",
+    "Accept the 38 full-corpus misses and leave the band unchanged."
+  ],
+  "caveats": [
+    "Exploratory split of previously inspected data: the original 167 cases were tuned on in the ADR 0009 indicative sweep and are retained here; at least 71 of the 101 held-out cases were exposed. This is NOT independent confirmation.",
+    "escalation_rate is the in-band share only; disagreement-triggered Tier-2 calls (novelty >= 0.4 with P < 0.2) are excluded and total Tier-2 load is therefore higher.",
+    "Tier-1 Jev scores only — no full-firewall verdicts or end-to-end catch-rate claim.",
+    "Single corpus, single release (jev-1.14.0). Track G (FR-09 question/state redesign) would invalidate this evidence if it lands first.",
+    "Any band change needs a spec amendment with fresh labeled evidence and a same-change sync of AGENTS.md, .agents/rules/ and .greptile/."
+  ],
+  "cited_in": [
+    ".kiro/specs/tier-1-jev-addition/tasks.md TASK-F10 (evidence note, to be updated by the decision PR)",
+    "docs/adr/0009-tier2-flash-lite-medium-and-jev-only-fail-fast.md Open Item 4 (indicative sweep)"
+  ]
+}
