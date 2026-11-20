@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "description": "TASK-F10 band-decision evidence, produced offline by scripts/jev_band_sweep.py from the committed TASK-F09 balanced-corpus Jev scores (197 cases per run). No model calls, no credentials, no project id. The sweep is tuned on a deterministic half of run1 and reported on the held-out half of BOTH runs as a replicate check. This is evidence for a maintainer decision, NOT a band change: FR-02 still requires fresh labeled evidence and a same-change sync before any edge moves.",
+  "runs": [
+    {
+      "file": "band_sweep_2026-11-20.json",
+      "date": "2026-11-20",
+      "inputs": [
+        "../jev_runs_balanced/jev-1.14.0_2026-11-20_run1.json",
+        "../jev_runs_balanced/jev-1.14.0_2026-11-20_run2.json"
+      ],
+      "purpose": "Sweep candidate clear-low / clear-high edges over committed Jev P values; select on tune half, report on held-out halves of both runs."
+    }
+  ],
+  "method": {
+    "split": "sha256(eval_case_id).digest()[0] & 1; tune = 0, held-out = 1 (deterministic, label-blind)",
+    "grid": "low edges 0.35/0.30/0.25/0.20/0.15/0.10/0.08 x high edges 0.75/0.65/0.60/0.55/0.50/0.45/0.40",
+    "selection": "among candidates with zero false positives on the tune half, maximize decided accuracy, then minimize escalation, then prefer edges closest to the shipped 0.35/0.75",
+    "ioc_types": ["C2_IOC", "CREDENTIAL_EXFILTRATION", "COVERT_CHANNEL", "REVERSE_SHELL"]
+  },
+  "headline": {
+    "baseline_0.35_0.75": {"accuracy": 0.7946, "below_low_attacks": 38, "below_low_ioc_type_attacks": 9, "escalation_rate": 0.0609, "false_positives": 0},
+    "selected_0.08_0.40_tune": {"accuracy": 0.988, "below_low_attacks": 1, "escalation_rate": 0.1354, "false_positives": 0},
+    "selected_0.08_0.40_holdout": {"accuracy": 0.8736, "below_low_attacks": 11, "below_low_ioc_type_attacks": 3, "escalation_rate": 0.1386, "false_positives": 0, "replicate": "identical in both runs"},
+    "tradeoff": "Lowering the edges cuts below-edge misses from 38 to 11 on held-out cases with no new benign blocks, but roughly doubles Tier-2 escalation from ~6% to ~14% (the metric is Tier-1 decided accuracy; escalation is the Tier-2 call share)."
+  },
+  "options_for_maintainer": [
+    "Lower the edges (indicative selection 0.08 / 0.40) — best attack capture, highest Tier-2 load.",
+    "Keep 0.35 / 0.75 and add threat-intelligence backing for IOC-type calls (9 below-edge IOC-type attacks in the full balanced corpus).",
+    "Accept the 38 misses and leave the band unchanged."
+  ],
+  "caveats": [
+    "Tier-1 Jev scores only — no full-firewall verdicts or end-to-end catch-rate claim.",
+    "Tuned on one half and reported on the other, but still a single corpus and a single model release (jev-1.14.0).",
+    "Track G (FR-09 question/state redesign) is PLANNED; it would invalidate this evidence if it lands first.",
+    "Any band change needs a spec amendment with fresh labeled evidence and a same-change sync of AGENTS.md, .agents/rules/ and .greptile/."
+  ],
+  "cited_in": [
+    ".kiro/specs/tier-1-jev-addition/tasks.md TASK-F10",
+    "docs/adr/0009-tier2-flash-lite-medium-and-jev-only-fail-fast.md Open Item 4 (indicative sweep)"
+  ]
+}

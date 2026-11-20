@@ -266,6 +266,13 @@ production-shaped states that still carried placeholders (ADR 0008).
   and escalation of 9.0% to 13.8%. It was tuned on the
   cases it is scored on, so it is a lead for a new spec amendment with fresh
   labeled evidence (as the spec requires), not a result. The band is unchanged.
+  > **Fresh held-out sweep (TASK-F10 evidence prep, 2026-11-20).** The same candidates
+  > were re-swept offline over the balanced-corpus Jev scores with a deterministic
+  > tune/held-out split (`tests/eval/results/jev_band_sweep/`). Selected 0.08/0.40:
+  > held-out accuracy 0.8736 (vs baseline 0.7946), below-edge attacks 11 (vs 38),
+  > escalation ~14% (vs ~6%), no new benign blocks; the tune-half 0.988 is optimistic
+  > and is not the reported figure. Tier-1 scores only — no full-firewall claim, no
+  > band change. Recomputed by `tests/unit/test_jev_band_sweep_data.py`.
 - **Tool-name tell, measured and largely removed (TASK-F09, 2026-11-20; review-corrected).**
   The seven malicious-only tools (`execute_shell`, `parse_xml`, `socket_connect`,
   `dns_query`, `download_file`, `deserialize_python`, `deserialize_java`) and 23 of

@@ -540,6 +540,17 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > edge or threat-intel catches them. Informs the band spec amendment (fresh
   > labeled evidence required); the Tier-1 steering bypass surface also shrinks
   > with a lower edge (→ F02).
+  >
+  > **Evidence prepared 2026-11-20; decision still open (task stays `[ ]`).** An
+  > offline band sweep over the committed balanced-corpus Jev scores (no new live
+  > calls) is in `tests/eval/results/jev_band_sweep/` (`band_sweep_2026-11-20.json`
+  > + `manifest.json`), recomputed by `tests/unit/test_jev_band_sweep_data.py`.
+  > Baseline 0.35/0.75: 0.7946 accuracy, 38 below-edge attacks (9 IOC-type), ~6%
+  > escalation. A held-out-selected 0.08/0.40 edge gives 0.8736 accuracy, 11
+  > below-edge attacks (3 IOC-type), ~14% escalation and no new benign blocks —
+  > a capture-vs-Tier-2-load trade-off, not a decision. Hypothesis remains open
+  > pending the maintainer's choice among lower edges / threat intel / accept.
+  > Any band change still needs a spec amendment with the same-change sync (FR-02).
 * [x] **TASK-F11 [C1]: Log the served release + request id** (ADR 0008 OI6; FR-07).
   Done 2026-11-14 (typesafe-ai skill audit F5): the `jev_triage` record carries
   `served_model` (response `model`, or `None` when absent/non-string) and
