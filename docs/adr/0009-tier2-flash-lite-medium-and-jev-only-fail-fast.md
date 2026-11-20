@@ -266,12 +266,19 @@ production-shaped states that still carried placeholders (ADR 0008).
   and escalation of 9.0% to 13.8%. It was tuned on the
   cases it is scored on, so it is a lead for a new spec amendment with fresh
   labeled evidence (as the spec requires), not a result. The band is unchanged.
-- **Still not measured.** The tool name remains a tell: `execute_shell`,
-  `parse_xml`, `socket_connect`, `dns_query`, `download_file` and the two
-  `deserialize_*` tools occur only in the malicious class, and 26 `agent_*` and
-  `file_*` tools only in the benign class (TASK-F09). The hand-written
-  evasion-proof suite is 10 cases. Counts here are one corpus, two runs per
-  release.
+- **Tool-name tell, measured and removed (TASK-F09, 2026-11-20).** The seven
+  malicious-only tools (`execute_shell`, `parse_xml`, `socket_connect`,
+  `dns_query`, `download_file`, `deserialize_python`, `deserialize_java`) and 26
+  benign-only `agent_*`/`file_*` tools were balanced with real cases: exclusivity
+  fell 33→0 on the same 37 tool names and tool-name-only majority accuracy fell
+  0.7904→0.66. Two fresh `jev-1.14.0` runs (200 cases, 0 errors) show decided
+  accuracy 0.828→0.7935/0.7978 with AUROC unchanged (~0.992), so the earlier
+  corpus was inflating accuracy; the accuracy and ECE gates still fail (ECE
+  0.190→0.220) and escalation rises ~6%→8–8.5%. F10 must calibrate on this balanced
+  corpus, not the earlier class-blind runs. Artifacts:
+  `tests/eval/results/jev_runs_balanced/`, recomputed by
+  `tests/unit/test_jev_runs_balanced_data.py`. The hand-written evasion-proof suite
+  is still 10 cases. Counts here are one corpus, two runs per release.
 
 The pass also found that `ContextHygiene`'s API-key pattern matches `sk-` inside
 an ordinary hyphenated word once 10 or more characters follow

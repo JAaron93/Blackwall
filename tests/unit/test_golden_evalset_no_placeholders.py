@@ -39,7 +39,7 @@ def test_malicious_case_count_and_fields_are_unchanged():
     """The fix replaces attack_pattern values; it does not add, remove, or
     relabel cases, and every CWE/attack_type field a judge would check stays."""
     cases = _load("malicious_cases.json")
-    assert len(cases) == 59
+    assert len(cases) == 85
     assert all(c["ground_truth"] == "MALICIOUS" for c in cases)
     assert all(c.get("cwe_id") for c in cases)
 
