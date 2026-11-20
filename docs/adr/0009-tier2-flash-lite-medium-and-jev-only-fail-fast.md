@@ -266,12 +266,23 @@ production-shaped states that still carried placeholders (ADR 0008).
   and escalation of 9.0% to 13.8%. It was tuned on the
   cases it is scored on, so it is a lead for a new spec amendment with fresh
   labeled evidence (as the spec requires), not a result. The band is unchanged.
-- **Still not measured.** The tool name remains a tell: `execute_shell`,
-  `parse_xml`, `socket_connect`, `dns_query`, `download_file` and the two
-  `deserialize_*` tools occur only in the malicious class, and 26 `agent_*` and
-  `file_*` tools only in the benign class (TASK-F09). The hand-written
-  evasion-proof suite is 10 cases. Counts here are one corpus, two runs per
-  release.
+- **Tool-name tell, measured and largely removed (TASK-F09, 2026-11-20; review-corrected).**
+  The seven malicious-only tools (`execute_shell`, `parse_xml`, `socket_connect`,
+  `dns_query`, `download_file`, `deserialize_python`, `deserialize_java`) and 23 of
+  the 26 benign-only `agent_*`/`file_*` tools were balanced with defensible cases;
+  the other three have no defined attack for their behavior and were excluded from
+  scored malicious evidence. Class-exclusive tool names fell 33→3 (malicious-only
+  7→0) on the same 37 names and tool-name-only majority accuracy fell
+  0.7904→0.6701. Two fresh `jev-1.14.0` runs (197 cases, 0 errors) show the tell
+  metrics directly. Accuracy on the MATCHED original 167 cases is flat
+  (0.828→0.828/0.8269): the lower full-corpus figure (0.828→0.7946/0.7935) is from
+  the newly added harder cases and is NOT evidence that Jev exploited the tell.
+  The accuracy and ECE gates still fail (ECE ~0.217); escalation ~6–6.6%. F10 may
+  use the balanced corpus for the expanded set; the original runs remain valid for
+  the original 167. Artifacts: `tests/eval/results/jev_runs_balanced/`, recomputed
+  by `tests/unit/test_jev_runs_balanced_data.py` (which pins each row to the current
+  corpus). The hand-written evasion-proof suite is still 10 cases. Counts here are
+  one corpus, two runs per release.
 
 The pass also found that `ContextHygiene`'s API-key pattern matches `sk-` inside
 an ordinary hyphenated word once 10 or more characters follow

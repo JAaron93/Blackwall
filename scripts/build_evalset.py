@@ -55,6 +55,11 @@ def args_from_pattern(tool: str, pattern: str) -> dict[str, Any]:
     ``name(body)`` wrapper (``read_file(../x)``, ``http_request(POST url)``).
     """
     body = pattern
+    # A JSON object pattern states the canonical argument keys directly. This lets a
+    # malicious case use a tool whose benign cases carry a richer argument shape
+    # (TASK-F09: tool names must not be class-exclusive).
+    if pattern.lstrip().startswith("{"):
+        return dict(json.loads(pattern))
     match = _WRAPPER.match(pattern)
     if match and match.group("name") in {tool, "read_file"}:
         body = match.group("body")

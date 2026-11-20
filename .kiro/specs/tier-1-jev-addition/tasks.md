@@ -496,7 +496,7 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > `(?i)(--?(?:password|passwd|pwd))\s+['"]?([^\s'"]+)` across all four copies
   > (the `--`/`-` prefix distinguishes a flag from a SQL column), with regression
   > tests in `test_context_hygiene_overmatch.py` and Rust `sanitizer::tests`.
-* [ ] **TASK-F09 [C2]: Balance the tool names across classes** (ADR 0009, Verification).
+* [x] **TASK-F09 [C2]: Balance the tool names across classes** (ADR 0009, Verification).
   `execute_shell`, `parse_xml`, `socket_connect`, `dns_query`, `download_file`
   and the two `deserialize_*` tools appear only in malicious cases, and 26
   `agent_*`/`file_*` tools only in benign ones, so the tool name is still a tell.
@@ -506,15 +506,35 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > **Telos:** Is the tool name a class tell that inflates measured accuracy?
   > Hypothesis: balancing tool names across classes removes the tell. Informs
   > whether the corpus is valid evidence for band calibration (→ F10).
+  >
+  > **Done 2026-11-20 — hypothesis validated on the tell metrics (review-corrected).**
+  > Added benign cases for the seven malicious-only tools and defensible malicious
+  > cases for 23 of the 26 benign-only tools; the remaining three
+  > (`agent_cache_get`, `agent_release_resource`, `agent_state_save`) have no
+  > defensible attack for their current behavior and were left out of scored
+  > malicious evidence. Corpus 157→187 security cases, 167→197 scored; two fresh
+  > `jev-1.14.0` runs, 197 cases each, 0 errors. Class-exclusive tool names 33→3
+  > (malicious-only 7→0), tool-name-only majority accuracy 0.7904→0.6701. On the
+  > MATCHED original 167 cases accuracy is flat (0.828→0.828/0.8269): the lower
+  > full-corpus figure (0.828→0.7946/0.7935) comes from the newly added harder
+  > cases, NOT from Jev exploiting the tell. Accuracy (≥0.98) and ECE (≤0.10) gates
+  > still fail (ECE ~0.217); escalation ~6–6.6%. Decision informed: F10 may use the
+  > balanced corpus for the expanded case set; the original runs remain valid for
+  > the original 167. Evidence: `tests/eval/results/jev_runs_balanced/` (manifest +
+  > two runs + matched arm), recomputed by `tests/unit/test_jev_runs_balanced_data.py`,
+  > which also pins each saved row to the current corpus. No band or production change.
 * [ ] **TASK-F10 [C2]: Decide what to do about the failed accuracy and ECE gates**
-  (ADR 0009 OI4). On the class-blind corpus AUROC is 0.99 but 26 to 27 of 99 attacks
-  fall below the 0.35 lower band edge (12 to 13 are C2/IOC-type calls). Options:
+  (ADR 0009 OI4). On the balanced corpus (TASK-F09, 197 scored cases) AUROC is
+  ~0.988 but 38 of 122 attacks fall below the 0.35 lower band edge; the earlier
+  class-blind corpus had 26 to 27 of 99 (12 to 13 C2/IOC-type — not re-derived
+  on the new corpus). Options:
   a lower band edge (an indicative sweep reached 91.3% to 95.2% on the cases it
   was tuned on, so it needs fresh labeled evidence), threat intelligence for the
   IOC-type calls, or accepting the misses. Any band change is a spec amendment
   with a same-change sync of `AGENTS.md`, `.agents/rules/` and `.greptile/`.
   Needs a maintainer decision first.
-  Dependencies: TASK-F09.
+  Dependencies: TASK-F09 (done 2026-11-20 — calibrate on the balanced corpus and
+  its `tests/eval/results/jev_runs_balanced/` artifacts, including the matched arm).
   > **Telos:** Where should the band edges sit so novel attacks are caught without
   > false alarms? Hypothesis: the 0.35 lower edge misses C2/IOC-type calls; a lower
   > edge or threat-intel catches them. Informs the band spec amendment (fresh

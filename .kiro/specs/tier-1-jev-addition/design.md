@@ -78,6 +78,13 @@ more C2 beacon missed), one case above the 98% gate. See ADR 0008.
 class. On the class-blind corpus decided accuracy is 82.8% to 83.0% and ECE is
 0.19, so those two gates fail while AUROC and escalation pass; see ADR 0009,
 Verification.)*
+*(2026-11-20, TASK-F09: the corpus was rebalanced from 167 to 197 scored cases —
+75 benign / 82 malicious / 30 evasion / 10 proof — so tool name is no longer a
+class tell. Decided accuracy on the balanced corpus is 0.7946 / 0.7935 (ECE
+~0.217, AUROC ~0.988); on the MATCHED original 167 cases accuracy is flat at
+0.828 / 0.8269, so the full-corpus drop reflects newly added harder cases, not
+Jev exploiting the tell. See `tests/eval/results/jev_runs_balanced/` and ADR 0009
+Verification.)*
 
 ## Architecture Diagram
 

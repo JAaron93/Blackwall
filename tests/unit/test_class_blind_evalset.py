@@ -102,7 +102,7 @@ def test_labels_and_attack_metadata_are_kept_outside_the_prompt(evalset):
     scenarios = {c["metadata"]["scenario_type"] for c in evalset}
     assert scenarios == {"benign", "malicious", "evasion"}
     assert {c["metadata"]["ground_truth"] for c in evalset} == {"BENIGN", "MALICIOUS"}
-    assert len(evalset) == 157
+    assert len(evalset) == 187
 
 
 # --------------------------------------------------------------------- no placeholders
@@ -173,6 +173,24 @@ def test_malicious_and_evasion_payloads_only_point_at_reserved_or_private_hosts(
     assert not bad, bad
 
 
+def test_no_tool_name_is_class_exclusive():
+    """TASK-F09: the tool name must not be a one-feature class tell."""
+    def tools(name: str) -> set[str]:
+        data = json.loads(
+            (REPO_ROOT / "tests" / "eval" / "test_data" / name).read_text(encoding="utf-8")
+        )
+        return {case["tool_name"] for case in data}
+
+    benign = tools("benign_cases.json")
+    malicious = tools("malicious_cases.json") | tools("evasion_cases.json")
+    assert not (malicious - benign), f"malicious-only tools: {sorted(malicious - benign)}"
+    # Three tools have no defensible attack for their current behavior, so they
+    # stay out of scored malicious evidence rather than mislabeling harmless input.
+    assert benign - malicious == {
+        "agent_cache_get", "agent_release_resource", "agent_state_save"
+    }, f"benign-only tools: {sorted(benign - malicious)}"
+
+
 # -------------------------------------------------------------- args_from_pattern
 @pytest.mark.parametrize(
     "tool,pattern,expected",
@@ -189,6 +207,10 @@ def test_malicious_and_evasion_payloads_only_point_at_reserved_or_private_hosts(
         ("socket_connect", "socket_connect(203.0.113.5:4444)", {"address": "203.0.113.5:4444"}),
         ("download_file", "download_file(http://files.example/a.bin)", {"url": "http://files.example/a.bin"}),
         ("parse_xml", "parse_xml(<a/>)", {"xml": "<a/>"}),
+        ("agent_invoke", '{"target_agent": "helper", "action": "fetch"}',
+         {"target_agent": "helper", "action": "fetch"}),
+        ("file_list", '{"directory": "/srv/app/src", "recursive": true}',
+         {"directory": "/srv/app/src", "recursive": True}),
     ],
 )
 def test_args_from_pattern_maps_each_wrapper_to_the_canonical_keys(builder, tool, pattern, expected):
@@ -208,7 +230,7 @@ def test_scoring_states_are_exactly_what_production_builds(evaluator):
 
     hygiene = ContextHygiene(preserve_iocs=True)
     cases = evaluator.build_cases(["security", "evasion_proof"])
-    assert len(cases) == 167
+    assert len(cases) == 197
     by_id = {c["id"]: c for c in cases}
     sample = next(c for c in _load(EVALSET)["eval_cases"] if c["eval_case_id"] == "malicious_sql_001")
     ctx = hygiene.sanitize_context(
@@ -227,10 +249,10 @@ def test_scoring_states_carry_no_harness_scaffolding_or_label_words(evaluator):
 
 def test_scoring_states_cover_every_case_once_with_stable_hashes(evaluator):
     cases = evaluator.build_cases(["security", "evasion_proof"])
-    assert len({c["id"] for c in cases}) == 167
+    assert len({c["id"] for c in cases}) == 197
     assert all(len(c["h"]) == 16 for c in cases)
     assert {c["suite"] for c in cases} == {"security", "evasion_proof"}
-    assert sum(c["label"] for c in cases) == 99  # 59 malicious + 30 evasion + 10 proof
+    assert sum(c["label"] for c in cases) == 122  # 82 malicious + 30 evasion + 10 proof
 
 
 # ----------------------------------------- sanitization must not mangle a payload

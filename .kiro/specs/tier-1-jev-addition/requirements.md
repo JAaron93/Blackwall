@@ -208,9 +208,11 @@ clear ALLOW, clear BLOCK, ambiguity escalation, disagreement escalation, async
 signature write, sanitization-before-egress, and 429/529 fail-fast behavior.
 
 ### NFR-05: Calibration Stability
-Post-merge, the golden A/B (157 + 10) SHALL be re-run against any backend or
-threshold change and meet the A/B gates; results SHALL be recorded alongside
-the 2026-09-19 baseline (100% / AUROC 1.0 / ECE 0.028).
+Post-merge, the golden A/B (now 187 + 10 cases after TASK-F09; the 2026-09-19
+baseline used 157 + 10) SHALL be re-run against any backend or threshold change
+and meet the A/B gates; results SHALL be recorded alongside the 2026-09-19
+baseline (100% / AUROC 1.0 / ECE 0.028) and the balanced-corpus runs in
+`tests/eval/results/jev_runs_balanced/`.
 
 ### NFR-06: Packaging Compatibility (Gateway Phases 5–6 Pending)
 The MCP Gateway is implemented only through Phase 4; Phase 5 packaging

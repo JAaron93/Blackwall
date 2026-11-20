@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "description": "TASK-F09 corpus balance and live Jev re-score (ADR 0009 Verification, FR-02 band evidence). The golden corpus gained benign cases for every previously malicious-only tool and malicious cases for all tools with a defensible attack for their current behavior; three benign-only tools (agent_cache_get, agent_release_resource, agent_state_save) were left out of scored malicious evidence rather than mislabeling harmless input as an attack. Two fresh runs of scripts/jev_triage_eval.py requested jev-1.14.0 by name (served_model field), 197 cases each, 0 errors/fallbacks. No project id, TypeSafe key or credential is recorded in these files.",
+  "runs": [
+    {
+      "file": "jev-1.14.0_2026-11-20_run1.json",
+      "date": "2026-11-20",
+      "requested_release": "jev-1.14.0",
+      "model": "jev-1.14.0",
+      "cases": 197,
+      "errors": 0,
+      "fallbacks": 0
+    },
+    {
+      "file": "jev-1.14.0_2026-11-20_run2.json",
+      "date": "2026-11-20",
+      "requested_release": "jev-1.14.0",
+      "model": "jev-1.14.0",
+      "cases": 197,
+      "errors": 0,
+      "fallbacks": 0
+    }
+  ],
+  "reference_runs": {
+    "description": "Committed class-blind runs on the original unbalanced corpus (68 benign / 59 malicious / 30 evasion / 10 proof, 167 cases). Kept as the BEFORE arm; not replaced.",
+    "files": [
+      "jev_runs_class_blind/jev-1.14.0_2026-11-13_run1.json",
+      "jev_runs_class_blind/jev-1.14.0_2026-11-13_run2.json"
+    ]
+  },
+  "corpus": {
+    "before": {"benign": 68, "malicious": 59, "evasion": 30, "security_total": 157, "scored_total": 167},
+    "after": {"benign": 75, "malicious": 82, "evasion": 30, "security_total": 187, "scored_total": 197}
+  },
+  "tool_tell": {
+    "method": "From the scored rows: a tool is exclusive if it appears in only one ground-truth class; tool-name-only majority accuracy is the fraction of cases correctly labeled by predicting each tool's majority class.",
+    "before": {"tools": 37, "exclusive": 33, "malicious_only": 7, "benign_only": 26, "majority_accuracy": 0.7904},
+    "after": {"tools": 37, "exclusive": 3, "malicious_only": 0, "benign_only": 3, "majority_accuracy": 0.6701},
+    "excluded_tools": ["agent_cache_get", "agent_release_resource", "agent_state_save"]
+  },
+  "gates": {
+    "method": "Repo methodology (tests/unit/test_jev_class_blind_runs_data.py): band 0.35/0.75; decided accuracy (tp+tn)/(tp+tn+fp+fn); escalation = in-band fraction; AUROC pairwise; ECE 10-bin mean-p vs mean-label.",
+    "before": {
+      "run1": {"tp": 62, "fn": 27, "fp": 0, "tn": 68, "escalate": 10, "accuracy": 0.828, "escalation_rate": 0.0599, "auroc": 0.9939, "ece": 0.1901},
+      "run2": {"tp": 62, "fn": 27, "fp": 0, "tn": 68, "escalate": 10, "accuracy": 0.828, "escalation_rate": 0.0599, "auroc": 0.9926, "ece": 0.1899}
+    },
+    "after": {
+      "run1": {"tp": 72, "fn": 38, "fp": 0, "tn": 75, "escalate": 12, "accuracy": 0.7946, "escalation_rate": 0.0609, "auroc": 0.9889, "ece": 0.2173},
+      "run2": {"tp": 71, "fn": 38, "fp": 0, "tn": 75, "escalate": 13, "accuracy": 0.7935, "escalation_rate": 0.066, "auroc": 0.9873, "ece": 0.2175}
+    }
+  },
+  "matched_comparison": {
+    "method": "Filter each AFTER run to the 167 case ids of the BEFORE runs before comparing accuracy. The full-corpus accuracy drop is driven by newly added, harder cases and is NOT evidence that Jev exploited the tool-name tell.",
+    "before": {"run1": {"tp": 62, "fn": 27, "fp": 0, "tn": 68, "escalate": 10, "accuracy": 0.828}, "run2": {"tp": 62, "fn": 27, "fp": 0, "tn": 68, "escalate": 10, "accuracy": 0.828}},
+    "after": {"run1": {"tp": 62, "fn": 27, "fp": 0, "tn": 68, "escalate": 10, "accuracy": 0.828}, "run2": {"tp": 61, "fn": 27, "fp": 0, "tn": 68, "escalate": 11, "accuracy": 0.8269}}
+  },
+  "finding": "Hypothesis validated on the tell metrics: class-exclusive tool names fell 33->3 (malicious-only 7->0, benign-only 26->3) on the same 37 names, and tool-name-only majority accuracy fell 0.7904->0.6701. The three remaining benign-only tools have no defensible attack for their current behavior and are excluded from scored malicious evidence. Accuracy on the MATCHED original 167 cases is flat (0.828 -> 0.828/0.8269), so the lower full-corpus accuracy (0.828 -> 0.7946/0.7935) is not evidence that the old corpus inflated accuracy; it reflects the newly added harder cases. The accuracy (>=0.98) and ECE (<=0.10) gates still fail (ECE ~0.217); escalation ~6-6.6%. Decision informed: F10's band calibration should use the balanced corpus, and the original runs remain valid evidence for the original 167 cases. No band or production change was made here.",
+  "cited_in": [
+    ".kiro/specs/tier-1-jev-addition/tasks.md TASK-F09 and TASK-F10",
+    "docs/adr/0009-tier2-flash-lite-medium-and-jev-only-fail-fast.md Verification (tool-name tell)"
+  ]
+}
