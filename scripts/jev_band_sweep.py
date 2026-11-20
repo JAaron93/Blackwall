@@ -109,6 +109,14 @@ def build_artifact() -> dict[str, Any]:
         [r for r in runs[1] if stable_split(r["eval_case_id"]) == 1],
         chosen["low"], chosen["high"], attack_types,
     )
+    # Baseline on the SAME held-out cases — the headline must compare matched sets.
+    holdout_baseline = {
+        f"run{i}": metrics(
+            [r for r in runs[i - 1] if stable_split(r["eval_case_id"]) == 1],
+            0.35, 0.75, attack_types,
+        )
+        for i in (1, 2)
+    }
     return {
         "schema_version": 1,
         "purpose": "F10 band-decision evidence only; NOT a band change (FR-02 still requires a spec amendment).",
@@ -123,13 +131,25 @@ def build_artifact() -> dict[str, Any]:
         "baseline": base,
         "tune_sweep": tune,
         "selected": chosen,
+        "holdout_baseline": holdout_baseline,
         "holdout": {"run1": holdout_run1, "run2": holdout_run2},
+        "metric_definitions": {
+            "escalation_rate": (
+                "IN-BAND Tier-2 share only: P inside [low, high]. It excludes the separate "
+                "disagreement route (argument novelty >= 0.4 with P < 0.2), which also calls "
+                "Tier-2 in SyncResolver (FR-03). Treat it as an in-band escalation share, not "
+                "the total Tier-2 call rate."
+            ),
+            "accuracy": "Decided accuracy (tp+tn)/(tp+tn+fp+fn); in-band cases are excluded from the denominator.",
+        },
         "options": [
             "Lower the clear-low edge toward the selected value (captures more below-edge attacks, may raise escalation).",
             "Add threat-intelligence backing for IOC-type calls (8 C2_IOC in the corpus) instead of moving the edge.",
             "Accept the remaining misses and leave the fixed 0.35/0.75 band unchanged.",
         ],
         "caveats": [
+            "The tune/held-out split is EXPLORATORY on previously inspected data: the original 167 cases were already used in the indicative sweep in ADR 0009, and the balanced corpus retains them (adding only 30). Hashing them now does not make them independent; do not read this as fresh held-out confirmation.",
+            "escalation_rate is the in-band share only; the disagreement route (novelty >= 0.4 with P < 0.2) also calls Tier-2 and is not counted here.",
             "Tier-1 Jev scores only; no full-firewall verdicts and no end-to-end catch-rate claim.",
             "The sweep is tuned on one half and reported on the other, but it is still a single corpus and release.",
             "Track G (question/state redesign, FR-09) is PLANNED and would invalidate this evidence if it lands first.",

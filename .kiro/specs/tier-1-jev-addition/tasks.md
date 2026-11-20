@@ -545,20 +545,27 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > with a lower edge (→ F02).
   >
   > **Done 2026-11-20 — maintainer decision recorded.** Telos/hypothesis: a lower
-  > edge catches below-band attacks without new false alarms — **supported on
-  > held-out data**. Offline sweep (`tests/eval/results/jev_band_sweep/`,
-  > recomputed by `tests/unit/test_jev_band_sweep_data.py`): baseline 0.35/0.75
-  > 0.7946 accuracy / 38 below-edge attacks / ~6% escalation → 0.8736 / 11 / ~14%
-  > at 0.08/0.40 with no new benign blocks. The maintainer chose **0.08/0.40**;
-  > threat intelligence stays in the pipeline unchanged (IOC-type calls already
-  > receive it), and the A/B gates were re-baselined on the balanced corpus with
-  > margin (accuracy ≥0.85, recall ≥75%, AUROC ≥0.97, ECE ≤0.27, escalation ≤20%;
-  > ECE ≤0.10 deferred to Track G). Decision informed: F02's steering defense can
-  > now be validated at the fixed band; the below-edge bypass surface shrinks.
-  > **INTERIM:** if Track G (FR-09) lands, re-run `scripts/jev_band_sweep.py` on its
-  > runs before treating these edges as final. Evidence chain: band-sweep artifact
-  > + manifest, balanced-corpus runs in `tests/eval/results/jev_runs_balanced/`,
-  > ADR 0009 OI4, FR-02/FR-03, rulebooks and `.greptile/` synced in this change.
+  > edge catches below-band attacks without new false alarms — **supported on an
+  > exploratory split** (see caveat). Offline band sweep
+  > (`tests/eval/results/jev_band_sweep/`, recomputed by
+  > `tests/unit/test_jev_band_sweep_data.py`): on the MATCHED 101 held-out cases
+  > per run, baseline 0.35/0.75 gives 24 misses / 0.7500–0.7526 accuracy / 5–4
+  > in-band escalations → selected 0.08/0.40 gives 11 misses / 0.8736 / 14, with
+  > no new benign blocks; the full-corpus baseline (38 misses / 0.7946) is
+  > reported separately and is NOT compared to held-out figures. The maintainer
+  > chose **0.08/0.40**; threat intelligence stays in the pipeline unchanged.
+  > A/B gates re-baselined on the balanced corpus with margin (accuracy ≥0.85,
+  > recall ≥75%, AUROC ≥0.97, ECE ≤0.27, escalation ≤20%; ECE ≤0.10 deferred to
+  > Track G). Escalation is the **in-band Tier-2 share only**; disagreement-triggered
+  > Tier-2 calls (novelty ≥0.4 with P<0.2) are excluded. Decision informed: F02's
+  > steering defense can be validated at the fixed band; the below-edge bypass
+  > surface shrinks. CAVEAT: this split is EXPLORATORY on previously inspected data
+  > (the original 167 cases were tuned on earlier and retained; ≥71 of the 101
+  > held-out cases were exposed) — not independent confirmation. **INTERIM:** if
+  > Track G (FR-09) lands, re-run `scripts/jev_band_sweep.py` on its runs before
+  > treating these edges as final. Evidence chain: band-sweep artifact + manifest,
+  > balanced-corpus runs in `tests/eval/results/jev_runs_balanced/`, ADR 0009 OI4,
+  > FR-02/FR-03, rulebooks and `.greptile/` synced in this change.
 * [x] **TASK-F11 [C1]: Log the served release + request id** (ADR 0008 OI6; FR-07).
   Done 2026-11-14 (typesafe-ai skill audit F5): the `jev_triage` record carries
   `served_model` (response `model`, or `None` when absent/non-string) and
