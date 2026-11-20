@@ -389,6 +389,8 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > recomputed by `tests/unit/test_jev_tier1_defense_runs_data.py`; harness support
   > in `scripts/jev_tier2_eval.py --defense`. Sequencing: F02's measurement is an
   > input to F10; F10 additionally waits on F09 and a maintainer band decision.
+  > **Superseded by the 2026-11-20 final validation below** (current corpus,
+  > 0.08/0.40 band, benign cases included): do not quote these figures as current.
   > **F10 decided 2026-11-20 (band now 0.08/0.40):** this task is unblocked for a
   > final defense re-measurement at the fixed band; the stale below-0.35 figures
   > above describe the pre-decision experiments and must not be reused as current.

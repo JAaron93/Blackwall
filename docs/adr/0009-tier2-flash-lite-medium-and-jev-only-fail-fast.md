@@ -628,7 +628,9 @@ Reading it:
    > shipping: it needs full re-calibration (Track G) plus F10's band decision; no
    > guard shipped.
    > Artifacts: `tests/eval/results/jev_tier1_defense_runs/` (manifest + two arms),
-   > recomputed by `tests/unit/test_jev_tier1_defense_runs_data.py`.
+   > recomputed by `tests/unit/test_jev_tier1_defense_runs_data.py`. **Superseded by
+   > the final 2026-11-20 validation below** (current corpus, 0.08/0.40 band, benign
+   > cases included); do not quote these figures as current.
    >
    > **Final validation 2026-11-20 (TASK-F02, at the F10 band 0.08/0.40).** The same
    > harness-only boundary was re-run with `--corpus current` on the CURRENT

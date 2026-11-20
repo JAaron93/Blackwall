@@ -213,6 +213,15 @@ the F10 band decision (now 0.08/0.40); the exploratory sweep with its matched ba
 is in `tests/eval/results/jev_band_sweep/`. The older runs remain valid for the original
 167, and the re-baselined gates apply only to the balanced corpus.
 
+**Running steering experiments:** `scripts/jev_tier2_eval.py tier1-steering` defaults
+`--corpus historical` for recomputing the old 2026-11-12 ablation runs (which contain
+`[[VALUE]]` placeholders). New experiments MUST pass `--corpus current` to load the
+F09 balanced corpus from the committed evalsets; the harness's saved-row provenance
+test rejects placeholder inputs. The F02 defense results are in
+`tests/eval/results/jev_tier1_defense_runs/` (2026-11-19, old corpus, superseded) and
+`tests/eval/results/jev_tier1_defense_final/` (2026-11-20, current corpus, 0.08/0.40,
+outages tracked apart), recomputed by `tests/unit/test_jev_tier1_defense_final_data.py`.
+
 ### Production integration status
 
 Jev is wired into the interception path as the Tier-1 **System-1** classifier (ADR 0006): `JevTriageBackend` evaluates every novel tool call through the `SemanticTriageProvider` seam with the fixed `0.08/0.40` band, a single 429/529 retry and then `JevUnavailableError` (no fallback, ADR 0009), and structured `jev_triage` observability records. Ambiguous calls escalate to **Tier-2** Gemini 3.5 Flash-Lite at a pinned medium thinking level, which returns the final ALLOW/BLOCK verdict (deterministic BLOCKs always win — aggregation supremacy). There is no backend selection: Jev is the only Tier-1 backend. The TASK-D02 live golden re-run (167 cases) is done and recorded in ADR 0008 together with the Tier-2 fire rate. BDD acceptance for the wired pipeline lives in `tests/features/jev_tier1_triage.feature`.
