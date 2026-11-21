@@ -236,6 +236,21 @@ band strings) and checks the timing fields. The held-out check supported re-word
 clear-low at 0.08**, so the band needs F10 re-validation and G04's held-out A/B;
 no production flip.
 
+**Track G golden A/B (TASK-G04, 2026-11-21):** `scripts/jev_g04_ab.py` scored the
+same current 187+10 class-blind corpus with the shipped single-question payload
+and the G02 atomic six-question payload — two interleaved passes per named release
+(`jev-1.13.0`, `jev-1.14.0`), 1,576 live calls, zero errors, served release checked
+per row. Runs and the decision manifest live in
+`tests/eval/results/jev_g04_ab/` (`ab.json` + `manifest.json`), recomputed by
+`tests/unit/test_jev_g04_ab_data.py` (gates, spread, and the decision itself are
+re-derived from the per-case answers). Result: **NO-GO** — on the 101 held-out
+cases legacy passed the five re-baselined F10 gates plus FRR while atomic also
+failed AUROC (0.79–0.82), escalation (41–46%), FRR (0.89–1.00) and accuracy
+(0.78–0.85) because the fail-closed `max` amplified benign auth/API hits. The
+retained evasion gate (<10%) failed for BOTH arms (33.3% — plain C2 beacons), so
+neither arm passes every gate. The single-question payload stays in production;
+no band change, and F10/F02 inherit the recorded misses.
+
 ### Production integration status
 
 Jev is wired into the interception path as the Tier-1 **System-1** classifier (ADR 0006): `JevTriageBackend` evaluates every novel tool call through the `SemanticTriageProvider` seam with the fixed `0.08/0.40` band, a single 429/529 retry and then `JevUnavailableError` (no fallback, ADR 0009), and structured `jev_triage` observability records. Ambiguous calls escalate to **Tier-2** Gemini 3.5 Flash-Lite at a pinned medium thinking level, which returns the final ALLOW/BLOCK verdict (deterministic BLOCKs always win — aggregation supremacy). There is no backend selection: Jev is the only Tier-1 backend. The TASK-D02 live golden re-run (167 cases) is done and recorded in ADR 0008 together with the Tier-2 fire rate. BDD acceptance for the wired pipeline lives in `tests/features/jev_tier1_triage.feature`.

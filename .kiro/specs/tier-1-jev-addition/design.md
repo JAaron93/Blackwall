@@ -313,6 +313,20 @@ with a clause per failing case.
 > `probe_2026-11-20.json` + `probe_refined_heldout_2026-11-20.json`), driver
 > `scripts/jev_atomic_probe.py`, recomputed hermetically by
 > `tests/unit/test_jev_atomic_probe_data.py`.
+>
+> **G04 re-scored live 2026-11-21 — atomic arm FAILED the held-out gates; NO-GO,
+> production stays on the single question.** On the current 187+10 class-blind
+> corpus (197 cases, 2 arms × 2 named releases × 2 interleaved passes, 1,576 live
+> calls, zero errors), the legacy arm passed all five re-baselined F10 gates plus
+> FRR on the 101 held-out cases, while the retained evasion gate (<10%) failed for
+> BOTH arms (2/6 plain C2-beacon cases, 33.3%). The atomic arm's fail-closed `max` drove FRR 0.889–1.000, in-band Tier-2
+> fire 40.6–45.5%, AUROC 0.7927–0.8176 and accuracy 0.7833–0.8545 (gates:
+> <0.05, ≤0.20, ≥0.97, ≥0.85). Benign auth/network calls scored 0.94–0.96 on
+> `credential_theft`. The `max` combination rule — not a wording defect — is the
+> dominant failure; the G03-refined criterion is included in the runs. Decision:
+> keep the legacy payload and band; do not flip; feed the misses to F10/F02.
+> Artifacts: `tests/eval/results/jev_g04_ab/` (manifest + `ab.json`), driver
+> `scripts/jev_g04_ab.py`, recomputed by `tests/unit/test_jev_g04_ab_data.py`.
 
 ### Decision logic stays in code (truth table)
 
