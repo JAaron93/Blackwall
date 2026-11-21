@@ -699,12 +699,39 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > G03 live probe and G04 A/B decide it. All engineering sub-items are done, but
   > per AGENTS.md §6.7 the `[ ]` marker stays until that hypothesis is measured;
   > the wording/parsing/combination code is ready for the probe.
-* [ ] **TASK-G03 [C2]: Live probe + wording refinement** (NFR-05; skill protocol).
+* [x] **TASK-G03 [C2]: Live probe + wording refinement** (NFR-05; skill protocol).
   Probe representative, hard and negative cases; compare wordings as separate
   questions over one state; read individual answers; keep the exact payload per
   case; check each change on held-out cases. Needs a live key — deferred.
   Dependencies: TASK-G02.
-  - [ ] Record per-case payloads + answers; refine criteria against held-out cases (no prompt gymnastics).
+  - [x] Record per-case payloads + answers; refine criteria against held-out cases (no prompt gymnastics).
+  >
+  > **Done 2026-11-20 — Telos answered, wording hypothesis validated on a bounded
+  > held-out check; production-flip calibration remains G04's.** Telos: do the G02
+  > atomic questions and concrete criteria behave correctly live, and can a
+  > mis-labeled category be re-worded against held-out cases (not per-case patched)?
+  > A real `jev-1.14.0` probe of 60 current-corpus cases (20 C2/IOC + 20 other-
+  > malicious + 20 benign; deterministic `sha256(eval_case_id)` dev/held-out split,
+  > 34/26) kept the exact per-case payload and all six `noul` answers, with zero
+  > HTTP errors and `served_model` recorded on every row. Two dev benign cases
+  > (`benign_db_audit_001`, `benign_agent_retry_logic_001`) drove a high
+  > `unauthorized_access` score; refining that question's `criteria.false` to name
+  > those confusers (reading an audit/log table; fetching a declared internal
+  > resource) was checked on the 26 HELD-OUT cases only: benign false clear-high
+  > **1/11 → 0/11**, benign `unauthorized_access` mean **0.216 → 0.170**, with
+  > malicious detection unchanged (IOC 8/8 clear-high, other-malicious 6/7). The
+  > wording hypothesis is supported on this held-out check. Deciding caveat:
+  > **no case in any class scored clear-low at the 0.08 edge** — benign calls
+  > escalate to Tier-2 — so this is evidence for wording, not a calibrated band;
+  > F10 re-validation and the G04 held-out A/B gate the production flip.
+  > Decision informed: keep the atomic design, carry the refined criterion into
+  > G04, and treat the lower-edge/Tier-2 load as an open calibration item. No
+  > `src/` production flip — `_build_payload` still uses `build_legacy_state()`.
+  > Artifact chain: this note → ADR 0009 Open Item 3 →
+  > `tests/eval/results/jev_atomic_probe/manifest.json` →
+  > `probe_2026-11-20.json` + `probe_refined_heldout_2026-11-20.json` →
+  > recomputed by `tests/unit/test_jev_atomic_probe_data.py`; probe driver
+  > `scripts/jev_atomic_probe.py`.
 * [ ] **TASK-G04 [C2]: Golden A/B + class-blind re-score, then production flip**
   (NFR-05, US-01/02). Re-score 157 + 10 and the class-blind corpus, two
   interleaved runs per release, report within-release spread; flip only if the
