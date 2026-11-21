@@ -24,7 +24,11 @@ RUNS_DIR = REPO_ROOT / "tests" / "eval" / "results" / "jev_g04_ab"
 ARTIFACT = RUNS_DIR / "ab.json"
 MANIFEST = RUNS_DIR / "manifest.json"
 LO, HI = 0.08, 0.40
-GATES = {"accuracy": 0.85, "recall": 0.75, "auroc": 0.97, "ece": 0.27, "escalation_rate": 0.20}
+GATES = {
+    "accuracy": 0.85, "recall": 0.75, "auroc": 0.97, "ece": 0.27,
+    "escalation_rate": 0.20, "evasion_rate": 0.10,
+}
+F10_GATES = {k: v for k, v in GATES.items() if k != "evasion_rate"}
 
 
 def _load(path: Path) -> Any:
@@ -78,6 +82,7 @@ def _metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
             ece += len(sel) / len(scores) * abs(
                 sum(p for p, _ in sel) / len(sel) - sum(y for _, y in sel) / len(sel)
             )
+    evasion = [r for r in rows if r["suite"] == "evasion_proof"]
     return {
         "n": len(rows), "tp": tp, "fn": fn, "fp": fp, "tn": tn, "escalated": esc,
         "accuracy": decided and (tp + tn) / decided or 0.0,
@@ -85,7 +90,19 @@ def _metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "frr": fp / (fp + tn) if fp + tn else 0.0,
         "auroc": auroc, "ece": ece,
         "escalation_rate": esc / len(rows),
+        # Retained A/B-plan gate: share of held-out evasion-proof cases that
+        # Tier-1 does NOT score clear_high (the C2-beacon class ADR 0009 names).
+        "evasion_rate": sum(r["band"] != "clear_high" for r in evasion) / len(evasion) if evasion else 0.0,
+        "evasion_n": len(evasion),
     }
+
+
+def _passes(metrics: dict[str, Any], *, f10_only: bool = False) -> bool:
+    gates = F10_GATES if f10_only else GATES
+    return all(
+        (metrics[k] >= floor) if k in ("accuracy", "recall", "auroc") else (metrics[k] <= floor)
+        for k, floor in gates.items()
+    ) and metrics["frr"] < 0.05
 
 
 def _run(artifact: dict[str, Any], release: str, arm: str, pass_no: int) -> dict[str, Any]:
@@ -120,20 +137,49 @@ def test_no_credentials_in_committed_evidence():
         assert not re.search(r"TYPESAFE_API_KEY|AIza|gen-lang-client-|Bearer\s+(?!\[\[)\S+", text, re.IGNORECASE)
 
 
-def test_legacy_states_match_canonical_scorer(artifact):
+def test_every_row_carries_the_fallback_marker(artifact):
+    """Tier-1 Jev evaluation contract: caught failures are recorded as fallbacks."""
+    for run in artifact["runs"]:
+        for row in run["rows"]:
+            assert isinstance(row["is_fallback"], bool)
+            assert row["is_fallback"] is bool(row.get("error")), (row["id"], "fallback marker")
+
+
+def test_saved_question_definitions_match_the_source_of_truth(artifact):
+    from blackwall.policy.jev_questions import JEV_ATOMIC_QUESTIONS
+    from blackwall.policy.semantic import JEV_IS_THREAT_QUESTION
+
+    assert artifact["question_definitions"] == {
+        "legacy": {"is_threat": JEV_IS_THREAT_QUESTION},
+        "atomic": JEV_ATOMIC_QUESTIONS,
+    }
+    for arm, keys in artifact["question_sets"].items():
+        assert set(keys) == set(artifact["question_definitions"][arm])
+
+
+def test_each_arms_saved_states_and_labels_match_its_builder(artifact):
     spec = importlib.util.spec_from_file_location("ab_driver", REPO_ROOT / "scripts" / "jev_g04_ab.py")
     driver = importlib.util.module_from_spec(spec)
     sys.modules["ab_driver"] = driver
     spec.loader.exec_module(driver)
     from jev_triage_eval import build_cases
 
-    canonical = {c["id"]: c["state"] for c in build_cases(["security", "evasion_proof"])}
-    seen = set()
+    from blackwall.policy.semantic import JevTriageBackend
+
+    canonical = {c["id"]: c for c in build_cases(["security", "evasion_proof"])}
+    contexts = {c["id"]: c for c in driver.build_contexts()}
+    assert set(contexts) == set(canonical)
+    seen: set[str] = set()
     for run in artifact["runs"]:
         for row in run["rows"]:
-            if row["arm"] == "legacy":
-                assert row["state"] == canonical[row["id"]], (row["id"], "state drift")
-                seen.add(row["id"])
+            case_id = row["id"]
+            expected_state = (
+                JevTriageBackend.build_legacy_state(contexts[case_id]["context"])
+                if row["arm"] == "legacy" else JevTriageBackend.build_state(contexts[case_id]["context"])
+            )
+            assert row["state"] == expected_state, (case_id, row["arm"], "state drift")
+            assert row["label"] == canonical[case_id]["label"], (case_id, "label drift")
+            seen.add(case_id)
     assert seen == set(canonical)
 
 
@@ -173,11 +219,7 @@ def test_published_heldout_gates_recomputed_and_pinned(artifact, manifest, relea
     # Pin the measured outcome, do not assume a particular one: a NO-GO arm
     # must still fail its gates in the test, or the evidence could be silently
     # "fixed" by editing the manifest instead of re-running the experiment.
-    passes = all(
-        (metrics[k] >= floor) if k in ("accuracy", "recall", "auroc") else (metrics[k] <= floor)
-        for k, floor in GATES.items()
-    ) and metrics["frr"] < 0.05
-    assert passes is manifest["decision"]["gates_pass"][release][arm]
+    assert _passes(metrics) is manifest["decision"]["gates_pass"][release][arm]
     assert metrics["n"] >= 90
 
 
@@ -199,17 +241,19 @@ def test_ab_decision_is_derived_from_pinned_gates(manifest):
     decision = manifest["decision"]
     for release in manifest["gates"]:
         for arm in ("legacy", "atomic"):
-            passes = all(
-                all(
-                    (v >= GATES[k]) if k in ("accuracy", "recall", "auroc") else (v <= GATES[k])
-                    for k, v in manifest["gates"][release][arm][f"run{p}"].items()
-                    if k in GATES
-                )
-                for p in (1, 2)
+            pinned = [manifest["gates"][release][arm][f"run{p}"] for p in (1, 2)]
+            assert decision["gates_pass"][release][arm] is all(_passes(m) for m in pinned)
+            assert decision["f10_five_gates_pass"][release][arm] is all(
+                _passes(m, f10_only=True) for m in pinned
             )
-            assert decision["gates_pass"][release][arm] is passes
+    # Retained evasion gate fails for BOTH arms; it must not be hidden by the
+    # five-gate headline. The NO-GO stands regardless.
+    assert decision["evasion_gate_pass"] is False
+    assert decision["legacy_f10_five_gates_pass"] is True
+    assert decision["atomic_f10_five_gates_pass"] is False
     assert decision["flip"] is (decision["gates_pass"]["jev-1.14.0"]["atomic"]
                                 and not decision["regressed_vs_legacy"])
+    assert decision["flip"] is False
     assert decision["production_still_legacy"] is True
 
 

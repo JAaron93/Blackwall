@@ -670,11 +670,14 @@ Reading it:
    > scored on the current 187+10 class-blind corpus (197 cases, two interleaved
    > passes per named release `jev-1.13.0`/`jev-1.14.0`, 1,576 calls, zero errors,
    > served release checked per row). On the identical 101 held-out cases the
-   > legacy arm passed all re-baselined gates (accuracy 0.8636–0.8750, recall
+   > legacy arm passed the five re-baselined F10 gates plus FRR (accuracy 0.8636–0.8750, recall
    > 0.7647–0.7843, AUROC 0.9700–0.9812, ECE 0.2530–0.2559, in-band Tier-2 fire
    > 12.9–14.9%, FRR 0), while the atomic arm failed AUROC (0.7927–0.8176 vs
    > ≥0.97), escalation (40.6–45.5% vs ≤20%), FRR (0.889–1.000 vs <5%) and
-   > accuracy (0.7833–0.8545 vs ≥0.85), despite recall 1.0. The fail-closed `max`
+   > accuracy (0.7833–0.8545 vs ≥0.85), despite recall 1.0. The retained evasion
+   > gate (<10%) fails for BOTH arms (2/6 held-out evasion cases = 33.3% per run,
+   > both plain C2 beacons with no attack text) — a known C2/IOC weakness, not an
+   > atomic-specific regression. The fail-closed `max`
    > amplifies isolated benign hits (benign auth/API calls 0.94–0.96 on
    > `credential_theft`), confirming the benign-side cost predicted above from F02.
    > Decision: keep the legacy question and the interim 0.08/0.40 band; no band

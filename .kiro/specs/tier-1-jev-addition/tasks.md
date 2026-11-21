@@ -748,11 +748,15 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > baseline), 197 cases × 2 arms × 2 named releases (`jev-1.13.0`, `jev-1.14.0`)
   > × 2 interleaved passes = 1,576 live calls, zero errors, `served_model` equal
   > to the request on every row. On the identical 101-case held-out split:
-  > **legacy passed every gate** (accuracy 0.8636–0.8750, recall 0.7647–0.7843,
-  > AUROC 0.9700–0.9812, ECE 0.2530–0.2559, in-band Tier-2 fire 12.9–14.9%,
-  > FRR 0); **atomic failed** (accuracy 0.7833–0.8545, AUROC 0.7927–0.8176,
+  > **legacy passed all five re-baselined F10 gates plus FRR** (accuracy
+  > 0.8636–0.8750, recall 0.7647–0.7843, AUROC 0.9700–0.9812, ECE 0.2530–0.2559,
+  > in-band Tier-2 fire 12.9–14.9%, FRR 0); **atomic failed** (accuracy 0.7833–0.8545, AUROC 0.7927–0.8176,
   > ECE 0.1358–0.1651, in-band Tier-2 fire 40.6–45.5%, FRR 0.889–1.000) despite
-  > recall 1.0. Within-release spread is small relative to the gap (legacy mean
+  > recall 1.0. **The retained evasion-rate gate (<10%) fails for BOTH arms**
+  > (2/6 held-out evasion cases = 33.3% per run, both plain C2 beacons with no
+  > attack text — the known C2/IOC weakness, not an atomic-specific regression);
+  > no arm is claimed to pass every gate. Within-release spread is small relative
+  > to the gap (legacy mean
   > |ΔP| 0.0057–0.0069 / 2–3 zone changes; atomic 0.0125–0.0148 / 6–7). Cause:
   > the fail-closed `max` amplifies isolated benign category hits — benign
   > auth/API calls scored 0.94–0.96 on `credential_theft`, benign reads 0.55–0.65

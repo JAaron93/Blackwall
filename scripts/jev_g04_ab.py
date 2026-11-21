@@ -121,12 +121,16 @@ async def score_arm(backend: JevTriageBackend, arm: str, release: str,
             "scenario": case["scenario"], "arm": arm, "release": release,
             "pass": pass_no, "state": payload["state"],
             "question_keys": sorted(payload["questions"]),
+            # Shared Tier-1 Jev evaluation contract (Greptile P0): every row
+            # carries the fallback marker, and a caught failure is a fallback.
+            "is_fallback": False,
         }
         async with sem:
             try:
                 response = await backend._post_with_one_retry(payload)
                 if response.status_code != 200:
                     row["error"] = f"HTTP {response.status_code}"
+                    row["is_fallback"] = True
                 else:
                     data = response.json()
                     row["served_model"] = data.get("model")
@@ -135,6 +139,7 @@ async def score_arm(backend: JevTriageBackend, arm: str, release: str,
                         score = backend._read_noul((data.get("answers") or {}).get("is_threat"))
                         if score is None:
                             row["error"] = "invalid legacy noul"
+                            row["is_fallback"] = True
                         else:
                             row["answers"] = {"is_threat": score}
                     else:
@@ -146,6 +151,7 @@ async def score_arm(backend: JevTriageBackend, arm: str, release: str,
                         row["band"] = band_for(score)
             except Exception as exc:  # noqa: BLE001 - record, never silently drop
                 row["error"] = type(exc).__name__
+                row["is_fallback"] = True
         rows[index] = row
 
     await asyncio.gather(*(one(i, c) for i, c in enumerate(contexts)))
@@ -197,6 +203,12 @@ async def main() -> None:
         "purpose": "TASK-G04 golden A/B evidence only; production stays legacy until the held-out gate passes.",
         "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "question_sets": {"legacy": ["is_threat"], "atomic": sorted(JEV_ATOMIC_QUESTIONS)},
+        # Full definitions, not just key names: a later wording edit must not let
+        # these scores stand as evidence for a payload they never measured.
+        "question_definitions": {
+            "legacy": {"is_threat": JEV_IS_THREAT_QUESTION},
+            "atomic": JEV_ATOMIC_QUESTIONS,
+        },
         "band": {"clear_low": JEV_CLEAR_LOW_THRESHOLD, "clear_high": JEV_CLEAR_HIGH_THRESHOLD},
         "releases_requested": list(RELEASES),
         "order": "pass 1/2 -> release 1.13/1.14 -> arm legacy/atomic (releases and arms interleaved within each pass)",

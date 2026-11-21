@@ -244,9 +244,11 @@ per row. Runs and the decision manifest live in
 `tests/eval/results/jev_g04_ab/` (`ab.json` + `manifest.json`), recomputed by
 `tests/unit/test_jev_g04_ab_data.py` (gates, spread, and the decision itself are
 re-derived from the per-case answers). Result: **NO-GO** — on the 101 held-out
-cases legacy passed every F10 gate, atomic failed AUROC (0.79–0.82), escalation
-(41–46%), FRR (0.89–1.00) and accuracy (0.78–0.85) because the fail-closed `max`
-amplified benign auth/API hits. The single-question payload stays in production;
+cases legacy passed the five re-baselined F10 gates plus FRR while atomic also
+failed AUROC (0.79–0.82), escalation (41–46%), FRR (0.89–1.00) and accuracy
+(0.78–0.85) because the fail-closed `max` amplified benign auth/API hits. The
+retained evasion gate (<10%) failed for BOTH arms (33.3% — plain C2 beacons), so
+neither arm passes every gate. The single-question payload stays in production;
 no band change, and F10/F02 inherit the recorded misses.
 
 ### Production integration status

@@ -317,8 +317,9 @@ with a clause per failing case.
 > **G04 re-scored live 2026-11-21 — atomic arm FAILED the held-out gates; NO-GO,
 > production stays on the single question.** On the current 187+10 class-blind
 > corpus (197 cases, 2 arms × 2 named releases × 2 interleaved passes, 1,576 live
-> calls, zero errors), the legacy arm passed every F10 gate on the 101 held-out
-> cases; the atomic arm's fail-closed `max` drove FRR 0.889–1.000, in-band Tier-2
+> calls, zero errors), the legacy arm passed all five re-baselined F10 gates plus
+> FRR on the 101 held-out cases, while the retained evasion gate (<10%) failed for
+> BOTH arms (2/6 plain C2-beacon cases, 33.3%). The atomic arm's fail-closed `max` drove FRR 0.889–1.000, in-band Tier-2
 > fire 40.6–45.5%, AUROC 0.7927–0.8176 and accuracy 0.7833–0.8545 (gates:
 > <0.05, ≤0.20, ≥0.97, ≥0.85). Benign auth/network calls scored 0.94–0.96 on
 > `credential_theft`. The `max` combination rule — not a wording defect — is the
