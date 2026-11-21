@@ -647,6 +647,23 @@ Reading it:
    > (manifest + four arm JSONs; rows checked against the current cases), recomputed
    > by `tests/unit/test_jev_tier1_defense_final_data.py`. Stale harness field
    > `raised_above_035` is disclosed and not used.
+   >
+   > **Track G wording probe 2026-11-20 (TASK-G03).** The first live run of the six
+   > atomic `noul` questions over one structured state (real `jev-1.14.0`, 60
+   > current-corpus cases: 20 C2/IOC + 20 other-malicious + 20 benign, deterministic
+   > `sha256(eval_case_id)` dev/held-out split, zero errors, served release recorded
+   > per row) read every per-category answer and kept every exact payload. Two dev
+   > benign confusers (an audit-log read and a declared internal fetch) scored high
+   > on `unauthorized_access`; re-worded `criteria.false` to name those two cases and
+   > checked ONLY on the 26 held-out cases: benign false clear-high 1/11 → 0/11,
+   > benign `unauthorized_access` mean 0.216 → 0.170, malicious detection unchanged
+   > (IOC 8/8 clear-high, other-malicious 6/7). The wording-refinement hypothesis is
+   > supported on this bounded held-out check; it is NOT a calibrated band — no case
+   > in any class scored clear-low at the 0.08 edge, so benign traffic escalates to
+   > Tier-2. Decision: carry the refined criterion into G04 and re-validate the
+   > lower edge (F10); no production flip, `_build_payload` stays legacy. Artifacts:
+   > `tests/eval/results/jev_atomic_probe/` (manifest + two run JSONs), recomputed by
+   > `tests/unit/test_jev_atomic_probe_data.py`.
 4. **What the class-blind result implies.** *(Wrapper template and payloads:
    done, see Verification.)* On the class-blind corpus the accuracy and ECE gates
    fail at the fixed 0.35/0.75 band while AUROC is 0.99. Whether to move the

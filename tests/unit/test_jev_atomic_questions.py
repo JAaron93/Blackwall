@@ -28,6 +28,13 @@ def test_six_atomic_questions_each_carry_criteria():
         assert question["criteria"]["false"].strip(), name
 
 
+def test_refined_unauthorized_criteria_name_the_dev_confusers():
+    """G03 refinement: audit-log reads and declared internal fetches are not attacks."""
+    false_criteria = JEV_ATOMIC_QUESTIONS["unauthorized_access"]["criteria"]["false"].lower()
+    assert "audit" in false_criteria
+    assert "internal" in false_criteria
+
+
 def test_parse_atomic_answers_is_strict_and_fail_closed():
     payload = {
         "answers": {

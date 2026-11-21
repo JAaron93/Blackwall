@@ -166,10 +166,11 @@ Jev front bucket and the Vertex buckets are independent (TypeSafe vs Vertex).
 > Tier-2 429 rate against the partition (ADR 0009 Open Item 2).
 
 ### FR-09: Atomic Question Set, Criteria, and Structured State (PLANNED — Track G)
-> **Added 2026-11-14 (typesafe-ai skill audit F2/F3/F4). PLANNED, not yet
-> implemented; gated on live re-calibration (NFR-05). The current single
-> `is_threat` Noul and dict-repr state remain the production path until Track G
-> passes the golden A/B on held-out cases.**
+> **Added 2026-11-14 (typesafe-ai skill audit F2/F3/F4). Engineering implemented
+> 2026-11-20 (G01 structured state, G02 atomic questions + criteria + parsing) and
+> live-probed (G03); NOT yet shipped, gated on live re-calibration (NFR-05) and the
+> G04 golden A/B on held-out cases. The current single `is_threat` Noul and
+> dict-repr state remain the production path until that gate passes.**
 
 The Tier-1 request SHOULD replace the single compound `is_threat` Noul with a
 bundled set of atomic `noul` questions, one judgment each (injection,

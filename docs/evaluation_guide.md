@@ -222,6 +222,20 @@ test rejects placeholder inputs. The F02 defense results are in
 `tests/eval/results/jev_tier1_defense_final/` (2026-11-20, current corpus, 0.08/0.40,
 outages tracked apart), recomputed by `tests/unit/test_jev_tier1_defense_final_data.py`.
 
+**Track G atomic-question probe (TASK-G03):** the six atomic `noul` questions over
+one structured state were probed live on 60 current-corpus cases (20 C2/IOC + 20
+other-malicious + 20 benign; `jev-1.14.0` requested by name) with a deterministic
+`sha256(eval_case_id)` dev/held-out split. `scripts/jev_atomic_probe.py` keeps the
+exact per-case payload and every category answer. Runs live in
+`tests/eval/results/jev_atomic_probe/` (manifest + `probe_2026-11-20.json` +
+`probe_refined_heldout_2026-11-20.json`), each with a UTC `generated_at` instant
+whose recovery is disclosed in the manifest. `tests/unit/test_jev_atomic_probe_data.py`
+recomputes every published score and band from the raw answers (never from stored
+band strings) and checks the timing fields. The held-out check supported re-wording
+`unauthorized_access` (benign false clear-high 1/11 → 0/11) but **no class scored
+clear-low at 0.08**, so the band needs F10 re-validation and G04's held-out A/B;
+no production flip.
+
 ### Production integration status
 
 Jev is wired into the interception path as the Tier-1 **System-1** classifier (ADR 0006): `JevTriageBackend` evaluates every novel tool call through the `SemanticTriageProvider` seam with the fixed `0.08/0.40` band, a single 429/529 retry and then `JevUnavailableError` (no fallback, ADR 0009), and structured `jev_triage` observability records. Ambiguous calls escalate to **Tier-2** Gemini 3.5 Flash-Lite at a pinned medium thinking level, which returns the final ALLOW/BLOCK verdict (deterministic BLOCKs always win — aggregation supremacy). There is no backend selection: Jev is the only Tier-1 backend. The TASK-D02 live golden re-run (167 cases) is done and recorded in ADR 0008 together with the Tier-2 fire rate. BDD acceptance for the wired pipeline lives in `tests/features/jev_tier1_triage.feature`.
