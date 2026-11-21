@@ -1,6 +1,7 @@
 {
  "schema_version": 1,
  "purpose": "TASK-G03 live probe of atomic Jev questions; evidence only, no production flip.",
+ "generated_at": "2026-11-21T05:10:24Z",
  "model_requested": "jev-1.14.0",
  "split_requested": "heldout",
  "served_models": {

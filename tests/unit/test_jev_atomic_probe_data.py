@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import statistics
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,7 @@ from blackwall.policy.jev_questions import JEV_ATOMIC_QUESTIONS
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RUNS_DIR = REPO_ROOT / "tests" / "eval" / "results" / "jev_atomic_probe"
 MANIFEST = RUNS_DIR / "manifest.json"
+RUN_FILES = ("probe_2026-11-20.json", "probe_refined_heldout_2026-11-20.json")
 
 
 def _load(name: str) -> Any:
@@ -29,8 +31,28 @@ def _split(case_id: str) -> str:
     return "dev" if hashlib.sha256(case_id.encode()).digest()[0] & 1 else "heldout"
 
 
-def _bands(rows: list[dict[str, Any]]) -> dict[str, int]:
-    return {b: sum(1 for r in rows if r["band"] == b) for b in ("clear_low", "escalate", "clear_high")}
+def _recomputed_band(data: dict[str, Any], row: dict[str, Any]) -> tuple[float, str]:
+    """Derive score+band from the raw answers using THIS run's recorded thresholds.
+
+    This is the whole point of the recomputation test: a stored ``threat_score``
+    or ``band`` string is never trusted. Any drift in an answer or in the
+    max-combination / band logic is caught before a detection count is computed.
+    """
+    score = max(row["answers"].values())  # combine_answers() is a fail-closed max
+    assert row["threat_score"] == score, (row["id"], "threat_score")
+    low = data["band"]["clear_low"]
+    high = data["band"]["clear_high"]
+    band = "clear_low" if score < low else "clear_high" if score > high else "escalate"
+    assert row["band"] == band, (row["id"], "band")
+    return score, band
+
+
+def _bands(data: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, int]:
+    counts = {b: 0 for b in ("clear_low", "escalate", "clear_high")}
+    for row in rows:
+        _, band = _recomputed_band(data, row)
+        counts[band] += 1
+    return counts
 
 
 def test_manifest_names_every_artifact_and_no_other(manifest):
@@ -40,8 +62,7 @@ def test_manifest_names_every_artifact_and_no_other(manifest):
     assert manifest["schema_version"] == 1
 
 
-@pytest.mark.parametrize("name", ["manifest.json", "probe_2026-11-20.json",
-                                  "probe_refined_heldout_2026-11-20.json"])
+@pytest.mark.parametrize("name", ["manifest.json", *RUN_FILES])
 def test_no_credentials_and_question_shape(name):
     text = (RUNS_DIR / name).read_text(encoding="utf-8")
     assert not re.search(r"TYPESAFE_API_KEY|gen-lang-client-|AIza", text, re.IGNORECASE)
@@ -54,12 +75,36 @@ def test_no_credentials_and_question_shape(name):
         assert all(isinstance(c["state"], dict) for c in data["cases"])
 
 
-@pytest.mark.parametrize("name", ["probe_2026-11-20.json", "probe_refined_heldout_2026-11-20.json"])
+@pytest.mark.parametrize("name", RUN_FILES)
 def test_split_integrity(name):
     data = _load(name)
     assert all(c["split"] == _split(c["id"]) for c in data["cases"])
     if data.get("split_requested", "all") == "heldout":
         assert {c["split"] for c in data["cases"]} == {"heldout"}
+
+
+@pytest.mark.parametrize("name", RUN_FILES)
+def test_generated_at_is_utc_and_matches_manifest(manifest, name):
+    """Testing rule 80: every measurement export records when the run happened."""
+    recorded = {r["file"]: r["generated_at"] for r in manifest["runs"]}
+    assert "timestamp_provenance" in manifest
+    value = _load(name)["generated_at"]
+    assert value == recorded[name]
+    assert value.endswith("Z")
+    parsed = datetime.fromisoformat(value)
+    assert parsed.tzinfo is not None and parsed.utcoffset() == timedelta(0)
+    # These two runs both happened on 2026-11-21 UTC (local filenames are 11-20).
+    assert parsed.date() == date(2026, 11, 21)
+    assert parsed.time() == datetime.fromisoformat(recorded[name]).time()
+
+
+@pytest.mark.parametrize("name", RUN_FILES)
+def test_every_row_score_and_band_recomputed_from_answers(name):
+    """Guard the source of truth: no published count rests on a stored band string."""
+    data = _load(name)
+    assert data["band"] == {"clear_low": 0.08, "clear_high": 0.40}
+    for row in data["cases"]:
+        _recomputed_band(data, row)
 
 
 @pytest.mark.parametrize("run", ["baseline_heldout", "refined_heldout", "baseline_dev"])
@@ -69,7 +114,7 @@ def test_published_class_bands_recomputed_and_pinned(manifest, run):
     for klass, pinned in manifest["results"][run].items():
         rows = [c for c in source["cases"] if c["split"] == split and c["klass"] == klass]
         assert len(rows) == pinned["n"]
-        assert _bands(rows) == pinned["bands"]
+        assert _bands(source, rows) == pinned["bands"]
         if "unauth_mean" in pinned:
             mean = statistics.fmean(c["answers"]["unauthorized_access"] for c in rows)
             assert round(mean, 3) == pinned["unauth_mean"]

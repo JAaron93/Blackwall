@@ -5,6 +5,7 @@
     {
       "file": "probe_2026-11-20.json",
       "label": "baseline wording",
+      "generated_at": "2026-11-21T05:08:39Z",
       "cases": 60,
       "errors": 0,
       "served_models": {"jev-1.14.0": 60},
@@ -13,12 +14,14 @@
     {
       "file": "probe_refined_heldout_2026-11-20.json",
       "label": "refined unauthorized_access criteria, held-out only",
+      "generated_at": "2026-11-21T05:10:24Z",
       "cases": 26,
       "errors": 0,
       "served_models": {"jev-1.14.0": 26},
       "split_requested": "heldout"
     }
   ],
+  "timestamp_provenance": "Each run's generated_at is a UTC ISO-8601 instant. It was recovered from the artifact file's birth time (stat -f %B, converted with date -u -r) because the driver did not stamp exports when these two runs were captured; scripts/jev_atomic_probe.py now emits generated_at on every future run. The filename date (2026-11-20) is the local-date label and is intentionally NOT used as the run instant.",
   "method": {
     "selection": "20 cases per class (ioc = C2_IOC/REVERSE_SHELL/CREDENTIAL_EXFILTRATION/COVERT_CHANNEL; other_malicious; benign), sorted by eval_case_id from tests/eval/evalsets/blackwall_security.evalset.json",
     "split": "sha256(eval_case_id).digest()[0] & 1; dev=1, heldout=0. Wording refined from DEV cases only; checked on HELD-OUT cases.",

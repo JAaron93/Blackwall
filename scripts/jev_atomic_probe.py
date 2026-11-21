@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -135,6 +136,8 @@ async def main() -> None:
     artifact = {
         "schema_version": 1,
         "purpose": "TASK-G03 live probe of atomic Jev questions; evidence only, no production flip.",
+        # Per testing rule 80: every measurement export records when the run happened.
+        "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "model_requested": args.model,
         "split_requested": args.split,
         "served_models": served,
