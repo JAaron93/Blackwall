@@ -46,6 +46,9 @@ def test_create_judge_agent_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BLACKWALL_TIER", "paid")
     monkeypatch.setenv("GCP_PROJECT", "test-eval-proj")
     monkeypatch.setenv("GCP_LOCATION", "us-central1")
+    # conftest loads the gitignored .env with override=False; a stale
+    # BLACKWALL_JUDGE_MODEL there must not replace the standardized default.
+    monkeypatch.delenv("BLACKWALL_JUDGE_MODEL", raising=False)
 
     agent = create_judge_agent(
         domain="threat_interception",
