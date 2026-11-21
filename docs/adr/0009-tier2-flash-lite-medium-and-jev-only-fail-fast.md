@@ -664,6 +664,25 @@ Reading it:
    > lower edge (F10); no production flip, `_build_payload` stays legacy. Artifacts:
    > `tests/eval/results/jev_atomic_probe/` (manifest + two run JSONs), recomputed by
    > `tests/unit/test_jev_atomic_probe_data.py`.
+   >
+   > **Track G golden A/B 2026-11-21 (TASK-G04) — atomic payload REJECTED, band
+   > stays interim.** The single-question (legacy) and atomic six-question arms were
+   > scored on the current 187+10 class-blind corpus (197 cases, two interleaved
+   > passes per named release `jev-1.13.0`/`jev-1.14.0`, 1,576 calls, zero errors,
+   > served release checked per row). On the identical 101 held-out cases the
+   > legacy arm passed all re-baselined gates (accuracy 0.8636–0.8750, recall
+   > 0.7647–0.7843, AUROC 0.9700–0.9812, ECE 0.2530–0.2559, in-band Tier-2 fire
+   > 12.9–14.9%, FRR 0), while the atomic arm failed AUROC (0.7927–0.8176 vs
+   > ≥0.97), escalation (40.6–45.5% vs ≤20%), FRR (0.889–1.000 vs <5%) and
+   > accuracy (0.7833–0.8545 vs ≥0.85), despite recall 1.0. The fail-closed `max`
+   > amplifies isolated benign hits (benign auth/API calls 0.94–0.96 on
+   > `credential_theft`), confirming the benign-side cost predicted above from F02.
+   > Decision: keep the legacy question and the interim 0.08/0.40 band; no band
+   > re-sweep is needed because no Track G payload landed. The held-out split is
+   > deterministic but exploratory (F10 inspected these cases), and the figures
+   > are Tier-1 signals only. Artifacts: `tests/eval/results/jev_g04_ab/`
+   > (manifest + `ab.json`), driver `scripts/jev_g04_ab.py`, recomputed by
+   > `tests/unit/test_jev_g04_ab_data.py`.
 4. **What the class-blind result implies.** *(Wrapper template and payloads:
    done, see Verification.)* On the class-blind corpus the accuracy and ECE gates
    fail at the fixed 0.35/0.75 band while AUROC is 0.99. Whether to move the

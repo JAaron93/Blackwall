@@ -732,13 +732,41 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > `probe_2026-11-20.json` + `probe_refined_heldout_2026-11-20.json` →
   > recomputed by `tests/unit/test_jev_atomic_probe_data.py`; probe driver
   > `scripts/jev_atomic_probe.py`.
-* [ ] **TASK-G04 [C2]: Golden A/B + class-blind re-score, then production flip**
+* [x] **TASK-G04 [C2]: Golden A/B + class-blind re-score, then production flip**
   (NFR-05, US-01/02). Re-score 157 + 10 and the class-blind corpus, two
   interleaved runs per release, report within-release spread; flip only if the
   A/B gates pass on held-out cases. Needs a live key — deferred.
   Dependencies: TASK-G03.
-  - [ ] Regenerate `tests/eval/results/` artifacts + recomputation unit tests; record served release and Tier-2 fire rate.
-  - [ ] If gates fail, keep the single-question path and record the misses (feeds TASK-F10).
+  - [x] Regenerate `tests/eval/results/` artifacts + recomputation unit tests; record served release and Tier-2 fire rate.
+  - [x] If gates fail, keep the single-question path and record the misses (feeds TASK-F10).
+  >
+  > **Done 2026-11-21 — Telos answered, atomic hypothesis INVALIDATED on held-out;
+  > NO-GO, no production flip.** Telos: does the G02 atomic six-question payload
+  > pass the F10-rebaselined A/B gates on held-out cases well enough to replace
+  > the shipped single-question path? Tested on the current 187+10 class-blind
+  > corpus (one shared label-free template; the historical 157+10 runs remain the
+  > baseline), 197 cases × 2 arms × 2 named releases (`jev-1.13.0`, `jev-1.14.0`)
+  > × 2 interleaved passes = 1,576 live calls, zero errors, `served_model` equal
+  > to the request on every row. On the identical 101-case held-out split:
+  > **legacy passed every gate** (accuracy 0.8636–0.8750, recall 0.7647–0.7843,
+  > AUROC 0.9700–0.9812, ECE 0.2530–0.2559, in-band Tier-2 fire 12.9–14.9%,
+  > FRR 0); **atomic failed** (accuracy 0.7833–0.8545, AUROC 0.7927–0.8176,
+  > ECE 0.1358–0.1651, in-band Tier-2 fire 40.6–45.5%, FRR 0.889–1.000) despite
+  > recall 1.0. Within-release spread is small relative to the gap (legacy mean
+  > |ΔP| 0.0057–0.0069 / 2–3 zone changes; atomic 0.0125–0.0148 / 6–7). Cause:
+  > the fail-closed `max` amplifies isolated benign category hits — benign
+  > auth/API calls scored 0.94–0.96 on `credential_theft`, benign reads 0.55–0.65
+  > on `unauthorized_access` — clearing almost no benign traffic; exactly the
+  > benign-side cost ADR 0009 OI3 predicted from F02. Decision informed: **keep
+  > the legacy payload**; do not flip in G04, do not change the band, and feed the
+  > recorded misses to F10/F02. `flip: false`, `production_still_legacy: true` in
+  > the manifest; `_build_payload` is untouched. Caveat: the held-out split is
+  > deterministic but exploratory (these cases were inspected during F10), and
+  > figures are Tier-1 signals only — Tier-2 fire is the in-band escalation share.
+  > Artifact chain: this note → ADR 0009 Open Item 3/4 →
+  > `tests/eval/results/jev_g04_ab/manifest.json` → `ab.json` → recomputed by
+  > `tests/unit/test_jev_g04_ab_data.py`; driver `scripts/jev_g04_ab.py`.
+  > G05's same-change rule/config sync is NOT authorized or performed here.
 * [ ] **TASK-G05 [C1]: Same-change sync + harness/BDD/corpus updates** (constitution
   6.4). Update the egress-allowlist and parsing BDD assertions, the eval harness
   scoring, `AGENTS.md`/`.agents/rules/`/`.greptile/` for the new question set,
