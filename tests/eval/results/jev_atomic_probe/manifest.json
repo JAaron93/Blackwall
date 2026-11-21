@@ -56,6 +56,7 @@
     ".kiro/specs/tier-1-jev-addition/tasks.md TASK-G03",
     ".kiro/specs/tier-1-jev-addition/design.md Track G",
     "docs/adr/0009-tier2-flash-lite-medium-and-jev-only-fail-fast.md Open Item 3",
+    "docs/evaluation_guide.md #7 Track G atomic-question probe",
     "scripts/jev_atomic_probe.py",
     "tests/unit/test_jev_atomic_probe_data.py"
   ]

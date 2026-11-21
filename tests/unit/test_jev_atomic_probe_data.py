@@ -136,6 +136,7 @@ def test_refinement_direction_on_heldout(manifest):
 def test_pointer_chain_is_documented():
     tasks = (REPO_ROOT / ".kiro" / "specs" / "tier-1-jev-addition" / "tasks.md").read_text(encoding="utf-8")
     design = (REPO_ROOT / ".kiro" / "specs" / "tier-1-jev-addition" / "design.md").read_text(encoding="utf-8")
-    for label, text in (("tasks", tasks), ("design", design)):
+    guide = (REPO_ROOT / "docs" / "evaluation_guide.md").read_text(encoding="utf-8")
+    for label, text in (("tasks", tasks), ("design", design), ("evaluation_guide", guide)):
         assert "jev_atomic_probe" in text, label
         assert "test_jev_atomic_probe_data" in text, label

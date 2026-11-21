@@ -235,12 +235,14 @@ FRR <5% and evasion <10% retained. The original 157-case gates (≥98% / ≥0.95
 
 ## Track G — Atomic Questions, Criteria, Structured State (typesafe-ai skill audit F2/F3/F4)
 
-> **Status: PLANNED, not implemented.** This track redesigns the Tier-1 question
-> and state to follow the official `typesafe-ai` skill. It changes Jev's
-> behavior, so it is gated on live re-calibration (NFR-05) and MUST NOT ship to
-> the production path until the golden A/B re-run passes on held-out cases.
-> The wording below is a *candidate to probe live*, not calibrated text — the
-> skill forbids prompt gymnastics and thresholds fitted to a handful of cases.
+> **Status: engineering implemented (G01/G02), live-probed (G03); production flip
+> PLANNED and gated on G04.** This track redesigns the Tier-1 question and state
+> to follow the official `typesafe-ai` skill. It changes Jev's behavior, so it is
+> gated on live re-calibration (NFR-05) and MUST NOT ship to the production path
+> until the golden A/B re-run passes on held-out cases. The wording below was a
+> *candidate to probe live*; G03 checked one refinement against held-out cases,
+> but it is not production-calibrated text — the skill forbids prompt gymnastics
+> and thresholds fitted to a handful of cases.
 
 ### Why (audit findings)
 
