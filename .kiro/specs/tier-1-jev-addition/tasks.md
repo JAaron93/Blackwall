@@ -437,24 +437,44 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > → recomputed by `tests/unit/test_jev_f02_structured_state_data.py`; driver
   > `scripts/jev_f02_structured_state.py`.
   >
+  > **Full Tier-1/Tier-2 matched validation 2026-11-22 — NOT validated for
+  > shipping.** The structured-state candidate was re-scored
+  > with the real Tier-2 arbiter on matched populations (30 malicious + 30 benign
+  > bases, dev payloads, `jev-1.14.0` pinned by name, semantic-only config; the
+  > first four arm runs were discarded after a Tier-2 429 invalidated one pass
+  > and all four were re-run). On the 25 held bases common to both arms, matched
+  > to-ALLOW flips went **6/550 → 7/550** and below-edge crossings (all) went
+  > **8 → 14**; the Tier-2-skipped subset was **4 → 4** (the decision measure).
+  > Across all steered rows the committed summaries report below-edge crossings
+  > **12 → 23** and Tier-2-skipped **8 → 12** — these are a different population
+  > and are NOT fed to the decision rule. Benign flagged calls fell **239/658
+  > (36.3%) → 202/660 (30.6%)** and mean benign P shift **+0.173 → +0.134**. The
+  > benign-side gain from the Tier-1-only probe is real but does not survive the
+  > full validation: the fixed non-inferiority rule fails because matched flips
+  > and all-crossings worsen. This
+  > mirrors the F02 nonce-XML result (crossings rose as benign flags rose) and
+  > confirms a state-format change alone is not a validated defense. No guard
+  > was shipped and no `src/` change was made; the task was subsequently closed
+  > by risk acceptance in the note below.
+  > Artifact chain: this note → ADR 0009 OI3 →
+  > `tests/eval/results/jev_f02_full_defense/manifest.json` → four arm JSONs →
+  > recomputed by `tests/unit/test_jev_f02_full_defense_data.py`; the 429-discard
+  > is recorded in that manifest.
+  >
   > **Closed 2026-11-22 — Telos answered, hypothesis INVALIDATED for a shippable
-  > defense, residual risk accepted by the maintainer.** The full Tier-1/Tier-2
-  > matched run (PR #227, pending merge at writing) confirmed the Tier-1-only
-  > signal does not survive full validation: on 25 common held bases matched
-  > to-ALLOW flips rose 6/550→7/550 and below-edge crossings (all) 8→14 while
-  > the Tier-2-skipped path used by the rule stayed 4→4; benign flags improved
-  > 36.3%→30.6%. Combined with the nonce-XML (37.0%→56.2% benign flags) and G04
-  > atomic+`max` (FRR 0.89–1.00) results, all three candidate families failed
-  > for one reason: steering resistance and benign calibration are coupled.
-  > Decision informed: **no guard shipped, no `src/` or rulebook change, close
-  > the task by risk acceptance** rather than spend more live calibration on a
-  > fourth state-format variant. Residual ~1% stage-level to-ALLOW risk is
-  > accepted under the conditions in `docs/f02-steering-retrospective.md`,
-  > which records what improved, what failed, why scope was cut, and the two
-  > reopen conditions (a near-zero compliance requirement, or a new
-  > question/instruction-layer mechanism with fresh held-out evidence). This
-  > is a stage-level figure from a semantic-only harness — not a full-firewall
-  > catch rate.
+  > defense, residual risk accepted by the maintainer.** The full matched run
+  > above confirmed the Tier-1-only signal does not survive full validation.
+  > Combined with the nonce-XML (37.0%→56.2% benign flags) and G04 atomic+`max`
+  > (FRR 0.89–1.00) results, all three candidate families failed for one reason:
+  > steering resistance and benign calibration are coupled. Decision informed:
+  > **no guard shipped, no `src/` or rulebook change, close the task by risk
+  > acceptance** rather than spend more live calibration on a fourth state-format
+  > variant. Residual ~1% stage-level to-ALLOW risk is accepted under the
+  > conditions in `docs/f02-steering-retrospective.md`, which records what
+  > improved, what failed, why scope was cut, and the two reopen conditions (a
+  > near-zero compliance requirement, or a new question/instruction-layer
+  > mechanism with fresh held-out evidence). This is a stage-level figure from a
+  > semantic-only harness — not a full-firewall catch rate.
   > Artifact chain: this note → ADR 0009 OI3 →
   > `docs/f02-steering-retrospective.md` → manifests under
   > `tests/eval/results/jev_tier2_runs/`, `jev_tier1_defense_runs/`,

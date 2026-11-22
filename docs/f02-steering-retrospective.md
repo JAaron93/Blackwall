@@ -36,9 +36,9 @@ conditions in §6.
 | Structured state, full Tier-1/Tier-2 matched (2026-11-22) | `tests/eval/results/jev_f02_full_defense/manifest.json` → four `full_*` arm JSONs → `tests/unit/test_jev_f02_full_defense_data.py` |
 
 Every chain continues upstream into `.kiro/specs/tier-1-jev-addition/tasks.md`
-(TASK-F02, G03, G04) and ADR 0009 Open Item 3. The last row's artifacts land
-with PR #227; the retrospective does not depend on their figures for its
-decision (the rejection stands on the earlier rows as well).
+(TASK-F02, G03, G04) and ADR 0009 Open Item 3. The last row's artifacts landed
+with PR #227 (merged 2026-11-22); the retrospective does not depend on their
+figures for its decision (the rejection stands on the earlier rows as well).
 
 ## 3. What improved
 
