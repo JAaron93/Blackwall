@@ -249,7 +249,9 @@ failed AUROC (0.79–0.82), escalation (41–46%), FRR (0.89–1.00) and accurac
 (0.78–0.85) because the fail-closed `max` amplified benign auth/API hits. The
 retained evasion gate (<10%) failed for BOTH arms (33.3% — plain C2 beacons), so
 neither arm passes every gate. The single-question payload stays in production;
-no band change, and F10/F02 inherit the recorded misses.
+no band change, and F10/F02 inherit the recorded misses. Track G is closed for
+this design (G02 closed with the invalidated hypothesis, G05 closed N/A); a new
+candidate would need its own fresh held-out A/B.
 
 ### Production integration status
 

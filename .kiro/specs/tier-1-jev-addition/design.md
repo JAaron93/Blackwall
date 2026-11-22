@@ -235,8 +235,9 @@ FRR <5% and evasion <10% retained. The original 157-case gates (≥98% / ≥0.95
 
 ## Track G — Atomic Questions, Criteria, Structured State (typesafe-ai skill audit F2/F3/F4)
 
-> **Status: engineering implemented (G01/G02), live-probed (G03); production flip
-> PLANNED and gated on G04.** This track redesigns the Tier-1 question and state
+> **Status: CLOSED 2026-11-21 — engineering implemented (G01/G02), live-probed
+> (G03), but the G04 held-out A/B returned NO-GO; no production flip, G05 closed
+> N/A.** This track redesigns the Tier-1 question and state
 > to follow the official `typesafe-ai` skill. It changes Jev's behavior, so it is
 > gated on live re-calibration (NFR-05) and MUST NOT ship to the production path
 > until the golden A/B re-run passes on held-out cases. The wording below was a

@@ -165,12 +165,15 @@ Jev front bucket and the Vertex buckets are independent (TypeSafe vs Vertex).
 > burst test exercising the production limiter compares the uncoordinated path's
 > Tier-2 429 rate against the partition (ADR 0009 Open Item 2).
 
-### FR-09: Atomic Question Set, Criteria, and Structured State (PLANNED — Track G)
+### FR-09: Atomic Question Set, Criteria, and Structured State (NOT SHIPPED — Track G NO-GO)
 > **Added 2026-11-14 (typesafe-ai skill audit F2/F3/F4). Engineering implemented
-> 2026-11-20 (G01 structured state, G02 atomic questions + criteria + parsing) and
-> live-probed (G03); NOT yet shipped, gated on live re-calibration (NFR-05) and the
-> G04 golden A/B on held-out cases. The current single `is_threat` Noul and
-> dict-repr state remain the production path until that gate passes.**
+> 2026-11-20 (G01 structured state, G02 atomic questions + criteria + parsing),
+> live-probed (G03), and measured by the G04 golden A/B on held-out cases, which
+> FAILED (NO-GO, 2026-11-21). NOT shipped: the atomic payload's fail-closed `max`
+> drove FRR 0.889–1.000 and in-band Tier-2 fire 40.6–45.5% on held-out. The single
+> `is_threat` Noul and `build_legacy_state()` remain the production path at the
+> 0.08/0.40 band; G05 was closed N/A because no flip occurred. See tasks.md
+> TASK-G02/G04/G05 and `tests/eval/results/jev_g04_ab/manifest.json`.**
 
 The Tier-1 request SHOULD replace the single compound `is_threat` Noul with a
 bundled set of atomic `noul` questions, one judgment each (injection,
