@@ -232,6 +232,19 @@ reduced benign clear-high holds and P shift on dev and heldout; below-edge cross
 were zero in both arms, so this is benign-side evidence only, not a validated
 steering defense, and no guard shipped.
 
+**Full Tier-1/Tier-2 matched validation (2026-11-22):** the candidate was re-scored
+with the real Tier-2 arbiter via `scripts/jev_tier2_eval.py tier1-steering` (30
+bases per class, dev payloads, semantic-only, named release; a 429-poisoned first
+pass was discarded and all four arms re-run). Runs and the decision manifest are
+in `tests/eval/results/jev_f02_full_defense/`, recomputed by
+`tests/unit/test_jev_f02_full_defense_data.py`. Benign flags fell (36.3%→30.6%),
+but on the 25 common held bases matched to-ALLOW flips rose 6/550→7/550 and
+below-edge crossings (all) 8→14; the Tier-2-skipped subset used by the decision
+rule was flat at 4→4. Across all steered rows the summaries report crossings
+12→23 and Tier-2-skipped 8→12 — a distinct population, reported separately and
+not used by the rule: **NOT validated for shipping**, no guard shipped, F02
+stays open.
+
 **Track G atomic-question probe (TASK-G03):** the six atomic `noul` questions over
 one structured state were probed live on 60 current-corpus cases (20 C2/IOC + 20
 other-malicious + 20 benign; `jev-1.14.0` requested by name) with a deterministic
