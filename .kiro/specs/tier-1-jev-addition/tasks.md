@@ -411,6 +411,30 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > checked against the current cases), recomputed by
   > `tests/unit/test_jev_tier1_defense_final_data.py`; ADR 0009 OI3 updated. Stale
   > harness field `raised_above_035` is disclosed and not used.
+  >
+  > **F02 follow-up 2026-11-22 — benign-side signal supported, task stays `[ ]`.**
+  > G04 rejected the atomic question arm for exactly the benign-side reason F02
+  > predicted, so the next candidate tested the other half of the state design:
+  > G01's native JSON-object `build_state()` with the **unchanged single
+  > `is_threat` question**, against the shipped dict-repr state. Tier-1-only
+  > steering run on the current balanced corpus (20 malicious + 20 benign bases
+  > per dev pass, 10/class heldout check; 22 dev + 22 heldout payloads, baseline
+  > per base, 4,600 live calls, zero errors, served release checked per row). On
+  > every dev pass and the heldout check structured state **reduced benign
+  > clear-high holds** (21.1%→16.6%, 20.9%→17.3%, 24.5%→18.2%) and mean benign P
+  > shift (+0.170→+0.145, +0.169→+0.146, +0.182→+0.137); malicious clear-high
+  > stayed within 0.025 and below-edge crossings were 0 in both arms. This is
+  > evidence that structured state does NOT inflate the benign side (unlike the
+  > nonce-XML boundary 37.0%→56.2% and atomic+`max` FRR 0.89–1.00) — **not**
+  > evidence that it resists steering: the crossing phenomenon was not
+  > reproduced in this Tier-1-only sample, and Tier-2 to-ALLOW flips were not
+  > measured. Decision: no ship, no `src/` change; a full Tier-1/Tier-2 matched
+  > defense validation with benign flags and to-ALLOW flips is still required,
+  > plus the same-change rule/config proposal if it ever ships.
+  > Artifact chain: this note → ADR 0009 OI3 →
+  > `tests/eval/results/jev_f02_structured_state/manifest.json` → `steering.json`
+  > → recomputed by `tests/unit/test_jev_f02_structured_state_data.py`; driver
+  > `scripts/jev_f02_structured_state.py`.
 * [x] **TASK-F03 [C1]: Account for the shared Vertex quota** (ADR 0009 OI2). Signature
   synthesis, the judges and other Gemini calls share the project quota that
   Tier-2 depends on and are not counted by the Tier-2 bucket. Decide between one
