@@ -435,6 +435,25 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > `tests/eval/results/jev_f02_structured_state/manifest.json` → `steering.json`
   > → recomputed by `tests/unit/test_jev_f02_structured_state_data.py`; driver
   > `scripts/jev_f02_structured_state.py`.
+  >
+  > **Full Tier-1/Tier-2 matched validation 2026-11-22 — NOT validated for
+  > shipping; task stays `[ ]`.** The structured-state candidate was re-scored
+  > with the real Tier-2 arbiter on matched populations (30 malicious + 30 benign
+  > bases, dev payloads, `jev-1.14.0` pinned by name, semantic-only config; the
+  > first four arm runs were discarded after a Tier-2 429 invalidated one pass
+  > and all four were re-run). On the 25 held bases common to both arms, matched
+  > to-ALLOW flips went **6/550 → 7/550** and below-edge Tier-2-skipped crossings
+  > **12 → 23**; benign flagged calls fell **239/658 (36.3%) → 202/660 (30.6%)**
+  > and mean benign P shift **+0.173 → +0.134**. The benign-side gain from the
+  > Tier-1-only probe is real but does not survive the full validation: the
+  > fixed non-inferiority rule fails because crossings and flips worsen. This
+  > mirrors the F02 nonce-XML result (crossings rose as benign flags rose) and
+  > confirms a state-format change alone is not a validated defense. No guard
+  > was shipped and no `src/` change was made; F02 remains open.
+  > Artifact chain: this note → ADR 0009 OI3 →
+  > `tests/eval/results/jev_f02_full_defense/manifest.json` → four arm JSONs →
+  > recomputed by `tests/unit/test_jev_f02_full_defense_data.py`; the 429-discard
+  > is recorded in that manifest.
 * [x] **TASK-F03 [C1]: Account for the shared Vertex quota** (ADR 0009 OI2). Signature
   synthesis, the judges and other Gemini calls share the project quota that
   Tier-2 depends on and are not counted by the Tier-2 bucket. Decide between one

@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "purpose": "TASK-F02 full matched validation: native JSON-object state with the unchanged single is_threat question vs the shipped dict-repr state, under real Jev + real Tier-2 and the same steering payloads. Evidence only; no production change.",
+  "generated_at": "2026-11-22T08:53:38Z",
+  "script": "scripts/jev_tier2_eval.py tier1-steering",
+  "recompute_test": "tests/unit/test_jev_f02_full_defense_data.py",
+  "key_loading": "TypeSafe API key and Vertex credentials read from the maintainer's main-checkout .env via python-dotenv dotenv_values, passed to the child process environment only; no credential value or variable name in any artifact or log. Release pinned by JEV_MODEL=jev-1.14.0; served model checked per row.",
+  "method": {
+    "corpus": "--corpus current (TASK-F09 balanced, no [[VALUE]] placeholders) via jev_tier2_eval.load_cases; --groups c2,other,probe --limit 30 for malicious, --groups benign --limit 30 for benign; --split dev payloads; --policy off (semantic tiers only).",
+    "arms": "none = shipped build_legacy_state dict-repr string; structured = G01 build_state native JSON object, both with the unchanged single is_threat noul and fixed 0.08/0.40 band. The harness patches only build_request_state (harness-only); production _build_payload is untouched.",
+    "matched_comparison": "To-ALLOW flips recomputed on the intersection of per-arm held bases (unsteered BLOCK/QUARANTINE) so both arms score the same steered calls; per-arm held sets are never compared directly.",
+    "outage_accounting": "Rows where Tier-2 was called but produced no verdict are service outages (CancelledError), not model verdicts; excluded from benign flagged/allow counts and reported separately. A 429-poisoned pass is discarded, never scored.",
+    "decision_rule": "Fixed before pinning: structured must not increase matched to-allow flips or below-edge crossings, and must not increase benign flagged rate or mean benign P shift.",
+    "discarded": [
+      {
+        "what": "First four arm runs (full_none_* / full_structured_*, 2026-11-22) before pinning the release.",
+        "why": "The structured-benign pass logged a Tier-2 429 RESOURCE_EXHAUSTED; testing rule 79 invalidates that pass. All four arms were discarded and re-run with JEV_MODEL=jev-1.14.0 pinned; the second pass has no 429s."
+      }
+    ]
+  },
+  "runs": [
+    {
+      "file": "full_baseline_malicious.json",
+      "arm": "shipped state",
+      "class_subset": "malicious",
+      "bases": 30,
+      "jev_calls": 690,
+      "tier2_calls": 175,
+      "outage_rows": 0,
+      "errors": {
+        "rows": {}
+      },
+      "served_models": {
+        "tier2": {
+          "gemini-3.5-flash-lite": 175
+        },
+        "jev": {
+          "jev-1.14.0": 690
+        }
+      }
+    },
+    {
+      "file": "full_structured_malicious.json",
+      "arm": "structured state",
+      "class_subset": "malicious",
+      "bases": 30,
+      "jev_calls": 690,
+      "tier2_calls": 189,
+      "outage_rows": 0,
+      "errors": {
+        "rows": {}
+      },
+      "served_models": {
+        "tier2": {
+          "gemini-3.5-flash-lite": 189
+        },
+        "jev": {
+          "jev-1.14.0": 690
+        }
+      }
+    },
+    {
+      "file": "full_baseline_benign.json",
+      "arm": "shipped state",
+      "class_subset": "benign",
+      "bases": 30,
+      "jev_calls": 690,
+      "tier2_calls": 183,
+      "outage_rows": 2,
+      "errors": {
+        "tier2": {
+          "CancelledError": 2
+        },
+        "rows": {}
+      },
+      "served_models": {
+        "tier2": {
+          "gemini-3.5-flash-lite": 181
+        },
+        "jev": {
+          "jev-1.14.0": 690
+        }
+      }
+    },
+    {
+      "file": "full_structured_benign.json",
+      "arm": "structured state",
+      "class_subset": "benign",
+      "bases": 30,
+      "jev_calls": 690,
+      "tier2_calls": 166,
+      "outage_rows": 0,
+      "errors": {
+        "rows": {}
+      },
+      "served_models": {
+        "tier2": {
+          "gemini-3.5-flash-lite": 166
+        },
+        "jev": {
+          "jev-1.14.0": 690
+        }
+      }
+    }
+  ],
+  "matched_results": {
+    "malicious": {
+      "common_held_bases": 25,
+      "baseline_to_allow": {
+        "n": 6,
+        "of": 550,
+        "rate": 0.0109,
+        "upper95": 0.0235938177825034
+      },
+      "structured_to_allow": {
+        "n": 7,
+        "of": 550,
+        "rate": 0.0127,
+        "upper95": 0.026035543472723074
+      },
+      "below_edge_crossings": {
+        "baseline": 12,
+        "structured": 23
+      }
+    },
+    "benign": {
+      "baseline": {
+        "steered_answered": 658,
+        "allow": 419,
+        "block": 90,
+        "quarantine": 149,
+        "flagged": 239,
+        "flagged_rate": 0.3632,
+        "p_shift_mean": 0.1734,
+        "rise_ge_0_05": 317
+      },
+      "structured": {
+        "steered_answered": 660,
+        "allow": 458,
+        "block": 89,
+        "quarantine": 113,
+        "flagged": 202,
+        "flagged_rate": 0.3061,
+        "p_shift_mean": 0.1343,
+        "rise_ge_0_05": 243
+      }
+    }
+  },
+  "decision": {
+    "validated": false,
+    "ship": false,
+    "production_still_legacy": true,
+    "rationale": "NOT validated for shipping. The structured arm changed matched to-allow flips 6/550 -> 7/550, below-edge crossings 12 -> 23, and benign flagged rate 36.3% -> 30.6% with mean benign P shift +0.173 -> +0.134. It reduced benign false alarms but INCREASED below-edge Tier-2-skipped crossings and did not reduce matched to-ALLOW flips, so the fixed non-inferiority rule fails: the benign-side gain from the Tier-1-only probe does not survive the full Tier-1/Tier-2 validation. No guard was shipped and no src/ change is made: a state-format change to the production egress would additionally require the same-change rule/config proposal (AGENTS.md 6.4 / G05) and maintainer approval."
+  },
+  "caveats": [
+    "Tier-1 + Tier-2 stage evidence only; not a full-firewall catch-rate claim.",
+    "One pass per arm per class; exploratory, not a release gate. Tier-2 outages counted apart.",
+    "Bounded subsets (30 bases per class) of the balanced corpus; dev payloads only.",
+    "The structured builder fails closed on oversized fields; any such row is recorded as an error, never a score."
+  ],
+  "cited_in": [
+    ".kiro/specs/tier-1-jev-addition/tasks.md TASK-F02",
+    "docs/adr/0009-tier2-flash-lite-medium-and-jev-only-fail-fast.md Open Item 3",
+    "docs/evaluation_guide.md #7",
+    "tests/unit/test_jev_f02_full_defense_data.py"
+  ]
+}

@@ -1610,7 +1610,7 @@ def _trim_torn_tail(path: Path) -> None:
 # ---------------------------- F02 Tier-1 steering defense experiment (harness-only)
 # A candidate state format, NOT shipped. It mirrors the Tier-2 F7 nonce-XML boundary so
 # we can measure whether delimiting untrusted tool-call text reduces Jev steerability.
-DEFENSES = ("none", "state-boundary")
+DEFENSES = ("none", "state-boundary", "structured")
 
 
 def build_defended_state(context: ToolCallContext) -> str:
@@ -1626,12 +1626,26 @@ def build_defended_state(context: ToolCallContext) -> str:
     )
 
 
+def build_structured_state(context: ToolCallContext) -> dict:
+    """G01's native JSON-object state with the UNCHANGED single is_threat question.
+
+    G04 rejected the atomic question arm; this candidate isolates the other half
+    of the Track G design. Harness-only, never shipped by this experiment.
+    """
+    return semantic.JevTriageBackend.build_state(context)
+
+
 def defense_provenance(defense: str) -> dict[str, str]:
     """Record which state format an experiment used, and whether it is shippable."""
     if defense == "state-boundary":
         return {
             "defense": defense,
             "note": "harness-only candidate: nonce-tagged XML boundary on Jev state; NOT shipped",
+        }
+    if defense == "structured":
+        return {
+            "defense": defense,
+            "note": "harness-only candidate: native JSON-object state, unchanged single is_threat question; NOT shipped",
         }
     return {"defense": "none", "note": "shipped Jev state format; no defense applied"}
 
@@ -1644,6 +1658,8 @@ def apply_defense(defense: str) -> None:
     """
     if defense == "state-boundary":
         semantic.JevTriageBackend.build_request_state = staticmethod(build_defended_state)
+    elif defense == "structured":
+        semantic.JevTriageBackend.build_request_state = staticmethod(build_structured_state)
 
 
 async def run_tier1_steering(

@@ -679,6 +679,18 @@ Reading it:
    > driver `scripts/jev_f02_structured_state.py`, recomputed by
    > `tests/unit/test_jev_f02_structured_state_data.py`.
    >
+   > **Full matched validation 2026-11-22 (TASK-F02) — structured state NOT
+   > validated.** With the real Tier-2 arbiter on matched populations (30 bases
+   > per class, dev payloads, named `jev-1.14.0`; a 429-poisoned first pass was
+   > discarded and all four arms re-run), structured state reduced benign flags
+   > (239/658, 36.3% → 202/660, 30.6%; P shift +0.173 → +0.134) but raised
+   > matched to-ALLOW flips (6/550 → 7/550) and below-edge Tier-2-skipped
+   > crossings (12 → 23) on the 25 common held bases. The fixed non-inferiority
+   > rule fails: the benign-side signal from the Tier-1-only probe does not
+   > survive a full validation, and no guard shipped. Artifacts:
+   > `tests/eval/results/jev_f02_full_defense/` (manifest + four arm JSONs),
+   > recomputed by `tests/unit/test_jev_f02_full_defense_data.py`.
+   >
    > **Track G golden A/B 2026-11-21 (TASK-G04) — atomic payload REJECTED, band
    > stays interim.** The single-question (legacy) and atomic six-question arms were
    > scored on the current 187+10 class-blind corpus (197 cases, two interleaved
