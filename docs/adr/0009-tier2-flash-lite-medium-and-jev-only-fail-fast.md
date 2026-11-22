@@ -665,6 +665,20 @@ Reading it:
    > `tests/eval/results/jev_atomic_probe/` (manifest + two run JSONs), recomputed by
    > `tests/unit/test_jev_atomic_probe_data.py`.
    >
+   > **Structured-state follow-up 2026-11-22 (TASK-F02).** G01's native JSON-object
+   > `build_state()` paired with the UNCHANGED single `is_threat` question was
+   > scored against the shipped dict-repr state under the same 22 dev + 22 heldout
+   > steering payloads (Tier-1 only, 4,600 live calls, zero errors, named
+   > `jev-1.14.0`). Structured state reduced benign clear-high holds on both dev
+   > passes and heldout (21.1%→16.6%, 20.9%→17.3%, 24.5%→18.2%) and mean benign P
+   > shift, with malicious clear-high within 0.025 and zero below-edge crossings
+   > in either arm. This supports the benign side only; the crossing phenomenon was
+   > not reproduced and Tier-2 to-ALLOW flips were not measured, so it is NOT a
+   > validated steering defense and no guard shipped. Artifacts:
+   > `tests/eval/results/jev_f02_structured_state/` (manifest + `steering.json`),
+   > driver `scripts/jev_f02_structured_state.py`, recomputed by
+   > `tests/unit/test_jev_f02_structured_state_data.py`.
+   >
    > **Track G golden A/B 2026-11-21 (TASK-G04) — atomic payload REJECTED, band
    > stays interim.** The single-question (legacy) and atomic six-question arms were
    > scored on the current 187+10 class-blind corpus (197 cases, two interleaved

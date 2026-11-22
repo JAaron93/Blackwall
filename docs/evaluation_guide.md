@@ -222,6 +222,16 @@ test rejects placeholder inputs. The F02 defense results are in
 `tests/eval/results/jev_tier1_defense_final/` (2026-11-20, current corpus, 0.08/0.40,
 outages tracked apart), recomputed by `tests/unit/test_jev_tier1_defense_final_data.py`.
 
+**F02 structured-state follow-up (2026-11-22):** `scripts/jev_f02_structured_state.py`
+compared the shipped dict-repr state with G01's native JSON-object state, both
+with the unchanged single `is_threat` question, under 22 dev + 22 heldout steering
+payloads (Tier-1 only, 4,600 calls, zero errors). Runs and the decision manifest
+are in `tests/eval/results/jev_f02_structured_state/` (`steering.json` + manifest),
+recomputed by `tests/unit/test_jev_f02_structured_state_data.py`. Structured state
+reduced benign clear-high holds and P shift on dev and heldout; below-edge crossings
+were zero in both arms, so this is benign-side evidence only, not a validated
+steering defense, and no guard shipped.
+
 **Track G atomic-question probe (TASK-G03):** the six atomic `noul` questions over
 one structured state were probed live on 60 current-corpus cases (20 C2/IOC + 20
 other-malicious + 20 benign; `jev-1.14.0` requested by name) with a deterministic
