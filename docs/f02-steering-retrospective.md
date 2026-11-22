@@ -27,7 +27,8 @@ conditions in §6.
 
 | Experiment | Manifest → artifact → recomputation test |
 | --- | --- |
-| Live steering + arbiter hardening (2026-11-14) | `tests/eval/results/jev_tier2_runs/manifest.json` → `steering_2026-11-14_{dev,heldout}.json` → `tests/unit/test_jev_tier1_steering_runs_data.py` |
+| Tier-1 steering measurement (2026-11-14) | `tests/eval/results/jev_tier2_runs/manifest.json` → `tier1_steering_2026-11-14_{dev,heldout}.json` → `tests/unit/test_jev_tier1_steering_runs_data.py` |
+| Arbiter steering + hardening control (2026-11-14) | `tests/eval/results/jev_tier2_runs/manifest.json` → `steering_2026-11-14_run{1,2}.json` + unhardened control `control_steering_unhardened-prompt_2026-11-14.json` → `tests/unit/test_jev_tier2_runs_data.py` |
 | First defense experiment (2026-11-19) | `tests/eval/results/jev_tier1_defense_runs/manifest.json` → `tier1_defense_2026-11-19_{dev,heldout}.json` → `tests/unit/test_jev_tier1_defense_runs_data.py` |
 | Final nonce-XML validation (2026-11-20) | `tests/eval/results/jev_tier1_defense_final/manifest.json` → four `final_*` arm JSONs → `tests/unit/test_jev_tier1_defense_final_data.py` |
 | Atomic question probe (G03, 2026-11-20) | `tests/eval/results/jev_atomic_probe/manifest.json` → two probe JSONs → `tests/unit/test_jev_atomic_probe_data.py` |
@@ -73,7 +74,7 @@ figures for its decision (the rejection stands on the earlier rows as well).
 | --- | --- | --- |
 | Nonce-XML boundary on Jev state (2026-11-20) | to-ALLOW flips 9/550→6/550; below-edge crossings 9→20; benign flags 244/659 (37.0%)→371/660 (56.2%) | Delimiting untrusted text shifted overall calibration upward: a small flip reduction bought a large benign false-alarm cost and *more* Tier-2-skipped attacks. |
 | Six atomic questions + fail-closed `max` (G04, 2026-11-21) | AUROC 0.7927–0.8176 (gate ≥0.97), Tier-2 fire 40.6–45.5% (gate ≤20%), FRR 0.889–1.000 (gate <5%) | `max` amplifies one high category probability. Benign auth/network calls scored 0.94–0.96 on `credential_theft`, so nearly all benign traffic was held. |
-| Native-object state + unchanged single question (2026-11-22) | Tier-1 probe: benign clear-high 36.3%→30.6%. Full matched: to-ALLOW flips 6/550→7/550; matched Tier-2-skipped crossings 4→4 | The benign gain is real but the arbiter-skipping path did not improve. All-row crossings rose 12→23 (Tier-2-skipped subset 8→12); the decision measure on 25 common held bases stayed 4→4. |
+| Native-object state + unchanged single question (2026-11-22) | Full matched benign flags 239/658 (36.3%)→202/660 (30.6%); Tier-1-only probe clear-high 21.1%→16.6% / 20.9%→17.3% / 24.5%→18.2%. Full matched: to-ALLOW flips 6/550→7/550; matched Tier-2-skipped crossings 4→4 | The benign gain is real but the arbiter-skipping path did not improve. All-row crossings rose 12→23 (Tier-2-skipped subset 8→12); the decision measure on 25 common held bases stayed 4→4. The 36.3%→30.6% figure is the **full-pipeline flagged rate** (BLOCK+QUARANTINE, Tier-2 outages excluded), NOT the Tier-1 probe clear-high rate. |
 
 **Common mechanism:** steering resistance and benign calibration are coupled.
 Any state/question reformatting that changes what the classifier sees shifts
