@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "purpose": "TASK-D03 live managed Vertex AI EvalTask gate evidence: two full real-paid runs with the recording wrapper around the actual run_eval_task, plus one discarded environment-failure run. No mocks, no fallback scoring, no cached rows.",
+  "generated_at": "2026-11-22T14:00:22Z",
+  "script": "scripts/gcp_eval_live_gate.py",
+  "recompute_test": "tests/unit/test_gcp_eval_live_gate_data.py",
+  "method": {
+    "pipeline": "scripts/run_gcp_eval.py::run_evaluation_pipeline via scripts/gcp_eval_live_gate.py, which wraps (never mocks) GCPVertexAIEvaluationHarness.run_eval_task and records its result",
+    "coverage": "full canonical suite (no --domains filter), 9 domains, 97 SLA measurements, threshold 3.5, allow_fallback=False",
+    "authentication": "Vertex ADC; GCP settings read from the maintainer's env file via dotenv_values; values never printed or committed; a scratch history path was used so the tracked regression ledger was not modified",
+    "billed": "the maintainer's GCP project (value withheld); gemini-3.5-flash-lite judges and EvalTask autorater; two full live runs plus one discarded run that failed before the managed gate",
+    "gate_definition": "managed EvalTask status must be COMPLETED (non-COMPLETED calls aggregator.record_error and forces CI exit 1); CI gate additionally requires summary.all_passed and no regression"
+  },
+  "runs": {
+    "live_gate_run1.json": {
+      "exit_code": 1,
+      "all_passed": false,
+      "overall_mean": 4.3165,
+      "eval_task_status": "COMPLETED",
+      "eval_task_model": "gemini-3.5-flash-lite",
+      "fallbacks": 0,
+      "regression_detected": false,
+      "gate": {
+        "eval_task_completed": true,
+        "ci_passed": false,
+        "fallback_free": true,
+        "no_regression": true
+      },
+      "generated_at": "2026-11-22T13:42:19Z"
+    },
+    "live_gate_run2.json": {
+      "exit_code": 0,
+      "all_passed": true,
+      "overall_mean": 4.3734,
+      "eval_task_status": "COMPLETED",
+      "eval_task_model": "gemini-3.5-flash-lite",
+      "fallbacks": 0,
+      "regression_detected": false,
+      "gate": {
+        "eval_task_completed": true,
+        "ci_passed": true,
+        "fallback_free": true,
+        "no_regression": true
+      },
+      "generated_at": "2026-11-22T13:59:36Z"
+    }
+  },
+  "spread": {
+    "method": "domain-level overall_mean delta run2 - run1 across the 9 canonical domains, recomputed from committed domain_summaries",
+    "mean_abs_domain_delta": 0.0708,
+    "max_abs_domain_delta": 0.25,
+    "run1_exploit_chain_mean": 3.25,
+    "run2_exploit_chain_mean": 3.5
+  },
+  "discarded": [
+    {
+      "file": "live_gate_discarded_missing_sdk.json",
+      "cause": "First full run reached the managed gate but EvalTask returned FAILED: 'Vertex AI Evaluation Service unavailable: No module named vertexai' (optional google-cloud-aiplatform[evaluation] extra missing from the venv). Environment failure, not a model or gate result.",
+      "fix": "Installed google-cloud-aiplatform[evaluation] into the shared venv (no manifest change; uv pip check clean) and re-ran the full pipeline twice, both producing status COMPLETED."
+    }
+  ],
+  "finding": "The managed Vertex EvalTask gate completed successfully in BOTH live full-suite runs (status=COMPLETED, gemini-3.5-flash-lite). Run 2 passed the full CI gate (exit 0, all_passed=true, 0 fallbacks, 0 regression). Run 1 also reached COMPLETED but the overall CI gate failed (exit 1) because the single-scenario exploit_chain domain scored 3.25 against the 3.5 threshold; run 2 scored 3.50 on that domain. Per testing rule 79 this is run-to-run judge variance (mean |domain delta| disclosed in 'spread'), not an environment fault, so run 1 is NOT discarded and is reported alongside run 2. The managed gate requirement that TASK-D03 could not verify before is now satisfied with a committed result chain; TASK-D03 can close with the variance and the discarded SDK failure disclosed.",
+  "caveats": [
+    "Judge scores vary per run; a one-scenario domain crossed the 3.5 threshold between runs. A single passing run is not a stability guarantee.",
+    "No Tier-1 Jev calls are involved in this evidence; it is the System-1 managed EvalTask gate plus per-scenario judges.",
+    "The dual-gate 'tool_trajectory_avg_score: 1.0' belongs to System 2 (tests/eval/eval_config.json / report_generator.py) and is not exercised here; this task's blocker was specifically the managed Vertex gate.",
+    "Gateway TASK-F04 packaging re-verification remains re-scoped to that task."
+  ],
+  "cited_in": [
+    ".kiro/specs/tier-1-jev-addition/tasks.md TASK-D03",
+    "docs/adr/0008-jev-transport-vercel-gateway-to-typesafe-api.md Verification",
+    "tests/unit/test_gcp_eval_live_gate_data.py"
+  ]
+}

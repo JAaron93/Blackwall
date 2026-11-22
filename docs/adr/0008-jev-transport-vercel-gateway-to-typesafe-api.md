@@ -404,6 +404,19 @@ Tier-1 Jev calls the official TypeSafe AI API directly. Everything else in ADR
   pristine `main`; 2 are a `ContextHygiene.sanitize_string` idempotency bug that
   reproduces on `main`; 1 is a wall-clock test that flakes under load. Since then
   only the results artifact and documentation changed.
+- **Managed Vertex `EvalTask` gate, live 2026-11-22 (TASK-D03).** The earlier
+  paragraphs record Jev and Tier-2 runs but not the managed System-1 gate. Two
+  full real-paid pipeline runs with `scripts/gcp_eval_live_gate.py` (recording
+  wrapper around the real `run_eval_task`, `allow_fallback=False`, ADC, full
+  canonical suite) both returned `status=COMPLETED` from the managed gate with
+  `gemini-3.5-flash-lite`. Run 2 passed the full CI gate (exit 0, all domains
+  passed, 0 fallbacks, 0 regression); run 1 completed the managed gate but the
+  overall gate failed on the 1-scenario `exploit_chain` domain (3.25 vs 3.5), a
+  recorded run-to-run variance. One run that failed before the gate because the
+  optional evaluation SDK was missing is recorded as discarded with its fix.
+  Artifacts: `tests/eval/results/gcp_eval_live_gate/` (manifest, two run JSONs,
+  discarded run), driver `scripts/gcp_eval_live_gate.py`, recomputed by
+  `tests/unit/test_gcp_eval_live_gate_data.py`.
 ## Open Items
 1. **Repeat TASK-D02 after each TypeSafe release behind `jev-latest`, with
    `--fresh`.** Resume is keyed on the requested model, which the alias never
