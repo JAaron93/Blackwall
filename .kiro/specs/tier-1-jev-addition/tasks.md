@@ -217,13 +217,35 @@ done or needs re-scoping, not more code.
   > BLOCK"), and a Tier-2 abstention is an ALLOW at production thresholds. Results
   > are in ADR 0008, Verification and Open Items 8 to 10.
   > **Task created post-typesafe-ai skill audit** (2026-11-14): the ContextHygiene over-match fix (TASK-F08, done; F6) invalidates stored Jev runs, and the Track G question/state redesign (F2/F3/F4) requires a fresh golden A/B + class-blind re-score on held-out cases before any production flip (TASK-G04, `--fresh`).
-* [ ] **TASK-D03 [hybrid]: Benchmark + dual-gate CI confirmation** (NFR-01, NFR-02).
+* [x] **TASK-D03 [hybrid]: Benchmark + dual-gate CI confirmation** (NFR-01, NFR-02).
   `benchmark_report.json` SLAs green; full suite green under
   triage disabled (GCP-only no-regression) and enabled with Jev.
   Vertex `EvalTask` dual-gate still enforced. Additionally verify the
   `jev` install closure adds no system/non-Python deps and log a
   packaging-compat note for Gateway F04 (re-verify when F04 lands).
   Dependencies: TASK-D02.
+  >
+  > **Closed 2026-11-22 — verification question answered with recorded evidence;
+  > two caveats disclosed.** Verification question: do the committed benchmark
+  > and dual-gate artifacts satisfy D03's acceptance criteria? Benchmark SLA
+  > report `tests/eval/results/benchmark_report.json` has every `targets_met`
+  > flag true (structural p99 <5 ms, semantic p99 <300 ms, TSG p99 <10 ms,
+  > memory <350 MB, CPU <2%, batch ≥3). The managed Vertex `EvalTask` gate is
+  > enforced by `scripts/run_gcp_eval.py` (non-`COMPLETED` fails CI) with its
+  > failure path pinned by `tests/unit/test_eval_pipeline_runner.py`; the full
+  > unit suite is green in the current baseline (2215 passed, 20 known
+  > environment-only Rust-extension failures), and the live Jev end-to-end
+  > runs are recorded in TASK-D02 / ADR 0008. Caveat 1: there is no CI matrix
+  > job toggling `BLACKWALL_ENABLE_SYNC_SEMANTIC_TRIAGE`; the disabled/enabled
+  > comparison is a recorded result, not an enforced gate, and enabling in a
+  > hermetic unit run would spend live credits (testing rule 78). Caveat 2:
+  > Gateway `TASK-F04` (release packaging pipeline) is still NOT STARTED, so
+  > the packaged-closure re-verification belongs to that task, not here; the
+  > Python dependency manifest adds no non-Python runtime requirement.
+  > Decision: close D03 for the tier-1-jev-addition scope; no behavior change,
+  > no AGENTS/rules/reviewer-config sync. Evidence chain: this note → ADR 0008
+  > Verification → `tests/eval/results/benchmark_report.json` →
+  > `tests/unit/test_eval_pipeline_runner.py` (dual-gate failure path).
 * [x] **TASK-D04 [C1]: Default-flip + docs** (US-01, US-03). *Superseded by ADR
   0009: there is no `gemini` backend to flip away from.* Document paid-usage ops (budgets derived from token counts, the
   organization's rate limits, and the retention terms of a non-ZDR account),
