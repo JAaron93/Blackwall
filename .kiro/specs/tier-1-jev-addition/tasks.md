@@ -263,7 +263,7 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   Verification. Rerun after any Gemini or Jev model change.
   Dependencies: TASK-E04.
   > **Task created post-typesafe-ai skill audit** (2026-11-14): re-run the live Tier-2 harness after the F7 prompt hardening and measure the steering flip rate (TASK-F02); the prior figures predate the nonce-XML boundary. *Done 2026-11-14; figures under TASK-F02 and ADR 0009, Verification.*
-* [ ] **TASK-F02 [hybrid]: Measure, then harden, Tier-2 against steering by tool-call
+* [x] **TASK-F02 [hybrid]: Measure, then harden, Tier-2 against steering by tool-call
   text** (ADR 0009 OI3). The arbiter prompt interpolates tool name, arguments and
   metadata unseparated, and its ALLOW is final unless aggregation already blocks.
   Add adversarial cases whose arguments carry instructions aimed at the arbiter;
@@ -384,7 +384,8 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > held-out 3→11) and this subset had no benign cases, so the false-alarm trade-off
   > is unmeasured. Decision informed: a state-format defense is promising but needs
   > full re-calibration and benign measurement (Track G) plus F10's band decision.
-  > No guard was shipped and **this task stays open**. Evidence:
+  > No guard was shipped and **this task stays open** (true at the time; superseded
+  > by the 2026-11-22 closure below). Evidence:
   > `tests/eval/results/jev_tier1_defense_runs/` (`manifest.json` + both arm JSONs),
   > recomputed by `tests/unit/test_jev_tier1_defense_runs_data.py`; harness support
   > in `scripts/jev_tier2_eval.py --defense`. Sequencing: F02's measurement is an
@@ -437,7 +438,7 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > `scripts/jev_f02_structured_state.py`.
   >
   > **Full Tier-1/Tier-2 matched validation 2026-11-22 — NOT validated for
-  > shipping; task stays `[ ]`.** The structured-state candidate was re-scored
+  > shipping.** The structured-state candidate was re-scored
   > with the real Tier-2 arbiter on matched populations (30 malicious + 30 benign
   > bases, dev payloads, `jev-1.14.0` pinned by name, semantic-only config; the
   > first four arm runs were discarded after a Tier-2 429 invalidated one pass
@@ -453,11 +454,32 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > and all-crossings worsen. This
   > mirrors the F02 nonce-XML result (crossings rose as benign flags rose) and
   > confirms a state-format change alone is not a validated defense. No guard
-  > was shipped and no `src/` change was made; F02 remains open.
+  > was shipped and no `src/` change was made; the task was subsequently closed
+  > by risk acceptance in the note below.
   > Artifact chain: this note → ADR 0009 OI3 →
   > `tests/eval/results/jev_f02_full_defense/manifest.json` → four arm JSONs →
   > recomputed by `tests/unit/test_jev_f02_full_defense_data.py`; the 429-discard
   > is recorded in that manifest.
+  >
+  > **Closed 2026-11-22 — Telos answered, hypothesis INVALIDATED for a shippable
+  > defense, residual risk accepted by the maintainer.** The full matched run
+  > above confirmed the Tier-1-only signal does not survive full validation.
+  > Combined with the nonce-XML (37.0%→56.2% benign flags) and G04 atomic+`max`
+  > (FRR 0.89–1.00) results, all three candidate families failed for one reason:
+  > steering resistance and benign calibration are coupled. Decision informed:
+  > **no guard shipped, no `src/` or rulebook change, close the task by risk
+  > acceptance** rather than spend more live calibration on a fourth state-format
+  > variant. Residual ~1% stage-level to-ALLOW risk is accepted under the
+  > conditions in `docs/f02-steering-retrospective.md`, which records what
+  > improved, what failed, why scope was cut, and the two reopen conditions (a
+  > near-zero compliance requirement, or a new question/instruction-layer
+  > mechanism with fresh held-out evidence). This is a stage-level figure from a
+  > semantic-only harness — not a full-firewall catch rate.
+  > Artifact chain: this note → ADR 0009 OI3 →
+  > `docs/f02-steering-retrospective.md` → manifests under
+  > `tests/eval/results/jev_tier2_runs/`, `jev_tier1_defense_runs/`,
+  > `jev_tier1_defense_final/`, `jev_f02_structured_state/`, `jev_f02_full_defense/`
+  > → their recomputation tests (TASK-F02 / G03 / G04).
 * [x] **TASK-F03 [C1]: Account for the shared Vertex quota** (ADR 0009 OI2). Signature
   synthesis, the judges and other Gemini calls share the project quota that
   Tier-2 depends on and are not counted by the Tier-2 bucket. Decide between one

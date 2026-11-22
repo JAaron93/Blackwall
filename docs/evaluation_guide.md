@@ -230,7 +230,9 @@ are in `tests/eval/results/jev_f02_structured_state/` (`steering.json` + manifes
 recomputed by `tests/unit/test_jev_f02_structured_state_data.py`. Structured state
 reduced benign clear-high holds and P shift on dev and heldout; below-edge crossings
 were zero in both arms, so this is benign-side evidence only, not a validated
-steering defense, and no guard shipped.
+steering defense, and no guard shipped. F02 was subsequently closed by explicit
+risk acceptance; the full improved/failed/why analysis and the reopen conditions
+are in `docs/f02-steering-retrospective.md`.
 
 **Full Tier-1/Tier-2 matched validation (2026-11-22):** the candidate was re-scored
 with the real Tier-2 arbiter via `scripts/jev_tier2_eval.py tier1-steering` (30
@@ -242,8 +244,8 @@ but on the 25 common held bases matched to-ALLOW flips rose 6/550→7/550 and
 below-edge crossings (all) 8→14; the Tier-2-skipped subset used by the decision
 rule was flat at 4→4. Across all steered rows the summaries report crossings
 12→23 and Tier-2-skipped 8→12 — a distinct population, reported separately and
-not used by the rule: **NOT validated for shipping**, no guard shipped, F02
-stays open.
+not used by the rule: **NOT validated for shipping**, no guard shipped. F02 was
+subsequently closed by risk acceptance; see `docs/f02-steering-retrospective.md`.
 
 **Track G atomic-question probe (TASK-G03):** the six atomic `noul` questions over
 one structured state were probed live on 60 current-corpus cases (20 C2/IOC + 20

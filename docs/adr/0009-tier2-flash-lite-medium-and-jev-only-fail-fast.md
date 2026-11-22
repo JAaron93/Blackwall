@@ -694,6 +694,16 @@ Reading it:
    > `tests/eval/results/jev_f02_full_defense/` (manifest + four arm JSONs),
    > recomputed by `tests/unit/test_jev_f02_full_defense_data.py`.
    >
+   > **F02 closed 2026-11-22 by risk acceptance.** Three candidate families
+   > (nonce-XML state boundary, atomic questions + `max`, native-object state)
+   > were ruled out by matched evidence for one shared reason: steering
+   > resistance and benign calibration are coupled. No guard shipped and no
+   > production invariant changed. Residual ~1% stage-level to-ALLOW risk is
+   > accepted under the conditions in `docs/f02-steering-retrospective.md`,
+   > which carries the full improved/failed/why analysis and the reopen
+   > conditions; the TASK-F02 note in `.kiro/specs/tier-1-jev-addition/tasks.md`
+   > points to it.
+   >
    > **Track G golden A/B 2026-11-21 (TASK-G04) — atomic payload REJECTED, band
    > stays interim.** The single-question (legacy) and atomic six-question arms were
    > scored on the current 187+10 class-blind corpus (197 cases, two interleaved
