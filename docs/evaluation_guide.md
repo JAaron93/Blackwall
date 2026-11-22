@@ -230,7 +230,9 @@ are in `tests/eval/results/jev_f02_structured_state/` (`steering.json` + manifes
 recomputed by `tests/unit/test_jev_f02_structured_state_data.py`. Structured state
 reduced benign clear-high holds and P shift on dev and heldout; below-edge crossings
 were zero in both arms, so this is benign-side evidence only, not a validated
-steering defense, and no guard shipped.
+steering defense, and no guard shipped. F02 was subsequently closed by explicit
+risk acceptance; the full improved/failed/why analysis and the reopen conditions
+are in `docs/f02-steering-retrospective.md`.
 
 **Track G atomic-question probe (TASK-G03):** the six atomic `noul` questions over
 one structured state were probed live on 60 current-corpus cases (20 C2/IOC + 20
