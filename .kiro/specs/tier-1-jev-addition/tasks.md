@@ -638,13 +638,13 @@ testing rule 74 (never simulated, deferred in this file until it can run).
 > and F09 (a balanced corpus): a question change invalidates stored runs and must
 > be re-scored before any band decision rests on it.
 
-> [!NOTE] PLANNED, not implemented (design.md Track G; FR-09). Changes Jev
-> behavior, so the production flip is gated on live re-calibration (NFR-05).
-> Live tasks follow testing rule 74 (never simulated; deferred until a paid
-> `TYPESAFE_API_KEY` is available — reads are access-authorized per rule 78, no
-> per-read approval). TASK-F08 (ContextHygiene
-> over-match) MUST land first — it corrupts states and invalidates stored runs.
-> The single `is_threat` Noul stays the production path until G04 passes.
+> [!NOTE] CLOSED 2026-11-21 for the atomic-questions + `max` design: G01/G02
+> engineering and G03 probe landed, G04's held-out A/B returned NO-GO, and G05
+> was closed N/A (no flip to sync). The production path remains the single
+> `is_threat` Noul at the 0.08/0.40 band. A future candidate must pass a fresh
+> held-out A/B before any flip; do not re-open G05 without a shipped change.
+> Live tasks followed testing rule 74 (never simulated) with the live key read
+> access-authorized per rule 78; TASK-F08 landed before the re-score.
 
 * [x] **TASK-G01 [hybrid]: Structured state + size/truncation guard** (F4; FR-09).
   `build_state` returns a JSON object with named, relevant fields (not a dict
@@ -670,7 +670,7 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > `tests/unit/test_jev_structured_state.py` (+ updated backend/corpus tests);
   > full unit suite 2132 passed with only the known worktree environment failures.
   > No live calls, no production flip — FR-09 stays PLANNED until G04.
-* [ ] **TASK-G02 [C2]: Atomic question set + criteria + code combination** (F2/F3;
+* [x] **TASK-G02 [C2]: Atomic question set + criteria + code combination** (F2/F3;
   FR-09, FR-02). One wording module holds the bundled per-category `noul`
   questions with concrete `criteria.true`/`false`; `_build_payload` sends them
   over shared state; `_parse_response` reads each answer; code combines them
@@ -699,6 +699,25 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > G03 live probe and G04 A/B decide it. All engineering sub-items are done, but
   > per AGENTS.md §6.7 the `[ ]` marker stays until that hypothesis is measured;
   > the wording/parsing/combination code is ready for the probe.
+  >
+  > **Closed 2026-11-21 — Telos answered, hypothesis INVALIDATED (G04 held-out
+  > A/B).** Telos: does a bundled set of six atomic `noul` questions with concrete
+  > criteria + structured JSON state, combined by fail-closed `max`, improve
+  > Tier-1 calibration over the single compound `is_threat` question? G03's
+  > bounded probe supported one wording refinement; **G04's full A/B invalidated
+  > the calibration hypothesis on held-out cases** (197-case current class-blind
+  > corpus, 2 arms × 2 named releases × 2 interleaved passes, 1,576 live calls,
+  > zero errors): atomic AUROC 0.7927–0.8176 vs ≥0.97, in-band Tier-2 fire
+  > 40.6–45.5% vs ≤20%, FRR 0.889–1.000 vs <5%, accuracy 0.7833–0.8545 vs
+  > ≥0.85, despite recall 1.0; legacy passed the five re-baselined F10 gates plus
+  > FRR. The retained evasion gate fails for BOTH arms (33.3%, plain C2 beacons).
+  > Decision informed: **do not flip**; keep the legacy question as the production
+  > path. The atomic module stays as tested foundation/reference only, not wired
+  > into `_build_payload`; no rule/reviewer-config sync (G05) is warranted because
+  > no architectural invariant changed. Artifact chain: this note → ADR 0009 OI3
+  > → `tests/eval/results/jev_g04_ab/manifest.json` → `ab.json` → recomputed by
+  > `tests/unit/test_jev_g04_ab_data.py` (G03 wording probe chain:
+  > `tests/eval/results/jev_atomic_probe/manifest.json`).
 * [x] **TASK-G03 [C2]: Live probe + wording refinement** (NFR-05; skill protocol).
   Probe representative, hard and negative cases; compare wordings as separate
   questions over one state; read individual answers; keep the exact payload per
@@ -771,11 +790,30 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > `tests/eval/results/jev_g04_ab/manifest.json` → `ab.json` → recomputed by
   > `tests/unit/test_jev_g04_ab_data.py`; driver `scripts/jev_g04_ab.py`.
   > G05's same-change rule/config sync is NOT authorized or performed here.
-* [ ] **TASK-G05 [C1]: Same-change sync + harness/BDD/corpus updates** (constitution
-  6.4). Update the egress-allowlist and parsing BDD assertions, the eval harness
-  scoring, `AGENTS.md`/`.agents/rules/`/`.greptile/` for the new question set,
+* [x] **TASK-G05 [C1]: Same-change sync + harness/BDD/corpus updates — CLOSED AS
+  N/A 2026-11-21 (no implementation)** (constitution 6.4). Update the
+  egress-allowlist and parsing BDD assertions, the eval harness scoring,
+  `AGENTS.md`/`.agents/rules/`/`.greptile/` for the new question set,
   and the completed-task follow-ups. Dependencies: TASK-G04.
-  - [ ] Sync rule prose + reviewer config in the same change as the behavior flip.
+  - [x] N/A — no behavior flip occurred (G04 NO-GO), so there is no new question
+        set, no architectural invariant change and nothing to sync in the same
+        change as a flip. Applying these edits now would make the rulebooks
+        describe a production path that does not exist — precisely the stale-
+        instruction drift constitution 6.4 forbids. Re-open this task only if a
+        future candidate passes a fresh held-out A/B and actually ships.
+  >
+  > **Closure rationale.** G04 measured the atomic payload on held-out cases and
+  > returned NO-GO: `_build_payload` still sends the single `is_threat` question
+  > over `build_legacy_state()`, the 0.08/0.40 band and Tier-2 routing are
+  > unchanged, and no `src/`, `.agents/rules/`, `.greptile/`, AGENTS.md, BDD or
+  > harness-scoring change was made. The existing rule prose therefore remains
+  > accurate for production. One unrelated, pre-existing drift is deliberately
+  > NOT fixed here: `.greptile/config.json` still quotes the old `0.35/0.75`
+  > band in three rules while `rules.md` and `architecture_and_security.md` say
+  > `0.08/0.40` — that belongs in a separate, explicit rule/config proposal.
+  > Evidence: `tests/eval/results/jev_g04_ab/manifest.json` (`decision.flip =
+  > false`, `production_still_legacy = true`), recomputed by
+  > `tests/unit/test_jev_g04_ab_data.py`.
 
 ## Execution Order
 
@@ -783,5 +821,7 @@ testing rule 74 (never simulated, deferred in this file until it can run).
 dependency is stated.
 Tracks B/C overlap after A01; D is strictly sequential. Each task lands with
 tests green; no batch commits without a test run (repo TDD gate).
-Track G is gated on TASK-F08 and a live key: `F08 → G01 → G02 → G03 → G04 → G05`;
-the production question flip happens only at G04 after the A/B gates pass.
+Track G was gated on TASK-F08 and a live key: `F08 → G01 → G02 → G03 → G04 → G05`;
+the production question flip happens only at G04 after the A/B gates pass. G04
+returned NO-GO, so no flip shipped and G05 is closed N/A; residual work moves to
+F02 (benign-side steering defense) and the F10-evasion/C2 misses.
