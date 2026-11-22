@@ -442,11 +442,15 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > bases, dev payloads, `jev-1.14.0` pinned by name, semantic-only config; the
   > first four arm runs were discarded after a Tier-2 429 invalidated one pass
   > and all four were re-run). On the 25 held bases common to both arms, matched
-  > to-ALLOW flips went **6/550 → 7/550** and below-edge Tier-2-skipped crossings
-  > **12 → 23**; benign flagged calls fell **239/658 (36.3%) → 202/660 (30.6%)**
-  > and mean benign P shift **+0.173 → +0.134**. The benign-side gain from the
-  > Tier-1-only probe is real but does not survive the full validation: the
-  > fixed non-inferiority rule fails because crossings and flips worsen. This
+  > to-ALLOW flips went **6/550 → 7/550** and below-edge crossings (all) went
+  > **8 → 14**; the Tier-2-skipped subset was **4 → 4** (the decision measure).
+  > Across all steered rows the committed summaries report below-edge crossings
+  > **12 → 23** and Tier-2-skipped **8 → 12** — these are a different population
+  > and are NOT fed to the decision rule. Benign flagged calls fell **239/658
+  > (36.3%) → 202/660 (30.6%)** and mean benign P shift **+0.173 → +0.134**. The
+  > benign-side gain from the Tier-1-only probe is real but does not survive the
+  > full validation: the fixed non-inferiority rule fails because matched flips
+  > and all-crossings worsen. This
   > mirrors the F02 nonce-XML result (crossings rose as benign flags rose) and
   > confirms a state-format change alone is not a validated defense. No guard
   > was shipped and no `src/` change was made; F02 remains open.

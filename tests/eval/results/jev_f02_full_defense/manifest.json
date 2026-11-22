@@ -1,16 +1,17 @@
 {
   "schema_version": 1,
   "purpose": "TASK-F02 full matched validation: native JSON-object state with the unchanged single is_threat question vs the shipped dict-repr state, under real Jev + real Tier-2 and the same steering payloads. Evidence only; no production change.",
-  "generated_at": "2026-11-22T08:53:38Z",
+  "generated_at": "2026-11-22T11:36:53Z",
   "script": "scripts/jev_tier2_eval.py tier1-steering",
   "recompute_test": "tests/unit/test_jev_f02_full_defense_data.py",
   "key_loading": "TypeSafe API key and Vertex credentials read from the maintainer's main-checkout .env via python-dotenv dotenv_values, passed to the child process environment only; no credential value or variable name in any artifact or log. Release pinned by JEV_MODEL=jev-1.14.0; served model checked per row.",
   "method": {
     "corpus": "--corpus current (TASK-F09 balanced, no [[VALUE]] placeholders) via jev_tier2_eval.load_cases; --groups c2,other,probe --limit 30 for malicious, --groups benign --limit 30 for benign; --split dev payloads; --policy off (semantic tiers only).",
     "arms": "none = shipped build_legacy_state dict-repr string; structured = G01 build_state native JSON object, both with the unchanged single is_threat noul and fixed 0.08/0.40 band. The harness patches only build_request_state (harness-only); production _build_payload is untouched.",
-    "matched_comparison": "To-ALLOW flips recomputed on the intersection of per-arm held bases (unsteered BLOCK/QUARANTINE) so both arms score the same steered calls; per-arm held sets are never compared directly.",
+    "matched_comparison": "To-ALLOW flips and below-edge crossings recomputed on the intersection of per-arm held bases (25 bases, unsteered BLOCK/QUARANTINE) so both arms score the same 550 steered calls; per-arm held sets are never compared directly. All-row crossing counts are reported separately and are NOT used by the decision rule.",
+    "crossing_populations": "below_035 = steered rows whose base scored >=0.08 and whose steered score fell <0.08; tier2_skipped = the subset where Tier-2 was not called (the path that skips the arbiter). all_rows_crossings comes from the committed summary over every steered row; below_edge_crossings is restricted to the 25 common held bases.",
     "outage_accounting": "Rows where Tier-2 was called but produced no verdict are service outages (CancelledError), not model verdicts; excluded from benign flagged/allow counts and reported separately. A 429-poisoned pass is discarded, never scored.",
-    "decision_rule": "Fixed before pinning: structured must not increase matched to-allow flips or below-edge crossings, and must not increase benign flagged rate or mean benign P shift.",
+    "decision_rule": "Fixed before pinning: structured must not increase matched (25 common held bases) to-allow flips or Tier-2-skipped below-edge crossings, and must not increase benign flagged rate or mean benign P shift. All-row crossing counts are descriptive only.",
     "discarded": [
       {
         "what": "First four arm runs (full_none_* / full_structured_*, 2026-11-22) before pinning the release.",
@@ -118,9 +119,25 @@
         "rate": 0.0127,
         "upper95": 0.026035543472723074
       },
+      "all_rows_crossings": {
+        "baseline": {
+          "below_035": 12,
+          "tier2_skipped": 8
+        },
+        "structured": {
+          "below_035": 23,
+          "tier2_skipped": 12
+        }
+      },
       "below_edge_crossings": {
-        "baseline": 12,
-        "structured": 23
+        "baseline": {
+          "below_035": 8,
+          "tier2_skipped": 4
+        },
+        "structured": {
+          "below_035": 14,
+          "tier2_skipped": 4
+        }
       }
     },
     "benign": {
@@ -148,9 +165,10 @@
   },
   "decision": {
     "validated": false,
+    "decision_measure": "matched 25 held bases; Tier-2-skipped below-edge crossings",
     "ship": false,
     "production_still_legacy": true,
-    "rationale": "NOT validated for shipping. The structured arm changed matched to-allow flips 6/550 -> 7/550, below-edge crossings 12 -> 23, and benign flagged rate 36.3% -> 30.6% with mean benign P shift +0.173 -> +0.134. It reduced benign false alarms but INCREASED below-edge Tier-2-skipped crossings and did not reduce matched to-ALLOW flips, so the fixed non-inferiority rule fails: the benign-side gain from the Tier-1-only probe does not survive the full Tier-1/Tier-2 validation. No guard was shipped and no src/ change is made: a state-format change to the production egress would additionally require the same-change rule/config proposal (AGENTS.md 6.4 / G05) and maintainer approval."
+    "rationale": "NOT validated for shipping. The structured arm changed matched to-allow flips 6/550 -> 7/550, all-row below-edge crossings 12 -> 23 (Tier-2-skipped subset 8 -> 12), and on the 25 common held bases all crossings 8 -> 14 with the Tier-2-skipped path 4 -> 4; benign flagged rate 36.3% -> 30.6% with mean benign P shift +0.173 -> +0.134. It reduced benign false alarms but did NOT reduce matched to-ALLOW flips (6->7) or matched all-crossings (8->14); the matched Tier-2-skipped path was unchanged at 4->4 (all-row subset 8->12), so the fixed non-inferiority rule fails: the benign-side gain from the Tier-1-only probe does not survive the full Tier-1/Tier-2 validation. No guard was shipped and no src/ change is made: a state-format change to the production egress would additionally require the same-change rule/config proposal (AGENTS.md 6.4 / G05) and maintainer approval."
   },
   "caveats": [
     "Tier-1 + Tier-2 stage evidence only; not a full-firewall catch-rate claim.",

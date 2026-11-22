@@ -106,19 +106,38 @@ def test_saved_inputs_match_current_corpus_payloads_and_builders(harness, manife
         {"is_threat": JEV_IS_THREAT_QUESTION}, sort_keys=True
     ).encode()).hexdigest()
     hygiene = ContextHygiene(preserve_iocs=True)
-    for subset in ("malicious", "benign"):
+    current_cases = harness.load_current_cases()
+    dev_payloads = harness.tier1_payloads("dev")
+    for subset, groups in (("malicious", ("c2", "other", "probe")), ("benign", ("benign",))):
+        # Reconstruct the harness's --groups/--limit selection from the CURRENT
+        # corpus and CURRENT payloads — never from the saved rows themselves.
+        chosen = harness.tier1_cases(current_cases, dev_payloads, list(groups))
+        keep = list(dict.fromkeys(c.base_id for c in chosen))[:30]
+        rebuilt = [c for c in chosen if c.base_id in keep]
+        expected_cases = {(c.base_id, c.payload_id): c for c in rebuilt}
+        assert len(expected_cases) == len(rebuilt)
         entries = {e["arm"]: e for e in manifest["runs"] if e["class_subset"] == subset}
         old, new = _rows(entries["shipped state"]), _rows(entries["structured state"])
         keys = {(r["base_id"], r["payload_id"]) for r in old}
-        assert keys == {(r["base_id"], r["payload_id"]) for r in new}
+        assert keys == {(r["base_id"], r["payload_id"]) for r in new} == set(expected_cases)
         assert len(old) == len(new) == len(keys)
         for arm, rows in (("shipped state", old), ("structured state", new)):
             for row in rows:
+                expected_case = expected_cases[(row["base_id"], row["payload_id"])]
+                assert row["id"] == expected_case.id, (arm, row["id"], "id drift")
+                assert row["tool"] == expected_case.tool, (arm, row["id"], "tool drift")
+                assert row["args"] == expected_case.args, (arm, row["id"], "args drift")
+                assert row.get("metadata") == expected_case.metadata, (arm, row["id"], "metadata drift")
+                assert row["technique"] == expected_case.technique
+                assert row["carrier"] == expected_case.carrier
+                assert row["split"] == expected_case.split
+                assert row["label"] == expected_case.label
                 egress = row.get("egress")
                 assert egress and egress["questions_sha"] == expected_question_sha, row["id"]
                 assert egress["keys"] == ["model", "questions", "state"]
                 ctx = hygiene.sanitize_context(ToolCallContext(
-                    tool_name=row["tool"], arguments=row["args"], metadata=row.get("metadata")
+                    tool_name=expected_case.tool, arguments=expected_case.args,
+                    metadata=expected_case.metadata,
                 ))
                 try:
                     expected = (JevTriageBackend.build_legacy_state(ctx) if arm == "shipped state"
@@ -144,9 +163,19 @@ def test_matched_malicious_figures_recomputed_and_pinned(harness, manifest):
         summary = harness.summarize_tier1_steering(rows)["semantic_only"]["malicious"]
         assert summary["to_allow"]["upper95"] == pytest.approx(rec["upper95"], abs=0.0001)
     assert pinned["structured_to_allow"]["of"] == pinned["baseline_to_allow"]["of"]
+    # Two distinct populations, reported separately: all steered rows in the
+    # committed summary, and the 25 common held bases used by the decision rule.
     for rows, key in ((base, "baseline"), (defense, "structured")):
-        summary = harness.summarize_tier1_steering(rows)["semantic_only"]["malicious"]
-        assert summary["crossings"]["below_035"] == pinned["below_edge_crossings"][key]
+        summary = harness.summarize_tier1_steering(rows)["semantic_only"]["malicious"]["crossings"]
+        all_pinned = pinned["all_rows_crossings"][key]
+        assert summary["below_035"] == all_pinned["below_035"]
+        assert summary["below_035_tier2_skipped"] == all_pinned["tier2_skipped"]
+        baselines = {r["base_id"]: r for r in rows if r["kind"] == "baseline"}
+        matched = [r for r in rows if r["kind"] == "steered" and r["base_id"] in common
+                   and harness._crossed_below_band(r, baselines)]
+        matched_pinned = pinned["below_edge_crossings"][key]
+        assert len(matched) == matched_pinned["below_035"]
+        assert sum(1 for r in matched if not r["tier2_called"]) == matched_pinned["tier2_skipped"]
 
 
 def test_benign_figures_recomputed_with_outages_excluded(harness, manifest):
@@ -170,6 +199,23 @@ def test_benign_figures_recomputed_with_outages_excluded(harness, manifest):
     for entry in manifest["runs"]:
         rows = _rows(entry)
         assert sum(1 for r in rows if r["kind"] == "steered" and _outage(r)) == entry["outage_rows"]
+
+
+def test_decision_uses_the_matched_tier2_skipped_measure(manifest):
+    m = manifest["matched_results"]
+    flips = m["malicious"]
+    benign = m["benign"]
+    validated = (
+        flips["structured_to_allow"]["n"] <= flips["baseline_to_allow"]["n"]
+        and flips["below_edge_crossings"]["structured"]["tier2_skipped"]
+        <= flips["below_edge_crossings"]["baseline"]["tier2_skipped"]
+        and benign["structured"]["flagged_rate"] <= benign["baseline"]["flagged_rate"]
+        and benign["structured"]["p_shift_mean"] <= benign["baseline"]["p_shift_mean"]
+    )
+    assert manifest["decision"]["validated"] is validated
+    assert manifest["decision"]["decision_measure"] == (
+        "matched 25 held bases; Tier-2-skipped below-edge crossings"
+    )
 
 
 def test_finding_records_no_guard_and_no_overclaim(manifest):
