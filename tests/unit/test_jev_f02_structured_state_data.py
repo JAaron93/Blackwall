@@ -8,9 +8,11 @@ or mean benign P shift relative to legacy on dev (both passes) and heldout.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 import statistics
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -86,6 +88,65 @@ def test_artifact_shape(artifact, manifest):
     for arm in ("legacy", "structured"):
         for pass_no in (1, 2, 3):
             _run(artifact, arm, pass_no)
+
+
+def _driver() -> Any:
+    spec = importlib.util.spec_from_file_location("f02_driver", REPO_ROOT / "scripts" / "jev_f02_structured_state.py")
+    driver = importlib.util.module_from_spec(spec)
+    sys.modules["f02_driver"] = driver
+    spec.loader.exec_module(driver)
+    return driver
+
+
+def test_saved_inputs_match_current_corpus_payloads_and_builders(artifact):
+    """No stored state or label is trusted: rebuild every job from the current
+    corpus + steering payloads with no network calls and compare both arms."""
+    from blackwall.models import ToolCallContext
+    from blackwall.policy.semantic import (
+        JEV_IS_THREAT_QUESTION,
+        JevTriageBackend,
+    )
+    from blackwall.resolver import ContextHygiene
+
+    driver = _driver()
+    assert artifact["question_definition"] == JEV_IS_THREAT_QUESTION
+    hygiene = ContextHygiene(preserve_iocs=True)
+
+    for pass_no, split, n_bases in (
+        (1, "dev", driver.DEV_BASES), (2, "dev", driver.DEV_BASES),
+        (3, "heldout", driver.HELDOUT_BASES),
+    ):
+        jobs = driver.build_jobs(split, n_bases)
+        expected: dict[tuple[str, str], dict[str, Any]] = {}
+        for job in jobs:
+            key = (job["base_id"], job["payload_id"])
+            assert key not in expected, (pass_no, key, "duplicate job key")
+            expected[key] = job
+
+        keys_by_arm: dict[str, set[tuple[str, str]]] = {}
+        for arm in ("legacy", "structured"):
+            run = _run(artifact, arm, pass_no)
+            assert run["split_jobs"] == [split]
+            keys = [(row["base_id"], row["payload_id"]) for row in run["rows"]]
+            assert len(keys) == len(set(keys)) == len(expected)
+            assert set(keys) == set(expected)
+            keys_by_arm[arm] = set(keys)
+            for row in run["rows"]:
+                job = expected[(row["base_id"], row["payload_id"])]
+                case = job["case"]
+                assert row["id"] == case.id, (arm, pass_no, "id drift")
+                assert row["klass"] == job["klass"]
+                assert row["label"] == (1 if case.label == "MALICIOUS" else 0)
+                assert row["carrier"] == job["carrier"]
+                assert row["split"] == job["split"]
+                ctx = hygiene.sanitize_context(ToolCallContext(
+                    tool_name=case.tool, arguments=case.args,
+                    metadata=getattr(case, "metadata", None),
+                ))
+                state = (JevTriageBackend.build_legacy_state(ctx) if arm == "legacy"
+                         else JevTriageBackend.build_state(ctx))
+                assert row["state"] == state, (arm, pass_no, row["id"], "state drift")
+        assert keys_by_arm["legacy"] == keys_by_arm["structured"]
 
 
 def test_no_credentials_in_committed_evidence():

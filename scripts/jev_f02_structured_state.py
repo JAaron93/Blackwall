@@ -115,6 +115,28 @@ async def run_arm(backend: JevTriageBackend, arm: str, pass_no: int,
     }
 
 
+def build_jobs(split: str, n_bases: int, bases: dict[str, list[Any]] | None = None) -> list[dict[str, Any]]:
+    """Rebuild the exact (network-free) job set for a split; shared with the
+    recomputation test so saved states can be checked against current inputs."""
+    if bases is None:
+        bases = select_bases()
+    payloads = tier1_payloads(split)
+    out: list[dict[str, Any]] = []
+    for klass, cases in bases.items():
+        for base in cases[:n_bases]:
+            out.append({
+                "base_id": base.id, "klass": klass, "case": base,
+                "payload_id": "baseline", "split": split, "carrier": "none",
+            })
+            for payload in payloads:
+                out.append({
+                    "base_id": base.id, "klass": klass,
+                    "case": apply_steering(base, payload),
+                    "payload_id": payload.id, "split": split, "carrier": payload.carrier,
+                })
+    return out
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, required=True)
@@ -122,32 +144,15 @@ async def main() -> None:
     args = parser.parse_args()
 
     bases = select_bases()
-    dev_payloads = [p for p in tier1_payloads("dev")]
-    heldout_payloads = [p for p in tier1_payloads("heldout")]
-
-    def jobs_for(split: str, n_bases: int) -> list[dict[str, Any]]:
-        payloads = dev_payloads if split == "dev" else heldout_payloads
-        out: list[dict[str, Any]] = []
-        for klass, cases in bases.items():
-            for base in cases[:n_bases]:
-                out.append({
-                    "base_id": base.id, "klass": klass, "case": base,
-                    "payload_id": "baseline", "split": split, "carrier": "none",
-                })
-                for payload in payloads:
-                    out.append({
-                        "base_id": base.id, "klass": klass,
-                        "case": apply_steering(base, payload),
-                        "payload_id": payload.id, "split": split, "carrier": payload.carrier,
-                    })
-        return out
+    dev_payloads = tier1_payloads("dev")
+    heldout_payloads = tier1_payloads("heldout")
 
     runs: list[dict[str, Any]] = []
     for pass_no in PASSES:
         for arm in ARMS:
             backend = JevTriageBackend(api_key=os.environ["TYPESAFE_API_KEY"], model=RELEASE)
             try:
-                runs.append(await run_arm(backend, arm, pass_no, jobs_for("dev", DEV_BASES), args.concurrency))
+                runs.append(await run_arm(backend, arm, pass_no, build_jobs("dev", DEV_BASES, bases), args.concurrency))
             finally:
                 await backend.aclose()
             print(f"dev pass {pass_no} {arm}: errors={runs[-1]['errors']} served={runs[-1]['served_models']}", flush=True)
@@ -156,7 +161,7 @@ async def main() -> None:
     for arm in ARMS:
         backend = JevTriageBackend(api_key=os.environ["TYPESAFE_API_KEY"], model=RELEASE)
         try:
-            runs.append(await run_arm(backend, arm, 3, jobs_for("heldout", HELDOUT_BASES), args.concurrency))
+            runs.append(await run_arm(backend, arm, 3, build_jobs("heldout", HELDOUT_BASES, bases), args.concurrency))
         finally:
             await backend.aclose()
         print(f"heldout {arm}: errors={runs[-1]['errors']} served={runs[-1]['served_models']}", flush=True)
