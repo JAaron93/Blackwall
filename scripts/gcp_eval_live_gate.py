@@ -15,6 +15,7 @@ import asyncio
 import json
 import os
 import sys
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,7 @@ from run_gcp_eval import run_evaluation_pipeline
 from blackwall.enterprise.advanced_threat_detection.gcp_vertex_eval import (
     GCPVertexAIEvaluationHarness,
 )
+from blackwall.eval.aggregator import EvaluationAggregator
 
 
 def json_safe(value: Any) -> Any:
@@ -51,15 +53,27 @@ def json_safe(value: Any) -> Any:
 
 
 async def run(args: argparse.Namespace) -> dict[str, Any]:
-    captured: dict[str, Any] = {}
+    captured: dict[str, Any] = {"records": [], "errors": []}
     original = GCPVertexAIEvaluationHarness.run_eval_task
+    original_add = EvaluationAggregator.add_record
+    original_error = EvaluationAggregator.record_error
 
     def recording(self: Any, *a: Any, **kw: Any) -> dict[str, Any]:
         result = original(self, *a, **kw)
         captured["result"] = result
         return result
 
+    def recording_add(self: Any, record: Any, *a: Any, **kw: Any) -> None:
+        captured["records"].append(json_safe(record.model_dump(mode="json")))
+        return original_add(self, record, *a, **kw)
+
+    def recording_error(self: Any, **kw: Any) -> None:
+        captured["errors"].append(json_safe(kw))
+        return original_error(self, **kw)
+
     GCPVertexAIEvaluationHarness.run_eval_task = recording  # type: ignore[assignment]
+    EvaluationAggregator.add_record = recording_add  # type: ignore[assignment]
+    EvaluationAggregator.record_error = recording_error  # type: ignore[assignment]
     try:
         exit_code, summary, regression = await run_evaluation_pipeline(
             domains=[d.strip() for d in args.domains.split(",") if d.strip()] or None,
@@ -72,9 +86,18 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
         )
     finally:
         GCPVertexAIEvaluationHarness.run_eval_task = original  # type: ignore[assignment]
+        EvaluationAggregator.add_record = original_add  # type: ignore[assignment]
+        EvaluationAggregator.record_error = original_error  # type: ignore[assignment]
 
     assert "result" in captured, "managed EvalTask was never called"
     result = json_safe(captured["result"])
+    score_stats = {
+        k: v for k, v in (result.get("summary_metrics") or {}).items()
+        if str(k).endswith(("/mean", "/std"))
+    }
+    managed_scores_usable = bool(score_stats) and all(
+        isinstance(v, (int, float)) for v in score_stats.values()
+    )
     return {
         "schema_version": 1,
         "purpose": "TASK-D03 live managed Vertex EvalTask gate evidence; real paid calls, no mocks or fallback.",
@@ -94,11 +117,14 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
             "judge_and_autorater_model": args.model or "gemini-3.5-flash-lite",
         },
         "eval_task": result,
+        "scenario_records": captured["records"],
+        "failed_scenarios": captured["errors"],
         "summary": json_safe(summary.model_dump(mode="json")),
         "regression": json_safe(regression.model_dump(mode="json")),
         "exit_code": exit_code,
         "gate": {
             "eval_task_completed": result.get("status") == "COMPLETED",
+            "managed_scores_usable": managed_scores_usable,
             "ci_passed": exit_code == 0,
             "fallback_free": summary.total_fallbacks == 0,
             "no_regression": not regression.regression_detected,
@@ -116,7 +142,8 @@ def main() -> None:
     parser.add_argument("--eval-threshold", type=float, default=3.5)
     parser.add_argument("--scenarios-dir", default="tests/eval/judge_scenarios")
     parser.add_argument("--history-path", type=Path,
-                        default=Path("/private/var/folders/kx/02wxxm5x1nv1x9pl52p21j0m0000gn/T/opencode/d03_history.jsonl"))
+                        default=Path(tempfile.gettempdir()) / "blackwall_d03_eval_history.jsonl",
+                        help="portable scratch ledger (defaults to the OS temp dir)")
     parser.add_argument("--model", default=None)
     parser.add_argument("--no-trace", action="store_true")
     args = parser.parse_args()

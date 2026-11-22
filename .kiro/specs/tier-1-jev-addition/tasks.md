@@ -225,36 +225,38 @@ done or needs re-scoping, not more code.
   packaging-compat note for Gateway F04 (re-verify when F04 lands).
   Dependencies: TASK-D02.
   >
-  > **Closed 2026-11-22 — verification question answered with LIVE evidence;
-  > variance and one discarded run disclosed.** Verification question: do the
-  > committed benchmark and dual-gate artifacts satisfy D03's acceptance
-  > criteria? Yes, with the caveats below. Benchmark SLA report
-  > `tests/eval/results/benchmark_report.json` has every `targets_met` flag true
-  > (structural p99 <5 ms, semantic p99 <300 ms, TSG p99 <10 ms, memory <350 MB,
-  > CPU <2%, batch ≥3). The previously missing item — a **live** managed Vertex
-  > `EvalTask` pass — is now recorded: `scripts/gcp_eval_live_gate.py` wraps (never
-  > mocks) `GCPVertexAIEvaluationHarness.run_eval_task` and ran the full canonical
-  > suite twice against the real paid Vertex gate, with `allow_fallback=False`
-  > and ADC. Both runs returned `status=COMPLETED` with `gemini-3.5-flash-lite`;
-  > run 2 passed the full CI gate (exit 0, `all_passed=true`, 0 fallbacks, 0
-  > regression). Run 1 also completed the managed gate but the overall CI gate
-  > failed (exit 1) because the **1-scenario** `exploit_chain` domain scored 3.25
-  > vs the 3.5 threshold; run 2 scored 3.50 there. This is run-to-run judge
-  > variance (mean |domain delta| 0.0708, max 0.25), not an outage, so run 1 is
-  > reported rather than discarded. An earlier run that failed before the gate
-  > with `No module named 'vertexai'` IS recorded in `discarded` with its fix
-  > (installed the optional evaluation extra in the venv; no manifest change).
-  > Caveats retained: there is no CI matrix toggling
-  > `BLACKWALL_ENABLE_SYNC_SEMANTIC_TRIAGE` (the disabled/enabled comparison is
-  > a recorded result, not an enforced gate); the System-2
-  > `tool_trajectory_avg_score: 1.0` dual gate is a separate harness and is not
-  > exercised here; and Gateway `TASK-F04` (packaging pipeline) is still NOT
-  > STARTED, so packaged-closure re-verification is explicitly re-scoped to that
-  > task. No behavior change and no AGENTS/rules/reviewer-config sync.
+  > **Narrowed acceptance 2026-11-22 — CLOSED ONLY for managed-gate SERVICE
+  > INVOCATION; usable managed scores and a stable CI gate remain unverified.**
+  > Verification question: do the committed benchmark and live artifacts satisfy
+  > D03's acceptance? **Only the service-invocation part does.** Benchmark SLA
+  > report `tests/eval/results/benchmark_report.json` has every `targets_met`
+  > flag true. `scripts/gcp_eval_live_gate.py` wraps (never mocks)
+  > `GCPVertexAIEvaluationHarness.run_eval_task` and ran the full canonical suite
+  > twice with real paid Vertex calls, ADC and `allow_fallback=False`; both runs
+  > returned `status=COMPLETED` (97 rows each) with `gemini-3.5-flash-lite`, and
+  > all 97 per-scenario rubric records are committed so the hermetic test
+  > rebuilds the CI summary from rows rather than trusting saved flags.
+  >
+  > **What the review correctly blocked (PR #231):** the managed autorater
+  > produced NO usable scores — `summary_metrics` mean/std are `NaN` and every
+  > score cell is `None`. `COMPLETED` proves the managed evaluation SERVICE was
+  > invoked, not that managed scoring worked. The full CI gate is also unstable
+  > here: rows-run1 passed (exit 0), rows-run2 failed (exit 1) with a regression
+  > on `exploit_chain`/`c2_detection` (mean |domain delta| 0.1503, max 0.75).
+  > Both are reported, neither hidden. A pre-gate `No module named 'vertexai'`
+  > run is in `discarded` with its fix; two earlier runs without per-scenario
+  > rows are in `superseded`. Per AGENTS.md §6.7 the task is therefore closed
+  > ONLY under the narrowed acceptance "managed Vertex EvalTask service
+  > invocation verified". **Reopen condition:** a fresh run with numeric managed
+  > scores and a stable full CI gate before claiming the managed gate *passed*.
+  > Caveats: no CI matrix toggles `BLACKWALL_ENABLE_SYNC_SEMANTIC_TRIAGE`; the
+  > System-2 `tool_trajectory_avg_score: 1.0` gate is a separate harness, not
+  > exercised here; Gateway `TASK-F04` packaging re-verification stays re-scoped
+  > to that task. No behavior change, no rule/config sync.
   > Artifact chain: this note → ADR 0008 Verification →
-  > `tests/eval/results/gcp_eval_live_gate/manifest.json` → `live_gate_run1.json`
-  > + `live_gate_run2.json` + discarded `live_gate_discarded_missing_sdk.json` →
-  > recomputed by `tests/unit/test_gcp_eval_live_gate_data.py`; driver
+  > `tests/eval/results/gcp_eval_live_gate/manifest.json` →
+  > `live_gate_rows_run1.json` + `live_gate_rows_run2.json` + discarded/superseded
+  > runs → recomputed by `tests/unit/test_gcp_eval_live_gate_data.py`; driver
   > `scripts/gcp_eval_live_gate.py`.
 * [x] **TASK-D04 [C1]: Default-flip + docs** (US-01, US-03). *Superseded by ADR
   0009: there is no `gemini` backend to flip away from.* Document paid-usage ops (budgets derived from token counts, the

@@ -1,7 +1,8 @@
 {
   "schema_version": 1,
-  "purpose": "TASK-D03 live managed Vertex AI EvalTask gate evidence: two full real-paid runs with the recording wrapper around the actual run_eval_task, plus one discarded environment-failure run. No mocks, no fallback scoring, no cached rows.",
-  "generated_at": "2026-11-22T14:00:22Z",
+  "purpose": "TASK-D03 live managed Vertex AI EvalTask gate evidence: two full real-paid runs with the recording wrapper around the actual run_eval_task, per-scenario rows, plus one discarded environment-failure run. No mocks, no fallback scoring, no cached rows.",
+  "scope": "managed Vertex EvalTask service invocation only; usable managed scores NOT verified",
+  "generated_at": "2026-11-22T23:22:07Z",
   "script": "scripts/gcp_eval_live_gate.py",
   "recompute_test": "tests/unit/test_gcp_eval_live_gate_data.py",
   "method": {
@@ -12,46 +13,62 @@
     "gate_definition": "managed EvalTask status must be COMPLETED (non-COMPLETED calls aggregator.record_error and forces CI exit 1); CI gate additionally requires summary.all_passed and no regression"
   },
   "runs": {
-    "live_gate_run1.json": {
-      "exit_code": 1,
-      "all_passed": false,
-      "overall_mean": 4.3165,
-      "eval_task_status": "COMPLETED",
-      "eval_task_model": "gemini-3.5-flash-lite",
-      "fallbacks": 0,
-      "regression_detected": false,
-      "gate": {
-        "eval_task_completed": true,
-        "ci_passed": false,
-        "fallback_free": true,
-        "no_regression": true
-      },
-      "generated_at": "2026-11-22T13:42:19Z"
-    },
-    "live_gate_run2.json": {
+    "live_gate_rows_run1.json": {
       "exit_code": 0,
       "all_passed": true,
-      "overall_mean": 4.3734,
+      "scenario_rows": 97,
+      "managed_scores_usable": false,
+      "overall_mean": 4.3354,
       "eval_task_status": "COMPLETED",
       "eval_task_model": "gemini-3.5-flash-lite",
       "fallbacks": 0,
       "regression_detected": false,
       "gate": {
         "eval_task_completed": true,
+        "managed_scores_usable": false,
         "ci_passed": true,
         "fallback_free": true,
         "no_regression": true
       },
-      "generated_at": "2026-11-22T13:59:36Z"
+      "generated_at": "2026-11-22T23:00:35Z"
+    },
+    "live_gate_rows_run2.json": {
+      "exit_code": 1,
+      "all_passed": false,
+      "scenario_rows": 97,
+      "managed_scores_usable": false,
+      "overall_mean": 4.2539,
+      "eval_task_status": "COMPLETED",
+      "eval_task_model": "gemini-3.5-flash-lite",
+      "fallbacks": 0,
+      "regression_detected": true,
+      "gate": {
+        "eval_task_completed": true,
+        "managed_scores_usable": false,
+        "ci_passed": false,
+        "fallback_free": true,
+        "no_regression": false
+      },
+      "generated_at": "2026-11-22T23:19:14Z"
     }
   },
   "spread": {
     "method": "domain-level overall_mean delta run2 - run1 across the 9 canonical domains, recomputed from committed domain_summaries",
-    "mean_abs_domain_delta": 0.0708,
-    "max_abs_domain_delta": 0.25,
-    "run1_exploit_chain_mean": 3.25,
-    "run2_exploit_chain_mean": 3.5
+    "mean_abs_domain_delta": 0.1503,
+    "max_abs_domain_delta": 0.75,
+    "run1_exploit_chain_mean": 3.5,
+    "run2_exploit_chain_mean": 3.25
   },
+  "superseded": [
+    {
+      "file": "live_gate_run1.json",
+      "why": "earlier live run without per-scenario rows; its figures could not be recomputed from committed rows (AGENTS.md 6.6 / rule 80). Replaced by live_gate_rows_run1.json, not invalidated as a result."
+    },
+    {
+      "file": "live_gate_run2.json",
+      "why": "earlier live run without per-scenario rows; same reason. Replaced by live_gate_rows_run2.json."
+    }
+  ],
   "discarded": [
     {
       "file": "live_gate_discarded_missing_sdk.json",
@@ -59,9 +76,10 @@
       "fix": "Installed google-cloud-aiplatform[evaluation] into the shared venv (no manifest change; uv pip check clean) and re-ran the full pipeline twice, both producing status COMPLETED."
     }
   ],
-  "finding": "The managed Vertex EvalTask gate completed successfully in BOTH live full-suite runs (status=COMPLETED, gemini-3.5-flash-lite). Run 2 passed the full CI gate (exit 0, all_passed=true, 0 fallbacks, 0 regression). Run 1 also reached COMPLETED but the overall CI gate failed (exit 1) because the single-scenario exploit_chain domain scored 3.25 against the 3.5 threshold; run 2 scored 3.50 on that domain. Per testing rule 79 this is run-to-run judge variance (mean |domain delta| disclosed in 'spread'), not an environment fault, so run 1 is NOT discarded and is reported alongside run 2. The managed gate requirement that TASK-D03 could not verify before is now satisfied with a committed result chain; TASK-D03 can close with the variance and the discarded SDK failure disclosed.",
+  "finding": "The managed Vertex EvalTask SERVICE was invoked successfully in BOTH live full-suite runs (status=COMPLETED, gemini-3.5-flash-lite, 97 rows each), and all 97 per-scenario rubric records are committed so the CI summary is recomputed from rows rather than duplicated from a saved flag. However the managed autorater produced NO usable scores: summary_metrics mean/std are NaN and every score cell is None, so COMPLETED proves service invocation only, not that managed scoring worked. The full CI gate is also unstable across runs with this configuration: rows-run1 passed (exit 0), rows-run2 failed (exit 1) with a regression on exploit_chain/c2_detection (variance pinned in 'spread'). Therefore TASK-D03 is closed ONLY under the explicitly narrowed acceptance 'managed Vertex EvalTask service invocation verified'; usable managed scores and a stable CI gate remain unverified and are a reopen condition, not a claim of completion. One pre-gate SDK failure is recorded as discarded with its fix; two earlier runs lacking per-scenario rows are recorded as superseded, not deleted.",
   "caveats": [
-    "Judge scores vary per run; a one-scenario domain crossed the 3.5 threshold between runs. A single passing run is not a stability guarantee.",
+    "Managed autorater scores are unusable (NaN mean/std, None cells); COMPLETED must not be read as a scoring pass.",
+    "Judge scores vary per run; rows-run1 passed and rows-run2 regressed on exploit_chain/c2_detection. A single passing run is not a stability guarantee.",
     "No Tier-1 Jev calls are involved in this evidence; it is the System-1 managed EvalTask gate plus per-scenario judges.",
     "The dual-gate 'tool_trajectory_avg_score: 1.0' belongs to System 2 (tests/eval/eval_config.json / report_generator.py) and is not exercised here; this task's blocker was specifically the managed Vertex gate.",
     "Gateway TASK-F04 packaging re-verification remains re-scoped to that task."
