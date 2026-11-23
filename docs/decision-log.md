@@ -16,6 +16,18 @@ this log rather than acting on stale prose.
 
 ## 2026-11-23
 
+### TASK-F13 — keep the fixed 0.5s single retry; ignore `Retry-After`
+- **Decision:** no behavior change. `JevTriageBackend` still retries 429/529
+  exactly once after `JEV_RETRY_DELAY_S`, then raises `JevUnavailableError`.
+  Server `Retry-After` is deliberately not honored.
+- **Rationale:** live TypeSafe docs (skill-verified) describe exponential backoff
+  for raw-HTTP callers and say the vendor **SDKs** follow `Retry-After`; Blackwall
+  uses raw HTTP, and ADR 0008 Decision 4 already removed `Retry-After` parsing
+  to keep the hot path latency-bounded. An arbitrary server delay would stall
+  interception and threaten NFR-01. FR-06/rule 105 stay unchanged.
+- **Guard:** `tests/unit/test_policy_jev_triage_backend.py::test_retry_after_header_does_not_extend_the_hot_path`.
+- **Pointer:** TASK-F13 note, FR-06 dated decision note.
+
 ### Judge model stays `gemini-3.5-flash-lite` at **high** thinking; no 3.8 judge
 - **Decision:** no change. The earlier instinct that a judge needs a slower,
   more deliberate model is already satisfied: `judge` is in `ANALYTICAL_TASK_TYPES`
