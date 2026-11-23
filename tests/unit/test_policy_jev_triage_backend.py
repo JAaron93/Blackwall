@@ -349,9 +349,10 @@ def test_env_example_pins_jev_113(monkeypatch):
     assert "0.08/0.40" in comment
 
 
-def test_resolve_jev_model_helper_normalizes_aliases():
+def test_resolve_jev_model_helper_normalizes_aliases(monkeypatch):
     from blackwall.policy.semantic import resolve_jev_model
 
+    monkeypatch.delenv("JEV_MODEL", raising=False)
     assert resolve_jev_model(None) == "jev-1.13.0"
     assert resolve_jev_model("jev-latest") == "jev-1.13.0"
     assert resolve_jev_model("jev-preview") == "jev-1.13.0"
