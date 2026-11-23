@@ -77,8 +77,14 @@
     }
   ],
   "finding": "The managed Vertex EvalTask SERVICE was invoked successfully in BOTH live full-suite runs (status=COMPLETED, gemini-3.5-flash-lite, 97 rows each), and all 97 per-scenario rubric records are committed so the CI summary is recomputed from rows rather than duplicated from a saved flag. However the managed autorater produced NO usable scores: summary_metrics mean/std are NaN and every score cell is None, so COMPLETED proves service invocation only, not that managed scoring worked. The full CI gate is also unstable across runs with this configuration: rows-run1 passed (exit 0), rows-run2 failed (exit 1) with a regression on exploit_chain/c2_detection (variance pinned in 'spread'). Therefore TASK-D03 is closed ONLY under the explicitly narrowed acceptance 'managed Vertex EvalTask service invocation verified'; usable managed scores and a stable CI gate remain unverified and are a reopen condition, not a claim of completion. One pre-gate SDK failure is recorded as discarded with its fix; two earlier runs lacking per-scenario rows are recorded as superseded, not deleted.",
+  "judge_model_provenance": {
+    "status": "not recorded in committed rows",
+    "detail": "The runner's --model flag was not set on these runs, so judge_factory resolved BLACKWALL_JUDGE_MODEL from the operator's .env. The committed rows record no per-scenario judge model. The operator env at run time is known to have held a stale pre-ADR-0009 judge-model value, so the domain-mean figures cannot be attributed to the standardized default from the evidence alone. The artifacts' billed.judge_and_autorater_model field was derived from the runner default, not from the actual judge, and must not be read as a verified judge-model measurement.",
+    "maintainer_decision": "Accepted 2026-11-23: no re-run. D03 remains closed only under the narrowed acceptance 'managed Vertex EvalTask service invocation verified'; the managed EvalTask model and status ARE recorded per row, and the closure does not depend on which judge model produced the per-scenario rubric means."
+  },
   "caveats": [
     "Managed autorater scores are unusable (NaN mean/std, None cells); COMPLETED must not be read as a scoring pass.",
+    "Per-scenario judge model was not recorded and may not have been the standardized default; see judge_model_provenance and its accepted 2026-11-23 decision.",
     "Judge scores vary per run; rows-run1 passed and rows-run2 regressed on exploit_chain/c2_detection. A single passing run is not a stability guarantee.",
     "No Tier-1 Jev calls are involved in this evidence; it is the System-1 managed EvalTask gate plus per-scenario judges.",
     "The dual-gate 'tool_trajectory_avg_score: 1.0' belongs to System 2 (tests/eval/eval_config.json / report_generator.py) and is not exercised here; this task's blocker was specifically the managed Vertex gate.",
