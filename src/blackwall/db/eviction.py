@@ -375,10 +375,6 @@ class EvictionManager:
                 ),
             )
 
-    async def get_lifetime_eviction_count(self) -> int:
-        """Return total signatures evicted since this manager was created."""
-        return self._lifetime_ttl_evicted + self._lifetime_lfu_evicted
-
     async def get_total_eviction_count_from_db(self) -> int:
         """
         Return the cumulative eviction count persisted in the database.

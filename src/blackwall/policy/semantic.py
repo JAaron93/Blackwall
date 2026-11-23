@@ -832,7 +832,6 @@ def resolve_jev_model(requested: str | None = None) -> str:
     return model
 # TASK-G01 / FR-09: documented context limits and a bounded per-field truncation.
 JEV_MAX_STATE_BYTES = 64 * 1024
-JEV_MAX_QUESTION_BYTES = 32 * 1024
 JEV_MAX_FIELD_CHARS = 4096
 JEV_TRUNCATION_MARKER = "…[truncated]"
 JEV_DEFAULT_TIMEOUT_S = 5.0

@@ -25,18 +25,6 @@ from blackwall.validators import clamp_score, normalize_text
 
 logger = logging.getLogger("blackwall.attribution.linguistic")
 
-# First-person plural collective pronouns per FR-1
-COLLECTIVE_PRONOUNS: tuple[str, ...] = (
-    "we",
-    "we've",
-    "we're",
-    "we'll",
-    "us",
-    "our",
-    "ours",
-    "ourselves",
-)
-
 # Distributed consensus and swarm collaboration phrases per FR-1
 CONSENSUS_KEYWORDS: tuple[str, ...] = (
     "consensus reached",

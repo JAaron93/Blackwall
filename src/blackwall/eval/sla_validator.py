@@ -241,6 +241,3 @@ class SLAValidator:
             "by_component": by_component,
         }
 
-    def clear(self) -> None:
-        """Clear recorded measurements."""
-        self._measurements.clear()

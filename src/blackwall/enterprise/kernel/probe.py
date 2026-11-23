@@ -57,10 +57,6 @@ class KernelProbeDriver(ABC):
         """Add executable or command pattern to block list."""
         self._blocked_patterns.add(pattern)
 
-    def remove_blocked_pattern(self, pattern: str) -> None:
-        """Remove executable pattern from block list."""
-        self._blocked_patterns.discard(pattern)
-
     def inject_socket_drop(
         self, pid: Optional[int] = None, ip: Optional[str] = None
     ) -> bool:

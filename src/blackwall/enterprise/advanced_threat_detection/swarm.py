@@ -39,7 +39,6 @@ except (ImportError, AttributeError):
 
 logger = logging.getLogger("blackwall.enterprise.advanced_threat_detection.swarm")
 
-IP_REGEX = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 DOMAIN_REGEX = re.compile(r"\b[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b")
 
 
