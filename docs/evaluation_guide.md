@@ -1,5 +1,10 @@
 # Blackwall Evaluation Architecture & Operational Guide
 
+> **Decision index:** for a dated, reverse-chronological summary of calibration
+> and model-governance choices (F02, Track G, D03, F12, dead-config cleanups),
+> see `docs/decision-log.md`. This guide remains authoritative for how to run
+> and recompute the evidence.
+
 ## 1. Executive Summary & Dual Evaluation Architecture
 
 Blackwall is an autonomous Agentic Security Firewall designed to intercept execution flows at machine speed before rogue AI agents can perform unauthorized actions. To validate both the single-host **Blackwall Core** developer edition and the multi-host **Blackwall Enterprise Mesh**, Blackwall employs **two complementary evaluation systems**:
