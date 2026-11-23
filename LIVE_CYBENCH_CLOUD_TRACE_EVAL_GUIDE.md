@@ -91,8 +91,8 @@ GOOGLE_GENAI_USE_VERTEXAI=true
 
 # High-throughput models
 BLACKWALL_MODEL=gemini-3.5-flash-lite
-BLACKWALL_DEEP_REASONING_MODEL=gemini-3.5-flash-lite
-GEMINI_RPM_LIMIT=300
+# Vertex quota is enforced in code (src/blackwall/sync_resolver.py:
+# VERTEX_QUOTA_RPM=300, TIER2_RESERVED_RPM=60), not by an env variable.
 
 # =============================================================================
 # 2. Evaluation Tier & Containment Isolation
