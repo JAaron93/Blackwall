@@ -91,7 +91,6 @@ GOOGLE_GENAI_USE_VERTEXAI=true
 
 # High-throughput models
 BLACKWALL_MODEL=gemini-3.5-flash-lite
-BLACKWALL_DEEP_REASONING_MODEL=gemini-3.5-flash-lite
 GEMINI_RPM_LIMIT=300
 
 # =============================================================================
