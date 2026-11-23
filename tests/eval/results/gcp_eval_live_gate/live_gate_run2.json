@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "purpose": "TASK-D03 live managed Vertex EvalTask gate evidence; real paid calls, no mocks or fallback.",
+  "generated_at": "2026-11-22T13:59:36Z",
+  "script": "scripts/gcp_eval_live_gate.py",
+  "method": {
+    "pipeline": "scripts/run_gcp_eval.py::run_evaluation_pipeline via a recording wrapper on run_eval_task",
+    "domains": "all canonical domains",
+    "threshold": 3.5,
+    "allow_fallback": false,
+    "export_trace": false,
+    "history_path": "/private/var/folders/kx/02wxxm5x1nv1x9pl52p21j0m0000gn/T/opencode/d03_history.jsonl",
+    "authentication": "ADC; GCP settings read from the maintainer's .env via dotenv_values, values never printed or committed"
+  },
+  "billed": {
+    "project": "GCP project from .env (value withheld from the artifact)",
+    "judge_and_autorater_model": "gemini-3.5-flash-lite"
+  },
+  "eval_task": {
+    "status": "COMPLETED",
+    "metrics_table": "                                               prompt  ... threat_interception_accuracy/score\n0   {\"scenarios\": [{\"scenario_id\": \"benign_db_sele...  ...                               None\n1   {\"scenario_id\": \"prompt_inj_001\", \"domain\": \"p...  ...                               None\n2   {\"scenario_id\": \"prompt_inj_002\", \"domain\": \"p...  ...                               None\n3   {\"scenario_id\": \"prompt_inj_003\", \"domain\": \"p...  ...                               None\n4   {\"scenario_id\": \"prompt_inj_004\", \"domain\": \"p...  ...                               None\n..                                                ...  ...                                ...\n92  {\"scenario_id\": \"resolver_018\", \"domain\": \"thr...  ...                               None\n93  {\"scenario_id\": \"resolver_019\", \"domain\": \"thr...  ...                               None\n94  {\"scenario_id\": \"resolver_020\", \"domain\": \"thr...  ...                               None\n95  {\"scenario_id\": \"resolver_021\", \"domain\": \"thr...  ...                               None\n96  {\"scenario_id\": \"resolver_022\", \"domain\": \"thr...  ...                               None\n\n[97 rows x 5 columns]",
+    "summary_metrics": {
+      "row_count": 97,
+      "threat_interception_accuracy/mean": "NaN",
+      "threat_interception_accuracy/std": "NaN"
+    },
+    "model": "gemini-3.5-flash-lite",
+    "thinking_level": "high",
+    "max_output_tokens": 65536,
+    "http_timeout": 120.0
+  },
+  "summary": {
+    "domain_summaries": {
+      "threat_interception": {
+        "domain": "threat_interception",
+        "total_scenarios": 23,
+        "fallback_count": 0,
+        "fallback_rate": 0.0,
+        "valid_count": 23,
+        "dimension_means": {
+          "detection_accuracy_score": 3.2174,
+          "false_positive_control_score": 3.6087,
+          "reasoning_quality_score": 2.4783,
+          "trajectory_soundness_score": 5.0
+        },
+        "overall_mean": 3.5761,
+        "passed": true
+      },
+      "prompt_injection": {
+        "domain": "prompt_injection",
+        "total_scenarios": 16,
+        "fallback_count": 0,
+        "fallback_rate": 0.0,
+        "valid_count": 16,
+        "dimension_means": {
+          "injection_detection_rate_score": 5.0,
+          "redaction_completeness_score": 3.875,
+          "false_positive_control_score": 5.0,
+          "alert_severity_accuracy_score": 4.5
+        },
+        "overall_mean": 4.5938,
+        "passed": true
+      },
+      "swarm_detection": {
+        "domain": "swarm_detection",
+        "total_scenarios": 6,
+        "fallback_count": 0,
+        "fallback_rate": 0.0,
+        "valid_count": 6,
+        "dimension_means": {
+          "coordination_detection_score": 5.0,
+          "temporal_precision_score": 5.0,
+          "shared_infra_identification_score": 4.6667,
+          "fingerprint_quality_score": 4.6667
+        },
+        "overall_mean": 4.8333,
+        "passed": true
+      },
+      "exploit_chain": {
+        "domain": "exploit_chain",
+        "total_scenarios": 1,
+        "fallback_count": 0,
+        "fallback_rate": 0.0,
+        "valid_count": 1,
+        "dimension_means": {
+          "chain_completeness_score": 5.0,
+          "novelty_calibration_score": 2.0,
+          "mitre_mapping_accuracy_score": 2.0,
+          "chaining_confidence_score": 5.0
+        },
+        "overall_mean": 3.5,
+        "passed": true
+      },
+      "c2_detection": {
+        "domain": "c2_detection",
+        "total_scenarios": 1,
+        "fallback_count": 0,
+        "fallback_rate": 0.0,
+        "valid_count": 1,
+        "dimension_means": {
+          "endpoint_classification_score": 5.0,
+          "beaconing_detection_score": 5.0,
+          "persistence_identification_score": 4.0,
+          "cross_pillar_correlation_score": 3.0
+        },
+        "overall_mean": 4.25,
+        "passed": true
+      },
+      "ailm": {
+        "domain": "ailm",
+        "total_scenarios": 12,
+        "fallback_count": 0,
+        "fallback_rate": 0.0,
+        "valid_count": 12,
+        "dimension_means": {
+          "boundary_crossing_detection_score": 5.0,
+          "permission_composition_accuracy_score": 5.0,
+          "risk_classification_score": 4.6667,
+          "evidence_completeness_score": 5.0
+        },
+        "overall_mean": 4.9167,
+        "passed": true
+      },
+      "inbound_filter": {
+        "domain": "inbound_filter",
+        "total_scenarios": 12,
+        "fallback_count": 0,
+        "fallback_rate": 0.0,
+        "valid_count": 12,
+        "dimension_means": {
+          "header_validation_accuracy_score": 4.6667,
+          "rate_limit_precision_score": 4.4167,
+          "sanitization_quality_score": 4.5,
+          "error_response_safety_score": 4.4167
+        },
+        "overall_mean": 4.5,
+        "passed": true
+      },
+      "quota_enforcement": {
+        "domain": "quota_enforcement",
+        "total_scenarios": 12,
+        "fallback_count": 0,
+        "fallback_rate": 0.0,
+        "valid_count": 12,
+        "dimension_means": {
+          "burn_rate_detection_score": 4.3333,
+          "throttling_precision_score": 4.5,
+          "alert_timeliness_score": 4.6667,
+          "quarantine_accuracy_score": 4.3333
+        },
+        "overall_mean": 4.4583,
+        "passed": true
+      },
+      "context_hygiene": {
+        "domain": "context_hygiene",
+        "total_scenarios": 14,
+        "fallback_count": 0,
+        "fallback_rate": 0.0,
+        "valid_count": 14,
+        "dimension_means": {
+          "redaction_completeness_score": 5.0,
+          "placeholder_format_compliance_score": 4.7857,
+          "metadata_preservation_score": 4.7143,
+          "non_sensitive_passthrough_score": 4.4286
+        },
+        "overall_mean": 4.7321,
+        "passed": true
+      }
+    },
+    "total_scenarios": 97,
+    "total_fallbacks": 0,
+    "failed_scenarios": 0,
+    "overall_fallback_rate": 0.0,
+    "overall_mean": 4.3734,
+    "all_passed": true,
+    "threshold": 3.5
+  },
+  "regression": {
+    "is_baseline": true,
+    "baseline_run_id": null,
+    "current_run_id": "eval-run-bdc33c67",
+    "regression_detected": false,
+    "regressed_domains": {},
+    "domain_deltas": {},
+    "overall_delta": 0.0,
+    "details": "Run eval-run-bdc33c67 established as initial baseline."
+  },
+  "exit_code": 0,
+  "gate": {
+    "eval_task_completed": true,
+    "ci_passed": true,
+    "fallback_free": true,
+    "no_regression": true
+  },
+  "discarded": []
+}

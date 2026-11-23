@@ -85,6 +85,18 @@ export BLACKWALL_DISABLE_CLOUD_TRACE=true
 python3 scripts/run_gcp_eval.py --eval-threshold 3.5 --allow-fallback
 ```
 
+**Live managed-gate evidence (TASK-D03, 2026-11-22):** the runner above records
+no result JSON, so `scripts/gcp_eval_live_gate.py` wraps the real `run_eval_task`
+(never mocks it) and exports the managed Vertex `EvalTask` result plus all 97
+per-scenario rubric rows. Two full real-paid runs in
+`tests/eval/results/gcp_eval_live_gate/` both returned `COMPLETED`, but the
+autorater scores were `NaN`/`None` and the full CI gate was unstable (one pass,
+one regression), so D03 is closed ONLY for **service invocation**, with usable
+managed scores as a reopen condition. One SDK-missing run is discarded and two
+earlier row-less runs are superseded. Recomputed by
+`tests/unit/test_gcp_eval_live_gate_data.py`. Do not pass `--allow-fallback` when
+reproducing this evidence — fallback scoring is not a gate pass.
+
 ---
 
 ## 4. System 2: ADK / `agents-cli` Evalset Layer
