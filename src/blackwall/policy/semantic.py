@@ -804,12 +804,32 @@ JEV_TIMEOUT_ENV_VAR = "JEV_TIMEOUT_S"
 # API root (no path); requests go to ``<root>/v1/systemone``.
 JEV_DEFAULT_BASE_URL = "https://api.typesafe.ai"
 JEV_SYSTEM_ONE_PATH = "/v1/systemone"
-# ``jev-latest`` is the vendor's moving alias for the newest stable release.
-# Policy (ADR 0008): deliberately NOT pinned, so Blackwall always runs the
-# newest Jev. The fixed 0.08/0.40 band below was re-baselined by TASK-F10 on the
-# tool-name-balanced corpus and is
-# re-validated by re-running the TASK-D02 eval when TypeSafe ships a new one.
-JEV_DEFAULT_MODEL = "jev-latest"
+# TASK-F12 maintainer decision: pin the first generally available Jev release.
+# ADR 0008 Decision 7 deliberately chose the moving ``jev-latest`` alias; that
+# decision is superseded because the fixed 0.08/0.40 band (re-baselined by
+# TASK-F10 on the tool-name-balanced corpus) was tuned against a named release.
+# TypeSafe's own models docs advise sending a versioned ID in that situation.
+# G04 re-scored BOTH releases at this band, so the pin has fresh held-out
+# evidence. Any future release change needs a new A/B, not an alias flip.
+JEV_DEFAULT_MODEL = "jev-1.13.0"
+JEV_MODEL_ALIASES = frozenset({"jev-latest", "jev-preview"})
+
+
+def resolve_jev_model(requested: str | None = None) -> str:
+    """Resolve a requested Jev model to the actual versioned ID that will egress.
+
+    F12: a moving alias in an operator env or an eval harness must resolve to the
+    pinned release, so request builders, backend calls, and checkpoint
+    fingerprints all agree on the model that actually answered.
+    """
+    model = requested or os.getenv(JEV_MODEL_ENV_VAR) or JEV_DEFAULT_MODEL
+    if model in JEV_MODEL_ALIASES:
+        logger.warning(
+            "jev_model_alias_normalized",
+            extra={"requested": model, "pinned": JEV_DEFAULT_MODEL},
+        )
+        return JEV_DEFAULT_MODEL
+    return model
 # TASK-G01 / FR-09: documented context limits and a bounded per-field truncation.
 JEV_MAX_STATE_BYTES = 64 * 1024
 JEV_MAX_QUESTION_BYTES = 32 * 1024
@@ -939,7 +959,7 @@ class JevTriageBackend(SemanticTriageProvider):
         self.base_url: str = (
             base_url or os.getenv(JEV_BASE_URL_ENV_VAR) or JEV_DEFAULT_BASE_URL
         )
-        self.model: str = model or os.getenv(JEV_MODEL_ENV_VAR) or JEV_DEFAULT_MODEL
+        self.model: str = resolve_jev_model(model)
         self.timeout = (
             timeout
             if timeout is not None

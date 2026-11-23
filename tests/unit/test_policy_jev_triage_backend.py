@@ -326,26 +326,44 @@ def test_defaults_match_the_env_example_contract(monkeypatch):
         JevTriageBackend()  # no key: fail fast, nothing to default
     backend = JevTriageBackend(api_key="test-typesafe-key")
     assert backend.base_url == "https://api.typesafe.ai"
-    assert backend.model == "jev-latest"
+    assert backend.model == JEV_DEFAULT_MODEL
+    assert backend.model == "jev-1.13.0"
     assert backend.timeout == pytest.approx(5.0)
 
 
-def test_env_example_keeps_jev_latest_unpinned():
-    """ADR 0008 Decision 7: ``jev-latest`` is deliberately unpinned. .env.example
-    is the operator-facing contract, so it must keep that default as an active
-    assignment and must not tell operators to pin (a versioned ID is for a run
-    that has to be reproducible or compared against another release)."""
+def test_env_example_pins_jev_113(monkeypatch):
+    """TASK-F12 maintainer decision: production pins the first generally
+    available Jev release. .env.example is the operator-facing contract and must
+    carry the active versioned assignment, no moving alias, and the current band."""
     text = (Path(__file__).resolve().parents[2] / ".env.example").read_text(
         encoding="utf-8"
     )
     lines = text.splitlines()
-    assert "JEV_MODEL=jev-latest" in lines
+    assert "JEV_MODEL=jev-1.13.0" in lines
+    assert "JEV_MODEL=jev-latest" not in lines
     comment = "\n".join(
-        line for line in lines[: lines.index("JEV_MODEL=jev-latest")][-8:]
+        line for line in lines[: lines.index("JEV_MODEL=jev-1.13.0")][-8:]
         if line.startswith("#")
     )
-    assert "unpinned" in comment
-    assert "Pin a versioned ID" not in text
+    assert "pinned" in comment.lower()
+    assert "0.08/0.40" in comment
+
+
+def test_resolve_jev_model_helper_normalizes_aliases(monkeypatch):
+    from blackwall.policy.semantic import resolve_jev_model
+
+    monkeypatch.delenv("JEV_MODEL", raising=False)
+    assert resolve_jev_model(None) == "jev-1.13.0"
+    assert resolve_jev_model("jev-latest") == "jev-1.13.0"
+    assert resolve_jev_model("jev-preview") == "jev-1.13.0"
+    assert resolve_jev_model("jev-1.14.0") == "jev-1.14.0"
+
+
+def test_moving_alias_override_is_normalized_to_pinned_default(monkeypatch):
+    """No moving alias may reach the API even if an older .env still requests one."""
+    monkeypatch.setenv("JEV_MODEL", "jev-latest")
+    backend = JevTriageBackend(api_key="test-typesafe-key")
+    assert backend.model == "jev-1.13.0"
 
 
 def test_env_knobs_configure_backend(monkeypatch):
@@ -587,9 +605,9 @@ async def test_missing_or_malformed_usage_records_none_tokens(caplog):
 
 
 async def test_triage_record_logs_served_model_and_request_id(caplog):
-    """ADR 0008 Open Item 6 (typesafe-ai audit F5): the moving ``jev-latest``
-    alias means the served release can drift; record the model the API actually
-    served and the request id so an operator can correlate and detect drift."""
+    """ADR 0008 Open Item 6 (typesafe-ai audit F5): record the release the API
+    actually served and the request id, so telemetry verifies the pinned default
+    and would expose any unexpected drift."""
     payload = _system_one_payload(0.02)
     payload["model"] = "jev-1.14.0"  # served release, distinct from the alias
     requests: List[httpx.Request] = []

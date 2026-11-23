@@ -582,9 +582,10 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > `tests/unit/test_tier2_escalation.py` (floor, supremacy, band-edge) and the
   > "Lone clear-high Jev signal floors to QUARANTINE" scenario in
   > `tests/features/jev_tier1_triage.feature`.
-* [ ] **TASK-F07 [C2]: Re-run TASK-D02 after each TypeSafe release** behind
-  `jev-latest` (ADR 0008 OI1). The fixed 0.08/0.40 band does not follow the
-  model. Recurring; needs a live Jev key.
+* [x] **TASK-F07 [C2]: Re-run TASK-D02 after each TypeSafe release — CLOSED AS
+  N/A 2026-11-23** (was: behind `jev-latest`, ADR 0008 OI1). TASK-F12 pins Jev to
+  `jev-1.13.0`, so there is no moving alias to drift behind; the release-change
+  gate now lives in F12's pin-change rule (fresh held-out A/B + same-change sync).
   > **Telos:** Does a new Jev release preserve calibration at the fixed band?
   > Hypothesis: release drift shifts P near band edges. Informs the re-validation
   > cadence and the alias-vs-pin decision (→ F12).
@@ -695,7 +696,7 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   signal. Tests: `tests/unit/test_policy_jev_triage_backend.py`.
   - [x] Failing tests for served model + request id, absent → None, non-string → None.
   - [x] Record both fields; amend FR-07 and ADR 0008 Open Item 6.
-* [ ] **TASK-F12 [C2]: Decide alias vs pinned model in light of the skill guidance**
+* [x] **TASK-F12 [C2]: Decide alias vs pinned model in light of the skill guidance**
   (typesafe-ai skill audit F5; ADR 0008 D7, rule 105). The official skill's
   models page advises sending a specific version ID (not the moving alias) when
   confidence thresholds are tuned against a release; the fixed 0.08/0.40 band
@@ -708,8 +709,38 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > **Telos:** Does the moving alias or a pinned release give more trustworthy
   > verdicts? Hypothesis: pinning stabilizes calibration but misses release
   > improvements. Informs model governance and the F07 re-validation cadence.
-  - [ ] Weigh verdict stability vs newest-release coverage using the served-model logs.
-  - [ ] If pinning, amend rule 105 / ADR 0008 D7 and the band re-validation cadence.
+  - [x] Weigh verdict stability vs newest-release coverage using the served-model logs.
+  - [x] If pinning, amend rule 105 / ADR 0008 D7 and the band re-validation cadence.
+  >
+  > **Done 2026-11-23 — maintainer decision: PIN `jev-1.13.0`; the moving alias
+  > is retired.** Telos: does the alias or a pinned release give more trustworthy
+  > verdicts? Hypothesis: pinning stabilizes calibration but misses release
+  > improvements — **decided in favour of stability** with the following evidence.
+  > On the original 167-case suite (ADR 0008, two interleaved runs per release),
+  > 1.13 beat 1.14 on decided accuracy (99.4% vs 98.8%), ECE (0.058–0.059 vs
+  > 0.067–0.070), highest benign P (0.14 vs 0.19–0.22) and C2 mean
+  > (0.692–0.703 vs 0.632–0.635, a 0.065 drop ≈16× within-release noise); 1.14
+  > missed 2/10 evasion cases where 1.13 missed 1. Later class-blind (Nov 13)
+  > and G04 balanced-corpus (Nov 21) re-scores show no compensating 1.14 gain;
+  > F02 defense runs used 1.14 only, so no head-to-head steering claim exists.
+  > The live TypeSafe models docs confirm `jev-1.13.0` is a supported ID, that
+  > 1.14's changes (multilingual, Box, image placement) do not help this
+  > English text-only triage, and advise a versioned ID when thresholds were
+  > tuned against a release — which the fixed 0.08/0.40 band was. G04 already
+  > provides fresh held-out gate figures for BOTH releases at that band, so the
+  > pin has evidence rather than an unvalidated config flip.
+  > Implementation: `JEV_DEFAULT_MODEL = "jev-1.13.0"`; `jev-latest`/`jev-preview`
+  > are normalized to the pin by `resolve_jev_model()` in the backend, the eval
+  > helper and the harness checkpoint fingerprint (harness config v3), so a
+  > stale `.env` cannot reintroduce an alias or resume mixed-release checkpoints;
+  > `.env.example`, dev harness defaults, FR-11, design.md, ADR 0008 D7
+  > (dated amendment), `.agents/rules/`, and `.greptile/` synced in this change
+  > per constitution §6.4. TASK-F07 closed N/A (no alias to drift behind); a
+  > future pin change needs a fresh held-out A/B with `--fresh` and the same sync.
+  > Artifact chain: this note → ADR 0008 Decision 7 amendment →
+  > `docs/jev-1.13-vs-1.14-retrospective.md` → `tests/eval/results/jev_runs/`
+  > manifest (1.13/1.14 headline runs) → `tests/unit/test_jev_run_comparison_data.py`,
+  > plus `tests/eval/results/jev_g04_ab/` and `tests/unit/test_jev_g04_ab_data.py`.
 
 * [ ] **TASK-F13 [C1]: Consider honoring Retry-After within the timeout budget**
   (typesafe-ai skill audit F8; FR-06, rule 105). The skill's errors guidance

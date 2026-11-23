@@ -94,6 +94,19 @@ Tier-1 Jev calls the official TypeSafe AI API directly. Everything else in ADR
    run, which is why every eval row records the release that answered
    (`model`, taken from the response) and why D02 is re-run after TypeSafe
    ships a release behind the alias.
+   >
+   > **Amended 2026-11-23 (TASK-F12 maintainer decision) — Decision 7 is
+   > SUPERSEDED.** Production now pins **`jev-1.13.0`**; the moving alias is no
+   > longer sent. The original-suite release comparison showed 1.14 with lower
+   > C2 scores, higher benign P and slightly worse calibration, and later
+   > class-blind/balanced re-scores showed no compensating gain (G04 re-scored
+   > both releases at the 0.08/0.40 band). TypeSafe's models docs explicitly
+   > advise a versioned ID when thresholds were tuned against a release, which
+   > is our case. `JevTriageBackend` normalizes `jev-latest`/`jev-preview` back
+   > to the pin so a stale `.env` cannot reintroduce the alias; `served_model`
+   > telemetry stays. Changing the pin requires a fresh held-out A/B and the
+   > same-change spec/rule/reviewer-config sync. Full analysis:
+   > `docs/jev-1.13-vs-1.14-retrospective.md`.
 8. **Eval tooling.** The dev-only Node helper (`scripts/jev_evaluate.mjs`) uses
    Node's built-in `fetch`, so the `ai` npm package and its `npm install`
    bootstrap are removed. Its resume cache is keyed on the requested model, so
@@ -428,6 +441,10 @@ Tier-1 Jev calls the official TypeSafe AI API directly. Everything else in ADR
    nothing (found in review of this PR; `scripts/jev_triage_eval.py --fresh`
    discards the cache). The band is fixed and the model is not (Decision 7). Recalibration, if a run warrants
    it, needs its own spec amendment with fresh labeled evidence.
+   > **Superseded 2026-11-23 (TASK-F12):** production no longer follows an alias,
+   > so release drift cannot happen silently; TASK-F07 is closed N/A. A *change*
+   > of the pinned release still requires a fresh held-out A/B with `--fresh`
+   > and the same-change sync before the pin is edited.
 2. **The pipeline's Rate Check, not Jev, is the throughput limit, and Tier-2 has
    no limiter of its own.** `SyncResolver.evaluate()` begins with a hard-coded
    `TokenBucketRateLimiter(capacity=300, refill_rate=5.0)` sized for Vertex's
@@ -510,6 +527,9 @@ Tier-1 Jev calls the official TypeSafe AI API directly. Everything else in ADR
    documents the unpinned `jev-latest` default and says a specific release is for
    a reproducible or comparative run only; a test pins this
    (`test_env_example_keeps_jev_latest_unpinned`).
+   > **Reversed 2026-11-23 (TASK-F12):** the maintainer chose the versioned pin,
+   > so `.env.example` now sets `JEV_MODEL=jev-1.13.0` and the test is
+   > `test_env_example_pins_jev_113` (plus the alias-normalization guard test).
 8. **At production thresholds a clear-high Jev score alone does not block.**
    Aggregation supremacy (ADR 0006, FR-02) gives the semantic signal only the
    Context share of the score. With no TSG, structural, threat-intel or CBM signal,

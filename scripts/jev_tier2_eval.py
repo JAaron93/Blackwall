@@ -1216,7 +1216,7 @@ def job_hash(config: str, case: SteeringCase) -> str:
 
 # Bump when the measured Jev question, arbiter prompt or scoring logic changes, so a
 # checkpoint cannot reuse answers produced under a different configuration.
-HARNESS_CONFIG_VERSION = "2"  # v2: band edges are part of the checkpoint fingerprint
+HARNESS_CONFIG_VERSION = "3"  # v3: resolved pinned Jev model (F12) invalidates pre-normalization checkpoints
 
 
 def tier1_config_fingerprint() -> str:
@@ -1227,7 +1227,7 @@ def tier1_config_fingerprint() -> str:
     payload = json.dumps(
         {
             "version": HARNESS_CONFIG_VERSION,
-            "jev_model": os.getenv(semantic.JEV_MODEL_ENV_VAR) or semantic.JEV_DEFAULT_MODEL,
+            "jev_model": semantic.resolve_jev_model(),
             "jev_question": semantic.JEV_IS_THREAT_QUESTION,
             "arbiter_model": semantic.DEFAULT_GEMINI_MODEL,
             "thinking": semantic.TIER2_THINKING_LEVEL,

@@ -143,8 +143,9 @@ usage for logs, budgets, and `HistoricalRegressionTracker` baselines.
 > **Amended 2026-11-14 (typesafe-ai skill audit F5; ADR 0008 Open Item 6):** each
 > record also carries `served_model` (the release the API actually served, or
 > `None`) and `request_id` (the `x-typesafe-request-id` header), so drift behind
-> the unpinned `jev-latest` alias is observable. Telemetry only — never gates
-> the signal.
+> the pinned `jev-1.13.0` release (TASK-F12) is observed and any unexpected
+> served release is detectable. Telemetry only — never gates the signal; the
+> backend normalizes a moving alias to the pin so it cannot reach egress.
 
 ### FR-08: Two Rate Limits (Jev front; rate-partitioned Vertex quota)
 The front bucket SHALL be 80 req/s (Jev's organization limit) and guard every
