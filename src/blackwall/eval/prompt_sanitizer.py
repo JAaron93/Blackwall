@@ -36,10 +36,6 @@ SCORING_MANIPULATION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# 4. XML Tag Injection Defense (prevent closing or breaking out of <untrusted_input> or custom tags)
-TAG_ESCAPE_PATTERN = re.compile(r"<\s*/?\s*(?:untrusted_input|system_instruction|rubric|evaluation_context|ground_truth)[^>]*>", re.IGNORECASE)
-
-
 def escape_xml_payload(text: str) -> str:
     """Escape XML special characters in untrusted payloads to preserve tag boundary integrity."""
     if not isinstance(text, str):

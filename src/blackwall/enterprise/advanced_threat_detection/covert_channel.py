@@ -39,12 +39,7 @@ logger = logging.getLogger(
 import ipaddress
 from urllib.parse import urlsplit
 
-# Regex pattern for external IP addresses (IPv4)
-IP_REGEX = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 DOMAIN_REGEX = re.compile(r"\b[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b")
-
-# Base64 regex detecting potential encoded payloads (min length 8, valid base64 chars + padding)
-BASE64_PATH_REGEX = re.compile(r"[A-Za-z0-9+/]{8,}={0,2}")
 
 # Package registry keywords for steganography detection
 REGISTRY_KEYWORDS = (
