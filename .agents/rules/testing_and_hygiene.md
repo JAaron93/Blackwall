@@ -424,6 +424,7 @@
   2. **Hypothesis Property-Based Tests (`tests/property/`)**: Fuzzing invariants, round-trip serialization (`save` $\to$ `load`), and boundary stability across random inputs.
   3. **Behavior-Driven Specifications (`tests/features/` & `tests/step_defs/`)**: Gherkin behavioral contracts evaluated using `pytest-bdd` and `run_async`.
 * **Rule (First-Review Cleanliness):** Omitting any of the three layers trips the repository's automated review rules (`Test-Driven Development (TDD) & BDD Coverage`), resulting in score drops below the 4/5 threshold and review churn.
+* **Rule (Dead-Code-Only Exception):** The triad above applies to behavior changes. A change that ONLY deletes symbols with zero inbound references is exempt from new test artifacts; it MUST instead document each removed symbol and its zero-inbound verification in the PR description, keep the full unit suite green, and keep ruff F401/F821/F841 clean on changed files. Public API exports (`__all__`), documented interfaces, and any symbol with a live caller are not eligible for this exception.
 * **Rationale:** Codified after Greptile review on PR #130. Automated AI review agents enforce complete test parity across unit, property, and BDD specifications for every modified source module.
 
 ## 53. Packaging Isolation & Realistic Sustained Benchmark Pacing Invariants
