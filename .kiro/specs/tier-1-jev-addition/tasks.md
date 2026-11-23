@@ -770,12 +770,17 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > removed `Retry-After` parsing with the Gateway-era 8-attempt loop and kept
   > **one** fixed 0.5s retry so the hot path stays latency-bounded. A server
   > `Retry-After` can be arbitrarily long; honoring it would stall tool-call
-  > interception, threaten NFR-01, and push failures toward Tier-2 abstention
-  > rather than a deterministic `JevUnavailableError`. FR-06 and rule 105 pin
-  > exactly one retry with no tuning knobs, and F03 measured 0/40 throttles with
-  > the partitioned Vertex quota, so there is no observed need to change it.
-  > After the single retry the backend still raises `JevUnavailableError`; the
-  > gateway returns an error and never forwards the tool call (ADR 0009).
+  > interception and threaten NFR-01, with no security benefit: after the single
+  > retry the backend raises `JevUnavailableError` **before Tier-2 is ever
+  > called** (ADR 0009), so there is no abstention path to improve. FR-06 and
+  > rule 105 pin exactly one retry with no tuning knobs. The TypeSafe-specific
+  > evidence is the live paid Jev runs in this program — D02 (167 calls), G04
+  > (1,576), the F02 Tier-1 probe (4,600) and F02 full matched validation (2,760)
+  > — all with zero HTTP errors, against TypeSafe's documented 80 req/s
+  > organization limit matched by the front bucket. F03's 0/40 result concerns
+  > the separate **Vertex Tier-2** quota and is deliberately not used here.
+  > After the single retry the gateway returns an error and never forwards the
+  > tool call (ADR 0009).
   > Revisit only with evidence of sustained 429/529 storms at the org limit that
   > make the fixed retry insufficient; any change then needs FR-06 / rule 105
   > sync and mocked `Retry-After` storm tests. No behavior change here.
