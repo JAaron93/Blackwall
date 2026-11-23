@@ -24,7 +24,11 @@ this log rather than acting on stale prose.
   for raw-HTTP callers and say the vendor **SDKs** follow `Retry-After`; Blackwall
   uses raw HTTP, and ADR 0008 Decision 4 already removed `Retry-After` parsing
   to keep the hot path latency-bounded. An arbitrary server delay would stall
-  interception and threaten NFR-01. FR-06/rule 105 stay unchanged.
+  interception and threaten NFR-01, with no security benefit: after the retry,
+  `JevUnavailableError` propagates before Tier-2 runs. TypeSafe-specific evidence:
+  D02 (167 calls), G04 (1,576), F02 probe (4,600) and F02 full (2,760) all had
+  zero HTTP errors at the 80 req/s org limit. F03's 0/40 is Vertex Tier-2 quota
+  and is not used here. FR-06/rule 105 stay unchanged.
 - **Guard:** `tests/unit/test_policy_jev_triage_backend.py::test_retry_after_header_does_not_extend_the_hot_path`.
 - **Pointer:** TASK-F13 note, FR-06 dated decision note.
 

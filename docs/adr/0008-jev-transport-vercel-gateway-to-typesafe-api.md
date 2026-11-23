@@ -79,6 +79,14 @@ Tier-1 Jev calls the official TypeSafe AI API directly. Everything else in ADR
    staying inside a latency-bounded hot path that has a ready fallback (the
    vendor SDK's own default is two retries). To change the budget, edit
    `JEV_RETRY_DELAY_S` or the single `_post_with_one_retry` helper.
+   >
+   > **Amended 2026-11-23 (TASK-F13):** the fixed 0.5s single retry is retained
+   > and a server `Retry-After` is deliberately NOT honored. The "falls back to
+   > `gemini`" clause above was accurate when written but was superseded by ADR
+   > 0009 Decisions 3–4: Jev has no fallback, `JevUnavailableError` propagates,
+   > and the tool call is never forwarded. FR-06, design.md and rule 105 carry
+   > the current contract; the contract guard is
+   > `tests/unit/test_policy_jev_triage_backend.py::test_retry_after_header_does_not_extend_the_hot_path`.
 5. **Confidence.** A `noul` answer is a single probability with no separate
    confidence (TypeSafe: "the probability already carries the uncertainty").
    `SemanticTriageResult.confidence` is therefore `None` for Jev, and the

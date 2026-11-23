@@ -126,7 +126,7 @@ done or needs re-scoping, not more code.
   > and `529` (Overloaded), the two statuses TypeSafe documents; storms of both
   > are tested, and the old tuning knobs (`JEV_MAX_ATTEMPTS`, backoff
   > parameters) are gone.
-  > **Task created post-typesafe-ai skill audit** (2026-11-14): consider honoring the server's `Retry-After` within a bounded budget vs the pinned fixed delay (TASK-F13, maintainer decision; F8).
+  > **Task created post-typesafe-ai skill audit** (2026-11-14): consider honoring the server's `Retry-After` within a bounded budget vs the pinned fixed delay (TASK-F13, maintainer decision; F8) — **decided 2026-11-23: keep the fixed delay; see TASK-F13**.
   > [!TIP] PARALLEL EXECUTION — TASK-B03 may run alongside TASK-B02.
 * [x] **TASK-B03 [C1]: Observability fields** (FR-07). Record `backend`, `P`,
   `confidence`, `latency_ms`, token usage per triage into existing telemetry.
