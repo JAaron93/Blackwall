@@ -253,6 +253,13 @@ done or needs re-scoping, not more code.
   > System-2 `tool_trajectory_avg_score: 1.0` gate is a separate harness, not
   > exercised here; Gateway `TASK-F04` packaging re-verification stays re-scoped
   > to that task. No behavior change, no rule/config sync.
+  > **Accepted caveat 2026-11-23 (maintainer):** the per-scenario judge model was
+  > not recorded in the committed rows, and `BLACKWALL_JUDGE_MODEL` from the
+  > operator's env at run time may have been a stale pre-ADR-0009 value; the
+  > domain-mean figures are not attributable to the standardized default from
+  > this evidence. No re-run was requested — the closure rests on the managed
+  > EvalTask model/status, which ARE recorded per row. See the manifest's
+  > `judge_model_provenance` field.
   > Artifact chain: this note → ADR 0008 Verification →
   > `tests/eval/results/gcp_eval_live_gate/manifest.json` →
   > `live_gate_rows_run1.json` + `live_gate_rows_run2.json` + discarded/superseded

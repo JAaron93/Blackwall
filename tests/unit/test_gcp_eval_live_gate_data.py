@@ -149,6 +149,16 @@ def test_superseded_runs_recorded(manifest):
         assert "per-scenario rows" in entry["why"]
 
 
+def test_judge_model_provenance_caveat_is_recorded(manifest):
+    """D03 rows do not record the per-scenario judge model. The maintainer
+    accepted that uncertainty on 2026-11-23; the manifest must say so."""
+    provenance = manifest["judge_model_provenance"]
+    assert provenance["status"] == "not recorded in committed rows"
+    assert "BLACKWALL_JUDGE_MODEL" in provenance["detail"]
+    assert "Accepted 2026-11-23" in provenance["maintainer_decision"]
+    assert "no re-run" in provenance["maintainer_decision"]
+
+
 def test_pointer_chain_is_documented():
     tasks = (REPO_ROOT / ".kiro" / "specs" / "tier-1-jev-addition" / "tasks.md").read_text()
     adr = (REPO_ROOT / "docs" / "adr" / "0008-jev-transport-vercel-gateway-to-typesafe-api.md").read_text()
