@@ -776,8 +776,9 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > rule 105 pin exactly one retry with no tuning knobs. The TypeSafe-specific
   > evidence is the live paid Jev runs in this program — D02 (167 calls), G04
   > (1,576), the F02 Tier-1 probe (4,600) and F02 full matched validation (2,760)
-  > — all with zero HTTP errors, against TypeSafe's documented 80 req/s
-  > organization limit matched by the front bucket. F03's 0/40 result concerns
+  > — all with zero HTTP errors on an account whose documented org limit is 80
+  > req/s. Those runs were sequential/low-concurrency; they did NOT establish
+  > behavior at sustained 80 req/s load. F03's 0/40 result concerns
   > the separate **Vertex Tier-2** quota and is deliberately not used here.
   > After the single retry the gateway returns an error and never forwards the
   > tool call (ADR 0009).

@@ -27,8 +27,10 @@ this log rather than acting on stale prose.
   interception and threaten NFR-01, with no security benefit: after the retry,
   `JevUnavailableError` propagates before Tier-2 runs. TypeSafe-specific evidence:
   D02 (167 calls), G04 (1,576), F02 probe (4,600) and F02 full (2,760) all had
-  zero HTTP errors at the 80 req/s org limit. F03's 0/40 is Vertex Tier-2 quota
-  and is not used here. FR-06/rule 105 stay unchanged.
+  zero HTTP errors on an account whose documented TypeSafe org limit is 80 req/s;
+  these runs were sequential/low-concurrency and did NOT establish behavior at
+  sustained 80 req/s load. F03's 0/40 is Vertex Tier-2 quota and is not used here.
+  FR-06/rule 105 stay unchanged.
 - **Guard:** `tests/unit/test_policy_jev_triage_backend.py::test_retry_after_header_does_not_extend_the_hot_path`.
 - **Pointer:** TASK-F13 note, FR-06 dated decision note.
 
