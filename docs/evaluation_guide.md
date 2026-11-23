@@ -185,7 +185,8 @@ The Tier-1 Jev classifier (TypeSafe Jev via the official TypeSafe AI API, govern
 # States are ContextHygiene-sanitized; request bodies carry only model/state/questions.
 TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py
 # Options: --limit N (subset), --suites security evasion_proof, --fresh
-# The model is the jev-latest alias, deliberately unpinned (ADR 0008): it moves
+# JEV_MODEL is pinned to jev-1.13.0 (TASK-F12); an alias would silently move calibration
+# Evidence and trade-off: docs/jev-1.13-vs-1.14-retrospective.md
 # when TypeSafe ships a release, so re-run after one WITH --fresh:
 TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py --fresh
 # Resume is keyed on the requested model, which the alias never changes, so a
@@ -197,7 +198,7 @@ TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py --fresh
 # Helper contract tests (no network): node --test scripts/jev_evaluate.test.mjs
 ```
 
-This writes `tests/eval/results/jev_triage_results_class_blind.json` by default — one record per case (`eval_case_id`, `p_threat`, `backend`, `model`, `latency_ms`, token usage). `model` is the Jev release that actually answered, so results stay attributable under the moving `jev-latest` alias. Runs checkpoint and resume safely; re-running after fixture changes re-evaluates only changed cases (resume is keyed on content hash **and** the requested model, so rows from a different model or from the pre-ADR-0008 Vercel Gateway are never reused). Resume exists for interrupted runs; pass `--fresh` to discard the cache and re-score every case, which is what a new release behind `jev-latest` needs. Raw rows live in `~/.cache/blackwall/jev-eval/jev_raw_systemone.json`; any older `jev_raw.json` there is the Gateway-era copy and is left untouched.
+This writes `tests/eval/results/jev_triage_results_class_blind.json` by default — one record per case (`eval_case_id`, `p_threat`, `backend`, `model`, `latency_ms`, token usage). `model` is the Jev release that actually answered, so results stay attributable; production is pinned to `jev-1.13.0` (TASK-F12), and the served release is still logged to verify the pin. Runs checkpoint and resume safely; re-running after fixture changes re-evaluates only changed cases (resume is keyed on content hash **and** the requested model, so rows from a different model or from the pre-ADR-0008 Vercel Gateway are never reused). Resume exists for interrupted runs; pass `--fresh` to discard the cache and re-score every case, which is what a new release behind `jev-latest` needs. Raw rows live in `~/.cache/blackwall/jev-eval/jev_raw_systemone.json`; any older `jev_raw.json` there is the Gateway-era copy and is left untouched.
 
 ### Inspecting results
 

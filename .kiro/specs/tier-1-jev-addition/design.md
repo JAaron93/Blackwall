@@ -157,8 +157,9 @@ is derived from the token counts. A throttled call (`429` / `529`) is retried
 once after a fixed 0.5s, then fails closed. Rate limits are per organization
 (requests/s and tokens/s, set in the TypeSafe console; this organization, as of
 2026-11-12: 80 requests/s and 100,000 input tokens/s, both default and shared
-across keys, i.e. 4,800 RPM); there is no client-side pacing. The model is
-`jev-latest`, deliberately unpinned (ADR 0008).
+across keys, i.e. 4,800 RPM); there is no client-side pacing. The model is pinned
+to `jev-1.13.0` (TASK-F12, 2026-11-23; supersedes ADR 0008 Decision 7), with
+aliases normalized to the pin.
 
 ### 3. Tier-2 Escalation Policy (retained, narrowed)
 

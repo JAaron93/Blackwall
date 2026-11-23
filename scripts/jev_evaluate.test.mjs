@@ -47,7 +47,7 @@ test('endpoint joins an API root (never a path) with /v1/systemone', () => {
 test('request body is exactly model/state/questions with a noul question', () => {
   const body = buildRequestBody({ model: DEFAULT_MODEL, state: 'Tool: x', instructions: null });
   assert.deepEqual(Object.keys(body).sort(), ['model', 'questions', 'state']);
-  assert.equal(DEFAULT_MODEL, 'jev-latest');
+  assert.equal(DEFAULT_MODEL, 'jev-1.13.0');
   assert.deepEqual(body.questions, {
     is_threat: { type: 'noul', instructions: IS_THREAT_INSTRUCTIONS },
   });
@@ -165,7 +165,7 @@ test('single: POSTs the System One contract with bearer auth and reports p', asy
     assert.equal(out.code, 0, out.stderr);
     const result = JSON.parse(out.stdout);
     assert.equal(result.p, 0.42);
-    assert.equal(result.model, 'jev-latest');
+    assert.equal(result.model, 'jev-1.13.0');
     assert.equal(result.served_model, 'jev-1.14.0');
     assert.deepEqual(result.usage, { input_tokens: 100, output_tokens: 5 });
     assert.equal(result.is_fallback, false);
@@ -295,7 +295,7 @@ test('batch: rows without this run\'s model (Vercel-era) are never reused or kep
     const rows = JSON.parse(readFileSync(outPath, 'utf8'));
     assert.equal(rows.length, 1, 'legacy row must not survive into the output');
     assert.equal(rows[0].p, 0.2);
-    assert.equal(rows[0].model, 'jev-latest');
+    assert.equal(rows[0].model, 'jev-1.13.0');
     assert.equal(rows[0].served_model, 'jev-1.14.0');
   } finally {
     await api.close();
@@ -309,7 +309,7 @@ test('batch: a row from the same model is reused without any API call', async ()
   const outPath = join(dir, 'out.json');
   const meta = { id: 'case-1', suite: 'security', h: 'abc123', label: 0, expected: 'ALLOW', scenario: 's', tool: 't' };
   writeFileSync(casesPath, JSON.stringify([{ ...meta, state: 'Tool: t\nRequest: hi' }]));
-  writeFileSync(outPath, JSON.stringify([{ ...meta, p: 0.15, model: 'jev-latest', served_model: 'jev-1.14.0', usage: null, error: null, is_fallback: false }]));
+  writeFileSync(outPath, JSON.stringify([{ ...meta, p: 0.15, model: 'jev-1.13.0', served_model: 'jev-1.13.0', usage: null, error: null, is_fallback: false }]));
   try {
     const out = await runHelper(
       ['batch', casesPath, outPath],

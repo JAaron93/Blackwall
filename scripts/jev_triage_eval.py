@@ -16,15 +16,16 @@ ContextHygiene-sanitized before egress. Nothing secret is written to disk:
 only sanitized states, probabilities, and usage.
 
 Each record carries the Jev release that actually answered (``model``), so
-evidence stays attributable even though JEV_MODEL defaults to the moving
-``jev-latest`` alias (deliberately unpinned, ADR 0008). Calls run back to back;
-a throttled call is retried once, and any row that still fails is recorded as a
-fallback — re-running the script fills in just those rows.
+evidence stays attributable. JEV_MODEL is pinned by TASK-F12 to jev-1.13.0;
+the backend normalizes a moving alias back to that release, and the served
+release is still logged for telemetry. Calls run back to back; a throttled call
+is retried once, and any row that still fails is recorded as a fallback —
+re-running the script fills in just those rows.
 
 Usage:
   TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py
   TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py --limit 10
-  # after TypeSafe ships a release behind jev-latest (resume would replay old rows):
+  # when changing the pinned release (resume would replay old rows):
   TYPESAFE_API_KEY=... .venv/bin/python scripts/jev_triage_eval.py --fresh
 """
 
@@ -188,9 +189,9 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "discard the cached raw rows and call the API for every case. Use it "
-            "after TypeSafe ships a release behind jev-latest: resume is keyed on "
-            "the requested model, and the alias name does not change, so without "
-            "this flag the old release's rows are replayed and nothing is called"
+            "when changing the pinned JEV_MODEL release: resume is keyed on the "
+            "requested model, so without this flag the old release's rows are "
+            "replayed and nothing is called"
         ),
     )
     return ap

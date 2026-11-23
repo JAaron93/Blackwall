@@ -25,7 +25,7 @@
  * state or a different classifier.
  *
  * Env knobs: TYPESAFE_BASE_URL (API root, default https://api.typesafe.ai),
- *   JEV_MODEL (default jev-latest, deliberately unpinned — ADR 0008),
+ *   JEV_MODEL (default jev-1.13.0, pinned by TASK-F12),
  *   JEV_TIMEOUT_MS (per-call abort, default 60000).
  *
  * Tests: node --test scripts/jev_evaluate.test.mjs
@@ -36,7 +36,7 @@ import { fileURLToPath } from 'node:url';
 
 export const DEFAULT_BASE_URL = 'https://api.typesafe.ai';
 export const SYSTEM_ONE_PATH = '/v1/systemone';
-export const DEFAULT_MODEL = 'jev-latest';
+export const DEFAULT_MODEL = 'jev-1.13.0';
 
 // Verbatim from the decontaminated A/B harness; src/blackwall/policy/semantic.py
 // (JEV_IS_THREAT_QUESTION) must carry the identical text — the calibrated
