@@ -60,8 +60,8 @@ The legacy single-question arm was scored for **both** releases at the current
 | --- | --- | --- |
 | Accuracy | 0.8636–0.8736 | 0.8721–0.8750 |
 | AUROC | 0.9753–0.9780 | 0.9700–0.9812 |
-| ECE | 0.2530–0.2559 | 0.2530–0.2552 |
-| In-band Tier-2 fire | 12.9–14.9% | 12.9–14.9% |
+| ECE | 0.2555–0.2559 | 0.2530–0.2552 |
+| In-band Tier-2 fire | 12.9–13.9% | 12.9–14.9% |
 | FRR | 0 | 0 |
 
 Both releases passed the five re-baselined F10 gates plus FRR; both failed the

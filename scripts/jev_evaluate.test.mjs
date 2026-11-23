@@ -182,6 +182,21 @@ test('single: POSTs the System One contract with bearer auth and reports p', asy
   }
 });
 
+test('single: a moving JEV_MODEL alias is normalized to the pinned release', async () => {
+  const api = await fakeApi([ok(0.1)]);
+  try {
+    const out = await runHelper(
+      ['single'],
+      { TYPESAFE_API_KEY: 'k', TYPESAFE_BASE_URL: api.url, JEV_MODEL: 'jev-latest' },
+      JSON.stringify({ state: 's' }),
+    );
+    assert.equal(JSON.parse(api.seen[0].body).model, 'jev-1.13.0');
+    assert.equal(JSON.parse(out.stdout).model, 'jev-1.13.0');
+  } finally {
+    await api.close();
+  }
+});
+
 test('single: JEV_MODEL pins the requested model', async () => {
   const api = await fakeApi([ok(0.1)]);
   try {

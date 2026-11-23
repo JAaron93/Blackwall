@@ -813,6 +813,23 @@ JEV_SYSTEM_ONE_PATH = "/v1/systemone"
 # evidence. Any future release change needs a new A/B, not an alias flip.
 JEV_DEFAULT_MODEL = "jev-1.13.0"
 JEV_MODEL_ALIASES = frozenset({"jev-latest", "jev-preview"})
+
+
+def resolve_jev_model(requested: str | None = None) -> str:
+    """Resolve a requested Jev model to the actual versioned ID that will egress.
+
+    F12: a moving alias in an operator env or an eval harness must resolve to the
+    pinned release, so request builders, backend calls, and checkpoint
+    fingerprints all agree on the model that actually answered.
+    """
+    model = requested or os.getenv(JEV_MODEL_ENV_VAR) or JEV_DEFAULT_MODEL
+    if model in JEV_MODEL_ALIASES:
+        logger.warning(
+            "jev_model_alias_normalized",
+            extra={"requested": model, "pinned": JEV_DEFAULT_MODEL},
+        )
+        return JEV_DEFAULT_MODEL
+    return model
 # TASK-G01 / FR-09: documented context limits and a bounded per-field truncation.
 JEV_MAX_STATE_BYTES = 64 * 1024
 JEV_MAX_QUESTION_BYTES = 32 * 1024
@@ -942,16 +959,7 @@ class JevTriageBackend(SemanticTriageProvider):
         self.base_url: str = (
             base_url or os.getenv(JEV_BASE_URL_ENV_VAR) or JEV_DEFAULT_BASE_URL
         )
-        requested_model = model or os.getenv(JEV_MODEL_ENV_VAR) or JEV_DEFAULT_MODEL
-        if requested_model in JEV_MODEL_ALIASES:
-            # F12: an old .env or caller must not silently reintroduce a moving
-            # alias into the egress payload; fail closed to the pinned release.
-            logger.warning(
-                "jev_model_alias_normalized",
-                extra={"requested": requested_model, "pinned": JEV_DEFAULT_MODEL},
-            )
-            requested_model = JEV_DEFAULT_MODEL
-        self.model: str = requested_model
+        self.model: str = resolve_jev_model(model)
         self.timeout = (
             timeout
             if timeout is not None

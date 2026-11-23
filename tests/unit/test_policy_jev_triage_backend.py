@@ -349,6 +349,15 @@ def test_env_example_pins_jev_113(monkeypatch):
     assert "0.08/0.40" in comment
 
 
+def test_resolve_jev_model_helper_normalizes_aliases():
+    from blackwall.policy.semantic import resolve_jev_model
+
+    assert resolve_jev_model(None) == "jev-1.13.0"
+    assert resolve_jev_model("jev-latest") == "jev-1.13.0"
+    assert resolve_jev_model("jev-preview") == "jev-1.13.0"
+    assert resolve_jev_model("jev-1.14.0") == "jev-1.14.0"
+
+
 def test_moving_alias_override_is_normalized_to_pinned_default(monkeypatch):
     """No moving alias may reach the API even if an older .env still requests one."""
     monkeypatch.setenv("JEV_MODEL", "jev-latest")

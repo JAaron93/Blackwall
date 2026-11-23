@@ -730,8 +730,10 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > provides fresh held-out gate figures for BOTH releases at that band, so the
   > pin has evidence rather than an unvalidated config flip.
   > Implementation: `JEV_DEFAULT_MODEL = "jev-1.13.0"`; `jev-latest`/`jev-preview`
-  > are normalized to the pin in the backend so a stale `.env` cannot reintroduce
-  > an alias; `.env.example`, dev harness defaults, FR-11, design.md, ADR 0008 D7
+  > are normalized to the pin by `resolve_jev_model()` in the backend, the eval
+  > helper and the harness checkpoint fingerprint (harness config v3), so a
+  > stale `.env` cannot reintroduce an alias or resume mixed-release checkpoints;
+  > `.env.example`, dev harness defaults, FR-11, design.md, ADR 0008 D7
   > (dated amendment), `.agents/rules/`, and `.greptile/` synced in this change
   > per constitution §6.4. TASK-F07 closed N/A (no alias to drift behind); a
   > future pin change needs a fresh held-out A/B with `--fresh` and the same sync.

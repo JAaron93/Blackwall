@@ -70,7 +70,18 @@ def test_band_edges_are_part_of_the_checkpoint_fingerprint(harness, monkeypatch)
     monkeypatch.setattr(harness.semantic, "JEV_CLEAR_HIGH_THRESHOLD", 0.75)
     after = harness.tier1_config_fingerprint()
     assert after != before
-    assert harness.HARNESS_CONFIG_VERSION == "2"
+    assert harness.HARNESS_CONFIG_VERSION == "3"
+
+
+def test_checkpoint_fingerprint_uses_resolved_model_not_raw_env(harness, monkeypatch):
+    """F12: a stale JEV_MODEL=alias must not reuse checkpoints made against a
+    different release; the fingerprint hashes the normalized pinned model."""
+    monkeypatch.setenv(harness.semantic.JEV_MODEL_ENV_VAR, "jev-latest")
+    aliased = harness.tier1_config_fingerprint()
+    monkeypatch.setenv(harness.semantic.JEV_MODEL_ENV_VAR, "jev-1.13.0")
+    assert harness.tier1_config_fingerprint() == aliased
+    monkeypatch.setenv(harness.semantic.JEV_MODEL_ENV_VAR, "jev-1.14.0")
+    assert harness.tier1_config_fingerprint() != aliased
 
 
 # ------------------------------------------------- F02 defense experiment (harness-only)
