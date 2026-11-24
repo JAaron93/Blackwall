@@ -456,6 +456,25 @@ async def test_429_storm_retries_once_then_raises():
     assert sleep.calls == [JEV_RETRY_DELAY_S]
 
 
+async def test_retry_after_header_does_not_extend_the_hot_path():
+    """TASK-F13 decision 2026-11-23: keep the fixed single retry. A server
+    Retry-After (even an hour) must not stall the interception path; after one
+    fixed-delay retry the backend still fails closed."""
+    requests: List[httpx.Request] = []
+    sleep = _FakeSleep()
+
+    def rate_limited_with_retry_after(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429, json={"message": "rate limit exceeded"}, headers={"Retry-After": "3600"}
+        )
+
+    backend = _backend(rate_limited_with_retry_after, requests, sleep=sleep)
+    with pytest.raises(JevUnavailableError):
+        await backend.triage(_context())
+    assert len(requests) == 2
+    assert sleep.calls == [JEV_RETRY_DELAY_S]
+
+
 async def test_429_then_success_retries_once():
     requests: List[httpx.Request] = []
     sleep = _FakeSleep()

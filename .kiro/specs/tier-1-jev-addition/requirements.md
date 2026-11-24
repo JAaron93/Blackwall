@@ -130,6 +130,12 @@ tool call SHALL NOT be forwarded. The error message SHALL NOT contain the API
 key or a response body. There is no client-side pacing and no retry-tuning
 environment variable; the organization's rate limit is set by TypeSafe (see
 ADR 0008, ADR 0009).
+> **F13 decision 2026-11-23:** the fixed single retry is retained; a server
+> `Retry-After` header is deliberately NOT honored, because an unbounded delay
+> would break the interception hot path's latency bound. This requirement and
+> rule 105 are unchanged. Revisit only with evidence of sustained throttling at
+> the org limit; the contract is pinned by
+> `tests/unit/test_policy_jev_triage_backend.py::test_retry_after_header_does_not_extend_the_hot_path`.
 
 ### FR-07: Observability
 Each triage SHALL record `backend`, `P`, `confidence`, `latency_ms`, and token

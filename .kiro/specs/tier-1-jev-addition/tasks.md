@@ -126,7 +126,7 @@ done or needs re-scoping, not more code.
   > and `529` (Overloaded), the two statuses TypeSafe documents; storms of both
   > are tested, and the old tuning knobs (`JEV_MAX_ATTEMPTS`, backoff
   > parameters) are gone.
-  > **Task created post-typesafe-ai skill audit** (2026-11-14): consider honoring the server's `Retry-After` within a bounded budget vs the pinned fixed delay (TASK-F13, maintainer decision; F8).
+  > **Task created post-typesafe-ai skill audit** (2026-11-14): consider honoring the server's `Retry-After` within a bounded budget vs the pinned fixed delay (TASK-F13, maintainer decision; F8) — **decided 2026-11-23: keep the fixed delay; see TASK-F13**.
   > [!TIP] PARALLEL EXECUTION — TASK-B03 may run alongside TASK-B02.
 * [x] **TASK-B03 [C1]: Observability fields** (FR-07). Record `backend`, `P`,
   `confidence`, `latency_ms`, token usage per triage into existing telemetry.
@@ -749,7 +749,7 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   > manifest (1.13/1.14 headline runs) → `tests/unit/test_jev_run_comparison_data.py`,
   > plus `tests/eval/results/jev_g04_ab/` and `tests/unit/test_jev_g04_ab_data.py`.
 
-* [ ] **TASK-F13 [C1]: Consider honoring Retry-After within the timeout budget**
+* [x] **TASK-F13 [C1]: Consider honoring Retry-After within the timeout budget — DECIDED: keep the fixed single retry**
   (typesafe-ai skill audit F8; FR-06, rule 105). The skill's errors guidance
   retries 429/529 after the server's `Retry-After`; the backend currently uses a
   fixed short delay (deliberately pinned: one retry, no tuning knobs). Maintainer
@@ -757,8 +757,38 @@ testing rule 74 (never simulated, deferred in this file until it can run).
   the hot path cannot stall. Any change amends FR-06 / rule 105 with a same-change
   sync and TDD (mocked `Retry-After` storms); do not change the pinned contract
   unilaterally.
-  - [ ] Weigh latency determinism vs server-guided backoff.
-  - [ ] If adopted, cap the delay and keep exactly one retry; amend FR-06 / rule 105.
+  - [x] Weigh latency determinism vs server-guided backoff.
+  - [x] Decision recorded: keep the pinned contract, so no FR-06 / rule 105 amendment is needed.
+  >
+  > **Done 2026-11-23 — maintainer decision: KEEP the fixed 0.5s single retry;
+  > do NOT honor `Retry-After`.** Telos: is a bounded server-guided backoff worth
+  > changing the pinned fail-fast contract? No, on the current evidence.
+  > The `typesafe-ai` skill's live docs (checked 2026-11-23) say raw-HTTP callers
+  > should retry 429/529 after a short delay with exponential backoff, and that
+  > the vendor **SDKs** follow `Retry-After`. Blackwall calls the raw HTTP API,
+  > not an SDK, and ADR 0008 Decision 4 already weighed this explicitly: it
+  > removed `Retry-After` parsing with the Gateway-era 8-attempt loop and kept
+  > **one** fixed 0.5s retry so the hot path stays latency-bounded. A server
+  > `Retry-After` can be arbitrarily long; honoring it would stall tool-call
+  > interception and threaten NFR-01, with no security benefit: after the single
+  > retry the backend raises `JevUnavailableError` **before Tier-2 is ever
+  > called** (ADR 0009), so there is no abstention path to improve. FR-06 and
+  > rule 105 pin exactly one retry with no tuning knobs. The TypeSafe-specific
+  > evidence is the live paid Jev runs in this program — D02 (167 calls), G04
+  > (1,576), the F02 Tier-1 probe (4,600) and F02 full matched validation (2,760)
+  > — all with zero HTTP errors on an account whose documented org limit is 80
+  > req/s. Those runs were sequential/low-concurrency; they did NOT establish
+  > behavior at sustained 80 req/s load. F03's 0/40 result concerns
+  > the separate **Vertex Tier-2** quota and is deliberately not used here.
+  > After the single retry the gateway returns an error and never forwards the
+  > tool call (ADR 0009).
+  > Revisit only with evidence of sustained 429/529 storms at the org limit that
+  > make the fixed retry insufficient; any change then needs FR-06 / rule 105
+  > sync and mocked `Retry-After` storm tests. No behavior change here.
+  > Contract guard: `tests/unit/test_policy_jev_triage_backend.py::test_retry_after_header_does_not_extend_the_hot_path`
+  > asserts a 1-hour `Retry-After` still sleeps only `JEV_RETRY_DELAY_S` and
+  > fails closed after two requests. Vendor docs consulted:
+  > `https://docs.typesafe.ai/api/errors.md` and `https://docs.typesafe.ai/models.md`.
 * [x] **TASK-F14 [C1]: Wording-parity guard + debug payload logging** (typesafe-ai
   skill audit F9/F10; FR-07). Done 2026-11-14: a static guard asserts the dev
   Node helper (`scripts/jev_evaluate.mjs`) and `JEV_IS_THREAT_QUESTION` carry
