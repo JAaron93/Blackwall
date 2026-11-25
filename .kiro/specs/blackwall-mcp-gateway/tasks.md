@@ -258,7 +258,7 @@ Review and finalize all three spec files (`design.md`, `requirements.md`, `tasks
 > `TASK-F01` (macOS LaunchAgent Service Manager) and `TASK-F02` (Python Audit Hook Bootstrap) can be developed concurrently in Track E.
 
 #### TASK-F01: Implement macOS Background Service Manager (launchd LaunchAgent for Apple Silicon & Intel)
-**Status:** ⏳ Not Started
+**Status:** [ ] Not Started
 **Dependencies:** TASK-C03
 **Requirements Satisfied:** FR-10, US-06, US-09
 
@@ -287,7 +287,7 @@ Implement the macOS background service management module and CLI subcommands for
 11. Protected TypeSafe key storage (TDD): with `TYPESAFE_API_KEY` present, `install` writes the value ONLY to the `0600` env file (`~/.blackwall/gateway.env`); tests assert the key value appears in ZERO generated plist or log artifacts, the daemon loads it at startup, and `configure --typesafe-key` provisions the same file under the same rules.
 
 #### TASK-F02: Implement Python Audit Hook Auto-Bootstrap
-**Status:** ⏳ Not Started
+**Status:** [ ] Not Started
 **Dependencies:** TASK-C03
 **Requirements Satisfied:** FR-12, US-01, US-06
 
@@ -305,7 +305,7 @@ Implement the global Python runtime audit hook bootstrap manager across macOS (A
 5. All unit tests pass.
 
 #### TASK-F03: Implement macOS Menu Bar Tray Application & System Notifications
-**Status:** ⏳ Not Started
+**Status:** [ ] Not Started
 **Dependencies:** TASK-F01, TASK-C01
 **Requirements Satisfied:** FR-11, US-06
 
@@ -324,7 +324,7 @@ Build a lightweight native macOS Menu Bar application (`Blackwall.app`):
 5. All unit and UI tests pass.
 
 #### TASK-F04: Build GitHub Actions Release Packaging Pipeline (macOS .dmg for Apple Silicon & Intel)
-**Status:** ⏳ Not Started
+**Status:** [ ] Not Started
 **Dependencies:** TASK-F03
 **Requirements Satisfied:** FR-13, US-07, US-09, NFR-01, NFR-07
 
@@ -342,7 +342,7 @@ Create the GitHub Actions workflow (`.github/workflows/release_packages.yml`) to
 5. Forward-compat (Tier-1 Jev, see `.kiro/specs/tier-1-jev-addition/`): the packaged dependency closure contains no non-Python runtime (NFR-01), and a packaged-environment smoke test imports the Jev triage backend (`BW_SEMANTIC_BACKEND=jev` import check, mocked evaluation) without error.
 
 #### TASK-F05: Implement Apple Silicon & Intel macOS Performance, Unified Memory & Resource Verification Tests
-**Status:** ⏳ Not Started
+**Status:** [ ] Not Started
 **Dependencies:** TASK-F01, TASK-F04
 **Requirements Satisfied:** FR-14, NFR-06, US-08
 
@@ -469,7 +469,7 @@ Demo flow:
 7. All tests pass.
 
 #### TASK-G04: Build Recording Infrastructure & README Integration
-**Status:** ⏳ Not Started
+**Status:** [ ] Not Started
 **Dependencies:** TASK-G02, TASK-G03, TASK-G05, TASK-G06
 **Requirements Satisfied:** FR-15, US-10, US-11, US-12, US-13
 
@@ -496,7 +496,7 @@ Components:
 5. Recording infrastructure handles graceful cleanup of honeypot and gateway processes on script termination (SIGTERM/SIGINT).
 
 #### TASK-G05: Implement "The Poisoned Package" Demo Scenario (BLOCK via Python Audit Hook — Supply Chain Defense-in-Depth)
-**Status:** ⏳ Not Started
+**Status:** [ ] Not Started
 **Dependencies:** TASK-G01, TASK-F02
 **Requirements Satisfied:** FR-12, FR-15, US-12
 
@@ -547,7 +547,7 @@ Demo flow:
 8. All tests pass.
 
 #### TASK-G06: Implement "The Bouncer" Demo Scenario (Tier-1 Jev Fast Path + Tier-2 Escalation)
-**Status:** ⏳ Not Started
+**Status:** [ ] Not Started
 **Dependencies:** TASK-G01, TASK-B01, TASK-B02, TASK-C01; Tier-1 Jev backend implementation (`.kiro/specs/tier-1-jev-addition/` Track B) MUST be complete
 **Requirements Satisfied:** FR-03, FR-04, FR-15, US-13
 
