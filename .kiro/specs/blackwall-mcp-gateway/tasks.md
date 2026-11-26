@@ -1,7 +1,5 @@
 # Implementation Tasks: Blackwall MCP Gateway
 
-## Overview
-
 This document outlines the test-driven implementation plan for building the Blackwall MCP Gateway — a standalone, pure-Python local security daemon that intercepts MCP tool calls, evaluates them against Blackwall's threat intelligence engine, and enforces security verdicts. **Strict adherence to Test-Driven Development (TDD) and Behavior-Driven Development (BDD) is required.**
 
 Tasks are divided into parallel and sequential execution tracks. **Tracks that share the same phase can be executed concurrently.**
@@ -16,9 +14,10 @@ Tasks are divided into parallel and sequential execution tracks. **Tracks that s
 
 ### Track A: Protocol Gateway Infrastructure
 
-#### TASK-A01: Implement Asyncio MCP Gateway Server
-**Status:** [x] Completed
+* [x] **TASK-A01: Implement Asyncio MCP Gateway Server**
+
 **Dependencies:** None
+
 **Requirements Satisfied:** FR-01, FR-02, US-03, NFR-01
 
 **Description:**
@@ -35,9 +34,10 @@ Build a Python `asyncio` server capable of receiving bidirectional JSON-RPC 2.0 
 8. Zero Node.js dependencies are introduced.
 9. All unit tests pass.
 
-#### TASK-A02: Implement Flow Control & Request Tracking
-**Status:** [x] Completed
+* [x] **TASK-A02: Implement Flow Control & Request Tracking**
+
 **Dependencies:** TASK-A01
+
 **Requirements Satisfied:** FR-01, FR-02, FR-04
 
 **Description:**
@@ -53,9 +53,10 @@ Implement the flow control mechanism that holds intercepted `tools/call` request
 
 ### Track B: Interceptor & Synthesizer
 
-#### TASK-B01: Implement Payload Interceptor (MCP → ToolCallContext)
-**Status:** [x] Completed
+* [x] **TASK-B01: Implement Payload Interceptor (MCP → ToolCallContext)**
+
 **Dependencies:** None
+
 **Requirements Satisfied:** FR-03, FR-05
 
 **Description:**
@@ -68,9 +69,10 @@ Create the interception layer that takes an MCP `tools/call` JSON-RPC payload, e
 4. Blocked payloads are redacted before persistence to the threat graph.
 5. All unit tests pass (TDD).
 
-#### TASK-B02: Implement JSON-RPC Response Synthesizer
-**Status:** [x] Completed
+* [x] **TASK-B02: Implement JSON-RPC Response Synthesizer**
+
 **Dependencies:** None
+
 **Requirements Satisfied:** FR-04, US-02
 
 **Description:**
@@ -95,9 +97,10 @@ Build the synthesizer that translates Blackwall verdicts into MCP-compliant JSON
 
 ### Track C: End-to-End Pipeline & CLI
 
-#### TASK-C01: Wire Gateway → Interceptor → SyncResolver → Synthesizer
-**Status:** [x] Completed
+* [x] **TASK-C01: Wire Gateway → Interceptor → SyncResolver → Synthesizer**
+
 **Dependencies:** TASK-A02, TASK-B01, TASK-B02
+
 **Requirements Satisfied:** FR-04, NFR-02, US-01
 
 **Description:**
@@ -110,9 +113,10 @@ Wire the Protocol Gateway (A02) to the `SyncResolver` pipeline using the Payload
 4. A QUARANTINE verdict returns the synthesized JSON-RPC error (`-32001`).
 5. Gateway overhead is demonstrably < 10ms in benchmarking tests.
 
-#### TASK-C02: Implement Upstream Tool Server Manager
-**Status:** [x] Completed
+* [x] **TASK-C02: Implement Upstream Tool Server Manager**
+
 **Dependencies:** TASK-C01
+
 **Requirements Satisfied:** FR-07
 
 **Description:**
@@ -127,9 +131,10 @@ Implement the upstream/downstream tool server management module:
 3. Downstream processes are terminated cleanly on gateway shutdown (SIGTERM propagation).
 4. All unit tests pass (TDD).
 
-#### TASK-C03: Implement CLI Entry Point & Daemon Lifecycle
-**Status:** [x] Completed
+* [x] **TASK-C03: Implement CLI Entry Point & Daemon Lifecycle**
+
 **Dependencies:** TASK-C01
+
 **Requirements Satisfied:** FR-02, FR-06, FR-08, FR-09, US-04, US-05
 
 **Description:**
@@ -166,9 +171,10 @@ Build the `click`-based CLI (`src/blackwall/cli.py`) and daemon lifecycle manage
 
 ### Track D: End-to-End BDD Tests & Scaffolding
 
-#### TASK-D01: BDD E2E Test — stdio Gateway Blocks Malicious Tool Call
-**Status:** [x] Completed
+* [x] **TASK-D01: BDD E2E Test — stdio Gateway Blocks Malicious Tool Call**
+
 **Dependencies:** TASK-C02, TASK-C03
+
 **Requirements Satisfied:** NFR-04, NFR-05, US-01
 
 **Description:**
@@ -184,9 +190,10 @@ Write a behavior-driven integration test simulating a malicious `tools/call` ove
 7. The subprocess group MUST be terminated in a `finally` handler, including cleanup on test failures.
 8. `pytest-bdd` executes the feature and passes.
 
-#### TASK-D02: BDD E2E Test — HTTP Gateway Blocks Malicious Tool Call
-**Status:** [x] Completed
+* [x] **TASK-D02: BDD E2E Test — HTTP Gateway Blocks Malicious Tool Call**
+
 **Dependencies:** TASK-D01
+
 **Requirements Satisfied:** FR-02, NFR-05
 
 **Description:**
@@ -201,9 +208,10 @@ Replicate TASK-D01 using the Streamable HTTP transport (`POST /mcp` on `localhos
 6. Add Gherkin scenario for unauthenticated non-loopback rejection: gateway starts with `--host 0.0.0.0 --auth-token <test-token>`, a request without a valid token is rejected with HTTP 401.
 7. `pytest-bdd` passes.
 
-#### TASK-D03: BDD E2E Test — ALLOW Verdict Forwards to Upstream
-**Status:** [x] Completed
+* [x] **TASK-D03: BDD E2E Test — ALLOW Verdict Forwards to Upstream**
+
 **Dependencies:** TASK-D01
+
 **Requirements Satisfied:** FR-04, FR-07, US-01
 
 **Description:**
@@ -216,9 +224,10 @@ Write a BDD test verifying that benign tool calls are forwarded to the downstrea
 4. Assert the agent receives the downstream server's response unchanged.
 5. `pytest-bdd` passes.
 
-#### TASK-D04: Resource Profiling on Intel MacBook Baseline
-**Status:** [x] Completed
+* [x] **TASK-D04: Resource Profiling on Intel MacBook Baseline**
+
 **Dependencies:** TASK-C03
+
 **Requirements Satisfied:** NFR-06, US-04
 
 **Description:**
@@ -236,9 +245,10 @@ Profile Blackwall Core daemon on the 2019 Intel MacBook Pro baseline to verify r
 
 ## 🛤️ Phase 4: Documentation & Spec Finalization
 
-#### TASK-E01: Finalize Spec Documentation
-**Status:** [x] Completed
+* [x] **TASK-E01: Finalize Spec Documentation**
+
 **Dependencies:** All previous tasks
+
 **Requirements Satisfied:** All
 
 **Description:**
@@ -257,9 +267,10 @@ Review and finalize all three spec files (`design.md`, `requirements.md`, `tasks
 > **PARALLEL EXECUTION**
 > `TASK-F01` (macOS LaunchAgent Service Manager) and `TASK-F02` (Python Audit Hook Bootstrap) can be developed concurrently in Track E.
 
-#### TASK-F01: Implement macOS Background Service Manager (launchd LaunchAgent for Apple Silicon & Intel)
-**Status:** [ ] Not Started
+* [ ] **TASK-F01: Implement macOS Background Service Manager (launchd LaunchAgent for Apple Silicon & Intel)**
+
 **Dependencies:** TASK-C03
+
 **Requirements Satisfied:** FR-10, US-06, US-09
 
 **Description:**
@@ -286,9 +297,10 @@ Implement the macOS background service management module and CLI subcommands for
 10. All unit tests pass.
 11. Protected TypeSafe key storage (TDD): with `TYPESAFE_API_KEY` present, `install` writes the value ONLY to the `0600` env file (`~/.blackwall/gateway.env`); tests assert the key value appears in ZERO generated plist or log artifacts, the daemon loads it at startup, and `configure --typesafe-key` provisions the same file under the same rules.
 
-#### TASK-F02: Implement Python Audit Hook Auto-Bootstrap
-**Status:** [ ] Not Started
+* [ ] **TASK-F02: Implement Python Audit Hook Auto-Bootstrap**
+
 **Dependencies:** TASK-C03
+
 **Requirements Satisfied:** FR-12, US-01, US-06
 
 **Description:**
@@ -304,9 +316,10 @@ Implement the global Python runtime audit hook bootstrap manager across macOS (A
 4. `hook uninstall` restores original `sitecustomize.py` state with byte-for-byte fidelity.
 5. All unit tests pass.
 
-#### TASK-F03: Implement macOS Menu Bar Tray Application & System Notifications
-**Status:** [ ] Not Started
+* [ ] **TASK-F03: Implement macOS Menu Bar Tray Application & System Notifications**
+
 **Dependencies:** TASK-F01, TASK-C01
+
 **Requirements Satisfied:** FR-11, US-06
 
 **Description:**
@@ -323,9 +336,10 @@ Build a lightweight native macOS Menu Bar application (`Blackwall.app`):
 4. Idle memory footprint remains < 25MB RAM and 0.0% CPU.
 5. All unit and UI tests pass.
 
-#### TASK-F04: Build GitHub Actions Release Packaging Pipeline (macOS .dmg for Apple Silicon & Intel)
-**Status:** [ ] Not Started
+* [ ] **TASK-F04: Build GitHub Actions Release Packaging Pipeline (macOS .dmg for Apple Silicon & Intel)**
+
 **Dependencies:** TASK-F03
+
 **Requirements Satisfied:** FR-13, US-07, US-09, NFR-01, NFR-07
 
 **Description:**
@@ -341,9 +355,10 @@ Create the GitHub Actions workflow (`.github/workflows/release_packages.yml`) to
 4. All build verification checks pass.
 5. Forward-compat (Tier-1 Jev, see `.kiro/specs/tier-1-jev-addition/`): the packaged dependency closure contains no non-Python runtime (NFR-01), and a packaged-environment smoke test imports the Jev triage backend (`BW_SEMANTIC_BACKEND=jev` import check, mocked evaluation) without error.
 
-#### TASK-F05: Implement Apple Silicon & Intel macOS Performance, Unified Memory & Resource Verification Tests
-**Status:** [ ] Not Started
+* [ ] **TASK-F05: Implement Apple Silicon & Intel macOS Performance, Unified Memory & Resource Verification Tests**
+
 **Dependencies:** TASK-F01, TASK-F04
+
 **Requirements Satisfied:** FR-14, NFR-06, US-08
 
 **Description:**
@@ -373,9 +388,10 @@ Implement verification tests ensuring Blackwall Core meets performance and resou
 
 ### Track G: Demo Scenario Infrastructure & Recording
 
-#### TASK-G01: Build Local Honeypot Web Server & Prompt Injection Payload Fixtures
-**Status:** [x] Completed (PR #175)
+* [x] **TASK-G01: Build Local Honeypot Web Server & Prompt Injection Payload Fixtures**
+
 **Dependencies:** TASK-C01, TASK-C03
+
 **Requirements Satisfied:** FR-15, US-10
 
 **Description:**
@@ -409,9 +425,10 @@ All pages and fixtures MUST reference the corresponding OWASP/MITRE taxonomy ent
 5. Unit tests (`tests/unit/test_honeypot_server.py`) verify payload embedding, extraction, endpoint behavior, and that the exfil log is placed in the temp directory and cleaned up on teardown.
 6. All unit tests pass.
 
-#### TASK-G02: Implement "The Heist" Demo Scenario (BLOCK — Indirect Prompt Injection Credential Exfiltration)
-**Status:** [x] Completed (PR #176)
+* [ ] **TASK-G02: Implement "The Heist" Demo Scenario (BLOCK — Indirect Prompt Injection Credential Exfiltration)**
+
 **Dependencies:** TASK-G01, TASK-B01, TASK-B02, TASK-C01
+
 **Requirements Satisfied:** FR-03, FR-04, FR-15, US-10
 
 **Description:**
@@ -439,9 +456,10 @@ Demo flow:
 7. Gherkin BDD scenario (`tests/features/gateway_demo_heist.feature`) validates both the `read_file` BLOCK and the `http_request` BLOCK in sequence.
 8. All tests pass.
 
-#### TASK-G03: Implement "The Quarantine" Demo Scenario (Surgical BLOCK Isolation — ALLOW + BLOCK + ALLOW)
-**Status:** [x] Completed (PR #177)
+* [ ] **TASK-G03: Implement "The Quarantine" Demo Scenario (Surgical BLOCK Isolation — ALLOW + BLOCK + ALLOW)**
+
 **Dependencies:** TASK-G01, TASK-B01, TASK-B02, TASK-C01
+
 **Requirements Satisfied:** FR-04, FR-15, US-11
 
 **Description:**
@@ -468,9 +486,10 @@ Demo flow:
 6. Gherkin BDD scenario (`tests/features/gateway_demo_quarantine.feature`) validates surgical BLOCK isolation and session continuity.
 7. All tests pass.
 
-#### TASK-G04: Build Recording Infrastructure & README Integration
-**Status:** [ ] Not Started
+* [ ] **TASK-G04: Build Recording Infrastructure & README Integration**
+
 **Dependencies:** TASK-G02, TASK-G03, TASK-G05, TASK-G06
+
 **Requirements Satisfied:** FR-15, US-10, US-11, US-12, US-13
 
 **Description:**
@@ -495,9 +514,10 @@ Components:
 4. All demo scenarios pass as integration tests in CI (verifiable via `pytest tests/integration/test_gateway_demo_*.py`).
 5. Recording infrastructure handles graceful cleanup of honeypot and gateway processes on script termination (SIGTERM/SIGINT).
 
-#### TASK-G05: Implement "The Poisoned Package" Demo Scenario (BLOCK via Python Audit Hook — Supply Chain Defense-in-Depth)
-**Status:** [ ] Not Started
+* [ ] **TASK-G05: Implement "The Poisoned Package" Demo Scenario (BLOCK via Python Audit Hook — Supply Chain Defense-in-Depth)**
+
 **Dependencies:** TASK-G01, TASK-F02
+
 **Requirements Satisfied:** FR-12, FR-15, US-12
 
 **Description:**
@@ -546,9 +566,11 @@ Demo flow:
 7. Test isolation: `sys.addaudithook` is confined to the child subprocess and does not affect the parent test runner.
 8. All tests pass.
 
-#### TASK-G06: Implement "The Bouncer" Demo Scenario (Tier-1 Jev Fast Path + Tier-2 Escalation)
-**Status:** [ ] Not Started
-**Dependencies:** TASK-G01, TASK-B01, TASK-B02, TASK-C01; Tier-1 Jev backend implementation (`.kiro/specs/tier-1-jev-addition/` Track B) MUST be complete
+* [ ] **TASK-G06: Implement "The Bouncer" Demo Scenario (Tier-1 Jev Fast Path + Tier-2 Escalation)**
+
+**Dependencies:** TASK-G01, TASK-B01, TASK-B02, TASK-C01; Tier-1 Jev backend 
+implementation (`.kiro/specs/tier-1-jev-addition/` Track B) MUST be complete
+
 **Requirements Satisfied:** FR-03, FR-04, FR-15, US-13
 
 **Description:**
