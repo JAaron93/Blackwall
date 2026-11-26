@@ -425,7 +425,7 @@ All pages and fixtures MUST reference the corresponding OWASP/MITRE taxonomy ent
 5. Unit tests (`tests/unit/test_honeypot_server.py`) verify payload embedding, extraction, endpoint behavior, and that the exfil log is placed in the temp directory and cleaned up on teardown.
 6. All unit tests pass.
 
-* [ ] **TASK-G02: Implement "The Heist" Demo Scenario (BLOCK — Indirect Prompt Injection Credential Exfiltration)**
+* [x] **TASK-G02: Implement "The Heist" Demo Scenario (BLOCK — Indirect Prompt Injection Credential Exfiltration)**
 
 **Dependencies:** TASK-G01, TASK-B01, TASK-B02, TASK-C01
 
@@ -456,7 +456,7 @@ Demo flow:
 7. Gherkin BDD scenario (`tests/features/gateway_demo_heist.feature`) validates both the `read_file` BLOCK and the `http_request` BLOCK in sequence.
 8. All tests pass.
 
-* [ ] **TASK-G03: Implement "The Quarantine" Demo Scenario (Surgical BLOCK Isolation — ALLOW + BLOCK + ALLOW)**
+* [x] **TASK-G03: Implement "The Quarantine" Demo Scenario (Surgical BLOCK Isolation — ALLOW + BLOCK + ALLOW)**
 
 **Dependencies:** TASK-G01, TASK-B01, TASK-B02, TASK-C01
 
