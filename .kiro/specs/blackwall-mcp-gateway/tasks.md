@@ -570,7 +570,7 @@ Demo flow (all fixtures synthetic; Jev evaluation calls are mocked — no live G
 
 **Implementation Note (2026-11-26):** Implemented in `scripts/gateway_demo/scenario_bouncer.py`. Tier-2 backend is injected via `resolver._tier2_backend = GeminiTier2Backend(gemini_client)` to avoid lazy construction from the resolver's `self.client`; the mock client suppresses its async path (`del client.aio.models`) to force `asyncio.to_thread` through the synchronous `client.models.generate_content` mock. TSG persistence uses a real `SQLiteThreatRepository` in `tmp_path/bouncer.db` checked via `resolver._inline_signatures_generated`.
 
-* [ ] **TASK-G06: Build Recording Infrastructure & README Integration**
+* [x] **TASK-G06: Build Recording Infrastructure & README Integration**
 
 **Dependencies:** TASK-G01, TASK-G02, TASK-G03, TASK-G04, TASK-G05
 
@@ -597,3 +597,5 @@ Components:
 3. README.md contains a `## 🛡️ MCP Gateway Demos` section with scenario descriptions, OWASP/MITRE references, and run instructions.
 4. All demo scenarios pass as integration tests in CI (verifiable via `pytest tests/integration/test_gateway_demo_*.py`).
 5. Recording infrastructure handles graceful cleanup of honeypot and gateway processes on script termination (SIGTERM/SIGINT).
+
+**Implementation Note (2026-11-26):** `run_gateway_demo.sh` executes all five scenarios via a single injectable runner seam (`BW_DEMO_SCENARIO_RUNNER`) and isolates each in its own session so `SIGTERM`/`SIGINT` tears down the whole process tree. The honeypot showcase step starts → verifies → stops its server before the four attack scenarios, because every live scenario calls `_ensure_honeypot_port_free()` and refuses to run while port 8765 is already served. `record_demo.sh` uses `asciinema rec` + split-pane `tmux` when available and otherwise emits a tool-independent asciinema-v2 cast; `docs/recordings/*.cast` + `*.svg` are narrated preview assets regenerable with `python -m scripts.gateway_demo.recording preview --output-dir docs/recordings`. Live captures preserve the scenario exit status and are sanitized with `recording.py sanitize` before being kept; demo children spawned by a run are tracked by PID (`BW_DEMO_PIDFILE`) and their process groups released on termination. See design.md Phase 6 TASK-G06 notes.

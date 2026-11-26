@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="190" viewBox="0 0 900 190" role="img" aria-label="The Quarantine">
+<title>The Quarantine</title>
+<rect width="100%" height="100%" fill="#0b1021"/>
+<text x="16" y="28" fill="#7ee787" font-family="ui-monospace, monospace" font-size="17">The Quarantine</text>
+<text x="16" y="54" fill="#c9d1d9" font-family="ui-monospace, monospace" font-size="12">[PREVIEW] Blackwall MCP Gateway - The Quarantine</text>
+<text x="16" y="72" fill="#c9d1d9" font-family="ui-monospace, monospace" font-size="12">[PREVIEW] Regenerate a live cast with scripts/gateway_demo/record_demo.sh</text>
+<text x="16" y="90" fill="#c9d1d9" font-family="ui-monospace, monospace" font-size="12">[PREVIEW] Surgical isolation: legitimate write_file calls are ALLOW&#x27;d while a credential-harvesting read_file is BLOCK&#x27;d, without killing the session.</text>
+<text x="16" y="108" fill="#c9d1d9" font-family="ui-monospace, monospace" font-size="12">[PREVIEW] taxonomy: OWASP https://genai.owasp.org/ | MITRE https://atlas.mitre.org/techniques/AML.T0054</text>
+<text x="16" y="126" fill="#c9d1d9" font-family="ui-monospace, monospace" font-size="12">[PREVIEW] ALLOW write_file (downstream confirmed)</text>
+<text x="16" y="144" fill="#c9d1d9" font-family="ui-monospace, monospace" font-size="12">[PREVIEW] BLOCK read_file (-32603) threat_score=0.95</text>
+<text x="16" y="162" fill="#c9d1d9" font-family="ui-monospace, monospace" font-size="12">[PREVIEW] ALLOW write_file (session continuity)</text>
+</svg>

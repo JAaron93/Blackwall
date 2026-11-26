@@ -377,9 +377,27 @@ def _terminate_process_group(proc: subprocess.Popen[str] | None) -> None:
                 pass
 
 
+def _track_demo_child(proc: subprocess.Popen[str]) -> None:
+    """Record a spawned child PID for TASK-G06 orchestration cleanup.
+
+    Demo children use ``start_new_session=True``, so a parent can exit (and
+    reparent them) before the orchestration shell script's trap runs. Writing
+    the PID to ``BW_DEMO_PIDFILE`` lets the shell stop exactly the processes
+    this run started — by process group — without guessing from port numbers.
+    """
+    pidfile = os.environ.get("BW_DEMO_PIDFILE")
+    if not pidfile:
+        return
+    try:
+        with Path(pidfile).open("a", encoding="utf-8") as handle:
+            handle.write(f"{proc.pid}\n")
+    except OSError:
+        pass
+
+
 def _spawn_honeypot_subprocess(env: dict[str, str] | None = None) -> subprocess.Popen[str]:
     """Start the real honeypot on 127.0.0.1:8765 (cwd-independent)."""
-    return subprocess.Popen(
+    proc = subprocess.Popen(
         [
             sys.executable,
             "-m",
@@ -397,6 +415,8 @@ def _spawn_honeypot_subprocess(env: dict[str, str] | None = None) -> subprocess.
         env=env,
         **_pop_kwargs(),
     )
+    _track_demo_child(proc)
+    return proc
 
 
 def _wait_for_honeypot(timeout: float = 20.0) -> str:
@@ -446,6 +466,7 @@ def _spawn_gateway_harness(tmpdir: Path) -> subprocess.Popen[str]:
 
     time.sleep(1.0)
     assert proc.poll() is None, "Gateway harness exited prematurely"
+    _track_demo_child(proc)
     return proc
 
 

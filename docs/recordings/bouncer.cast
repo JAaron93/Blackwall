@@ -1,0 +1,8 @@
+{"version": 2, "width": 120, "height": 30, "timestamp": 0, "title": "The Bouncer", "env": {"SHELL": "bash", "TERM": "xterm-256color"}}
+[0.08, "o", "[PREVIEW] Blackwall MCP Gateway - The Bouncer\r\n"]
+[0.16, "o", "[PREVIEW] Regenerate a live cast with scripts/gateway_demo/record_demo.sh\r\n"]
+[0.24, "o", "[PREVIEW] Tier-1 Jev fast path handles clear cases while only an ambiguous probe escalates to Gemini Tier-2 deep reasoning.\r\n"]
+[0.32, "o", "[PREVIEW] taxonomy: OWASP https://genai.owasp.org/ | MITRE https://atlas.mitre.org/techniques/AML.T0051\r\n"]
+[0.4, "o", "[PREVIEW] ALLOW get_weather (jev fast path, P=0.02)\r\n"]
+[0.48, "o", "[PREVIEW] BLOCK execute_bash (jev fast path, P=0.98)\r\n"]
+[0.56, "o", "[PREVIEW] BLOCK http_request (gemini-tier-2 escalation, P=0.25)\r\n"]

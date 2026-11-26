@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="190" viewBox="0 0 900 190" role="img" aria-label="The Bouncer">
+<title>The Bouncer</title>
+<rect width="100%" height="100%" fill="#0b1021"/>
+<text x="16" y="28" fill="#7ee787" font-family="ui-monospace, monospace" font-size="17">The Bouncer</text>
+<text x="16" y="54" fill="#c9d1d9" font-family="ui-monospace, monospace" font-size="12">[PREVIEW] Blackwall MCP Gateway - The Bouncer</text>
+<text x="16" y="72" fill="#c9d1d9" font-family="ui-monospace, monospace" font-size="12">[PREVIEW] Regenerate a live cast with scripts/gateway_demo/record_demo.sh</text>
+<text x="16" y="90" fill="#c9d1d9" font-family="ui-monospace, monospace" font-size="12">[PREVIEW] Tier-1 Jev fast path handles clear cases while only an ambiguous probe escalates to Gemini Tier-2 deep reasoning.</text>
+<text x="16" y="108" fill="#c9d1d9" font-family="ui-monospace, monospace" font-size="12">[PREVIEW] taxonomy: OWASP https://genai.owasp.org/ | MITRE https://atlas.mitre.org/techniques/AML.T0051</text>
+<text x="16" y="126" fill="#c9d1d9" font-family="ui-monospace, monospace" font-size="12">[PREVIEW] ALLOW get_weather (jev fast path, P=0.02)</text>
+<text x="16" y="144" fill="#c9d1d9" font-family="ui-monospace, monospace" font-size="12">[PREVIEW] BLOCK execute_bash (jev fast path, P=0.98)</text>
+<text x="16" y="162" fill="#c9d1d9" font-family="ui-monospace, monospace" font-size="12">[PREVIEW] BLOCK http_request (gemini-tier-2 escalation, P=0.25)</text>
+</svg>
