@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -144,13 +145,23 @@ SCENARIO_BY_KEY: dict[str, DemoScenario] = {s.key: s for s in SCENARIOS}
 SCENARIO_KEYS: tuple[str, ...] = tuple(s.key for s in SCENARIOS)
 
 _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    # Whole PEM blocks first: masking only the header leaves the key body visible.
+    (
+        re.compile(r"(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----"),
+        "[REDACTED PRIVATE KEY BLOCK]",
+    ),
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[REDACTED]"),
     (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b"), "[REDACTED]"),
     (re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"), "[REDACTED]"),
-    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "[REDACTED PRIVATE KEY]"),
+    # JSON fields: the closing quote of the key sits between the name and ':'.
     (
-        re.compile(r"(?i)\b(api[_-]?key|token|secret|passwd|password)(\s*[:=]\s*)([^\s,;]+)"),
-        r"\1\2[REDACTED]",
+        re.compile(r'(?i)("(?:api[_-]?key|token|secret|passwd|password)"\s*:\s*")([^"]+)'),
+        r"\1[REDACTED]",
+    ),
+    # Bare or quoted assignments: keep any opening quote and restore it.
+    (
+        re.compile(r"(?i)\b(api[_-]?key|token|secret|passwd|password)(\s*[:=]\s*)([\"']?)([^\s,;}\"']+)"),
+        r"\1\2\3[REDACTED]\3",
     ),
 )
 
@@ -220,6 +231,34 @@ def write_cast(
         ),
         encoding="utf-8",
     )
+    return path
+
+
+def sanitize_cast(path: Path) -> Path:
+    """Redact the text payload of an existing (live-recorded) ``.cast`` file.
+
+    ``asciinema rec`` writes terminal output verbatim, bypassing the redaction
+    applied by :func:`build_cast`. This pass rewrites every output event with
+    :func:`redact_output` before a live cast is kept as a recording asset.
+    """
+    rows: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            rows.append(redact_output(line))
+            continue
+        if (
+            isinstance(event, list)
+            and len(event) == 3
+            and event[1] == "o"
+            and isinstance(event[2], str)
+        ):
+            event[2] = redact_output(event[2])
+        rows.append(json.dumps(event, ensure_ascii=False))
+    scratch = path.with_name(path.name + ".tmp")
+    scratch.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    os.replace(scratch, path)
     return path
 
 
@@ -316,6 +355,12 @@ def _preview_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _sanitize_command(args: argparse.Namespace) -> int:
+    cast_path = sanitize_cast(args.path)
+    print(json.dumps({"cast": str(cast_path)}))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -332,6 +377,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     preview.add_argument("--output-dir", required=True, type=Path)
     preview.add_argument("--timestamp", type=int, default=0)
     preview.set_defaults(handler=_preview_command)
+
+    sanitize = subparsers.add_parser(
+        "sanitize", help="Redact an asciinema cast captured directly by asciinema rec"
+    )
+    sanitize.add_argument("--path", required=True, type=Path)
+    sanitize.set_defaults(handler=_sanitize_command)
 
     args = parser.parse_args(argv)
     return int(args.handler(args))

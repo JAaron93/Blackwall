@@ -59,6 +59,30 @@ TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/bw-demo-record.XXXXXX")"
 ACTIVE_PID=""
 TMUX_SESSION=""
 
+# The runner's demo children detach into their own sessions; release any demo
+# listeners that were not already present when recording started (port 9229 is
+# the gateway, 8765 the honeypot, 9230/9231 the auth BDD harness ports).
+demo_port_pids() {
+  local port
+  for port in 8765 9229 9230 9231; do
+    lsof -nP -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true
+  done
+}
+BASELINE_PORTS="$(demo_port_pids)"
+
+release_demo_ports() {
+  local baseline=" ${BASELINE_PORTS:-} " pid
+  for pid in $(demo_port_pids); do
+    [[ "${baseline}" == *" ${pid} "* ]] && continue
+    kill -TERM "${pid}" 2>/dev/null || true
+  done
+  sleep 0.2
+  for pid in $(demo_port_pids); do
+    [[ "${baseline}" == *" ${pid} "* ]] && continue
+    kill -KILL "${pid}" 2>/dev/null || true
+  done
+}
+
 # Isolate children in their own session so SIGTERM/SIGINT reaches tmux,
 # asciinema and any honeypot/gateway grandchildren before cleanup returns.
 spawn_isolated() {
@@ -66,12 +90,32 @@ spawn_isolated() {
   ACTIVE_PID=$!
 }
 
+collect_descendants() {
+  local parent="$1" child
+  for child in $(pgrep -P "${parent}" 2>/dev/null || true); do
+    collect_descendants "${child}"
+    printf '%s\n' "${child}"
+  done
+}
+
 terminate_group() {
-  local pid="$1"
+  local pid="$1" child
   [[ -z "${pid}" ]] && return 0
   kill -0 "${pid}" 2>/dev/null || return 0
+
+  local descendants=()
+  while IFS= read -r child; do
+    [[ -n "${child}" ]] && descendants+=("${child}")
+  done < <(collect_descendants "${pid}")
+
+  for child in "${descendants[@]}"; do
+    kill -TERM "${child}" 2>/dev/null || true
+  done
   kill -TERM -- "-${pid}" 2>/dev/null || kill -TERM "${pid}" 2>/dev/null || true
   sleep 0.2
+  for child in "${descendants[@]}"; do
+    kill -KILL "${child}" 2>/dev/null || true
+  done
   if kill -0 "${pid}" 2>/dev/null; then
     kill -KILL -- "-${pid}" 2>/dev/null || kill -KILL "${pid}" 2>/dev/null || true
   fi
@@ -82,6 +126,7 @@ cleanup() {
   local rc=$?
   trap - EXIT INT TERM
   terminate_group "${ACTIVE_PID}"
+  release_demo_ports
   if [[ -n "${TMUX_SESSION}" ]]; then
     tmux kill-session -t "${TMUX_SESSION}" >/dev/null 2>&1 || true
   fi
@@ -108,30 +153,57 @@ runner_command() {
 }
 
 record_live() {
-  local key="$1" cast_path="$2" log_path="$3" session rc
+  local key="$1" cast_path="$2" log_path="$3" session recorder_rc scenario_rc
+  local status_path="${log_path}.status" done_path="${log_path}.done"
   session="bw_g06_${key}_$$"
   : >"${log_path}"
+  : >"${status_path}"
+  rm -f "${done_path}"
   TMUX_SESSION="${session}"
 
+  # Left pane: record the scenario's *own* exit code via PIPESTATUS[0] before
+  # the trailing echo/sleep, so a failed demo cannot look like a good take.
+  local left_cmd
+  left_cmd="$(runner_command "${key}") 2>&1 | tee \"${log_path}\"; printf '%s' \"\${PIPESTATUS[0]}\" > \"${status_path}\"; : > \"${done_path}\"; echo '[demo] complete'; sleep 2"
   tmux new-session -d -s "${session}" -x 120 -y 30 \
-    "$(runner_command "${key}") 2>&1 | tee \"${log_path}\"; echo '[demo] complete'; sleep 2"
+    "bash -c $(printf '%q' "${left_cmd}")"
+
+  # Right pane: follow the log until the left pane writes its done marker, so
+  # verdicts printed late by the scenario are visible in the recording.
+  local right_cmd
+  right_cmd="tail -n 0 -F \"${log_path}\" | grep -E 'BLOCK|ALLOW|QUARANTINE|threat|signature|verdict|\\[demo\\]' & watcher=\$!; while [[ ! -f \"${done_path}\" ]]; do sleep 0.5; done; sleep 0.5; kill \$watcher 2>/dev/null || true; wait \$watcher 2>/dev/null || true"
   tmux split-window -h -t "${session}" \
-    "sleep 1; grep -E 'BLOCK|ALLOW|QUARANTINE|threat|signature|verdict|\\[demo\\]' \"${log_path}\" | head -n 20"
+    "bash -c $(printf '%q' "${right_cmd}")"
 
   # The .cast captures both tmux panes; the scenario output is also teed to
   # the log so the thumbnail generator has a tool-independent source.
   spawn_isolated asciinema rec "${cast_path}" --overwrite \
     --command "tmux attach-session -t ${session}"
   if wait "${ACTIVE_PID}"; then
-    rc=0
+    recorder_rc=0
   else
-    rc=$?
+    recorder_rc=$?
   fi
   ACTIVE_PID=""
 
+  scenario_rc="$(cat "${status_path}" 2>/dev/null || printf '1')"
+  [[ "${scenario_rc}" =~ ^[0-9]+$ ]] || scenario_rc=1
+
+  # asciinema writes terminal text verbatim; redact it before keeping the cast
+  # (a traceback can contain the operator's real home path or a token).
+  if [[ -f "${cast_path}" ]]; then
+    if ! "${PYTHON_BIN}" -m scripts.gateway_demo.recording sanitize --path "${cast_path}"; then
+      recorder_rc=1
+    fi
+  fi
+
   tmux kill-session -t "${session}" >/dev/null 2>&1 || true
   TMUX_SESSION=""
-  return "${rc}"
+  if (( recorder_rc == 0 && scenario_rc == 0 )); then
+    return 0
+  fi
+  echo "[record] ${key}: scenario_rc=${scenario_rc} recorder_rc=${recorder_rc}" >&2
+  return 1
 }
 
 mkdir -p "${RECORDINGS_DIR}"

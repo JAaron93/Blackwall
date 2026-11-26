@@ -53,6 +53,30 @@ TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/bw-demo-run.XXXXXX")"
 ACTIVE_PID=""
 HONEYPOT_PID=""
 
+# Demo children call start_new_session=True and can be reparented before the
+# runner dies, so parentage alone cannot find them. Track which demo ports were
+# already in use at startup and only release listeners that this run added.
+demo_port_pids() {
+  local port
+  for port in 8765 9229 9230 9231; do
+    lsof -nP -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true
+  done
+}
+BASELINE_PORTS="$(demo_port_pids)"
+
+release_demo_ports() {
+  local baseline=" ${BASELINE_PORTS:-} " pid
+  for pid in $(demo_port_pids); do
+    [[ "${baseline}" == *" ${pid} "* ]] && continue
+    kill -TERM "${pid}" 2>/dev/null || true
+  done
+  sleep 0.2
+  for pid in $(demo_port_pids); do
+    [[ "${baseline}" == *" ${pid} "* ]] && continue
+    kill -KILL "${pid}" 2>/dev/null || true
+  done
+}
+
 # Launch a command in its own session so a signal can reach grandchildren
 # (the demo scripts spawn their own honeypot/gateway children). The helper
 # execs in place, keeping the PID stable for `wait` and `kill -TERM -- -pid`.
@@ -61,12 +85,36 @@ spawn_isolated() {
   ACTIVE_PID=$!
 }
 
+# Scenarios spawn their honeypot/gateway with start_new_session=True, so those
+# children are outside the runner's process group. Collect the full descendant
+# tree by parentage *before* signalling the leader (after it dies they would be
+# reparented and untraceable), then signal descendants and the group together.
+collect_descendants() {
+  local parent="$1" child
+  for child in $(pgrep -P "${parent}" 2>/dev/null || true); do
+    collect_descendants "${child}"
+    printf '%s\n' "${child}"
+  done
+}
+
 terminate_group() {
-  local pid="$1"
+  local pid="$1" child
   [[ -z "${pid}" ]] && return 0
   kill -0 "${pid}" 2>/dev/null || return 0
+
+  local descendants=()
+  while IFS= read -r child; do
+    [[ -n "${child}" ]] && descendants+=("${child}")
+  done < <(collect_descendants "${pid}")
+
+  for child in "${descendants[@]}"; do
+    kill -TERM "${child}" 2>/dev/null || true
+  done
   kill -TERM -- "-${pid}" 2>/dev/null || kill -TERM "${pid}" 2>/dev/null || true
   sleep 0.2
+  for child in "${descendants[@]}"; do
+    kill -KILL "${child}" 2>/dev/null || true
+  done
   if kill -0 "${pid}" 2>/dev/null; then
     kill -KILL -- "-${pid}" 2>/dev/null || kill -KILL "${pid}" 2>/dev/null || true
   fi
@@ -78,6 +126,7 @@ cleanup() {
   trap - EXIT INT TERM
   terminate_group "${HONEYPOT_PID}"
   terminate_group "${ACTIVE_PID}"
+  release_demo_ports
   rm -rf "${TMP_DIR}"
   exit "${rc}"
 }
@@ -95,6 +144,14 @@ fetch_page() {
 }
 
 run_honeypot_demo() {
+  # Ownership guard: a stale/squatting listener must not satisfy readiness or
+  # make our own server "succeed" after it failed to bind (Greptile P2 review).
+  if "${PYTHON_BIN}" -c \
+    'import socket, sys; s = socket.socket(); rc = s.connect_ex(("127.0.0.1", 8765)); s.close(); raise SystemExit(1 if rc == 0 else 0)'; then
+    echo "[honeypot] port ${HONEYPOT_PORT} already served; refusing to start" >&2
+    return 1
+  fi
+
   echo "[honeypot] starting local honeypot on ${HONEYPOT_HOST}:${HONEYPOT_PORT}"
   "${PYTHON_BIN}" "${REPO_ROOT}/scripts/gateway_demo/_isolated_exec.py" \
     "${PYTHON_BIN}" -m scripts.gateway_demo.honeypot_server \
@@ -103,6 +160,9 @@ run_honeypot_demo() {
 
   local attempt ready=0
   for attempt in $(seq 1 40); do
+    if ! kill -0 "${HONEYPOT_PID}" 2>/dev/null; then
+      break
+    fi
     if fetch_page "http://${HONEYPOT_HOST}:${HONEYPOT_PORT}/docs/fake-library"; then
       ready=1
       break
@@ -117,9 +177,15 @@ run_honeypot_demo() {
   fi
 
   # The lure page and compromised tool response are the shared fixtures for
-  # the four attack scenarios (OWASP LLM01 / MITRE ATLAS AML.T0051).
-  fetch_page "http://${HONEYPOT_HOST}:${HONEYPOT_PORT}/docs/fake-library" || true
-  fetch_page "http://${HONEYPOT_HOST}:${HONEYPOT_PORT}/docs/compromised-response" || true
+  # the four attack scenarios (OWASP LLM01 / MITRE ATLAS AML.T0051). Both must
+  # succeed, and our own server must still be alive, or this step is a failure.
+  if ! fetch_page "http://${HONEYPOT_HOST}:${HONEYPOT_PORT}/docs/fake-library" ||
+    ! fetch_page "http://${HONEYPOT_HOST}:${HONEYPOT_PORT}/docs/compromised-response" ||
+    ! kill -0 "${HONEYPOT_PID}" 2>/dev/null; then
+    echo "[honeypot] fixture fetch failed or server exited" >&2
+    stop_honeypot
+    return 1
+  fi
   echo "[honeypot] lure + compromised-response fixtures served"
   stop_honeypot
 }

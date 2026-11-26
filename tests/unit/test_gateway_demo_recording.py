@@ -85,6 +85,40 @@ def test_redact_output_masks_real_home_and_secret_patterns():
     assert "[REDACTED]" in redacted
 
 
+def test_redact_output_masks_json_fields_and_private_key_blocks():
+    recording = _import_recording()
+    text = (
+        '{"token": "demo-json-secret", "api_key": "another-json-secret"}\n'
+        "-----BEGIN RSA PRIVATE KEY-----\n"
+        "MIIEowIBAAKCAQEA2secretkeymaterial\n"
+        "-----END RSA PRIVATE KEY-----\n"
+    )
+    redacted = recording.redact_output(text)
+    assert "demo-json-secret" not in redacted
+    assert "another-json-secret" not in redacted
+    assert "MIIEowIBAAKCAQEA2secretkeymaterial" not in redacted
+    assert "[REDACTED]" in redacted
+    assert "[REDACTED PRIVATE KEY BLOCK]" in redacted
+
+
+def test_sanitize_cast_redacts_existing_live_capture(tmp_path: Path):
+    recording = _import_recording()
+    cast = tmp_path / "live.cast"
+    cast.write_text(
+        '{"version": 2, "width": 120, "height": 30}\n'
+        '[0.1, "o", "traceback token=live-secret-value\\r\\n"]\n',
+        encoding="utf-8",
+    )
+    result = recording.sanitize_cast(cast)
+    assert result == cast
+    text = cast.read_text()
+    assert "live-secret-value" not in text
+    assert "[REDACTED]" in text
+    rows = [json.loads(line) for line in text.splitlines()]
+    assert rows[0]["version"] == 2
+    assert rows[1][1] == "o"
+
+
 def test_write_cast_and_thumbnail_roundtrip(tmp_path: Path):
     recording = _import_recording()
     scenario = recording.SCENARIO_BY_KEY["heist"]
