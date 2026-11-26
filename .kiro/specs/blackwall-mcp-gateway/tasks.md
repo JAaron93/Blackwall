@@ -267,7 +267,7 @@ Review and finalize all three spec files (`design.md`, `requirements.md`, `tasks
 > **PARALLEL EXECUTION**
 > `TASK-F01` (macOS LaunchAgent Service Manager) and `TASK-F02` (Python Audit Hook Bootstrap) can be developed concurrently in Track E.
 
-* [] **TASK-F01: Implement macOS Background Service Manager (launchd LaunchAgent for Apple Silicon & Intel)**
+* [ ] **TASK-F01: Implement macOS Background Service Manager (launchd LaunchAgent for Apple Silicon & Intel)**
 
 **Dependencies:** TASK-C03
 
@@ -297,7 +297,7 @@ Implement the macOS background service management module and CLI subcommands for
 10. All unit tests pass.
 11. Protected TypeSafe key storage (TDD): with `TYPESAFE_API_KEY` present, `install` writes the value ONLY to the `0600` env file (`~/.blackwall/gateway.env`); tests assert the key value appears in ZERO generated plist or log artifacts, the daemon loads it at startup, and `configure --typesafe-key` provisions the same file under the same rules.
 
-* [] **TASK-F02: Implement Python Audit Hook Auto-Bootstrap**
+* [ ] **TASK-F02: Implement Python Audit Hook Auto-Bootstrap**
 
 **Dependencies:** TASK-C03
 
@@ -316,7 +316,7 @@ Implement the global Python runtime audit hook bootstrap manager across macOS (A
 4. `hook uninstall` restores original `sitecustomize.py` state with byte-for-byte fidelity.
 5. All unit tests pass.
 
-* [] **TASK-F03: Implement macOS Menu Bar Tray Application & System Notifications**
+* [ ] **TASK-F03: Implement macOS Menu Bar Tray Application & System Notifications**
 
 **Dependencies:** TASK-F01, TASK-C01
 
@@ -336,7 +336,7 @@ Build a lightweight native macOS Menu Bar application (`Blackwall.app`):
 4. Idle memory footprint remains < 25MB RAM and 0.0% CPU.
 5. All unit and UI tests pass.
 
-* [] **TASK-F04: Build GitHub Actions Release Packaging Pipeline (macOS .dmg for Apple Silicon & Intel)**
+* [ ] **TASK-F04: Build GitHub Actions Release Packaging Pipeline (macOS .dmg for Apple Silicon & Intel)**
 
 **Dependencies:** TASK-F03
 
@@ -355,7 +355,7 @@ Create the GitHub Actions workflow (`.github/workflows/release_packages.yml`) to
 4. All build verification checks pass.
 5. Forward-compat (Tier-1 Jev, see `.kiro/specs/tier-1-jev-addition/`): the packaged dependency closure contains no non-Python runtime (NFR-01), and a packaged-environment smoke test imports the Jev triage backend (`BW_SEMANTIC_BACKEND=jev` import check, mocked evaluation) without error.
 
-* [] **TASK-F05: Implement Apple Silicon & Intel macOS Performance, Unified Memory & Resource Verification Tests**
+* [ ] **TASK-F05: Implement Apple Silicon & Intel macOS Performance, Unified Memory & Resource Verification Tests**
 
 **Dependencies:** TASK-F01, TASK-F04
 
@@ -425,7 +425,7 @@ All pages and fixtures MUST reference the corresponding OWASP/MITRE taxonomy ent
 5. Unit tests (`tests/unit/test_honeypot_server.py`) verify payload embedding, extraction, endpoint behavior, and that the exfil log is placed in the temp directory and cleaned up on teardown.
 6. All unit tests pass.
 
-* [] **TASK-G02: Implement "The Heist" Demo Scenario (BLOCK — Indirect Prompt Injection Credential Exfiltration)**
+* [ ] **TASK-G02: Implement "The Heist" Demo Scenario (BLOCK — Indirect Prompt Injection Credential Exfiltration)**
 
 **Dependencies:** TASK-G01, TASK-B01, TASK-B02, TASK-C01
 
@@ -456,7 +456,7 @@ Demo flow:
 7. Gherkin BDD scenario (`tests/features/gateway_demo_heist.feature`) validates both the `read_file` BLOCK and the `http_request` BLOCK in sequence.
 8. All tests pass.
 
-* [] **TASK-G03: Implement "The Quarantine" Demo Scenario (Surgical BLOCK Isolation — ALLOW + BLOCK + ALLOW)**
+* [ ] **TASK-G03: Implement "The Quarantine" Demo Scenario (Surgical BLOCK Isolation — ALLOW + BLOCK + ALLOW)**
 
 **Dependencies:** TASK-G01, TASK-B01, TASK-B02, TASK-C01
 
@@ -486,7 +486,7 @@ Demo flow:
 6. Gherkin BDD scenario (`tests/features/gateway_demo_quarantine.feature`) validates surgical BLOCK isolation and session continuity.
 7. All tests pass.
 
-* [] **TASK-G04: Build Recording Infrastructure & README Integration**
+* [ ] **TASK-G04: Build Recording Infrastructure & README Integration**
 
 **Dependencies:** TASK-G02, TASK-G03, TASK-G05, TASK-G06
 
@@ -514,7 +514,7 @@ Components:
 4. All demo scenarios pass as integration tests in CI (verifiable via `pytest tests/integration/test_gateway_demo_*.py`).
 5. Recording infrastructure handles graceful cleanup of honeypot and gateway processes on script termination (SIGTERM/SIGINT).
 
-* [] **TASK-G05: Implement "The Poisoned Package" Demo Scenario (BLOCK via Python Audit Hook — Supply Chain Defense-in-Depth)**
+* [ ] **TASK-G05: Implement "The Poisoned Package" Demo Scenario (BLOCK via Python Audit Hook — Supply Chain Defense-in-Depth)**
 
 **Dependencies:** TASK-G01, TASK-F02
 
@@ -566,7 +566,7 @@ Demo flow:
 7. Test isolation: `sys.addaudithook` is confined to the child subprocess and does not affect the parent test runner.
 8. All tests pass.
 
-* [] **TASK-G06: Implement "The Bouncer" Demo Scenario (Tier-1 Jev Fast Path + Tier-2 Escalation)**
+* [ ] **TASK-G06: Implement "The Bouncer" Demo Scenario (Tier-1 Jev Fast Path + Tier-2 Escalation)**
 
 **Dependencies:** TASK-G01, TASK-B01, TASK-B02, TASK-C01; Tier-1 Jev backend 
 implementation (`.kiro/specs/tier-1-jev-addition/` Track B) MUST be complete
