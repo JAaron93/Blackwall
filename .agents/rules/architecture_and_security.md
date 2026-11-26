@@ -727,3 +727,34 @@
 * **Rule (uv Environment Basics):** `uv sync` REPLACES the extras set — always pass every needed extra together (`uv sync --extra evaluation --extra dev`); an `--upgrade-package` invocation that reports nothing changed means an upstream cap blocked it, not success; lockfile `revision` downgrades across uv versions are harmless (nothing checks the revision).
 * **Rule (Pin Mirroring with Upstream Declared Ranges — Version-Free Invariant):** `google-cloud-aiplatform[evaluation]` and `google-adk` declare their own dependency ranges for `litellm` and `opentelemetry-api` respectively in their vendor metadata, and those declarations have already moved across upstream releases (dated drift evidence, 2026-11 audit: this rulebook era quoted a google-adk cap of `opentelemetry-api<=1.44`, while the active google-adk 2.14.0 release declares `<=1.45.2,>=1.39`). The version-free invariant: manifests and environments MUST keep mirrored packages within the range declared by the **active** upstream release — verify via the PyPI registry JSON, `importlib.metadata` on the installed distribution, or a fresh `uv lock` PubGrub narrative — keeping installs resolvable without intra-dependency-tree conflicts. Era numbers are drift evidence, never standing constraints. Any PR touching one of the mirror packages MUST resolve the full set against the manifest before commit (`uv lock` / `uv sync`) and MUST re-sync the mirror in the same PR when the upstream declared range moves.
 * **Rationale:** Codified from the 2026-11-01 security-alert campaign (PRs #185–#189) and the evaluation-extra import gap (#192): the litellm/opentelemetry caps, the pyasn1 cooldown block, the 280-character 422, and the aicplatform[evaluation] wiring each cost a full diagnosis cycle that this protocol collapses to a checklist.
+
+## 109. `SyncResolver` Semantic Triage Activation API
+* **Rule:** Semantic triage in `SyncResolver` MUST be enabled via the constructor keyword argument `enable_semantic_triage=True`. The environment variable `BW_SEMANTIC_BACKEND` does not exist and was removed by ADR 0009 — using it has no effect and will not be caught at runtime. Any code path, test fixture, demo scenario, or mock that attempts to toggle semantic triage via environment variable is silently broken.
+* **Rationale:** ADR 0009 removed all env-var-based model routing in favour of explicit constructor parameters to make activation auditable at the call site.
+
+## 110. Jev P-value Band for Demo Scenarios & Test Fixtures
+* **Rule:** Jev mock stubs, demo scenario fixtures, and integration test factories targeting specific verdict outcomes MUST use P-values from the correct band:
+  - **ALLOW (clear-low):** `P < 0.08` (e.g. `P=0.02`)
+  - **Tier-2 escalation (ambiguous):** `0.08 < P ≤ 0.40` (e.g. `P=0.25`)
+  - **Clear-high QUARANTINE raise:** `P > 0.40` (e.g. `P=0.51`) — this does NOT trigger Tier-2; it is raised post-aggregation to QUARANTINE by the clear-high floor (AGENTS.md §3.1, ADR 0008).
+* **Rule:** `P=0.51` MUST NOT be used to demonstrate or test Tier-2 escalation. Use `P=0.25`.
+* **Rationale:** `P > 0.40` activates the post-aggregation QUARANTINE raise, bypassing Tier-2 entirely. Fixtures using `P=0.51` to trigger Tier-2 silently produce QUARANTINE verdicts, causing all downstream tier-2 counter and TSG assertions to fail.
+
+## 111. Demo Scenario Tool & Argument Selection for ALLOW Acts
+* **Rule:** Gateway demo scenarios requiring an ALLOW verdict on a benign act MUST NOT use tools from the demo-mode `_MEDIUM_RISK_TOOLS` set (e.g. `database_query`, `execute_code`) or arguments containing keywords from `_SUSPICIOUS_KEYWORDS` (e.g. `SELECT`, `DROP`, `EXEC`). The combined demo-mode tool score alone can exceed the quarantine threshold (0.10), producing QUARANTINE instead of ALLOW regardless of the Jev P-value.
+* **Rule:** Use `get_weather` with benign location arguments (e.g. `{"location": "London", "units": "metric"}`) as the canonical benign-act tool for ALLOW verdicts in demo scenarios. Approximate aggregate score: ~0.026 (well below the QUARANTINE threshold of 0.10).
+* **Rationale:** Demo mode inflates certain tool scores relative to production. Agents scaffolding new demo scenarios must check tool membership in `_MEDIUM_RISK_TOOLS` and keyword membership in `_SUSPICIOUS_KEYWORDS` before choosing benign act inputs.
+
+## 112. `DeterministicTestResolver` Scope & Payload Incompatibility
+* **Rule:** `DeterministicTestResolver` (in `tests/gateway_harness.py`) is configured exclusively with the heist/quarantine/poisoned-package marker vocabulary (`exfil`, `:8765`, `attacker`, `credential`, etc.). It MUST NOT be used as the resolver backend for any gateway demo scenario whose act payloads do not contain these exact marker tokens — it will return ALLOW for all calls.
+* **Rule:** Demo scenario `_run_live` implementations that require deterministic Jev + Tier-2 verdicts MUST call `_run_chain(transport="live")` in-process with mocked backends, starting the honeypot subprocess separately for port-realism only. This guarantees directly-readable counters (`tier2_calls`, `act3_sig_persisted`) without hardcoding signature counts or inferring Tier-2 activation from BLOCK markers in stdout.
+* **Rationale:** `_spawn_gateway_harness` is a subprocess launcher; its `DeterministicTestResolver` cannot be reconfigured from the parent process. Using it for scenarios outside its marker vocabulary produces ALLOW×N and silently fails all verdict, counter, and TSG assertions.
+
+## 113. Async Resource Cleanup Order in Gateway Demo Scenarios
+* **Rule:** Gateway demo scenario chain runners (`_run_chain` and similar) MUST clean up all owned async resources inside a `finally` block in this strict order:
+  1. `await resolver.flush_background_tasks()` — called **before** `finally` to read counters while tasks are still completing (`resolver.close()` calls this internally too, but calling it here first keeps the counter reads outside the `finally` logic).
+  2. `await resolver.close()` — shuts down the rate-limiter pool (second flush is a no-op).
+  3. `repo.close()` — closes the SQLite connection pool (holds worker threads).
+  4. `await jev_client.aclose()` — closes the HTTP client pool.
+* **Rule:** Closing `repo` before `resolver` risks the SQLite worker threads outliving the resolver's rate-limiter shutdown, causing silent hangs. Never close resources only on the success path; always use `finally`.
+* **Rationale:** The SQLite repo owns up to 10 connection worker threads that keep Python alive after `asyncio.run()` exits if not explicitly closed, masking test timeouts as hangs.
