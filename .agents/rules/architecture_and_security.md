@@ -729,13 +729,13 @@
 * **Rationale:** Codified from the 2026-11-01 security-alert campaign (PRs #185–#189) and the evaluation-extra import gap (#192): the litellm/opentelemetry caps, the pyasn1 cooldown block, the 280-character 422, and the aicplatform[evaluation] wiring each cost a full diagnosis cycle that this protocol collapses to a checklist.
 
 ## 109. `SyncResolver` Semantic Triage Activation API
-* **Rule:** Semantic triage in `SyncResolver` MUST be enabled via the constructor keyword argument `enable_semantic_triage=True`. The environment variable `BW_SEMANTIC_BACKEND` does not exist and was removed by ADR 0009 — using it has no effect and will not be caught at runtime. Any code path, test fixture, demo scenario, or mock that attempts to toggle semantic triage via environment variable is silently broken.
-* **Rationale:** ADR 0009 removed all env-var-based model routing in favour of explicit constructor parameters to make activation auditable at the call site.
+* **Rule:** Code paths, test fixtures, demo scenarios, and mocks SHOULD enable semantic triage explicitly via `enable_semantic_triage=True` to make activation auditable at the call site. When this argument is omitted, `SyncResolver` also supports `BLACKWALL_ENABLE_SYNC_SEMANTIC_TRIAGE=true` as a supported environment-based fallback. The removed backend-selection variable `BW_SEMANTIC_BACKEND` has no effect and MUST NOT be used to activate triage.
+* **Rationale:** ADR 0009 removed env-var-based backend *selection*, not the supported environment-based *activation* flag (`BLACKWALL_ENABLE_SYNC_SEMANTIC_TRIAGE`). Explicit constructor arguments override that flag. Conflating the two leads contributors to replace working env-var configurations and break existing tests unnecessarily.
 
 ## 110. Jev P-value Band for Demo Scenarios & Test Fixtures
 * **Rule:** Jev mock stubs, demo scenario fixtures, and integration test factories targeting specific verdict outcomes MUST use P-values from the correct band:
   - **ALLOW (clear-low):** `P < 0.08` (e.g. `P=0.02`)
-  - **Tier-2 escalation (ambiguous):** `0.08 < P ≤ 0.40` (e.g. `P=0.25`)
+  - **Tier-2 escalation (ambiguous):** `0.08 ≤ P ≤ 0.40` (e.g. `P=0.25`)
   - **Clear-high QUARANTINE raise:** `P > 0.40` (e.g. `P=0.51`) — this does NOT trigger Tier-2; it is raised post-aggregation to QUARANTINE by the clear-high floor (AGENTS.md §3.1, ADR 0008).
 * **Rule:** `P=0.51` MUST NOT be used to demonstrate or test Tier-2 escalation. Use `P=0.25`.
 * **Rationale:** `P > 0.40` activates the post-aggregation QUARANTINE raise, bypassing Tier-2 entirely. Fixtures using `P=0.51` to trigger Tier-2 silently produce QUARANTINE verdicts, causing all downstream tier-2 counter and TSG assertions to fail.
@@ -754,7 +754,7 @@
 * **Rule:** Gateway demo scenario chain runners (`_run_chain` and similar) MUST clean up all owned async resources inside a `finally` block in this strict order:
   1. `await resolver.flush_background_tasks()` — called **before** `finally` to read counters while tasks are still completing (`resolver.close()` calls this internally too, but calling it here first keeps the counter reads outside the `finally` logic).
   2. `await resolver.close()` — shuts down the rate-limiter pool (second flush is a no-op).
-  3. `repo.close()` — closes the SQLite connection pool (holds worker threads).
+  3. `await repo.close()` - closes the SQLite connection pool (holds worker threads).
   4. `await jev_client.aclose()` — closes the HTTP client pool.
 * **Rule:** Closing `repo` before `resolver` risks the SQLite worker threads outliving the resolver's rate-limiter shutdown, causing silent hangs. Never close resources only on the success path; always use `finally`.
 * **Rationale:** The SQLite repo owns up to 10 connection worker threads that keep Python alive after `asyncio.run()` exits if not explicitly closed, masking test timeouts as hangs.
