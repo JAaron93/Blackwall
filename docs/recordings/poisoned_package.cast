@@ -1,0 +1,9 @@
+{"version": 2, "width": 120, "height": 30, "timestamp": 0, "title": "The Poisoned Package", "env": {"SHELL": "bash", "TERM": "xterm-256color"}}
+[0.08, "o", "[PREVIEW] Blackwall MCP Gateway - The Poisoned Package\r\n"]
+[0.16, "o", "[PREVIEW] Regenerate a live cast with scripts/gateway_demo/record_demo.sh\r\n"]
+[0.24, "o", "[PREVIEW] The gateway ALLOW's a legitimate pip install, but the Python audit hook blocks the postinstall script's runtime escapes.\r\n"]
+[0.32, "o", "[PREVIEW] taxonomy: OWASP https://genai.owasp.org/ | MITRE https://atlas.mitre.org/techniques/AML.T0049\r\n"]
+[0.4, "o", "[PREVIEW] ALLOW run_command (protocol layer)\r\n"]
+[0.48, "o", "[PREVIEW] PermissionError subprocess.Popen (audit layer)\r\n"]
+[0.56, "o", "[PREVIEW] PermissionError os.system (audit layer)\r\n"]
+[0.64, "o", "[PREVIEW] PermissionError socket.connect (audit layer)\r\n"]

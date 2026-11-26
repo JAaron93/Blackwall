@@ -1,0 +1,7 @@
+{"version": 2, "width": 120, "height": 30, "timestamp": 0, "title": "The Honeypot", "env": {"SHELL": "bash", "TERM": "xterm-256color"}}
+[0.08, "o", "[PREVIEW] Blackwall MCP Gateway - The Honeypot\r\n"]
+[0.16, "o", "[PREVIEW] Regenerate a live cast with scripts/gateway_demo/record_demo.sh\r\n"]
+[0.24, "o", "[PREVIEW] Locally hosted fake library docs carrying hidden indirect prompt injection payloads and a simulated C2 capture endpoint.\r\n"]
+[0.32, "o", "[PREVIEW] taxonomy: OWASP https://genai.owasp.org/ | MITRE https://atlas.mitre.org/techniques/AML.T0051\r\n"]
+[0.4, "o", "[PREVIEW] served /docs/fake-library\r\n"]
+[0.48, "o", "[PREVIEW] served /docs/compromised-response\r\n"]

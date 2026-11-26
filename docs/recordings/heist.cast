@@ -1,0 +1,9 @@
+{"version": 2, "width": 120, "height": 30, "timestamp": 0, "title": "The Heist", "env": {"SHELL": "bash", "TERM": "xterm-256color"}}
+[0.08, "o", "[PREVIEW] Blackwall MCP Gateway - The Heist\r\n"]
+[0.16, "o", "[PREVIEW] Regenerate a live cast with scripts/gateway_demo/record_demo.sh\r\n"]
+[0.24, "o", "[PREVIEW] A poisoned webpage hijacks an agent into reading a credential file and POSTing it to attacker C2; the gateway blocks both steps.\r\n"]
+[0.32, "o", "[PREVIEW] taxonomy: OWASP https://genai.owasp.org/ | MITRE https://atlas.mitre.org/techniques/AML.T0051\r\n"]
+[0.4, "o", "[PREVIEW] ALLOW read_url (research continues)\r\n"]
+[0.48, "o", "[PREVIEW] BLOCK read_file (-32603) threat_score=0.95\r\n"]
+[0.56, "o", "[PREVIEW] BLOCK http_request (-32603) threat_score=0.95\r\n"]
+[0.64, "o", "[PREVIEW] zero POSTs reached /exfil\r\n"]
