@@ -73,11 +73,21 @@ class TestGatewayDemoBouncer:
     def test_bouncer_persists_tsg_signature_after_block(
         self, tmp_path: Path
     ) -> None:
-        """After Act 3 BLOCK, TSG signature is persisted (inline generation)."""
-        from scripts.gateway_demo.scenario_bouncer import run_bouncer
+        """After Act 3 BLOCK, TSG contains a signature specifically for http_request (Act 3 tool).
+
+        Asserting ``persisted_signature_count >= 1`` is insufficient because Act 2
+        (execute_bash BLOCK) also schedules a signature; that count passes even if
+        Act 3 saves nothing. This test requires a row whose ``target_tool`` matches
+        the Act 3 tool name, confirming the Tier-2-escalated BLOCK wrote its own entry.
+        """
+        from scripts.gateway_demo.scenario_bouncer import ACT3_TOOL, run_bouncer
 
         result = run_bouncer(tmp_path)
         assert result["persisted_signature_count"] >= 1
+        assert result["act3_sig_persisted"] is True, (
+            f"No TSG signature with target_tool={ACT3_TOOL!r} found after Act 3 BLOCK; "
+            "signature count was {result['persisted_signature_count']}"
+        )
 
     def test_bouncer_writes_valid_results_json(self, tmp_path: Path) -> None:
         """Results JSON contains correct scenario metadata and 3 act records."""
@@ -116,7 +126,12 @@ class TestGatewayDemoBouncer:
             assert set(body.keys()) <= {"model", "state", "questions"}
 
     def test_bouncer_live_transport(self, tmp_path: Path) -> None:
-        """Live mode: real honeypot HTTP + real gateway stdio subprocess."""
+        """Live mode: real honeypot HTTP subprocess + mocked Jev + Tier-2 in-process.
+
+        Live mode starts a real honeypot subprocess on localhost:8765 and runs the
+        same mocked triage chain in-process, so verdicts, counters, and TSG entries
+        are all directly readable (no opaque subprocess introspection needed).
+        """
         from scripts.gateway_demo.scenario_bouncer import run_bouncer
 
         result = run_bouncer(tmp_path, transport="live")
@@ -125,6 +140,7 @@ class TestGatewayDemoBouncer:
         assert result["act2"]["verdict"] == "BLOCK"
         assert result["act3"]["verdict"] == "BLOCK"
         assert result["tier2_calls_after_act3"] == 1
+        assert result["act3_sig_persisted"] is True
 
         results_path = Path(result["results_path"])
         assert results_path.exists()

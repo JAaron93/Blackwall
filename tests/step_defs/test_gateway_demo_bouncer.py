@@ -151,4 +151,9 @@ def bouncer_act3_tier2_block(bouncer_state: dict[str, Any]) -> None:
 
 @then("a TSG threat signature is persisted after the Tier-2 block")
 def bouncer_act3_signature_persisted(bouncer_state: dict[str, Any]) -> None:
-    assert bouncer_state["result"]["persisted_signature_count"] >= 1
+    result = bouncer_state["result"]
+    assert result["persisted_signature_count"] >= 1
+    assert result["act3_sig_persisted"] is True, (
+        "No TSG signature for the Act 3 tool found; "
+        "signature count was {}".format(result["persisted_signature_count"])
+    )

@@ -59,7 +59,6 @@ import argparse
 import asyncio
 import json
 import logging
-import subprocess
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -69,9 +68,7 @@ import httpx
 
 from scripts.gateway_demo.scenario_heist import (
     _ensure_honeypot_port_free,
-    _spawn_gateway_harness,
     _spawn_honeypot_subprocess,
-    _stdio_call,
     _terminate_process_group,
     _wait_for_honeypot,
     build_tool_call,
@@ -238,8 +235,18 @@ async def _bouncer_downstream(payload: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-async def _run_chain(tmpdir: Path, *, results_path: Path | None = None) -> dict[str, Any]:
-    """Execute the Bouncer chain in-process with mocked Jev + Gemini Tier-2."""
+async def _run_chain(
+    tmpdir: Path,
+    *,
+    results_path: Path | None = None,
+    transport: str = "in-process",
+) -> dict[str, Any]:
+    """Execute the Bouncer chain with mocked Jev + Gemini Tier-2.
+
+    Used by both ``in-process`` (direct pytest) and ``live`` (real honeypot
+    subprocess already running) transports.  The triage backends are always
+    mocked so verdicts are deterministic regardless of live API availability.
+    """
     from blackwall.db.repository import SQLiteThreatRepository
     from blackwall.gateway.server import MCPGatewayServer
     from blackwall.policy.semantic import GeminiTier2Backend, JevTriageBackend
@@ -275,8 +282,8 @@ async def _run_chain(tmpdir: Path, *, results_path: Path | None = None) -> dict[
     # Inject pre-built Jev backend (avoids reading TYPESAFE_API_KEY env var)
     resolver._semantic_provider = jev_backend
     # Inject pre-built Tier-2 backend (avoids live Vertex AI calls)
-    tier2_backend = GeminiTier2Backend(gemini_client)
-    resolver._tier2_backend = tier2_backend
+    tier2_bk = GeminiTier2Backend(gemini_client)
+    resolver._tier2_backend = tier2_bk
 
     # --- MCPGatewayServer wrapping the resolver ---
     server = MCPGatewayServer(
@@ -284,57 +291,63 @@ async def _run_chain(tmpdir: Path, *, results_path: Path | None = None) -> dict[
         downstream_handler=_bouncer_downstream,
     )
 
-    # --- Act 1: benign database_query (Jev P≈0.02 → clear-low → ALLOW) ---
-    act1_resp = await server.process_message(
-        build_tool_call(ACT1_ID, ACT1_TOOL, ACT1_ARGS)
-    )
-    tier2_after_act1 = resolver.tier2_calls
-    act1_verdict = "ALLOW" if "error" not in act1_resp else "BLOCK"
-    act1_p = _P_ACT1
-    act1_backend = "jev"
-    act1_tier2_invoked = False
+    try:
+        # --- Act 1: benign get_weather (Jev P≈0.02 → clear-low → ALLOW) ---
+        act1_resp = await server.process_message(
+            build_tool_call(ACT1_ID, ACT1_TOOL, ACT1_ARGS)
+        )
+        tier2_after_act1 = resolver.tier2_calls
+        act1_verdict = "ALLOW" if "error" not in act1_resp else "BLOCK"
+        act1_p = _P_ACT1
+        act1_backend = "jev"
+        act1_tier2_invoked = False
 
-    # --- Act 2: execute_bash SQL-injection (Jev P≈0.98 → clear-high → BLOCK) ---
-    act2_resp = await server.process_message(
-        build_tool_call(ACT2_ID, ACT2_TOOL, ACT2_ARGS)
-    )
-    tier2_after_act2 = resolver.tier2_calls
-    act2_verdict = "BLOCK" if act2_resp.get("error", {}).get("code") == -32603 else "ALLOW"
-    act2_p = _P_ACT2
-    act2_backend = "jev"
-    act2_tier2_invoked = False
+        # --- Act 2: execute_bash SQL-injection (Jev P≈0.98 → clear-high → BLOCK) ---
+        act2_resp = await server.process_message(
+            build_tool_call(ACT2_ID, ACT2_TOOL, ACT2_ARGS)
+        )
+        tier2_after_act2 = resolver.tier2_calls
+        act2_verdict = "BLOCK" if act2_resp.get("error", {}).get("code") == -32603 else "ALLOW"
+        act2_p = _P_ACT2
+        act2_backend = "jev"
+        act2_tier2_invoked = False
 
-    # --- Act 3: http_request C2 beacon (Jev P≈0.25 → ambiguity → Tier-2 → BLOCK) ---
-    act3_resp = await server.process_message(
-        build_tool_call(ACT3_ID, ACT3_TOOL, ACT3_ARGS)
-    )
-    # Flush background TSG signature generation (must run in same event loop)
-    await resolver.flush_background_tasks()
-    tier2_after_act3 = resolver.tier2_calls
-    act3_verdict = "BLOCK" if act3_resp.get("error", {}).get("code") == -32603 else "ALLOW"
-    act3_p = _P_ACT3
-    act3_tier2_invoked = tier2_after_act3 > tier2_after_act2
-    act3_backend = "gemini-tier-2" if act3_tier2_invoked else "jev"
+        # --- Act 3: http_request C2 beacon (Jev P≈0.25 → ambiguity → Tier-2 → BLOCK) ---
+        act3_resp = await server.process_message(
+            build_tool_call(ACT3_ID, ACT3_TOOL, ACT3_ARGS)
+        )
+        # Flush background TSG signature generation (must stay in the same event loop)
+        await resolver.flush_background_tasks()
+        tier2_after_act3 = resolver.tier2_calls
+        act3_verdict = "BLOCK" if act3_resp.get("error", {}).get("code") == -32603 else "ALLOW"
+        act3_p = _P_ACT3
+        act3_tier2_invoked = tier2_after_act3 > tier2_after_act2
+        act3_backend = "gemini-tier-2" if act3_tier2_invoked else "jev"
 
-    # Retrieve Tier-2 reasoning for the results JSON
-    act3_tier2_reasoning = ""
-    if act3_tier2_invoked:
-        from blackwall.policy.semantic import Tier2EscalationVerdict as _T2V
-        resp_obj = gemini_client.models.generate_content.return_value
-        parsed = getattr(resp_obj, "parsed", None)
-        if isinstance(parsed, _T2V):
-            act3_tier2_reasoning = parsed.reasoning
+        # Retrieve Tier-2 reasoning for the results JSON
+        act3_tier2_reasoning = ""
+        if act3_tier2_invoked:
+            from blackwall.policy.semantic import Tier2EscalationVerdict as _T2V
+            resp_obj = gemini_client.models.generate_content.return_value
+            parsed = getattr(resp_obj, "parsed", None)
+            if isinstance(parsed, _T2V):
+                act3_tier2_reasoning = parsed.reasoning
 
-    # --- TSG signature count ---
-    persisted_count = resolver._inline_signatures_generated
+        # --- TSG signatures: count and verify Act 3 entry persisted ---
+        persisted_count = resolver._inline_signatures_generated
+        all_sigs = await repo.get_all_signatures()
+        act3_sig_persisted = any(s.get("target_tool") == ACT3_TOOL for s in all_sigs)
 
-    # Close repo + jev client cleanly
-    close = getattr(repo, "close", None)
-    if close is not None:
-        res = close()
-        if asyncio.iscoroutine(res):
-            await res
-    await jev_client.aclose()
+    finally:
+        # Always close: resolver owns the rate-limiter pool; repo holds worker
+        # threads that keep the event loop alive if not released.
+        await resolver.close()
+        close = getattr(repo, "close", None)
+        if close is not None:
+            res = close()
+            if asyncio.iscoroutine(res):
+                await res
+        await jev_client.aclose()
 
     # --- Write results JSON ---
     written_path = _write_results(
@@ -374,7 +387,7 @@ async def _run_chain(tmpdir: Path, *, results_path: Path | None = None) -> dict[
     )
 
     return {
-        "transport": "in-process",
+        "transport": transport,
         "act1": {
             "verdict": act1_verdict,
             "gateway_response": act1_resp,
@@ -400,89 +413,41 @@ async def _run_chain(tmpdir: Path, *, results_path: Path | None = None) -> dict[
         "tier2_calls_after_act2": tier2_after_act2,
         "tier2_calls_after_act3": tier2_after_act3,
         "persisted_signature_count": persisted_count,
+        "act3_sig_persisted": act3_sig_persisted,
         "results_path": str(written_path),
         "jev_request_bodies": [b.decode("utf-8", errors="replace") for b in captured_jev_bodies],
     }
 
 
 # ---------------------------------------------------------------------------
-# Live-transport chain (real honeypot + real gateway stdio subprocess)
+# Live-transport chain (real honeypot subprocess + mocked triage backends)
 # ---------------------------------------------------------------------------
 
 
 def _run_live(tmpdir: Path, *, results_path: Path | None = None) -> dict[str, Any]:
-    """Live Bouncer: real honeypot HTTP + gateway stdio + live Jev + Tier-2."""
+    """Live Bouncer: real honeypot HTTP subprocess + mocked Jev + Tier-2 in-process.
+
+    The honeypot subprocess is started so the scenario exercises a real listening
+    port on localhost:8765 (consistent with live-mode cross-scenario conventions).
+    Triage backends remain mocked (``httpx.MockTransport`` for Jev,
+    ``MagicMock`` for Gemini Tier-2) so verdicts and counters are deterministic
+    and readable from the in-process resolver — not from an opaque subprocess
+    whose internal counters cannot be introspected over stdio.
+
+    ``_spawn_gateway_harness`` (``DeterministicTestResolver``) is intentionally
+    NOT used here: its marker set (``exfil``, ``:8765``, ``attacker``) does not
+    match the Bouncer act payloads, which would yield wrong verdicts.
+    """
     _ensure_honeypot_port_free()
     honeypot = _spawn_honeypot_subprocess(env=os.environ.copy())
     assert honeypot.poll() is None, "Honeypot exited immediately after start"
-    gateway: subprocess.Popen[str] | None = None
     try:
         _wait_for_honeypot()
         assert honeypot.poll() is None, "Honeypot died after readiness"
-
-        gateway = _spawn_gateway_harness(tmpdir)
-
-        act1_resp = _stdio_call(gateway, build_tool_call(ACT1_ID, ACT1_TOOL, ACT1_ARGS))
-        act2_resp = _stdio_call(gateway, build_tool_call(ACT2_ID, ACT2_TOOL, ACT2_ARGS))
-        act3_resp = _stdio_call(gateway, build_tool_call(ACT3_ID, ACT3_TOOL, ACT3_ARGS))
+        result = asyncio.run(_run_chain(tmpdir, results_path=results_path, transport="live"))
     finally:
-        _terminate_process_group(gateway)
         _terminate_process_group(honeypot)
-
-    act1_verdict = "ALLOW" if "error" not in act1_resp else "BLOCK"
-    act2_verdict = "BLOCK" if act2_resp.get("error", {}).get("code") == -32603 else "ALLOW"
-    act3_verdict = "BLOCK" if act3_resp.get("error", {}).get("code") == -32603 else "ALLOW"
-    # In live mode the resolver runs in the gateway subprocess — count is not
-    # directly accessible, but Tier-2 invocation is inferred from the verdict.
-    tier2_after_act3 = 1 if act3_verdict == "BLOCK" else 0
-
-    written_path = _write_results(
-        tmpdir,
-        acts=[
-            {
-                "act": 1,
-                "tool": ACT1_TOOL,
-                "p": _P_ACT1,
-                "escalate": False,
-                "backend": "jev",
-                "tier2_invoked": False,
-                "verdict": act1_verdict,
-            },
-            {
-                "act": 2,
-                "tool": ACT2_TOOL,
-                "p": _P_ACT2,
-                "escalate": False,
-                "backend": "jev",
-                "tier2_invoked": False,
-                "verdict": act2_verdict,
-            },
-            {
-                "act": 3,
-                "tool": ACT3_TOOL,
-                "p": _P_ACT3,
-                "escalate": True,
-                "backend": "gemini-tier-2",
-                "tier2_invoked": tier2_after_act3 > 0,
-                "verdict": act3_verdict,
-            },
-        ],
-        persisted_signature_count=1,
-        results_path=results_path,
-    )
-
-    return {
-        "transport": "live",
-        "act1": {"verdict": act1_verdict, "gateway_response": act1_resp, "p": _P_ACT1, "backend": "jev", "tier2_invoked": False},
-        "act2": {"verdict": act2_verdict, "gateway_response": act2_resp, "p": _P_ACT2, "backend": "jev", "tier2_invoked": False},
-        "act3": {"verdict": act3_verdict, "gateway_response": act3_resp, "p": _P_ACT3, "backend": "gemini-tier-2", "tier2_invoked": tier2_after_act3 > 0},
-        "tier2_calls_after_act1": 0,
-        "tier2_calls_after_act2": 0,
-        "tier2_calls_after_act3": tier2_after_act3,
-        "persisted_signature_count": 1,
-        "results_path": str(written_path),
-        "jev_request_bodies": [],
-    }
+    return result
 
 
 # ---------------------------------------------------------------------------
