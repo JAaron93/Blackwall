@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 
 class TestGatewayDemoPoisonedPackage:
@@ -18,8 +21,13 @@ class TestGatewayDemoPoisonedPackage:
         from blackwall.audit import manager as audit_manager_mod
         from scripts.gateway_demo.scenario_poisoned_package import run_poisoned_package
 
+        before_hook_registered = audit_manager_mod._hook_registered
+        before_active_managers = list(audit_manager_mod._active_managers)
+
         result = run_poisoned_package(tmp_path)
         assert result["transport"] == "in-process"
+        assert result["receiver_active"] is False
+        assert result["exfil_post_count"] is None
 
         # 1. Protocol layer ALLOWs legitimate package install run_command.
         run_cmd = result["run_command_response"]
@@ -41,13 +49,7 @@ class TestGatewayDemoPoisonedPackage:
             "MALICIOUS_IOC_CONNECTION",
         }.issubset(set(result["audit_incident_types"]))
 
-        # 3. Honeypot /exfil received zero POST requests.
-        assert result["exfil_post_count"] == 0
-        capture_log = Path(result["capture_log_path"])
-        if capture_log.exists():
-            assert capture_log.read_text(encoding="utf-8").strip() == ""
-
-        # 4. Structured JSON event log captures ALLOW at gateway + BLOCK at audit hook.
+        # 3. Structured JSON event log captures ALLOW at gateway + BLOCK at audit hook.
         results_path = Path(result["results_path"])
         assert results_path.parent == tmp_path
         assert results_path.exists()
@@ -70,9 +72,9 @@ class TestGatewayDemoPoisonedPackage:
             "socket.connect",
         ]
 
-        # 5. Parent pytest process must remain completely free of audit hook registration.
-        assert audit_manager_mod._hook_registered is False
-        assert len(audit_manager_mod._active_managers) == 0
+        # 4. Parent pytest process audit hook state must remain unchanged (no leak).
+        assert audit_manager_mod._hook_registered == before_hook_registered
+        assert list(audit_manager_mod._active_managers) == before_active_managers
 
     def test_poisoned_package_live_transport_over_real_subprocesses(
         self, tmp_path: Path
@@ -81,8 +83,12 @@ class TestGatewayDemoPoisonedPackage:
         from blackwall.audit import manager as audit_manager_mod
         from scripts.gateway_demo.scenario_poisoned_package import run_poisoned_package
 
+        before_hook_registered = audit_manager_mod._hook_registered
+        before_active_managers = list(audit_manager_mod._active_managers)
+
         result = run_poisoned_package(tmp_path, transport="live")
         assert result["transport"] == "live"
+        assert result["receiver_active"] is True
 
         run_cmd = result["run_command_response"]
         assert "error" not in run_cmd
@@ -95,6 +101,9 @@ class TestGatewayDemoPoisonedPackage:
         ]
         assert result["audit_incident_count"] >= 3
         assert result["exfil_post_count"] == 0
+        capture_log = Path(result["capture_log_path"])
+        if capture_log.exists():
+            assert capture_log.read_text(encoding="utf-8").strip() == ""
 
         results_path = Path(result["results_path"])
         assert results_path.exists()
@@ -105,5 +114,51 @@ class TestGatewayDemoPoisonedPackage:
             "BLOCK",
             "BLOCK",
         ]
-        assert audit_manager_mod._hook_registered is False
-        assert len(audit_manager_mod._active_managers) == 0
+        assert audit_manager_mod._hook_registered == before_hook_registered
+        assert list(audit_manager_mod._active_managers) == before_active_managers
+
+    def test_poisoned_package_parent_snapshot_tolerates_prior_hook_registration(
+        self, tmp_path: Path
+    ) -> None:
+        """Demo succeeds even when earlier audit tests already set _hook_registered."""
+        from blackwall.audit import manager as audit_manager_mod
+        from scripts.gateway_demo.scenario_poisoned_package import run_poisoned_package
+
+        with patch.object(audit_manager_mod, "_hook_registered", True):
+            before_active = list(audit_manager_mod._active_managers)
+            result = run_poisoned_package(tmp_path)
+            assert result["intercepted"] == [
+                "subprocess.Popen",
+                "os.system",
+                "socket.connect",
+            ]
+            assert audit_manager_mod._hook_registered is True
+            assert list(audit_manager_mod._active_managers) == before_active
+
+    def test_defense_assertion_fails_loudly_on_missed_vector_or_exfil(self) -> None:
+        """Runner must fail loudly rather than writing success on partial blocks or exfil."""
+        from scripts.gateway_demo.scenario_poisoned_package import (
+            _assert_defense_in_depth,
+        )
+
+        # Missing socket.connect vector must raise.
+        with pytest.raises(AssertionError, match="socket.connect"):
+            _assert_defense_in_depth(
+                intercepted=["subprocess.Popen", "os.system"],
+                incident_types=["SUBPROCESS_EXECUTION", "SYSTEM_COMMAND_INJECTION"],
+                exfil_post_count=0,
+                receiver_active=True,
+            )
+
+        # Non-zero exfil post count on live receiver must raise.
+        with pytest.raises(AssertionError, match="exfil"):
+            _assert_defense_in_depth(
+                intercepted=["subprocess.Popen", "os.system", "socket.connect"],
+                incident_types=[
+                    "SUBPROCESS_EXECUTION",
+                    "SYSTEM_COMMAND_INJECTION",
+                    "MALICIOUS_IOC_CONNECTION",
+                ],
+                exfil_post_count=1,
+                receiver_active=True,
+            )

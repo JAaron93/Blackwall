@@ -73,6 +73,13 @@ RUN_COMMAND_ID = "poisoned-pkg-install-1"
 MOCK_PKG_DIRNAME = "mock_malicious_pkg"
 INSTALL_COMMAND = f"pip install ./{MOCK_PKG_DIRNAME}"
 
+EXPECTED_VECTORS = ["subprocess.Popen", "os.system", "socket.connect"]
+EXPECTED_INCIDENT_TYPES = {
+    "SUBPROCESS_EXECUTION",
+    "SYSTEM_COMMAND_INJECTION",
+    "MALICIOUS_IOC_CONNECTION",
+}
+
 _SETUP_PY_SOURCE = '''"""Mock poisoned package setup.py postinstall payload (synthetic demo)."""
 
 import json
@@ -283,11 +290,37 @@ async def _fetch_audit_incidents(audit_db_path: Path) -> list[dict[str, Any]]:
                 await res
 
 
+def _assert_defense_in_depth(
+    *,
+    intercepted: list[str],
+    incident_types: list[str],
+    exfil_post_count: int | None,
+    receiver_active: bool,
+) -> None:
+    """Enforce defense-in-depth assertions before recording a successful run."""
+    missing_vectors = [v for v in EXPECTED_VECTORS if v not in intercepted]
+    assert not missing_vectors and intercepted == EXPECTED_VECTORS, (
+        f"Audit hook did not intercept all expected vectors {EXPECTED_VECTORS}; "
+        f"missing={missing_vectors}, got={intercepted}"
+    )
+    missing_incidents = EXPECTED_INCIDENT_TYPES - set(incident_types)
+    assert not missing_incidents, (
+        f"Missing expected audit incident types {sorted(missing_incidents)}; "
+        f"got={incident_types}"
+    )
+    if receiver_active:
+        assert exfil_post_count == 0, (
+            f"Honeypot /exfil received {exfil_post_count} unexpected POST(s); expected 0."
+        )
+
+
 def _write_results(
     tmpdir: Path,
     events: list[dict[str, Any]],
     *,
     intercepted: list[str],
+    receiver_active: bool,
+    exfil_post_count: int | None,
     results_path: Path | None = None,
 ) -> Path:
     target = results_path if results_path is not None else tmpdir / POISONED_PKG_RESULT_FILENAME
@@ -297,6 +330,8 @@ def _write_results(
         "taxonomy": {"owasp": "LLM05", "mitre": "AML.T0049"},
         "owasp_ref": OWASP_REF,
         "mitre_ref": MITRE_REF,
+        "receiver_active": receiver_active,
+        "exfil_post_count": exfil_post_count,
         "intercepted": intercepted,
         "events": events,
     }
@@ -352,13 +387,27 @@ async def _run_chain(tmpdir: Path, *, results_path: Path | None = None) -> dict[
     )
     intercepted = child_result["intercepted"]
     incidents = await _fetch_audit_incidents(audit_db_path)
+    incident_types = [inc["incident_type"] for inc in incidents]
 
-    capture_log = hs.get_capture_log_path()
-    exfil_post_count = _count_capture_lines(capture_log)
+    # In-process mode runs with no live port 8765 listener (Rule 76), so zero-post
+    # network proof is reserved for live mode; do not treat an absent log as proof.
+    receiver_active = False
+    exfil_post_count: int | None = None
+    _assert_defense_in_depth(
+        intercepted=intercepted,
+        incident_types=incident_types,
+        exfil_post_count=exfil_post_count,
+        receiver_active=receiver_active,
+    )
 
     events = _build_events(intercepted)
     written_results = _write_results(
-        tmpdir, events, intercepted=intercepted, results_path=results_path
+        tmpdir,
+        events,
+        intercepted=intercepted,
+        receiver_active=receiver_active,
+        exfil_post_count=exfil_post_count,
+        results_path=results_path,
     )
 
     return {
@@ -366,9 +415,10 @@ async def _run_chain(tmpdir: Path, *, results_path: Path | None = None) -> dict[
         "intercepted": intercepted,
         "audit_db_path": str(audit_db_path),
         "audit_incident_count": len(incidents),
-        "audit_incident_types": [inc["incident_type"] for inc in incidents],
+        "audit_incident_types": incident_types,
+        "receiver_active": receiver_active,
         "exfil_post_count": exfil_post_count,
-        "capture_log_path": str(capture_log),
+        "capture_log_path": str(hs.get_capture_log_path()),
         "results_path": str(written_results),
         "events": events,
         "transport": "in-process",
@@ -408,12 +458,26 @@ def _run_live(tmpdir: Path, *, results_path: Path | None = None) -> dict[str, An
         _terminate_process_group(honeypot)
 
     incidents = asyncio.run(_fetch_audit_incidents(audit_db_path))
+    incident_types = [inc["incident_type"] for inc in incidents]
     capture_log = hs.get_capture_log_path()
     exfil_post_count = _count_capture_lines(capture_log)
+    receiver_active = True
+
+    _assert_defense_in_depth(
+        intercepted=intercepted,
+        incident_types=incident_types,
+        exfil_post_count=exfil_post_count,
+        receiver_active=receiver_active,
+    )
 
     events = _build_events(intercepted)
     written_results = _write_results(
-        tmpdir, events, intercepted=intercepted, results_path=results_path
+        tmpdir,
+        events,
+        intercepted=intercepted,
+        receiver_active=receiver_active,
+        exfil_post_count=exfil_post_count,
+        results_path=results_path,
     )
 
     return {
@@ -421,7 +485,8 @@ def _run_live(tmpdir: Path, *, results_path: Path | None = None) -> dict[str, An
         "intercepted": intercepted,
         "audit_db_path": str(audit_db_path),
         "audit_incident_count": len(incidents),
-        "audit_incident_types": [inc["incident_type"] for inc in incidents],
+        "audit_incident_types": incident_types,
+        "receiver_active": receiver_active,
         "exfil_post_count": exfil_post_count,
         "capture_log_path": str(capture_log),
         "results_path": str(written_results),

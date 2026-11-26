@@ -27,7 +27,14 @@ def _run(coro: Any) -> Any:
 
 @pytest.fixture
 def poisoned_pkg_state(tmp_path: Path) -> dict[str, Any]:
-    return {"tmpdir": tmp_path, "result": None}
+    from blackwall.audit import manager as audit_manager_mod
+
+    return {
+        "tmpdir": tmp_path,
+        "result": None,
+        "before_hook_registered": audit_manager_mod._hook_registered,
+        "before_active_managers": list(audit_manager_mod._active_managers),
+    }
 
 
 @given("the poisoned package demo isolation with synthetic credentials and mock package")
@@ -45,7 +52,13 @@ def poisoned_pkg_isolation(poisoned_pkg_state: dict[str, Any]) -> None:
     "executes in an isolated audited child subprocess"
 )
 def poisoned_pkg_run_chain(poisoned_pkg_state: dict[str, Any]) -> None:
+    from blackwall.audit import manager as audit_manager_mod
     from scripts.gateway_demo.scenario_poisoned_package import run_poisoned_package
+
+    poisoned_pkg_state["before_hook_registered"] = audit_manager_mod._hook_registered
+    poisoned_pkg_state["before_active_managers"] = list(
+        audit_manager_mod._active_managers
+    )
 
     async def _run_chain() -> Any:
         loop = asyncio.get_running_loop()
@@ -76,18 +89,25 @@ def poisoned_pkg_audit_blocks_all_three(poisoned_pkg_state: dict[str, Any]) -> N
     assert state["audit_incident_count"] >= 3
 
 
-@then("the honeypot exfil endpoint received zero posts")
-def poisoned_pkg_zero_exfil(poisoned_pkg_state: dict[str, Any]) -> None:
+@then("all three runtime escape blocks are recorded in the audit incident database")
+def poisoned_pkg_audit_incidents_recorded(poisoned_pkg_state: dict[str, Any]) -> None:
     state = poisoned_pkg_state["result"]
-    assert state["exfil_post_count"] == 0
-    capture = Path(state["capture_log_path"])
-    if capture.exists():
-        assert capture.read_text(encoding="utf-8").strip() == ""
+    assert {
+        "SUBPROCESS_EXECUTION",
+        "SYSTEM_COMMAND_INJECTION",
+        "MALICIOUS_IOC_CONNECTION",
+    }.issubset(set(state["audit_incident_types"]))
 
 
-@then("the parent test process has no audit hook registered")
-def poisoned_pkg_parent_isolated() -> None:
+@then("the parent test process audit hook state is unchanged")
+def poisoned_pkg_parent_isolated(poisoned_pkg_state: dict[str, Any]) -> None:
     from blackwall.audit import manager as audit_manager_mod
 
-    assert audit_manager_mod._hook_registered is False
-    assert len(audit_manager_mod._active_managers) == 0
+    assert (
+        audit_manager_mod._hook_registered
+        == poisoned_pkg_state["before_hook_registered"]
+    )
+    assert (
+        list(audit_manager_mod._active_managers)
+        == poisoned_pkg_state["before_active_managers"]
+    )

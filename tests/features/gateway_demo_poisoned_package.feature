@@ -10,5 +10,5 @@ Feature: Gateway Demo Poisoned Package blocks runtime escapes via Python audit h
     When the agent installs the poisoned package through the gateway and the postinstall executes in an isolated audited child subprocess
     Then the run_command call is allowed by the MCP gateway
     And the Python audit hook blocks subprocess.Popen, os.system, and socket.connect independently
-    And the honeypot exfil endpoint received zero posts
-    And the parent test process has no audit hook registered
+    And all three runtime escape blocks are recorded in the audit incident database
+    And the parent test process audit hook state is unchanged
