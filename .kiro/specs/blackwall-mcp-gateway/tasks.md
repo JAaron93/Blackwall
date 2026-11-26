@@ -544,9 +544,9 @@ Demo flow:
 7. Test isolation: `sys.addaudithook` is confined to the child subprocess and does not affect the parent test runner.
 8. All tests pass.
 
-* [ ] **TASK-G05: Implement "The Bouncer" Demo Scenario (Tier-1 Jev Fast Path + Tier-2 Escalation)**
+* [x] **TASK-G05: Implement "The Bouncer" Demo Scenario (Tier-1 Jev Fast Path + Tier-2 Escalation)**
 
-**Dependencies:** TASK-G01, TASK-B01, TASK-B02, TASK-C01; Tier-1 Jev backend 
+**Dependencies:** TASK-G01, TASK-B01, TASK-B02, TASK-C01; Tier-1 Jev backend
 implementation (`.kiro/specs/tier-1-jev-addition/` Track B) MUST be complete
 
 **Requirements Satisfied:** FR-03, FR-04, FR-15, US-13
@@ -555,18 +555,20 @@ implementation (`.kiro/specs/tier-1-jev-addition/` Track B) MUST be complete
 Build `scripts/gateway_demo/scenario_bouncer.py` — an automated demo script showcasing the additive triage architecture: cheap Jev fast-path verdicts for clear cases and Gemini Tier-2 escalation only for ambiguity.
 
 Demo flow (all fixtures synthetic; Jev evaluation calls are mocked — no live Gateway credentials required):
-1.  Start the gateway wrapping a mock tool server with `BW_SEMANTIC_BACKEND=jev` (mocked Jev responder returning canned `P` values).
-2.  Send a benign `tools/call` for `database_query` (parameterized SELECT) → assert **ALLOW** on the Jev fast path (`P≈0.02`), and assert Tier-2 was NOT invoked.
-3.  Send an obfuscated SQL injection `tools/call` → assert **BLOCK** (`-32603`) on the Jev fast path (`P≈0.98`), and assert Tier-2 was NOT invoked.
-4.  Send an ambiguous C2-beacon-like `tools/call` (mocked `P≈0.51`, inside the `0.08–0.40` band) → assert escalation to Tier-2 and a recorded final verdict, plus an async signature artifact for BLOCK outcomes.
+1.  Start the gateway wrapping a mock tool server via `SyncResolver(..., enable_semantic_triage=True)` with an injected `httpx.MockTransport` Jev responder returning canned `P` values (`BW_SEMANTIC_BACKEND` env var does **not** exist — removed by ADR 0009).
+2.  Send a benign `tools/call` for `get_weather` (benign location arg) → assert **ALLOW** on the Jev fast path (`P≈0.02`), and assert Tier-2 was NOT invoked. (`database_query` triggers the MEDIUM_RISK tool path in demo mode and `SELECT` is a suspicious keyword, raising the aggregate score above the QUARANTINE threshold; `get_weather` has neither risk and stays below 0.10.)
+3.  Send an obfuscated SQL injection `tools/call` via `execute_bash` → assert **BLOCK** (`-32603`) on the Jev fast path (`P≈0.98`), and assert Tier-2 was NOT invoked. (P=0.98 is clear-high, `escalate=False` — no ambiguity band entry.)
+4.  Send an ambiguous C2-beacon-like `tools/call` via `http_request` (mocked `P≈0.25`, inside the `0.08–0.40` ambiguity band, `escalate=True`) → assert escalation to Tier-2 Gemini deep reasoning and a recorded final BLOCK verdict, plus an async TSG signature artifact for BLOCK outcomes. (Do NOT use `P≈0.51` — that value sits outside the ambiguity band and triggers the ADR 0009 Clear-High QUARANTINE floor without invoking Tier-2.)
 5.  Output structured JSON event log (`$TMPDIR/bouncer_results.json`) with per-call `P`, backend (`jev` vs `gemini-tier-2`), and verdicts.
 
 **Acceptance Criteria:**
-1. Integration test (`tests/integration/test_gateway_demo_bouncer.py`) passes end-to-end with mocked Jev + Tier-2 responders.
-2. Acts 1–2 complete without any Tier-2 invocation (assert via call counters).
-3. Act 3 escalates and records the Tier-2 final verdict.
+1. Integration test (`tests/integration/test_gateway_demo_bouncer.py`) passes end-to-end with mocked Jev (`httpx.MockTransport`) + Tier-2 (`MagicMock` Gemini client) responders.
+2. Acts 1–2 complete without any Tier-2 invocation (assert via `resolver.tier2_calls` counter).
+3. Act 3 escalates and records the Tier-2 final verdict (`resolver.tier2_calls == 1`, `backend == "gemini-tier-2"`).
 4. Gherkin BDD scenario (`tests/features/gateway_demo_bouncer.feature`) validates fast-path ALLOW, fast-path BLOCK, and escalation.
 5. All tests pass with zero live network calls.
+
+**Implementation Note (2026-11-26):** Implemented in `scripts/gateway_demo/scenario_bouncer.py`. Tier-2 backend is injected via `resolver._tier2_backend = GeminiTier2Backend(gemini_client)` to avoid lazy construction from the resolver's `self.client`; the mock client suppresses its async path (`del client.aio.models`) to force `asyncio.to_thread` through the synchronous `client.models.generate_content` mock. TSG persistence uses a real `SQLiteThreatRepository` in `tmp_path/bouncer.db` checked via `resolver._inline_signatures_generated`.
 
 * [ ] **TASK-G06: Build Recording Infrastructure & README Integration**
 
