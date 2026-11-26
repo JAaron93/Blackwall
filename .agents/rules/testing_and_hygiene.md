@@ -674,3 +674,16 @@
 * **Rule (Discarded Runs Are Recorded):** An invalid run (all-error, 429-poisoned, wrong model, bad credential plumbing) MUST be listed in the manifest under `discarded` with the cause and the fix, not silently dropped. A script SHOULD fail loudly when a run contains no valid responses so such an attempt cannot be mistaken for a measurement.
 * **Rule (Reviewer Reading Order):** When asked to validate an empirical claim, read the recomputation test and manifest first, then the ADR summary; do not re-derive conclusions from prose. Do not flag committed adversarial fixtures as application vulnerabilities, and do not demand that intentionally adversarial attack text be neutralized. Escalate a stale or missing artifact to the human rather than generating speculative code churn.
 * **Rationale:** Codified from the 2026-11-19 follow-up to PR #212 (TASK-F03). Tasks F01/F02/F05b/F07 already used this chain; F03 shipped its quota burst conclusions only as prose plus a stdout-only script, so future agents could find the decision but not the measurement. This rule makes every C2 deliverable durably referenceable and machine-checkable.
+
+## 81. Act-Specific TSG Signature Assertions
+* **Rule:** Integration tests and BDD step definitions verifying that a specific demo act (or interception event) persisted a Threat Signature Graph (TSG) entry MUST NOT assert only on a total count (`persisted_signature_count >= N`). In multi-act chain runners, any earlier act generating a TSG signature satisfies a count-only assertion even when the target act writes nothing.
+* **Rule:** Assertions MUST query `await repo.get_all_signatures()` and filter by the expected `target_tool` (or equivalent discriminating field):
+  ```python
+  all_sigs = await repo.get_all_signatures()
+  act3_sig_persisted = any(
+      s.get("target_tool") == ACT3_TOOL for s in all_sigs
+  )
+  assert act3_sig_persisted is True
+  ```
+* **Note:** `_inline_generate_signature` calls `repo.writeSignature({"targetTool": ctx.tool_name, ...})` — the `target_tool` column maps from the camelCase `targetTool` key.
+* **Rationale:** Count-only checks are structurally insufficient for multi-act scenarios and can produce false-passing tests that provide misleading coverage over TSG persistence logic.
