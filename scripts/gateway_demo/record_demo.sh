@@ -59,28 +59,30 @@ TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/bw-demo-record.XXXXXX")"
 ACTIVE_PID=""
 TMUX_SESSION=""
 
-# The runner's demo children detach into their own sessions; release any demo
-# listeners that were not already present when recording started (port 9229 is
-# the gateway, 8765 the honeypot, 9230/9231 the auth BDD harness ports).
-demo_port_pids() {
-  local port
-  for port in 8765 9229 9230 9231; do
-    lsof -nP -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true
-  done
-}
-BASELINE_PORTS="$(demo_port_pids)"
+# The runner's demo children detach into their own sessions. Pass a tracking
+# file to them (scenario_heist._track_demo_child) so cleanup targets only the
+# children this recording started — not unrelated services on the same ports.
+export BW_DEMO_PIDFILE="${TMP_DIR}/demo-children.pids"
+: >"${BW_DEMO_PIDFILE}"
 
-release_demo_ports() {
-  local baseline=" ${BASELINE_PORTS:-} " pid
-  for pid in $(demo_port_pids); do
-    [[ "${baseline}" == *" ${pid} "* ]] && continue
-    kill -TERM "${pid}" 2>/dev/null || true
-  done
+terminate_tracked_children() {
+  local pid found=0
+  [[ -s "${BW_DEMO_PIDFILE}" ]] || return 0
+  while IFS= read -r pid; do
+    [[ -n "${pid}" ]] || continue
+    if kill -0 "${pid}" 2>/dev/null; then
+      found=1
+      kill -TERM -- "-${pid}" 2>/dev/null || kill -TERM "${pid}" 2>/dev/null || true
+    fi
+  done <"${BW_DEMO_PIDFILE}"
+  (( found == 1 )) || return 0
   sleep 0.2
-  for pid in $(demo_port_pids); do
-    [[ "${baseline}" == *" ${pid} "* ]] && continue
-    kill -KILL "${pid}" 2>/dev/null || true
-  done
+  while IFS= read -r pid; do
+    [[ -n "${pid}" ]] || continue
+    if kill -0 "${pid}" 2>/dev/null; then
+      kill -KILL -- "-${pid}" 2>/dev/null || kill -KILL "${pid}" 2>/dev/null || true
+    fi
+  done <"${BW_DEMO_PIDFILE}"
 }
 
 # Isolate children in their own session so SIGTERM/SIGINT reaches tmux,
@@ -126,7 +128,7 @@ cleanup() {
   local rc=$?
   trap - EXIT INT TERM
   terminate_group "${ACTIVE_PID}"
-  release_demo_ports
+  terminate_tracked_children
   if [[ -n "${TMUX_SESSION}" ]]; then
     tmux kill-session -t "${TMUX_SESSION}" >/dev/null 2>&1 || true
   fi

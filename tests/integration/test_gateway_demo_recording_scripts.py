@@ -33,6 +33,9 @@ if [[ "${BW_DEMO_TEST_SLEEP:-0}" == "1" ]]; then
   echo $$ > "${BW_DEMO_TEST_PIDFILE:?}"
   if [[ "${BW_DEMO_TEST_NESTED:-0}" == "1" ]]; then
     python3 -c 'import os, socket, sys, time; os.setsid(); s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("127.0.0.1", 9231)); s.listen(); open(sys.argv[1], "w").write(str(os.getpid())); time.sleep(60)' "${BW_DEMO_TEST_NESTED_PIDFILE:?}"
+    if [[ -n "${BW_DEMO_PIDFILE:-}" ]]; then
+      cat "${BW_DEMO_TEST_NESTED_PIDFILE:?}" >> "${BW_DEMO_PIDFILE}"
+    fi
   fi
   sleep 60
 fi

@@ -54,27 +54,30 @@ ACTIVE_PID=""
 HONEYPOT_PID=""
 
 # Demo children call start_new_session=True and can be reparented before the
-# runner dies, so parentage alone cannot find them. Track which demo ports were
-# already in use at startup and only release listeners that this run added.
-demo_port_pids() {
-  local port
-  for port in 8765 9229 9230 9231; do
-    lsof -nP -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true
-  done
-}
-BASELINE_PORTS="$(demo_port_pids)"
+# runner dies. Scenarios append the PIDs they spawn to BW_DEMO_PIDFILE (see
+# scenario_heist._track_demo_child), so cleanup stops exactly this run's
+# children by process group — never an unrelated listener on the same port.
+export BW_DEMO_PIDFILE="${TMP_DIR}/demo-children.pids"
+: >"${BW_DEMO_PIDFILE}"
 
-release_demo_ports() {
-  local baseline=" ${BASELINE_PORTS:-} " pid
-  for pid in $(demo_port_pids); do
-    [[ "${baseline}" == *" ${pid} "* ]] && continue
-    kill -TERM "${pid}" 2>/dev/null || true
-  done
+terminate_tracked_children() {
+  local pid found=0
+  [[ -s "${BW_DEMO_PIDFILE}" ]] || return 0
+  while IFS= read -r pid; do
+    [[ -n "${pid}" ]] || continue
+    if kill -0 "${pid}" 2>/dev/null; then
+      found=1
+      kill -TERM -- "-${pid}" 2>/dev/null || kill -TERM "${pid}" 2>/dev/null || true
+    fi
+  done <"${BW_DEMO_PIDFILE}"
+  (( found == 1 )) || return 0
   sleep 0.2
-  for pid in $(demo_port_pids); do
-    [[ "${baseline}" == *" ${pid} "* ]] && continue
-    kill -KILL "${pid}" 2>/dev/null || true
-  done
+  while IFS= read -r pid; do
+    [[ -n "${pid}" ]] || continue
+    if kill -0 "${pid}" 2>/dev/null; then
+      kill -KILL -- "-${pid}" 2>/dev/null || kill -KILL "${pid}" 2>/dev/null || true
+    fi
+  done <"${BW_DEMO_PIDFILE}"
 }
 
 # Launch a command in its own session so a signal can reach grandchildren
@@ -126,7 +129,7 @@ cleanup() {
   trap - EXIT INT TERM
   terminate_group "${HONEYPOT_PID}"
   terminate_group "${ACTIVE_PID}"
-  release_demo_ports
+  terminate_tracked_children
   rm -rf "${TMP_DIR}"
   exit "${rc}"
 }
@@ -146,8 +149,8 @@ fetch_page() {
 run_honeypot_demo() {
   # Ownership guard: a stale/squatting listener must not satisfy readiness or
   # make our own server "succeed" after it failed to bind (Greptile P2 review).
-  if "${PYTHON_BIN}" -c \
-    'import socket, sys; s = socket.socket(); rc = s.connect_ex(("127.0.0.1", 8765)); s.close(); raise SystemExit(1 if rc == 0 else 0)'; then
+  # _port_guard.py exits 0 when the port IS occupied, 1 when it is free.
+  if "${PYTHON_BIN}" "${REPO_ROOT}/scripts/gateway_demo/_port_guard.py" "${HONEYPOT_PORT}"; then
     echo "[honeypot] port ${HONEYPOT_PORT} already served; refusing to start" >&2
     return 1
   fi

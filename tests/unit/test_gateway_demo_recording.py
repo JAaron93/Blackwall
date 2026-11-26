@@ -165,6 +165,33 @@ def test_committed_recording_assets_are_valid_and_complete():
         assert svg_path.read_text().lstrip().startswith("<svg")
 
 
+def test_port_guard_reports_occupied_only_when_listening():
+    import socket
+
+    from scripts.gateway_demo import _port_guard
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+        assert _port_guard.main([str(port)]) == 1  # bound but not listening
+        sock.listen()
+        assert _port_guard.main([str(port)]) == 0
+    assert _port_guard.main([str(port)]) == 1
+    assert _port_guard.main([]) == 2
+
+
+def test_track_demo_child_appends_pid(monkeypatch, tmp_path: Path):
+    from scripts.gateway_demo import scenario_heist
+
+    pidfile = tmp_path / "children.pids"
+    monkeypatch.setenv("BW_DEMO_PIDFILE", str(pidfile))
+    scenario_heist._track_demo_child(type("P", (), {"pid": 4242})())  # type: ignore[arg-type]
+    assert pidfile.read_text().splitlines() == ["4242"]
+    monkeypatch.delenv("BW_DEMO_PIDFILE")
+    scenario_heist._track_demo_child(type("P", (), {"pid": 9999})())  # type: ignore[arg-type]
+    assert pidfile.read_text().splitlines() == ["4242"]
+
+
 def test_isolated_exec_survives_existing_process_group(monkeypatch):
     from scripts.gateway_demo import _isolated_exec
 
