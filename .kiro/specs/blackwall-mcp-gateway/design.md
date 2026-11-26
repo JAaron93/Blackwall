@@ -305,3 +305,7 @@ This section records where the shipped implementation (PRs #159, #160, #161) int
 
 ### Superseded `blackwall-acp-mcp-integration` spec (TASK-E01 AC3)
 *   The old spec directory was already removed during the gateway rebaseline (commit `53ad25f`) and is absent from the repository. A repo-wide search confirms the only remaining references are this task's own acceptance text. No further archival action required.
+
+### Phase 6: Demo Scenario Implementation Notes (TASK-G04)
+*   **Audit hook execution ahead of TASK-F02:** `scenario_poisoned_package.py` was implemented prior to `TASK-F02` (`blackwall hook install`) and activates `AuditHookManager` (`sys.addaudithook`) directly inside an isolated child Python subprocess (Rule 4), seeding `localhost:8765` and `127.0.0.1:8765` in the ephemeral `blocked_iocs` table so `socket.connect` triggers `PermissionError` alongside `subprocess.Popen` and `os.system`.
+*   **Note for future TASK-F02 / TASK-G06:** Because `pip` itself is a Python process that invokes `subprocess.Popen` during package builds, a global `sitecustomize.py` hook that unconditionally blocks `subprocess.Popen` will intercept `pip` before `setup.py` runs unless build subprocesses are scoped or `TASK-G06` invokes the postinstall script directly.

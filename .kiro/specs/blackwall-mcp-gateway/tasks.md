@@ -303,6 +303,9 @@ Implement the macOS background service management module and CLI subcommands for
 
 **Requirements Satisfied:** FR-12, US-01, US-06
 
+> [!NOTE]
+> **Implementation & Recording Caveat (`pip` subprocesses):** `pip` itself runs in Python and spawns `subprocess.Popen` during PEP 517 package builds. When implementing `blackwall hook install` (`sitecustomize.py` / `.pth`), be aware that an unconditional global `subprocess.Popen` block intercepts `pip` before `setup.py` executes unless build isolation/subprocesses are scoped or `TASK-G06` recording invokes the postinstall script directly.
+
 **Description:**
 Implement the global Python runtime audit hook bootstrap manager across macOS (Apple Silicon `arm64` and Intel `x86_64`):
 - `blackwall hook install` — Identify active Python virtualenv and user site-packages directories. Inject a safe, non-destructive bootstrap snippet into `sitecustomize.py` (or drop `blackwall_audit.pth`) that attaches `sys.addaudithook` before user code executes.
@@ -486,11 +489,14 @@ Demo flow:
 6. Gherkin BDD scenario (`tests/features/gateway_demo_quarantine.feature`) validates surgical BLOCK isolation and session continuity.
 7. All tests pass.
 
-* [ ] **TASK-G04: Implement "The Poisoned Package" Demo Scenario (BLOCK via Python Audit Hook — Supply Chain Defense-in-Depth)**
+* [x] **TASK-G04: Implement "The Poisoned Package" Demo Scenario (BLOCK via Python Audit Hook — Supply Chain Defense-in-Depth)**
 
-**Dependencies:** TASK-G01, TASK-F02
+**Dependencies:** TASK-G01 (`TASK-F02` optional for live `sitecustomize.py` recording)
 
 **Requirements Satisfied:** FR-12, FR-15, US-12
+
+> [!NOTE]
+> **Implementation Alignment (executed ahead of `TASK-F02`):** Because `TASK-F02` (`blackwall hook install`) is not yet implemented, this scenario attaches `AuditHookManager` (`sys.addaudithook`) directly inside the isolated child subprocess (per line 500 and `.agents/rules/testing_and_hygiene.md` Rule 4), seeding `blocked_iocs` for `localhost:8765` / `127.0.0.1:8765` in the ephemeral audit SQLite DB so `socket.connect` is deterministically blocked alongside `subprocess.Popen` and `os.system`. Per Rule 76, `run_poisoned_package(tmpdir)` writes `$TMPDIR/poisoned_package_results.json` by default (never dirtying the repo working tree during tests), with an optional `--results-path` CLI flag in `main()`.
 
 **Description:**
 Build `scripts/gateway_demo/scenario_poisoned_package.py` — an automated demo script demonstrating Blackwall's defense-in-depth: the Python audit hook layer catching runtime escapes that bypass protocol-level MCP Gateway interception.
