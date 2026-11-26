@@ -76,7 +76,7 @@
     },
     {
       "id": "process-group-and-audit-hook-scoping",
-      "rule": "Process Group Cleanup & Audit Hook Scoping: Verify sys.addaudithook registrations in tests are deferred to function scope and background test processes clean up process groups via os.killpg.",
+      "rule": "Process Group Cleanup & Audit Hook Scoping: Verify sys.addaudithook registrations in tests are deferred to function scope and background test processes clean up process groups via os.killpg. Detached children (start_new_session=True / setsid) must be tracked by recorded PID (e.g. BW_DEMO_PIDFILE) and signaled by their own process group; flag parentage-only or port-based cleanup that can leak demo services or kill unrelated listeners.",
       "severity": "medium"
     },
     {
