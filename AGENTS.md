@@ -72,7 +72,7 @@ When reviewing or building Enterprise Mesh code under `src/blackwall/enterprise/
 
 Detailed architectural, security, database persistence, and testing hygiene rules are modularized under `.agents/rules/`:
 
-* [`architecture_and_security.md`](.agents/rules/architecture_and_security.md): DSN log privacy, atomic DB transactions, explicit connection error escalation, credential purging, and import handling.
+* [`architecture_and_security.md`](.agents/rules/architecture_and_security.md): DSN log privacy, atomic DB transactions, explicit connection error escalation, credential purging, multi-pass redaction including persisted recording artifacts, shell orchestration PID capture, and detached-child process-group cleanup; import handling.
 * [`testing_and_hygiene.md`](.agents/rules/testing_and_hygiene.md): SLA warmup benchmarking, audit hook isolation, BDD `run_async` step execution, Pydantic model validation, Pytest asyncio scoping, property test isolation, and empirical evidence recording etiquette (committed JSON + manifest + recomputation test).
 
 Empirical / calibration (Cluster 2) work also has a canonical navigation document (not a rule file):
