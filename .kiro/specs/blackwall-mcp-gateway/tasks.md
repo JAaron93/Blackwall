@@ -388,7 +388,7 @@ Implement verification tests ensuring Blackwall Core meets performance and resou
 
 ### Track G: Demo Scenario Infrastructure & Recording
 
-* [x] **TASK-G01: Build Local Honeypot Web Server & Prompt Injection Payload Fixtures**
+* [x] **TASK-G01: Build Local Honeypot Web Server & Prompt Injection Payload Fixtures Scenario**
 
 **Dependencies:** TASK-C01, TASK-C03
 
