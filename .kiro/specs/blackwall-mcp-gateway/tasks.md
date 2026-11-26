@@ -384,7 +384,7 @@ Implement verification tests ensuring Blackwall Core meets performance and resou
 
 > [!TIP]
 > **PARALLEL EXECUTION**
-> `TASK-G02` ("The Heist"), `TASK-G03` ("The Quarantine"), `TASK-G05` ("The Poisoned Package"), and `TASK-G06` ("The Bouncer") can be developed concurrently once `TASK-G01` (Honeypot Server) is complete.
+> `TASK-G02` ("The Heist"), `TASK-G03` ("The Quarantine"), `TASK-G04` ("The Poisoned Package"), and `TASK-G05` ("The Bouncer") can be developed concurrently once `TASK-G01` (Honeypot Server) is complete.
 
 ### Track G: Demo Scenario Infrastructure & Recording
 
@@ -486,35 +486,7 @@ Demo flow:
 6. Gherkin BDD scenario (`tests/features/gateway_demo_quarantine.feature`) validates surgical BLOCK isolation and session continuity.
 7. All tests pass.
 
-* [ ] **TASK-G04: Build Recording Infrastructure & README Integration**
-
-**Dependencies:** TASK-G02, TASK-G03, TASK-G05, TASK-G06
-
-**Requirements Satisfied:** FR-15, US-10, US-11, US-12, US-13
-
-**Description:**
-Build the recording orchestration and README integration that packages all four demo scenarios into watchable, embeddable recordings for potential users.
-
-Components:
-1.  **`scripts/gateway_demo/run_gateway_demo.sh`** — Master entry point that executes all four scenarios sequentially with zero manual intervention. Handles honeypot server lifecycle (start before scenarios, stop after), gateway startup/teardown, and exit-code aggregation.
-2.  **`scripts/gateway_demo/record_demo.sh`** — Recording orchestration using `asciinema rec` with `tmux` split-pane layout:
-    - Left pane: Agent demo script execution (tool calls, verdicts, results)
-    - Right pane: `blackwall serve --foreground` live gateway logs (threat scores, signature matches, colored verdict highlights)
-    - Produces `.cast` files for each scenario in `docs/recordings/` (`heist.cast`, `quarantine.cast`, `poisoned_package.cast`, `bouncer.cast`)
-3.  **GIF/SVG Generation:** Post-processing step using `agg` (asciinema GIF generator) or `svg-term` to produce thumbnail images for README embedding.
-4.  **README Integration:** Add a new `## 🛡️ MCP Gateway Demos` section to `README.md` containing:
-    - Brief prose introduction explaining the difference between the existing red-teamer demo and the MCP Gateway demos (direct adversarial vs. indirect prompt injection)
-    - For each scenario: embedded recording/GIF, attack vector explanation, OWASP/MITRE reference links, and Blackwall's response
-    - "Try it yourself" instructions: `./scripts/gateway_demo/run_gateway_demo.sh`
-
-**Acceptance Criteria:**
-1. `run_gateway_demo.sh` executes all four scenarios end-to-end with zero manual intervention and returns exit 0 on success.
-2. `record_demo.sh` produces `.cast` recording files in `docs/recordings/` for each scenario.
-3. README.md contains a `## 🛡️ MCP Gateway Demos` section with scenario descriptions, OWASP/MITRE references, and run instructions.
-4. All demo scenarios pass as integration tests in CI (verifiable via `pytest tests/integration/test_gateway_demo_*.py`).
-5. Recording infrastructure handles graceful cleanup of honeypot and gateway processes on script termination (SIGTERM/SIGINT).
-
-* [ ] **TASK-G05: Implement "The Poisoned Package" Demo Scenario (BLOCK via Python Audit Hook — Supply Chain Defense-in-Depth)**
+* [ ] **TASK-G04: Implement "The Poisoned Package" Demo Scenario (BLOCK via Python Audit Hook — Supply Chain Defense-in-Depth)**
 
 **Dependencies:** TASK-G01, TASK-F02
 
@@ -566,7 +538,7 @@ Demo flow:
 7. Test isolation: `sys.addaudithook` is confined to the child subprocess and does not affect the parent test runner.
 8. All tests pass.
 
-* [ ] **TASK-G06: Implement "The Bouncer" Demo Scenario (Tier-1 Jev Fast Path + Tier-2 Escalation)**
+* [ ] **TASK-G05: Implement "The Bouncer" Demo Scenario (Tier-1 Jev Fast Path + Tier-2 Escalation)**
 
 **Dependencies:** TASK-G01, TASK-B01, TASK-B02, TASK-C01; Tier-1 Jev backend 
 implementation (`.kiro/specs/tier-1-jev-addition/` Track B) MUST be complete
@@ -589,3 +561,31 @@ Demo flow (all fixtures synthetic; Jev evaluation calls are mocked — no live G
 3. Act 3 escalates and records the Tier-2 final verdict.
 4. Gherkin BDD scenario (`tests/features/gateway_demo_bouncer.feature`) validates fast-path ALLOW, fast-path BLOCK, and escalation.
 5. All tests pass with zero live network calls.
+
+* [ ] **TASK-G06: Build Recording Infrastructure & README Integration**
+
+**Dependencies:** TASK-G01, TASK-G02, TASK-G03, TASK-G04, TASK-G05
+
+**Requirements Satisfied:** FR-15, US-10, US-11, US-12, US-13
+
+**Description:**
+Build the recording orchestration and README integration that packages all five demo scenarios into watchable, embeddable recordings for potential users.
+
+Components:
+1.  **`scripts/gateway_demo/run_gateway_demo.sh`** — Master entry point that executes all five scenarios sequentially with zero manual intervention. Handles honeypot server lifecycle (start before scenarios, stop after), gateway startup/teardown, and exit-code aggregation.
+2.  **`scripts/gateway_demo/record_demo.sh`** — Recording orchestration using `asciinema rec` with `tmux` split-pane layout:
+    - Left pane: Agent demo script execution (tool calls, verdicts, results)
+    - Right pane: `blackwall serve --foreground` live gateway logs (threat scores, signature matches, colored verdict highlights)
+    - Produces `.cast` files for each scenario in `docs/recordings/` (`honeypot.cast`, `heist.cast`, `quarantine.cast`, `poisoned_package.cast`, `bouncer.cast`)
+3.  **GIF/SVG Generation:** Post-processing step using `agg` (asciinema GIF generator) or `svg-term` to produce thumbnail images for README embedding.
+4.  **README Integration:** Add a new `## 🛡️ MCP Gateway Demos` section to `README.md` containing:
+    - Brief prose introduction explaining the difference between the existing red-teamer demo and the MCP Gateway demos (direct adversarial vs. indirect prompt injection)
+    - For each scenario: embedded recording/GIF, attack vector explanation, OWASP/MITRE reference links, and Blackwall's response
+    - "Try it yourself" instructions: `./scripts/gateway_demo/run_gateway_demo.sh`
+
+**Acceptance Criteria:**
+1. `run_gateway_demo.sh` executes all five scenarios end-to-end with zero manual intervention and returns exit 0 on success.
+2. `record_demo.sh` produces `.cast` recording files in `docs/recordings/` for each scenario.
+3. README.md contains a `## 🛡️ MCP Gateway Demos` section with scenario descriptions, OWASP/MITRE references, and run instructions.
+4. All demo scenarios pass as integration tests in CI (verifiable via `pytest tests/integration/test_gateway_demo_*.py`).
+5. Recording infrastructure handles graceful cleanup of honeypot and gateway processes on script termination (SIGTERM/SIGINT).
