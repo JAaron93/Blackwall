@@ -17,6 +17,7 @@ from __future__ import annotations
 import atexit
 import json
 import os
+import shutil
 import site
 import sys
 import sysconfig
@@ -44,9 +45,10 @@ def generate_snippet() -> str:
     """Return the marked sitecustomize snippet.
 
     Only ``ImportError`` is swallowed: it means this interpreter does not have
-    the Blackwall package installed and the bootstrap cannot run there.  Any
-    real hook-attachment failure propagates (fail closed) rather than silently
-    leaving the environment unprotected.
+    the Blackwall package installed and the bootstrap cannot run there.  Real
+    initialization failures terminate the interpreter via ``os._exit`` because
+    CPython otherwise swallows ``sitecustomize`` exceptions and would start
+    user code with no hook attached (fail open).
     """
     return "\n".join(
         [
@@ -77,7 +79,9 @@ def discover_site_packages() -> list[Path]:
     result: list[Path] = []
     for candidate in candidates:
         resolved = candidate.resolve()
-        if resolved not in seen and resolved.is_dir():
+        # Keep a missing user-site path: install creates it. Dropping it made
+        # `hook install` silently do nothing outside a virtualenv.
+        if resolved not in seen:
             seen.add(resolved)
             result.append(resolved)
     return result
@@ -161,26 +165,59 @@ def uninstall_hook(site_packages: list[Path] | None = None) -> list[Path]:
         if flags["inserted_separator"] and start > 0 and data[start - 1 : start] == b"\n":
             start -= 1
         remaining = data[:start] + data[end:]
-        if flags["created"] or (not manifest_exists and not remaining.strip()):
+        if not remaining.strip() and (flags["created"] or not manifest_exists):
             path.unlink()
         else:
+            # Preserve customizations added after installation, even when the
+            # bootstrap originally created this file.
             path.write_bytes(remaining)
     return targets
 
 
-def _is_build_or_install_process() -> bool:
-    """Skip pip and PEP-517 build subprocesses (which spawn Popen themselves)."""
+def _matches_trusted_entrypoint(candidate: str) -> bool:
+    """Match only real, PATH-resolved pip/Blackwall entry points.
+
+    Trusting a filename prefix or an argument name lets a rogue script opt out
+    simply by naming itself ``pipfetch.py`` or passing ``build`` as an argument.
+    """
+    version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    for name in ("pip", "pip3", f"pip{version}", "blackwall"):
+        located = shutil.which(name)
+        if located and os.path.realpath(candidate) == os.path.realpath(located):
+            return True
+    return False
+
+
+def _is_python_executable(name: str) -> bool:
+    base = Path(name).name.lower()
+    return base == "python" or base == "python3" or (
+        base.startswith("python3.") and base[8:].isdigit()
+    )
+
+
+def _is_exempt_process() -> bool:
+    """Skip genuine installers and trusted Blackwall CLI processes only."""
     argv = [str(part) for part in (sys.argv or [])]
     if not argv:
         return False
-    if Path(argv[0]).name.lower().startswith("pip"):
+    if _matches_trusted_entrypoint(argv[0]):
         return True
-    if len(argv) > 1:
-        if Path(argv[1]).name in ("setup.py", "pip", "pip3", "build"):
-            return True
-        if argv[1] == "-m" and len(argv) > 2 and argv[2] in ("pip", "build"):
-            return True
-    return False
+    if not _is_python_executable(argv[0]):
+        return False
+    if len(argv) > 2 and argv[1] == "-m":
+        return argv[2] in ("pip", "build", "blackwall.cli")
+    return len(argv) > 1 and _matches_trusted_entrypoint(argv[1])
+
+
+def _fail_closed(message: str) -> None:
+    """Refuse to start an unprotected interpreter when hook setup fails.
+
+    CPython swallows exceptions raised by ``sitecustomize`` and continues into
+    user code, so merely raising here would leave rogue scripts unblocked.
+    """
+    sys.stderr.write(f"Blackwall audit hook failed to initialize: {message}\n")
+    sys.stderr.flush()
+    os._exit(1)
 
 
 def _stop_manager(manager: Any) -> None:
@@ -198,7 +235,7 @@ def bootstrap_audit_hook() -> None:
         return
     if os.environ.get(DISABLE_ENV, "").strip().lower() in ("1", "true", "yes"):
         return
-    if _is_build_or_install_process():
+    if _is_exempt_process():
         return
 
     from blackwall.audit import manager as manager_module
@@ -212,10 +249,14 @@ def bootstrap_audit_hook() -> None:
 
     db_value = os.environ.get(DB_ENV)
     db_path = Path(db_value).expanduser().resolve() if db_value else default_db_path()
-    manager = manager_module.AuditHookManager(db_path=str(db_path))
-    # Create the SQLite schema before the hook starts intercepting `open`.
-    manager._get_conn()
-    manager.start()
+    try:
+        manager = manager_module.AuditHookManager(db_path=str(db_path))
+        # Create the SQLite schema before the hook starts intercepting `open`.
+        manager._get_conn()
+        manager.start()
+    except Exception as exc:
+        _fail_closed(str(exc))
+        return  # unreachable when os._exit succeeds
     _BOOTSTRAPPED = True
     atexit.register(_stop_manager, manager)
 

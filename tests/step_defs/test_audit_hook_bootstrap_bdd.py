@@ -72,6 +72,7 @@ def when_install(command: str, state: HookBDDState, monkeypatch: pytest.MonkeyPa
 def when_uninstall(state: HookBDDState, monkeypatch: pytest.MonkeyPatch) -> None:
     assert state.site_dir is not None
     monkeypatch.setattr(bootstrap, "discover_site_packages", lambda: [state.site_dir])
+    assert CliRunner().invoke(cli, ["hook", "install"]).exit_code == 0
     bootstrap.uninstall_hook([state.site_dir])
 
 

@@ -153,7 +153,7 @@ blackwall hook status
 blackwall hook uninstall
 ```
 
-`install` injects a marked bootstrap into `sitecustomize.py` before user code executes; `uninstall` removes only that block and leaves existing customizations untouched. The active hook raises `PermissionError` on blocked OS escapes such as `subprocess.Popen`, `os.system`, and `socket.connect` before the syscall is dispatched. `pip`/PEP-517 build subprocesses are skipped so package installs keep working; `BLACKWALL_AUDIT_DISABLED=1` opts out entirely, and `BLACKWALL_AUDIT_DB` overrides the incident database location.
+`install` injects a marked bootstrap into `sitecustomize.py` before user code executes; `uninstall` removes only that block and leaves existing customizations untouched. The active hook raises `PermissionError` on blocked OS escapes such as `subprocess.Popen`, `os.system`, and `socket.connect` before the syscall is dispatched. Only genuine `pip`/PEP-517 build frontends (resolved via `PATH`) and trusted `blackwall` CLI processes are exempt; script names or arguments cannot opt out. If the hook cannot initialize (for example, an unusable incident database), the interpreter exits rather than running unprotected user code. `BLACKWALL_AUDIT_DISABLED=1` is an explicit opt-out, and `BLACKWALL_AUDIT_DB` overrides the incident database location.
 
 ---
 

@@ -81,6 +81,18 @@ class TestSnippetAndSitePackages:
         bootstrap.uninstall_hook([site_dir])
         assert sitecustomize.read_bytes() == original
 
+    def test_uninstall_keeps_additions_in_file_created_by_install(
+        self, site_dir: Path
+    ) -> None:
+        bootstrap.install_hook([site_dir])
+        path = site_dir / "sitecustomize.py"
+        addition = b"\n# added by user after install\nVALUE = 5\n"
+        path.write_bytes(path.read_bytes() + addition)
+
+        bootstrap.uninstall_hook([site_dir])
+        assert path.is_file()
+        assert addition in path.read_bytes()
+
     def test_uninstall_preserves_preexisting_empty_sitecustomize(
         self, site_dir: Path
     ) -> None:
@@ -97,6 +109,33 @@ class TestSnippetAndSitePackages:
         assert sitecustomize.exists()
         bootstrap.uninstall_hook([site_dir])
         assert not sitecustomize.exists()
+
+    def test_uninstall_keeps_customizations_added_after_install(
+        self, site_dir: Path
+    ) -> None:
+        sitecustomize = site_dir / "sitecustomize.py"
+        original = b"VALUE = 1\n"
+        sitecustomize.write_bytes(original)
+        bootstrap.install_hook([site_dir])
+        addition = b"\n# user addition after install\nVALUE = 2\n"
+        sitecustomize.write_bytes(sitecustomize.read_bytes() + addition)
+
+        bootstrap.uninstall_hook([site_dir])
+        content = sitecustomize.read_bytes()
+        assert original in content
+        assert addition in content
+
+    def test_discovery_returns_missing_user_site_for_creation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        missing_user_site = tmp_path / "missing-user-site"
+        monkeypatch.setattr(
+            bootstrap.site, "getusersitepackages", lambda: str(missing_user_site)
+        )
+        discovered = bootstrap.discover_site_packages()
+        assert missing_user_site in discovered
+        bootstrap.install_hook(discovered)
+        assert (missing_user_site / "sitecustomize.py").is_file()
 
     def test_discovery_includes_user_site_and_active_venv(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -133,9 +172,91 @@ class TestBootstrapGuardrails:
         monkeypatch.delenv(bootstrap.DISABLE_ENV, raising=False)
         monkeypatch.setenv(bootstrap.DB_ENV, str(tmp_path / "audit.db"))
         monkeypatch.setattr(sys, "argv", ["/usr/bin/pip3", "install", "some-package"])
+        monkeypatch.setattr(
+            bootstrap.shutil, "which", lambda name: "/usr/bin/pip3" if name == "pip3" else None
+        )
         with patch("blackwall.audit.manager.AuditHookManager") as manager_cls:
             bootstrap.bootstrap_audit_hook()
         manager_cls.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["/tmp/pipfetch.py", "build"],
+            [sys.executable, "payload.py", "build"],
+            [sys.executable, "setup.py", "install"],
+        ],
+    )
+    def test_argv_spoofing_does_not_disable_hook(
+        self,
+        argv: list[str],
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.delenv(bootstrap.DISABLE_ENV, raising=False)
+        monkeypatch.setenv(bootstrap.DB_ENV, str(tmp_path / "audit.db"))
+        monkeypatch.setattr(sys, "argv", argv)
+        monkeypatch.setattr(bootstrap.shutil, "which", lambda name: None)
+        with patch("blackwall.audit.manager.AuditHookManager") as manager_cls:
+            bootstrap.bootstrap_audit_hook()
+        manager_cls.assert_called_once()
+
+    def test_genuine_python_m_pip_is_exempt(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.delenv(bootstrap.DISABLE_ENV, raising=False)
+        monkeypatch.setenv(bootstrap.DB_ENV, str(tmp_path / "audit.db"))
+        monkeypatch.setattr(sys, "argv", [sys.executable, "-m", "pip", "install", "pkg"])
+        with patch("blackwall.audit.manager.AuditHookManager") as manager_cls:
+            bootstrap.bootstrap_audit_hook()
+        manager_cls.assert_not_called()
+
+    def test_genuine_pip_entrypoint_is_exempt(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        pip_entry = tmp_path / "pip3"
+        pip_entry.write_text("# synthetic pip entry point\n")
+        monkeypatch.delenv(bootstrap.DISABLE_ENV, raising=False)
+        monkeypatch.setenv(bootstrap.DB_ENV, str(tmp_path / "audit.db"))
+        monkeypatch.setattr(sys, "argv", [str(pip_entry), "install", "pkg"])
+        monkeypatch.setattr(
+            bootstrap.shutil,
+            "which",
+            lambda name: str(pip_entry) if name == "pip3" else None,
+        )
+        with patch("blackwall.audit.manager.AuditHookManager") as manager_cls:
+            bootstrap.bootstrap_audit_hook()
+        manager_cls.assert_not_called()
+
+    def test_genuine_blackwall_service_command_is_exempt(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        entry = tmp_path / "blackwall"
+        entry.write_text("# synthetic CLI entry point\n")
+        monkeypatch.delenv(bootstrap.DISABLE_ENV, raising=False)
+        monkeypatch.setenv(bootstrap.DB_ENV, str(tmp_path / "audit.db"))
+        monkeypatch.setattr(sys, "argv", [str(entry), "service", "start"])
+        monkeypatch.setattr(
+            bootstrap.shutil, "which", lambda name: str(entry) if name == "blackwall" else None
+        )
+        with patch("blackwall.audit.manager.AuditHookManager") as manager_cls:
+            bootstrap.bootstrap_audit_hook()
+        manager_cls.assert_not_called()
+
+    def test_db_initialization_failure_is_fail_closed(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.delenv(bootstrap.DISABLE_ENV, raising=False)
+        monkeypatch.setenv(bootstrap.DB_ENV, str(tmp_path / "audit.db"))
+        monkeypatch.setattr(sys, "argv", [sys.executable, "-c", "pass"])
+        with (
+            patch("blackwall.audit.manager.AuditHookManager") as manager_cls,
+            patch.object(bootstrap.os, "_exit", side_effect=SystemExit(1)) as exit_mock,
+        ):
+            manager_cls.return_value._get_conn.side_effect = OSError("corrupt database")
+            with pytest.raises(SystemExit):
+                bootstrap.bootstrap_audit_hook()
+        exit_mock.assert_called_once_with(1)
 
     def test_default_db_path_follows_current_home(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -210,6 +331,16 @@ class TestCleanSubprocessBootstrap:
         result = _child(code, bootstrapped_env)
         assert result.returncode == 0, result.stderr
         assert "ACTIVE" in result.stdout
+
+    def test_child_with_unusable_db_refuses_to_run(
+        self, bootstrapped_env: dict[str, str], tmp_path: Path
+    ) -> None:
+        broken_env = dict(bootstrapped_env)
+        broken_env[bootstrap.DB_ENV] = str(tmp_path / "a-directory")
+        (tmp_path / "a-directory").mkdir()
+        result = _child("print('SHOULD_NOT_RUN')", broken_env)
+        assert result.returncode != 0
+        assert "SHOULD_NOT_RUN" not in result.stdout
 
     def test_clean_subprocess_blocks_malicious_popen(
         self, bootstrapped_env: dict[str, str]
