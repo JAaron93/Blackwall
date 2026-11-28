@@ -137,7 +137,9 @@ blackwall service uninstall
 
 The generated plist supervises `blackwall serve --foreground` on `localhost:9229`, resolves every config/log/PID/database/credential path to an absolute path (no tilde expansion is performed by `launchd`), and injects the active GCP project, ADC path, `GEMINI_TIER=paid`, and `PATH` into its `EnvironmentVariables`. Use `blackwall service configure --project <id> --credentials <path>` to update those entries later.
 
-If the Tier-1 Jev backend is enabled, a `TYPESAFE_API_KEY` present at install time is written **only** to `~/.blackwall/gateway.env` with `0600` permissions and loaded by the daemon at startup; it is never embedded in the plist or logs. The same protected file can be provisioned later with `blackwall service configure --typesafe-key <key>`. See the [gateway design spec](.kiro/specs/blackwall-mcp-gateway/design.md) for the full contract. (Linux `systemd` services are reserved for Enterprise Mesh deployments.)
+If the Tier-1 Jev backend is enabled, a `TYPESAFE_API_KEY` present at install time is written **only** to `~/.blackwall/gateway.env` with `0600` permissions and loaded by the daemon at startup; it is never embedded in the plist or logs. The same protected file can be provisioned later with `blackwall service configure --typesafe-key <key>`.
+
+`configure` only rewrites the plist/protected file — the running daemon keeps its old settings until restarted, so run `blackwall service stop` followed by `blackwall service start` after any configuration change. See the [gateway design spec](.kiro/specs/blackwall-mcp-gateway/design.md) for the full contract. (Linux `systemd` services are reserved for Enterprise Mesh deployments.)
 
 ---
 
