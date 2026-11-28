@@ -143,6 +143,18 @@ If the Tier-1 Jev backend is enabled, a `TYPESAFE_API_KEY` present at install ti
 
 `configure` only rewrites the plist/protected file — the running daemon keeps its old settings until restarted, so run `blackwall service stop` followed by `blackwall service start` after any configuration change. See the [gateway design spec](.kiro/specs/blackwall-mcp-gateway/design.md) for the full contract. (Linux `systemd` services are reserved for Enterprise Mesh deployments.)
 
+#### Global Python audit hook
+
+To attach Blackwall's runtime audit hook to every Python process in the active virtualenv and user site-packages:
+
+```bash
+blackwall hook install
+blackwall hook status
+blackwall hook uninstall
+```
+
+`install` injects a marked bootstrap into `sitecustomize.py` before user code executes; `uninstall` removes only that block and leaves existing customizations untouched. The active hook raises `PermissionError` on blocked OS escapes such as `subprocess.Popen`, `os.system`, and `socket.connect` before the syscall is dispatched. `pip`/PEP-517 build subprocesses are skipped so package installs keep working; `BLACKWALL_AUDIT_DISABLED=1` opts out entirely, and `BLACKWALL_AUDIT_DB` overrides the incident database location.
+
 ---
 
 ## 🛡️ MCP Gateway Demos
