@@ -55,7 +55,10 @@ def given_bootstrapped(tmp_path: Path, state: HookBDDState) -> None:
     bootstrap.install_hook([site_dir])
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join([str(REPO_SRC), str(site_dir)])
-    env[bootstrap.DB_ENV] = str(tmp_path / "audit.db")
+    home = tmp_path / "home"
+    home.mkdir()
+    env["HOME"] = str(home)
+    env.pop(bootstrap.DB_ENV, None)
     env.pop(bootstrap.DISABLE_ENV, None)
     state.site_dir = site_dir
     state.env = env

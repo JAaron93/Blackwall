@@ -202,25 +202,20 @@ def _matches_trusted_entrypoint(candidate: str) -> bool:
     return os.path.realpath(candidate) in _trusted_entrypoints()
 
 
-def _is_python_executable(name: str) -> bool:
-    base = Path(name).name.lower()
-    return base == "python" or base == "python3" or (
-        base.startswith("python3.") and base[8:].isdigit()
-    )
-
-
 def _is_exempt_process() -> bool:
-    """Skip genuine installers and trusted Blackwall CLI processes only."""
-    argv = [str(part) for part in (sys.argv or [])]
-    if not argv:
-        return False
-    if _matches_trusted_entrypoint(argv[0]):
+    """Skip genuine installers and trusted Blackwall CLI processes only.
+
+    ``sys.argv[0]`` is caller-controlled (``exec -a`` can fake it), so trust is
+    based on the actually executing ``__main__`` module instead.
+    """
+    main_module = sys.modules.get("__main__")
+    main_file = getattr(main_module, "__file__", None)
+    if main_file and _matches_trusted_entrypoint(str(main_file)):
         return True
-    if not _is_python_executable(argv[0]):
-        return False
-    if len(argv) > 2 and argv[1] == "-m":
-        return argv[2] in ("pip", "build", "blackwall.cli")
-    return len(argv) > 1 and _matches_trusted_entrypoint(argv[1])
+    package = getattr(main_module, "__package__", "") or ""
+    return package in ("pip", "build", "blackwall", "blackwall.cli") or package.startswith(
+        "pip."
+    )
 
 
 def _register_critical_guard() -> None:
@@ -236,19 +231,56 @@ def _register_critical_guard() -> None:
         _GUARD_REGISTERED = True
 
 
-def _critical_bootstrap_guard(event: str, args: tuple[Any, ...]) -> None:
-    if event != "open" or not args:
-        return
-    raw = args[0]
+_RAW_EXEC_EVENTS = frozenset(
+    {
+        "os.posix_spawn",
+        "os.spawn",
+        "os.exec",
+        "os.system",
+        "os.fork",
+        "os.forkpty",
+        "pty.spawn",
+    }
+)
+_PATH_EVENTS = frozenset({"os.rename", "os.remove", "os.rmdir", "os.symlink", "os.link"})
+
+
+def _is_protected_path(raw: Any) -> bool:
     if isinstance(raw, int):
-        return
+        return False
     if isinstance(raw, bytes):
         text = raw.decode("utf-8", errors="ignore")
     elif isinstance(raw, str):
         text = raw
     else:
+        return False
+    real = os.path.realpath(text)
+    name = os.path.basename(real)
+    return (
+        name in _PROTECTED_FILENAMES
+        or (name.endswith(".plist") and "/Library/LaunchAgents/" in real)
+        or (name == "policy.yaml" and "/.blackwall/" in real)
+        or real in _trusted_entrypoints()
+    )
+
+
+def _critical_bootstrap_guard(event: str, args: tuple[Any, ...]) -> None:
+    if event in _RAW_EXEC_EVENTS:
+        raise PermissionError(
+            "PermissionError: Raw process execution blocked by Blackwall audit hook"
+        )
+    if event in _PATH_EVENTS:
+        if any(_is_protected_path(arg) for arg in args):
+            raise PermissionError(
+                "PermissionError: Protected bootstrap/persistence path change denied"
+            )
+        return
+    if event != "open" or not args:
         return
 
+    raw = args[0]
+    if isinstance(raw, int):
+        return
     mode = args[1] if len(args) > 1 else None
     flags = args[2] if len(args) > 2 else None
     is_write = False
@@ -257,16 +289,7 @@ def _critical_bootstrap_guard(event: str, args: tuple[Any, ...]) -> None:
         is_write = any(char in mode_text for char in ("w", "a", "x", "+"))
     elif isinstance(flags, int):
         is_write = (flags & 3) in (os.O_WRONLY, os.O_RDWR)
-    if not is_write:
-        return
-
-    real = os.path.realpath(text)
-    name = os.path.basename(real)
-    if (
-        name in _PROTECTED_FILENAMES
-        or (name.endswith(".plist") and "/Library/LaunchAgents/" in real)
-        or (name == "policy.yaml" and "/.blackwall/" in real)
-    ):
+    if is_write and _is_protected_path(raw):
         raise PermissionError(
             "PermissionError: Protected bootstrap/persistence file write denied"
         )
@@ -313,8 +336,9 @@ def bootstrap_audit_hook() -> None:
         _BOOTSTRAPPED = True
         return
 
-    db_value = os.environ.get(DB_ENV)
-    db_path = Path(db_value).expanduser().resolve() if db_value else default_db_path()
+    # Never inherit the DB path from a rogue parent's environment; derive it
+    # from the user's home so incident recording cannot be redirected.
+    db_path = default_db_path()
     try:
         manager = manager_module.AuditHookManager(db_path=str(db_path))
         # Create the SQLite schema before the hook starts intercepting `open`.

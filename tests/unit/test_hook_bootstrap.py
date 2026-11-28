@@ -23,7 +23,7 @@ REPO_SRC = Path(__file__).resolve().parents[2] / "src"
 
 
 @pytest.fixture(autouse=True)
-def reset_bootstrap_state(monkeypatch: pytest.MonkeyPatch) -> None:
+def reset_bootstrap_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Keep hook-attachment state isolated between tests.
 
     An audit hook cannot be unregistered, so direct calls must never attach the
@@ -32,6 +32,7 @@ def reset_bootstrap_state(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(bootstrap, "_BOOTSTRAPPED", False)
     monkeypatch.setattr(bootstrap, "_GUARD_REGISTERED", False)
     monkeypatch.setattr(bootstrap, "_register_critical_guard", lambda: None)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
 
 @pytest.fixture()
@@ -39,6 +40,15 @@ def site_dir(tmp_path: Path) -> Path:
     target = tmp_path / "site-packages"
     target.mkdir()
     return target
+
+
+def _set_main_identity(
+    monkeypatch: pytest.MonkeyPatch, file: str | None = None, package: str = ""
+) -> None:
+    """Emulate what the interpreter actually executes, independent of argv."""
+    main_module = sys.modules["__main__"]
+    monkeypatch.setattr(main_module, "__file__", file, raising=False)
+    monkeypatch.setattr(main_module, "__package__", package, raising=False)
 
 
 def _child(code: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -171,6 +181,7 @@ class TestBootstrapGuardrails:
         monkeypatch.setenv(bootstrap.DISABLE_ENV, "1")
         monkeypatch.setenv(bootstrap.DB_ENV, str(tmp_path / "audit.db"))
         monkeypatch.setattr(sys, "argv", [sys.executable, "-c", "pass"])
+        _set_main_identity(monkeypatch, str(tmp_path / "payload.py"))
         monkeypatch.setattr(
             bootstrap.sysconfig, "get_paths", lambda: {"scripts": str(tmp_path / "empty")}
         )
@@ -186,6 +197,7 @@ class TestBootstrapGuardrails:
         pip_entry = tmp_path / "pip3"
         pip_entry.write_text("# synthetic pip entry point\n")
         monkeypatch.setattr(sys, "argv", [str(pip_entry), "install", "some-package"])
+        _set_main_identity(monkeypatch, str(pip_entry))
         monkeypatch.setattr(
             bootstrap.sysconfig, "get_paths", lambda: {"scripts": str(tmp_path)}
         )
@@ -210,6 +222,7 @@ class TestBootstrapGuardrails:
         monkeypatch.delenv(bootstrap.DISABLE_ENV, raising=False)
         monkeypatch.setenv(bootstrap.DB_ENV, str(tmp_path / "audit.db"))
         monkeypatch.setattr(sys, "argv", argv)
+        _set_main_identity(monkeypatch, str(tmp_path / "payload.py"))
         monkeypatch.setattr(
             bootstrap.sysconfig,
             "get_paths",
@@ -225,6 +238,7 @@ class TestBootstrapGuardrails:
         monkeypatch.delenv(bootstrap.DISABLE_ENV, raising=False)
         monkeypatch.setenv(bootstrap.DB_ENV, str(tmp_path / "audit.db"))
         monkeypatch.setattr(sys, "argv", [sys.executable, "-m", "pip", "install", "pkg"])
+        _set_main_identity(monkeypatch, None, "pip")
         with patch("blackwall.audit.manager.AuditHookManager") as manager_cls:
             bootstrap.bootstrap_audit_hook()
         manager_cls.assert_not_called()
@@ -237,6 +251,7 @@ class TestBootstrapGuardrails:
         monkeypatch.delenv(bootstrap.DISABLE_ENV, raising=False)
         monkeypatch.setenv(bootstrap.DB_ENV, str(tmp_path / "audit.db"))
         monkeypatch.setattr(sys, "argv", [str(pip_entry), "install", "pkg"])
+        _set_main_identity(monkeypatch, str(pip_entry))
         monkeypatch.setattr(
             bootstrap.sysconfig, "get_paths", lambda: {"scripts": str(tmp_path)}
         )
@@ -252,6 +267,7 @@ class TestBootstrapGuardrails:
         monkeypatch.delenv(bootstrap.DISABLE_ENV, raising=False)
         monkeypatch.setenv(bootstrap.DB_ENV, str(tmp_path / "audit.db"))
         monkeypatch.setattr(sys, "argv", [str(entry), "service", "start"])
+        _set_main_identity(monkeypatch, str(entry))
         monkeypatch.setattr(
             bootstrap.sysconfig, "get_paths", lambda: {"scripts": str(tmp_path)}
         )
@@ -277,7 +293,8 @@ class TestBootstrapGuardrails:
     def test_corrupt_db_is_quarantined_and_recreated(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        db_path = tmp_path / "audit.db"
+        db_path = tmp_path / ".blackwall" / "audit.db"
+        db_path.parent.mkdir(parents=True)
         db_path.write_bytes(b"corrupt")
         monkeypatch.delenv(bootstrap.DISABLE_ENV, raising=False)
         monkeypatch.setenv(bootstrap.DB_ENV, str(db_path))
@@ -293,7 +310,7 @@ class TestBootstrapGuardrails:
         exit_mock.assert_not_called()
         good_manager.start.assert_called_once_with()
         assert not db_path.exists() or db_path.stat().st_size == 0
-        assert any("corrupt" in item.name for item in tmp_path.iterdir())
+        assert any("corrupt" in item.name for item in db_path.parent.iterdir())
 
     def test_default_db_path_follows_current_home(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -316,7 +333,9 @@ class TestBootstrapGuardrails:
         monkeypatch.setattr(sys, "argv", [sys.executable, "-c", "pass"])
         with patch("blackwall.audit.manager.AuditHookManager") as manager_cls:
             bootstrap.bootstrap_audit_hook()
-        manager_cls.assert_called_once_with(db_path=str(tmp_path / "audit.db"))
+        manager_cls.assert_called_once_with(
+            db_path=str(tmp_path / ".blackwall" / "audit.db")
+        )
         manager_cls.return_value._get_conn.assert_called_once_with()
         manager_cls.return_value.start.assert_called_once_with()
 
@@ -354,7 +373,10 @@ class TestCleanSubprocessBootstrap:
         bootstrap.install_hook([site_dir])
         env = dict(os.environ)
         env["PYTHONPATH"] = os.pathsep.join([str(REPO_SRC), str(site_dir)])
-        env[bootstrap.DB_ENV] = str(tmp_path / "audit.db")
+        home = tmp_path / "home"
+        home.mkdir()
+        env["HOME"] = str(home)
+        env.pop(bootstrap.DB_ENV, None)
         env.pop(bootstrap.DISABLE_ENV, None)
         return env
 
@@ -368,6 +390,19 @@ class TestCleanSubprocessBootstrap:
         result = _child(code, bootstrapped_env)
         assert result.returncode == 0, result.stderr
         assert "ACTIVE" in result.stdout
+
+    def test_db_path_cannot_be_hijacked_by_environment(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        home = tmp_path / "home"
+        monkeypatch.setattr(Path, "home", lambda: home)
+        monkeypatch.setenv(bootstrap.DB_ENV, str(tmp_path / "attacker.db"))
+        monkeypatch.setattr(sys, "argv", [sys.executable, "-c", "pass"])
+        with patch("blackwall.audit.manager.AuditHookManager") as manager_cls:
+            bootstrap.bootstrap_audit_hook()
+        manager_cls.assert_called_once_with(
+            db_path=str(home / ".blackwall" / "audit.db")
+        )
 
     def test_child_recovers_from_unusable_db(
         self, bootstrapped_env: dict[str, str], tmp_path: Path
@@ -403,6 +438,62 @@ class TestCleanSubprocessBootstrap:
         assert result.returncode == 0, result.stderr
         assert "BLOCKED" in result.stdout, (result.stdout, result.stderr)
         assert target.read_text() != "stripped"
+
+    def test_child_blocks_posix_spawn_escape(
+        self, bootstrapped_env: dict[str, str]
+    ) -> None:
+        code = (
+            "import os\n"
+            "try:\n"
+            "    os.posix_spawn('/bin/echo', ['/bin/echo', 'pwned'], os.environ)\n"
+            "except PermissionError:\n"
+            "    print('BLOCKED')\n"
+            "else:\n"
+            "    print('ALLOWED')\n"
+        )
+        result = _child(code, bootstrapped_env)
+        assert result.returncode == 0, result.stderr
+        assert "BLOCKED" in result.stdout, (result.stdout, result.stderr)
+
+    def test_child_blocks_rename_over_sitecustomize(
+        self, bootstrapped_env: dict[str, str], tmp_path: Path
+    ) -> None:
+        target = tmp_path / "site-packages" / "sitecustomize.py"
+        staging = tmp_path / "staged.txt"
+        staging.write_text("stripped")
+        env = dict(bootstrapped_env)
+        env["BW_TEST_TARGET"] = str(target)
+        env["BW_TEST_STAGING"] = str(staging)
+        code = (
+            "import os\n"
+            "try:\n"
+            "    os.replace(os.environ['BW_TEST_STAGING'], os.environ['BW_TEST_TARGET'])\n"
+            "except PermissionError:\n"
+            "    print('BLOCKED')\n"
+            "else:\n"
+            "    print('ALLOWED')\n"
+        )
+        result = _child(code, env)
+        assert result.returncode == 0, result.stderr
+        assert "BLOCKED" in result.stdout, (result.stdout, result.stderr)
+
+    def test_child_blocks_overwrite_of_trusted_entrypoint(
+        self, bootstrapped_env: dict[str, str]
+    ) -> None:
+        code = (
+            "import os, sysconfig\n"
+            "from pathlib import Path\n"
+            "target = Path(sysconfig.get_paths()['scripts']) / 'pip'\n"
+            "try:\n"
+            "    with open(target, 'w') as handle: handle.write('planted')\n"
+            "except PermissionError:\n"
+            "    print('BLOCKED')\n"
+            "else:\n"
+            "    print('ALLOWED')\n"
+        )
+        result = _child(code, bootstrapped_env)
+        assert result.returncode == 0, result.stderr
+        assert "BLOCKED" in result.stdout, (result.stdout, result.stderr)
 
     def test_clean_subprocess_blocks_malicious_popen(
         self, bootstrapped_env: dict[str, str]
