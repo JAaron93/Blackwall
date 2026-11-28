@@ -135,6 +135,8 @@ blackwall service stop
 blackwall service uninstall
 ```
 
+`uninstall` unloads the job with `launchctl` and removes the plist; the protected env file in `~/.blackwall/` is retained for a future reinstall.
+
 The generated plist supervises `blackwall serve --foreground` on `localhost:9229`, resolves every config/log/PID/database/credential path to an absolute path (no tilde expansion is performed by `launchd`), and injects the active GCP project, ADC path, `GEMINI_TIER=paid`, and `PATH` into its `EnvironmentVariables`. Use `blackwall service configure --project <id> --credentials <path>` to update those entries later.
 
 If the Tier-1 Jev backend is enabled, a `TYPESAFE_API_KEY` present at install time is written **only** to `~/.blackwall/gateway.env` with `0600` permissions and loaded by the daemon at startup; it is never embedded in the plist or logs. The same protected file can be provisioned later with `blackwall service configure --typesafe-key <key>`.
