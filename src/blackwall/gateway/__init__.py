@@ -26,6 +26,12 @@ from blackwall.gateway.exceptions import (
 from blackwall.gateway.flow import FlowController, InFlightRequest
 from blackwall.gateway.interceptor import PayloadInterceptor
 from blackwall.gateway.server import MCPGatewayServer
+from blackwall.gateway.service import (
+    ServiceError,
+    generate_plist,
+    install_service,
+    load_protected_env,
+)
 from blackwall.gateway.synthesizer import ResponseSynthesizer
 from blackwall.gateway.upstream import (
     BaseUpstreamServer,
@@ -54,6 +60,10 @@ __all__ = [
     "PayloadInterceptor",
     "ResponseSynthesizer",
     "MCPGatewayServer",
+    "ServiceError",
+    "generate_plist",
+    "install_service",
+    "load_protected_env",
     "BaseUpstreamServer",
     "StdioUpstreamServer",
     "HttpUpstreamServer",

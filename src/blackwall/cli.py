@@ -34,6 +34,7 @@ except ImportError:
     google.auth = None  # type: ignore[assignment]
 
 from blackwall.db.repository import SQLiteThreatRepository
+from blackwall.gateway import service as gateway_service
 from blackwall.gateway.daemon import (
     daemonize,
     is_blackwall_process,
@@ -44,6 +45,7 @@ from blackwall.gateway.daemon import (
     write_pid_file,
 )
 from blackwall.gateway.server import MCPGatewayServer
+from blackwall.gateway.service import load_protected_env
 from blackwall.gateway.upstream import UpstreamManager
 from blackwall.threat_intel.models import (
     ThreatIndicatorType,
@@ -1263,6 +1265,14 @@ def serve_command(
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
+    # 0. launchd has no EnvironmentFile equivalent: load the protected dotenv
+    # file written by `blackwall service install` before any client is built.
+    # Real environment variables always win (override=False).
+    try:
+        load_protected_env()
+    except Exception as exc:
+        raise click.ClickException(f"Failed to load protected environment file: {exc}") from exc
+
     # 1. Non-loopback auth token startup guard
     resolved_auth = auth_token or os.environ.get("BLACKWALL_AUTH_TOKEN")
     is_loopback = (
@@ -1341,6 +1351,155 @@ def serve_command(
     finally:
         if foreground and pidfile:
             remove_pid_file(pid_path)
+
+
+@cli.group(name="service")
+def service_group() -> None:
+    """Manage the macOS launchd LaunchAgent for the gateway."""
+
+
+def _require_macos() -> None:
+    if not gateway_service.is_macos():
+        raise click.ClickException(
+            "The 'blackwall service' commands target macOS launchd LaunchAgents only."
+        )
+
+
+@service_group.command(name="install")
+@click.option(
+    "--config",
+    "config_path",
+    default=None,
+    help="Gateway YAML config path (default: ~/.blackwall/gateway.yaml).",
+)
+@click.option(
+    "--wrap",
+    default=None,
+    help="Downstream MCP tool server command to proxy via --wrap.",
+)
+@click.option(
+    "--project",
+    default=None,
+    help="GCP project ID (defaults to active GCP_PROJECT / GOOGLE_CLOUD_PROJECT).",
+)
+@click.option(
+    "--credentials",
+    default=None,
+    help="Absolute path to GCP ADC credentials (defaults to standard gcloud ADC).",
+)
+@click.option("--pidfile", default=None, help="Absolute path for the daemon PID file.")
+@click.option("--logfile", default=None, help="Absolute path for the daemon log file.")
+@click.option("--db", default=None, help="Absolute path for the SQLite threat graph.")
+@click.option(
+    "--port",
+    type=int,
+    default=gateway_service.DEFAULT_PORT,
+    help="HTTP gateway port (default: 9229).",
+)
+def service_install_command(
+    config_path: Optional[str],
+    wrap: Optional[str],
+    project: Optional[str],
+    credentials: Optional[str],
+    pidfile: Optional[str],
+    logfile: Optional[str],
+    db: Optional[str],
+    port: int,
+) -> None:
+    """Generate and install the supervised macOS LaunchAgent."""
+    _require_macos()
+    try:
+        config = gateway_service.build_service_config(
+            config=config_path,
+            wrap=wrap,
+            project=project,
+            credentials=credentials,
+            pidfile=pidfile,
+            logfile=logfile,
+            db=db,
+            port=port,
+        )
+        plist_path = gateway_service.install_service(
+            config, typesafe_key=os.environ.get("TYPESAFE_API_KEY")
+        )
+    except gateway_service.ServiceError as exc:
+        raise click.ClickException(str(exc)) from exc
+    console.print(f"Installed Blackwall LaunchAgent: {plist_path}")
+    console.print("Start it with: blackwall service start")
+
+
+@service_group.command(name="start")
+def service_start_command() -> None:
+    """Bootstrap the installed LaunchAgent via launchctl."""
+    _require_macos()
+    try:
+        gateway_service.start_service()
+    except gateway_service.ServiceError as exc:
+        raise click.ClickException(str(exc)) from exc
+    console.print(f"Started {gateway_service.SERVICE_LABEL}")
+
+
+@service_group.command(name="stop")
+def service_stop_command() -> None:
+    """Boot the LaunchAgent out of the GUI domain via launchctl."""
+    _require_macos()
+    try:
+        gateway_service.stop_service()
+    except gateway_service.ServiceError as exc:
+        raise click.ClickException(str(exc)) from exc
+    console.print(f"Stopped {gateway_service.SERVICE_LABEL}")
+
+
+@service_group.command(name="status")
+def service_status_command() -> None:
+    """Report launchctl state for the Blackwall LaunchAgent."""
+    _require_macos()
+    result = gateway_service.service_status()
+    if result.returncode == 0:
+        console.print(result.stdout.strip() or f"{gateway_service.SERVICE_LABEL}: running")
+    else:
+        console.print(f"{gateway_service.SERVICE_LABEL}: not running")
+
+
+@service_group.command(name="uninstall")
+def service_uninstall_command() -> None:
+    """Unload the LaunchAgent and remove its plist file."""
+    _require_macos()
+    try:
+        removed = gateway_service.uninstall_service()
+    except gateway_service.ServiceError as exc:
+        raise click.ClickException(str(exc)) from exc
+    console.print(
+        f"Removed {gateway_service.SERVICE_LABEL}"
+        if removed
+        else f"{gateway_service.SERVICE_LABEL} was not installed"
+    )
+
+
+@service_group.command(name="configure")
+@click.option("--project", default=None, help="Update the GCP project ID.")
+@click.option("--credentials", default=None, help="Update the ADC credentials path.")
+@click.option(
+    "--typesafe-key",
+    default=None,
+    help="Provision TYPESAFE_API_KEY in the protected 0600 env file (never inline).",
+)
+def service_configure_command(
+    project: Optional[str],
+    credentials: Optional[str],
+    typesafe_key: Optional[str],
+) -> None:
+    """Update LaunchAgent environment entries and protected secrets."""
+    _require_macos()
+    try:
+        plist_path = gateway_service.configure_service(
+            project=project,
+            credentials=credentials,
+            typesafe_key=typesafe_key,
+        )
+    except gateway_service.ServiceError as exc:
+        raise click.ClickException(str(exc)) from exc
+    console.print(f"Updated Blackwall LaunchAgent: {plist_path}")
 
 
 # Entry point aliases
