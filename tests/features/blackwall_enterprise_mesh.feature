@@ -79,5 +79,15 @@ Feature: Blackwall Enterprise Security Mesh End-to-End Integration
     When an agent consumes tokens exceeding the configured velocity limits
     Then the agent is throttled or quarantined and Denial of Wallet alerts are dispatched
 
+  Scenario: Core Python processes auto-attach the runtime audit hook
+    Given a bootstrapped Python site-packages directory in an isolated home
+    When a clean Python subprocess starts with the bootstrap
+    Then the audit hook is attached without explicit imports
+
+  Scenario: Enterprise runtime audit hook denies subprocess escapes
+    Given a bootstrapped Python site-packages directory in an isolated home
+    When a clean Python subprocess attempts "subprocess.Popen"
+    Then the attempt raises "PermissionError" before the OS executes it
+
 
 

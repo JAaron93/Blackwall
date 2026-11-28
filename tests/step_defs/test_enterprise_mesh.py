@@ -4,6 +4,10 @@ BDD Step Definitions for Blackwall Enterprise Security Mesh (`tests/features/bla
 
 import asyncio
 from datetime import datetime, timedelta, timezone
+import os
+from pathlib import Path
+import subprocess
+import sys
 import time
 import uuid
 
@@ -11,6 +15,7 @@ import pytest
 from pydantic import ValidationError
 from pytest_bdd import given, scenarios, then, when
 
+from blackwall.audit import bootstrap
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.enterprise import (
     ASTPipelineFilter,
@@ -60,6 +65,8 @@ class EnterpriseBDDState:
         self.broadcast_signature = None
         self.ingested_signature = None
         self.sync_duration_ms = 0.0
+        self.hook_env = {}
+        self.hook_child = None
 
 
 @pytest.fixture
@@ -816,6 +823,75 @@ def verify_mesh_agent_quarantined_and_dow_alerts(state):
     assert len(alerts) >= 1
     assert alerts[0].severity in [AlertSeverity.HIGH, AlertSeverity.CRITICAL]
     assert alerts[0].agent_id == state.mesh_dow_agent_id
+
+
+# --- Runtime audit hook integration (TASK-F02) ---
+
+
+@given("a bootstrapped Python site-packages directory in an isolated home")
+def given_bootstrapped_hook_environment(tmp_path, state):
+    site_dir = tmp_path / "site-packages"
+    site_dir.mkdir()
+    bootstrap.install_hook([site_dir])
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(Path(__file__).resolve().parents[2] / "src"), str(site_dir)]
+    )
+    env[bootstrap.DB_ENV] = str(tmp_path / "audit.db")
+    env.pop(bootstrap.DISABLE_ENV, None)
+    state.hook_env = env
+
+
+@when("a clean Python subprocess starts with the bootstrap")
+def when_clean_python_subprocess_starts(state):
+    code = (
+        "from blackwall.audit import manager; "
+        "print('ACTIVE' if getattr(manager, '_hook_registered', False) else 'INACTIVE')"
+    )
+    state.hook_child = subprocess.run(
+        [sys.executable, "-c", code],
+        env=state.hook_env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+
+@when('a clean Python subprocess attempts "subprocess.Popen"')
+def when_python_subprocess_attempts_popen(state):
+    code = (
+        "import subprocess\n"
+        "try:\n"
+        "    subprocess.Popen(['/bin/echo', 'pwned'])\n"
+        "except PermissionError:\n"
+        "    print('BLOCKED')\n"
+        "else:\n"
+        "    print('ALLOWED')\n"
+    )
+    state.hook_child = subprocess.run(
+        [sys.executable, "-c", code],
+        env=state.hook_env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+
+@then("the audit hook is attached without explicit imports")
+def then_audit_hook_auto_attached(state):
+    assert state.hook_child.returncode == 0, state.hook_child.stderr
+    assert "ACTIVE" in state.hook_child.stdout
+
+
+@then('the attempt raises "PermissionError" before the OS executes it')
+def then_subprocess_escape_blocked(state):
+    assert state.hook_child.returncode == 0, state.hook_child.stderr
+    assert "BLOCKED" in state.hook_child.stdout, (
+        state.hook_child.stdout,
+        state.hook_child.stderr,
+    )
 
 
 

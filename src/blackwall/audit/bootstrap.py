@@ -17,10 +17,10 @@ from __future__ import annotations
 import atexit
 import json
 import os
-import shutil
 import site
 import sys
 import sysconfig
+import time
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +34,8 @@ _START_BYTES = BOOTSTRAP_START.encode("utf-8")
 _END_BYTES = BOOTSTRAP_END.encode("utf-8")
 
 _BOOTSTRAPPED = False
+_GUARD_REGISTERED = False
+_PROTECTED_FILENAMES = frozenset({"sitecustomize.py", MANIFEST_NAME, ".zshrc", ".bash_profile"})
 
 
 def default_db_path() -> Path:
@@ -174,18 +176,30 @@ def uninstall_hook(site_packages: list[Path] | None = None) -> list[Path]:
     return targets
 
 
-def _matches_trusted_entrypoint(candidate: str) -> bool:
-    """Match only real, PATH-resolved pip/Blackwall entry points.
+def _trusted_entrypoints() -> set[str]:
+    """Locations of installer/CLI entry points in the active Python environment.
 
-    Trusting a filename prefix or an argument name lets a rogue script opt out
-    simply by naming itself ``pipfetch.py`` or passing ``build`` as an argument.
+    Using ``PATH`` lookup here would let a launcher plant its own ``pip`` ahead
+    of the real one; using the environment's scripts directory avoids that.
     """
     version = f"{sys.version_info.major}.{sys.version_info.minor}"
-    for name in ("pip", "pip3", f"pip{version}", "blackwall"):
-        located = shutil.which(name)
-        if located and os.path.realpath(candidate) == os.path.realpath(located):
-            return True
-    return False
+    names = ("pip", "pip3", f"pip{version}", "blackwall")
+    directories: list[Path] = []
+    try:
+        directories.append(Path(sysconfig.get_paths()["scripts"]))
+    except (KeyError, TypeError, OSError):
+        pass
+    directories.extend([Path(sys.prefix) / "bin", Path(sys.prefix) / "Scripts"])
+    return {
+        os.path.realpath(str(directory / name))
+        for directory in directories
+        for name in names
+    }
+
+
+def _matches_trusted_entrypoint(candidate: str) -> bool:
+    """Match only genuine installer/CLI entry points in this environment."""
+    return os.path.realpath(candidate) in _trusted_entrypoints()
 
 
 def _is_python_executable(name: str) -> bool:
@@ -207,6 +221,55 @@ def _is_exempt_process() -> bool:
     if len(argv) > 2 and argv[1] == "-m":
         return argv[2] in ("pip", "build", "blackwall.cli")
     return len(argv) > 1 and _matches_trusted_entrypoint(argv[1])
+
+
+def _register_critical_guard() -> None:
+    """Block writes to the bootstrap and persistence files we rely on.
+
+    ``AuditHookManager`` protects OS-critical paths but not user-home files;
+    without this guard a hooked rogue process could strip its own bootstrap or
+    plant a LaunchAgent that runs outside Python at next login.
+    """
+    global _GUARD_REGISTERED
+    if not _GUARD_REGISTERED:
+        sys.addaudithook(_critical_bootstrap_guard)
+        _GUARD_REGISTERED = True
+
+
+def _critical_bootstrap_guard(event: str, args: tuple[Any, ...]) -> None:
+    if event != "open" or not args:
+        return
+    raw = args[0]
+    if isinstance(raw, int):
+        return
+    if isinstance(raw, bytes):
+        text = raw.decode("utf-8", errors="ignore")
+    elif isinstance(raw, str):
+        text = raw
+    else:
+        return
+
+    mode = args[1] if len(args) > 1 else None
+    flags = args[2] if len(args) > 2 else None
+    is_write = False
+    if isinstance(mode, (str, bytes)):
+        mode_text = mode if isinstance(mode, str) else mode.decode("utf-8", errors="ignore")
+        is_write = any(char in mode_text for char in ("w", "a", "x", "+"))
+    elif isinstance(flags, int):
+        is_write = (flags & 3) in (os.O_WRONLY, os.O_RDWR)
+    if not is_write:
+        return
+
+    real = os.path.realpath(text)
+    name = os.path.basename(real)
+    if (
+        name in _PROTECTED_FILENAMES
+        or (name.endswith(".plist") and "/Library/LaunchAgents/" in real)
+        or (name == "policy.yaml" and "/.blackwall/" in real)
+    ):
+        raise PermissionError(
+            "PermissionError: Protected bootstrap/persistence file write denied"
+        )
 
 
 def _fail_closed(message: str) -> None:
@@ -233,10 +296,13 @@ def bootstrap_audit_hook() -> None:
     global _BOOTSTRAPPED
     if _BOOTSTRAPPED:
         return
-    if os.environ.get(DISABLE_ENV, "").strip().lower() in ("1", "true", "yes"):
-        return
+    # DISABLE_ENV is deliberately ignored here: a rogue parent controls the
+    # environment of the Python children it launches, so an inherited opt-out
+    # cannot be distinguished from an operator's. Only genuine installer/CLI
+    # entry points are exempt via _is_exempt_process().
     if _is_exempt_process():
         return
+    _register_critical_guard()
 
     from blackwall.audit import manager as manager_module
 
@@ -255,8 +321,17 @@ def bootstrap_audit_hook() -> None:
         manager._get_conn()
         manager.start()
     except Exception as exc:
-        _fail_closed(str(exc))
-        return  # unreachable when os._exit succeeds
+        # Quarantine a corrupt/unusable DB rather than bricking every Python
+        # process on the account; only fail closed when recovery is impossible.
+        try:
+            quarantine = db_path.with_name(f"{db_path.name}.corrupt-{time.time_ns()}")
+            db_path.replace(quarantine)
+            manager = manager_module.AuditHookManager(db_path=str(db_path))
+            manager._get_conn()
+            manager.start()
+        except Exception as recovery_exc:
+            _fail_closed(f"{exc}; DB recovery failed: {recovery_exc}")
+            return  # unreachable when os._exit succeeds
     _BOOTSTRAPPED = True
     atexit.register(_stop_manager, manager)
 

@@ -11,7 +11,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -24,8 +24,14 @@ REPO_SRC = Path(__file__).resolve().parents[2] / "src"
 
 @pytest.fixture(autouse=True)
 def reset_bootstrap_state(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep hook-attachment state isolated between tests."""
+    """Keep hook-attachment state isolated between tests.
+
+    An audit hook cannot be unregistered, so direct calls must never attach the
+    real guard in the pytest process (`.agents/rules/testing_and_hygiene.md` §4).
+    """
     monkeypatch.setattr(bootstrap, "_BOOTSTRAPPED", False)
+    monkeypatch.setattr(bootstrap, "_GUARD_REGISTERED", False)
+    monkeypatch.setattr(bootstrap, "_register_critical_guard", lambda: None)
 
 
 @pytest.fixture()
@@ -157,23 +163,31 @@ class TestSnippetAndSitePackages:
 
 
 class TestBootstrapGuardrails:
-    def test_disable_env_prevents_attachment(
+    def test_env_opt_out_alone_cannot_disable_hook(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
+        # A rogue parent controls its child's environment, so an inherited
+        # env var must never be sufficient to skip hook attachment.
         monkeypatch.setenv(bootstrap.DISABLE_ENV, "1")
         monkeypatch.setenv(bootstrap.DB_ENV, str(tmp_path / "audit.db"))
+        monkeypatch.setattr(sys, "argv", [sys.executable, "-c", "pass"])
+        monkeypatch.setattr(
+            bootstrap.sysconfig, "get_paths", lambda: {"scripts": str(tmp_path / "empty")}
+        )
         with patch("blackwall.audit.manager.AuditHookManager") as manager_cls:
             bootstrap.bootstrap_audit_hook()
-        manager_cls.assert_not_called()
+        manager_cls.assert_called_once()
 
     def test_pip_invocation_is_not_intercepted(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         monkeypatch.delenv(bootstrap.DISABLE_ENV, raising=False)
         monkeypatch.setenv(bootstrap.DB_ENV, str(tmp_path / "audit.db"))
-        monkeypatch.setattr(sys, "argv", ["/usr/bin/pip3", "install", "some-package"])
+        pip_entry = tmp_path / "pip3"
+        pip_entry.write_text("# synthetic pip entry point\n")
+        monkeypatch.setattr(sys, "argv", [str(pip_entry), "install", "some-package"])
         monkeypatch.setattr(
-            bootstrap.shutil, "which", lambda name: "/usr/bin/pip3" if name == "pip3" else None
+            bootstrap.sysconfig, "get_paths", lambda: {"scripts": str(tmp_path)}
         )
         with patch("blackwall.audit.manager.AuditHookManager") as manager_cls:
             bootstrap.bootstrap_audit_hook()
@@ -196,7 +210,11 @@ class TestBootstrapGuardrails:
         monkeypatch.delenv(bootstrap.DISABLE_ENV, raising=False)
         monkeypatch.setenv(bootstrap.DB_ENV, str(tmp_path / "audit.db"))
         monkeypatch.setattr(sys, "argv", argv)
-        monkeypatch.setattr(bootstrap.shutil, "which", lambda name: None)
+        monkeypatch.setattr(
+            bootstrap.sysconfig,
+            "get_paths",
+            lambda: {"scripts": str(tmp_path / "empty-scripts")},
+        )
         with patch("blackwall.audit.manager.AuditHookManager") as manager_cls:
             bootstrap.bootstrap_audit_hook()
         manager_cls.assert_called_once()
@@ -220,9 +238,7 @@ class TestBootstrapGuardrails:
         monkeypatch.setenv(bootstrap.DB_ENV, str(tmp_path / "audit.db"))
         monkeypatch.setattr(sys, "argv", [str(pip_entry), "install", "pkg"])
         monkeypatch.setattr(
-            bootstrap.shutil,
-            "which",
-            lambda name: str(pip_entry) if name == "pip3" else None,
+            bootstrap.sysconfig, "get_paths", lambda: {"scripts": str(tmp_path)}
         )
         with patch("blackwall.audit.manager.AuditHookManager") as manager_cls:
             bootstrap.bootstrap_audit_hook()
@@ -237,7 +253,7 @@ class TestBootstrapGuardrails:
         monkeypatch.setenv(bootstrap.DB_ENV, str(tmp_path / "audit.db"))
         monkeypatch.setattr(sys, "argv", [str(entry), "service", "start"])
         monkeypatch.setattr(
-            bootstrap.shutil, "which", lambda name: str(entry) if name == "blackwall" else None
+            bootstrap.sysconfig, "get_paths", lambda: {"scripts": str(tmp_path)}
         )
         with patch("blackwall.audit.manager.AuditHookManager") as manager_cls:
             bootstrap.bootstrap_audit_hook()
@@ -257,6 +273,27 @@ class TestBootstrapGuardrails:
             with pytest.raises(SystemExit):
                 bootstrap.bootstrap_audit_hook()
         exit_mock.assert_called_once_with(1)
+
+    def test_corrupt_db_is_quarantined_and_recreated(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        db_path = tmp_path / "audit.db"
+        db_path.write_bytes(b"corrupt")
+        monkeypatch.delenv(bootstrap.DISABLE_ENV, raising=False)
+        monkeypatch.setenv(bootstrap.DB_ENV, str(db_path))
+        monkeypatch.setattr(sys, "argv", [sys.executable, "-c", "pass"])
+        bad_manager = MagicMock()
+        bad_manager._get_conn.side_effect = OSError("corrupt database")
+        good_manager = MagicMock()
+        with (
+            patch("blackwall.audit.manager.AuditHookManager", side_effect=[bad_manager, good_manager]),
+            patch.object(bootstrap.os, "_exit") as exit_mock,
+        ):
+            bootstrap.bootstrap_audit_hook()
+        exit_mock.assert_not_called()
+        good_manager.start.assert_called_once_with()
+        assert not db_path.exists() or db_path.stat().st_size == 0
+        assert any("corrupt" in item.name for item in tmp_path.iterdir())
 
     def test_default_db_path_follows_current_home(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -332,15 +369,40 @@ class TestCleanSubprocessBootstrap:
         assert result.returncode == 0, result.stderr
         assert "ACTIVE" in result.stdout
 
-    def test_child_with_unusable_db_refuses_to_run(
+    def test_child_recovers_from_unusable_db(
         self, bootstrapped_env: dict[str, str], tmp_path: Path
     ) -> None:
         broken_env = dict(bootstrapped_env)
         broken_env[bootstrap.DB_ENV] = str(tmp_path / "a-directory")
         (tmp_path / "a-directory").mkdir()
-        result = _child("print('SHOULD_NOT_RUN')", broken_env)
-        assert result.returncode != 0
-        assert "SHOULD_NOT_RUN" not in result.stdout
+        result = _child(
+            "from blackwall.audit import manager; "
+            "print('ACTIVE' if getattr(manager, '_hook_registered', False) else 'INACTIVE')",
+            broken_env,
+        )
+        assert result.returncode == 0, result.stderr
+        assert "ACTIVE" in result.stdout
+
+    def test_critical_bootstrap_files_are_write_protected(
+        self, bootstrapped_env: dict[str, str], tmp_path: Path
+    ) -> None:
+        target = tmp_path / "site-packages" / "sitecustomize.py"
+        env = dict(bootstrapped_env)
+        env["BW_TEST_TARGET"] = str(target)
+        code = (
+            "import os\n"
+            "target = os.environ['BW_TEST_TARGET']\n"
+            "try:\n"
+            "    with open(target, 'w') as handle: handle.write('stripped')\n"
+            "except PermissionError:\n"
+            "    print('BLOCKED')\n"
+            "else:\n"
+            "    print('ALLOWED')\n"
+        )
+        result = _child(code, env)
+        assert result.returncode == 0, result.stderr
+        assert "BLOCKED" in result.stdout, (result.stdout, result.stderr)
+        assert target.read_text() != "stripped"
 
     def test_clean_subprocess_blocks_malicious_popen(
         self, bootstrapped_env: dict[str, str]
