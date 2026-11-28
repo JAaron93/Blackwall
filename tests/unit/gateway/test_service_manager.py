@@ -158,11 +158,37 @@ class TestLaunchAgentPlistGeneration:
                 "ProgramArguments"
             ]
         assert shlex.split(args[args.index("--wrap") + 1]) == [
-            str(Path("/usr/local/bin/npx").resolve()),
+            "/usr/local/bin/npx",
             "-y",
             "some-mcp-server",
             "--stdio",
         ]
+
+    def test_wrap_venv_python_symlink_is_preserved(
+        self, tmp_path: Path, fake_home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A venv interpreter symlink must not be dereferenced (Greptile P1)."""
+        monkeypatch.chdir(tmp_path)
+        venv_bin = tmp_path / ".venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        (tmp_path / "base_python").write_text("# synthetic base interpreter\n")
+        venv_python = venv_bin / "python"
+        venv_python.symlink_to(tmp_path / "base_python")
+        (tmp_path / "server.py").write_text("# synthetic upstream\n")
+
+        config = svc.build_service_config(
+            wrap="./.venv/bin/python server.py",
+            home=fake_home,
+            env={"GCP_PROJECT": "blackwall-prod"},
+        )
+        args = plistlib.loads(svc.generate_plist(config).encode("utf-8"))["ProgramArguments"]
+        wrap_parts = shlex.split(args[args.index("--wrap") + 1])
+        assert wrap_parts[0] == str(venv_python)
+        # Bare relative args stay relative to the preserved install cwd.
+        assert wrap_parts[1] == "server.py"
+        assert plistlib.loads(svc.generate_plist(config).encode("utf-8"))[
+            "WorkingDirectory"
+        ] == str(tmp_path.resolve())
 
     def test_path_entries_with_tilde_are_expanded(self, fake_home: Path) -> None:
         config = svc.build_service_config(

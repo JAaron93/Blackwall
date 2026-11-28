@@ -56,6 +56,21 @@ def _absolute_path(value: str | Path, home: Path | None = None) -> Path:
     return Path(text).expanduser().resolve()
 
 
+def _lexical_path(value: str | Path, home: Path | None = None) -> Path:
+    """Make a path absolute without dereferencing symlinks.
+
+    Python virtualenv interpreters are frequently symlinks into the base
+    environment; resolving them would drop the venv's site-packages.
+    """
+    text = os.fspath(value)
+    if text == "~" or text.startswith("~/"):
+        base = home if home is not None else Path.home()
+        text = str(base) if text == "~" else str(base / text[2:])
+    if "~" in text:
+        raise ServiceError(f"Path contains an unexpanded '~' character: {text}")
+    return Path(os.path.abspath(text))
+
+
 @dataclass(frozen=True)
 class ServicePaths:
     """All absolute filesystem paths used by the LaunchAgent."""
@@ -140,8 +155,8 @@ def resolve_executable() -> list[str]:
     """Return an absolute command prefix for the supervised gateway process."""
     binary = shutil.which("blackwall")
     if binary:
-        return [str(_absolute_path(binary))]
-    return [str(_absolute_path(sys.executable)), "-m", "blackwall.cli"]
+        return [str(_lexical_path(binary))]
+    return [str(_lexical_path(sys.executable)), "-m", "blackwall.cli"]
 
 
 def resolve_wrap_command(wrap: str, home: Path) -> str:
@@ -156,14 +171,14 @@ def resolve_wrap_command(wrap: str, home: Path) -> str:
         raise ServiceError("The --wrap command must not be empty")
     executable = parts[0]
     if executable.startswith(("/", "./", "../", "~")):
-        parts[0] = str(_absolute_path(executable, home))
+        parts[0] = str(_lexical_path(executable, home))
     else:
         located = shutil.which(executable)
         if located:
-            parts[0] = str(_absolute_path(located, home))
+            parts[0] = str(_lexical_path(located, home))
     for index, token in enumerate(parts[1:], start=1):
         if token.startswith(("./", "../", "~")):
-            parts[index] = str(_absolute_path(token, home))
+            parts[index] = str(_lexical_path(token, home))
         elif "~" in token:
             raise ServiceError(f"Unexpanded '~' in --wrap argument: {token}")
     return shlex.join(parts)
