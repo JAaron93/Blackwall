@@ -267,7 +267,7 @@ Review and finalize all three spec files (`design.md`, `requirements.md`, `tasks
 > **PARALLEL EXECUTION**
 > `TASK-F01` (macOS LaunchAgent Service Manager) and `TASK-F02` (Python Audit Hook Bootstrap) can be developed concurrently in Track E.
 
-* [ ] **TASK-F01: Implement macOS Background Service Manager (launchd LaunchAgent for Apple Silicon & Intel)**
+* [x] **TASK-F01: Implement macOS Background Service Manager (launchd LaunchAgent for Apple Silicon & Intel)**
 
 **Dependencies:** TASK-C03
 
