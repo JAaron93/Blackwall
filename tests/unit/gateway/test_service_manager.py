@@ -11,6 +11,7 @@ Covers the FR-10 contract:
 from __future__ import annotations
 
 import plistlib
+import shlex
 import stat
 import subprocess
 from pathlib import Path
@@ -119,13 +120,59 @@ class TestLaunchAgentPlistGeneration:
 
     def test_wrap_command_is_forwarded_to_upstream(self, fake_home: Path) -> None:
         config = svc.build_service_config(
-            wrap="npx -y some-mcp-server --stdio",
+            wrap="some-mcp-server --stdio",
             home=fake_home,
             env={"GCP_PROJECT": "blackwall-prod"},
         )
         args = plistlib.loads(svc.generate_plist(config).encode("utf-8"))["ProgramArguments"]
         assert "--wrap" in args
-        assert args[args.index("--wrap") + 1] == "npx -y some-mcp-server --stdio"
+        assert shlex.split(args[args.index("--wrap") + 1]) == ["some-mcp-server", "--stdio"]
+
+    def test_wrap_command_paths_are_resolved_at_install_time(
+        self, tmp_path: Path, fake_home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "server.py").write_text("# synthetic upstream\n")
+        config = svc.build_service_config(
+            wrap="./server.py --stdio",
+            home=fake_home,
+            env={"GCP_PROJECT": "blackwall-prod"},
+        )
+        data = plistlib.loads(svc.generate_plist(config).encode("utf-8"))
+        args = data["ProgramArguments"]
+        wrap_parts = shlex.split(args[args.index("--wrap") + 1])
+        assert wrap_parts[0] == str((tmp_path / "server.py").resolve())
+        assert wrap_parts[1:] == ["--stdio"]
+        assert data["WorkingDirectory"] == str(tmp_path.resolve())
+
+    def test_wrap_bare_command_is_resolved_via_path(self, fake_home: Path) -> None:
+        with patch(
+            "blackwall.gateway.service.shutil.which", return_value="/usr/local/bin/npx"
+        ):
+            config = svc.build_service_config(
+                wrap="npx -y some-mcp-server --stdio",
+                home=fake_home,
+                env={"GCP_PROJECT": "blackwall-prod"},
+            )
+            args = plistlib.loads(svc.generate_plist(config).encode("utf-8"))[
+                "ProgramArguments"
+            ]
+        assert shlex.split(args[args.index("--wrap") + 1]) == [
+            str(Path("/usr/local/bin/npx").resolve()),
+            "-y",
+            "some-mcp-server",
+            "--stdio",
+        ]
+
+    def test_path_entries_with_tilde_are_expanded(self, fake_home: Path) -> None:
+        config = svc.build_service_config(
+            home=fake_home,
+            env={"GCP_PROJECT": "blackwall-prod", "PATH": "~/bin:/usr/bin:/bin"},
+        )
+        xml = svc.generate_plist(config)
+        assert "~" not in xml
+        env_vars = plistlib.loads(xml.encode("utf-8"))["EnvironmentVariables"]
+        assert env_vars["PATH"] == f"{fake_home.resolve()}/bin:/usr/bin:/bin"
 
     def test_missing_project_fails_fast(self, fake_home: Path) -> None:
         with pytest.raises(svc.ServiceError, match="GCP_PROJECT"):
@@ -229,6 +276,56 @@ class TestServiceCLI:
         assert SECRET not in result.output
         assert stat.S_IMODE(env_file.stat().st_mode) == 0o600
         assert f"TYPESAFE_API_KEY={SECRET}" in env_file.read_text()
+
+    def test_install_creates_parent_directories_for_log_and_pid(
+        self, fake_home: Path
+    ) -> None:
+        nested_log = fake_home / "deep" / "logs" / "blackwall.log"
+        nested_pid = fake_home / "run" / "blackwall.pid"
+        result = CliRunner().invoke(
+            cli,
+            [
+                "service",
+                "install",
+                "--logfile",
+                str(nested_log),
+                "--pidfile",
+                str(nested_pid),
+            ],
+            env=_clean_env(HOME=str(fake_home), GCP_PROJECT="blackwall-prod"),
+        )
+        assert result.exit_code == 0, result.output
+        assert nested_log.parent.is_dir()
+        assert nested_pid.parent.is_dir()
+
+    def test_uninstall_tolerates_already_unloaded_job(self, fake_home: Path) -> None:
+        runner = CliRunner()
+        base_env = _clean_env(HOME=str(fake_home), GCP_PROJECT="blackwall-prod")
+        assert runner.invoke(cli, ["service", "install"], env=base_env).exit_code == 0
+        plist_file = fake_home / "Library" / "LaunchAgents" / "com.blackwall.gateway.plist"
+        with patch(
+            "blackwall.gateway.service.subprocess.run",
+            return_value=subprocess.CompletedProcess(
+                [], 1, "", "Could not find specified service"
+            ),
+        ):
+            result = runner.invoke(cli, ["service", "uninstall"], env=base_env)
+        assert result.exit_code == 0, result.output
+        assert not plist_file.exists()
+
+    def test_uninstall_surfaces_unrelated_bootout_failure(self, fake_home: Path) -> None:
+        runner = CliRunner()
+        base_env = _clean_env(HOME=str(fake_home), GCP_PROJECT="blackwall-prod")
+        assert runner.invoke(cli, ["service", "install"], env=base_env).exit_code == 0
+        plist_file = fake_home / "Library" / "LaunchAgents" / "com.blackwall.gateway.plist"
+        with patch(
+            "blackwall.gateway.service.subprocess.run",
+            return_value=subprocess.CompletedProcess([], 1, "", "permission denied"),
+        ):
+            result = runner.invoke(cli, ["service", "uninstall"], env=base_env)
+        assert result.exit_code != 0
+        assert "permission denied" in result.output
+        assert plist_file.exists()
 
     def test_uninstall_bootouts_and_removes_plist(self, fake_home: Path) -> None:
         runner = CliRunner()

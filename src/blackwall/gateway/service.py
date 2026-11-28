@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import plistlib
+import shlex
 import shutil
 import subprocess
 import sys
@@ -143,6 +144,41 @@ def resolve_executable() -> list[str]:
     return [str(_absolute_path(sys.executable)), "-m", "blackwall.cli"]
 
 
+def resolve_wrap_command(wrap: str, home: Path) -> str:
+    """Resolve the upstream executable and relative paths in a --wrap command.
+
+    ``launchd`` runs with a different working directory, so relative upstream
+    executables/scripts from the installation directory must be made absolute
+    at install time. Bare command names are resolved via ``PATH`` when possible.
+    """
+    parts = shlex.split(wrap)
+    if not parts:
+        raise ServiceError("The --wrap command must not be empty")
+    executable = parts[0]
+    if executable.startswith(("/", "./", "../", "~")):
+        parts[0] = str(_absolute_path(executable, home))
+    else:
+        located = shutil.which(executable)
+        if located:
+            parts[0] = str(_absolute_path(located, home))
+    for index, token in enumerate(parts[1:], start=1):
+        if token.startswith(("./", "../", "~")):
+            parts[index] = str(_absolute_path(token, home))
+        elif "~" in token:
+            raise ServiceError(f"Unexpanded '~' in --wrap argument: {token}")
+    return shlex.join(parts)
+
+
+def _resolved_search_path(value: str | None, home: Path) -> str:
+    """Expand every PATH entry so no tilde survives into the plist."""
+    if not value:
+        return DEFAULT_PATH
+    return os.pathsep.join(
+        str(_absolute_path(entry, home)) if entry else entry
+        for entry in value.split(os.pathsep)
+    )
+
+
 @dataclass(frozen=True)
 class ServiceConfig:
     """Input to LaunchAgent plist generation."""
@@ -151,14 +187,13 @@ class ServiceConfig:
     project_id: str
     credentials_path: Path
     env: Mapping[str, str]
+    working_dir: Path
     wrap: str | None = None
     port: int = DEFAULT_PORT
     log_level: str = "INFO"
 
     def launch_arguments(self) -> list[str]:
         """Build the absolute ``ProgramArguments`` for ``blackwall serve``."""
-        if self.wrap and "~" in self.wrap:
-            raise ServiceError("The --wrap command must not contain a tilde ('~').")
         args = [
             *resolve_executable(),
             "serve",
@@ -179,7 +214,7 @@ class ServiceConfig:
             self.log_level,
         ]
         if self.wrap:
-            args.extend(["--wrap", self.wrap])
+            args.extend(["--wrap", resolve_wrap_command(self.wrap, self.paths.home)])
         return args
 
 
@@ -201,11 +236,15 @@ def build_service_config(
     paths = resolve_service_paths(config, pidfile, logfile, db, home)
     project_id = resolve_project(project, source)
     credentials_path = resolve_credentials(credentials, source, paths.home)
+    # A wrapped upstream resolves relative arguments against the installation
+    # directory, so preserve that cwd instead of the home directory default.
+    working_dir = Path.cwd().resolve() if wrap else paths.home
     return ServiceConfig(
         paths=paths,
         project_id=project_id,
         credentials_path=credentials_path,
         env=source,
+        working_dir=working_dir,
         wrap=wrap,
         port=port,
     )
@@ -218,7 +257,7 @@ def build_plist(config: ServiceConfig) -> dict[str, Any]:
         "GOOGLE_CLOUD_PROJECT": config.project_id,
         "GOOGLE_APPLICATION_CREDENTIALS": str(config.credentials_path),
         "GEMINI_TIER": GEMINI_TIER,
-        "PATH": config.env.get("PATH") or DEFAULT_PATH,
+        "PATH": _resolved_search_path(config.env.get("PATH"), config.paths.home),
     }
     return {
         "Label": SERVICE_LABEL,
@@ -229,7 +268,7 @@ def build_plist(config: ServiceConfig) -> dict[str, Any]:
         "ThrottleInterval": 30,
         "StandardOutPath": str(config.paths.log_path),
         "StandardErrorPath": str(config.paths.log_path),
-        "WorkingDirectory": str(config.paths.home),
+        "WorkingDirectory": str(config.working_dir),
     }
 
 
@@ -252,6 +291,15 @@ def generate_plist(config: ServiceConfig) -> str:
 def write_plist(config: ServiceConfig) -> Path:
     """Write the validated plist to the macOS LaunchAgents directory."""
     config.paths.launch_agents_dir.mkdir(parents=True, exist_ok=True)
+    # launchd opens stdout/stderr before the gateway process starts, so these
+    # directories must already exist at install time.
+    for path in (
+        config.paths.log_path.parent,
+        config.paths.pid_path.parent,
+        config.paths.db_path.parent,
+        config.paths.config_path.parent,
+    ):
+        path.mkdir(parents=True, exist_ok=True)
     config.paths.plist_path.write_text(generate_plist(config), encoding="utf-8")
     config.paths.plist_path.chmod(0o644)
     return config.paths.plist_path
@@ -362,13 +410,28 @@ def service_status() -> subprocess.CompletedProcess[str]:
     return launchctl("list", SERVICE_LABEL)
 
 
+_NOT_LOADED_MESSAGES = (
+    "could not find specified service",
+    "no such process",
+    "not loaded",
+    "service does not exist",
+)
+
+
+def _job_already_unloaded(message: str) -> bool:
+    lowered = message.lower()
+    return any(fragment in lowered for fragment in _NOT_LOADED_MESSAGES)
+
+
 def uninstall_service(plist_path: str | Path | None = None) -> bool:
     """Unload the LaunchAgent and remove its plist; no-op when not installed."""
     path = _absolute_path(plist_path) if plist_path is not None else _default_plist_path()
     if not path.is_file():
         return False
     result = launchctl("bootout", _domain_target(), str(path))
-    if result.returncode != 0:
+    # A job stopped earlier (or never bootstrapped) is already unloaded; that
+    # must not block plist removal. Genuine failures are still surfaced.
+    if result.returncode != 0 and not _job_already_unloaded(result.stderr):
         raise ServiceError(f"launchctl bootout failed: {result.stderr.strip()}")
     path.unlink()
     return True
