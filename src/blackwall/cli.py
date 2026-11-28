@@ -33,6 +33,7 @@ try:
 except ImportError:
     google.auth = None  # type: ignore[assignment]
 
+from blackwall.audit import bootstrap as audit_bootstrap
 from blackwall.db.repository import SQLiteThreatRepository
 from blackwall.gateway import service as gateway_service
 from blackwall.gateway.daemon import (
@@ -1500,6 +1501,66 @@ def service_configure_command(
     except gateway_service.ServiceError as exc:
         raise click.ClickException(str(exc)) from exc
     console.print(f"Updated Blackwall LaunchAgent: {plist_path}")
+
+
+@cli.group(name="hook")
+def hook_group() -> None:
+    """Manage global Python audit hook auto-bootstrap."""
+
+
+@hook_group.command(name="install")
+@click.option(
+    "--site-packages",
+    "site_packages",
+    multiple=True,
+    help="Explicit site-packages directory (repeatable); defaults to venv + user site.",
+)
+def hook_install_command(site_packages: tuple[str, ...]) -> None:
+    """Inject the audit hook bootstrap into target Python environments."""
+    targets = (
+        [Path(item).expanduser().resolve() for item in site_packages]
+        if site_packages
+        else None
+    )
+    try:
+        paths = audit_bootstrap.install_hook(targets)
+    except OSError as exc:
+        raise click.ClickException(f"Failed to install audit hook bootstrap: {exc}") from exc
+    for path in paths:
+        console.print(f"Installed audit hook bootstrap: {path / 'sitecustomize.py'}")
+
+
+@hook_group.command(name="uninstall")
+@click.option(
+    "--site-packages",
+    "site_packages",
+    multiple=True,
+    help="Explicit site-packages directory (repeatable); defaults to venv + user site.",
+)
+def hook_uninstall_command(site_packages: tuple[str, ...]) -> None:
+    """Remove the audit hook bootstrap without touching customizations."""
+    targets = (
+        [Path(item).expanduser().resolve() for item in site_packages]
+        if site_packages
+        else None
+    )
+    try:
+        paths = audit_bootstrap.uninstall_hook(targets)
+    except OSError as exc:
+        raise click.ClickException(f"Failed to uninstall audit hook bootstrap: {exc}") from exc
+    for path in paths:
+        console.print(f"Removed audit hook bootstrap: {path / 'sitecustomize.py'}")
+
+
+@hook_group.command(name="status")
+def hook_status_command() -> None:
+    """Report whether the bootstrap is installed and the hook is active."""
+    status = audit_bootstrap.hook_status()
+    state = "active" if status["active"] else "inactive"
+    installed = "installed" if status["installed"] else "not installed"
+    console.print(f"Audit hook bootstrap: {installed}; runtime hook: {state}")
+    for path in status["paths"]:
+        console.print(f"  - {path}")
 
 
 # Entry point aliases

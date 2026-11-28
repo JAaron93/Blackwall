@@ -297,7 +297,7 @@ Implement the macOS background service management module and CLI subcommands for
 10. All unit tests pass.
 11. Protected TypeSafe key storage (TDD): with `TYPESAFE_API_KEY` present, `install` writes the value ONLY to the `0600` env file (`~/.blackwall/gateway.env`); tests assert the key value appears in ZERO generated plist or log artifacts, the daemon loads it at startup, and `configure --typesafe-key` provisions the same file under the same rules.
 
-* [ ] **TASK-F02: Implement Python Audit Hook Auto-Bootstrap**
+* [x] **TASK-F02: Implement Python Audit Hook Auto-Bootstrap**
 
 **Dependencies:** TASK-C03
 
